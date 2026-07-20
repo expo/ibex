@@ -9,6 +9,12 @@ use ibex_windows_dll_staging::stage_runtime_dlls;
 mod hermes_profile_provenance;
 #[path = "build_support/portable_engine_build_consumption.rs"]
 mod portable_engine_build_consumption;
+#[cfg(target_os = "macos")]
+#[path = "build_support/portable_engine_build_preflight.rs"]
+mod portable_engine_build_preflight;
+#[cfg(not(target_os = "macos"))]
+#[path = "build_support/portable_engine_build_preflight_unsupported.rs"]
+mod portable_engine_build_preflight;
 #[path = "build_support/portable_host_tool_runner.rs"]
 mod portable_host_tool_runner;
 
@@ -539,6 +545,16 @@ fn main() {
         portable_engine_build_consumption::ARTIFACT_ID_ENV,
         portable_engine_build_consumption::STORE_ROOT_ENV,
         portable_engine_build_consumption::ARCHIVE_DIGEST_ENV,
+        portable_engine_build_preflight::SOURCE_REVISION_ENV,
+        portable_engine_build_preflight::CURRENT_REVISION_ENV,
+        portable_engine_build_preflight::PREFLIGHT_RECEIPT_ENV,
+        portable_engine_build_preflight::PREFLIGHT_NONCE_ENV,
+        portable_engine_build_preflight::CHECKOUT_ROOT_ENV,
+        portable_engine_build_preflight::CARGO_TARGET_MAP_ENV,
+        portable_engine_build_preflight::CARGO_TARGET_MAP_DIGEST_ENV,
+        portable_engine_build_preflight::PROMOTION_ADMISSION_ENV,
+        portable_engine_build_preflight::PROMOTION_ADMISSION_DIGEST_ENV,
+        "RUSTC_WRAPPER",
     ] {
         println!("cargo:rerun-if-env-changed={variable}");
     }
@@ -546,6 +562,15 @@ fn main() {
         portable_engine_build_consumption::ARTIFACT_ID_ENV,
         portable_engine_build_consumption::STORE_ROOT_ENV,
         portable_engine_build_consumption::ARCHIVE_DIGEST_ENV,
+        portable_engine_build_preflight::SOURCE_REVISION_ENV,
+        portable_engine_build_preflight::CURRENT_REVISION_ENV,
+        portable_engine_build_preflight::PREFLIGHT_RECEIPT_ENV,
+        portable_engine_build_preflight::PREFLIGHT_NONCE_ENV,
+        portable_engine_build_preflight::CHECKOUT_ROOT_ENV,
+        portable_engine_build_preflight::CARGO_TARGET_MAP_ENV,
+        portable_engine_build_preflight::CARGO_TARGET_MAP_DIGEST_ENV,
+        portable_engine_build_preflight::PROMOTION_ADMISSION_ENV,
+        portable_engine_build_preflight::PROMOTION_ADMISSION_DIGEST_ENV,
     ]
     .iter()
     .any(|variable| std::env::var_os(variable).is_some());
@@ -578,14 +603,58 @@ fn main() {
                 .filter(|variable| std::env::var_os(variable).is_some())
                 .map(|variable| (*variable).to_owned())
                 .collect();
+        let artifact_id = required_selector(portable_engine_build_consumption::ARTIFACT_ID_ENV);
+        let archive_digest =
+            required_selector(portable_engine_build_consumption::ARCHIVE_DIGEST_ENV);
+        let source_revision =
+            required_selector(portable_engine_build_preflight::SOURCE_REVISION_ENV);
+        let current_revision =
+            required_selector(portable_engine_build_preflight::CURRENT_REVISION_ENV);
+        let checkout_root = PathBuf::from(required_selector(
+            portable_engine_build_preflight::CHECKOUT_ROOT_ENV,
+        ));
+        if checkout_root != repo_root {
+            panic!(
+                "{} must equal the resolved checkout root {}",
+                portable_engine_build_preflight::CHECKOUT_ROOT_ENV,
+                repo_root.display()
+            );
+        }
+        let build_authorization =
+            portable_engine_build_preflight::validate_portable_build_preflight(
+                &portable_engine_build_preflight::PortableBuildPreflightRequest {
+                    repo_root: repo_root.to_path_buf(),
+                    artifact_id: artifact_id.clone(),
+                    archive_digest: archive_digest.clone(),
+                    source_revision,
+                    current_revision,
+                    target_triple: target_triple.clone(),
+                    receipt_path: PathBuf::from(required_selector(
+                        portable_engine_build_preflight::PREFLIGHT_RECEIPT_ENV,
+                    )),
+                    nonce: required_selector(portable_engine_build_preflight::PREFLIGHT_NONCE_ENV),
+                    selected_rustc_wrapper: PathBuf::from(required_selector("RUSTC_WRAPPER")),
+                    cargo_target_map_path: PathBuf::from(required_selector(
+                        portable_engine_build_preflight::CARGO_TARGET_MAP_ENV,
+                    )),
+                    cargo_target_map_digest: required_selector(
+                        portable_engine_build_preflight::CARGO_TARGET_MAP_DIGEST_ENV,
+                    ),
+                    promotion_admission_path: PathBuf::from(required_selector(
+                        portable_engine_build_preflight::PROMOTION_ADMISSION_ENV,
+                    )),
+                    promotion_admission_digest: required_selector(
+                        portable_engine_build_preflight::PROMOTION_ADMISSION_DIGEST_ENV,
+                    ),
+                },
+            )
+            .unwrap_or_else(|error| panic!("Portable Hermes build preflight refused: {error}"));
         let request = portable_engine_build_consumption::PortableEngineRequest {
             repo_root: repo_root.to_path_buf(),
             cargo_out_dir: out_dir.clone(),
             store_root,
-            artifact_id: required_selector(portable_engine_build_consumption::ARTIFACT_ID_ENV),
-            archive_digest: required_selector(
-                portable_engine_build_consumption::ARCHIVE_DIGEST_ENV,
-            ),
+            artifact_id,
+            archive_digest,
             target_os: target_os.clone(),
             target_arch: target_arch.clone(),
             target_triple: target_triple.clone(),
@@ -594,6 +663,7 @@ fn main() {
             )
             .unwrap_or_else(|error| panic!("Failed to enumerate Cargo features: {error}")),
             present_legacy_overrides,
+            build_authorization,
         };
         let selection = portable_engine_build_consumption::consume_portable_engine(&request)
             .unwrap_or_else(|error| panic!("Portable Hermes build selection refused: {error}"));
@@ -1939,16 +2009,7 @@ fn main() {
             // framework metadata so downstream embedders receive the link.
             // @ref LLP 0035#build-consumption-and-post-link-contracts
             println!("cargo:rustc-link-lib=framework={}", hermes_framework_name);
-            if let Some(selection) = portable_engine.as_ref() {
-                // Cargo places ordinary binaries directly below
-                // target/{profile}, while test/example artifacts commonly sit
-                // one level deeper. Keep both search roots loader-relative so
-                // the final Mach-O contains no checkout/store absolute path.
-                // @ref LLP 0035#build-consumption-and-post-link-contracts
-                for rpath in &selection.linker_rpaths {
-                    println!("cargo:rustc-link-arg=-Wl,-rpath,{rpath}");
-                }
-            } else {
+            if portable_engine.is_none() {
                 println!(
                     "cargo:rustc-link-arg=-Wl,-rpath,{}",
                     hermes_framework_dir.display()

@@ -6,5 +6,11 @@
 
 #[path = "../build_support/portable_engine_build_consumption.rs"]
 mod portable_engine_build_consumption;
+#[cfg(target_os = "macos")]
+#[path = "../build_support/portable_engine_build_preflight.rs"]
+mod portable_engine_build_preflight;
+#[cfg(not(target_os = "macos"))]
+#[path = "../build_support/portable_engine_build_preflight_unsupported.rs"]
+mod portable_engine_build_preflight;
 #[path = "../build_support/portable_host_tool_runner.rs"]
 mod portable_host_tool_runner;

@@ -8,7 +8,7 @@ import * as fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { deflateSync, gzipSync } from "node:zlib";
 import { afterEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -36,9 +36,46 @@ import {
   installPortableEngine as installPortableEngineProduction,
   verifyPortableEngineStore as verifyPortableEngineStoreProduction,
 } from "./portable-engine-installer.mjs";
+import {
+  loadProductionCargoTargetMap,
+  requireProductionCleanCheckout,
+  runPortableHermesCargoCore,
+  validateCheckedPromotionAdmission,
+} from "./portable-engine-build-preflight-core.mjs";
+import { runPortableHermesCargo as runPortableHermesCargoProduction } from "./run-portable-hermes-cargo.mjs";
 
 const sourceRepo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporaryRoots = new Set();
+
+function checkedPromotionAdmission({
+  sourceRevision,
+  currentRevision = sourceRevision,
+  authorized = false,
+  artifactId = `sha256-${"A".repeat(43)}`,
+  targetTriple = "aarch64-apple-darwin",
+  promotionTopicRevision = ["0", "1", "2"]
+    .map((digit) => digit.repeat(40))
+    .find((revision) => revision !== sourceRevision && revision !== currentRevision),
+}) {
+  const record = {
+    schema: "ibex/portable-engine-checked-promotion-admission/1",
+    authorized,
+    currentRevision,
+    sourceRevision,
+    promotionTopicRevision: authorized ? promotionTopicRevision : null,
+    sourceTreeObjectId: authorized ? "b".repeat(40) : null,
+    targetTriple,
+    portableArtifactId: artifactId,
+    admissionDigest: authorized ? semanticDigest("fixture.promotion-admission.v1", { sourceRevision, currentRevision }) : null,
+    verificationDigest: "",
+  };
+  record.verificationDigest = semanticDigest(
+    "ibex.portable-engine-checked-promotion-admission.v1",
+    record,
+    ["verificationDigest"],
+  );
+  return record;
+}
 
 async function makeWritable(root) {
   let status;
@@ -732,15 +769,336 @@ describe("portable engine installer core", () => {
     }, dependencies()), /exactly one production options object/u);
   });
 
+  test("production build runner refuses a synthetic store before resolving Cargo", async () => {
+    const testCase = await createCase();
+    const installed = await installCase(testCase);
+    const markerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "ibex-fake-cargo-"));
+    temporaryRoots.add(markerRoot);
+    const marker = path.join(markerRoot, "cargo-ran");
+    const fakeCargo = path.join(markerRoot, "cargo");
+    await fsp.writeFile(fakeCargo, `#!/bin/sh\n/usr/bin/touch ${JSON.stringify(marker)}\nexit 91\n`, { mode: 0o700 });
+    const priorPath = process.env.PATH;
+    process.env.PATH = markerRoot;
+    try {
+      await assert.rejects(() => runPortableHermesCargoProduction({
+        repoRoot: testCase.repoRoot,
+        expectedSourceRevision: testCase.fixture.revision,
+        artifactId: installed.manifest.artifactId,
+        archiveDigest: rawDigest(testCase.fixture.archive),
+        cargoArgs: ["build"],
+      }), /ENOENT|portable artifact store entry|test-only|receipt|schema/u);
+    } finally {
+      if (priorPath === undefined) delete process.env.PATH;
+      else process.env.PATH = priorPath;
+    }
+    await assert.rejects(() => fsp.lstat(marker), { code: "ENOENT" });
+  });
+
+  test("fresh build preflight rejects every mutated attestation claim before Cargo", async (t) => {
+    for (const [name, mutate, pattern] of [
+      ["subject", (result) => { result.subject.name = "attacker.tar.gz"; }, /subject/u],
+      ["repository", (result) => { result.signer.repository = "attacker/ibex"; }, /repository/u],
+      ["workflow", (result) => { result.signer.workflowPath = ".github/workflows/attacker.yml"; }, /workflow|SAN/u],
+      ["ref", (result) => { result.signer.sourceRef = "refs/heads/attacker"; }, /sourceRef|SAN/u],
+      ["revision", (result) => { result.signer.sourceRevision = "0".repeat(40); }, /sourceRevision/u],
+      ["runner", (result) => { result.signer.runnerEnvironment = "self-hosted"; }, /runnerEnvironment/u],
+      ["trusted root", (result) => { result.trustRoot.sha256 = "0".repeat(64); }, /trust root|trustRoot/u],
+    ]) {
+      await t.test(name, async () => {
+        const testCase = await createCase();
+        const installed = await installCase(testCase);
+        let cargoSpawned = false;
+        await assert.rejects(() => runPortableHermesCargoCore({
+          repoRoot: testCase.repoRoot,
+          expectedSourceRevision: testCase.fixture.revision,
+          artifactId: installed.manifest.artifactId,
+          archiveDigest: rawDigest(testCase.fixture.archive),
+          cargoArgs: ["build"],
+        }, {
+          verifyStore: (selection) => verifyPortableEngineStore(selection, dependencies({
+            verifyAttestation: async (input) => {
+              const result = JSON.parse(mockVerificationResult(input).toString("utf8"));
+              mutate(result);
+              return Buffer.from(`${canonicalJson(result)}\n`, "utf8");
+            },
+          })),
+          loadCargoTargetMap: async () => { throw new Error("target-map marker ran before refusal"); },
+          requireCleanCheckout: async () => { throw new Error("clean-check marker ran before refusal"); },
+          spawnCargo: () => {
+            cargoSpawned = true;
+            throw new Error("Cargo marker ran before refusal");
+          },
+        }), pattern);
+        assert.equal(cargoSpawned, false);
+      });
+    }
+  });
+
+  test("diagnostic A mints one live capability and an exact LF-terminated admission marker", {
+    skip: process.platform !== "darwin",
+  }, async () => {
+    const temporaryRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "ibex-portable-build-live-"));
+    temporaryRoots.add(temporaryRoot);
+    const root = await fsp.realpath(temporaryRoot);
+    await fsp.mkdir(path.join(root, "src"));
+    await fsp.mkdir(path.join(root, "scripts"));
+    await fsp.writeFile(path.join(root, ".gitignore"), "/target\n");
+    await fsp.writeFile(path.join(root, "Cargo.toml"), `[package]\nname = "live-probe"\nversion = "0.1.0"\nedition = "2021"\n`);
+    await fsp.writeFile(path.join(root, "src/main.rs"), "fn main() {}\n");
+    await fsp.copyFile(
+      path.join(sourceRepo, "scripts/portable-engine-rustc-wrapper.mjs"),
+      path.join(root, "scripts/portable-engine-rustc-wrapper.mjs"),
+    );
+    execFileSync("/usr/bin/git", ["init", "-q"], { cwd: root });
+    execFileSync("/usr/bin/git", ["config", "user.name", "Portable Build Test"], { cwd: root });
+    execFileSync("/usr/bin/git", ["config", "user.email", "portable-build@example.invalid"], { cwd: root });
+    execFileSync("/usr/bin/git", ["add", ".gitignore", "Cargo.toml", "src/main.rs", "scripts/portable-engine-rustc-wrapper.mjs"], { cwd: root });
+    execFileSync("/usr/bin/git", ["commit", "-qm", "fixture A"], { cwd: root });
+    const sourceRevision = execFileSync("/usr/bin/git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+    const artifactId = `sha256-${"A".repeat(43)}`;
+    const archiveDigest = `sha256-${"a".repeat(64)}`;
+    const artifactRoot = path.join(root, "target/hermes-artifacts", artifactId);
+    const transportRoot = path.join(artifactRoot, "LOCAL/transport", archiveDigest);
+    await fsp.mkdir(transportRoot, { recursive: true });
+    await fsp.chmod(path.join(root, "target/hermes-artifacts"), 0o700);
+    await fsp.writeFile(path.join(transportRoot, "attestation-verification.json"), "{}\n");
+    const promotionAdmission = checkedPromotionAdmission({ sourceRevision, artifactId });
+    const verified = {
+      authorized: false,
+      promotionAdmission,
+      artifactRoot,
+      manifest: { target: { triple: "aarch64-apple-darwin" } },
+      transport: {
+        receipt: {
+          manifestDigest: `sha256-${"B".repeat(43)}`,
+          verificationPolicyDigest: `sha256-${"C".repeat(43)}`,
+          provenanceBundleDigest: `sha256-${"b".repeat(64)}`,
+        },
+      },
+    };
+    let capturedAdmission;
+    let capturedReceipt;
+    const outcome = await runPortableHermesCargoCore({
+      repoRoot: root,
+      expectedSourceRevision: sourceRevision,
+      artifactId,
+      archiveDigest,
+      cargoArgs: ["build"],
+    }, {
+      verifyStore: async () => verified,
+      loadCargoTargetMap: loadProductionCargoTargetMap,
+      requireCleanCheckout: requireProductionCleanCheckout,
+      spawnCargo: (_arguments, options) => {
+        capturedAdmission = fs.readFileSync(options.env.IBEX_PORTABLE_HERMES_PROMOTION_ADMISSION);
+        capturedReceipt = JSON.parse(fs.readFileSync(options.env.IBEX_PORTABLE_HERMES_PREFLIGHT_RECEIPT, "utf8"));
+        return spawn(process.execPath, ["-e", `
+          const fs = require("node:fs");
+          const net = require("node:net");
+          const path = require("node:path");
+          const receipt = JSON.parse(fs.readFileSync(process.env.IBEX_PORTABLE_HERMES_PREFLIGHT_RECEIPT, "utf8"));
+          process.chdir(path.dirname(process.env.IBEX_PORTABLE_HERMES_PREFLIGHT_RECEIPT));
+          const socket = net.createConnection("claim.sock");
+          let response = "";
+          socket.on("connect", () => socket.end(JSON.stringify({ nonce: receipt.nonce, runnerPid: receipt.runnerPid, schema: "ibex/portable-engine-build-preflight-claim/1" }) + "\\n"));
+          socket.on("data", (chunk) => { response += chunk; });
+          socket.on("end", () => process.exit(response === "authorized:" + receipt.nonce + "\\n" ? 0 : 91));
+          socket.on("error", () => process.exit(92));
+        `], { ...options, stdio: "ignore" });
+      },
+    });
+    assert.deepEqual(outcome, { code: 0, signal: null });
+    assert.deepEqual(capturedAdmission, Buffer.from(`${canonicalJson(promotionAdmission)}\n`, "utf8"));
+    assert.equal(capturedAdmission.at(-1), 0x0a);
+    assert.equal(capturedReceipt.currentRevision, sourceRevision);
+    assert.equal(capturedReceipt.promotionAdmissionDigest, rawDigest(capturedAdmission));
+    assert.equal(
+      capturedReceipt.promotionAdmissionVerificationDigest,
+      promotionAdmission.verificationDigest,
+    );
+    await assert.rejects(
+      () => fsp.lstat(capturedReceipt.promotionAdmissionPath),
+      { code: "ENOENT" },
+    );
+  });
+
+  test("production build checkout and Cargo target discovery distinguish diagnostic A, admitted C, and refused D", async () => {
+    const temporaryRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "ibex-portable-build-checkout-"));
+    temporaryRoots.add(temporaryRoot);
+    const root = await fsp.realpath(temporaryRoot);
+    await fsp.mkdir(path.join(root, "src"));
+    await fsp.writeFile(path.join(root, "Cargo.toml"), `[package]\nname = "clean-probe"\nversion = "0.1.0"\nedition = "2021"\n`);
+    await fsp.writeFile(path.join(root, "src/lib.rs"), "pub fn clean() {}\n");
+    execFileSync("/usr/bin/git", ["init", "-q"], { cwd: root });
+    execFileSync("/usr/bin/git", ["config", "user.name", "Portable Build Test"], { cwd: root });
+    execFileSync("/usr/bin/git", ["config", "user.email", "portable-build@example.invalid"], { cwd: root });
+    execFileSync("/usr/bin/git", ["add", "Cargo.toml", "src/lib.rs"], { cwd: root });
+    execFileSync("/usr/bin/git", ["commit", "-qm", "fixture"], { cwd: root });
+    await fsp.mkdir(path.join(root, "target"));
+    const sourceRevision = execFileSync("/usr/bin/git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+    const artifactId = `sha256-${"A".repeat(43)}`;
+    const diagnostic = checkedPromotionAdmission({ sourceRevision, artifactId });
+    assert.equal(validateCheckedPromotionAdmission({
+      verified: {
+        authorized: false,
+        manifest: { target: { triple: "aarch64-apple-darwin" } },
+        promotionAdmission: diagnostic,
+      },
+      expectedSourceRevision: sourceRevision,
+      artifactId,
+    }).authorized, false);
+    await requireProductionCleanCheckout({
+      repoRoot: root,
+      expectedCurrentRevision: sourceRevision,
+    });
+
+    await fsp.writeFile(path.join(root, "promotion-only.md"), "checked promotion\n");
+    execFileSync("/usr/bin/git", ["add", "promotion-only.md"], { cwd: root });
+    execFileSync("/usr/bin/git", ["commit", "-qm", "promotion"], { cwd: root });
+    const currentRevision = execFileSync("/usr/bin/git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+    const admitted = checkedPromotionAdmission({
+      sourceRevision,
+      currentRevision,
+      authorized: true,
+      artifactId,
+    });
+    assert.equal(new Set([
+      admitted.sourceRevision,
+      admitted.promotionTopicRevision,
+      admitted.currentRevision,
+    ]).size, 3, "real A/P/C fixture must keep all lineage revisions distinct");
+    assert.equal(validateCheckedPromotionAdmission({
+      verified: {
+        authorized: true,
+        manifest: { target: { triple: "aarch64-apple-darwin" } },
+        promotionAdmission: admitted,
+      },
+      expectedSourceRevision: sourceRevision,
+      artifactId,
+    }).authorized, true);
+    await requireProductionCleanCheckout({
+      repoRoot: root,
+      expectedCurrentRevision: currentRevision,
+    });
+    const targetMap = await loadProductionCargoTargetMap({
+      repoRoot: root,
+      expectedSourceRevision: sourceRevision,
+    });
+    assert.deepEqual(targetMap.targets, [{
+      kind: "lib",
+      name: "clean_probe",
+      crateName: "clean_probe",
+      source: "src/lib.rs",
+    }]);
+    for (const [name, mutate, pattern] of [
+      ["source", (record) => { record.sourceRevision = "c".repeat(40); }, /source revision/u],
+      ["artifact", (record) => { record.portableArtifactId = `sha256-${"B".repeat(43)}`; }, /portable artifact/u],
+      ["target", (record) => { record.targetTriple = "x86_64-apple-darwin"; }, /verified target/u],
+      ["authorization", (_record, verified) => { verified.authorized = false; }, /authorization differs/u],
+      ["digest", (record) => { record.verificationDigest = `sha256-${"Z".repeat(43)}`; }, /does not bind/u],
+    ]) {
+      const record = structuredClone(admitted);
+      const verified = {
+        authorized: true,
+        manifest: { target: { triple: "aarch64-apple-darwin" } },
+        promotionAdmission: record,
+      };
+      mutate(record, verified);
+      assert.throws(
+        () => validateCheckedPromotionAdmission({
+          verified,
+          expectedSourceRevision: sourceRevision,
+          artifactId,
+        }),
+        pattern,
+        `${name} mismatch was admitted`,
+      );
+    }
+
+    await fsp.writeFile(path.join(root, "unrelated-d.txt"), "D must not degrade to A\n");
+    execFileSync("/usr/bin/git", ["add", "unrelated-d.txt"], { cwd: root });
+    execFileSync("/usr/bin/git", ["commit", "-qm", "unrelated D"], { cwd: root });
+    await assert.rejects(
+      () => requireProductionCleanCheckout({
+        repoRoot: root,
+        expectedCurrentRevision: currentRevision,
+      }),
+      /differs from checked promotion current revision/u,
+    );
+
+    const dRevision = execFileSync("/usr/bin/git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+    await fsp.writeFile(path.join(root, "untracked.rs"), "attacker\n");
+    await assert.rejects(
+      () => requireProductionCleanCheckout({
+        repoRoot: root,
+        expectedCurrentRevision: dRevision,
+      }),
+      /clean tracked and untracked/u,
+    );
+    await fsp.unlink(path.join(root, "untracked.rs"));
+    const manifest = path.join(root, "Cargo.toml");
+    const external = path.join(root, "external-Cargo.toml");
+    await fsp.rename(manifest, external);
+    await fsp.symlink(external, manifest);
+    await assert.rejects(
+      () => loadProductionCargoTargetMap({ repoRoot: root, expectedSourceRevision: sourceRevision }),
+      /Cargo manifest is redirected/u,
+    );
+  });
+
+  test("portable build runner rejects ambient Cargo and Rust selector surfaces", async () => {
+    const options = (cargoArgs) => ({
+      repoRoot: sourceRepo,
+      expectedSourceRevision: "0".repeat(40),
+      artifactId: `sha256-${"A".repeat(43)}`,
+      archiveDigest: `sha256-${"0".repeat(64)}`,
+      cargoArgs,
+    });
+    const dependencies = (onVerify) => ({
+      verifyStore: async () => { onVerify(); },
+      loadCargoTargetMap: async () => ({}),
+      requireCleanCheckout: async () => {},
+      spawnCargo: () => { throw new Error("Cargo must not spawn"); },
+    });
+    const previous = process.env.RUSTFLAGS;
+    process.env.RUSTFLAGS = "-C link-arg=-Wl,-rpath,/attacker";
+    let verifierCalled = false;
+    try {
+      await assert.rejects(
+        () => runPortableHermesCargoCore(options(["build"]), dependencies(() => { verifierCalled = true; })),
+        /ambient Cargo\/Rust selector variables are forbidden.*RUSTFLAGS/u,
+      );
+    } finally {
+      if (previous === undefined) delete process.env.RUSTFLAGS;
+      else process.env.RUSTFLAGS = previous;
+    }
+    assert.equal(verifierCalled, false);
+    for (const [cargoArgs, pattern] of [
+      [["build", "--manifest-path", "attacker/Cargo.toml"], /manifest-path/u],
+      [["build", "--workspace"], /workspace\/package-set/u],
+      [["build", "-pattacker"], /package overrides/u],
+    ]) {
+      verifierCalled = false;
+      await assert.rejects(
+        () => runPortableHermesCargoCore(options(cargoArgs), dependencies(() => { verifierCalled = true; })),
+        pattern,
+      );
+      assert.equal(verifierCalled, false);
+    }
+  });
+
   test("source-level caller guard confines the injectable core to the production wrapper and test-only harness", async () => {
     const scriptsRoot = path.join(sourceRepo, "scripts");
     const coreBasename = "portable-engine-installer-core.mjs";
     const harnessBasename = "portable-engine-installer-test-harness.mjs";
+    const buildCoreBasename = "portable-engine-build-preflight-core.mjs";
+    const buildHarnessBasename = "portable-engine-build-preflight-test-harness.mjs";
     const classifyCallers = (sources) => {
       const productionSources = sources.filter(([name]) => /\.(?:[cm]?[jt]s|[jt]sx|rs|sh)$/u.test(name) && !/(?:^|\/)tests?(?:\/|$)|\.test\.[^.]+$/u.test(name));
       return {
         core: productionSources.filter(([name, source]) => name !== `scripts/${coreBasename}` && source.includes(coreBasename)).map(([name]) => name).sort(compareUtf8),
         harness: productionSources.filter(([name, source]) => name !== `scripts/${harnessBasename}` && source.includes(harnessBasename)).map(([name]) => name).sort(compareUtf8),
+        buildCore: productionSources.filter(([name, source]) => name !== `scripts/${buildCoreBasename}` && source.includes(buildCoreBasename)).map(([name]) => name).sort(compareUtf8),
+        buildHarness: productionSources.filter(([name, source]) => name !== `scripts/${buildHarnessBasename}` && source.includes(buildHarnessBasename)).map(([name]) => name).sort(compareUtf8),
       };
     };
     const repositorySources = [];
@@ -751,7 +1109,9 @@ describe("portable engine installer core", () => {
     }
     assert.deepEqual(classifyCallers(repositorySources), {
       core: ["scripts/portable-engine-installer-test-harness.mjs", "scripts/portable-engine-installer.mjs"],
-      harness: [],
+      harness: ["scripts/portable-engine-build-preflight-test-harness.mjs"],
+      buildCore: ["scripts/portable-engine-build-preflight-test-harness.mjs", "scripts/run-portable-hermes-cargo.mjs"],
+      buildHarness: [],
     });
     assert.deepEqual(classifyCallers([
       ["src/nested/rogue.mjs", "await import('../../scripts/portable-engine-installer-core.mjs');"],
@@ -759,6 +1119,8 @@ describe("portable engine installer core", () => {
     ]), {
       core: ["src/nested/rogue.mjs"],
       harness: ["src/nested/rogue-single-quotes.mjs"],
+      buildCore: [],
+      buildHarness: [],
     });
     const cli = await fsp.readFile(path.join(scriptsRoot, "install-portable-hermes.mjs"), "utf8");
     assert.match(cli, /from "\.\/portable-engine-installer\.mjs"/u);

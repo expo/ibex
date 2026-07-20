@@ -9,6 +9,7 @@
 //! @ref LLP 0035#build-consumption-and-post-link-contracts — the build record
 //! binds the complete selected header, link, runtime, tool, and dependency set.
 
+use crate::portable_engine_build_preflight::PortableBuildAuthorization;
 use crate::portable_host_tool_runner::PortableHostToolContract;
 use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value};
@@ -78,6 +79,9 @@ pub struct PortableEngineRequest {
     /// Names, not values: even a seemingly-benign legacy override is an
     /// ambiguous second selector and therefore forbidden in portable mode.
     pub present_legacy_overrides: Vec<String>,
+    /// One process-bound capability consumed before this module is entered.
+    /// Its final joins are rechecked after the selected store bytes are read.
+    pub build_authorization: PortableBuildAuthorization,
 }
 
 #[derive(Debug, Clone)]
@@ -85,10 +89,6 @@ pub struct PortableEngineSelection {
     pub include_dir: PathBuf,
     pub framework_search_dir: PathBuf,
     pub framework_name: String,
-    /// Loader-relative search paths for Cargo's direct binary output and its
-    /// `deps`/`examples` output directories. These are the only rpaths an
-    /// authoritative portable build may embed.
-    pub linker_rpaths: Vec<String>,
     /// Every checkout authority, retained transport, and selected payload path
     /// whose mutation must cause Cargo to rerun this consumer.
     pub rerun_if_changed: Vec<PathBuf>,
@@ -101,14 +101,18 @@ pub struct PortableEngineSelection {
     pub installation_receipt_bytes: Vec<u8>,
     pub profile_receipt_bytes: Vec<u8>,
     pub build_consumption_bytes: Vec<u8>,
+    /// Separate from frozen build-consumption v1: A and C consume identical
+    /// engine bytes but carry different checked promotion authorization.
+    pub promotion_admission_bytes: Vec<u8>,
 }
 
-fn portable_linker_rpaths(artifact_id: &str) -> Vec<String> {
+#[cfg(test)]
+fn portable_linker_rpaths(artifact_id: &str) -> (String, String) {
     let suffix = format!("hermes-artifacts/{artifact_id}/payload/lib");
-    vec![
+    (
         format!("@loader_path/../{suffix}"),
         format!("@loader_path/../../{suffix}"),
-    ]
+    )
 }
 
 impl PortableEngineSelection {
@@ -129,6 +133,11 @@ impl PortableEngineSelection {
         )
         .map_err(|error| format!("write embedded portable build consumption: {error}"))?;
         fs::write(
+            out_dir.join("portable_engine_promotion_admission.json"),
+            &self.promotion_admission_bytes,
+        )
+        .map_err(|error| format!("write embedded portable promotion admission: {error}"))?;
+        fs::write(
             out_dir.join("hermes_profile_provenance.json"),
             &self.profile_receipt_bytes,
         )
@@ -142,6 +151,7 @@ pub fn write_absent_embedded_outputs(out_dir: &Path) -> Result<(), String> {
         "portable_engine_manifest.json",
         "portable_engine_installation_receipt.json",
         "portable_engine_build_consumption.json",
+        "portable_engine_promotion_admission.json",
     ] {
         fs::write(out_dir.join(name), b"null\n")
             .map_err(|error| format!("write absent portable engine marker {name}: {error}"))?;
@@ -334,13 +344,13 @@ fn write_jcs(value: &Value, output: &mut Vec<u8>) -> Result<(), String> {
     Ok(())
 }
 
-fn canonical_json(value: &Value) -> Result<Vec<u8>, String> {
+pub(crate) fn canonical_json(value: &Value) -> Result<Vec<u8>, String> {
     let mut output = Vec::new();
     write_jcs(value, &mut output)?;
     Ok(output)
 }
 
-fn parse_canonical(bytes: &[u8], label: &str) -> Result<Value, String> {
+pub(crate) fn parse_canonical(bytes: &[u8], label: &str) -> Result<Value, String> {
     let value = parse_strict(bytes, label)?;
     if canonical_json(&value)? != bytes {
         return Err(format!("{label} is not the exact RFC 8785 representation"));
@@ -387,7 +397,11 @@ fn semantic_digest(domain: &str, value: &Value) -> Result<String, String> {
     Ok(format!("sha256-{}", base64url(&hasher.finalize())))
 }
 
-fn semantic_digest_without(domain: &str, value: &Value, field: &str) -> Result<String, String> {
+pub(crate) fn semantic_digest_without(
+    domain: &str,
+    value: &Value,
+    field: &str,
+) -> Result<String, String> {
     let mut projected = value.clone();
     projected
         .as_object_mut()
@@ -1950,13 +1964,24 @@ pub fn consume_portable_engine(
         );
     }
 
+    require_directory(&request.repo_root, "checkout root", false)?;
     let repo_root = fs::canonicalize(&request.repo_root).map_err(|error| {
         format!(
             "canonicalize checkout root {}: {error}",
             request.repo_root.display()
         )
     })?;
-    let expected_store = repo_root.join("target").join("hermes-artifacts");
+    if repo_root != request.repo_root {
+        return Err("checkout root is redirected".to_owned());
+    }
+    let target_root = repo_root.join("target");
+    require_directory(&target_root, "checkout target directory", false)?;
+    let expected_store = target_root.join("hermes-artifacts");
+    // Check both lexical checkout-local components before canonicalization.
+    // Otherwise `canonicalize` would erase a target/store symlink and make an
+    // external store compare equal to its redirected spelling.
+    // @ref LLP 0035#content-addressed-installation
+    require_directory(&expected_store, "checkout-local portable store", false)?;
     let selected_store = request
         .store_root
         .as_ref()
@@ -2088,7 +2113,7 @@ pub fn consume_portable_engine(
     )?;
     // Require the retained verifier result to remain an immutable regular
     // store member, without claiming fresh post-link provenance verification.
-    let _verification_bytes = read_regular(
+    let verification_bytes = read_regular(
         &transport_root.join("attestation-verification.json"),
         "retained attestation verification result",
         MAX_JSON_BYTES,
@@ -2338,6 +2363,17 @@ pub fn consume_portable_engine(
         &features,
     )?;
     let build_consumption_bytes = canonical_json(&build_consumption)?;
+    let installation_receipt_digest = semantic_digest(
+        "ibex.portable-engine-installation-receipt.v1",
+        &installation_receipt,
+    )?;
+    request.build_authorization.bind_consumed_authority(
+        &manifest_digest,
+        &installation_receipt_digest,
+        &policy_digest,
+        &format!("sha256-{:x}", Sha256::digest(&verification_bytes)),
+        &bundle_actual.0,
+    )?;
 
     let mut rerun_if_changed = vec![
         repo_root.join("schemas/portable-engine-provenance-trust-policy-v1.json"),
@@ -2348,6 +2384,10 @@ pub fn consume_portable_engine(
         transport_root.join("attestation-verification.json"),
         transport_root.join("installation-receipt.json"),
         transport_root.join("provenance.sigstore.json"),
+        request.build_authorization.receipt_path.clone(),
+        request.build_authorization.rustc_wrapper_path.clone(),
+        request.build_authorization.cargo_target_map_path.clone(),
+        request.build_authorization.promotion_admission_path.clone(),
     ];
     rerun_if_changed.extend(
         facts
@@ -2363,7 +2403,6 @@ pub fn consume_portable_engine(
         include_dir: payload_root.join(INCLUDE_ROOT),
         framework_search_dir: payload_root.join(FRAMEWORK_SEARCH_ROOT),
         framework_name: "hermesvm".to_owned(),
-        linker_rpaths: portable_linker_rpaths(&request.artifact_id),
         rerun_if_changed,
         runtime_path,
         hermesc_path,
@@ -2374,6 +2413,10 @@ pub fn consume_portable_engine(
         installation_receipt_bytes,
         profile_receipt_bytes,
         build_consumption_bytes,
+        promotion_admission_bytes: request
+            .build_authorization
+            .promotion_admission_bytes()
+            .to_vec(),
     })
 }
 
@@ -2553,7 +2596,12 @@ mod tests {
 
     fn make_fixture() -> Fixture {
         let temporary = TempDir::new().unwrap();
-        let repo_root = temporary.path().join("checkout");
+        let repo_input = temporary.path().join("checkout");
+        fs::create_dir_all(&repo_input).unwrap();
+        // macOS spells the temporary root through `/var` while its physical
+        // path is under `/private/var`. Production deliberately admits only a
+        // canonical checkout selector, so the fixture must model that premise.
+        let repo_root = fs::canonicalize(repo_input).unwrap();
         let schema_root = repo_root.join("schemas");
         let store_root = repo_root.join("target/hermes-artifacts");
         fs::create_dir_all(&schema_root).unwrap();
@@ -2925,6 +2973,7 @@ mod tests {
             target_triple: TARGET_TRIPLE.to_owned(),
             ibex_features: vec!["cli-notify".to_owned(), "host-http-server".to_owned()],
             present_legacy_overrides: Vec::new(),
+            build_authorization: PortableBuildAuthorization::unbound_test_only(),
         };
         Fixture {
             _temporary: temporary,
@@ -3027,18 +3076,21 @@ mod tests {
             selection.profile_receipt_path,
             fs::canonicalize(&fixture.profile_path).unwrap()
         );
+        let (binary_linker_rpath, nested_linker_rpath) =
+            portable_linker_rpaths(&fixture.request.artifact_id);
         assert_eq!(
-            selection.linker_rpaths,
-            vec![
-                format!(
-                    "@loader_path/../hermes-artifacts/{}/payload/lib",
-                    fixture.request.artifact_id
-                ),
-                format!(
-                    "@loader_path/../../hermes-artifacts/{}/payload/lib",
-                    fixture.request.artifact_id
-                ),
-            ]
+            binary_linker_rpath,
+            format!(
+                "@loader_path/../hermes-artifacts/{}/payload/lib",
+                fixture.request.artifact_id
+            )
+        );
+        assert_eq!(
+            nested_linker_rpath,
+            format!(
+                "@loader_path/../../hermes-artifacts/{}/payload/lib",
+                fixture.request.artifact_id
+            )
         );
         let checkout = fs::canonicalize(&fixture.repo_root)
             .unwrap()
@@ -3048,7 +3100,7 @@ mod tests {
             .unwrap()
             .display()
             .to_string();
-        for rpath in &selection.linker_rpaths {
+        for rpath in [&binary_linker_rpath, &nested_linker_rpath] {
             let linker_arg = format!("-Wl,-rpath,{rpath}");
             assert!(rpath.starts_with("@loader_path/"));
             assert!(!linker_arg.contains(&checkout));
@@ -3148,6 +3200,27 @@ mod tests {
             fs::read(out.join("portable_engine_build_consumption.json")).unwrap(),
             selection.build_consumption_bytes
         );
+        assert_eq!(
+            fs::read(out.join("portable_engine_promotion_admission.json")).unwrap(),
+            selection.promotion_admission_bytes
+        );
+        assert!(selection.promotion_admission_bytes.ends_with(b"\n"));
+        assert_ne!(selection.promotion_admission_bytes, b"null\n");
+    }
+
+    #[test]
+    fn legacy_embedded_promotion_admission_is_exact_null_line() {
+        let temporary = TempDir::new().unwrap();
+        write_absent_embedded_outputs(temporary.path()).unwrap();
+        assert_eq!(
+            fs::read(
+                temporary
+                    .path()
+                    .join("portable_engine_promotion_admission.json")
+            )
+            .unwrap(),
+            b"null\n"
+        );
     }
 
     #[test]
@@ -3241,6 +3314,20 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::symlink;
+            let fixture = make_fixture();
+            let target = fixture.repo_root.join("target");
+            let external_target = fixture.repo_root.join("external-target-root");
+            fs::rename(&target, &external_target).unwrap();
+            symlink(&external_target, &target).unwrap();
+            assert_refused(&fixture, "checkout target directory is redirected");
+
+            let fixture = make_fixture();
+            let store = fixture.repo_root.join("target/hermes-artifacts");
+            let external_store = fixture.repo_root.join("external-store-root");
+            fs::rename(&store, &external_store).unwrap();
+            symlink(&external_store, &store).unwrap();
+            assert_refused(&fixture, "checkout-local portable store is redirected");
+
             let fixture = make_fixture();
             let parent = fixture.header_path.parent().unwrap();
             set_mode(parent, 0o755);

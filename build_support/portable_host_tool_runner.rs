@@ -9,11 +9,10 @@
 //! tool remains authoritative only under its digest-bound execution contract.
 
 use std::ffi::OsString;
-use std::fs;
+use std::fs::{self, File, Metadata, OpenOptions};
 use std::io::Read;
-use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::thread;
@@ -49,30 +48,63 @@ struct FreshWorkspace {
     cleaned: bool,
 }
 
-struct ReapedChild(Child);
+#[cfg(unix)]
+struct ProcessGroupGuard {
+    pgid: libc::pid_t,
+    armed: bool,
+}
 
-impl Deref for ReapedChild {
-    type Target = Child;
+#[cfg(unix)]
+impl ProcessGroupGuard {
+    fn new(pgid: libc::pid_t) -> Self {
+        Self { pgid, armed: true }
+    }
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
+    fn signal(&self, signal: libc::c_int) -> Result<(), String> {
+        // Negative PID selects the whole process group. The child creates the
+        // group in `pre_exec`, before any reviewed tool byte can run.
+        let result = unsafe { libc::kill(-self.pgid, signal) };
+        if result == 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::ESRCH) {
+            Ok(())
+        } else {
+            Err(format!(
+                "signal portable host-tool process group {}: {error}",
+                self.pgid
+            ))
+        }
+    }
+
+    fn alive(&self) -> Result<bool, String> {
+        let result = unsafe { libc::kill(-self.pgid, 0) };
+        if result == 0 {
+            return Ok(true);
+        }
+        let error = std::io::Error::last_os_error();
+        match error.raw_os_error() {
+            Some(libc::ESRCH) => Ok(false),
+            // We created the group under the same effective UID. EPERM is not
+            // treated as quiescence if that premise is unexpectedly lost.
+            _ => Err(format!(
+                "inspect portable host-tool process group {}: {error}",
+                self.pgid
+            )),
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
     }
 }
 
-impl DerefMut for ReapedChild {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl Drop for ReapedChild {
+#[cfg(unix)]
+impl Drop for ProcessGroupGuard {
     fn drop(&mut self) {
-        match self.0.try_wait() {
-            Ok(Some(_)) => {}
-            Ok(None) | Err(_) => {
-                let _ = self.0.kill();
-                let _ = self.0.wait();
-            }
+        if self.armed {
+            let _ = self.signal(libc::SIGKILL);
         }
     }
 }
@@ -180,33 +212,26 @@ fn read_bounded(
     mut stream: impl Read,
     maximum: u64,
     label: &'static str,
-    failed: mpsc::Sender<String>,
 ) -> Result<Vec<u8>, String> {
-    let result = (|| {
-        let mut bytes = Vec::new();
-        let mut buffer = [0u8; 16 * 1024];
-        loop {
-            let count = stream
-                .read(&mut buffer)
-                .map_err(|error| format!("read portable host-tool {label}: {error}"))?;
-            if count == 0 {
-                return Ok(bytes);
-            }
-            let next = (bytes.len() as u64)
-                .checked_add(count as u64)
-                .ok_or_else(|| format!("portable host-tool {label} size overflow"))?;
-            if next > maximum {
-                return Err(format!(
-                    "portable host-tool {label} exceeded {maximum} bytes"
-                ));
-            }
-            bytes.extend_from_slice(&buffer[..count]);
+    let mut bytes = Vec::new();
+    let mut buffer = [0u8; 16 * 1024];
+    loop {
+        let count = stream
+            .read(&mut buffer)
+            .map_err(|error| format!("read portable host-tool {label}: {error}"))?;
+        if count == 0 {
+            return Ok(bytes);
         }
-    })();
-    if let Err(error) = &result {
-        let _ = failed.send(error.clone());
+        let next = (bytes.len() as u64)
+            .checked_add(count as u64)
+            .ok_or_else(|| format!("portable host-tool {label} size overflow"))?;
+        if next > maximum {
+            return Err(format!(
+                "portable host-tool {label} exceeded {maximum} bytes"
+            ));
+        }
+        bytes.extend_from_slice(&buffer[..count]);
     }
-    result
 }
 
 fn cleanup_outputs(paths: &[PathBuf]) {
@@ -224,32 +249,159 @@ fn cleanup_outputs(paths: &[PathBuf]) {
     }
 }
 
-fn validate_outputs(paths: &[PathBuf], maximum: u64) -> Result<(), String> {
+#[cfg(unix)]
+fn same_output_object(left: &Metadata, right: &Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    left.dev() == right.dev()
+        && left.ino() == right.ino()
+        && left.mode() == right.mode()
+        && left.uid() == right.uid()
+        && left.nlink() == right.nlink()
+        && left.len() == right.len()
+        && left.mtime() == right.mtime()
+        && left.mtime_nsec() == right.mtime_nsec()
+        && left.ctime() == right.ctime()
+        && left.ctime_nsec() == right.ctime_nsec()
+}
+
+#[cfg(not(unix))]
+fn same_output_object(left: &Metadata, right: &Metadata) -> bool {
+    left.len() == right.len()
+}
+
+fn deadline_remaining(deadline: Instant, label: &str) -> Result<Duration, String> {
+    deadline
+        .checked_duration_since(Instant::now())
+        .filter(|remaining| !remaining.is_zero())
+        .ok_or_else(|| format!("portable host tool exceeded its deadline while {label}"))
+}
+
+fn validate_outputs(
+    paths: &[PathBuf],
+    maximum: u64,
+    deadline: Instant,
+) -> Result<Vec<File>, String> {
     let mut output_size = 0u64;
+    let mut pinned = Vec::with_capacity(paths.len());
     for path in paths {
-        let metadata = fs::symlink_metadata(path).map_err(|error| {
+        deadline_remaining(deadline, "pinning declared outputs")?;
+        let before = fs::symlink_metadata(path).map_err(|error| {
             format!(
                 "inspect portable host-tool output {}: {error}",
                 path.display()
             )
         })?;
-        if !metadata.is_file() || metadata.file_type().is_symlink() {
+        if !before.is_file() || before.file_type().is_symlink() {
             return Err(format!(
                 "portable host-tool output {} is redirected or not regular",
                 path.display()
             ));
         }
-        output_size = output_size
-            .checked_add(metadata.len())
-            .ok_or_else(|| "portable host-tool output size overflow".to_owned())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+            if before.uid() != unsafe { libc::geteuid() } {
+                return Err(format!(
+                    "portable host-tool output {} is not effective-UID-owned",
+                    path.display()
+                ));
+            }
+            if before.nlink() != 1 {
+                return Err(format!(
+                    "portable host-tool output {} is hard-linked",
+                    path.display()
+                ));
+            }
+            let mut options = OpenOptions::new();
+            options.read(true).custom_flags(libc::O_NOFOLLOW);
+            let mut file = options.open(path).map_err(|error| {
+                format!(
+                    "open portable host-tool output without following {}: {error}",
+                    path.display()
+                )
+            })?;
+            let opened = file.metadata().map_err(|error| {
+                format!(
+                    "inspect pinned portable host-tool output {}: {error}",
+                    path.display()
+                )
+            })?;
+            if !same_output_object(&before, &opened) {
+                return Err(format!(
+                    "portable host-tool output {} changed while it was pinned",
+                    path.display()
+                ));
+            }
+            let mut buffer = [0u8; 16 * 1024];
+            let mut observed = 0u64;
+            loop {
+                deadline_remaining(deadline, "reading declared outputs")?;
+                let count = file.read(&mut buffer).map_err(|error| {
+                    format!(
+                        "read pinned portable host-tool output {}: {error}",
+                        path.display()
+                    )
+                })?;
+                if count == 0 {
+                    break;
+                }
+                observed = observed
+                    .checked_add(count as u64)
+                    .ok_or_else(|| "portable host-tool output size overflow".to_owned())?;
+                if output_size
+                    .checked_add(observed)
+                    .is_none_or(|total| total > maximum)
+                {
+                    return Err(format!(
+                        "portable host-tool outputs exceeded {maximum} bytes"
+                    ));
+                }
+            }
+            let after = file.metadata().map_err(|error| {
+                format!(
+                    "reinspect pinned portable host-tool output {}: {error}",
+                    path.display()
+                )
+            })?;
+            let path_after = fs::symlink_metadata(path).map_err(|error| {
+                format!(
+                    "reinspect portable host-tool output {}: {error}",
+                    path.display()
+                )
+            })?;
+            if observed != before.len()
+                || !same_output_object(&before, &after)
+                || !same_output_object(&before, &path_after)
+            {
+                return Err(format!(
+                    "portable host-tool output {} changed during final validation",
+                    path.display()
+                ));
+            }
+            output_size += observed;
+            pinned.push(file);
+            continue;
+        }
+        #[cfg(not(unix))]
+        {
+            output_size = output_size
+                .checked_add(before.len())
+                .ok_or_else(|| "portable host-tool output size overflow".to_owned())?;
+        }
     }
     if output_size > maximum {
         Err(format!(
             "portable host-tool outputs exceeded {maximum} bytes"
         ))
     } else {
-        Ok(())
+        Ok(pinned)
     }
+}
+
+enum ChildEvent {
+    Status(Result<ExitStatus, String>),
+    Stdout(Result<Vec<u8>, String>),
+    Stderr(Result<Vec<u8>, String>),
 }
 
 impl PortableHostToolRunner {
@@ -315,6 +467,19 @@ impl PortableHostToolRunner {
         {
             use std::os::unix::process::CommandExt;
             command.arg0(self.tool_path.as_os_str());
+            // SAFETY: `setpgid` is async-signal-safe and touches no Rust state.
+            // The child becomes leader of a fresh process group before exec,
+            // so every ordinary descendant remains inside the containment
+            // boundary even if the direct child exits first.
+            unsafe {
+                command.pre_exec(|| {
+                    if libc::setpgid(0, 0) == 0 {
+                        Ok(())
+                    } else {
+                        Err(std::io::Error::last_os_error())
+                    }
+                });
+            }
         }
         command
             .args(args)
@@ -325,12 +490,28 @@ impl PortableHostToolRunner {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let mut child = ReapedChild(command.spawn().map_err(|error| {
+        let started = Instant::now();
+        let timeout = Duration::from_millis(self.contract.timeout_ms);
+        let deadline = started
+            .checked_add(timeout)
+            .ok_or_else(|| "portable host-tool deadline overflow".to_owned())?;
+        // Reserve a small portion of the reviewed upper bound for mandatory
+        // group shutdown, pipe drain, and output pinning. One absolute
+        // deadline governs all of them; direct-child exit never stops it.
+        let shutdown_reserve = std::cmp::min(
+            Duration::from_millis(25),
+            std::cmp::max(Duration::from_millis(1), timeout / 10),
+        );
+        let execution_deadline = deadline.checked_sub(shutdown_reserve).unwrap_or(deadline);
+
+        let mut child = command.spawn().map_err(|error| {
             format!(
                 "spawn portable host tool {}: {error}",
                 self.tool_path.display()
             )
-        })?);
+        })?;
+        #[cfg(unix)]
+        let mut process_group = ProcessGroupGuard::new(child.id() as libc::pid_t);
         let stdout = child
             .stdout
             .take()
@@ -339,72 +520,191 @@ impl PortableHostToolRunner {
             .stderr
             .take()
             .ok_or_else(|| "portable host tool has no captured stderr".to_owned())?;
-        let (exceeded_sender, exceeded_receiver) = mpsc::channel();
-        let stdout_sender = exceeded_sender.clone();
+        let (event_sender, event_receiver) = mpsc::channel();
+        let status_sender = event_sender.clone();
+        let status_thread = thread::spawn(move || {
+            let result = child
+                .wait()
+                .map_err(|error| format!("wait for portable host tool: {error}"));
+            let _ = status_sender.send(ChildEvent::Status(result));
+        });
+        let stdout_sender = event_sender.clone();
         let max_stdout = self.contract.max_stdout_bytes;
-        let stdout_thread =
-            thread::spawn(move || read_bounded(stdout, max_stdout, "stdout", stdout_sender));
+        let stdout_thread = thread::spawn(move || {
+            let result = read_bounded(stdout, max_stdout, "stdout");
+            let _ = stdout_sender.send(ChildEvent::Stdout(result));
+        });
         let max_stderr = self.contract.max_stderr_bytes;
-        let stderr_thread =
-            thread::spawn(move || read_bounded(stderr, max_stderr, "stderr", exceeded_sender));
+        let stderr_thread = thread::spawn(move || {
+            let result = read_bounded(stderr, max_stderr, "stderr");
+            let _ = event_sender.send(ChildEvent::Stderr(result));
+        });
 
-        let started = Instant::now();
-        let timeout = Duration::from_millis(self.contract.timeout_ms);
+        let mut status = None;
+        let mut stdout = None;
+        let mut stderr = None;
         let mut forced_error = None;
-        let status = loop {
-            if let Ok(error) = exceeded_receiver.try_recv() {
-                forced_error = Some(error);
-                let _ = child.kill();
-                break child.wait().map_err(|wait_error| {
-                    format!("wait after portable host-tool output refusal: {wait_error}")
-                });
-            }
-            if started.elapsed() >= timeout {
+        while status.is_none() && forced_error.is_none() {
+            let now = Instant::now();
+            if now >= execution_deadline {
                 forced_error = Some(format!(
                     "portable host tool exceeded {} ms",
                     self.contract.timeout_ms
                 ));
-                let _ = child.kill();
-                break child.wait().map_err(|wait_error| {
-                    format!("wait after portable host-tool timeout: {wait_error}")
-                });
+                break;
             }
-            match child.try_wait() {
-                Ok(Some(status)) => break Ok(status),
-                Ok(None) => {}
-                Err(error) => {
-                    forced_error = Some(format!("poll portable host tool: {error}"));
-                    let _ = child.kill();
-                    break child.wait().map_err(|wait_error| {
-                        format!("wait after portable host-tool poll failure: {wait_error}")
-                    });
+            let wait = std::cmp::min(
+                Duration::from_millis(2),
+                execution_deadline.duration_since(now),
+            );
+            match event_receiver.recv_timeout(wait) {
+                Ok(ChildEvent::Status(result)) => status = Some(result),
+                Ok(ChildEvent::Stdout(result)) => {
+                    if let Err(error) = &result {
+                        forced_error = Some(error.clone());
+                    }
+                    stdout = Some(result);
+                }
+                Ok(ChildEvent::Stderr(result)) => {
+                    if let Err(error) = &result {
+                        forced_error = Some(error.clone());
+                    }
+                    stderr = Some(result);
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    forced_error =
+                        Some("portable host-tool supervision channel disconnected".to_owned());
                 }
             }
-            thread::sleep(Duration::from_millis(2));
-        };
+        }
 
-        let stdout = stdout_thread
-            .join()
-            .map_err(|_| "portable host-tool stdout reader panicked".to_owned())
-            .and_then(|result| result);
-        let stderr = stderr_thread
-            .join()
-            .map_err(|_| "portable host-tool stderr reader panicked".to_owned())
-            .and_then(|result| result);
+        // Every terminal path closes the process group. In particular, a
+        // successful direct-child exit is not success while a descendant can
+        // retain a pipe or mutate a declared output.
+        #[cfg(unix)]
+        {
+            if forced_error.is_none() && status.as_ref().is_some_and(Result::is_ok) {
+                match process_group.alive() {
+                    Ok(true) => {
+                        forced_error = Some(
+                            "portable host tool left live descendants after its direct child exited"
+                                .to_owned(),
+                        );
+                    }
+                    Ok(false) => {}
+                    Err(error) => forced_error = Some(error),
+                }
+            }
+            let _ = process_group.signal(libc::SIGTERM);
+            let grace_end = std::cmp::min(
+                deadline,
+                Instant::now()
+                    .checked_add(Duration::from_millis(5))
+                    .unwrap_or(deadline),
+            );
+            while Instant::now() < grace_end {
+                match process_group.alive() {
+                    Ok(false) => break,
+                    Ok(true) => thread::sleep(Duration::from_millis(1)),
+                    Err(error) => {
+                        forced_error.get_or_insert(error);
+                        break;
+                    }
+                }
+            }
+            let _ = process_group.signal(libc::SIGKILL);
+        }
+
+        while (status.is_none() || stdout.is_none() || stderr.is_none())
+            && Instant::now() < deadline
+        {
+            let remaining = deadline_remaining(deadline, "draining supervised child state")?;
+            match event_receiver.recv_timeout(remaining) {
+                Ok(ChildEvent::Status(result)) => status = Some(result),
+                Ok(ChildEvent::Stdout(result)) => stdout = Some(result),
+                Ok(ChildEvent::Stderr(result)) => stderr = Some(result),
+                Err(mpsc::RecvTimeoutError::Timeout) => break,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+
+        #[cfg(unix)]
+        {
+            while Instant::now() < deadline {
+                match process_group.alive() {
+                    Ok(false) => {
+                        process_group.disarm();
+                        break;
+                    }
+                    Ok(true) => {
+                        let _ = process_group.signal(libc::SIGKILL);
+                        thread::sleep(Duration::from_millis(1));
+                    }
+                    Err(error) => {
+                        forced_error.get_or_insert(error);
+                        break;
+                    }
+                }
+            }
+            if process_group.armed {
+                forced_error.get_or_insert_with(|| {
+                    "portable host-tool process group did not quiesce before its deadline"
+                        .to_owned()
+                });
+            }
+        }
+
+        let threads_complete = status.is_some() && stdout.is_some() && stderr.is_some();
+        if threads_complete && Instant::now() < deadline {
+            if status_thread.join().is_err() {
+                forced_error
+                    .get_or_insert_with(|| "portable host-tool status waiter panicked".to_owned());
+            }
+            if stdout_thread.join().is_err() {
+                forced_error
+                    .get_or_insert_with(|| "portable host-tool stdout reader panicked".to_owned());
+            }
+            if stderr_thread.join().is_err() {
+                forced_error
+                    .get_or_insert_with(|| "portable host-tool stderr reader panicked".to_owned());
+            }
+        } else {
+            forced_error.get_or_insert_with(|| {
+                "portable host tool exceeded its deadline while draining descendants".to_owned()
+            });
+            // Dropping an unfinished JoinHandle detaches rather than blocking;
+            // the process-group guard has already issued SIGKILL.
+            drop(status_thread);
+            drop(stdout_thread);
+            drop(stderr_thread);
+        }
 
         let mut result = match (forced_error, status, stdout, stderr) {
             (Some(error), _, _, _) => Err(error),
-            (None, Err(error), _, _) => Err(error),
-            (None, Ok(_), Err(error), _) | (None, Ok(_), _, Err(error)) => Err(error),
-            (None, Ok(status), Ok(stdout), Ok(stderr)) if !status.success() => Err(format!(
-                "portable host tool exited with {status}: {}",
-                String::from_utf8_lossy(&stderr)
-            )),
-            (None, Ok(_), Ok(stdout), Ok(stderr)) => {
-                validate_outputs(output_files, self.contract.max_output_bytes)
-                    .map(|()| PortableHostToolOutput { stdout, stderr })
+            (None, Some(Err(error)), _, _) => Err(error),
+            (None, Some(Ok(_)), Some(Err(error)), _) | (None, Some(Ok(_)), _, Some(Err(error))) => {
+                Err(error)
             }
+            (None, Some(Ok(status)), Some(Ok(stdout)), Some(Ok(stderr))) if !status.success() => {
+                Err(format!(
+                    "portable host tool exited with {status}: {}",
+                    String::from_utf8_lossy(&stderr)
+                ))
+            }
+            (None, Some(Ok(_)), Some(Ok(stdout)), Some(Ok(stderr))) => {
+                validate_outputs(output_files, self.contract.max_output_bytes, deadline)
+                    .map(|_pinned_outputs| PortableHostToolOutput { stdout, stderr })
+            }
+            _ => Err("portable host-tool supervision ended without complete state".to_owned()),
         };
+
+        if result.is_ok() && Instant::now() >= deadline {
+            result = Err(
+                "portable host tool exceeded its deadline during final output validation"
+                    .to_owned(),
+            );
+        }
 
         if let Err(cleanup_error) = workspace.cleanup() {
             result = Err(match result {
@@ -596,5 +896,52 @@ mod tests {
                 .count(),
             0
         );
+    }
+
+    #[test]
+    fn kills_inherited_pipe_descendant_after_direct_child_exit() {
+        let temporary = TempDir::new().unwrap();
+        let mut bounded = contract();
+        bounded.timeout_ms = 500;
+        let started = Instant::now();
+        let error = runner(&temporary, bounded)
+            .run(
+                &shell_args(
+                    "(trap '' TERM; while :; do sleep 1; done) & printf parent-exited",
+                    &[],
+                ),
+                &[],
+            )
+            .unwrap_err();
+        assert!(error.contains("left live descendants"));
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "an inherited descendant pipe held the runner to its deadline"
+        );
+        assert_eq!(
+            fs::read_dir(temporary.path().join("workspaces"))
+                .unwrap()
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn kills_delayed_descendant_before_pinning_declared_output() {
+        let temporary = TempDir::new().unwrap();
+        let output_path = temporary.path().join("stable.hbc");
+        let marker_path = temporary.path().join("late-marker");
+        let args = shell_args(
+            "printf stable > \"$0\"; (trap '' TERM; sleep 0.10; printf mutated > \"$0\"; printf late > \"$1\") &",
+            &[&output_path, &marker_path],
+        );
+        let error = runner(&temporary, contract())
+            .run(&args, std::slice::from_ref(&output_path))
+            .unwrap_err();
+        assert!(error.contains("left live descendants"));
+        assert!(!output_path.exists());
+        thread::sleep(Duration::from_millis(175));
+        assert!(!output_path.exists());
+        assert!(!marker_path.exists());
     }
 }

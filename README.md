@@ -68,33 +68,50 @@ cargo run --bin ibex -- --version
 the source ref passed to the build scripts; `scripts/hermes-version.sh` holds
 the repo default.
 
-The opt-in portable macOS arm64 build path consumes an already verified
-checkout-local store instead of those legacy path overrides. Select one exact
-artifact and one retained authenticated transport with
-`IBEX_PORTABLE_HERMES_ARTIFACT_ID` and
-`IBEX_PORTABLE_HERMES_ARCHIVE_DIGEST`. The store defaults to
-`target/hermes-artifacts`; `IBEX_PORTABLE_HERMES_STORE_ROOT` may spell that
-same checkout-local directory explicitly, but cannot redirect the build to a
-shared or external store. Portable selection refuses the legacy Hermes/JSI
-build overrides, revalidates the selected bytes, and writes the canonical
-build-consumption record to `OUT_DIR` as compile-time build evidence. This
-slice does not claim that unused `include_str!` constants survive final-link
-dead stripping. Every portable `hermesc` version probe and compilation runs
-through the selected compatibility contract: an empty inherited environment,
-only the reviewed replacement variables, empty stdin, the exact tool path as
-`argv[0]`, a fresh private working directory, and enforced time and byte
-bounds. The reviewed 1 MiB declared-output ceiling is smaller than the current
-optional shared-runtime HBC, so portable builds deterministically omit that
-optimization and use the generated source bundle; bootstrap HBC compilation
-remains bounded. Raising the ceiling is a separate reviewed performance and
-artifact-identity change. Portable macOS link rpaths remain loader-relative to Cargo's
-direct and nested target output locations; they never embed the checkout/store
-absolute path. Authoritative mode therefore requires Cargo's output profile to
-live directly below this checkout's `target` directory; a custom target
-directory or explicit target-triple output layer is refused. This is only the
-Phase 1 build-input slice: until the post-link and runtime-mapping gates land,
-it does not enable production REPL, conformance promotion, target attestations,
-or advertisements.
+The opt-in portable macOS arm64 build path consumes one already installed
+checkout-local artifact and retained transport instead of the legacy path
+overrides. It must be entered through the production runner; exporting the
+selectors and invoking Cargo directly is deliberately refused:
+
+```sh
+./scripts/run-portable-hermes-cargo.mjs \
+  --artifact-id "$ARTIFACT_ID" \
+  --archive-digest "$ARCHIVE_DIGEST" \
+  --expected-source-revision "$ARTIFACT_SOURCE_REVISION" \
+  -- build --bin ibex
+```
+
+The runner first invokes the fixed production store verifier. Its checked
+promotion admission keeps the artifact source revision A distinct from the
+clean checkout revision: diagnostic A has `authorized:false` and current A;
+an admitted production checkout has pairwise-distinct source A, promotion
+topic P, and merge C with `authorized:true`. Any other D checkout is refused,
+not downgraded to diagnostic mode. Only after fresh offline provenance and
+reconstructive store verification does the runner mint a random, private,
+one-use capability and launch Cargo itself. `build.rs` claims that live
+capability before opening any artifact or host tool; it rechecks no-follow
+ancestry, ownership, modes, ACLs, link counts, the checked Cargo target map,
+rustc wrapper, and canonical LF-terminated promotion admission, then joins the
+receipt back to the exact manifest, installation receipt, policy, bundle,
+archive, and fresh verifier result. Stale/copied receipts and direct Cargo
+invocations fail closed. The checked admission is embedded as a separate
+compile-time record so A and C retain the same frozen build-consumption v1
+artifact identity; legacy builds embed exactly `null\n` for that record.
+
+Every portable `hermesc` version probe and compilation runs through its
+digest-bound compatibility contract with a cleared environment, empty stdin,
+exact `argv[0]`, a fresh private working directory, and one deadline covering
+the entire supervised process group, pipe drain, and pinned output checks. A
+tool that leaves descendants behind is refused. The output-aware rustc wrapper
+derives Cargo's checked executable set and gives each normal bin, unit/integration
+test, example, or bench exactly one depth-correct loader-relative rpath; it
+does not install both possible depths. Absolute checkout/store rpaths remain
+for legacy non-authoritative builds only.
+
+This is still a Phase 1 build-input slice. A real private offline-verifiable
+artifact corpus is required for the production runner, and the post-link and
+runtime-mapping gates must land before this can enable production REPL,
+conformance promotion, target attestations, or advertisements.
 
 Linux native networking requires `pkg-config` and libcurl >= 7.86 so Fetch and
 WebSocket use libcurl. For constrained local builds only,

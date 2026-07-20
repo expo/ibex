@@ -849,13 +849,52 @@ The result digest is:
 )
 ```
 
-For an authoritative Cargo build, `build.rs` accepts an artifact ID or a
-validated store root, selects the exact declared runtime/link/header
-components, revalidates them, and embeds the canonical manifest plus
-installation-provenance binding. Arbitrary `HERMES_LIB_DIR`, receipt, or DLL
-paths remain useful for ordinary development but cannot set
-`IBEX_REQUIRE_HERMES_PROFILE_PROVENANCE=1` or emit promotion evidence unless
-they resolve inside a successfully revalidated store.
+For an authoritative Cargo build, the production runner accepts one artifact
+ID, retained archive digest, and exact artifact source revision A. It first
+calls the fixed, non-injectable production store verifier and consumes its
+checked promotion admission. Diagnostic A has `authorized:false` and current
+revision A. Production admission has pairwise-distinct source A, promotion
+topic P, and clean merge revision C with `authorized:true`; D is refused by the
+verifier/preflight and cannot degrade to A. Cargo target sources remain checked
+against A, while clean-worktree checks before metadata/Cargo and after Cargo
+require exact current revision A or C from that admission. It derives the
+complete root-package target set from Cargo metadata only after proving the
+current `Cargo.toml` equals A. Only then may it create a random private
+capability outside the artifact store and launch Cargo. Direct selector
+exports do not convey authority.
+
+The capability receipt binds the canonical checkout and source revision,
+artifact/archive selection, manifest, installation receipt, policy, retained
+bundle, fresh attestation-verification result, checked Cargo target map, and
+materialized rustc wrapper, and canonical LF-terminated checked promotion
+admission. Its receipt, wrapper, target map, admission, capability directory,
+target/store ancestry, and live claim endpoint are no-follow,
+effective-UID-owned, mode/ACL/link-count checked and identity-rechecked. A
+nonce-authenticated local claim succeeds once while the runner is live;
+copying JSON cannot recreate it. This is process-bound integrity under the v1
+trusted-same-UID premise, not resistance to a malicious sibling process with
+that same UID. `build.rs` claims it before reading any artifact or host tool,
+then joins every receipt digest to the bytes it actually consumes.
+The admission is also emitted as a separate compile-time record; it does not
+change frozen build-consumption v1 identity between A and C. Legacy builds
+emit exactly `null\n` at that marker. Host startup may treat only the checked
+`authorized:true` C form as production authority; A remains diagnostic
+evidence.
+
+Cargo's target-scoped link directives cannot distinguish an ordinary bin from
+that bin's unit-test harness: Cargo labels both as the bin even though one is
+promoted to the profile directory and the other remains in `deps`. The checked
+rustc wrapper therefore classifies the actual invocation against the complete
+Cargo target map and injects exactly one rpath. Ordinary promoted bins use
+`@loader_path/../hermes-artifacts/<artifactId>/payload/lib`; bin/lib unit
+harnesses, integration tests, examples, and benches use
+`@loader_path/../../hermes-artifacts/<artifactId>/payload/lib`. Caller rpath,
+link-args, target, wrapper, rustc, linker, Cargo-config, and target-directory
+selector surfaces are rejected. Unknown root-package executable targets fail
+closed rather than silently compiling without the seam.
+
+Arbitrary `HERMES_LIB_DIR`, receipt, or DLL paths remain useful for ordinary
+development but cannot emit portable build or promotion evidence.
 
 The normal `run-manual-repl.sh` and conformance entry points resolve and, when
 needed, install the reviewed package in the current checkout. A user should not
@@ -1461,19 +1500,27 @@ host-tool compatibility contract through one bounded runner: it clears the
 ambient environment, installs only the reviewed replacement variables, closes
 stdin, fixes `argv[0]` to the selected tool path, uses and removes a fresh
 private working directory, and fails closed on timeout or stdout, stderr, and
-declared-output bounds. Portable bytecode validation reads the bounded output's
-fixed HBC header directly, so no dump invocation bypasses that runner.
+declared-output bounds. On Unix the child enters a new process group before
+exec. Every terminal path terminates and quiesces that complete group under the
+same absolute deadline used for pipe drain and no-follow final-output pinning;
+a successful direct child that leaves any live descendant is still a failed
+invocation and its outputs are removed. Portable bytecode validation reads the
+bounded output's fixed HBC header directly, so no dump invocation bypasses
+that runner.
 The reviewed 1 MiB output bound is smaller than the current optional
 shared-runtime HBC. This slice therefore removes any stale output and
 deterministically uses the generated source bundle in portable mode while
 continuing to compile the smaller bootstrap HBCs under the contract. Raising
 the bound and enabling that optimization requires separately reviewed physical
 evidence and a new compatibility/artifact identity.
-Its macOS link directives use only loader-relative paths from Cargo's direct
-and nested output locations back into that canonical store. Authoritative mode
-therefore refuses Cargo output roots outside the checkout
-or beneath an explicit target-triple layer. Legacy non-authoritative builds
-retain their existing absolute development rpath. This slice does not yet
+Its output-aware rustc seam emits one loader-relative path at the depth proved
+for each checked Cargo executable target, never both candidate depths.
+Authoritative mode refuses Cargo output roots outside the checkout or beneath
+an explicit target-triple layer. A physical Cargo/Mach-O regression covers the
+normal bin, bin and library unit harnesses, integration test, example, and
+bench with wrong-depth decoy dylibs and requires one exact LC_RPATH plus real
+library execution. Legacy non-authoritative builds retain their existing
+absolute development rpath. This slice does not yet
 perform the final-executable post-link audit, migrate runtime/mapped identity,
 make any binary promotable, or change any report, attestation, or
 advertisement. Consequently `portableArtifactAcceptanceEnabled` remains false
