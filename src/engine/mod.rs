@@ -11,6 +11,7 @@ pub mod evaluation;
 pub mod hermes_structured;
 mod import_grants;
 pub mod module_runner;
+pub mod portable_identity;
 pub mod session_lowering;
 pub mod session_syntax;
 pub mod sourcemap;

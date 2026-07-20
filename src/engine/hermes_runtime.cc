@@ -6148,12 +6148,72 @@ extern "C" int32_t ex_hermes_engine_binary_path(char* out, size_t out_len) {
 #endif
 }
 
-extern "C" int32_t ex_hermes_engine_mapped_object(
-    uint64_t* out_device, uint64_t* out_inode) {
-  if (out_device == nullptr || out_inode == nullptr) return -1;
+// Private Rust/C++ bridge for the schema-exact macOS mapped-instance proof.
+// Keep this outside the public embedding ABI: the versioned JSON identity is
+// the Rust API, while this POD only carries one kernel observation across the
+// language boundary.
+// @ref LLP 0035#macos — PROC_PIDREGIONPATHINFO for makeHermesRuntime supplies
+// the exact mapped object and address interval used by mapped v1 evidence.
+struct IbexPrivateHermesMacOsMappingObservationV1 {
+  uint32_t struct_size;
+  uint32_t observation_class;
+  uint64_t region_start;
+  uint64_t region_end;
+  uint64_t device;
+  uint64_t inode;
+};
+
+static_assert(sizeof(IbexPrivateHermesMacOsMappingObservationV1) == 40,
+              "macOS mapping observation ABI layout changed");
+
+#if defined(__GNUC__)
+__attribute__((visibility("hidden")))
+#endif
+extern "C" int32_t ibex_private_hermes_macos_mapping_observation_v1(
+    IbexPrivateHermesMacOsMappingObservationV1* output) {
+  if (output == nullptr || output->struct_size != sizeof(*output)) return -1;
+  const uint32_t requested_size = output->struct_size;
+  *output = {};
+  output->struct_size = requested_size;
+#if defined(__APPLE__) && TARGET_OS_OSX
   using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
       const ::hermes::vm::RuntimeConfig&);
   auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
+  const uint64_t factory_address =
+      reinterpret_cast<uint64_t>(reinterpret_cast<void*>(factory));
+  proc_regionwithpathinfo region = {};
+  int bytes = proc_pidinfo(
+      getpid(), PROC_PIDREGIONPATHINFO, factory_address,
+      &region, sizeof(region));
+  if (bytes != sizeof(region)) return -1;
+  const uint64_t start = region.prp_prinfo.pri_address;
+  const uint64_t size = region.prp_prinfo.pri_size;
+  if (size == 0 || start > UINT64_MAX - size) return -1;
+  const uint64_t end = start + size;
+  if (factory_address < start || factory_address >= end) return -1;
+  const uint64_t inode =
+      static_cast<uint64_t>(region.prp_vip.vip_vi.vi_stat.vst_ino);
+  if (inode == 0) return -1;
+  output->observation_class = 1;
+  output->region_start = start;
+  output->region_end = end;
+  output->device =
+      static_cast<uint64_t>(region.prp_vip.vip_vi.vi_stat.vst_dev);
+  output->inode = inode;
+  return 1;
+#else
+  return -1;
+#endif
+}
+
+extern "C" int32_t ex_hermes_engine_mapped_object(
+    uint64_t* out_device, uint64_t* out_inode) {
+  if (out_device == nullptr || out_inode == nullptr) return -1;
+#if defined(_WIN32) || defined(__linux__) || defined(__ANDROID__)
+  using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
+      const ::hermes::vm::RuntimeConfig&);
+  auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
+#endif
 #if defined(_WIN32)
   // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
   // derive current-file identity from the loader-reported DLL pathname
@@ -6185,15 +6245,14 @@ extern "C" int32_t ex_hermes_engine_mapped_object(
       static_cast<uint64_t>(info.nFileIndexLow);
   return 1;
 #elif defined(__APPLE__) && TARGET_OS_OSX
-  proc_regionwithpathinfo region = {};
-  int bytes = proc_pidinfo(
-      getpid(), PROC_PIDREGIONPATHINFO,
-      reinterpret_cast<uint64_t>(reinterpret_cast<void*>(factory)),
-      &region, sizeof(region));
-  if (bytes != sizeof(region)) return -1;
-  *out_device = static_cast<uint64_t>(region.prp_vip.vip_vi.vi_stat.vst_dev);
-  *out_inode = static_cast<uint64_t>(region.prp_vip.vip_vi.vi_stat.vst_ino);
-  return *out_inode != 0 ? 1 : -1;
+  IbexPrivateHermesMacOsMappingObservationV1 observation = {};
+  observation.struct_size = sizeof(observation);
+  if (ibex_private_hermes_macos_mapping_observation_v1(&observation) != 1) {
+    return -1;
+  }
+  *out_device = observation.device;
+  *out_inode = observation.inode;
+  return 1;
 #elif defined(__linux__) || defined(__ANDROID__)
   // Identify the file object backing the mapping that contains Hermes' runtime
   // factory. This binds device/inode identity only; it does not hash the

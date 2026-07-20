@@ -1572,12 +1572,28 @@ security features separate from package structural features; reject recursive
 encoded path/address/object leakage; and prove that renaming the old
 `binaryDigest`/path identity cannot satisfy v2.
 
-This checkpoint is contract-only. The live v1 runner and generators are not
-coerced or switched, the authored v1 attestation and advertisement arrays
+The schema checkpoint itself is contract-only; merely validating one of its
+documents grants no authority.
+
+The additive macOS runtime-identity producer implements the next isolated
+Phase 2 slice. It reconstructs the exact portable identity only from the
+canonical manifest, installation receipt, and build-consumption bytes that
+`build.rs` authenticated and embedded; missing legacy markers fail closed. A
+private C++ bridge resolves the address of `makeHermesRuntime` through
+`PROC_PIDREGIONPATHINFO` and returns the exact region interval and mapped file
+object. Rust joins that object to a no-follow pinned canonical runtime file,
+hashes fresh before/after observations, checks them against the portable
+runtime component, and emits the domain-separated mapped-instance digest.
+Legacy engine-path/object APIs remain available and unchanged. Frozen-vector,
+substitution, malformed-metadata, mapping-object/path mismatch, file-mutation,
+and live native-region tests cover this producer without enabling it as an
+acceptance source.
+
+Host comparison, promotion loading, v2 generation, and regenerated physical
+macOS evidence remain later Phase 2 work. The live v1 runner and generators are
+not coerced or switched, the authored v1 attestation and advertisement arrays
 remain empty, and `portableArtifactAcceptanceEnabled` remains exactly false.
-Runtime producers, Host comparison, promotion loading, v2 generation, and
-regenerated physical macOS evidence remain later Phase 2 work. Merely
-validating a hypothetical v2 document grants no authority.
+Merely producing or validating these additive identities grants no authority.
 
 Exit: reports and advertisements contain no host-local values, while every
 accepted local run still proves its exact mapped file.
