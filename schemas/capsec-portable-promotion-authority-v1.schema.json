@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/capsec-portable-promotion-authority-v1.schema.json",
+  "title": "Ibex independently derived portable CapSec promotion authority v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "portablePromotionAuthoritySchema",
+    "profile",
+    "sourceRevision",
+    "sourceTreeDigest",
+    "targets"
+  ],
+  "properties": {
+    "portablePromotionAuthoritySchema": {
+      "const": "ibex/capsec-portable-promotion-authority/1"
+    },
+    "profile": { "const": "ibex/capsec/1" },
+    "sourceRevision": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/sourceRevision"
+    },
+    "sourceTreeDigest": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/targetAuthority" }
+    }
+  },
+  "$defs": {
+    "targetAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "target",
+        "engine",
+        "vocabularyDigest",
+        "registryDigest",
+        "implementationManifestDigest",
+        "fixtureCatalogDigest",
+        "targetCellsRawContentDigest",
+        "recipeCatalogDigest",
+        "recipeCatalogRawContentDigest",
+        "publicSurfaceExecutionDigest",
+        "publicSurfaceExecutionRawContentDigest",
+        "outputDispositionEvidenceRawContentDigest"
+      ],
+      "properties": {
+        "family": { "enum": ["linux", "macos", "windows"] },
+        "target": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/target"
+        },
+        "engine": { "$ref": "portable-engine-artifact-identity-v1.schema.json" },
+        "vocabularyDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "registryDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "implementationManifestDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "fixtureCatalogDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "targetCellsRawContentDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "recipeCatalogDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "recipeCatalogRawContentDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "publicSurfaceExecutionDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "publicSurfaceExecutionRawContentDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "outputDispositionEvidenceRawContentDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        }
+      }
+    }
+  }
+}

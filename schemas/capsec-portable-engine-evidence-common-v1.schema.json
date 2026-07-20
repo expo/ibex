@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/capsec-portable-engine-evidence-common-v1.schema.json",
+  "title": "Ibex CapSec portable-engine evidence common definitions v1",
+  "$defs": {
+    "digest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+    },
+    "sourceRevision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "stableId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[._/-][a-z0-9]+)*$"
+    },
+    "idSet": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/stableId" }
+    },
+    "digestSet": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/digest" }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["triple", "features"],
+      "properties": {
+        "triple": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+){2,}$"
+        },
+        "features": { "$ref": "#/$defs/idSet" }
+      }
+    },
+    "mappedEvidenceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidenceDigest",
+        "rawContentDigest",
+        "attemptDigest",
+        "attemptRawContentDigest"
+      ],
+      "properties": {
+        "evidenceDigest": { "$ref": "#/$defs/digest" },
+        "rawContentDigest": { "$ref": "#/$defs/digest" },
+        "attemptDigest": { "$ref": "#/$defs/digest" },
+        "attemptRawContentDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "mappedEvidenceReferenceSet": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/mappedEvidenceReference" }
+    }
+  }
+}

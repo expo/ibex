@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/capsec-portable-fixture-evidence-v1.schema.json",
+  "title": "Ibex detached portable CapSec fixture evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "fixtureEvidenceSchema",
+    "profile",
+    "sourceRevision",
+    "sourceTreeDigest",
+    "target",
+    "engine",
+    "fixtureId",
+    "outcome",
+    "executor",
+    "bindingDigest",
+    "artifactDigest"
+  ],
+  "properties": {
+    "fixtureEvidenceSchema": { "const": "ibex/capsec-portable-fixture-evidence/1" },
+    "profile": { "const": "ibex/capsec/1" },
+    "sourceRevision": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/sourceRevision"
+    },
+    "sourceTreeDigest": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+    },
+    "target": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/target"
+    },
+    "engine": { "$ref": "portable-engine-artifact-identity-v1.schema.json" },
+    "fixtureId": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/stableId"
+    },
+    "outcome": { "enum": ["passed", "failed"] },
+    "executor": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/stableId"
+    },
+    "bindingDigest": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+    },
+    "artifactDigest": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest",
+      "$comment": "SHA-256 over JCS(evidence without artifactDigest), domain ibex:capsec:portable-fixture-evidence:1 followed by one NUL byte."
+    }
+  }
+}

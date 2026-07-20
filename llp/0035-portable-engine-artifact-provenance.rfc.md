@@ -10,9 +10,11 @@ are isolated by immutable raw-artifact handoffs; the checkout-local installer
 uses a policy-bound, byte-pinned offline verifier and reconstructive transport
 verification; installer publication uses validated checkout ancestry and
 atomically released, restart-recoverable serialization records; and the closed
-build and post-link contracts bind complete payload and executable replay.
-Acceptance, runtime consumption, and advertisements remain off pending a real
-private Ibex corpus and the remaining build/runtime evidence gates.)
+build, post-link, and additive Phase 2 publication/evidence contracts bind
+complete payload, executable replay, and mapped execution membership. The
+portable macOS package is emitted for every `main` revision. Acceptance,
+runtime consumption, and advertisements remain off pending a real private Ibex
+corpus and the remaining build/runtime evidence gates.)
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021; LLP 0032
 
 ## Summary
@@ -914,6 +916,98 @@ their semantic `engine` value with the portable identity. Execution artifacts
 and shard manifests additionally retain mapped-instance identities before and
 after engine-using work.
 
+Those additive revisions are exactly `ibex/capsec-conformance/2`,
+`ibex/capsec-target-attestations/2`, and
+`ibex/capsec-target-advertisements/2`. The report and advertisement `engine`
+field is the complete `ibex/portable-engine-artifact-identity/1`; the authored
+attestation names its `portableArtifactId` and must rejoin the complete report
+identity. The CapSec target's `features` remain enforcement/security
+properties and are not compared with the portable target's package-layout
+`structuralFeatures`. Only their exact target triples join.
+
+Mapped evidence is detached one engine-using process at a time under
+`ibex/capsec-mapped-engine-execution-evidence/1`. Each record binds the source,
+CapSec target, pre-execution command-identity digest, fixture/output
+membership, complete portable identity, and one complete mapped-instance
+identity. It does not bind the post-execution command-envelope record, which
+may already name this detached output and would create a digest cycle. Its
+`commandIdentityDigest` must equal the successful current supervisor attempt's
+`commandIdentity`. Its `outputDigests` are exactly the raw-content digests of
+that attempt's declared output rows after excluding only the mapped-evidence
+record itself. Every remaining row must be supplied as exact bytes and must
+join one report execution's raw-content and semantic artifact digests. Its
+semantic digest is
+`SHA-256("ibex:capsec:mapped-engine-execution-evidence:1\0" || JCS(record
+without evidenceDigest))`. Reports, attestations, and advertisements carry
+only exact `{evidenceDigest, rawContentDigest, attemptDigest,
+attemptRawContentDigest}` references to those records and the finalized
+supervisor attempts that produced them. The digest graph is deliberately
+ordered as pre-execution command identity, mapped evidence, finalized attempt,
+report, then attestation/advertisement. Mapped evidence cannot name the attempt
+that already names it as an output. Fixture execution rows likewise carry
+raw/semantic fixture-evidence digests and the mapped-evidence digest of the
+process that produced them; they do not embed the mapped record. The report
+digest moves to
+`ibex:capsec:conformance:2`, omitting only `conformanceDigest`.
+
+The additive promotion input also closes the formerly permissive recipe,
+public-surface, and output-disposition edges. It consumes only
+`ibex/capsec-executable-recipes/2`,
+`ibex/capsec-public-surface-executions/2`, and
+`ibex/capsec-output-disposition-evidence/4`. A recipe row has exact fields
+`fixtureId, status, executor, planDigest`; its plan digest uses domain
+`ibex:capsec:executable-recipe-plan:1` over the exact fixture/executor
+projection, and the catalog uses domain `ibex:capsec:executable-recipes:2`.
+A public execution has exact fields `fixtureId, outcome, executor,
+evidenceDigest`; its evidence digest uses domain
+`ibex:capsec:public-surface-execution-evidence:1` over that row's exact
+execution projection, the artifact binds both semantic and raw recipe-catalog
+identity, and its own domain is
+`ibex:capsec:public-surface-executions:2`. An output-disposition observation
+has exact fields `key, disposition, proofKind, observationDigest`, with domain
+`ibex:capsec:output-disposition-observation:1`. The output artifact itself is
+bound as exact raw bytes because it has no semantic self-digest.
+
+Each portable fixture carries
+`SHA-256("ibex:capsec:portable-execution-binding:1\0" || JCS(projection))`,
+where the closed projection contains source revision/tree, exact CapSec target,
+complete portable engine identity, vocabulary, registry, implementation
+manifest, fixture catalog, target-cell raw bytes, recipe semantic/raw identity,
+public-execution semantic/raw identity, and output-disposition raw identity.
+The projection intentionally excludes mapped-evidence and attempt digests:
+fixture bytes are supervisor outputs committed by the mapped record, so either
+back-reference would create a cycle. The later report execution joins the
+fixture to mapped evidence, and its detached evidence reference joins the
+finalized attempt, preserving complete authority without a cyclic digest DAG.
+
+Promotion validation has one fail-closed entry point. It strict-parses and
+schema-validates exact report, catalog, mapped-evidence, fixture-evidence, and
+supervisor-attempt bytes before applying semantic joins; callers cannot select
+a schema-only or semantics-only authority path. Detached mapped evidence and
+its attempt/output bytes are mandatory. The report must be `conformant`, every
+cell must have zero missing or failed fixtures, and its exact required fixture
+set must equal its passing execution set. The target-cell catalog and the raw
+recipe, public-surface, and output-disposition artifacts are independently
+provided and joined by both available semantic identities and exact
+raw-content digests.
+
+Target/security features and the complete portable identity are not admitted
+by a locality heuristic. They must exactly equal one target entry in an
+independently source-derived `ibex/capsec-portable-promotion-authority/1`
+catalog, including the exact `macos`, `linux`, or `windows` target-family
+dispatch and every report/artifact identity. Recursive path, URI, address, and
+object rejection remains defense in depth, including case and percent-encoded
+forms. CapSec IDs use the closed CapSec stable-ID grammar rather than the looser
+portable-package identifier grammar.
+
+Absolute POSIX/Windows paths, `file://` URLs, mapping addresses, device/inode
+or volume/file identities, and every field of the old combined
+`LoadedEngineBinaryIdentity` are forbidden recursively in those three
+publication documents. A digest of detached local evidence is admissible; the
+observation it names is not. Each detached record is validated independently,
+and only its complete portable identity is compared across processes or
+runners.
+
 Production startup accepts an advertisement only when its portable identity
 equals the independently reconstructed portable identity of the locally mapped
 engine. It separately requires the local mapped-instance proof to pass. Thus an
@@ -1363,6 +1457,31 @@ linking or execution.
 - update Host startup to compare the portable advertisement and independently
   verify its local mapping; and
 - regenerate complete macOS evidence under the new schema.
+
+Implementation checkpoint (2026-07-20): additive, versioned Phase 2 schemas
+now freeze the portable conformance report, authored target attestation,
+derived target advertisement, and per-process mapped-engine execution-evidence
+contracts together with their command-attempt, portable-fixture, and
+independently derived promotion-authority inputs. The additional portable
+fixture domain is
+`SHA-256("ibex:capsec:portable-fixture-evidence:1\0" || JCS(record without
+artifactDigest))`. The checkpoint additionally freezes the acyclic execution
+binding, recipe-plan/catalog, public-execution row/artifact, and
+output-disposition observation domains described above. Adversarial tests join
+exact supervisor output rows, finalized-attempt identities, closed
+recipe/public/output semantics, and raw artifact bytes; reject incomplete
+coverage and mapped/portable substitution even after digest recomputation;
+distinguish ASLR-local mapped observations from portable equality; keep CapSec
+security features separate from package structural features; reject recursive
+encoded path/address/object leakage; and prove that renaming the old
+`binaryDigest`/path identity cannot satisfy v2.
+
+This checkpoint is contract-only. The live v1 runner and generators are not
+coerced or switched, the authored v1 attestation and advertisement arrays
+remain empty, and `portableArtifactAcceptanceEnabled` remains exactly false.
+Runtime producers, Host comparison, promotion loading, v2 generation, and
+regenerated physical macOS evidence remain later Phase 2 work. Merely
+validating a hypothetical v2 document grants no authority.
 
 Exit: reports and advertisements contain no host-local values, while every
 accepted local run still proves its exact mapped file.
