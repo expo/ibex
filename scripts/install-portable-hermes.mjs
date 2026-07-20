@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-// Phase-1 checkout-local installer entry point. The library remains
-// diagnostic-only until the production verifier expectation profile is wired
-// in; it never turns portableArtifactAcceptanceEnabled on.
+// Phase-1 checkout-local installer entry point. The installed package remains
+// diagnostic-only until the physical promotion gates pass; this command never
+// turns portableArtifactAcceptanceEnabled on.
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";

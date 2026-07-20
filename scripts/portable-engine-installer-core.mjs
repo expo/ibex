@@ -48,6 +48,21 @@ const MAX_MANIFEST_BYTES = 16 * 1024 * 1024;
 const NOFOLLOW = fs.constants.O_NOFOLLOW ?? 0;
 const OPEN_READ_NOFOLLOW = fs.constants.O_RDONLY | NOFOLLOW;
 const OPEN_CREATE_EXCLUSIVE = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | NOFOLLOW;
+const SYSTEM_GIT = "/usr/bin/git";
+const CHECKED_GIT_ENV = Object.freeze({
+  PATH: "/usr/bin:/bin",
+  HOME: "/var/empty",
+  XDG_CONFIG_HOME: "/var/empty",
+  LC_ALL: "C",
+  LANG: "C",
+  GIT_CONFIG_COUNT: "0",
+  GIT_CONFIG_NOSYSTEM: "1",
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_NO_LAZY_FETCH: "1",
+  GIT_NO_REPLACE_OBJECTS: "1",
+  GIT_OPTIONAL_LOCKS: "0",
+  GIT_TERMINAL_PROMPT: "0",
+});
 const fatalUtf8 = new TextDecoder("utf-8", { fatal: true });
 
 const PRODUCTION_STORE_CONTRACT = Object.freeze({
@@ -239,13 +254,22 @@ async function copyPinnedRegular(sourcePath, destinationPath, label, maximumByte
   }
 }
 
+// @ref LLP 0035#threat-model-and-trust-roots — environment variables are not
+// authority. Git object reads use the OS-trusted absolute tool, no replacement
+// objects or lazy network fetches, and a closed environment.
+function runCheckedGit(repoRoot, args, options) {
+  return spawnSync(SYSTEM_GIT, ["--no-replace-objects", "--literal-pathspecs", ...args], {
+    cwd: repoRoot,
+    ...options,
+    env: CHECKED_GIT_ENV,
+  });
+}
+
 function defaultReadRevisionFile(repoRoot, revision, relativePath) {
   assertPortablePath(relativePath, `revision path ${relativePath}`);
-  const result = spawnSync("git", ["show", `${revision}:${relativePath}`], {
-    cwd: repoRoot,
+  const result = runCheckedGit(repoRoot, ["show", `${revision}:${relativePath}`], {
     encoding: null,
     maxBuffer: 64 * 1024 * 1024,
-    env: { PATH: process.env.PATH ?? "" },
   });
   assert(result.status === 0, `checked authority is not a regular tracked blob at ${revision}:${relativePath}`);
   return Buffer.from(result.stdout);
@@ -253,11 +277,9 @@ function defaultReadRevisionFile(repoRoot, revision, relativePath) {
 
 function defaultListRevisionFiles(repoRoot, revision, relativeDirectory) {
   assertPortablePath(relativeDirectory, "revision directory");
-  const result = spawnSync("git", ["ls-tree", "-r", "-z", "--name-only", revision, "--", relativeDirectory], {
-    cwd: repoRoot,
+  const result = runCheckedGit(repoRoot, ["ls-tree", "-r", "-z", "--name-only", revision, "--", relativeDirectory], {
     encoding: null,
     maxBuffer: 16 * 1024 * 1024,
-    env: { PATH: process.env.PATH ?? "" },
   });
   assert(result.status === 0, `cannot enumerate checked files at ${revision}:${relativeDirectory}`);
   return result.stdout.toString("utf8").split("\0").filter(Boolean);
@@ -265,22 +287,24 @@ function defaultListRevisionFiles(repoRoot, revision, relativeDirectory) {
 
 function defaultReadGitObject(repoRoot, type, objectId) {
   assert(type === "commit" || type === "tree", `unsupported Git object type ${type}`);
-  const result = spawnSync("git", ["cat-file", type, objectId], {
-    cwd: repoRoot,
+  const result = runCheckedGit(repoRoot, ["cat-file", type, objectId], {
     encoding: null,
     maxBuffer: 64 * 1024 * 1024,
-    env: { PATH: process.env.PATH ?? "" },
   });
   assert(result.status === 0, `cannot read checked Git ${type} object ${objectId}`);
   return Buffer.from(result.stdout);
 }
 
 function defaultResolveCheckoutRevision(repoRoot) {
-  const result = spawnSync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
-    cwd: repoRoot,
+  const rootResult = runCheckedGit(repoRoot, ["rev-parse", "--path-format=absolute", "--show-toplevel"], {
     encoding: "utf8",
     maxBuffer: 1024 * 1024,
-    env: { PATH: process.env.PATH ?? "" },
+  });
+  assert(rootResult.status === 0, "cannot resolve the current checkout root");
+  assert(fs.realpathSync(rootResult.stdout.trim()) === repoRoot, "selected checkout root is not the Git worktree root");
+  const result = runCheckedGit(repoRoot, ["rev-parse", "--verify", "HEAD^{commit}"], {
+    encoding: "utf8",
+    maxBuffer: 1024 * 1024,
   });
   assert(result.status === 0, "cannot resolve the current checkout revision");
   const revision = result.stdout.trim();

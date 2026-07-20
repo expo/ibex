@@ -694,6 +694,13 @@ separately. These checks remove ambient alternate-principal mutation paths but
 do not turn filesystem permissions into protection against the malicious
 same-user process excluded by the v1 threat model.
 
+Reads of checked revision authority use the OS-trusted absolute Git executable
+under a closed environment, with replacement objects and lazy network fetching
+disabled. The selected checkout must be the canonical Git worktree root.
+Ambient `PATH`, user/system Git configuration, loader variables, and remote
+object fetching cannot select the policy or source objects used by the
+installer.
+
 The store is not part of an evaluated application's virtual namespace. Armed
 Host construction installs an unconditional lexical and retained-object fence
 that denies evaluated JavaScript every write, truncate, rename, unlink, link,

@@ -728,6 +728,10 @@ describe("portable engine installer core", () => {
     assert.doesNotMatch(cli, /installPortableEngine\(options\s*,/u);
     const core = await fsp.readFile(path.join(scriptsRoot, "portable-engine-installer-core.mjs"), "utf8");
     assert.doesNotMatch(core, /\boptions\.context\b/u);
+    assert.match(core, /const SYSTEM_GIT = "\/usr\/bin\/git"/u);
+    assert.doesNotMatch(core, /process\.env\.PATH/u);
+    assert.match(core, /GIT_NO_LAZY_FETCH: "1"/u);
+    assert.match(core, /GIT_NO_REPLACE_OBJECTS: "1"/u);
     const packageDocument = JSON.parse(await fsp.readFile(path.join(sourceRepo, "package.json"), "utf8"));
     assert.equal(packageDocument.scripts["install:portable-hermes"], "node scripts/install-portable-hermes.mjs");
   });
