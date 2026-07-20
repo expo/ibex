@@ -673,6 +673,58 @@ void install(Runtime& rt) {
     expect(new Set(binding.producerPaths.map((pathEntry) => pathEntry.conditionId)).size).toBe(2);
   });
 
+  test("classifies runtime if/else JSI publications as paired alternatives", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding({
+      branchId: "surface.native.op.initial-url.android",
+      observedKey: "native-op:__exactInitialURL",
+      targetVariant: "android",
+    }, "src/engine/hermes_runtime_android.cc#jsi-global:__exactInitialURL");
+    expect(binding.locatorKind).toBe("jsi-root-global-route");
+    expect(binding.producerPaths).toHaveLength(2);
+    expect(binding.producerPaths.map((pathEntry) => pathEntry.conditionId)).toEqual([
+      expect.stringMatching(/^runtime-if:/u),
+      expect.stringMatching(/^runtime-else:/u),
+    ]);
+  });
+
+  test("binds generated defineProperty globals through their installer invocation", () => {
+    for (const locator of [
+      "__exactGeneratedImportGrantKeys",
+      "__exactGeneratedImportGrantKeys.[[dynamic]]",
+    ]) {
+      const binding = resolveRestrictedExactBranchSourceBinding({
+        branchId: "surface.native.op.generated-import-grants.all",
+        observedKey: "native-op:__exactGeneratedImportGrantKeys",
+        targetVariant: "all",
+      }, `src/engine/bootstrap/import-grant-keys.generated.js#${locator}`);
+      expect(binding.locatorKind).toBe("generated-javascript-global-route");
+      expect(binding.sites.map((site) => site.role)).toEqual([
+        "value-producer",
+        "publication",
+        "dispatch",
+      ]);
+    }
+  });
+
+  test("binds module runtime metadata members through their global object publication", () => {
+    for (const [observedKey, locator] of [
+      ["native-op:__exactRuntime.engine", "<module>.engine"],
+      ["native-op:global:exact.runtime.detectEngine", "<module>.detectEngine"],
+      ["native-op:global:exact.runtime.info.engine", "<module>.info"],
+    ]) {
+      const binding = resolveRestrictedExactBranchSourceBinding({
+        branchId: `surface.${locator}.${observedKey}`,
+        observedKey,
+        targetVariant: "all",
+      }, `packages/ibex-runtime-js/src/runtime-entry.ts#${locator}`);
+      expect(binding.locatorKind).toBe("typescript-module-global-member-route");
+      expect(binding.sites.map((site) => site.role)).toEqual([
+        "value-producer",
+        "publication",
+      ]);
+    }
+  });
+
   test("binds module-level global assignments and C++ supporting symbols", () => {
     const moduleBinding = resolveRestrictedExactBranchSourceBinding({
       branchId: "surface.native.op.android.dispatch.all",

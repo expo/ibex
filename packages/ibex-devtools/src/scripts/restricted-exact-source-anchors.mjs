@@ -1640,6 +1640,90 @@ function javascriptSymbolProvenanceBinding({ sourceRef, sourcePath, locator, tex
   });
 }
 
+function generatedJavascriptGlobalBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (!branch?.observedKey?.startsWith("native-op:")
+    || !sourcePath.endsWith(".generated.js")) return null;
+  const observedName = branch.observedKey.slice("native-op:".length);
+  const root = observedName.split(".")[0];
+  const locatorRoot = locator.split(".[[")[0];
+  if (locatorRoot !== root) return null;
+  const ast = parse(text, { sourceType: "script", allowReturnOutsideFunction: true });
+  const publications = [];
+  walkJavaScript(ast.program, (node, parent) => {
+    if (node.type === "CallExpression"
+      && JSON.stringify(memberSegments(node.callee)) === JSON.stringify(["Object", "defineProperty"])
+      && propertyName(node.arguments[1]) === root) {
+      publications.push({ node: parent?.type === "ExpressionStatement" ? parent : node, descriptor: node.arguments[2] });
+    }
+  });
+  const invocations = ast.program.body.filter((node) =>
+    node.type === "ExpressionStatement" && node.expression?.type === "CallExpression");
+  if (publications.length !== 1 || invocations.length !== 1 || !publications[0].descriptor) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${root}.generated-value`, range: { startByte: publications[0].descriptor.start, endByte: publications[0].descriptor.end }, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${root}.defineProperty`, range: { startByte: publications[0].node.start, endByte: publications[0].node.end }, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: `${root}.installer-invocation`, range: { startByte: invocations[0].start, endByte: invocations[0].end }, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "generated-javascript-global-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0generated-global`),
+      conditionId: `target-branch:${branch.targetVariant}`,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function typescriptModuleGlobalMemberBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (!branch?.observedKey?.startsWith("native-op:")
+    || !/\.tsx?$/u.test(sourcePath)
+    || !locator.startsWith("<module>.")) return null;
+  const observedName = branch.observedKey.startsWith("native-op:global:")
+    ? branch.observedKey.slice("native-op:global:".length)
+    : branch.observedKey.slice("native-op:".length);
+  const observedPath = observedName.split(".");
+  const member = locator.slice("<module>.".length);
+  const memberIndex = observedPath.lastIndexOf(member);
+  if (memberIndex < 1) return null;
+  const publicationPath = observedPath.slice(0, memberIndex);
+  const root = publicationPath.join(".");
+  const assignments = [];
+  const ast = parse(text, {
+    sourceType: "module",
+    plugins: ["typescript", "decorators-legacy"],
+  });
+  walkJavaScript(ast.program, (node, parent) => {
+    if (node.type !== "AssignmentExpression") return;
+    const segments = memberSegments(node.left);
+    if (segments
+      && JSON.stringify(segments.slice(-publicationPath.length)) === JSON.stringify(publicationPath)
+      && node.right?.type === "ObjectExpression") {
+      assignments.push({ node: parent?.type === "ExpressionStatement" ? parent : node, value: node.right });
+    }
+  });
+  if (assignments.length !== 1) return null;
+  const property = objectProperty(assignments[0].value, member);
+  if (!property) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${root}.${member}.module-value`, range: { startByte: property.start, endByte: property.end }, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${root}.module-publication`, range: { startByte: assignments[0].node.start, endByte: assignments[0].node.end }, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "typescript-module-global-member-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0module-global-member`),
+      conditionId: `target-branch:${branch.targetVariant}`,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
 function legacyJavascriptGlobalRouteBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
   if (!branch?.observedKey?.startsWith("native-op:global:")
     || !sourcePath.startsWith("src/engine/bootstrap/")
@@ -3113,6 +3197,23 @@ function activePreprocessorCondition(text, offset) {
   return stack.length > 0 ? stack.join("+") : null;
 }
 
+function pairedControlConditions(text, rootCalls) {
+  if (rootCalls.length !== 2) return null;
+  const first = rootCalls[0].range.startByte;
+  const second = rootCalls[1].range.startByte;
+  const prefix = text.slice(Math.max(0, first - 1_500), first);
+  const matches = [...prefix.matchAll(/\bif\s*\(/gu)];
+  if (matches.length === 0) return null;
+  const conditionStart = Math.max(0, first - 1_500) + matches.at(-1).index;
+  const opening = text.indexOf("(", conditionStart);
+  const conditionEnd = matchingDelimiterEnd(text, opening, "(", ")");
+  if (conditionEnd < 0 || conditionEnd > first) return null;
+  const between = text.slice(rootCalls[0].range.endByte, second);
+  if (!/\}\s*else\s*\{/u.test(between)) return null;
+  const conditionId = stableId("condition", text.slice(conditionStart, conditionEnd));
+  return [`runtime-if:${conditionId}`, `runtime-else:${conditionId}`];
+}
+
 function jsiGlobalBranchBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
   if (!/\.(?:cc|mm|h)$/u.test(sourcePath)) return null;
   const observedPath = branch?.observedKey?.startsWith("native-op:global:")
@@ -3132,13 +3233,15 @@ function jsiGlobalBranchBinding({ branch, sourceRef, sourcePath, locator, text, 
     (call) => ["rt.global()", "runtime.global()"].includes(call.caller),
   );
   if (rootCalls.length === 0) return null;
-  const branchConditions = rootCalls.map((rootCall) =>
+  let branchConditions = rootCalls.map((rootCall) =>
     activePreprocessorCondition(text, rootCall.range.startByte));
   if (rootCalls.length > 1) {
     const explicit = branchConditions.filter(Boolean);
     const implicitCount = branchConditions.length - explicit.length;
     if (explicit.length === 0 || implicitCount > 1 || new Set(explicit).size !== explicit.length) {
-      return null;
+      const controlConditions = pairedControlConditions(text, rootCalls);
+      if (!controlConditions) return null;
+      branchConditions = controlConditions;
     }
   }
   const sites = [];
@@ -3174,7 +3277,9 @@ function jsiGlobalBranchBinding({ branch, sourceRef, sourcePath, locator, text, 
     producerPaths.push({
       pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0${logicalPath.join(".")}\0${indexValue}`),
       conditionId: branchConditions[indexValue]
-        ? `preprocessor:${branchConditions[indexValue]}`
+        ? branchConditions[indexValue].startsWith("runtime-")
+          ? branchConditions[indexValue]
+          : `preprocessor:${branchConditions[indexValue]}`
         : rootCalls.length > 1
           ? "preprocessor:otherwise"
           : `target-branch:${branch.targetVariant}:publication:${sourcePath}`,
@@ -4958,10 +5063,12 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? legacyBootstrapGlobalBinding({ branch, sourceRef, ...loaded })
     ?? typescriptClassMemberBinding({ branch, sourceRef, ...loaded })
     ?? typescriptObjectMemberBinding({ branch, sourceRef, ...loaded })
+    ?? typescriptModuleGlobalMemberBinding({ branch, sourceRef, ...loaded })
     ?? exactGlobalAliasBinding({ branch, sourceRef, ...loaded })
     ?? evaluatedCppGlobalBinding({ branch, sourceRef, ...loaded })
     ?? cppSymbolProvenanceBinding({ branch, sourceRef, ...loaded })
     ?? legacyJavascriptGlobalRouteBinding({ branch, sourceRef, ...loaded })
+    ?? generatedJavascriptGlobalBinding({ branch, sourceRef, ...loaded })
     ?? javascriptSymbolProvenanceBinding({ branch, sourceRef, ...loaded });
   return contextual ?? resolveRestrictedExactSourceBinding(sourceRef, root);
 }
