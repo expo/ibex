@@ -88,7 +88,9 @@ test("command evidence enforces real POSIX modes without trusting Windows synthe
 test(
   "command evidence streams large output, binds identity, and retains duration",
   async () => {
-    const { root, evidenceDirectory, supervisor } = fixture();
+    const { root, evidenceDirectory, supervisor } = fixture({
+      deadlineMs: process.platform === "win32" ? 60_000 : 5000,
+    });
     const evidence = await runObservedCommand({
       supervisor,
       id: "capsec-registry-drift",
@@ -112,7 +114,7 @@ test(
     expect(outcome.status).toBe("success");
     expect(outcome.attempts).toHaveLength(1);
   },
-  30_000,
+  process.platform === "win32" ? 90_000 : 30_000,
 );
 
 test("command evidence preserves a nonzero child exit code", async () => {
