@@ -3292,6 +3292,25 @@ function movedIdentifier(expression) {
   return match?.[1] ?? null;
 }
 
+function factoryReturnedIdentifier(text, expression, before) {
+  const call = /^([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/u.exec(expression.trim());
+  if (!call) return null;
+  const escaped = escapeRegExp(call[1]);
+  const declarations = [...text.slice(0, before).matchAll(
+    new RegExp(`(?:^|\\n)\\s*auto\\s+${escaped}\\s*=`, "gu"),
+  )];
+  if (declarations.length !== 1) return null;
+  const startByte = declarations[0].index + (declarations[0][0][0] === "\n" ? 1 : 0);
+  const opening = text.indexOf("{", startByte);
+  const endByte = opening < 0 ? -1 : matchingBraceEnd(text, opening);
+  if (endByte < 0 || endByte > before) return null;
+  const returns = [...text.slice(opening, endByte).matchAll(
+    /\breturn\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*;/gu,
+  )];
+  if (returns.length !== 1) return null;
+  return { identifier: returns[0][1], range: { startByte, endByte } };
+}
+
 function cppValueProducerRange(text, variable, before) {
   if (!variable) return null;
   const escaped = escapeRegExp(variable);
@@ -3382,6 +3401,10 @@ function jsiGlobalBranchBinding({ branch, sourceRef, sourcePath, locator, text, 
         const memberCall = matches[0];
         memberCalls.push(memberCall);
         currentVariable = movedIdentifier(memberCall.value);
+        if (!currentVariable) {
+          currentVariable = factoryReturnedIdentifier(text, memberCall.value, memberCall.range.startByte)
+            ?.identifier ?? null;
+        }
         before = memberCall.range.startByte;
       }
       memberCallsByRoot.set(rootCall.range.startByte, { memberCalls, currentVariable, before });

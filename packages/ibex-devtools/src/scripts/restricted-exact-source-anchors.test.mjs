@@ -487,6 +487,11 @@ module.exports = { Public: Public };
         "src/engine/hermes_runtime_process_setup.cc#jsi-global:process.release.name",
         4,
       ],
+      [
+        "native-op:global:process.stderr.write",
+        "src/engine/hermes_runtime_process_setup.cc#jsi-global:process.stderr.write",
+        4,
+      ],
     ]) {
       const binding = resolveRestrictedExactBranchSourceBinding({
         branchId: `surface.${observedKey}`,
