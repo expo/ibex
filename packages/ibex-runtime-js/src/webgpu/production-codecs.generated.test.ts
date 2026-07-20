@@ -1020,7 +1020,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         { operationId: 'GPUDevice.createBindGroupLayout', wireId: 2544948076 },
         { operationId: 'GPUDevice.createBuffer', wireId: 1869756926 },
         { operationId: 'GPUDevice.createPipelineLayout', wireId: 3373402978 },
-        { operationId: 'GPUDevice.createComputePipeline', wireId: 797909431 },
+        { operationId: 'GPUDevice.createComputePipeline', wireId: 3202875898 },
         { operationId: 'GPUDevice.createRenderPipeline', wireId: 2407151159 },
         { operationId: 'GPUDevice.createSampler', wireId: 3285037552 },
         { operationId: 'GPUDevice.createTexture', wireId: 4177957718 },
@@ -1038,7 +1038,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         { operationId: 'GPUQueue.writeTexture', wireId: 3114133342 },
         {
           operationId: 'GPUQueue.copyExternalImageToTexture',
-          wireId: 2735509416,
+          wireId: 1909541119,
         },
         { operationId: 'GPUQueue.submit', wireId: 308839175 },
       ],
@@ -1821,7 +1821,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'ibex/webgpu-render-pipeline-conversion-fixtures/1',
     );
     expect(renderPipelineConversionFixtures.source.exactSemanticJoinSha256).toBe(
-      'bb69afa17dabd7c7d7508d077d4c8fe4b1e19344d8b86518b696f4076d638713',
+      '08c0bc97f5228c0733dac44cc1dbb406ae5969aa03fd4cecca46a3bbcb0c4f55',
     );
     expect(renderPipelineConversionFixtures.source.projectionCanonicalization).toBe(
       'recursive-key-sorted-json-utf8',
@@ -1926,7 +1926,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
     expect(computePipelineConversionFixtures.source).toEqual({
       typegpuVersion: '0.11.9',
       exactSemanticJoinSha256:
-        'bb69afa17dabd7c7d7508d077d4c8fe4b1e19344d8b86518b696f4076d638713',
+        '08c0bc97f5228c0733dac44cc1dbb406ae5969aa03fd4cecca46a3bbcb0c4f55',
       projectionSha256:
         'ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe',
       projectionCanonicalization: 'recursive-key-sorted-json-utf8',
@@ -3732,7 +3732,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
     });
     expect(nativeRoute).toMatchObject({
       operationId,
-      wireId: 797909431,
+      wireId: 3202875898,
       request: {
         catalog: {
           tag: 'gpu-create-compute-pipeline-service-request-v1',
@@ -3742,7 +3742,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
     });
     expect(nativeRoute.request.payload.fields[0]).toMatchObject({
       name: 'header',
-      constants: { codecTag: 25, operationWireId: 797909431 },
+      constants: { codecTag: 25, operationWireId: 3202875898 },
     });
     expect(nativeRoute.request.payload.fields.at(-1)).toMatchObject({
       name: 'convertedArguments',
@@ -3774,7 +3774,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       payload.byteLength,
     );
     expect(header.getUint16(6, true)).toBe(25);
-    expect(header.getUint32(8, true)).toBe(797909431);
+    expect(header.getUint32(8, true)).toBe(3202875898);
     expect(Array.from(payload.slice(53, 55))).toEqual([
       1,
       WEBGPU_OBJECT_KIND_TAGS.GPUComputePipeline,

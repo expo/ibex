@@ -108,9 +108,9 @@ const COMPUTE_PIPELINE_PROMOTION = Object.freeze({
 // @ref LLP 0002#the-optional-exact-gpu-service-registration-seam — the
 // promotion row is immutable history; this separately pins the active route.
 const REVIEWED_COMPUTE_PIPELINE_ACTIVE_IDENTITY = Object.freeze({
-  operationWireId: 797909431,
+  operationWireId: 3202875898,
   operationSemanticSha256:
-    "c9fa6574c6833ebcec767bdda2aa7e045fd1090270648c718a555d398590d5a0",
+    "a4b0baea0678797cb768225755bf4a88a61266cd34936d244ddb17ba2403e2a6",
 });
 function authenticatedPromotionProjection(localPromotions) {
   return localPromotions.map((promotion) =>

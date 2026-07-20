@@ -49469,8 +49469,8 @@
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.beginComputePass:3523244499",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.beginComputePass:3523244499"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.beginComputePass:703389977",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.beginComputePass:703389977"
       ],
       "outputKinds": []
     },
@@ -49489,8 +49489,8 @@
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.clearBuffer:1800194111",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.clearBuffer:1800194111"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.clearBuffer:2307697425",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.clearBuffer:2307697425"
       ],
       "outputKinds": []
     },
@@ -49499,8 +49499,8 @@
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.copyBufferToBuffer:3143150371",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.copyBufferToBuffer:3143150371"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.copyBufferToBuffer:4157082988",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.copyBufferToBuffer:4157082988"
       ],
       "outputKinds": []
     },
@@ -49509,8 +49509,8 @@
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.copyTextureToTexture:225996500",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.copyTextureToTexture:225996500"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.copyTextureToTexture:3703840263",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.copyTextureToTexture:3703840263"
       ],
       "outputKinds": []
     },
@@ -49529,8 +49529,8 @@
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUComputePassEncoder.dispatchWorkgroups:453877330",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUComputePassEncoder.dispatchWorkgroups:453877330"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUComputePassEncoder.dispatchWorkgroups:2306328927",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUComputePassEncoder.dispatchWorkgroups:2306328927"
       ],
       "outputKinds": []
     },
@@ -49539,8 +49539,8 @@
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUComputePassEncoder.end:1169790793",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUComputePassEncoder.end:1169790793"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUComputePassEncoder.end:2768132602",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUComputePassEncoder.end:2768132602"
       ],
       "outputKinds": []
     },
@@ -49549,8 +49549,8 @@
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUComputePassEncoder.setBindGroup:1974548886",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUComputePassEncoder.setBindGroup:1974548886"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUComputePassEncoder.setBindGroup:142093524",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUComputePassEncoder.setBindGroup:142093524"
       ],
       "outputKinds": []
     },
@@ -49559,8 +49559,8 @@
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUComputePassEncoder.setPipeline:2044185398",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUComputePassEncoder.setPipeline:2044185398"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUComputePassEncoder.setPipeline:1600872137",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUComputePassEncoder.setPipeline:1600872137"
       ],
       "outputKinds": []
     },
@@ -49609,8 +49609,8 @@
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createComputePipeline:797909431",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createComputePipeline:797909431"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createComputePipeline:3202875898",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createComputePipeline:3202875898"
       ],
       "outputKinds": []
     },
@@ -49739,8 +49739,8 @@
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUQueue.copyExternalImageToTexture:2735509416",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUQueue.copyExternalImageToTexture:2735509416"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUQueue.copyExternalImageToTexture:1909541119",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUQueue.copyExternalImageToTexture:1909541119"
       ],
       "outputKinds": []
     },
@@ -49799,8 +49799,8 @@
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.setBindGroup:2241984974",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.setBindGroup:2241984974"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.setBindGroup:314403009",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.setBindGroup:314403009"
       ],
       "outputKinds": []
     },
@@ -49819,8 +49819,8 @@
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.setVertexBuffer:2527622801",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.setVertexBuffer:2527622801"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.setVertexBuffer:699569388",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.setVertexBuffer:699569388"
       ],
       "outputKinds": []
     },

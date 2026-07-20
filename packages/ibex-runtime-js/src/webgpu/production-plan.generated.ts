@@ -8,11 +8,11 @@ export const WEBGPU_PRODUCTION_PLAN = {
   "maxPayloadBytes": 16777216,
   "codecReadiness": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-native-codec-not-installed",
   "digests": {
-    "operationSet": "7260930fae40730dae2d9c2bd2f6f94194612fca5085a9df7ef43fc27d886e4a",
-    "semanticProgramSet": "01f485e67db22f05cc75219f769343c3b9efa75005f86d6e0336cf2008f0ec5f",
-    "runtimeRouting": "ee296f4c11ebefee2829b60b98cb1219a4cfdb0c197d7ec1ac7c62c8628f9b4b",
-    "webgpuCVocabulary": "3ef431bceccbb3633353351de534317a435bc0d3a0f9ba6533e41414ad2cec99",
-    "projection": "068f019ffa52f1727c94a139e7812c4e88c0020eb4d21d6312fa95e2c5ceabfc"
+    "operationSet": "54695d036b1e460efa2ccb1e45447de7046892b97d4d0ed6c20ecfb60d865f37",
+    "semanticProgramSet": "db92e5dd36d33450c96e19c202319ccbb820202d861ebaf372162fdfcc21b7ba",
+    "runtimeRouting": "62b7af1c32e8611340e7f61b343c5cc4803045033e3b51f1fed45daf4a1d119e",
+    "webgpuCVocabulary": "2b4f91ca7d179058e1c748114bfc059db337ec1a710998a5790b527177039007",
+    "projection": "a0922b3fdbe355137dc91f0c3864f41379d3d52eff6dafd05c1b4bfa65797974"
   },
   "webIdlVocabulary": {
     "bindingPackage": "@webgpu/types",
@@ -860,7 +860,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     {
       "operationId": "GPUCommandEncoder.beginComputePass",
-      "wireId": 3523244499,
+      "wireId": 703389977,
       "interfaceName": "GPUCommandEncoder",
       "memberName": "beginComputePass",
       "memberKind": "method",
@@ -914,7 +914,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     {
       "operationId": "GPUCommandEncoder.clearBuffer",
-      "wireId": 1800194111,
+      "wireId": 2307697425,
       "interfaceName": "GPUCommandEncoder",
       "memberName": "clearBuffer",
       "memberKind": "method",
@@ -941,7 +941,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     {
       "operationId": "GPUCommandEncoder.copyBufferToBuffer",
-      "wireId": 3143150371,
+      "wireId": 4157082988,
       "interfaceName": "GPUCommandEncoder",
       "memberName": "copyBufferToBuffer",
       "memberKind": "method",
@@ -968,7 +968,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     {
       "operationId": "GPUCommandEncoder.copyTextureToTexture",
-      "wireId": 225996500,
+      "wireId": 3703840263,
       "interfaceName": "GPUCommandEncoder",
       "memberName": "copyTextureToTexture",
       "memberKind": "method",
@@ -1373,7 +1373,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     {
       "operationId": "GPUDevice.createComputePipeline",
-      "wireId": 797909431,
+      "wireId": 3202875898,
       "interfaceName": "GPUDevice",
       "memberName": "createComputePipeline",
       "memberKind": "method",
@@ -1697,7 +1697,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     {
       "operationId": "GPUQueue.copyExternalImageToTexture",
-      "wireId": 2735509416,
+      "wireId": 1909541119,
       "interfaceName": "GPUQueue",
       "memberName": "copyExternalImageToTexture",
       "memberKind": "method",
@@ -1751,7 +1751,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     {
       "operationId": "GPUComputePassEncoder.dispatchWorkgroups",
-      "wireId": 453877330,
+      "wireId": 2306328927,
       "interfaceName": "GPUComputePassEncoder",
       "memberName": "dispatchWorkgroups",
       "memberKind": "method",
@@ -1778,7 +1778,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     {
       "operationId": "GPUComputePassEncoder.end",
-      "wireId": 1169790793,
+      "wireId": 2768132602,
       "interfaceName": "GPUComputePassEncoder",
       "memberName": "end",
       "memberKind": "method",
@@ -1805,7 +1805,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     {
       "operationId": "GPUComputePassEncoder.setBindGroup",
-      "wireId": 1974548886,
+      "wireId": 142093524,
       "interfaceName": "GPUComputePassEncoder",
       "memberName": "setBindGroup",
       "memberKind": "method",
@@ -1832,7 +1832,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     {
       "operationId": "GPUComputePassEncoder.setPipeline",
-      "wireId": 2044185398,
+      "wireId": 1600872137,
       "interfaceName": "GPUComputePassEncoder",
       "memberName": "setPipeline",
       "memberKind": "method",
@@ -1913,7 +1913,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     {
       "operationId": "GPURenderPassEncoder.setBindGroup",
-      "wireId": 2241984974,
+      "wireId": 314403009,
       "interfaceName": "GPURenderPassEncoder",
       "memberName": "setBindGroup",
       "memberKind": "method",
@@ -1967,7 +1967,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     {
       "operationId": "GPURenderPassEncoder.setVertexBuffer",
-      "wireId": 2527622801,
+      "wireId": 699569388,
       "interfaceName": "GPURenderPassEncoder",
       "memberName": "setVertexBuffer",
       "memberKind": "method",

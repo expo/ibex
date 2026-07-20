@@ -2,7 +2,7 @@
   "schema": "ibex/webgpu-compute-pipeline-conversion-fixtures/1",
   "source": {
     "typegpuVersion": "0.11.9",
-    "exactSemanticJoinSha256": "bb69afa17dabd7c7d7508d077d4c8fe4b1e19344d8b86518b696f4076d638713",
+    "exactSemanticJoinSha256": "08c0bc97f5228c0733dac44cc1dbb406ae5969aa03fd4cecca46a3bbcb0c4f55",
     "projectionSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
     "projectionCanonicalization": "recursive-key-sorted-json-utf8",
     "disposition": "authenticated-workload-cohort-conversion-only-no-native-or-install-claim"
