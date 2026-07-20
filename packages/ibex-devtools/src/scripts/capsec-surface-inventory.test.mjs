@@ -5694,11 +5694,12 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       ]),
     );
 
+    const streamSource = fs.readFileSync(
+      path.join(repoRoot, "src/engine/bootstrap/web-streams-polyfill.js"),
+      "utf8",
+    );
     const streamRows = scanStaticGlobalApiSurfaces(
-      fs.readFileSync(
-        path.join(repoRoot, "src/engine/bootstrap/web-streams-polyfill.js"),
-        "utf8",
-      ),
+      streamSource,
       "src/engine/bootstrap/web-streams-polyfill.js",
     );
     expect(streamRows.map((row) => row.name)).toEqual(
@@ -5715,6 +5716,13 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       streamRows.find((row) => row.name === "global:WebStreamsPolyfill")
         .metadata.semanticRole,
     ).toBe("implementation-container");
+    const windowsStreamRows = scanStaticGlobalApiSurfaces(
+      streamSource.replace(/\n/gu, "\r\n"),
+      "src/engine/bootstrap/web-streams-polyfill.js",
+    );
+    expect(windowsStreamRows.map((row) => row.name)).toEqual(
+      streamRows.map((row) => row.name),
+    );
 
     const compatRows = scanStaticGlobalApiSurfaces(
       fs.readFileSync(
