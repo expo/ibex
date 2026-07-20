@@ -11,7 +11,9 @@ uses a policy-bound, byte-pinned offline verifier and reconstructive transport
 verification; installer publication uses validated checkout ancestry and
 atomically released, restart-recoverable serialization records; and the closed
 build, post-link, and additive Phase 2 publication/evidence contracts bind
-complete payload, executable replay, and mapped execution membership. The
+complete payload, executable replay, and mapped execution membership. A
+checked, non-inheriting Git promotion-lineage contract separates the closed
+artifact-source revision from a later evidence-only admission merge. The
 portable macOS package is emitted for every `main` revision. Acceptance,
 runtime consumption, and advertisements remain off pending a real private Ibex
 corpus and the remaining build/runtime evidence gates.)
@@ -1019,6 +1021,91 @@ must be regenerated under the new schema. Because the full-profile
 advertisement set is currently empty, this migration grants no previously
 unavailable target.
 
+### Promotion lineage and admission
+
+Package production and target promotion cannot be one self-referential Git
+revision. Let **A** be the exact artifact-source commit: the portable package,
+build, post-link verification, runtime evidence, and conformance run all bind
+to A while the legacy trust-policy field
+`portableArtifactAcceptanceEnabled` remains `false`, the v1 target attestation
+and advertisement arrays remain empty, and the checked admission catalog at
+`schemas/portable-engine-promotion-admission-catalog-v1.json` is disabled and
+empty. Let **P** be one reviewable promotion-topic commit whose sole parent is
+A. Let **C** be the ordinary non-fast-forward GitHub pull-request merge whose
+first parent is A, second parent is P, and tree equals P's tree exactly.
+
+The first contract admits only that topology. Fast-forward, squash, rebase,
+multi-commit topic, first-parent drift, and merge-tree adjustment forms are
+rejected. This deliberate narrowness makes the current checkout itself part of
+the admission: a later ordinary descendant **D**, even with C's tree unchanged,
+is not the exact two-parent merge and receives no inherited authority. Repeating
+the ceremony from A with another direct topic and merge can admit the same
+exact tree again, but that is a new reviewed merge, not descendant inheritance.
+
+The catalog is RFC 8785 canonical JSON followed by exactly one LF. Its disabled
+form has no admissions. Its active form has exactly one
+`ibex/portable-engine-promotion-admission/1` record with the source revision and
+tree object ID, fixed topology class, target triple, portable artifact ID, the
+complete changed-artifact rows, and `admissionDigest`. The digest is:
+
+```text
+"sha256-" || base64url(
+  SHA-256("ibex.portable-engine-promotion-admission.v1\0" ||
+          JCS(admission without admissionDigest))
+)
+```
+
+The catalog is the admission document and therefore does not list its own blob
+ID or digest: doing so would create a Git-blob fixed point. Its authority is
+instead bound by being the exact checked path in C and P's identical tree, by
+the exact A-to-C changed-path comparison, and by the digest over every other
+admission field. Schema validity or the checked active golden vector alone
+grants no authority; only the production lineage verifier's successful result
+does.
+
+Every changed leaf except the catalog is named exactly once by a row containing
+`role, path, mode, blobObjectId, size, digest`. Rows are strictly UTF-8-byte
+sorted. Modes are exactly `100644`; symlinks, gitlinks/submodules, executable
+blobs, deletions, renames, and copies are forbidden. Blob IDs are unique among
+promotion artifacts and may not reuse any blob ID from A. The exact role/path
+surface is one in-place target attestation, one in-place derived target
+advertisement, and one or more newly added JSON evidence blobs beneath:
+
+```text
+capsec/conformance/portable-promotions/
+  <sourceRevision>/<targetTriple>/<portableArtifactId>/...
+```
+
+The complete leaf maps of A and C must differ by exactly the catalog plus those
+rows. An equivalent, renamed, copied, or otherwise unlisted file therefore
+fails even when every listed row remains valid. The source target must already
+exist in A's checked portable policy; C cannot widen target policy or change
+code because neither path class is promotion-only.
+
+The Darwin v1 verifier uses `/usr/bin/git` under an exact replacement
+environment with replacement objects, lazy fetch, ambient Git configuration,
+and optional locking disabled. It requires the canonical SHA-1 worktree root
+and a clean tracked/untracked checkout; independently hashes every raw commit,
+tree, catalog, and listed blob with Git's type-and-length object prefix; and
+parses parent/tree identity from those raw objects rather than revision-walk or
+diff output. It pins no-follow descriptors for the root/effective-UID-owned,
+non-group/world-writable, non-write-ACL checkout ancestry, Git worktree/common/
+object control directories, the lexical linked-worktree gitfile plus its
+common-directory selector/backlink, repository/worktree config, HEAD and its
+loose or packed symbolic ref, index, every bounded local object alternate,
+OS-trusted Git executable, verifier, digest primitive, schema, and catalog.
+Repository config includes and HTTP alternates are forbidden. Descriptor
+identity, path identity, bytes, HEAD, and cleanliness are rejoined after all
+authority reads. Other
+platforms fail closed until they have an explicitly reviewed OS/Git/ACL trust
+adapter; their test lanes exercise the schema and platform gate without
+claiming Darwin authority.
+
+This checked foundation is not yet connected to installation, build
+consumption, runtime identity, Host target cells, or advertisement loading. Its
+catalog remains disabled in the code revision that introduces it, and it makes
+no physical promotion claim.
+
 ## Cross-runner conformance authority
 
 Portable engine equality removes one blocker; it does not replace LLP 0032's
@@ -1542,6 +1629,10 @@ following:
   post-link binding before conformance begins;
 - target reports and advertisements contain no absolute path or host-local
   object identity;
+- portable promotion accepts only the current exact A/P/C merge topology and
+  complete reviewed blob set; code drift, path/mode/object/digest drift,
+  catalog self-hashing, or an unchanged later descendant receives no inherited
+  authority;
 - Host startup rejects a valid advertisement paired with an unverified local
   mapping, and rejects a valid local mapping paired with another artifact's
   advertisement;

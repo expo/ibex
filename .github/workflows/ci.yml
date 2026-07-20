@@ -94,6 +94,11 @@ jobs:
             bun test "$test_file"
           done
 
+      # The checked promotion catalog and platform gate are portable. The
+      # raw-Git/ACL authority corpus runs only on its admitted Darwin adapter.
+      - name: Test portable-engine promotion lineage contract
+        run: bun run test:portable-hermes-promotion-lineage
+
       # One drift gate, shared verbatim with the local land-time check so CI
       # and `bun run check:drift` can never diverge on what "current" means
       # (a divergent inline copy previously covered builtin_manifest.generated.rs
