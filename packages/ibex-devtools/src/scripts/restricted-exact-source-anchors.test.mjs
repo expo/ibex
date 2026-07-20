@@ -791,6 +791,141 @@ void install(Runtime& rt) {
     expect(incomplete).toEqual([]);
   });
 
+  test("binds variable-assigned loader functions to their exact bodies", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.loader.function.javascript.module-syntax",
+        observedKey: "loader:function:javascript:looksLikeModuleSyntax",
+        targetVariant: "all",
+      },
+      "src/engine/bootstrap/module-loader.js#looksLikeModuleSyntax",
+    );
+    expect(binding.locatorKind).toBe("loader-javascript-function");
+    const source = fs.readFileSync("src/engine/bootstrap/module-loader.js");
+    const definition = source.subarray(binding.sites[0].startByte, binding.sites[0].endByte).toString();
+    expect(definition).toMatch(/^const looksLikeModuleSyntax = function/u);
+  });
+
+  test("binds global loader entry publication through its exact producer", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.loader.entry.exact-require",
+        observedKey: "loader:entry:exact-require",
+        targetVariant: "all",
+      },
+      "src/engine/bootstrap/module-loader.js#globalThis.__exactRequire",
+    );
+    expect(binding.locatorKind).toBe("loader-global-entry-route");
+    const source = fs.readFileSync("src/engine/bootstrap/module-loader.js");
+    expect(source.subarray(binding.sites[1].startByte, binding.sites[1].endByte).toString()).toContain(
+      "globalThis.__exactRequire = exactRequire",
+    );
+  });
+
+  test("binds loader internal routes through exact registration and dispatch", () => {
+    for (const specifier of ["bun:internal-for-testing", "internal/util/debuglog"]) {
+      const binding = resolveRestrictedExactBranchSourceBinding(
+        {
+          branchId: `surface.loader.internal.${specifier}`,
+          observedKey: `loader:internal-route:${specifier}`,
+          targetVariant: "all",
+        },
+        `src/engine/bootstrap/module-loader.js#internal-route:${specifier}`,
+      );
+      expect(binding.locatorKind).toBe("loader-internal-route");
+      expect(binding.sites.some((site) => site.role === "registration")).toBe(true);
+      expect(binding.sites.some((site) => site.role === "dispatch")).toBe(true);
+    }
+  });
+
+  test("binds a lazy loader installer to its exact specifier selector and trigger", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.loader.lazy.fs-promises",
+        observedKey: "loader:lazy-installer:__exactEnsureFs:node:fs/promises",
+        targetVariant: "all",
+      },
+      "src/engine/bootstrap/module-loader.js#__exactEnsureFs:node:fs/promises",
+    );
+    expect(binding.locatorKind).toBe("loader-lazy-installer-route");
+    expect(binding.sites.map((site) => site.role)).toEqual([
+      "definition",
+      "selector",
+      "dispatch",
+    ]);
+  });
+
+  test("binds nested and owner-ambiguous Rust loader operations exactly", () => {
+    const someBinding = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.loader.external.resolution",
+        observedKey: "loader:external-calls:resolution",
+        targetVariant: "all",
+      },
+      "src/module_loader/mod.rs#resolve_package_import:external:call:Some:count-3",
+    );
+    expect(someBinding.locatorKind).toBe("loader-rust-external-call-route");
+    expect(someBinding.producerPaths).toHaveLength(3);
+    const ownedFd = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.loader.operation.from-owned-fd",
+        observedKey: "loader:operation:resolution:from-owned-fd",
+        targetVariant: "all",
+      },
+      "src/module_loader/mod.rs#new:operation:qualified:std::fs::File::from",
+    );
+    expect(ownedFd.locatorKind).toBe("loader-rust-operation-route");
+    expect(ownedFd.producerPaths).toHaveLength(1);
+  });
+
+  test("composes loader kind producers and keeps closed kinds as refusals", () => {
+    const builtin = buildRestrictedExactBranchSourceRoute(
+      {
+        branchId: "surface.loader.kind.builtin",
+        observedKey: "loader:kind:builtin",
+        targetVariant: "all",
+      },
+      [
+        "src/engine/bootstrap/module-loader.js#kind:builtin",
+        "src/module_loader/mod.rs#kind:builtin",
+      ],
+    );
+    expect(builtin.status).toBe("executable");
+    expect(builtin.producerPaths.length).toBeGreaterThan(1);
+    const wasm = buildRestrictedExactBranchSourceRoute(
+      {
+        branchId: "surface.loader.kind.wasm",
+        observedKey: "loader:kind:wasm",
+        targetVariant: "all",
+      },
+      ["src/module_loader/mod.rs#kind:wasm"],
+    );
+    expect(wasm.status).toBe("executable");
+    expect(wasm.producerPaths).toEqual([]);
+    expect(wasm.refusalPaths.length).toBeGreaterThan(0);
+  });
+
+  test("binds every loader implementation branch to an executable source route", () => {
+    const implementation = JSON.parse(
+      fs.readFileSync("capsec/generated/implementation-manifest.json", "utf8"),
+    );
+    const incomplete = [];
+    for (const branch of implementation.surfaces.filter(
+      (surface) => surface.observedKey.startsWith("loader:"),
+    )) {
+      const refs = [...new Set([
+        ...branch.sourceRefs,
+        ...branch.enforcementRoute.sourceRefs,
+        ...branch.enforcementRoute.proofSourceRefs,
+      ])];
+      const route = buildRestrictedExactBranchSourceRoute(branch, refs);
+      if (route.status !== "executable") {
+        incomplete.push({ branchId: branch.branchId, unresolved: route.unresolved });
+      }
+    }
+    expect(incomplete).toEqual([]);
+  });
+
   test("uses UTF-8 byte offsets and isolates alternate-root caches", () => {
     const firstRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-anchor-a-"));
     const secondRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-anchor-b-"));

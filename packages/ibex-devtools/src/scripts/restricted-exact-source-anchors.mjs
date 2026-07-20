@@ -153,6 +153,40 @@ function typeDeclarationRange(text, name) {
   return endByte < 0 ? null : { startByte, endByte };
 }
 
+function javascriptNamedFunctionRange(text, name) {
+  const escaped = escapeRegExp(name);
+  const patterns = [
+    new RegExp(`(?:^|\\n)\\s*(?:const|let|var)\\s+${escaped}\\s*=\\s*(?:async\\s+)?function\\b`, "gu"),
+    new RegExp(`(?:^|\\n)\\s*(?:async\\s+)?function\\s+${escaped}\\b`, "gu"),
+  ];
+  const matches = patterns.flatMap((pattern) => [...text.matchAll(pattern)]);
+  if (matches.length !== 1) return null;
+  const startByte = matches[0].index + matches[0][0].search(/\S/u);
+  const opening = text.indexOf("{", startByte);
+  const endByte = opening < 0 ? -1 : matchingBraceEnd(text, opening);
+  return endByte > opening ? { startByte, endByte } : null;
+}
+
+function rustFunctionRanges(text, name) {
+  const escaped = escapeRegExp(name);
+  const pattern = new RegExp(
+    `(?:^|\\n)\\s*(?:pub(?:\\([^)]*\\))?\\s+)?(?:unsafe\\s+)?(?:async\\s+)?fn\\s+${escaped}\\b`,
+    "gu",
+  );
+  const matches = [...text.matchAll(pattern)];
+  return matches.map((match) => {
+    const startByte = match.index + match[0].search(/\S/u);
+    const opening = text.indexOf("{", startByte);
+    const endByte = opening < 0 ? -1 : matchingBraceEnd(text, opening);
+    return endByte > opening ? { startByte, endByte } : null;
+  }).filter(Boolean);
+}
+
+function rustFunctionRange(text, name) {
+  const ranges = rustFunctionRanges(text, name);
+  return ranges.length === 1 ? ranges[0] : null;
+}
+
 function javaTypeRanges(text) {
   const ranges = [];
   const pattern = /\b(?:class|interface|enum)\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/gu;
@@ -277,7 +311,12 @@ function tokenRangesWithin(text, token, containerRange) {
   return ranges;
 }
 
-function callExpressionRangesWithin(text, callee, containerRange) {
+function callExpressionRangesWithin(
+  text,
+  callee,
+  containerRange,
+  { includeNested = false } = {},
+) {
   const ranges = [];
   let state = "code";
   for (let index = containerRange.startByte; index < containerRange.endByte; index += 1) {
@@ -331,7 +370,7 @@ function callExpressionRangesWithin(text, callee, containerRange) {
     const endByte = matchingDelimiterEnd(text, opening, "(", ")");
     if (endByte < 0 || endByte > containerRange.endByte) continue;
     ranges.push({ startByte: index, endByte });
-    index = endByte - 1;
+    if (!includeNested) index = endByte - 1;
   }
   return ranges;
 }
@@ -2292,6 +2331,527 @@ function cliAuthenticatedIngressBinding({ branch, sourceRef, sourcePath, locator
   });
 }
 
+function loaderFunctionBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (
+    !branch?.observedKey?.match(/^loader:function:(?:javascript|rust):/u)
+    || !["src/engine/bootstrap/module-loader.js", "src/module_loader/mod.rs", "src/module_loader/transpile.rs"].includes(sourcePath)
+  ) return null;
+  const functionName = decodeURIComponent(branch.observedKey.split(":").at(-1));
+  if (locator !== functionName) return null;
+  const definition = sourcePath.endsWith(".js")
+    ? javascriptNamedFunctionRange(text, locator)
+    : rustFunctionRange(text, locator);
+  const resolvedDefinition = definition
+    ?? declarationRange(text, locator)
+    ?? robustFunctionDeclarationRange(text, locator);
+  if (!resolvedDefinition) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "definition", siteKey: `${locator}.definition`, range: resolvedDefinition, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${locator}.named-function`, range: resolvedDefinition, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: sourcePath.endsWith(".js") ? "loader-javascript-function" : "loader-rust-function",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0loader-function`),
+      conditionId: `loader-function:${sourcePath.endsWith(".js") ? "javascript" : "rust"}`,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function loaderNamedTerminalBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (
+    !branch?.observedKey?.startsWith("loader:")
+    || branch.observedKey.startsWith("loader:function:")
+    || branch.observedKey.startsWith("loader:external-calls:")
+    || branch.observedKey.startsWith("loader:operation:")
+    || locator.includes(":")
+    || ![
+      "src/engine/bootstrap/module-loader.js",
+      "src/module_loader/mod.rs",
+      "src/module_loader/transpile.rs",
+      "src/module_loader/security.rs",
+    ].includes(sourcePath)
+  ) return null;
+  let definition = sourcePath.endsWith(".js")
+    ? javascriptNamedFunctionRange(text, locator)
+    : rustFunctionRange(text, locator);
+  if (!definition && locator === "new") {
+    const candidates = rustFunctionRanges(text, locator).filter((range) =>
+      text.slice(range.startByte, range.endByte).includes("expected_boundary_object"));
+    definition = candidates.length === 1 ? candidates[0] : null;
+  }
+  if (!definition && locator === "manifest_input") {
+    const candidates = rustFunctionRanges(text, locator).filter((range) =>
+      text.slice(range.startByte, range.endByte).includes("uncaptured_package_manifest_probes"));
+    definition = candidates.length === 1 ? candidates[0] : null;
+  }
+  const resolvedDefinition = definition
+    ?? declarationRange(text, locator)
+    ?? robustFunctionDeclarationRange(text, locator);
+  if (!resolvedDefinition) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "definition", siteKey: `${locator}.terminal-definition`, range: resolvedDefinition, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${locator}.terminal-publication`, range: resolvedDefinition, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: sourcePath.endsWith(".js") ? "loader-javascript-terminal" : "loader-rust-terminal",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0loader-terminal`),
+      conditionId: "loader-route:selected-terminal",
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function loaderInternalRouteBinding({ branch, sourceRef, sourcePath, locator, absolute, text, bytes }) {
+  if (
+    !branch?.observedKey?.startsWith("loader:internal-route:")
+    || sourcePath !== "src/engine/bootstrap/module-loader.js"
+    || !locator.startsWith("internal-route:")
+  ) return null;
+  const specifier = locator.slice("internal-route:".length);
+  const index = javascriptIndex(absolute, text);
+  const loadInternal = javascriptNamedFunctionRange(text, "loadInternal");
+  const streamInternal = javascriptNamedFunctionRange(text, "_loadNamedStreamInternal");
+  if (!loadInternal || !streamInternal) return null;
+
+  const candidates = [];
+  for (const dispatcher of [loadInternal, streamInternal]) {
+    for (const quote of ["'", '"']) {
+      for (const line of tokenRangesWithin(text, `${quote}${specifier}${quote}`, dispatcher)) {
+        const slice = text.slice(line.startByte, line.endByte);
+        if (/\b(?:normalized|name)\b/u.test(slice)) {
+          candidates.push({ dispatcher, route: line });
+        }
+      }
+    }
+  }
+
+  const internalModules = declarationFor(index, "internalModules")?.value;
+  const property = objectProperty(internalModules, specifier);
+  if (property) {
+    const genericDispatch = tokenRangesWithin(
+      text,
+      "internalModules.hasOwnProperty(normalized)",
+      loadInternal,
+    );
+    if (genericDispatch.length !== 1) return null;
+    candidates.push({
+      dispatcher: loadInternal,
+      route: { startByte: property.start, endByte: property.end },
+      dispatch: genericDispatch[0],
+    });
+  }
+  const unique = [...new Map(candidates.map((candidate) => [
+    `${candidate.route.startByte}:${candidate.route.endByte}`,
+    candidate,
+  ])).values()];
+  if (unique.length === 0 || (unique.length > 1 && specifier !== "internal/util/debuglog")) return null;
+  const definitionRanges = [...new Map(unique.map(({ dispatcher }) => [
+    `${dispatcher.startByte}:${dispatcher.endByte}`,
+    dispatcher,
+  ])).values()];
+  const sites = [
+    ...definitionRanges.map((range, index) => sourceSite({ sourceRef, path: sourcePath, role: "definition", siteKey: `${specifier}.dispatcher.${index + 1}`, range, text, bytes })),
+    ...unique.map(({ route }, index) => sourceSite({ sourceRef, path: sourcePath, role: "registration", siteKey: `${specifier}.route.${index + 1}`, range: route, text, bytes })),
+    ...unique.map(({ route, dispatch }, index) => sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: `${specifier}.dispatch.${index + 1}`, range: dispatch ?? route, text, bytes })),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "loader-internal-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0internal-route`),
+      conditionId: "loader-route:internal-specifier",
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function loaderInstallerBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (
+    branch?.observedKey !== "loader:install"
+    || sourcePath !== "src/engine/hermes_bootstrap.cc"
+    || locator !== "installModuleLoader"
+  ) return null;
+  const definition = robustFunctionDeclarationRange(text, locator)
+    ?? declarationRange(text, locator);
+  if (!definition) return null;
+  let dispatches = callExpressionRangesWithin(text, "eval_bootstrap_script", definition);
+  dispatches = dispatches.filter((range) =>
+    text.slice(range.startByte, range.endByte).includes('"<module-loader>"'));
+  if (dispatches.length !== 2) {
+    dispatches = tokenRangesWithin(text, "eval_bootstrap_script(", definition);
+    dispatches = dispatches.filter((range) => {
+      const following = text.slice(range.startByte, Math.min(definition.endByte, range.endByte + 500));
+      return following.includes('"<module-loader>"');
+    });
+  }
+  if (dispatches.length !== 2) return null;
+  const definitionSite = sourceSite({ sourceRef, path: sourcePath, role: "definition", siteKey: `${locator}.definition`, range: definition, text, bytes });
+  const dispatchSites = dispatches.map((range, index) => sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "dispatch",
+    siteKey: `${locator}.evaluation.${index + 1}`,
+    range,
+    text,
+    bytes,
+  }));
+  const sites = [definitionSite, ...dispatchSites];
+  const conditions = ["module-loader:precompiled-bootstrap", "module-loader:source-bootstrap"];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "loader-bootstrap-installer-route",
+    resolutionPolicy: "conditioned-alternatives",
+    sites,
+    producerPaths: dispatchSites.map((site, index) => ({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0${conditions[index]}`),
+      conditionId: conditions[index],
+      requiredSiteIds: [definitionSite.siteId, site.siteId],
+    })),
+  });
+}
+
+function loaderLazyInstallerBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (
+    !branch?.observedKey?.startsWith("loader:lazy-installer:")
+    || sourcePath !== "src/engine/bootstrap/module-loader.js"
+  ) return null;
+  const separator = locator.indexOf(":");
+  if (separator < 1) return null;
+  const installer = locator.slice(0, separator);
+  const specifier = locator.slice(separator + 1);
+  const load = javascriptNamedFunctionRange(text, "load");
+  if (!load) return null;
+  const guardToken = `typeof ${installer} === 'function'`;
+  const guards = tokenRangesWithin(text, guardToken, load);
+  if (guards.length !== 1) return null;
+  const opening = text.indexOf("{", guards[0].startByte);
+  const endByte = opening < 0 ? -1 : matchingBraceEnd(text, opening);
+  if (endByte < 0) return null;
+  const guardRange = { startByte: guards[0].startByte, endByte };
+  const selectors = ["'", '"'].flatMap((quote) =>
+    tokenRangesWithin(text, `${quote}${specifier}${quote}`, guardRange));
+  const dispatches = callExpressionRangesWithin(text, installer, guardRange);
+  if (selectors.length !== 1 || dispatches.length !== 1) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "definition", siteKey: `${installer}.load-dispatcher`, range: load, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "selector", siteKey: `${installer}.${specifier}.selector`, range: selectors[0], text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: `${installer}.trigger`, range: dispatches[0], text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "loader-lazy-installer-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0lazy-installer`),
+      conditionId: "loader-route:lazy-specifier",
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function loaderGlobalEntryBinding({ branch, sourceRef, sourcePath, locator, absolute, text, bytes }) {
+  if (
+    !branch?.observedKey?.startsWith("loader:entry:")
+    || sourcePath !== "src/engine/bootstrap/module-loader.js"
+    || !locator.startsWith("globalThis.")
+  ) return null;
+  const segments = locator.split(".");
+  const index = javascriptIndex(absolute, text);
+  const assignments = index.assignments.filter((row) =>
+    JSON.stringify(row.segments) === JSON.stringify(segments));
+  if (assignments.length !== 1) return null;
+  const assignment = assignments[0];
+  const resolved = resolveIdentifierValue(index, assignment.value);
+  const producer = resolved.declaration?.node ?? resolved.node ?? assignment.value;
+  if ((!producer?.start && producer?.start !== 0) || !producer?.end) return null;
+  const publication = assignment.parent?.type === "ExpressionStatement"
+    ? assignment.parent
+    : assignment.node;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${locator}.producer`, range: { startByte: producer.start, endByte: producer.end }, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${locator}.publication`, range: { startByte: publication.start, endByte: publication.end }, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "loader-global-entry-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0loader-global-entry`),
+      conditionId: "loader-entry:global-publication",
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function loaderRustContainerRange(text, container) {
+  return rustFunctionRange(text, container)
+    ?? declarationRange(text, container)
+    ?? robustFunctionDeclarationRange(text, container);
+}
+
+function loaderRustContainerRanges(text, container) {
+  let exact = rustFunctionRanges(text, container);
+  if (container === "new") {
+    exact = exact.filter((range) =>
+      text.slice(range.startByte, range.endByte).includes("expected_boundary_object"));
+  } else if (container === "manifest_input") {
+    exact = exact.filter((range) =>
+      text.slice(range.startByte, range.endByte).includes("uncaptured_package_manifest_probes"));
+  }
+  if (exact.length > 0) return exact;
+  const fallback = loaderRustContainerRange(text, container);
+  return fallback ? [fallback] : [];
+}
+
+function rustOperationCalls(text, container, kind, operation) {
+  const callee = kind === "method" ? operation.split(":").at(-1) : operation;
+  let calls = callExpressionRangesWithin(text, callee, container, { includeNested: true });
+  if (kind === "method") {
+    calls = calls.filter((range) => text[range.startByte - 1] === ".");
+  } else if (kind === "call") {
+    calls = calls.filter((range) =>
+      !/[A-Za-z_$][A-Za-z0-9_$:]*::$/u.test(
+        text.slice(Math.max(container.startByte, range.startByte - 160), range.startByte),
+      ));
+  }
+  if (calls.length === 0) {
+    calls = tokenRangesWithin(text, `${callee}(`, container).filter((range) =>
+      kind !== "method" || text.slice(range.startByte, range.endByte).includes(`.${callee}(`));
+  }
+  return calls;
+}
+
+function loaderRustOperationBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (
+    !branch?.observedKey?.startsWith("loader:operation:")
+    || sourcePath !== "src/module_loader/mod.rs"
+  ) return null;
+  const marker = ":operation:";
+  const markerIndex = locator.indexOf(marker);
+  if (markerIndex < 1) return null;
+  const containerName = locator.slice(0, markerIndex);
+  const operationParts = locator.slice(markerIndex + marker.length).split(":");
+  const kind = operationParts.shift();
+  if (!["qualified", "method"].includes(kind)) return null;
+  const operation = operationParts.join(":");
+  const containers = loaderRustContainerRanges(text, containerName);
+  if (containers.length === 0) return null;
+  const calls = containers.flatMap((container, containerIndex) =>
+    rustOperationCalls(text, container, kind, operation).map((range) => ({ range, container, containerIndex })));
+  if (calls.length === 0) return null;
+  const definitionSites = containers.map((container, index) => sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "definition",
+    siteKey: `${containerName}.operation-container.${index + 1}`,
+    range: container,
+    text,
+    bytes,
+  }));
+  const dispatchSites = calls.map(({ range }, index) => sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "dispatch",
+    siteKey: `${operation}.operation.${index + 1}`,
+    range,
+    text,
+    bytes,
+  }));
+  const sites = [
+    ...definitionSites.filter((_, containerIndex) => calls.some((call) => call.containerIndex === containerIndex)),
+    ...dispatchSites,
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "loader-rust-operation-route",
+    resolutionPolicy: dispatchSites.length > 1 ? "conditioned-alternatives" : "composite-path",
+    sites,
+    producerPaths: dispatchSites.map((site, index) => ({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0operation\0${index}`),
+      conditionId: `loader-operation:${stableId("site", sourceRef)}:${index + 1}`,
+      requiredSiteIds: [definitionSites[calls[index].containerIndex].siteId, site.siteId],
+    })),
+  });
+}
+
+function loaderRustExternalCallBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (
+    !branch?.observedKey?.startsWith("loader:external-calls:")
+    || !["src/module_loader/mod.rs", "src/module_loader/transpile.rs"].includes(sourcePath)
+  ) return null;
+  const marker = ":external:";
+  const markerIndex = locator.indexOf(marker);
+  if (markerIndex < 1) return null;
+  const containerName = locator.slice(0, markerIndex);
+  const parts = locator.slice(markerIndex + marker.length).split(":");
+  const kind = parts.shift();
+  const countToken = parts.pop();
+  const expected = /^count-(\d+)$/u.exec(countToken)?.[1];
+  if (!["call", "method", "qualified"].includes(kind) || !expected) return null;
+  const operation = parts.join(":");
+  const containers = loaderRustContainerRanges(text, containerName);
+  if (containers.length === 0) return null;
+  const callGroups = containers.map((container, containerIndex) => ({
+    container,
+    containerIndex,
+    calls: rustOperationCalls(text, container, kind, operation),
+  }));
+  const expectedCount = Number(expected);
+  const exactGroups = callGroups.filter((group) => group.calls.length === expectedCount);
+  const selectedGroups = exactGroups.length === 1
+    ? exactGroups
+    : callGroups.flatMap((group) => group.calls).length === expectedCount
+      ? callGroups
+      : [];
+  const calls = selectedGroups.flatMap(({ container, containerIndex, calls: ranges }) =>
+    ranges.map((range) => ({ range, container, containerIndex })));
+  if (calls.length !== expectedCount) return null;
+  const definitionSites = containers.map((container, index) => sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "definition",
+    siteKey: `${containerName}.external-container.${index + 1}`,
+    range: container,
+    text,
+    bytes,
+  }));
+  const dispatchSites = calls.map(({ range }, index) => sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "dispatch",
+    siteKey: `${operation}.external.${index + 1}`,
+    range,
+    text,
+    bytes,
+  }));
+  const sites = [
+    ...definitionSites.filter((_, containerIndex) => calls.some((call) => call.containerIndex === containerIndex)),
+    ...dispatchSites,
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "loader-rust-external-call-route",
+    resolutionPolicy: dispatchSites.length > 1 ? "conditioned-alternatives" : "composite-path",
+    sites,
+    producerPaths: dispatchSites.map((site, index) => ({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0external\0${index}`),
+      conditionId: `loader-external:${stableId("site", sourceRef)}:${index + 1}`,
+      requiredSiteIds: [definitionSites[calls[index].containerIndex].siteId, site.siteId],
+    })),
+  });
+}
+
+function loaderKindBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (!branch?.observedKey?.startsWith("loader:kind:") || !locator.startsWith("kind:")) return null;
+  const kind = branch.observedKey.slice("loader:kind:".length);
+  if (locator.slice("kind:".length) !== kind) return null;
+  if (sourcePath === "src/module_loader/mod.rs") {
+    const term = {
+      builtin: "ModuleKind::Builtin",
+      commonjs: "ModuleKind::CommonJs",
+      esm: "ModuleKind::Esm",
+      json: "ModuleKind::Json",
+      "native-addon": "ModuleType::Addon",
+      wasm: "ModuleType::Wasm",
+    }[kind];
+    if (!term) return null;
+    const testBoundary = text.indexOf("#[cfg(test)]");
+    const production = { startByte: 0, endByte: testBoundary < 0 ? text.length : testBoundary };
+    const ranges = tokenRangesWithin(text, term, production);
+    if (ranges.length === 0) return null;
+    const refusing = ["native-addon", "wasm"].includes(kind);
+    const sites = ranges.map((range, index) => sourceSite({
+      sourceRef,
+      path: sourcePath,
+      role: refusing ? "guard" : "value-producer",
+      siteKey: `${kind}.rust-kind.${index + 1}`,
+      range,
+      text,
+      bytes,
+    }));
+    if (refusing) {
+      return validateRestrictedExactSourceBinding({
+        sourceRef,
+        locatorKind: "loader-rust-kind-refusal",
+        resolutionPolicy: "composite-path",
+        sites,
+        producerPaths: [],
+        refusalPaths: sites.map((site, index) => ({
+          pathId: stableId("refusal", `${branch.branchId}\0${sourceRef}\0${index}`),
+          conditionId: `loader-kind-refusal:${kind}:${index + 1}`,
+          requiredSiteIds: [site.siteId],
+        })),
+      });
+    }
+    const publicationSites = ranges.map((range, index) => sourceSite({
+      sourceRef,
+      path: sourcePath,
+      role: "publication",
+      siteKey: `${kind}.rust-kind-publication.${index + 1}`,
+      range,
+      text,
+      bytes,
+    }));
+    const allSites = [...sites, ...publicationSites];
+    return validateRestrictedExactSourceBinding({
+      sourceRef,
+      locatorKind: "loader-rust-kind-route",
+      resolutionPolicy: ranges.length > 1 ? "conditioned-alternatives" : "composite-path",
+      sites: allSites,
+      producerPaths: sites.map((site, index) => ({
+        pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0${index}`),
+        conditionId: `loader-kind-rust:${kind}:${index + 1}`,
+        requiredSiteIds: [site.siteId, publicationSites[index].siteId],
+      })),
+    });
+  }
+  if (sourcePath === "src/engine/bootstrap/module-loader.js" && ["builtin", "commonjs"].includes(kind)) {
+    const load = javascriptNamedFunctionRange(text, "load");
+    if (!load) return null;
+    const runtimeKind = kind === "commonjs" ? "cjs" : kind;
+    const ranges = ["'", '"'].flatMap((quote) =>
+      tokenRangesWithin(text, `${quote}${runtimeKind}${quote}`, load))
+      .filter((range) => /\bkind\b/u.test(text.slice(range.startByte, range.endByte)));
+    if (ranges.length === 0) return null;
+    const definitionSite = sourceSite({ sourceRef, path: sourcePath, role: "definition", siteKey: `${kind}.javascript-dispatcher`, range: load, text, bytes });
+    const publicationSites = ranges.map((range, index) => sourceSite({
+      sourceRef,
+      path: sourcePath,
+      role: "publication",
+      siteKey: `${kind}.javascript-kind.${index + 1}`,
+      range,
+      text,
+      bytes,
+    }));
+    const sites = [definitionSite, ...publicationSites];
+    return validateRestrictedExactSourceBinding({
+      sourceRef,
+      locatorKind: "loader-javascript-kind-route",
+      resolutionPolicy: publicationSites.length > 1 ? "conditioned-alternatives" : "composite-path",
+      sites,
+      producerPaths: publicationSites.map((site, index) => ({
+        pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0${index}`),
+        conditionId: `loader-kind-javascript:${kind}:${index + 1}`,
+        requiredSiteIds: [definitionSite.siteId, site.siteId],
+      })),
+    });
+  }
+  return null;
+}
+
 export function validateRestrictedExactSourceBinding(binding) {
   binding.refusalPaths ??= [];
   const siteIds = binding.sites.map((site) => site.siteId);
@@ -2438,6 +2998,15 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? websocketContextReleaseBinding({ branch, sourceRef, ...loaded })
     ?? signalDispatchBinding({ branch, sourceRef, ...loaded })
     ?? cliAuthenticatedIngressBinding({ branch, sourceRef, ...loaded })
+    ?? loaderFunctionBinding({ branch, sourceRef, ...loaded })
+    ?? loaderNamedTerminalBinding({ branch, sourceRef, ...loaded })
+    ?? loaderInternalRouteBinding({ branch, sourceRef, ...loaded })
+    ?? loaderInstallerBinding({ branch, sourceRef, ...loaded })
+    ?? loaderLazyInstallerBinding({ branch, sourceRef, ...loaded })
+    ?? loaderGlobalEntryBinding({ branch, sourceRef, ...loaded })
+    ?? loaderRustOperationBinding({ branch, sourceRef, ...loaded })
+    ?? loaderRustExternalCallBinding({ branch, sourceRef, ...loaded })
+    ?? loaderKindBinding({ branch, sourceRef, ...loaded })
     ?? cliGeneratedSurfaceBinding({ branch, sourceRef, ...loaded })
     ?? cliVisibleCommandBinding({ branch, sourceRef, ...loaded })
     ?? cliNamespaceRefusalBinding({ branch, sourceRef, ...loaded })
@@ -2484,7 +3053,46 @@ export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root =
   const selectedEntries = new Set();
   const producerPaths = [];
   const refusalPaths = [];
-  if (branch.observedKey.match(/^host-abi:(?:java|jni):/u)) {
+  if (branch.observedKey.startsWith("loader:kind:")) {
+    const rustEntry = entries.find(({ binding }) =>
+      ["loader-rust-kind-route", "loader-rust-kind-refusal"].includes(binding.locatorKind));
+    const javascriptEntry = entries.find(({ binding }) =>
+      binding.locatorKind === "loader-javascript-kind-route");
+    if (rustEntry) {
+      selectedEntries.add(rustEntry);
+      if (rustEntry.binding.refusalPaths.length > 0) {
+        refusalPaths.push(...rustEntry.binding.refusalPaths);
+      } else if (javascriptEntry) {
+        selectedEntries.add(javascriptEntry);
+        for (const rustPath of rustEntry.binding.producerPaths) {
+          for (const javascriptPath of javascriptEntry.binding.producerPaths) {
+            const conditionId = `${rustPath.conditionId}+${javascriptPath.conditionId}`;
+            producerPaths.push({
+              pathId: stableId("producer", `${branch.branchId}\0${conditionId}`),
+              conditionId,
+              requiredSiteIds: [
+                ...rustPath.requiredSiteIds,
+                ...javascriptPath.requiredSiteIds,
+              ],
+            });
+          }
+        }
+      } else {
+        producerPaths.push(...rustEntry.binding.producerPaths);
+      }
+    }
+  } else if (branch.observedKey === "loader:transform-engine:swc") {
+    const loaderEntries = entries.filter(({ binding }) => binding.producerPaths.length > 0);
+    if (loaderEntries.length === 2) {
+      for (const entry of loaderEntries) selectedEntries.add(entry);
+      producerPaths.push({
+        pathId: stableId("producer", `${branch.branchId}\0swc-transform-engine`),
+        conditionId: "loader-transform-engine:swc",
+        requiredSiteIds: loaderEntries.flatMap(({ binding }) =>
+          binding.sites.map((site) => site.siteId)),
+      });
+    }
+  } else if (branch.observedKey.match(/^host-abi:(?:java|jni):/u)) {
     const javaEntry = entries.find(({ binding }) =>
       ["android-java-method-route", "android-jni-java-declaration"].includes(binding.locatorKind));
     const nativeEntry = entries.find(({ binding }) =>
