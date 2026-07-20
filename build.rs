@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::io::{BufRead, BufReader, ErrorKind};
 use std::path::Path;
 use std::path::PathBuf;
@@ -6,6 +7,16 @@ use ibex_windows_dll_staging::stage_runtime_dlls;
 
 #[path = "build_support/hermes_profile_provenance.rs"]
 mod hermes_profile_provenance;
+#[path = "build_support/portable_engine_build_consumption.rs"]
+mod portable_engine_build_consumption;
+#[cfg(target_os = "macos")]
+#[path = "build_support/portable_engine_build_preflight.rs"]
+mod portable_engine_build_preflight;
+#[cfg(not(target_os = "macos"))]
+#[path = "build_support/portable_engine_build_preflight_unsupported.rs"]
+mod portable_engine_build_preflight;
+#[path = "build_support/portable_host_tool_runner.rs"]
+mod portable_host_tool_runner;
 
 #[derive(Clone)]
 struct AppleFramework {
@@ -529,6 +540,154 @@ fn main() {
 
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    let target_triple = std::env::var("TARGET").unwrap_or_default();
+    for variable in [
+        portable_engine_build_consumption::ARTIFACT_ID_ENV,
+        portable_engine_build_consumption::STORE_ROOT_ENV,
+        portable_engine_build_consumption::ARCHIVE_DIGEST_ENV,
+        portable_engine_build_preflight::SOURCE_REVISION_ENV,
+        portable_engine_build_preflight::CURRENT_REVISION_ENV,
+        portable_engine_build_preflight::PREFLIGHT_RECEIPT_ENV,
+        portable_engine_build_preflight::PREFLIGHT_NONCE_ENV,
+        portable_engine_build_preflight::CHECKOUT_ROOT_ENV,
+        portable_engine_build_preflight::CARGO_TARGET_MAP_ENV,
+        portable_engine_build_preflight::CARGO_TARGET_MAP_DIGEST_ENV,
+        portable_engine_build_preflight::PROMOTION_ADMISSION_ENV,
+        portable_engine_build_preflight::PROMOTION_ADMISSION_DIGEST_ENV,
+        "RUSTC_WRAPPER",
+    ] {
+        println!("cargo:rerun-if-env-changed={variable}");
+    }
+    let portable_selector_requested = [
+        portable_engine_build_consumption::ARTIFACT_ID_ENV,
+        portable_engine_build_consumption::STORE_ROOT_ENV,
+        portable_engine_build_consumption::ARCHIVE_DIGEST_ENV,
+        portable_engine_build_preflight::SOURCE_REVISION_ENV,
+        portable_engine_build_preflight::CURRENT_REVISION_ENV,
+        portable_engine_build_preflight::PREFLIGHT_RECEIPT_ENV,
+        portable_engine_build_preflight::PREFLIGHT_NONCE_ENV,
+        portable_engine_build_preflight::CHECKOUT_ROOT_ENV,
+        portable_engine_build_preflight::CARGO_TARGET_MAP_ENV,
+        portable_engine_build_preflight::CARGO_TARGET_MAP_DIGEST_ENV,
+        portable_engine_build_preflight::PROMOTION_ADMISSION_ENV,
+        portable_engine_build_preflight::PROMOTION_ADMISSION_DIGEST_ENV,
+    ]
+    .iter()
+    .any(|variable| std::env::var_os(variable).is_some());
+    let portable_engine = if portable_selector_requested {
+        let required_selector = |variable: &str| match std::env::var(variable) {
+            Ok(value) if !value.is_empty() => value,
+            Ok(_) => panic!("{variable} must not be empty in portable Hermes mode"),
+            Err(std::env::VarError::NotPresent) => {
+                panic!("{variable} is required in portable Hermes mode")
+            }
+            Err(std::env::VarError::NotUnicode(_)) => {
+                panic!("{variable} must be valid Unicode")
+            }
+        };
+        let store_root = match std::env::var(portable_engine_build_consumption::STORE_ROOT_ENV) {
+            Ok(value) if !value.is_empty() => Some(PathBuf::from(value)),
+            Ok(_) => panic!(
+                "{} must not be empty in portable Hermes mode",
+                portable_engine_build_consumption::STORE_ROOT_ENV
+            ),
+            Err(std::env::VarError::NotPresent) => None,
+            Err(std::env::VarError::NotUnicode(_)) => panic!(
+                "{} must be valid Unicode",
+                portable_engine_build_consumption::STORE_ROOT_ENV
+            ),
+        };
+        let present_legacy_overrides =
+            portable_engine_build_consumption::LEGACY_ENGINE_OVERRIDE_ENVS
+                .iter()
+                .filter(|variable| std::env::var_os(variable).is_some())
+                .map(|variable| (*variable).to_owned())
+                .collect();
+        let artifact_id = required_selector(portable_engine_build_consumption::ARTIFACT_ID_ENV);
+        let archive_digest =
+            required_selector(portable_engine_build_consumption::ARCHIVE_DIGEST_ENV);
+        let source_revision =
+            required_selector(portable_engine_build_preflight::SOURCE_REVISION_ENV);
+        let current_revision =
+            required_selector(portable_engine_build_preflight::CURRENT_REVISION_ENV);
+        let checkout_root = PathBuf::from(required_selector(
+            portable_engine_build_preflight::CHECKOUT_ROOT_ENV,
+        ));
+        if checkout_root != repo_root {
+            panic!(
+                "{} must equal the resolved checkout root {}",
+                portable_engine_build_preflight::CHECKOUT_ROOT_ENV,
+                repo_root.display()
+            );
+        }
+        let build_authorization =
+            portable_engine_build_preflight::validate_portable_build_preflight(
+                &portable_engine_build_preflight::PortableBuildPreflightRequest {
+                    repo_root: repo_root.to_path_buf(),
+                    artifact_id: artifact_id.clone(),
+                    archive_digest: archive_digest.clone(),
+                    source_revision,
+                    current_revision,
+                    target_triple: target_triple.clone(),
+                    receipt_path: PathBuf::from(required_selector(
+                        portable_engine_build_preflight::PREFLIGHT_RECEIPT_ENV,
+                    )),
+                    nonce: required_selector(portable_engine_build_preflight::PREFLIGHT_NONCE_ENV),
+                    selected_rustc_wrapper: PathBuf::from(required_selector("RUSTC_WRAPPER")),
+                    cargo_target_map_path: PathBuf::from(required_selector(
+                        portable_engine_build_preflight::CARGO_TARGET_MAP_ENV,
+                    )),
+                    cargo_target_map_digest: required_selector(
+                        portable_engine_build_preflight::CARGO_TARGET_MAP_DIGEST_ENV,
+                    ),
+                    promotion_admission_path: PathBuf::from(required_selector(
+                        portable_engine_build_preflight::PROMOTION_ADMISSION_ENV,
+                    )),
+                    promotion_admission_digest: required_selector(
+                        portable_engine_build_preflight::PROMOTION_ADMISSION_DIGEST_ENV,
+                    ),
+                },
+            )
+            .unwrap_or_else(|error| panic!("Portable Hermes build preflight refused: {error}"));
+        let request = portable_engine_build_consumption::PortableEngineRequest {
+            repo_root: repo_root.to_path_buf(),
+            cargo_out_dir: out_dir.clone(),
+            store_root,
+            artifact_id,
+            archive_digest,
+            target_os: target_os.clone(),
+            target_arch: target_arch.clone(),
+            target_triple: target_triple.clone(),
+            ibex_features: portable_engine_build_consumption::active_cargo_features(
+                &manifest_dir.join("Cargo.toml"),
+            )
+            .unwrap_or_else(|error| panic!("Failed to enumerate Cargo features: {error}")),
+            present_legacy_overrides,
+            build_authorization,
+        };
+        let selection = portable_engine_build_consumption::consume_portable_engine(&request)
+            .unwrap_or_else(|error| panic!("Portable Hermes build selection refused: {error}"));
+        selection
+            .write_embedded_outputs(&out_dir)
+            .unwrap_or_else(|error| {
+                panic!("Failed to write portable Hermes build evidence: {error}")
+            });
+        if !selection
+            .rerun_if_changed
+            .contains(&selection.profile_receipt_path)
+        {
+            panic!("Portable Hermes profile receipt is missing from Cargo's input watch set");
+        }
+        for path in &selection.rerun_if_changed {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+        Some(selection)
+    } else {
+        portable_engine_build_consumption::write_absent_embedded_outputs(&out_dir).unwrap_or_else(
+            |error| panic!("Failed to write absent portable Hermes markers: {error}"),
+        );
+        None
+    };
     let default_ios_headers = repo_root
         .join("ios")
         .join("Frameworks")
@@ -553,22 +712,32 @@ fn main() {
         target_arch_to_hermes_dir(&target_arch)
     ));
     let default_windows_headers = default_windows_root.join("include");
-    let hermes_include_dir = std::env::var("HERMES_INCLUDE_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| match target_os.as_str() {
-            "linux" => default_linux_headers.clone(),
-            "android" => default_android_hermes_headers.clone(),
-            "windows" => default_windows_headers.clone(),
-            _ => default_ios_headers.clone(),
+    let hermes_include_dir = portable_engine
+        .as_ref()
+        .map(|selection| selection.include_dir.clone())
+        .unwrap_or_else(|| {
+            std::env::var("HERMES_INCLUDE_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| match target_os.as_str() {
+                    "linux" => default_linux_headers.clone(),
+                    "android" => default_android_hermes_headers.clone(),
+                    "windows" => default_windows_headers.clone(),
+                    _ => default_ios_headers.clone(),
+                })
         });
-    let jsi_include_dir = std::env::var("JSI_INCLUDE_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            if target_os == "android" {
-                default_android_jsi_headers.clone()
-            } else {
-                hermes_include_dir.clone()
-            }
+    let jsi_include_dir = portable_engine
+        .as_ref()
+        .map(|selection| selection.include_dir.clone())
+        .unwrap_or_else(|| {
+            std::env::var("JSI_INCLUDE_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| {
+                    if target_os == "android" {
+                        default_android_jsi_headers.clone()
+                    } else {
+                        hermes_include_dir.clone()
+                    }
+                })
         });
     // Installed Hermes SDKs co-locate `hermes/Public` below the configured
     // include root. A source checkout instead splits it into the sibling
@@ -587,19 +756,29 @@ fn main() {
     let default_linux_lib = repo_root.join("linux").join("lib");
     let default_windows_lib = default_windows_root.join("lib");
     let default_windows_bin = default_windows_root.join("bin");
-    let hermes_lib_dir = std::env::var("HERMES_LIB_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| match target_os.as_str() {
-            "linux" => default_linux_lib.clone(),
-            "android" => default_android_hermes_lib.clone(),
-            "windows" => default_windows_lib.clone(),
-            _ => default_ios_lib.clone(),
+    let hermes_lib_dir = portable_engine
+        .as_ref()
+        .map(|selection| selection.framework_search_dir.clone())
+        .unwrap_or_else(|| {
+            std::env::var("HERMES_LIB_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| match target_os.as_str() {
+                    "linux" => default_linux_lib.clone(),
+                    "android" => default_android_hermes_lib.clone(),
+                    "windows" => default_windows_lib.clone(),
+                    _ => default_ios_lib.clone(),
+                })
         });
-    let hermes_bin_dir = std::env::var("HERMES_BIN_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| match target_os.as_str() {
-            "windows" => default_windows_bin.clone(),
-            _ => hermes_lib_dir.clone(),
+    let hermes_bin_dir = portable_engine
+        .as_ref()
+        .and_then(|selection| selection.hermesc_path.parent().map(Path::to_path_buf))
+        .unwrap_or_else(|| {
+            std::env::var("HERMES_BIN_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| match target_os.as_str() {
+                    "windows" => default_windows_bin.clone(),
+                    _ => hermes_lib_dir.clone(),
+                })
         });
     let jsi_lib_dir = std::env::var("JSI_LIB_DIR")
         .map(PathBuf::from)
@@ -610,7 +789,13 @@ fn main() {
                 hermes_lib_dir.clone()
             }
         });
-    let macos_hermes_framework = if target_os == "macos" {
+    let macos_hermes_framework = if let Some(selection) = portable_engine.as_ref() {
+        Some(AppleFramework {
+            search_dir: selection.framework_search_dir.clone(),
+            framework_name: selection.framework_name.clone(),
+            binary_path: selection.runtime_path.clone(),
+        })
+    } else if target_os == "macos" {
         resolve_macos_hermes_framework(&hermes_lib_dir)
     } else {
         None
@@ -727,7 +912,12 @@ fn main() {
         )),
         _ => None,
     };
-    if let Some((
+    if portable_engine.is_some() {
+        // The portable consumer already wrote the exact profile receipt after
+        // joining it to the selected manifest/runtime bytes. Running the
+        // legacy checkout-relative validator here would introduce a second,
+        // unrelated selector.
+    } else if let Some((
         selected_binary,
         default_receipt,
         selected_linked_dependency,
@@ -1106,12 +1296,39 @@ fn main() {
         }
     }
 
+    let hermesc = portable_engine
+        .as_ref()
+        .map(|selection| selection.hermesc_path.clone())
+        .unwrap_or_else(|| hermesc_path(repo_root, &target_os, &target_arch));
+    let hermes_binary = portable_engine
+        .is_none()
+        .then(|| hermes_cli_path(repo_root, &target_os, &target_arch));
+    let portable_hermesc_runner = portable_engine.as_ref().map(|selection| {
+        portable_host_tool_runner::PortableHostToolRunner::new(
+            hermesc.clone(),
+            selection.host_tool_contract.clone(),
+            out_dir.join("portable-hermesc-invocations"),
+        )
+    });
+    let runtime_hbc_version = portable_engine
+        .as_ref()
+        .map(|selection| selection.hermes_bytecode_version)
+        .or_else(|| {
+            hermes_binary
+                .as_ref()
+                .filter(|path| path.exists())
+                .and_then(|path| extract_hbc_version(path))
+        });
+
     generate_runtime_bundle_source_header(
         repo_root,
         &out_dir,
         allow_fallback,
         standalone,
         &vendored_generated_dir,
+        &hermesc,
+        runtime_hbc_version,
+        portable_hermesc_runner.as_ref(),
     );
     if update_vendored_generated {
         if standalone {
@@ -1126,11 +1343,9 @@ fn main() {
     // If hermesc is available and compatible, compile each bootstrap .js file to .hbc and
     // generate a C++ header (bootstrap_bytecode.h) with static byte arrays.
     // This makes JS startup faster by loading bytecode directly from static storage.
-    let hermesc = hermesc_path(repo_root, &target_os, &target_arch);
-    let hermes_binary = hermes_cli_path(repo_root, &target_os, &target_arch);
     let bootstrap_dir = manifest_dir.join("src").join("engine").join("bootstrap");
     println!("cargo:rerun-if-changed={}", hermesc.display());
-    if hermes_binary.exists() {
+    if let Some(hermes_binary) = hermes_binary.as_ref().filter(|path| path.exists()) {
         println!("cargo:rerun-if-changed={}", hermes_binary.display());
     }
 
@@ -1139,11 +1354,13 @@ fn main() {
     safe_remove_file(&bootstrap_hbc_header);
     safe_remove_file(&bootstrap_source_header);
 
-    let hermesc_hbc_version = extract_hbc_version(&hermesc);
-    let runtime_hbc_version = if hermes_binary.exists() {
-        extract_hbc_version(&hermes_binary)
+    let hermesc_hbc_version = if let Some(runner) = portable_hermesc_runner.as_ref() {
+        Some(
+            extract_portable_hbc_version(runner)
+                .unwrap_or_else(|error| panic!("Portable hermesc version probe refused: {error}")),
+        )
     } else {
-        None
+        extract_hbc_version(&hermesc)
     };
     // @ref LLP 0005#bytecode-precompilation-hermesc — ReactNative.Hermes.Windows
     // hermesc rejects modern optional bootstrap syntax; Windows uses source
@@ -1178,6 +1395,12 @@ fn main() {
         (hermesc_hbc_version, runtime_hbc_version)
     {
         if compiler_version != runtime_version {
+            if portable_hermesc_runner.is_some() {
+                panic!(
+                    "Portable hermesc HBC version {} differs from authenticated runtime {}",
+                    compiler_version, runtime_version
+                );
+            }
             precompile_bootstrap_hbc = false;
             if !allow_fallback {
                 panic!(
@@ -1247,19 +1470,43 @@ fn main() {
                 break;
             }
 
-            let status = hermesc_command(&hermesc)
-                .arg("-emit-binary")
-                .arg("-O")
-                .arg("-out")
-                .arg(&hbc_path)
-                .arg(&js_path)
-                .status();
+            let compile_succeeded = if let Some(runner) = portable_hermesc_runner.as_ref() {
+                run_portable_hermesc_compile(runner, &js_path, &hbc_path)
+                    .unwrap_or_else(|error| panic!("Portable bootstrap hermesc refused: {error}"));
+                true
+            } else {
+                matches!(
+                    hermesc_command(&hermesc)
+                        .arg("-emit-binary")
+                        .arg("-O")
+                        .arg("-out")
+                        .arg(&hbc_path)
+                        .arg(&js_path)
+                        .status(),
+                    Ok(status) if status.success()
+                )
+            };
 
-            match status {
-                Ok(s) if s.success() => {
-                    match bytecode_file_version(&hermesc, &hbc_path) {
+            match compile_succeeded {
+                true => {
+                    let file_version = if portable_hermesc_runner.is_some() {
+                        Some(
+                            portable_bytecode_file_version(&hbc_path).unwrap_or_else(|error| {
+                                panic!("Portable bootstrap HBC validation refused: {error}")
+                            }),
+                        )
+                    } else {
+                        bytecode_file_version(&hermesc, &hbc_path)
+                    };
+                    match file_version {
                         Some(actual_version) if actual_version == expected_version => {}
                         Some(actual_version) => {
+                            if portable_hermesc_runner.is_some() {
+                                panic!(
+                                    "Portable bootstrap HBC version mismatch for {}: compiled {} expected {}",
+                                    js_file, actual_version, expected_version
+                                );
+                            }
                             if optional_source_fallback {
                                 println!(
                                     "cargo:warning=Bootstrap HBC version mismatch for optional {}: compiled {} expected {}; using source fallback for this file",
@@ -1321,7 +1568,7 @@ fn main() {
                         array_name, array_name
                     ));
                 }
-                _ => {
+                false => {
                     if optional_source_fallback {
                         println!(
                             "cargo:warning=hermesc failed for optional {}; using source fallback for this file",
@@ -1663,7 +1910,8 @@ fn main() {
 
     // Debugger support is auto-detected on macOS so we do not compile against
     // debugger APIs that are missing from the checked-in Hermes framework.
-    let enable_debugger = target_os != "windows"
+    let enable_debugger = portable_engine.is_none()
+        && target_os != "windows"
         && should_enable_hermes_debugger(&target_os, hermes_macos_binary.as_deref());
 
     if enable_debugger {
@@ -1755,11 +2003,18 @@ fn main() {
                 "cargo:rustc-link-search=framework={}",
                 hermes_framework_dir.display()
             );
+            // Portable selection has already revalidated the complete
+            // framework compatibility-symlink chain and proved that its linker
+            // resolution reaches the exact runtime record. Preserve Cargo's
+            // framework metadata so downstream embedders receive the link.
+            // @ref LLP 0035#build-consumption-and-post-link-contracts
             println!("cargo:rustc-link-lib=framework={}", hermes_framework_name);
-            println!(
-                "cargo:rustc-link-arg=-Wl,-rpath,{}",
-                hermes_framework_dir.display()
-            );
+            if portable_engine.is_none() {
+                println!(
+                    "cargo:rustc-link-arg=-Wl,-rpath,{}",
+                    hermes_framework_dir.display()
+                );
+            }
         }
         // On iOS, Hermes is linked by Xcode (via hermes.xcframework dependency)
 
@@ -2364,6 +2619,9 @@ fn generate_runtime_bundle_source_header(
     allow_fallback: bool,
     standalone: bool,
     vendored_generated_dir: &Path,
+    hermesc: &Path,
+    runtime_hbc_version: Option<u32>,
+    portable_hermesc_runner: Option<&portable_host_tool_runner::PortableHostToolRunner>,
 ) {
     let devtools_dir = exact_devtools_dir(repo_root);
     let runtime_entry = ibex_runtime_js_dir(repo_root)
@@ -2399,7 +2657,13 @@ fn generate_runtime_bundle_source_header(
         push_cpp_raw_string_literal(&mut header, "SHARED_RUNTIME_BUNDLE_SRC", &source);
         write_file_or_panic(&header_path, header, "runtime_bundle_source.h");
         eprintln!("ibex build: generated runtime_bundle_source.h from vendored runtime bundle");
-        generate_runtime_bundle_bytecode_header(repo_root, out_dir, &bundled_runtime);
+        generate_runtime_bundle_bytecode_header(
+            out_dir,
+            &bundled_runtime,
+            hermesc,
+            runtime_hbc_version,
+            portable_hermesc_runner,
+        );
         return;
     }
 
@@ -2472,7 +2736,13 @@ fn generate_runtime_bundle_source_header(
     write_embedded_runtime_rs(out_dir, "packages/ibex-runtime-js/src/runtime-entry.ts");
     eprintln!("ibex build: generated runtime_bundle_source.h from shared runtime bundle");
 
-    generate_runtime_bundle_bytecode_header(repo_root, out_dir, &bundled_runtime);
+    generate_runtime_bundle_bytecode_header(
+        out_dir,
+        &bundled_runtime,
+        hermesc,
+        runtime_hbc_version,
+        portable_hermesc_runner,
+    );
 }
 
 fn write_embedded_runtime_rs(out_dir: &Path, source_name: &str) {
@@ -2653,16 +2923,32 @@ fn stage_windows_runtime_dlls(out_dir: &Path, hermes_bin_dir: &Path) {
 }
 
 fn generate_runtime_bundle_bytecode_header(
-    repo_root: &Path,
     out_dir: &Path,
     bundled_runtime: &Path,
+    hermesc: &Path,
+    runtime_hbc_version: Option<u32>,
+    portable_hermesc_runner: Option<&portable_host_tool_runner::PortableHostToolRunner>,
 ) {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
-    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
-    let hermesc = hermesc_path(repo_root, &target_os, &target_arch);
-    let hermes_binary = hermes_cli_path(repo_root, &target_os, &target_arch);
     let bundled_runtime_hbc = out_dir.join("embedded_runtime_bundle.hbc");
     let header_path = out_dir.join("runtime_bundle_bytecode.h");
+
+    if let Some(runner) = portable_hermesc_runner {
+        // The current reviewed compatibility contract permits at most 1 MiB
+        // of declared output, while the optional shared-runtime HBC is larger.
+        // Do not widen authority to fit an optimization: portable builds use
+        // the generated source bundle and leave no stale/partial HBC artifact.
+        // A future performance change must review a new bound and artifact
+        // identity before enabling this compilation.
+        // @ref LLP 0035#build-consumption-and-post-link-contracts
+        remove_portable_optional_hbc(&bundled_runtime_hbc);
+        remove_portable_optional_hbc(&header_path);
+        println!(
+            "cargo:warning=Portable Hermes uses the generated shared-runtime source bundle; the optional HBC is disabled under the reviewed {}-byte host-tool output bound",
+            runner.max_output_bytes()
+        );
+        return;
+    }
 
     safe_remove_file(&bundled_runtime_hbc);
     safe_remove_file(&header_path);
@@ -2683,21 +2969,37 @@ fn generate_runtime_bundle_bytecode_header(
         return;
     }
 
-    let Some(compiler_version) = extract_hbc_version(&hermesc) else {
-        println!(
-            "cargo:warning=Skipping shared runtime bundle HBC generation: could not read hermesc HBC version"
-        );
-        return;
+    let compiler_version = if let Some(runner) = portable_hermesc_runner {
+        extract_portable_hbc_version(runner).unwrap_or_else(|error| {
+            panic!("Portable runtime-bundle hermesc version probe refused: {error}")
+        })
+    } else {
+        let Some(version) = extract_hbc_version(hermesc) else {
+            println!(
+                "cargo:warning=Skipping shared runtime bundle HBC generation: could not read hermesc HBC version"
+            );
+            return;
+        };
+        version
     };
 
-    let Some(runtime_version) = extract_hbc_version(&hermes_binary) else {
+    let Some(runtime_version) = runtime_hbc_version else {
+        if portable_hermesc_runner.is_some() {
+            panic!("Portable runtime-bundle build has no authenticated runtime HBC version");
+        }
         println!(
-            "cargo:warning=Skipping shared runtime bundle HBC generation: could not read Hermes runtime HBC version"
+            "cargo:warning=Skipping shared runtime bundle HBC generation: no selected Hermes runtime HBC version"
         );
         return;
     };
 
     if compiler_version != runtime_version {
+        if portable_hermesc_runner.is_some() {
+            panic!(
+                "Portable runtime-bundle hermesc HBC version {} differs from runtime {}",
+                compiler_version, runtime_version
+            );
+        }
         println!(
             "cargo:warning=Skipping shared runtime bundle HBC generation: hermesc HBC version {} != hermes HBC version {}",
             compiler_version,
@@ -2706,23 +3008,47 @@ fn generate_runtime_bundle_bytecode_header(
         return;
     }
 
-    let status = hermesc_command(&hermesc)
-        .arg("-emit-binary")
-        .arg("-O")
-        .arg("-out")
-        .arg(&bundled_runtime_hbc)
-        .arg(bundled_runtime)
-        .status();
+    let compile_succeeded = if let Some(runner) = portable_hermesc_runner {
+        run_portable_hermesc_compile(runner, bundled_runtime, &bundled_runtime_hbc)
+            .unwrap_or_else(|error| panic!("Portable runtime-bundle hermesc refused: {error}"));
+        true
+    } else {
+        matches!(
+            hermesc_command(hermesc)
+                .arg("-emit-binary")
+                .arg("-O")
+                .arg("-out")
+                .arg(&bundled_runtime_hbc)
+                .arg(bundled_runtime)
+                .status(),
+            Ok(result) if result.success()
+        )
+    };
 
-    if !matches!(status, Ok(result) if result.success()) {
+    if !compile_succeeded {
         println!("cargo:warning=Skipping shared runtime bundle HBC generation: hermesc failed");
         safe_remove_file(&bundled_runtime_hbc);
         return;
     }
 
-    match bytecode_file_version(&hermesc, &bundled_runtime_hbc) {
+    let file_version = if portable_hermesc_runner.is_some() {
+        Some(
+            portable_bytecode_file_version(&bundled_runtime_hbc).unwrap_or_else(|error| {
+                panic!("Portable runtime-bundle HBC validation refused: {error}")
+            }),
+        )
+    } else {
+        bytecode_file_version(hermesc, &bundled_runtime_hbc)
+    };
+    match file_version {
         Some(file_version) if file_version == compiler_version => {}
         Some(file_version) => {
+            if portable_hermesc_runner.is_some() {
+                panic!(
+                    "Portable runtime-bundle HBC version mismatch: compiled {} expected {}",
+                    file_version, compiler_version
+                );
+            }
             println!(
                 "cargo:warning=Skipping shared runtime bundle HBC generation: file HBC version {} != expected {}",
                 file_version,
@@ -2982,6 +3308,23 @@ fn safe_remove_file(path: &Path) {
     }
 }
 
+fn remove_portable_optional_hbc(path: &Path) {
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(error) => panic!(
+            "Could not remove stale portable optional HBC artifact {}: {error}",
+            path.display()
+        ),
+    }
+    if std::fs::symlink_metadata(path).is_ok() {
+        panic!(
+            "Stale portable optional HBC artifact remains at {}",
+            path.display()
+        );
+    }
+}
+
 fn run_tool_output(path: &Path, args: &[&str]) -> Option<String> {
     let output = std::process::Command::new(path).args(args).output().ok()?;
     let mut text = String::from_utf8_lossy(&output.stdout).to_string();
@@ -2992,6 +3335,80 @@ fn run_tool_output(path: &Path, args: &[&str]) -> Option<String> {
         return None;
     }
     Some(text)
+}
+
+fn extract_portable_hbc_version(
+    runner: &portable_host_tool_runner::PortableHostToolRunner,
+) -> Result<u32, String> {
+    let output = runner
+        .run(&[OsString::from("--version")], &[])
+        .map_err(|error| {
+            format!(
+                "compatibility {} version invocation failed: {error}",
+                runner.compatibility_digest()
+            )
+        })?;
+    let mut text = String::from_utf8_lossy(&output.stdout).to_string();
+    if text.trim().is_empty() {
+        text.push_str(&String::from_utf8_lossy(&output.stderr));
+    }
+    extract_u32_after_prefix(&text, "HBC bytecode version:").ok_or_else(|| {
+        format!(
+            "compatibility {} version output omitted the HBC version",
+            runner.compatibility_digest()
+        )
+    })
+}
+
+fn run_portable_hermesc_compile(
+    runner: &portable_host_tool_runner::PortableHostToolRunner,
+    source: &Path,
+    output: &Path,
+) -> Result<(), String> {
+    safe_remove_file(output);
+    let mut args = Vec::<OsString>::new();
+    if hermes_es6_block_scoping_enabled() {
+        args.push(OsString::from("-Xes6-block-scoping"));
+    }
+    args.extend([
+        OsString::from("-emit-binary"),
+        OsString::from("-O"),
+        OsString::from("-out"),
+        output.as_os_str().to_owned(),
+        source.as_os_str().to_owned(),
+    ]);
+    runner
+        .run(&args, &[output.to_path_buf()])
+        .map(|_| ())
+        .map_err(|error| {
+            format!(
+                "compatibility {} compile invocation failed: {error}",
+                runner.compatibility_digest()
+            )
+        })
+}
+
+fn portable_bytecode_file_version(path: &Path) -> Result<u32, String> {
+    const HERMES_HBC_MAGIC: u64 = 0x1f19_03c1_03bc_1fc6;
+    let bytes = std::fs::read(path)
+        .map_err(|error| format!("read portable hermesc output {}: {error}", path.display()))?;
+    if bytes.len() < 36 {
+        return Err("portable hermesc output has a truncated bytecode header".to_owned());
+    }
+    let magic = u64::from_le_bytes(bytes[0..8].try_into().expect("eight-byte HBC magic"));
+    if magic != HERMES_HBC_MAGIC {
+        return Err("portable hermesc output has the wrong bytecode magic".to_owned());
+    }
+    let version = u32::from_le_bytes(bytes[8..12].try_into().expect("four-byte HBC version"));
+    let declared_length =
+        u32::from_le_bytes(bytes[32..36].try_into().expect("four-byte HBC length")) as usize;
+    if declared_length != bytes.len() {
+        return Err(format!(
+            "portable hermesc output declares {declared_length} bytes but contains {}",
+            bytes.len()
+        ));
+    }
+    Ok(version)
 }
 
 fn extract_u32_after_prefix(line_iter: &str, prefix: &str) -> Option<u32> {

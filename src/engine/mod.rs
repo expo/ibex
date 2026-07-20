@@ -49,6 +49,29 @@ pub struct LoadedEngineBinaryIdentity {
 const EMBEDDED_HERMES_PROFILE_PROVENANCE: &str =
     include_str!(concat!(env!("OUT_DIR"), "/hermes_profile_provenance.json"));
 
+// These are `null` for every legacy build. Portable mode writes all four from
+// one revalidated selected-input closure before native compilation begins, so
+// a later runtime/post-link consumer need not reconstruct authority from paths.
+// They are compile-time build evidence only: unused `include_str!` constants do
+// not establish final-link byte retention, which remains a post-link/runtime
+// responsibility.
+// @ref LLP 0035#build-consumption-and-post-link-contracts — expose the canonical
+// portable inputs and exact build-consumption binding from OUT_DIR.
+pub const EMBEDDED_PORTABLE_ENGINE_MANIFEST: &str =
+    include_str!(concat!(env!("OUT_DIR"), "/portable_engine_manifest.json"));
+pub const EMBEDDED_PORTABLE_ENGINE_INSTALLATION_RECEIPT: &str = include_str!(concat!(
+    env!("OUT_DIR"),
+    "/portable_engine_installation_receipt.json"
+));
+pub const EMBEDDED_PORTABLE_ENGINE_BUILD_CONSUMPTION: &str = include_str!(concat!(
+    env!("OUT_DIR"),
+    "/portable_engine_build_consumption.json"
+));
+pub const EMBEDDED_PORTABLE_ENGINE_PROMOTION_ADMISSION: &str = include_str!(concat!(
+    env!("OUT_DIR"),
+    "/portable_engine_promotion_admission.json"
+));
+
 fn expected_loaded_engine_identity(
 ) -> &'static std::result::Result<LoadedEngineBinaryIdentity, String> {
     static IDENTITY: OnceLock<std::result::Result<LoadedEngineBinaryIdentity, String>> =
