@@ -1526,14 +1526,15 @@ function targetUnavailablePublicExportReason(surface, target) {
     return "builtin-export-native-prerequisite-not-installed-on-target";
   }
   // The shared crypto builtin is reachable on Windows, but its reduced native
-  // profile does not install __exactHkdf. Keep hkdfSync in the honest target
-  // gap instead of promoting a recipe that can only throw at runtime.
+  // profile does not install the PBKDF2, scrypt, or HKDF host functions. Keep
+  // their synchronous exports in the honest target gap instead of promoting
+  // recipes that can only throw at runtime.
   // @ref LLP 0006#platform-native-crypto-with-honest-reduced-profiles
   if (
     triple === "x86_64-pc-windows-msvc" &&
     metadata?.surfaceType === "export" &&
     metadata.sourceKey === "exact_crypto" &&
-    metadata.exportName === "hkdfSync"
+    ["hkdfSync", "pbkdf2Sync", "scryptSync"].includes(metadata.exportName)
   ) {
     return "builtin-export-native-prerequisite-not-installed-on-target";
   }

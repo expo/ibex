@@ -204,8 +204,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(23_165);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_931);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_234);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_929);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_236);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -221,14 +221,14 @@ describe("exact-target CapSec executable recipes", () => {
       windowsCryptoRecipes.filter(
         (recipe) => recipe.status === "fully-executable",
       ),
-    ).toHaveLength(58);
+    ).toHaveLength(56);
     const unavailableWindowsNativeRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
           "builtin-export-native-prerequisite-not-installed-on-target",
         ),
     );
-    expect(unavailableWindowsNativeRecipes).toHaveLength(47);
+    expect(unavailableWindowsNativeRecipes).toHaveLength(49);
     const unavailableWindowsBrotliRecipes =
       unavailableWindowsNativeRecipes.filter((recipe) =>
         recipe.terminalObservedKey.startsWith("builtin:export:node_zlib:"),
@@ -244,13 +244,22 @@ describe("exact-target CapSec executable recipes", () => {
           ),
       ),
     ).toBe(true);
-    const unavailableWindowsHkdf = unavailableWindowsNativeRecipes.find(
+    const unavailableWindowsKdfs = unavailableWindowsNativeRecipes.filter(
       (recipe) =>
-        recipe.terminalObservedKey ===
-        "builtin:export:exact_crypto:hkdfSync",
+        [
+          "builtin:export:exact_crypto:hkdfSync",
+          "builtin:export:exact_crypto:pbkdf2Sync",
+          "builtin:export:exact_crypto:scryptSync",
+        ].includes(recipe.terminalObservedKey),
     );
-    expect(unavailableWindowsHkdf.status).toBe("unresolved");
-    expect(unavailableWindowsHkdf.publicSurfaceProbe).toBeNull();
+    expect(unavailableWindowsKdfs).toHaveLength(3);
+    expect(
+      unavailableWindowsKdfs.every(
+        (recipe) =>
+          recipe.status === "unresolved" &&
+          recipe.publicSurfaceProbe === null,
+      ),
+    ).toBe(true);
     const unsupportedWindowsFilesystemRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.actionIds.some((actionId) => actionId.startsWith("fs:")) &&
