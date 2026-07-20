@@ -12,6 +12,13 @@
 # and installer Git blobs; its manifest and receipt bind their full checked-out
 # content digests.
 # All published runtime bundles receive workflow-bound provenance attestations.
+# @ref LLP 0034#transport-and-distribution-provenance — retain exact raw bundles
+# without turning their presence into portable-artifact authority.
+# The action's exact, single-document Sigstore v0.3 output is copied byte-for-
+# byte to <archive>.sigstore.json, checksummed, and uploaded beside the archive.
+# These retained bundles are diagnostic evidence only: portable artifact
+# acceptance remains disabled until the offline verifier and admission policy
+# described by LLP 0034 are complete.
 #
 # Releases created here are ARTIFACT CACHES, not product releases: always
 # prerelease, titled "Hermes artifact cache …".
@@ -49,6 +56,91 @@ permissions:
 
 env:
   GH_TOKEN: ${{ github.token }}
+  IBEX_SIGSTORE_BUNDLE_VALIDATOR: |
+    import json
+    import math
+    import pathlib
+    import sys
+
+    expected_media_type = "application/vnd.dev.sigstore.bundle.v0.3+json"
+    maximum_bytes = 16 * 1024 * 1024
+    maximum_safe_integer = (1 << 53) - 1
+    path = pathlib.Path(sys.argv[1])
+    raw = path.read_bytes()
+    if not raw or len(raw) > maximum_bytes:
+        raise SystemExit(f"{path}: bundle must contain 1..{maximum_bytes} bytes")
+
+    def reject_duplicates(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate JSON member: {key!r}")
+            result[key] = value
+        return result
+
+    def reject_constant(value):
+        raise ValueError(f"non-I-JSON numeric constant: {value}")
+
+    def parse_integer(value):
+        parsed = int(value)
+        if abs(parsed) > maximum_safe_integer:
+            raise ValueError(f"integer is outside the I-JSON safe range: {value}")
+        return parsed
+
+    def parse_float(value):
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            raise ValueError(f"non-finite JSON number: {value}")
+        if parsed.is_integer() and abs(parsed) > maximum_safe_integer:
+            raise ValueError(f"integer is outside the I-JSON safe range: {value}")
+        return parsed
+
+    def require_unicode_scalars(value, location="$"):
+        if isinstance(value, str):
+            try:
+                value.encode("utf-8", errors="strict")
+            except UnicodeEncodeError as error:
+                raise ValueError(
+                    f"{location}: JSON string contains a lone surrogate"
+                ) from error
+            return
+        if isinstance(value, list):
+            for index, item in enumerate(value):
+                require_unicode_scalars(item, f"{location}[{index}]")
+            return
+        if isinstance(value, dict):
+            for key, item in value.items():
+                require_unicode_scalars(key, f"{location} object key")
+                require_unicode_scalars(item, f"{location}.{key}")
+
+    try:
+        text = raw.decode("utf-8")
+        start = 0
+        while start < len(text) and text[start] in " \t\r\n":
+            start += 1
+        if start == len(text):
+            raise ValueError("empty JSON document")
+        decoder = json.JSONDecoder(
+            object_pairs_hook=reject_duplicates,
+            parse_constant=reject_constant,
+            parse_float=parse_float,
+            parse_int=parse_integer,
+        )
+        document, end = decoder.raw_decode(text, start)
+        if text[end:].strip(" \t\r\n"):
+            raise ValueError("trailing data or a second JSON document")
+        require_unicode_scalars(document)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+        raise SystemExit(f"{path}: invalid retained Sigstore bundle: {error}")
+
+    if not isinstance(document, dict):
+        raise SystemExit(f"{path}: Sigstore bundle must be one JSON object")
+    if document.get("mediaType") != expected_media_type:
+        raise SystemExit(
+            f"{path}: expected mediaType {expected_media_type!r}, "
+            f"got {document.get('mediaType')!r}"
+        )
+    print(f"Retained one exact Sigstore v0.3 bundle ({len(raw)} bytes): {path}")
 
 jobs:
   identity:
@@ -104,13 +196,15 @@ jobs:
         run: |
           set -euo pipefail
           tag="${{ steps.compute.outputs.tag }}"
+          notes="Prebuilt PATCHED Hermes bundles (LLP 0013 patch stack applied) for the platform installers. Release identity = pinned Hermes commit (12) + patches/hermes digest (12); Darwin/Linux asset names additionally bind both builders plus the patch-application and receipt/identity authorities, while the Windows asset binds those patch authorities plus its source builder and installer. The Windows manifest and profile receipt retain the full digests. Each archive's exact actions/attest-build-provenance output is retained as <archive>.sigstore.json with a raw-byte checksum; these detached bundles are diagnostic evidence and portable artifact acceptance remains disabled pending the LLP 0034 offline verifier and admission policy. This is an artifact cache, not a product release. Published by the hermes-artifacts workflow (ENG-23147)."
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $tag already exists."
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes "$notes"
           else
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
               --prerelease \
               --title "Hermes artifact cache ${{ steps.compute.outputs.identity }}" \
-              --notes "Prebuilt PATCHED Hermes bundles (LLP 0013 patch stack applied) for the platform installers. Release identity = pinned Hermes commit (12) + patches/hermes digest (12); Darwin/Linux asset names additionally bind both builders plus the patch-application and receipt/identity authorities, while the Windows asset binds those patch authorities plus its source builder and installer. The Windows manifest and profile receipt retain the full digests. This is an artifact cache, not a product release. Published by the hermes-artifacts workflow (ENG-23147)." \
+              --notes "$notes" \
               --target "$GITHUB_SHA"
           fi
 
@@ -123,16 +217,27 @@ jobs:
           force="${{ inputs.force }}"
           existing="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name')"
           need() {
-            if [ "$force" = "true" ]; then echo true
-            elif printf '%s\n' "$existing" | grep -qx "$1"; then echo false
-            else echo true
+            if [ "$force" = "true" ]; then
+              echo true
+              return
             fi
+            for required in "$@"; do
+              if ! printf '%s\n' "$existing" | grep -Fqx "$required"; then
+                echo true
+                return
+              fi
+            done
+            echo false
           }
+          macos_asset="hermes-macos-arm64-${{ steps.compute.outputs.macos_cache_key }}.tar.gz"
+          macos_release_asset="hermes-macos-arm64-release-${{ steps.compute.outputs.macos_release_cache_key }}.tar.gz"
+          linux_asset="hermes-linux-x64-${{ steps.compute.outputs.linux_cache_key }}.tar.gz"
+          windows_asset="hermes-windows-x64-${{ steps.compute.outputs.windows_asset_key }}.zip"
           {
-            echo "need_macos=$(need "hermes-macos-arm64-${{ steps.compute.outputs.macos_cache_key }}.tar.gz")"
-            echo "need_macos_release=$(need "hermes-macos-arm64-release-${{ steps.compute.outputs.macos_release_cache_key }}.tar.gz")"
-            echo "need_linux=$(need "hermes-linux-x64-${{ steps.compute.outputs.linux_cache_key }}.tar.gz")"
-            echo "need_windows=$(need "hermes-windows-x64-${{ steps.compute.outputs.windows_asset_key }}.zip")"
+            echo "need_macos=$(need "$macos_asset" "$macos_asset.sha256" "$macos_asset.sigstore.json" "$macos_asset.sigstore.json.sha256")"
+            echo "need_macos_release=$(need "$macos_release_asset" "$macos_release_asset.sha256" "$macos_release_asset.sigstore.json" "$macos_release_asset.sigstore.json.sha256")"
+            echo "need_linux=$(need "$linux_asset" "$linux_asset.sha256" "$linux_asset.sigstore.json" "$linux_asset.sigstore.json.sha256")"
+            echo "need_windows=$(need "$windows_asset" "$windows_asset.sha256" "$windows_asset.sigstore.json" "$windows_asset.sigstore.json.sha256")"
           } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT" || true
 
@@ -187,15 +292,32 @@ jobs:
           ls -lh "$asset"*
 
       - name: Attest bundle provenance
+        id: attest
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: hermes-macos-arm64-${{ env.SOURCE_CACHE_KEY }}.tar.gz
+
+      - name: Retain exact provenance bundle (diagnostic only)
+        env:
+          ATTESTATION_BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          asset="hermes-macos-arm64-$SOURCE_CACHE_KEY.tar.gz"
+          bundle="$asset.sigstore.json"
+          test -n "$ATTESTATION_BUNDLE_PATH"
+          test -f "$ATTESTATION_BUNDLE_PATH"
+          cp "$ATTESTATION_BUNDLE_PATH" "$bundle"
+          cmp "$ATTESTATION_BUNDLE_PATH" "$bundle"
+          python3 -c "$IBEX_SIGSTORE_BUNDLE_VALIDATOR" "$bundle"
+          shasum -a 256 "$bundle" > "$bundle.sha256"
+          ls -lh "$bundle" "$bundle.sha256"
 
       - name: Upload to release (idempotent overwrite)
         run: |
           set -euo pipefail
           asset="hermes-macos-arm64-$SOURCE_CACHE_KEY.tar.gz"
-          gh release upload "$TAG" "$asset" "$asset.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+          bundle="$asset.sigstore.json"
+          gh release upload "$TAG" "$asset" "$asset.sha256" "$bundle" "$bundle.sha256" --repo "$GITHUB_REPOSITORY" --clobber
 
   linux:
     name: Build + publish Linux bundle (x64)
@@ -251,15 +373,32 @@ jobs:
           ls -lh "$asset"*
 
       - name: Attest bundle provenance
+        id: attest
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: hermes-linux-x64-${{ env.SOURCE_CACHE_KEY }}.tar.gz
+
+      - name: Retain exact provenance bundle (diagnostic only)
+        env:
+          ATTESTATION_BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          asset="hermes-linux-x64-$SOURCE_CACHE_KEY.tar.gz"
+          bundle="$asset.sigstore.json"
+          test -n "$ATTESTATION_BUNDLE_PATH"
+          test -f "$ATTESTATION_BUNDLE_PATH"
+          cp "$ATTESTATION_BUNDLE_PATH" "$bundle"
+          cmp "$ATTESTATION_BUNDLE_PATH" "$bundle"
+          python3 -c "$IBEX_SIGSTORE_BUNDLE_VALIDATOR" "$bundle"
+          shasum -a 256 "$bundle" > "$bundle.sha256"
+          ls -lh "$bundle" "$bundle.sha256"
 
       - name: Upload to release (idempotent overwrite)
         run: |
           set -euo pipefail
           asset="hermes-linux-x64-$SOURCE_CACHE_KEY.tar.gz"
-          gh release upload "$TAG" "$asset" "$asset.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+          bundle="$asset.sigstore.json"
+          gh release upload "$TAG" "$asset" "$asset.sha256" "$bundle" "$bundle.sha256" --repo "$GITHUB_REPOSITORY" --clobber
 
   macos-release:
     name: Build + publish macOS Release bundle (arm64, no debugger)
@@ -312,15 +451,32 @@ jobs:
           ls -lh "$asset"*
 
       - name: Attest bundle provenance
+        id: attest
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: hermes-macos-arm64-release-${{ env.SOURCE_CACHE_KEY }}.tar.gz
+
+      - name: Retain exact provenance bundle (diagnostic only)
+        env:
+          ATTESTATION_BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          asset="hermes-macos-arm64-release-$SOURCE_CACHE_KEY.tar.gz"
+          bundle="$asset.sigstore.json"
+          test -n "$ATTESTATION_BUNDLE_PATH"
+          test -f "$ATTESTATION_BUNDLE_PATH"
+          cp "$ATTESTATION_BUNDLE_PATH" "$bundle"
+          cmp "$ATTESTATION_BUNDLE_PATH" "$bundle"
+          python3 -c "$IBEX_SIGSTORE_BUNDLE_VALIDATOR" "$bundle"
+          shasum -a 256 "$bundle" > "$bundle.sha256"
+          ls -lh "$bundle" "$bundle.sha256"
 
       - name: Upload to release (idempotent overwrite)
         run: |
           set -euo pipefail
           asset="hermes-macos-arm64-release-$SOURCE_CACHE_KEY.tar.gz"
-          gh release upload "$TAG" "$asset" "$asset.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+          bundle="$asset.sigstore.json"
+          gh release upload "$TAG" "$asset" "$asset.sha256" "$bundle" "$bundle.sha256" --repo "$GITHUB_REPOSITORY" --clobber
 
   windows:
     name: Build + publish Windows bundle (x64)
@@ -442,12 +598,44 @@ jobs:
           Get-Item $asset, "$asset.sha256" | Format-Table Name, Length
 
       - name: Attest bundle provenance
+        id: attest
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: hermes-windows-x64-${{ env.ASSET_KEY }}.zip
+
+      - name: Retain exact provenance bundle (diagnostic only)
+        shell: pwsh
+        env:
+          ATTESTATION_BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $asset = "hermes-windows-x64-$env:ASSET_KEY.zip"
+          $bundle = "$asset.sigstore.json"
+          if ([string]::IsNullOrWhiteSpace($env:ATTESTATION_BUNDLE_PATH) -or
+              -not (Test-Path -LiteralPath $env:ATTESTATION_BUNDLE_PATH -PathType Leaf)) {
+            throw "attest-build-provenance did not return an existing bundle-path"
+          }
+          Copy-Item -LiteralPath $env:ATTESTATION_BUNDLE_PATH -Destination $bundle -Force
+          $sourceHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $env:ATTESTATION_BUNDLE_PATH).Hash.ToLowerInvariant()
+          $bundleHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $bundle).Hash.ToLowerInvariant()
+          if ($sourceHash -ne $bundleHash) {
+            throw "retained Sigstore bundle differs from the exact action output"
+          }
+          python -c $env:IBEX_SIGSTORE_BUNDLE_VALIDATOR "$bundle"
+          if ($LASTEXITCODE -ne 0) {
+            throw "retained Sigstore bundle validation failed"
+          }
+
+          [IO.File]::WriteAllText(
+            "$bundle.sha256",
+            "$bundleHash  $bundle`n",
+            [Text.Encoding]::ASCII
+          )
+          Get-Item $bundle, "$bundle.sha256" | Format-Table Name, Length
 
       - name: Upload to release (idempotent overwrite)
         shell: pwsh
         run: |
           $asset = "hermes-windows-x64-$env:ASSET_KEY.zip"
-          gh release upload $env:TAG $asset "$asset.sha256" --repo $env:GITHUB_REPOSITORY --clobber
+          $bundle = "$asset.sigstore.json"
+          gh release upload $env:TAG $asset "$asset.sha256" $bundle "$bundle.sha256" --repo $env:GITHUB_REPOSITORY --clobber
