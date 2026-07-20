@@ -39,10 +39,10 @@ describe("construction-private WebGPU CapSec operation registry", () => {
   test("derives one reviewed edge source from every authenticated active route", () => {
     const authenticated = loadAuthenticatedWebGpuProductionPlan(repoRoot);
     const surfaces = buildWebGpuOperationSurfaces(authenticated);
-    expect(authenticated.routes).toHaveLength(46);
-    expect(surfaces).toHaveLength(46);
+    expect(authenticated.routes).toHaveLength(56);
+    expect(surfaces).toHaveLength(56);
     expect(new Set(surfaces.map((surface) => surface.observedKey)).size).toBe(
-      46,
+      56,
     );
     expect(
       authenticated.routes.filter(
@@ -54,7 +54,7 @@ describe("construction-private WebGPU CapSec operation registry", () => {
         (route) =>
           webGpuOperationSemantics(route).classification === "non-capability",
       ),
-    ).toHaveLength(27);
+    ).toHaveLength(37);
   });
 
   test("rejects removed, mutated, and staged-only route identities", () => {
@@ -95,16 +95,16 @@ describe("construction-private WebGPU CapSec operation registry", () => {
           ).pathname,
         ),
       );
-      expect(generated.operationCount).toBe(46);
-      expect(generated.privateTargetCellCount).toBe(46);
+      expect(generated.operationCount).toBe(56);
+      expect(generated.privateTargetCellCount).toBe(56);
       expect(
         new Set(generated.operations.map((operation) => operation.edgeId)).size,
-      ).toBe(46);
+      ).toBe(56);
       expect(
         new Set(
           generated.privateTargetCells.map((cell) => cell.id),
         ).size,
-      ).toBe(46);
+      ).toBe(56);
       expect(
         generated.privateTargetCells.every(
           (cell) =>

@@ -6778,13 +6778,25 @@ function buildCorpus() {
   const activeSubmitIdentities = new Map(
     WEBGPU_PRODUCTION_PLAN.routes.map((entry) => [entry.operationId, entry]),
   );
+  const promotedSubmitIdentities = new Set(
+    WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.authenticatedPromotions.map(
+      (entry) => entry.operationId,
+    ),
+  );
   const queueSubmitIdentity = (operationName) => {
     const staged = stagedSubmitIdentities.get(operationName);
     const active = activeSubmitIdentities.get(operationName);
-    if ((staged === undefined) === (active === undefined)) {
+    const authenticatedPromotion =
+      staged !== undefined &&
+      active !== undefined &&
+      promotedSubmitIdentities.has(operationName);
+    if (
+      (staged === undefined && active === undefined) ||
+      (staged !== undefined && active !== undefined && !authenticatedPromotion)
+    ) {
       fail(`ambiguous queue-submit record identity: ${operationName}`);
     }
-    return staged
+    return staged && !authenticatedPromotion
       ? Object.freeze({
           recordIdentityClass: "staged-local",
           operationId: staged.localRecordId,
@@ -7366,8 +7378,8 @@ function buildCorpus() {
       }),
     }));
   }
-  const firstStagedIndex = queueSubmitPositive.inspected.recordTable.findIndex(
-    (record) => record.recordIdentityClass === "staged-local",
+  const firstActiveIndex = queueSubmitPositive.inspected.recordTable.findIndex(
+    (record) => record.recordIdentityClass === "active-route",
   );
   const beginComputeTableIndex = queueSubmitPositive.inspected.recordTable.findIndex(
     (record) => record.operationName === "GPUCommandEncoder.beginComputePass",
@@ -7449,10 +7461,10 @@ function buildCorpus() {
       }),
     }),
     Object.freeze({
-      id: "queue-submit-staged-identity-digest-rejected",
-      mutation: "staged-record-identity-digest-bit",
+      id: "queue-submit-active-identity-digest-rejected",
+      mutation: "active-record-zero-identity-digest-bit",
       bytes: mutatedBytes(queueSubmitPositive.bytes, (bytes) => {
-        bytes[queueSubmitPositiveLayout.records[firstStagedIndex].start + 8] ^= 1;
+        bytes[queueSubmitPositiveLayout.records[firstActiveIndex].start + 8] ^= 1;
       }),
     }),
     Object.freeze({

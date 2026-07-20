@@ -41,11 +41,19 @@ const ROUTES = new Map<string, ProductionRoute>(
 const ROUTES_BY_WIRE = new Map<number, ProductionRoute>(
   WEBGPU_PRODUCTION_PLAN.routes.map((route) => [route.wireId, route]),
 );
+const AUTHENTICATED_LOCAL_PROMOTIONS = new Set(
+  WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.authenticatedPromotions.map(
+    (promotion) => promotion.operationId,
+  ),
+);
 const STAGED_LOCAL_RECORDS: ReadonlyMap<
   string,
   (typeof WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.localRecordingSubset.operations)[number]
 > = new Map(
   WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.localRecordingSubset.operations
+    .filter(
+      (operation) => !AUTHENTICATED_LOCAL_PROMOTIONS.has(operation.operationId),
+    )
     .map((operation) => [operation.operationId, operation] as const),
 );
 const MAX_LOCAL_RECORDS =

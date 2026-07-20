@@ -48358,8 +48358,8 @@
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.configure:56177326",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.configure:56177326"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.configure:3865035710",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.configure:3865035710"
       ],
       "outputKinds": []
     },
@@ -48394,6 +48394,16 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucommandencoder.begincomputepass.1hbady1",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.beginComputePass:3517777017",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.beginComputePass:3517777017"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.native.op.construction.private.webgpu.gpucommandencoder.beginrenderpass.152g8am",
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
@@ -48404,12 +48414,82 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucommandencoder.clearbuffer.0kv8x4h",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.clearBuffer:3930891724",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.clearBuffer:3930891724"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucommandencoder.copybuffertobuffer.1rtf8su",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.copyBufferToBuffer:441347126",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.copyBufferToBuffer:441347126"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucommandencoder.copytexturetotexture.0j64w0i",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.copyTextureToTexture:2453223652",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.copyTextureToTexture:2453223652"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.native.op.construction.private.webgpu.gpucommandencoder.finish.0k90p0d",
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
         "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.finish:2481184390",
         "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.finish:2481184390"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.dispatchworkgroups.128rff0",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUComputePassEncoder.dispatchWorkgroups:1945140237",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUComputePassEncoder.dispatchWorkgroups:1945140237"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.end.1uq0ctc",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUComputePassEncoder.end:1131879253",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUComputePassEncoder.end:1131879253"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.setbindgroup.0dq2svx",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUComputePassEncoder.setBindGroup:2288750516",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUComputePassEncoder.setBindGroup:2288750516"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.setpipeline.1j3s7nj",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUComputePassEncoder.setPipeline:3982602559",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUComputePassEncoder.setPipeline:3982602559"
       ],
       "outputKinds": []
     },
@@ -48624,12 +48704,32 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setbindgroup.1n0cuyu",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.setBindGroup:1203119164",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.setBindGroup:1203119164"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setpipeline.1hzqdty",
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
         "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.setPipeline:551383281",
         "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.setPipeline:551383281"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setvertexbuffer.0yy9vps",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.setVertexBuffer:4000042239",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.setVertexBuffer:4000042239"
       ],
       "outputKinds": []
     },
@@ -83742,10 +83842,10 @@
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
   "catalogKeyDigest": "sha256-fRkdH7beBrNy08OUoOrQ7ccBxr3CgwsEHfS3R8J_lvk",
   "counts": {
-    "coverageSurfaces": 7359,
+    "coverageSurfaces": 7369,
     "outputBearingSurfaces": 5743,
     "structuralOnlySurfaces": 1555,
-    "unresolvedSurfaces": 61,
+    "unresolvedSurfaces": 71,
     "catalogRows": 6413,
     "parameterizedBindings": 1,
     "sourceInventoryRows": 6006,

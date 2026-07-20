@@ -36,7 +36,7 @@ export {
 };
 
 const EXPECTED_QUEUE_SUBMIT_COMMAND_RECORD_TYPE_SHA256 =
-  "f15698f25d6c76cd48243cc7bacc6bee24f763f595840200a4de4d66cf3e218b";
+  "0e2cd207c798db8eb19ea99881728f38deed61c30c8f39d0caeb150dfc982a22";
 const EXPECTED_QUEUE_SUBMIT_REQUEST_BODY_TYPE_SHA256 =
   "db9e3537ef359719593b74e73ebbe670c35a4a9e4235cbd3bdecc3ce57cf5683";
 const EXPECTED_QUEUE_SUBMIT_NATIVE_ROUTE_SHA256 =
@@ -46,7 +46,7 @@ const EXPECTED_RENDER_PIPELINE_DESCRIPTOR_TYPE_SHA256 =
 const EXPECTED_COMPUTE_PIPELINE_DESCRIPTOR_TYPE_SHA256 =
   "a3acb8ac3e4c8a8b19efdbc015819f2387297686265b40d1c3fe79578c0a4ac5";
 const EXPECTED_CANVAS_NATIVE_PROGRAM_SHA256 =
-  "fd05a301ceb2e3f476d732a81ac084aa1b3c9ef27ea4c5ee4d46ed59ad120db3";
+  "129337b77eafc714c1b696dcb7045ce1192916d33ba7da304cd2461ab9252ab5";
 
 function assert(condition, message) {
   if (!condition) throw new Error("webgpu test-wrapper authority: " + message);
@@ -873,18 +873,18 @@ function validateNativeCodecPrograms(payload) {
     ),
     [
       { name: "GPUCanvasContext.getCurrentTexture", tag: 0, identityClass: "active-route", recordRole: "timeline-only" },
-      { name: "GPUCommandEncoder.beginComputePass", tag: 1, identityClass: "staged-local", recordRole: "command-program" },
+      { name: "GPUCommandEncoder.beginComputePass", tag: 1, identityClass: "active-route", recordRole: "command-program" },
       { name: "GPUCommandEncoder.beginRenderPass", tag: 2, identityClass: "active-route", recordRole: "command-program" },
-      { name: "GPUCommandEncoder.clearBuffer", tag: 3, identityClass: "staged-local", recordRole: "command-program" },
-      { name: "GPUCommandEncoder.copyBufferToBuffer", tag: 4, identityClass: "staged-local", recordRole: "command-program" },
-      { name: "GPUCommandEncoder.copyTextureToTexture", tag: 5, identityClass: "staged-local", recordRole: "command-program" },
-      { name: "GPUComputePassEncoder.setPipeline", tag: 6, identityClass: "staged-local", recordRole: "command-program" },
-      { name: "GPUComputePassEncoder.setBindGroup", tag: 7, identityClass: "staged-local", recordRole: "command-program" },
-      { name: "GPUComputePassEncoder.dispatchWorkgroups", tag: 8, identityClass: "staged-local", recordRole: "command-program" },
-      { name: "GPUComputePassEncoder.end", tag: 9, identityClass: "staged-local", recordRole: "command-program" },
+      { name: "GPUCommandEncoder.clearBuffer", tag: 3, identityClass: "active-route", recordRole: "command-program" },
+      { name: "GPUCommandEncoder.copyBufferToBuffer", tag: 4, identityClass: "active-route", recordRole: "command-program" },
+      { name: "GPUCommandEncoder.copyTextureToTexture", tag: 5, identityClass: "active-route", recordRole: "command-program" },
+      { name: "GPUComputePassEncoder.setPipeline", tag: 6, identityClass: "active-route", recordRole: "command-program" },
+      { name: "GPUComputePassEncoder.setBindGroup", tag: 7, identityClass: "active-route", recordRole: "command-program" },
+      { name: "GPUComputePassEncoder.dispatchWorkgroups", tag: 8, identityClass: "active-route", recordRole: "command-program" },
+      { name: "GPUComputePassEncoder.end", tag: 9, identityClass: "active-route", recordRole: "command-program" },
       { name: "GPURenderPassEncoder.setPipeline", tag: 10, identityClass: "active-route", recordRole: "command-program" },
-      { name: "GPURenderPassEncoder.setBindGroup", tag: 11, identityClass: "staged-local", recordRole: "command-program" },
-      { name: "GPURenderPassEncoder.setVertexBuffer", tag: 12, identityClass: "staged-local", recordRole: "command-program" },
+      { name: "GPURenderPassEncoder.setBindGroup", tag: 11, identityClass: "active-route", recordRole: "command-program" },
+      { name: "GPURenderPassEncoder.setVertexBuffer", tag: 12, identityClass: "active-route", recordRole: "command-program" },
       { name: "GPURenderPassEncoder.draw", tag: 13, identityClass: "active-route", recordRole: "command-program" },
       { name: "GPURenderPassEncoder.end", tag: 14, identityClass: "active-route", recordRole: "command-program" },
       { name: "GPUCommandEncoder.finish", tag: 15, identityClass: "active-route", recordRole: "command-program" },
@@ -4060,8 +4060,8 @@ export function validateWebGpuWrapperAuthority(authority) {
       "required-across-outer-ibex-repins-after-authenticated-local-promotions",
     "outer normalized-projection comparison expectation is missing",
   );
-  assert(
-    canonicalJson(authority.provenance?.localPromotions) === canonicalJson([{
+  const localPromotions = authority.provenance?.localPromotions;
+  const computePipelinePromotion = {
       operationId: "GPUDevice.createComputePipeline",
       sourceRepository: "ccheever/exact",
       sourceCommit: "4b158f8480395c78463bdd99eb58794f3cca791a",
@@ -4075,7 +4075,42 @@ export function validateWebGpuWrapperAuthority(authority) {
         "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
       disposition:
         "construction-private-route-promotion-codec-and-native-ingress-only-public-install-and-support-absent",
-    }]),
+    };
+  const commandProgramPromotionIds = [
+    "GPUCommandEncoder.beginComputePass",
+    "GPUCommandEncoder.clearBuffer",
+    "GPUCommandEncoder.copyBufferToBuffer",
+    "GPUCommandEncoder.copyTextureToTexture",
+    "GPUComputePassEncoder.dispatchWorkgroups",
+    "GPUComputePassEncoder.end",
+    "GPUComputePassEncoder.setBindGroup",
+    "GPUComputePassEncoder.setPipeline",
+    "GPURenderPassEncoder.setBindGroup",
+    "GPURenderPassEncoder.setVertexBuffer",
+  ];
+  assert(
+    Array.isArray(localPromotions) &&
+      canonicalJson(localPromotions[0]) ===
+        canonicalJson(computePipelinePromotion) &&
+      canonicalJson(localPromotions.slice(1).map((entry) => entry.operationId)) ===
+        canonicalJson(commandProgramPromotionIds) &&
+      localPromotions.slice(1).every(
+        (entry) =>
+          entry.sourceRepository === "ccheever/exact" &&
+          entry.sourceCommit ===
+            "671381b20b7dfb22a5342b3ccc73b0c245b58c7a" &&
+          entry.sourceArtifactPath ===
+            "tests/gpu/typegpu-semantic-authority-v1.json" &&
+          entry.sourceArtifactSha256 ===
+            "96f902bef8960ee924ec82a2cce58f5cf02157530dc3a9ee01dfdd1a9f8eeed5" &&
+          Number.isInteger(entry.sourceOperationWireId) &&
+          entry.sourceOperationWireId > 0 &&
+          /^[0-9a-f]{64}$/u.test(entry.sourceOperationSemanticSha256) &&
+          entry.sourceWorkloadCohortSha256 ===
+            "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe" &&
+          entry.disposition ===
+            "construction-private-command-program-route-promotion-public-install-and-support-absent",
+      ),
     "authenticated local promotion provenance drifted",
   );
   assert(

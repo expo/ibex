@@ -199877,6 +199877,16 @@
             "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
           },
           {
+            "id": "surface.native.op.construction.private.webgpu.gpucommandencoder.begincomputepass.1hbady1",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "construction-private:webgpu:GPUCommandEncoder.beginComputePass"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
             "id": "surface.native.op.construction.private.webgpu.gpucommandencoder.beginrenderpass.152g8am",
             "classification": "non-capability",
             "surface": {
@@ -199887,11 +199897,81 @@
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
           },
           {
+            "id": "surface.native.op.construction.private.webgpu.gpucommandencoder.clearbuffer.0kv8x4h",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "construction-private:webgpu:GPUCommandEncoder.clearBuffer"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.native.op.construction.private.webgpu.gpucommandencoder.copybuffertobuffer.1rtf8su",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "construction-private:webgpu:GPUCommandEncoder.copyBufferToBuffer"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.native.op.construction.private.webgpu.gpucommandencoder.copytexturetotexture.0j64w0i",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "construction-private:webgpu:GPUCommandEncoder.copyTextureToTexture"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
             "id": "surface.native.op.construction.private.webgpu.gpucommandencoder.finish.0k90p0d",
             "classification": "non-capability",
             "surface": {
               "kind": "native-op",
               "name": "construction-private:webgpu:GPUCommandEncoder.finish"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.dispatchworkgroups.128rff0",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "construction-private:webgpu:GPUComputePassEncoder.dispatchWorkgroups"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.end.1uq0ctc",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "construction-private:webgpu:GPUComputePassEncoder.end"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.setbindgroup.0dq2svx",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "construction-private:webgpu:GPUComputePassEncoder.setBindGroup"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.setpipeline.1j3s7nj",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "construction-private:webgpu:GPUComputePassEncoder.setPipeline"
             },
             "rationaleId": "retained-object-wrapper",
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
@@ -200107,11 +200187,31 @@
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
           },
           {
+            "id": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setbindgroup.1n0cuyu",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "construction-private:webgpu:GPURenderPassEncoder.setBindGroup"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
             "id": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setpipeline.1hzqdty",
             "classification": "non-capability",
             "surface": {
               "kind": "native-op",
               "name": "construction-private:webgpu:GPURenderPassEncoder.setPipeline"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setvertexbuffer.0yy9vps",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "construction-private:webgpu:GPURenderPassEncoder.setVertexBuffer"
             },
             "rationaleId": "retained-object-wrapper",
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."

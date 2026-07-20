@@ -68,11 +68,13 @@ function wrapper(kind: ProductionGpuWrapperKind): object {
 const gpuAdapter = wrapper('GPUAdapter');
 const gpuBuffer = wrapper('GPUBuffer');
 const gpuDevice = wrapper('GPUDevice');
+const bindGroup = wrapper('GPUBindGroup');
 const bindGroupLayout = wrapper('GPUBindGroupLayout');
 const canvasContext = wrapper('GPUCanvasContext');
 const commandBuffer = wrapper('GPUCommandBuffer');
 const commandEncoder = wrapper('GPUCommandEncoder');
 const pipelineLayout = wrapper('GPUPipelineLayout');
+const computePipeline = wrapper('GPUComputePipeline');
 const renderPass = wrapper('GPURenderPassEncoder');
 const renderPipeline = wrapper('GPURenderPipeline');
 const sampler = wrapper('GPUSampler');
@@ -278,6 +280,14 @@ function conversionArguments(operationId: string): readonly unknown[] {
       return [{ device: gpuDevice, format: 'bgra8unorm' }];
     case 'GPUCommandEncoder.beginRenderPass':
       return [{ colorAttachments: [{ view: textureView }] }];
+    case 'GPUCommandEncoder.beginComputePass':
+      return [{ label: 'compute-pass' }];
+    case 'GPUCommandEncoder.clearBuffer':
+      return [gpuBuffer, 0, 4];
+    case 'GPUCommandEncoder.copyBufferToBuffer':
+      return [gpuBuffer, gpuBuffer, 4];
+    case 'GPUCommandEncoder.copyTextureToTexture':
+      return [{ texture }, { texture }, [1, 1, 1]];
     case 'GPUCommandEncoder.finish':
       return [{ label: 'buffer' }];
     case 'GPUBuffer.getMappedRange':
@@ -327,10 +337,19 @@ function conversionArguments(operationId: string): readonly unknown[] {
       return [new Set([commandBuffer])];
     case 'GPUQueue.writeBuffer':
       return [gpuBuffer, 0, new Uint8Array([1, 2, 3, 4])];
+    case 'GPUComputePassEncoder.dispatchWorkgroups':
+      return [1];
+    case 'GPUComputePassEncoder.setBindGroup':
+    case 'GPURenderPassEncoder.setBindGroup':
+      return [0, bindGroup, []];
+    case 'GPUComputePassEncoder.setPipeline':
+      return [computePipeline];
     case 'GPURenderPassEncoder.draw':
       return [3];
     case 'GPURenderPassEncoder.setPipeline':
       return [renderPipeline];
+    case 'GPURenderPassEncoder.setVertexBuffer':
+      return [0, gpuBuffer, 0, 4];
     case 'GPUTexture.createView':
       return [{}];
     default:
@@ -826,14 +845,40 @@ describe('generated injection-only WebGPU executable codecs', () => {
       );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.postWebIdlPayloadCodegenInputs)
       .toEqual([]);
-    expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.authenticatedPromotions)
-      .toEqual([expect.objectContaining({
+    expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.authenticatedPromotions[0])
+      .toEqual(expect.objectContaining({
         operationId: 'GPUDevice.createComputePipeline',
         sourceDisposition: 'staged-unroutable-no-prototype-member',
         activeDisposition: 'active-private-graduated-route',
         disposition:
           'construction-private-route-and-native-codec-public-install-and-support-absent',
-      })]);
+      }));
+    expect(
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.authenticatedPromotions
+        .slice(1)
+        .map((promotion) => promotion.operationId),
+    ).toEqual([
+      'GPUCommandEncoder.beginComputePass',
+      'GPUCommandEncoder.clearBuffer',
+      'GPUCommandEncoder.copyBufferToBuffer',
+      'GPUCommandEncoder.copyTextureToTexture',
+      'GPUComputePassEncoder.dispatchWorkgroups',
+      'GPUComputePassEncoder.end',
+      'GPUComputePassEncoder.setBindGroup',
+      'GPUComputePassEncoder.setPipeline',
+      'GPURenderPassEncoder.setBindGroup',
+      'GPURenderPassEncoder.setVertexBuffer',
+    ]);
+    expect(
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.authenticatedPromotions
+        .slice(1)
+        .every((promotion) =>
+          promotion.sourceDisposition ===
+            'private-wrapper-local-recording-no-dispatch' &&
+          promotion.activeDisposition === 'active-private-graduated-route' &&
+          promotion.disposition ===
+            'construction-private-command-program-route-and-queue-submit-codec-public-install-and-support-absent'),
+    ).toBe(true);
     expect(new Set(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationIds).size).toBe(
       WEBGPU_PRODUCTION_PLAN.routes.length,
     );
@@ -1586,6 +1631,76 @@ describe('generated injection-only WebGPU executable codecs', () => {
       swizzle: 'rgba',
       usage: 0,
     });
+  });
+
+  test('converts promoted command-record arguments with exact overload copies and bounds', () => {
+    const convert = (operationId: string, args: readonly unknown[]) =>
+      WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+        operationId,
+        args,
+        wrappers,
+      );
+
+    expect(convert('GPUCommandEncoder.beginComputePass', [
+      { label: 'compute-\ud800' },
+    ])).toEqual({ label: 'compute-\ufffd', timestampWrites: null });
+    expect(convert('GPUComputePassEncoder.dispatchWorkgroups', [2]))
+      .toEqual({ workgroupCountX: 2, workgroupCountY: 1, workgroupCountZ: 1 });
+    expect(convert('GPUCommandEncoder.clearBuffer', [gpuBuffer]))
+      .toMatchObject({ offset: 0, size: null });
+    expect(convert('GPUCommandEncoder.copyBufferToBuffer', [
+      gpuBuffer,
+      4,
+      gpuBuffer,
+      8,
+      12,
+    ])).toMatchObject({
+      sourceOffset: 4,
+      destinationOffset: 8,
+      size: 12,
+      overload: 'full',
+    });
+
+    const offsets = new Uint32Array([7, 8, 9]);
+    const convertedOffsets = convert('GPUComputePassEncoder.setBindGroup', [
+      2,
+      bindGroup,
+      offsets,
+      1,
+      2,
+    ]) as Readonly<Record<string, unknown>>;
+    offsets[1] = 99;
+    expect(convertedOffsets).toMatchObject({
+      index: 2,
+      dynamicOffsets: [8, 9],
+      overload: 'uint32-range',
+    });
+    expect(() => convert('GPURenderPassEncoder.setBindGroup', [
+      0,
+      bindGroup,
+      offsets,
+      2,
+      2,
+    ])).toThrow(RangeError);
+    const tooManyOffsets = new Uint32Array(
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.layout.sequenceMaxCount + 1,
+    );
+    expect(() => convert('GPUComputePassEncoder.setBindGroup', [
+      0,
+      bindGroup,
+      tooManyOffsets,
+      0,
+      tooManyOffsets.length,
+    ])).toThrow(RangeError);
+    expect(() => convert('GPUCommandEncoder.copyTextureToTexture', [
+      { texture },
+      { texture },
+      [1, 1, 1, 1],
+    ])).toThrow(TypeError);
+    expect(() => convert('GPUCommandEncoder.clearBuffer', [
+      gpuBuffer,
+      Number.MAX_SAFE_INTEGER + 1,
+    ])).toThrow(TypeError);
   });
 
   test('materializes WebIDL defaults for all four authenticated TypeGPU render cohorts', () => {

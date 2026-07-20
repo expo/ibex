@@ -95,6 +95,9 @@ const EXPECTED_STAGED_LOCAL_RECORD_IDENTITIES = Object.freeze({
       '564d068ca63aee652e7571913e8a9a3dc13f764a907bdb0546fa8b98710a212c',
   }),
 });
+const PROMOTED_LOCAL_RECORD_OPERATION_NAMES = new Set(
+  Object.keys(EXPECTED_STAGED_LOCAL_RECORD_IDENTITIES),
+);
 
 type OperationResultEvent = Extract<NativeGpuEventV2, { kind: 1 }>;
 
@@ -1991,7 +1994,7 @@ describe('production-private WebGPU wrapper factory', () => {
     binding.revoke();
   });
 
-  test('seals the staged command program with copied overloads and full lineage without provider dispatch', async () => {
+  test('seals the promoted command program with active identities, copied overloads, and full lineage without provider dispatch', async () => {
     const bridge = createFakeBridge();
     const codecs = createFakeCodecs();
     const binding = createProductionWebGpuPrivateBinding(
@@ -2090,18 +2093,23 @@ describe('production-private WebGPU wrapper factory', () => {
       expect(program.records[index]).toBe(timeline[index]);
     }
 
-    const stagedRecords = timeline.filter(
-      (record) => record.recordIdentityClass === 'staged-local',
+    const promotedRecords = timeline.filter(
+      (record) => PROMOTED_LOCAL_RECORD_OPERATION_NAMES.has(record.operationName),
     );
-    expect(new Set(stagedRecords.map((record) => record.operationName))).toEqual(
+    expect(new Set(promotedRecords.map((record) => record.operationName))).toEqual(
       new Set(Object.keys(EXPECTED_STAGED_LOCAL_RECORD_IDENTITIES)),
     );
-    for (const record of stagedRecords) {
-      const expected = EXPECTED_STAGED_LOCAL_RECORD_IDENTITIES[
+    for (const record of promotedRecords) {
+      const stagedIdentity = EXPECTED_STAGED_LOCAL_RECORD_IDENTITIES[
         record.operationName as keyof typeof EXPECTED_STAGED_LOCAL_RECORD_IDENTITIES
       ];
-      expect(record.operationId).toBe(expected.localRecordId);
-      expect(record.operationIdentitySha256).toBe(expected.recordIdentitySha256);
+      const route = WEBGPU_PRODUCTION_PLAN.routes.find(
+        (candidate) => candidate.operationId === record.operationName,
+      );
+      expect(record.recordIdentityClass).toBe('active-route');
+      expect(record.operationId).toBe(route?.wireId);
+      expect(record.operationId).not.toBe(stagedIdentity.localRecordId);
+      expect(record.operationIdentitySha256).toBeNull();
       expect(record.operationInstanceId).toMatch(/^[1-9][0-9]*$/);
       expect(record.deviceIngressOrdinal).toMatch(/^[1-9][0-9]*$/);
       expect(record.capturedScopeId).toBe('0');
@@ -2115,12 +2123,10 @@ describe('production-private WebGPU wrapper factory', () => {
         logicalDeviceGeneration: '1',
         providerGeneration: '7',
       });
-      expect(WEBGPU_PRODUCTION_PLAN.routes.some(
-        (route) => route.wireId === record.operationId,
-      )).toBe(false);
+      expect(route).toBeDefined();
     }
 
-    const beginCompute = stagedRecords.find(
+    const beginCompute = promotedRecords.find(
       (record) => record.operationName === 'GPUCommandEncoder.beginComputePass',
     );
     if (!beginCompute) throw new Error('missing beginComputePass record');
@@ -2133,28 +2139,28 @@ describe('production-private WebGPU wrapper factory', () => {
       logicalDeviceGeneration: '1',
       providerGeneration: '7',
     });
-    for (const record of stagedRecords.filter(
+    for (const record of promotedRecords.filter(
       (candidate) => candidate.operationName.startsWith('GPUComputePassEncoder.'),
     )) {
       expect(record.commandEncoderRef).toEqual(beginCompute.commandEncoderRef);
       expect(record.passRef).toEqual(beginCompute.passRef);
     }
 
-    const bufferCopies = stagedRecords.filter(
+    const bufferCopies = promotedRecords.filter(
       (record) => record.operationName === 'GPUCommandEncoder.copyBufferToBuffer',
     );
     expect(bufferCopies.map((record) => record.argumentBody.overload)).toEqual([
       'short',
       'full',
     ]);
-    const textureCopy = stagedRecords.find(
+    const textureCopy = promotedRecords.find(
       (record) => record.operationName === 'GPUCommandEncoder.copyTextureToTexture',
     );
     expect(textureCopy?.argumentBody).toMatchObject({
       source: { origin: { x: 1, y: 2, z: 0 } },
       copySize: { width: 4, height: 5, depthOrArrayLayers: 1 },
     });
-    const renderBind = stagedRecords.find(
+    const renderBind = promotedRecords.find(
       (record) => record.operationName === 'GPURenderPassEncoder.setBindGroup',
     );
     expect(renderBind?.argumentBody).toMatchObject({
@@ -2164,24 +2170,24 @@ describe('production-private WebGPU wrapper factory', () => {
     // The backing-buffer predicate succeeds exactly at 8 + 40 + 16 = 64;
     // the GPUBindingResource.size of 4 is intentionally irrelevant here.
     expect(renderBind?.logicalError).toBeNull();
-    const computeBind = stagedRecords.find(
+    const computeBind = promotedRecords.find(
       (record) => record.operationName === 'GPUComputePassEncoder.setBindGroup',
     );
     expect(computeBind?.argumentBody).toMatchObject({
       dynamicOffsets: [40],
       overload: 'iterable',
     });
-    const computeEnd = stagedRecords.find(
+    const computeEnd = promotedRecords.find(
       (record) => record.operationName === 'GPUComputePassEncoder.end',
     );
     expect(computeEnd?.logicalError).toMatchObject({ name: 'GPUValidationError' });
     expect(computeEnd?.argumentBody.usedBindGroups).toContainEqual(
       computeBind?.argumentBody.bindGroup,
     );
-    expect(stagedRecords.find(
+    expect(promotedRecords.find(
       (record) => record.operationName === 'GPUComputePassEncoder.setPipeline',
     )?.logicalError).toMatchObject({ name: 'GPUValidationError' });
-    expect(stagedRecords.find(
+    expect(promotedRecords.find(
       (record) => record.operationName === 'GPUComputePassEncoder.dispatchWorkgroups',
     )?.logicalError).toMatchObject({ name: 'GPUValidationError' });
 
@@ -2202,7 +2208,7 @@ describe('production-private WebGPU wrapper factory', () => {
       receiverId: '202',
       receiverGeneration: '1',
     });
-    expect(stagedRecords.every(
+    expect(promotedRecords.every(
       (record) => record.operationId !== serviceSubmission.operationId,
     )).toBe(true);
     binding.revoke();
@@ -2239,7 +2245,9 @@ describe('production-private WebGPU wrapper factory', () => {
     );
     if (!submitEncoding) throw new Error('missing queue submit encoding');
     const computeRecords = localRecords(submitEncoding).filter(
-      (record) => record.recordIdentityClass === 'staged-local',
+      (record) =>
+        record.operationName === 'GPUCommandEncoder.beginComputePass' ||
+        record.operationName === 'GPUComputePassEncoder.end',
     );
     expect(computeRecords.map((record) => record.operationName)).toEqual([
       'GPUCommandEncoder.beginComputePass',
@@ -2428,7 +2436,7 @@ describe('production-private WebGPU wrapper factory', () => {
     );
     if (!crossDeviceEncoding) throw new Error('missing cross-device submit');
     const renderRecords = localRecords(crossDeviceEncoding).filter(
-      (record) => record.recordIdentityClass === 'staged-local',
+      (record) => PROMOTED_LOCAL_RECORD_OPERATION_NAMES.has(record.operationName),
     );
     const bindRecords = renderRecords.filter(
       (record) => record.operationName === 'GPURenderPassEncoder.setBindGroup',
@@ -2522,7 +2530,7 @@ describe('production-private WebGPU wrapper factory', () => {
     binding.revoke();
   });
 
-  test('uses the final staged identity once and closes before a second staged record', async () => {
+  test('uses the final local-record identity once and closes before a second record', async () => {
     const bridge = createFakeBridge();
     const binding = createProductionWebGpuPrivateBinding(
       bridge,

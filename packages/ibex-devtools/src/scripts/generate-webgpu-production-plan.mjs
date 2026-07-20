@@ -89,6 +89,10 @@ const STAGED_LOCAL_RECORDING_OPERATION_IDS = Object.freeze([
 ]);
 const COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID =
   "GPUDevice.createComputePipeline";
+const AUTHENTICATED_PROMOTION_OPERATION_IDS = Object.freeze([
+  COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID,
+  ...STAGED_LOCAL_RECORDING_OPERATION_IDS,
+]);
 const COMPUTE_PIPELINE_PROMOTION = Object.freeze({
   operationId: COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID,
   sourceDisposition: "staged-unroutable-no-prototype-member",
@@ -101,6 +105,23 @@ const COMPUTE_PIPELINE_PROMOTION = Object.freeze({
   disposition:
     "construction-private-route-and-native-codec-public-install-and-support-absent",
 });
+function authenticatedPromotionProjection(localPromotions) {
+  return localPromotions.map((promotion) =>
+    promotion.operationId === COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID
+      ? COMPUTE_PIPELINE_PROMOTION
+      : Object.freeze({
+          operationId: promotion.operationId,
+          sourceDisposition: "private-wrapper-local-recording-no-dispatch",
+          activeDisposition: "active-private-graduated-route",
+          sourceOperationWireId: promotion.sourceOperationWireId,
+          sourceOperationSemanticSha256:
+            promotion.sourceOperationSemanticSha256,
+          sourceWorkloadCohortSha256: promotion.sourceWorkloadCohortSha256,
+          disposition:
+            "construction-private-command-program-route-and-queue-submit-codec-public-install-and-support-absent",
+        }),
+  );
+}
 const PRODUCT_SELECTED_METADATA_OPERATION_IDS = Object.freeze([
   "GPUAdapter.features",
   "GPUBuffer.size",
@@ -254,7 +275,12 @@ function stagingProjectionSha256(staging) {
     .digest("hex");
 }
 
-function validateWorkloadStaging(staging, routeIds, activeWireIds) {
+function validateWorkloadStaging(
+  staging,
+  routeIds,
+  activeWireIds,
+  localPromotions,
+) {
   if (
     staging?.schema !== "ibex/webgpu-typegpu-workload-staging/1" ||
     staging.artifactVersion !== 1 ||
@@ -280,9 +306,9 @@ function validateWorkloadStaging(staging, routeIds, activeWireIds) {
     throw new Error("invalid TypeGPU normalized staging projection identity");
   }
   exactSet(staging.blockers, REQUIRED_WORKLOAD_BLOCKERS, "TypeGPU staging blockers");
+  const promotedRouteSet = new Set(AUTHENTICATED_PROMOTION_OPERATION_IDS);
   const sourceActiveRouteIds = routeIds.filter(
-    (operationId) =>
-      operationId !== COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID,
+    (operationId) => !promotedRouteSet.has(operationId),
   );
   if (
     staging.activeRouteSubset.scopeId !==
@@ -377,9 +403,6 @@ function validateWorkloadStaging(staging, routeIds, activeWireIds) {
     IMMUTABLE_TRIANGLE_ROUTE_IDS,
     "immutable TypeGPU active triangle routes",
   );
-  const promotedRouteSet = new Set([
-    COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID,
-  ]);
   const graduatedRouteSet = new Set(
     routeIds.filter(
       (operationId) =>
@@ -425,8 +448,11 @@ function validateWorkloadStaging(staging, routeIds, activeWireIds) {
       ? "active-private-triangle-route"
       : graduatedRouteSet.has(operation.operationId)
         ? "active-private-graduated-route"
-      : promotedRouteSet.has(operation.operationId)
+      : operation.operationId ===
+          COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID
         ? "staged-unroutable-no-prototype-member"
+      : promotedRouteSet.has(operation.operationId)
+        ? "private-wrapper-local-recording-no-dispatch"
       : wrapperLocalMetadataSet.has(operation.operationId)
           ? "private-wrapper-local-metadata-read-no-dispatch"
         : STAGED_LOCAL_RECORDING_OPERATION_IDS.includes(operation.operationId)
@@ -462,6 +488,25 @@ function validateWorkloadStaging(staging, routeIds, activeWireIds) {
       "compute pipeline promotion must retain its staged source row and one active private route",
     );
   }
+  if (
+    !Array.isArray(localPromotions) ||
+    localPromotions.length !== promotedRouteSet.size ||
+    localPromotions.some(
+      (promotion) =>
+        !promotedRouteSet.has(promotion.operationId) ||
+        !routeSet.has(promotion.operationId),
+    ) ||
+    STAGED_LOCAL_RECORDING_OPERATION_IDS.some(
+      (operationId) =>
+        !localRecording.operations.some(
+          (operation) => operation.operationId === operationId,
+        ),
+    )
+  ) {
+    throw new Error(
+      "authenticated command-program promotions lost their staged source identities",
+    );
+  }
   return Object.freeze({
     scopeId: staging.scopeId,
     status: staging.status,
@@ -474,7 +519,9 @@ function validateWorkloadStaging(staging, routeIds, activeWireIds) {
       staging.workloadClosure.additionalOperationCount,
     additionalOperationCount: additional.length,
     additionalOperations: additional,
-    authenticatedPromotions: Object.freeze([COMPUTE_PIPELINE_PROMOTION]),
+    authenticatedPromotions: Object.freeze(
+      authenticatedPromotionProjection(localPromotions),
+    ),
     postWebIdlPayloadCodegenInputs: Object.freeze([]),
     localRecordingSubset: localRecording,
     properties: staging.workloadClosure.properties,
@@ -573,6 +620,7 @@ function renderPlan(authority, workloadStaging, webIdlVocabulary) {
     workloadStaging,
     typeGpuRouteIds,
     new Set(routes.map((candidate) => candidate.wireId)),
+    authority.provenance.localPromotions,
   );
   const plan = {
     schema: "ibex/webgpu-production-wrapper-plan/1",
@@ -787,9 +835,12 @@ function buildCodecManifest(
         operation.semanticSha256 ===
           COMPUTE_PIPELINE_PROMOTION.sourceOperationSemanticSha256,
     ) ||
-    authority.provenance.localPromotions?.length !== 1 ||
-    authority.provenance.localPromotions[0]?.operationId !==
-      COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID
+    authority.provenance.localPromotions?.length !==
+      AUTHENTICATED_PROMOTION_OPERATION_IDS.length ||
+    authority.provenance.localPromotions.some(
+      (promotion, index) =>
+        promotion.operationId !== AUTHENTICATED_PROMOTION_OPERATION_IDS[index],
+    )
   ) {
     throw new Error(
       "compute pipeline private promotion lost its authenticated staged authority",
@@ -1278,18 +1329,18 @@ function buildCodecManifest(
       variant.recordRole,
     ])) !== canonicalJson([
       ["GPUCanvasContext.getCurrentTexture", 0, "active-route", "timeline-only"],
-      ["GPUCommandEncoder.beginComputePass", 1, "staged-local", "command-program"],
+      ["GPUCommandEncoder.beginComputePass", 1, "active-route", "command-program"],
       ["GPUCommandEncoder.beginRenderPass", 2, "active-route", "command-program"],
-      ["GPUCommandEncoder.clearBuffer", 3, "staged-local", "command-program"],
-      ["GPUCommandEncoder.copyBufferToBuffer", 4, "staged-local", "command-program"],
-      ["GPUCommandEncoder.copyTextureToTexture", 5, "staged-local", "command-program"],
-      ["GPUComputePassEncoder.setPipeline", 6, "staged-local", "command-program"],
-      ["GPUComputePassEncoder.setBindGroup", 7, "staged-local", "command-program"],
-      ["GPUComputePassEncoder.dispatchWorkgroups", 8, "staged-local", "command-program"],
-      ["GPUComputePassEncoder.end", 9, "staged-local", "command-program"],
+      ["GPUCommandEncoder.clearBuffer", 3, "active-route", "command-program"],
+      ["GPUCommandEncoder.copyBufferToBuffer", 4, "active-route", "command-program"],
+      ["GPUCommandEncoder.copyTextureToTexture", 5, "active-route", "command-program"],
+      ["GPUComputePassEncoder.setPipeline", 6, "active-route", "command-program"],
+      ["GPUComputePassEncoder.setBindGroup", 7, "active-route", "command-program"],
+      ["GPUComputePassEncoder.dispatchWorkgroups", 8, "active-route", "command-program"],
+      ["GPUComputePassEncoder.end", 9, "active-route", "command-program"],
       ["GPURenderPassEncoder.setPipeline", 10, "active-route", "command-program"],
-      ["GPURenderPassEncoder.setBindGroup", 11, "staged-local", "command-program"],
-      ["GPURenderPassEncoder.setVertexBuffer", 12, "staged-local", "command-program"],
+      ["GPURenderPassEncoder.setBindGroup", 11, "active-route", "command-program"],
+      ["GPURenderPassEncoder.setVertexBuffer", 12, "active-route", "command-program"],
       ["GPURenderPassEncoder.draw", 13, "active-route", "command-program"],
       ["GPURenderPassEncoder.end", 14, "active-route", "command-program"],
       ["GPUCommandEncoder.finish", 15, "active-route", "command-program"],
@@ -1598,7 +1649,9 @@ function buildCodecManifest(
     serviceCompletions: numberedCatalog(
       payload.codecCatalog.serviceCompletions,
     ),
-    authenticatedPromotions: [COMPUTE_PIPELINE_PROMOTION],
+    authenticatedPromotions: authenticatedPromotionProjection(
+      authority.provenance.localPromotions,
+    ),
     postWebIdlPayloadCodegenInputs: [],
     completeLimitNames: semantic.semanticProjection.limitPolicy.limits.map(
       (limit) => limit.name,

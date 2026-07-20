@@ -811,14 +811,17 @@ export interface ExecutableWebGpuCodecManifest {
   readonly serviceArguments: readonly ServiceCodecCatalogRow[];
   readonly serviceCompletions: readonly CodecCatalogRow[];
   readonly authenticatedPromotions: readonly Readonly<{
-    readonly operationId: 'GPUDevice.createComputePipeline';
-    readonly sourceDisposition: 'staged-unroutable-no-prototype-member';
+    readonly operationId: string;
+    readonly sourceDisposition:
+      | 'staged-unroutable-no-prototype-member'
+      | 'private-wrapper-local-recording-no-dispatch';
     readonly activeDisposition: 'active-private-graduated-route';
-    readonly sourceOperationWireId: 2342501516;
+    readonly sourceOperationWireId: number;
     readonly sourceOperationSemanticSha256: string;
     readonly sourceWorkloadCohortSha256: string;
     readonly disposition:
-      'construction-private-route-and-native-codec-public-install-and-support-absent';
+      | 'construction-private-route-and-native-codec-public-install-and-support-absent'
+      | 'construction-private-command-program-route-and-queue-submit-codec-public-install-and-support-absent';
   }>[];
   readonly postWebIdlPayloadCodegenInputs: readonly [];
   readonly completeLimitNames: readonly string[];
@@ -1036,9 +1039,9 @@ const EXPECTED_BUFFER_LIFECYCLE_NATIVE_CODEC_SHA256 =
 const EXPECTED_QUEUE_WRITE_BUFFER_NATIVE_CODEC_SHA256 =
   'a04a12cd84364bc18fd85f4aa9d786aa89d1a06abb4110c7b794b2d9404cc104';
 const EXPECTED_QUEUE_SUBMIT_NATIVE_CODEC_SHA256 =
-  '27940878fd3ceebda412356eeab0fa5a58e99baaf2b2538b8f6df23cfbf54f94';
+  '7384eadbb32ba1bdbf6986661155b6fc5ce91804d78c90c85b491c05e5ce1bf6';
 const EXPECTED_CANVAS_NATIVE_CODEC_SHA256 =
-  'b23a205fa68b269ecb40b854ebda2a5a91958f1fdfc2d8dfbb6ddeedc3b53068';
+  '413d6367475738dc970f2d76401fb26b955b3b55d7f9ffb502f88f370d36c7cb';
 const EXPECTED_CREATE_RENDER_PIPELINE_NATIVE_ROUTE_SHA256 =
   '0f1af44238843ba1edc0ca1513c8b732cb72733a3680006be94a3322602919ee';
 const EXPECTED_CREATE_COMPUTE_PIPELINE_DESCRIPTOR_SHA256 =
@@ -5199,6 +5202,296 @@ function convertExtent3D(
   });
 }
 
+function convertOrigin3DArgument(
+  value: unknown,
+  label: string,
+): Readonly<{ x: number; y: number; z: number }> {
+  if (!isObjectLike(value)) {
+    throw new TypeError(`${label} must be an iterable or dictionary`);
+  }
+  const iteratorMethod = value[Symbol.iterator];
+  if (iteratorMethod !== undefined && iteratorMethod !== null) {
+    const members = sequence(value, label, 3, (member, index) =>
+      u32(member, `${label}[${index}]`));
+    return frozenRecord({
+      x: (members[0] as number | undefined) ?? 0,
+      y: (members[1] as number | undefined) ?? 0,
+      z: (members[2] as number | undefined) ?? 0,
+    });
+  }
+  const source = dictionary(value, label);
+  const x = u32(source.x, `${label}.x`, 0);
+  const y = u32(source.y, `${label}.y`, 0);
+  const z = u32(source.z, `${label}.z`, 0);
+  return frozenRecord({ x, y, z });
+}
+
+function convertCopyExtent3DArgument(
+  value: unknown,
+  label: string,
+): Readonly<{ width: number; height: number; depthOrArrayLayers: number }> {
+  if (!isObjectLike(value)) {
+    throw new TypeError(`${label} must be an iterable or dictionary`);
+  }
+  const iteratorMethod = value[Symbol.iterator];
+  if (iteratorMethod !== undefined && iteratorMethod !== null) {
+    const members = sequence(value, label, 3, (member, index) =>
+      u32(member, `${label}[${index}]`));
+    if (members.length === 0) {
+      throw new TypeError(`${label} must contain one to three members`);
+    }
+    return frozenRecord({
+      width: members[0] as number,
+      height: (members[1] as number | undefined) ?? 1,
+      depthOrArrayLayers: (members[2] as number | undefined) ?? 1,
+    });
+  }
+  const source = dictionary(value, label);
+  const depthOrArrayLayers = u32(
+    source.depthOrArrayLayers,
+    `${label}.depthOrArrayLayers`,
+    1,
+  );
+  const height = u32(source.height, `${label}.height`, 1);
+  if (source.width === undefined) {
+    throw new TypeError(`${label}.width is required`);
+  }
+  const width = u32(source.width, `${label}.width`);
+  return frozenRecord({ width, height, depthOrArrayLayers });
+}
+
+function convertComputePassDescriptorArguments(
+  value: unknown,
+  wrappers: ProductionGpuCodecWrapperAccess,
+): unknown {
+  const source = dictionary(value, 'GPUComputePassDescriptor');
+  const label = optionalLabel(source);
+  const timestampWritesValue = source.timestampWrites;
+  if (timestampWritesValue === undefined) {
+    return frozenRecord({ label, timestampWrites: null });
+  }
+  const timestampWrites = dictionary(
+    timestampWritesValue,
+    'GPUComputePassTimestampWrites',
+  );
+  const beginningOfPassWriteIndex = timestampWrites.beginningOfPassWriteIndex ===
+      undefined
+    ? null
+    : u32(
+      timestampWrites.beginningOfPassWriteIndex,
+      'GPUComputePassTimestampWrites.beginningOfPassWriteIndex',
+    );
+  const endOfPassWriteIndex = timestampWrites.endOfPassWriteIndex === undefined
+    ? null
+    : u32(
+      timestampWrites.endOfPassWriteIndex,
+      'GPUComputePassTimestampWrites.endOfPassWriteIndex',
+    );
+  const querySet = wrappers.referenceIfBranded(
+    timestampWrites.querySet,
+    'GPUQuerySet',
+  ) ?? null;
+  return frozenRecord({
+    label,
+    timestampWrites: frozenRecord({
+      beginningOfPassWriteIndex,
+      endOfPassWriteIndex,
+      querySet,
+    }),
+  });
+}
+
+function convertClearBufferArguments(
+  args: readonly unknown[],
+  wrappers: ProductionGpuCodecWrapperAccess,
+): unknown {
+  if (args.length < 1) throw new TypeError('clearBuffer requires a buffer');
+  return frozenRecord({
+    buffer: wrappers.reference(args[0], 'GPUBuffer'),
+    offset: args[1] === undefined
+      ? 0
+      : u64Number(args[1], 'GPUCommandEncoder.clearBuffer offset'),
+    size: args[2] === undefined
+      ? null
+      : u64Number(args[2], 'GPUCommandEncoder.clearBuffer size'),
+  });
+}
+
+function convertCopyBufferToBufferArguments(
+  args: readonly unknown[],
+  wrappers: ProductionGpuCodecWrapperAccess,
+): unknown {
+  if (args.length < 2) {
+    throw new TypeError('copyBufferToBuffer requires source and destination');
+  }
+  const source = wrappers.reference(args[0], 'GPUBuffer');
+  const shortDestination = wrappers.referenceIfBranded(args[1], 'GPUBuffer');
+  if (shortDestination !== undefined) {
+    return frozenRecord({
+      source,
+      sourceOffset: 0,
+      destination: shortDestination,
+      destinationOffset: 0,
+      size: args[2] === undefined
+        ? null
+        : u64Number(args[2], 'GPUCommandEncoder.copyBufferToBuffer size'),
+      overload: 'short',
+    });
+  }
+  if (args.length < 3) {
+    throw new TypeError('copyBufferToBuffer full overload requires a destination');
+  }
+  return frozenRecord({
+    source,
+    sourceOffset: u64Number(
+      args[1],
+      'GPUCommandEncoder.copyBufferToBuffer sourceOffset',
+    ),
+    destination: wrappers.reference(args[2], 'GPUBuffer'),
+    destinationOffset: u64Number(
+      args[3],
+      'GPUCommandEncoder.copyBufferToBuffer destinationOffset',
+    ),
+    size: args[4] === undefined
+      ? null
+      : u64Number(args[4], 'GPUCommandEncoder.copyBufferToBuffer size'),
+    overload: 'full',
+  });
+}
+
+function convertTextureCopyViewArgument(
+  value: unknown,
+  label: string,
+  wrappers: ProductionGpuCodecWrapperAccess,
+): unknown {
+  const source = dictionary(value, label);
+  const aspect = source.aspect === undefined
+    ? 'all'
+    : enumValue(
+      source.aspect,
+      ['all', 'stencil-only', 'depth-only'],
+      `${label}.aspect`,
+    );
+  const mipLevel = u32(source.mipLevel, `${label}.mipLevel`, 0);
+  const origin = source.origin === undefined
+    ? frozenRecord({ x: 0, y: 0, z: 0 })
+    : convertOrigin3DArgument(source.origin, `${label}.origin`);
+  if (source.texture === undefined) {
+    throw new TypeError(`${label}.texture is required`);
+  }
+  return frozenRecord({
+    aspect,
+    mipLevel,
+    origin,
+    texture: wrappers.reference(source.texture, 'GPUTexture'),
+  });
+}
+
+function convertCopyTextureToTextureArguments(
+  args: readonly unknown[],
+  wrappers: ProductionGpuCodecWrapperAccess,
+): unknown {
+  return frozenRecord({
+    source: convertTextureCopyViewArgument(
+      args[0],
+      'GPUCommandEncoder.copyTextureToTexture source',
+      wrappers,
+    ),
+    destination: convertTextureCopyViewArgument(
+      args[1],
+      'GPUCommandEncoder.copyTextureToTexture destination',
+      wrappers,
+    ),
+    copySize: convertCopyExtent3DArgument(
+      args[2],
+      'GPUCommandEncoder.copyTextureToTexture copySize',
+    ),
+  });
+}
+
+function convertSetBindGroupArguments(
+  args: readonly unknown[],
+  wrappers: ProductionGpuCodecWrapperAccess,
+  maximum: number,
+): unknown {
+  if (args.length < 2) {
+    throw new TypeError('setBindGroup requires index and bindGroup');
+  }
+  const index = u32(args[0], 'setBindGroup index');
+  const bindGroup = args[1] === null || args[1] === undefined
+    ? null
+    : wrappers.reference(args[1], 'GPUBindGroup');
+  if (args.length >= 5) {
+    const start = u64Number(args[3], 'dynamicOffsetsDataStart');
+    const length = u32(args[4], 'dynamicOffsetsDataLength');
+    let tag: unknown;
+    let byteLength: number;
+    try {
+      tag = Reflect.apply(TYPED_ARRAY_TAG_GETTER, args[2], []);
+      byteLength = Reflect.apply(TYPED_ARRAY_BYTE_LENGTH_GETTER, args[2], []);
+    } catch {
+      throw new TypeError('dynamicOffsetsData must be a Uint32Array');
+    }
+    if (tag !== 'Uint32Array') {
+      throw new TypeError('dynamicOffsetsData must be a Uint32Array');
+    }
+    const sourceLength = byteLength / 4;
+    if (start > sourceLength || length > sourceLength - start) {
+      throw new RangeError('dynamicOffsetsData range exceeds the source Uint32Array');
+    }
+    if (length > maximum) {
+      throw new RangeError('dynamicOffsetsData range exceeds the reviewed sequence bound');
+    }
+    const source = args[2] as Readonly<Record<number, number>>;
+    const dynamicOffsets: number[] = [];
+    for (let offsetIndex = 0; offsetIndex < length; offsetIndex += 1) {
+      dynamicOffsets.push(source[start + offsetIndex]);
+    }
+    return frozenRecord({
+      index,
+      bindGroup,
+      dynamicOffsets: Object.freeze(dynamicOffsets),
+      overload: 'uint32-range',
+    });
+  }
+  if (args.length === 4) {
+    throw new TypeError('setBindGroup overload requires either three or five arguments');
+  }
+  const dynamicOffsets = args[2] === undefined
+    ? []
+    : sequence(
+      args[2],
+      'dynamicOffsets',
+      maximum,
+      (member, offsetIndex) =>
+        u32(member, `dynamicOffsets[${offsetIndex}]`),
+    );
+  return frozenRecord({
+    index,
+    bindGroup,
+    dynamicOffsets: Object.freeze(dynamicOffsets),
+    overload: 'iterable',
+  });
+}
+
+function convertSetVertexBufferArguments(
+  args: readonly unknown[],
+  wrappers: ProductionGpuCodecWrapperAccess,
+): unknown {
+  return frozenRecord({
+    slot: u32(args[0], 'GPURenderPassEncoder.setVertexBuffer slot'),
+    buffer: args[1] === null || args[1] === undefined
+      ? null
+      : wrappers.reference(args[1], 'GPUBuffer'),
+    offset: args[2] === undefined
+      ? 0
+      : u64Number(args[2], 'GPURenderPassEncoder.setVertexBuffer offset'),
+    size: args[3] === undefined
+      ? null
+      : u64Number(args[3], 'GPURenderPassEncoder.setVertexBuffer size'),
+  });
+}
+
 function sequence(
   value: unknown,
   label: string,
@@ -8259,14 +8552,28 @@ function buildQueueSubmitRecordSpecs(): Readonly<{
   >(
     WEBGPU_PRODUCTION_PLAN.routes.map((entry) => [entry.operationId, entry] as const),
   );
+  const promoted = new Set(
+    WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.authenticatedPromotions.map(
+      (entry) => entry.operationId,
+    ),
+  );
   const specs = QUEUE_SUBMIT_RECORD_VARIANTS.map(
     ([operationName, tag, commandRecord]): QueueSubmitRecordSpec => {
       const stagedEntry = staged.get(operationName);
       const activeEntry = active.get(operationName);
-      if ((stagedEntry === undefined) === (activeEntry === undefined)) {
+      const authenticatedPromotion =
+        stagedEntry !== undefined &&
+        activeEntry !== undefined &&
+        promoted.has(operationName);
+      if (
+        (stagedEntry === undefined && activeEntry === undefined) ||
+        (stagedEntry !== undefined &&
+          activeEntry !== undefined &&
+          !authenticatedPromotion)
+      ) {
         throw new Error(`Queue-submit record identity is ambiguous: ${operationName}`);
       }
-      if (stagedEntry) {
+      if (stagedEntry && !authenticatedPromotion) {
         if (
           stagedEntry.logicalExecutionKind !== 'wrapper-local-recording' ||
           stagedEntry.terminalDisposition !==
@@ -12130,7 +12437,8 @@ export function createExecutableWebGpuCodecs(
   const consumedQueueWriteBufferSnapshots = new WeakSet<Uint8Array>();
   if (
     routes.size !== WEBGPU_PRODUCTION_PLAN.routes.length ||
-    manifest.authenticatedPromotions.length !== 1 ||
+    manifest.authenticatedPromotions.length !==
+      WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.authenticatedPromotions.length ||
     manifest.postWebIdlPayloadCodegenInputs.length !== 0 ||
     !routes.has(CREATE_COMPUTE_PIPELINE_OPERATION_ID) ||
     manifest.operationIds.length !== WEBGPU_PRODUCTION_PLAN.routes.length ||
@@ -12184,6 +12492,14 @@ export function createExecutableWebGpuCodecs(
           wrappers,
           manifest.layout.sequenceMaxCount,
         );
+      case 'gpu-compute-pass-descriptor-v1':
+        return convertComputePassDescriptorArguments(args[0], wrappers);
+      case 'gpu-clear-buffer-arguments-v1':
+        return convertClearBufferArguments(args, wrappers);
+      case 'gpu-copy-buffer-to-buffer-arguments-v1':
+        return convertCopyBufferToBufferArguments(args, wrappers);
+      case 'gpu-copy-texture-to-texture-arguments-v1':
+        return convertCopyTextureToTextureArguments(args, wrappers);
       case 'gpu-command-buffer-descriptor-v1':
         return convertObjectDescriptor(args[0], 'GPUCommandBufferDescriptor');
       case 'gpu-command-encoder-descriptor-v1':
@@ -12241,10 +12557,37 @@ export function createExecutableWebGpuCodecs(
           wrappers,
           manifest.layout.sequenceMaxCount,
         );
+      case 'gpu-dispatch-workgroups-arguments-v1':
+        return frozenRecord({
+          workgroupCountX: u32(
+            args[0],
+            'GPUComputePassEncoder.dispatchWorkgroups workgroupCountX',
+          ),
+          workgroupCountY: u32(
+            args[1],
+            'GPUComputePassEncoder.dispatchWorkgroups workgroupCountY',
+            1,
+          ),
+          workgroupCountZ: u32(
+            args[2],
+            'GPUComputePassEncoder.dispatchWorkgroups workgroupCountZ',
+            1,
+          ),
+        });
+      case 'gpu-set-bind-group-arguments-v1':
+        return convertSetBindGroupArguments(
+          args,
+          wrappers,
+          manifest.layout.sequenceMaxCount,
+        );
       case 'gpu-draw-arguments-v1':
         return convertDrawArguments(args);
+      case 'gpu-compute-pipeline-handle-v1':
+        return wrappers.reference(args[0], 'GPUComputePipeline');
       case 'gpu-render-pipeline-handle-v1':
         return wrappers.reference(args[0], 'GPURenderPipeline');
+      case 'gpu-set-vertex-buffer-arguments-v1':
+        return convertSetVertexBufferArguments(args, wrappers);
       case 'gpu-texture-view-descriptor-v1':
         return convertTextureViewDescriptor(
           args[0],
