@@ -78,13 +78,43 @@ const EFFECT_BUILTIN_MODULE_IMPORT_ALIASES = new Map(
 );
 const NONCAP_BUILTIN_MODULE_IMPORT_ALIASES = new Map(
   [
-    ["dns", "node_dns"],
-    ["node:dns", "node_dns"],
-    ["dns/promises", "node_dns_promises"],
-    ["node:dns/promises", "node_dns_promises"],
-  ].map(([moduleSpecifier, sourceKey]) => [
+    ["buffer", "node_buffer", true, "object"],
+    ["bun:sqlite", "exact_sqlite", false, "function"],
+    ["console", "node_console", true, "object"],
+    ["dns", "node_dns", true, "object"],
+    ["dns/promises", "node_dns_promises", true, "object"],
+    ["exact:clipboard", "exact_clipboard", false, "object"],
+    ["exact:http", "exact_http", false, "object"],
+    ["exact:sqlite", "exact_sqlite", false, "function"],
+    ["module", "node_module", true, "object"],
+    ["node:buffer", "node_buffer", true, "object"],
+    ["node:console", "node_console", true, "object"],
+    ["node:dns", "node_dns", true, "object"],
+    ["node:dns/promises", "node_dns_promises", true, "object"],
+    ["node:module", "node_module", true, "object"],
+    ["node:path", "node_path", true, "object"],
+    ["node:path/posix", "path_posix_alias", true, "object"],
+    ["node:path/win32", "path_win32_alias", true, "object"],
+    ["node:punycode", "node_punycode", true, "object"],
+    ["node:querystring", "node_querystring", true, "object"],
+    ["node:string_decoder", "node_string_decoder", true, "function"],
+    ["node:timers", "node_timers", true, "object"],
+    ["node:timers/promises", "node_timers_promises", true, "object"],
+    ["node:trace_events", "node_trace_events", true, "object"],
+    ["node:v8", "node_v8", true, "object"],
+    ["path", "node_path", true, "object"],
+    ["path/posix", "path_posix_alias", true, "object"],
+    ["path/win32", "path_win32_alias", true, "object"],
+    ["punycode", "node_punycode", true, "object"],
+    ["querystring", "node_querystring", true, "object"],
+    ["string_decoder", "node_string_decoder", true, "function"],
+    ["timers", "node_timers", true, "object"],
+    ["timers/promises", "node_timers_promises", true, "object"],
+    ["trace_events", "node_trace_events", true, "object"],
+    ["v8", "node_v8", true, "object"],
+  ].map(([moduleSpecifier, sourceKey, moduleBuiltin, expectedRootType]) => [
     moduleSpecifier,
-    { sourceKey, bundleExternal: true, moduleBuiltin: true },
+    { sourceKey, bundleExternal: true, moduleBuiltin, expectedRootType },
   ]),
 );
 const EFFECT_BUILTIN_IMPORT_SCENARIOS = new Set([
@@ -583,6 +613,7 @@ function validateNonCapabilityBuiltinModuleImportInvocation(
       "sourceKey",
       "sourceRef",
       "sourceMetadata",
+      "expectedRootType",
       "carrierEdgeId",
     ],
     `${recipe.fixtureId}: non-capability builtin module-import source descriptor`,
@@ -652,6 +683,7 @@ function validateNonCapabilityBuiltinModuleImportInvocation(
     sourceMetadata.bundleExternal !== expectation.bundleExternal ||
     sourceMetadata.importReachability !== "public" ||
     sourceMetadata.moduleBuiltin !== expectation.moduleBuiltin ||
+    descriptor.expectedRootType !== expectation.expectedRootType ||
     canonicalJson(authored.arguments) !== canonicalJson([]) ||
     authored.setup.kind !== "none" ||
     authored.completion.kind !== "event-loop-quiescence" ||
@@ -2847,7 +2879,10 @@ function validateRuntimeInvocation(observation, recipe) {
       );
       if (
         invocation.result.moduleSpecifier !== authored.moduleSpecifier ||
-        invocation.result.valueType !== "object"
+        invocation.result.valueType !==
+          (noncapBuiltinModuleImport
+            ? authored.sourceDescriptor.expectedRootType
+            : "object")
       ) {
         throw new Error(
           `${recipe.fixtureId}: builtin module import returned the wrong module`,
@@ -3727,6 +3762,7 @@ export function validatePublicFixtureRuntimeObservation(
       descriptor.carrierEdgeId !== carrierEdge.id ||
       descriptor.sourceKey !== expectation.sourceKey ||
       descriptor.sourceMetadata?.sourceKey !== expectation.sourceKey ||
+      descriptor.expectedRootType !== expectation.expectedRootType ||
       recipe.terminalObservedKey !== `builtin:${authored.moduleSpecifier}`
     ) {
       throw new Error(

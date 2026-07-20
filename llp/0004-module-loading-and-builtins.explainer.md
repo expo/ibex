@@ -5,6 +5,7 @@
 **Systems:** Runtime, Module Loader, Build
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-20 (records that the compatibility loader still owns the two public stream submodule names ahead of their manifest sources, while unrelated names no longer initialize stream merely to miss that table)
 **Revised:** 2026-07-19 (bounds the `dns/promises` cross-source export projection to a canonical two-source AST review and keeps its 45 derived callable rows as residual presence evidence); 2026-07-17 (reconciled the shipped typed resolver and advertised-target native-runner route: import/require condition sets are separate; file-backed metadata resolution does not acquire, parse, transpile, or disclose executable source, while trusted integrity hashing may read raw bytes and builtin metadata retains embedded source internally; bootstrap resolution is compatibility-only); 2026-07-15 (ENG-25066 made authenticated ordinary ESM use the native module graph by default; unsupported interop retains the bounded 0.1 legacy path); 2026-07-13 (retained native-wrapper owner isolation and retry-safe release across filesystem, network, HTTP, WebSocket, SQLite, zlib, and TLS; TLS transport identity, bounded state, honest loopback authentication, strict client-identity verification, exact-size native reads, and fail-loud host errors); 2026-07-12 (armed resolution authenticates exact requester/target locator, package root, and whole-tree integrity before import or `require.resolve` disclosure — ENG-24234, ENG-24235, ENG-24241; desktop TLS accepts password-protected PKCS#12 and encrypted PKCS#8 client identities — ENG-24272); 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23526: Windows native TLS bridge enablement; ENG-23448: documented the loopback-only tls emulation); 2026-07-11 (ENG-23505: stream lifecycle and concatenated-member boundaries; LLP 0021 generated builtin-export security inventory — ENG-24145)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0005 (Build pipeline); LLP 0023 (source identity); LLP 0026 (module runner); LLP 0027 (artifact wire and interop)
 
@@ -199,6 +200,15 @@ Consequently the inline `internal_fs_utils` manifest source cannot be evidenced
 by importing that same-named specifier
 `[observed]` (`modules.ts`; `src/engine/bootstrap/module-loader.js`;
 `packages/ibex-devtools/src/scripts/capsec-surface-inventory.mjs`).
+
+The compatibility stream table likewise returns `stream/consumers` and
+`stream/promises` (including their normalized `node:` spellings) from the
+already loaded `stream` namespace before manifest resolution. Those names
+therefore cannot evidence the declared `node_stream_consumers` or
+`node_stream_promises` source bodies today. The table now rejects unrelated
+names before calling `_getStreamBuiltins()`, so an arbitrary public import no
+longer initializes `node_stream` merely as a side effect of missing this
+compatibility table `[observed]` (`src/engine/bootstrap/module-loader.js`).
 
 The LLP 0021 capability inventory uses the same source-key boundary: it records
 each specifier alias, then statically inventories exported APIs once per source

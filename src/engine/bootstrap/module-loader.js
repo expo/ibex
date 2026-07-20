@@ -2756,6 +2756,40 @@
     if (Object.prototype.hasOwnProperty.call(streamInternalModuleCache, name)) {
       return streamInternalModuleCache[name];
     }
+    // This compatibility table is consulted by every public require. Do not
+    // initialize the stream builtin merely to discover that an unrelated name
+    // is absent: import-only conformance must observe the requested source, not
+    // an accidental eager stream dependency. The two public stream submodules
+    // remain compatibility-owned below and therefore cannot serve as evidence
+    // for their same-named manifest sources.
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+    switch (name) {
+      case 'internal/streams/add-abort-signal':
+      case 'internal/streams/compose':
+      case 'internal/streams/state':
+      case 'internal/streams/destroy':
+      case 'internal/streams/duplex':
+      case 'internal/streams/end-of-stream':
+      case 'internal/streams/from':
+      case 'internal/streams/legacy':
+      case 'internal/streams/operators':
+      case 'internal/streams/passthrough':
+      case 'internal/streams/pipeline':
+      case 'internal/streams/readable':
+      case 'internal/streams/transform':
+      case 'internal/streams/utils':
+      case 'internal/streams/writable':
+      case 'stream/promises':
+      case 'stream/consumers':
+      case '_stream_readable':
+      case '_stream_writable':
+      case '_stream_duplex':
+      case '_stream_transform':
+      case '_stream_passthrough':
+        break;
+      default:
+        return null;
+    }
     var stream = _getStreamBuiltins();
     var result = null;
 

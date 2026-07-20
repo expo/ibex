@@ -116,6 +116,7 @@ struct BuiltinModuleAliasSourceDescriptor {
     source_key: String,
     source_ref: String,
     source_metadata: BuiltinModuleAliasSourceMetadata,
+    expected_root_type: String,
     carrier_edge_id: String,
 }
 
@@ -137,6 +138,40 @@ struct BuiltinSourceObservation {
     expected_alias: String,
     status: String,
     source_id: Option<String>,
+}
+
+fn reviewed_noncap_module_alias(module_specifier: &str) -> Option<(&'static str, bool, &'static str)> {
+    match module_specifier {
+        "buffer" | "node:buffer" => Some(("node_buffer", true, "object")),
+        "bun:sqlite" | "exact:sqlite" => Some(("exact_sqlite", false, "function")),
+        "console" | "node:console" => Some(("node_console", true, "object")),
+        "dns" | "node:dns" => Some(("node_dns", true, "object")),
+        "dns/promises" | "node:dns/promises" => {
+            Some(("node_dns_promises", true, "object"))
+        }
+        "exact:clipboard" => Some(("exact_clipboard", false, "object")),
+        "exact:http" => Some(("exact_http", false, "object")),
+        "module" | "node:module" => Some(("node_module", true, "object")),
+        "node:path" | "path" => Some(("node_path", true, "object")),
+        "node:path/posix" | "path/posix" => Some(("path_posix_alias", true, "object")),
+        "node:path/win32" | "path/win32" => Some(("path_win32_alias", true, "object")),
+        "node:punycode" | "punycode" => Some(("node_punycode", true, "object")),
+        "node:querystring" | "querystring" => {
+            Some(("node_querystring", true, "object"))
+        }
+        "node:string_decoder" | "string_decoder" => {
+            Some(("node_string_decoder", true, "function"))
+        }
+        "node:timers" | "timers" => Some(("node_timers", true, "object")),
+        "node:timers/promises" | "timers/promises" => {
+            Some(("node_timers_promises", true, "object"))
+        }
+        "node:trace_events" | "trace_events" => {
+            Some(("node_trace_events", true, "object"))
+        }
+        "node:v8" | "v8" => Some(("node_v8", true, "object")),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -771,11 +806,13 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         let descriptor: BuiltinModuleAliasSourceDescriptor =
             serde_json::from_value(invocation.source_descriptor.clone())
                 .expect("non-capability builtin module descriptor must be exact");
-        let expected_source_key = match descriptor.module_specifier.as_str() {
-            "dns" | "node:dns" => "node_dns",
-            "dns/promises" | "node:dns/promises" => "node_dns_promises",
-            other => panic!("unsupported non-capability builtin module alias {other}"),
-        };
+        let (expected_source_key, expected_module_builtin, expected_root_type) =
+            reviewed_noncap_module_alias(&descriptor.module_specifier).unwrap_or_else(|| {
+                panic!(
+                    "unsupported non-capability builtin module alias {}",
+                    descriptor.module_specifier
+                )
+            });
         assert_eq!(descriptor.kind, "builtin-module-alias");
         assert_eq!(descriptor.module_specifier, invocation.module_specifier);
         assert_eq!(descriptor.source_key, expected_source_key);
@@ -786,7 +823,11 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         assert_eq!(descriptor.source_metadata.source_key, expected_source_key);
         assert!(descriptor.source_metadata.bundle_external);
         assert_eq!(descriptor.source_metadata.import_reachability, "public");
-        assert!(descriptor.source_metadata.module_builtin);
+        assert_eq!(
+            descriptor.source_metadata.module_builtin,
+            expected_module_builtin
+        );
+        assert_eq!(descriptor.expected_root_type, expected_root_type);
         assert_eq!(recipe.edge_ids, vec![descriptor.carrier_edge_id.clone()]);
         assert!(invocation.export_name.is_none());
         assert!(invocation.template_id.is_none());
@@ -1181,14 +1222,18 @@ async fn execute_recipe(
             recipe.fixture_id
         ));
     }
-    if is_module_import
-        && (invocation_result["moduleSpecifier"] != probe.invocation.module_specifier
-            || invocation_result["valueType"] != "object")
-    {
-        return Err(format!(
-            "{}: DNS module import did not return its namespace without selecting an export: {invocation_result}",
-            recipe.fixture_id
-        ));
+    if is_module_import {
+        let descriptor: BuiltinModuleAliasSourceDescriptor =
+            serde_json::from_value(probe.invocation.source_descriptor.clone())
+                .expect("validated builtin module descriptor must remain exact");
+        if invocation_result["moduleSpecifier"] != probe.invocation.module_specifier
+            || invocation_result["valueType"] != descriptor.expected_root_type
+        {
+            return Err(format!(
+                "{}: reviewed module import returned the wrong root without selecting an export: {invocation_result}",
+                recipe.fixture_id
+            ));
+        }
     }
     if probe.invocation.kind == "builtin-export-call" {
         let proof = probe
@@ -1314,7 +1359,7 @@ async fn execute_isolated_module_import_recipe(
     let execution = execute_recipe(&mut engine, recipe, engine_binary_digest).await;
     let finish = engine.finish().map_err(|error| {
         format!(
-            "{}: finish isolated DNS import publication stream: {error:#}",
+            "{}: finish isolated reviewed module import publication stream: {error:#}",
             recipe.fixture_id
         )
     });
@@ -1351,8 +1396,8 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
         .collect::<Vec<_>>();
     assert_eq!(
         module_import_recipes.len(),
-        4,
-        "expected exactly four fresh-engine DNS import carriers"
+        34,
+        "expected exactly 34 fresh-engine reviewed import carriers"
     );
     let export_recipes = recipes
         .iter()
@@ -1394,7 +1439,7 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
         assert_eq!(
             module_import_runtime_nonces.len(),
             module_import_recipes.len(),
-            "fresh-engine DNS import receipts reused or omitted a runtime nonce"
+            "fresh-engine reviewed import receipts reused or omitted a runtime nonce"
         );
         let (host, digest) = build_armed_test_host_custom(
             None,

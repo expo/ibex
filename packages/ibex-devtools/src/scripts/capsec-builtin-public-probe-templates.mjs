@@ -48,19 +48,51 @@ const EVENT_LOOP_COMPLETION = Object.freeze({
   timeoutMilliseconds: 1_000,
 });
 
-// These are the only module-root aliases whose current source has been
-// reviewed as lazy at import time. Each spelling is observed in a fresh
-// engine; exported operations such as getServers remain separate obligations.
+// These are the module-root aliases whose current source has been reviewed as
+// decision-free at import time. Each spelling is observed in a fresh engine;
+// exported operations remain separate obligations. Keep this allowlist exact:
+// a new alias or source must receive its own import-time review before it can
+// become executable evidence.
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
-const DNS_NONCAP_MODULE_ALIAS_SOURCES = new Map(
+const NONCAP_MODULE_ALIAS_SOURCES = new Map(
   [
-    ["dns", "node_dns"],
-    ["node:dns", "node_dns"],
-    ["dns/promises", "node_dns_promises"],
-    ["node:dns/promises", "node_dns_promises"],
-  ].map(([moduleSpecifier, sourceKey]) => [
+    ["buffer", "node_buffer", true, "object"],
+    ["bun:sqlite", "exact_sqlite", false, "function"],
+    ["console", "node_console", true, "object"],
+    ["dns", "node_dns", true, "object"],
+    ["dns/promises", "node_dns_promises", true, "object"],
+    ["exact:clipboard", "exact_clipboard", false, "object"],
+    ["exact:http", "exact_http", false, "object"],
+    ["exact:sqlite", "exact_sqlite", false, "function"],
+    ["module", "node_module", true, "object"],
+    ["node:buffer", "node_buffer", true, "object"],
+    ["node:console", "node_console", true, "object"],
+    ["node:dns", "node_dns", true, "object"],
+    ["node:dns/promises", "node_dns_promises", true, "object"],
+    ["node:module", "node_module", true, "object"],
+    ["node:path", "node_path", true, "object"],
+    ["node:path/posix", "path_posix_alias", true, "object"],
+    ["node:path/win32", "path_win32_alias", true, "object"],
+    ["node:punycode", "node_punycode", true, "object"],
+    ["node:querystring", "node_querystring", true, "object"],
+    ["node:string_decoder", "node_string_decoder", true, "function"],
+    ["node:timers", "node_timers", true, "object"],
+    ["node:timers/promises", "node_timers_promises", true, "object"],
+    ["node:trace_events", "node_trace_events", true, "object"],
+    ["node:v8", "node_v8", true, "object"],
+    ["path", "node_path", true, "object"],
+    ["path/posix", "path_posix_alias", true, "object"],
+    ["path/win32", "path_win32_alias", true, "object"],
+    ["punycode", "node_punycode", true, "object"],
+    ["querystring", "node_querystring", true, "object"],
+    ["string_decoder", "node_string_decoder", true, "function"],
+    ["timers", "node_timers", true, "object"],
+    ["timers/promises", "node_timers_promises", true, "object"],
+    ["trace_events", "node_trace_events", true, "object"],
+    ["v8", "node_v8", true, "object"],
+  ].map(([moduleSpecifier, sourceKey, moduleBuiltin, expectedRootType]) => [
     moduleSpecifier,
-    { sourceKey, bundleExternal: true, moduleBuiltin: true },
+    { sourceKey, bundleExternal: true, moduleBuiltin, expectedRootType },
   ]),
 );
 
@@ -1565,8 +1597,8 @@ function sourceDescriptor(
   return descriptor;
 }
 
-function dnsModuleAliasSourceDescriptor(surface, moduleSpecifier) {
-  const expected = DNS_NONCAP_MODULE_ALIAS_SOURCES.get(moduleSpecifier);
+function reviewedModuleAliasSourceDescriptor(surface, moduleSpecifier) {
+  const expected = NONCAP_MODULE_ALIAS_SOURCES.get(moduleSpecifier);
   const metadata = surface?.metadata;
   if (
     !expected ||
@@ -1593,6 +1625,7 @@ function dnsModuleAliasSourceDescriptor(surface, moduleSpecifier) {
     sourceKey: expected.sourceKey,
     sourceRef: surface.sourceRefs[0],
     sourceMetadata: structuredClone(metadata),
+    expectedRootType: expected.expectedRootType,
   };
 }
 
@@ -1707,7 +1740,7 @@ export function authoredNonCapabilityBuiltinProbe({
     plan.edgeIds[0].length > 0
   ) {
     const moduleSpecifier = surfaceObservedKey.slice("builtin:".length);
-    const descriptor = dnsModuleAliasSourceDescriptor(
+    const descriptor = reviewedModuleAliasSourceDescriptor(
       surface,
       moduleSpecifier,
     );

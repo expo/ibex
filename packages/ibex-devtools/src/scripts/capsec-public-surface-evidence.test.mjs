@@ -30,6 +30,48 @@ const builtinCacheSourceId = (sourceKey) =>
     }),
     "utf8",
   ).toString("base64url")}`;
+const NONCAP_MODULE_IMPORT_TEST_ALIASES = [
+  ["buffer", "node_buffer", true, "object"],
+  ["bun:sqlite", "exact_sqlite", false, "function"],
+  ["console", "node_console", true, "object"],
+  ["dns", "node_dns", true, "object"],
+  ["dns/promises", "node_dns_promises", true, "object"],
+  ["exact:clipboard", "exact_clipboard", false, "object"],
+  ["exact:http", "exact_http", false, "object"],
+  ["exact:sqlite", "exact_sqlite", false, "function"],
+  ["module", "node_module", true, "object"],
+  ["node:buffer", "node_buffer", true, "object"],
+  ["node:console", "node_console", true, "object"],
+  ["node:dns", "node_dns", true, "object"],
+  ["node:dns/promises", "node_dns_promises", true, "object"],
+  ["node:module", "node_module", true, "object"],
+  ["node:path", "node_path", true, "object"],
+  ["node:path/posix", "path_posix_alias", true, "object"],
+  ["node:path/win32", "path_win32_alias", true, "object"],
+  ["node:punycode", "node_punycode", true, "object"],
+  ["node:querystring", "node_querystring", true, "object"],
+  ["node:string_decoder", "node_string_decoder", true, "function"],
+  ["node:timers", "node_timers", true, "object"],
+  ["node:timers/promises", "node_timers_promises", true, "object"],
+  ["node:trace_events", "node_trace_events", true, "object"],
+  ["node:v8", "node_v8", true, "object"],
+  ["path", "node_path", true, "object"],
+  ["path/posix", "path_posix_alias", true, "object"],
+  ["path/win32", "path_win32_alias", true, "object"],
+  ["punycode", "node_punycode", true, "object"],
+  ["querystring", "node_querystring", true, "object"],
+  ["string_decoder", "node_string_decoder", true, "function"],
+  ["timers", "node_timers", true, "object"],
+  ["timers/promises", "node_timers_promises", true, "object"],
+  ["trace_events", "node_trace_events", true, "object"],
+  ["v8", "node_v8", true, "object"],
+].map(([moduleSpecifier, sourceKey, moduleBuiltin, expectedRootType]) => ({
+  moduleSpecifier,
+  sourceKey,
+  moduleBuiltin,
+  expectedRootType,
+  edgeId: `edge.noncap-module.${moduleSpecifier}`,
+}));
 
 const target = {
   triple: "aarch64-apple-darwin",
@@ -61,15 +103,10 @@ const coverage = {
       surface: { kind: "builtin", name: "node:util/types" },
       effects: [{ cap: "env:read", stages: ["requested", "commit"] }],
     },
-    ...[
-      ["edge.dns", "dns"],
-      ["edge.node-dns", "node:dns"],
-      ["edge.dns-promises", "dns/promises"],
-      ["edge.node-dns-promises", "node:dns/promises"],
-    ].map(([id, name]) => ({
-      id,
+    ...NONCAP_MODULE_IMPORT_TEST_ALIASES.map(({ edgeId, moduleSpecifier }) => ({
+      id: edgeId,
       classification: "non-capability",
-      surface: { kind: "builtin", name },
+      surface: { kind: "builtin", name: moduleSpecifier },
       rationaleId: "module-reachability-only",
       rationale:
         "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary.",
@@ -480,18 +517,14 @@ function effectBuiltinModuleImportObservation(recipe) {
   };
 }
 
-function noncapDnsModuleImportRecipe(moduleSpecifier = "node:dns") {
-  const expectation = new Map([
-    ["dns", ["node_dns", "edge.dns"]],
-    ["node:dns", ["node_dns", "edge.node-dns"]],
-    ["dns/promises", ["node_dns_promises", "edge.dns-promises"]],
-    [
-      "node:dns/promises",
-      ["node_dns_promises", "edge.node-dns-promises"],
-    ],
-  ]).get(moduleSpecifier);
-  if (!expectation) throw new Error(`unknown DNS test alias ${moduleSpecifier}`);
-  const [sourceKey, edgeId] = expectation;
+function noncapModuleImportRecipe(moduleSpecifier = "node:dns") {
+  const expectation = NONCAP_MODULE_IMPORT_TEST_ALIASES.find(
+    (entry) => entry.moduleSpecifier === moduleSpecifier,
+  );
+  if (!expectation) {
+    throw new Error(`unknown non-capability test alias ${moduleSpecifier}`);
+  }
+  const { sourceKey, edgeId, moduleBuiltin, expectedRootType } = expectation;
   const surfaceObservedKey = `builtin:${moduleSpecifier}`;
   const sourceDescriptor = {
     kind: "builtin-module-alias",
@@ -502,12 +535,13 @@ function noncapDnsModuleImportRecipe(moduleSpecifier = "node:dns") {
       sourceKey,
       bundleExternal: true,
       importReachability: "public",
-      moduleBuiltin: true,
+      moduleBuiltin,
     },
+    expectedRootType,
     carrierEdgeId: edgeId,
   };
   return {
-    fixtureId: `fixture.noncap-dns-import.${moduleSpecifier}`,
+    fixtureId: `fixture.noncap-module-import.${moduleSpecifier}`,
     planDigest: "sha256-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
     classification: "non-capability",
     scenario: "non-capability",
@@ -561,7 +595,7 @@ function noncapDnsModuleImportRecipe(moduleSpecifier = "node:dns") {
   };
 }
 
-function noncapDnsModuleImportObservation(recipe, runtimeNonce = "u64:42") {
+function noncapModuleImportObservation(recipe, runtimeNonce = "u64:42") {
   const invocation = recipe.publicSurfaceProbe.invocation;
   return {
     observationSchema: "ibex/capsec-runtime-public-observation/1",
@@ -590,7 +624,7 @@ function noncapDnsModuleImportObservation(recipe, runtimeNonce = "u64:42") {
       result: {
         kind: "return",
         moduleSpecifier: invocation.moduleSpecifier,
-        valueType: "object",
+        valueType: invocation.sourceDescriptor.expectedRootType,
       },
     },
     legacyObservationCount: 0,
@@ -598,14 +632,10 @@ function noncapDnsModuleImportObservation(recipe, runtimeNonce = "u64:42") {
   };
 }
 
-function completeDnsModuleImportCatalog() {
-  const recipes = [
-    "dns",
-    "node:dns",
-    "dns/promises",
-    "node:dns/promises",
-  ]
-    .map(noncapDnsModuleImportRecipe)
+function completeModuleImportCatalog() {
+  const recipes = NONCAP_MODULE_IMPORT_TEST_ALIASES.map(
+    ({ moduleSpecifier }) => noncapModuleImportRecipe(moduleSpecifier),
+  )
     .sort((left, right) => left.fixtureId.localeCompare(right.fixtureId));
   const catalog = {
     recipeCatalogSchema: "ibex/capsec-executable-recipes/1",
@@ -2878,19 +2908,15 @@ describe("CapSec public-surface promotion evidence", () => {
     }
   });
 
-  test("accepts exactly four zero-decision DNS imports without export conflation", () => {
-    for (const moduleSpecifier of [
-      "dns",
-      "node:dns",
-      "dns/promises",
-      "node:dns/promises",
-    ]) {
-      const recipe = noncapDnsModuleImportRecipe(moduleSpecifier);
+  test("accepts exactly the reviewed zero-decision imports without export conflation", () => {
+    expect(NONCAP_MODULE_IMPORT_TEST_ALIASES).toHaveLength(34);
+    for (const { moduleSpecifier } of NONCAP_MODULE_IMPORT_TEST_ALIASES) {
+      const recipe = noncapModuleImportRecipe(moduleSpecifier);
       expect(() =>
         buildPublicFixtureEvidence({
           recipe,
           engineBinaryDigest: engine.binaryDigest,
-          runtimeObservation: noncapDnsModuleImportObservation(recipe),
+          runtimeObservation: noncapModuleImportObservation(recipe),
           coverage,
         }),
       ).not.toThrow();
@@ -2931,6 +2957,14 @@ describe("CapSec public-surface promotion evidence", () => {
         (value, recipe) => {
           recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata.moduleBuiltin =
             false;
+          rebindDescriptor(value, recipe);
+        },
+        /descriptor drift/,
+      ],
+      [
+        (value, recipe) => {
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.expectedRootType =
+            "number";
           rebindDescriptor(value, recipe);
         },
         /descriptor drift/,
@@ -3020,9 +3054,15 @@ describe("CapSec public-surface promotion evidence", () => {
         },
         /unknown or missing fields/,
       ],
+      [
+        (value) => {
+          value.invocation.result.valueType = "function";
+        },
+        /wrong module/,
+      ],
     ]) {
-      const recipe = noncapDnsModuleImportRecipe();
-      const observation = noncapDnsModuleImportObservation(recipe);
+      const recipe = noncapModuleImportRecipe();
+      const observation = noncapModuleImportObservation(recipe);
       mutate(observation, recipe);
       expect(() =>
         buildPublicFixtureEvidence({
@@ -3069,8 +3109,8 @@ describe("CapSec public-surface promotion evidence", () => {
         /not coverage-bound/,
       ],
     ]) {
-      const recipe = noncapDnsModuleImportRecipe();
-      const observation = noncapDnsModuleImportObservation(recipe);
+      const recipe = noncapModuleImportRecipe();
+      const observation = noncapModuleImportObservation(recipe);
       const checkedCoverage = structuredClone(coverage);
       mutateCoverage(checkedCoverage, recipe);
       rebindDescriptor(observation, recipe);
@@ -3086,12 +3126,12 @@ describe("CapSec public-surface promotion evidence", () => {
       ).toThrow(expected);
     }
 
-    const catalog = completeDnsModuleImportCatalog();
+    const catalog = completeModuleImportCatalog();
     const executions = catalog.recipes.map((recipe, index) =>
       buildPublicFixtureEvidence({
         recipe,
         engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: noncapDnsModuleImportObservation(
+        runtimeObservation: noncapModuleImportObservation(
           recipe,
           `u64:${index + 1}`,
         ),
@@ -3115,7 +3155,7 @@ describe("CapSec public-surface promotion evidence", () => {
       buildPublicFixtureEvidence({
         recipe,
         engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: noncapDnsModuleImportObservation(recipe, "u64:7"),
+        runtimeObservation: noncapModuleImportObservation(recipe, "u64:7"),
         coverage,
       }),
     );

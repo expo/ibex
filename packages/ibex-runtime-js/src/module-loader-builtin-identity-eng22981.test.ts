@@ -37,6 +37,10 @@ const SRC_EVENTS = [
   'function EventEmitter() {}',
   'module.exports = { EventEmitter: EventEmitter, evals: n };',
 ].join('\n');
+const SRC_STREAM = [
+  'var n = (globalThis.__streamEvals = (globalThis.__streamEvals || 0) + 1);',
+  'module.exports = { evals: n };',
+].join('\n');
 const SRC_UTIL = ['function inspect() {}', 'module.exports = { inspect: inspect };'].join('\n');
 const SRC_DNS_PROMISES = [
   'var n = (globalThis.__dnsPromisesEvals = (globalThis.__dnsPromisesEvals || 0) + 1);',
@@ -48,6 +52,7 @@ const SRC_DNS_PROMISES = [
 const GROUPS: Record<string, { names: string[]; source: string }> = {
   node_fs: { names: ['fs', 'node:fs', 'bun:fs'], source: SRC_FS },
   node_events: { names: ['events', 'node:events'], source: SRC_EVENTS },
+  node_stream: { names: ['stream', 'node:stream'], source: SRC_STREAM },
   node_util: { names: ['util', 'sys', 'node:util', 'node:sys'], source: SRC_UTIL },
   node_dns_promises: {
     names: ['dns/promises', 'node:dns/promises'],
@@ -79,7 +84,9 @@ function makeRequire(): (specifier: string) => any {
   if (typeof sandbox.require !== 'function') {
     throw new Error('loader did not install globalThis.require');
   }
-  return sandbox.require.bind(sandbox);
+  const boundRequire = sandbox.require.bind(sandbox);
+  (boundRequire as any).sandbox = sandbox;
+  return boundRequire;
 }
 
 function makeAuthenticatedReceiptHarness(
@@ -253,6 +260,15 @@ test("require('events') === require('node:events') with a shared EventEmitter", 
 test('distinct builtins are not collapsed', () => {
   const require = makeRequire();
   expect(require('fs')).not.toBe(require('events'));
+});
+
+test('an unrelated public require does not eagerly initialize stream compatibility', () => {
+  const require = makeRequire();
+  expect(() => require('internal/streams/not-declared')).toThrow();
+  expect((require as any).sandbox.__streamEvals).toBeUndefined();
+  require('events');
+  expect((require as any).sandbox.__streamEvals).toBeUndefined();
+  expect(require('stream').evals).toBe(1);
 });
 
 test('authenticated sourceId, not a host path label, keys user module records', () => {

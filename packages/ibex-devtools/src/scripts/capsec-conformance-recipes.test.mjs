@@ -256,8 +256,10 @@ describe("exact-target CapSec executable recipes", () => {
       "ibex/capsec-executable-recipes/1",
     );
     expect(recipes.summary.requiredFixtures).toBe(24_071);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_503);
-    expect(recipes.summary.unresolvedFixtures).toBe(21_568);
+    // Thirty reviewed roots gain exact fresh-engine receipts while the
+    // formerly source-misattributed stream/promises export probe is retracted.
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_532);
+    expect(recipes.summary.unresolvedFixtures).toBe(21_539);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -354,8 +356,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(23_956);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_361);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_595);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_390);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_566);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -3073,38 +3075,61 @@ describe("exact-target CapSec executable recipes", () => {
         !recipe.route.surfaceObservedKeys[0].startsWith("builtin:export:"),
     );
     expect(aliases).toHaveLength(37);
-    const dnsImports = aliases.filter(
+    const reviewedImports = aliases.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-builtin-module-import-no-effect-invocation/1",
     );
-    expect(
-      dnsImports.map((recipe) => [
-        recipe.publicSurfaceProbe.invocation.moduleSpecifier,
-        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey,
-        recipe.publicSurfaceProbe.invocation.sourceDescriptor.carrierEdgeId,
-      ]),
-    ).toEqual([
-      ["dns", "node_dns", "surface.builtin.dns.1dztj15"],
-      [
-        "dns/promises",
-        "node_dns_promises",
-        "surface.builtin.dns.promises.1krunow",
-      ],
-      ["node:dns", "node_dns", "surface.builtin.node.dns.0nx113j"],
-      [
-        "node:dns/promises",
-        "node_dns_promises",
-        "surface.builtin.node.dns.promises.0izp08e",
-      ],
+    const expectedReviewedImports = new Map([
+      ["buffer", ["node_buffer", "surface.builtin.buffer.1im057c", "object", true]],
+      ["bun:sqlite", ["exact_sqlite", "surface.builtin.bun.sqlite.0o8405f", "function", false]],
+      ["console", ["node_console", "surface.builtin.console.0n34od3", "object", true]],
+      ["dns", ["node_dns", "surface.builtin.dns.1dztj15", "object", true]],
+      ["dns/promises", ["node_dns_promises", "surface.builtin.dns.promises.1krunow", "object", true]],
+      ["exact:clipboard", ["exact_clipboard", "surface.builtin.exact.clipboard.1v5no11", "object", false]],
+      ["exact:http", ["exact_http", "surface.builtin.exact.http.0mrdk21", "object", false]],
+      ["exact:sqlite", ["exact_sqlite", "surface.builtin.exact.sqlite.1diouj5", "function", false]],
+      ["module", ["node_module", "surface.builtin.module.1uziekq", "object", true]],
+      ["node:buffer", ["node_buffer", "surface.builtin.node.buffer.1g4y1x6", "object", true]],
+      ["node:console", ["node_console", "surface.builtin.node.console.03x9qzd", "object", true]],
+      ["node:dns", ["node_dns", "surface.builtin.node.dns.0nx113j", "object", true]],
+      ["node:dns/promises", ["node_dns_promises", "surface.builtin.node.dns.promises.0izp08e", "object", true]],
+      ["node:module", ["node_module", "surface.builtin.node.module.1ob4caw", "object", true]],
+      ["node:path", ["node_path", "surface.builtin.node.path.06h5xrb", "object", true]],
+      ["node:path/posix", ["path_posix_alias", "surface.builtin.node.path.posix.05jc96j", "object", true]],
+      ["node:path/win32", ["path_win32_alias", "surface.builtin.node.path.win32.1b5yeev", "object", true]],
+      ["node:punycode", ["node_punycode", "surface.builtin.node.punycode.155q5jn", "object", true]],
+      ["node:querystring", ["node_querystring", "surface.builtin.node.querystring.1s25i2t", "object", true]],
+      ["node:string_decoder", ["node_string_decoder", "surface.builtin.node.string.decoder.1v2dqn6", "function", true]],
+      ["node:timers", ["node_timers", "surface.builtin.node.timers.1fi3efa", "object", true]],
+      ["node:timers/promises", ["node_timers_promises", "surface.builtin.node.timers.promises.1myq26p", "object", true]],
+      ["node:trace_events", ["node_trace_events", "surface.builtin.node.trace.events.0arilkn", "object", true]],
+      ["node:v8", ["node_v8", "surface.builtin.node.v8.14wjzpq", "object", true]],
+      ["path", ["node_path", "surface.builtin.path.0viej51", "object", true]],
+      ["path/posix", ["path_posix_alias", "surface.builtin.path.posix.0m4kknx", "object", true]],
+      ["path/win32", ["path_win32_alias", "surface.builtin.path.win32.1i0lfll", "object", true]],
+      ["punycode", ["node_punycode", "surface.builtin.punycode.1my8dad", "object", true]],
+      ["querystring", ["node_querystring", "surface.builtin.querystring.1jlrk23", "object", true]],
+      ["string_decoder", ["node_string_decoder", "surface.builtin.string.decoder.1j9txls", "function", true]],
+      ["timers", ["node_timers", "surface.builtin.timers.1g7ah04", "object", true]],
+      ["timers/promises", ["node_timers_promises", "surface.builtin.timers.promises.0ptv53r", "object", true]],
+      ["trace_events", ["node_trace_events", "surface.builtin.trace.events.0uoh6jh", "object", true]],
+      ["v8", ["node_v8", "surface.builtin.v8.0eynzxs", "object", true]],
     ]);
+    expect(reviewedImports).toHaveLength(expectedReviewedImports.size);
     expect(
-      dnsImports.every((recipe) => {
+      reviewedImports.every((recipe) => {
         const invocation = recipe.publicSurfaceProbe.invocation;
+        const expected = expectedReviewedImports.get(invocation.moduleSpecifier);
         return (
+          expected !== undefined &&
           recipe.status === "fully-executable" &&
           recipe.actionIds.length === 0 &&
           recipe.residualReasons.length === 0 &&
+          invocation.sourceDescriptor.sourceKey === expected[0] &&
+          invocation.sourceDescriptor.carrierEdgeId === expected[1] &&
+          invocation.sourceDescriptor.expectedRootType === expected[2] &&
+          invocation.sourceDescriptor.sourceMetadata.moduleBuiltin === expected[3] &&
           invocation.exportName === undefined &&
           invocation.arguments.length === 0 &&
           invocation.setup.kind === "none" &&
@@ -3124,7 +3149,13 @@ describe("exact-target CapSec executable recipes", () => {
     const residualAliases = aliases.filter(
       (recipe) => recipe.publicSurfaceProbe === null,
     );
-    expect(residualAliases).toHaveLength(33);
+    expect(
+      residualAliases.map((recipe) => recipe.route.surfaceObservedKeys[0]),
+    ).toEqual([
+      "builtin:internal/fs/utils",
+      "builtin:node:stream/consumers",
+      "builtin:stream/consumers",
+    ]);
     expect(
       residualAliases.every(
         (recipe) =>

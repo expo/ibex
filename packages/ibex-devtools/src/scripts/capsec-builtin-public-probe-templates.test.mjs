@@ -13,6 +13,42 @@ const plan = {
   classification: "non-capability",
   actionIds: [],
 };
+const REVIEWED_MODULE_IMPORTS = [
+  ["buffer", "node_buffer", true, "object"],
+  ["bun:sqlite", "exact_sqlite", false, "function"],
+  ["console", "node_console", true, "object"],
+  ["dns", "node_dns", true, "object"],
+  ["dns/promises", "node_dns_promises", true, "object"],
+  ["exact:clipboard", "exact_clipboard", false, "object"],
+  ["exact:http", "exact_http", false, "object"],
+  ["exact:sqlite", "exact_sqlite", false, "function"],
+  ["module", "node_module", true, "object"],
+  ["node:buffer", "node_buffer", true, "object"],
+  ["node:console", "node_console", true, "object"],
+  ["node:dns", "node_dns", true, "object"],
+  ["node:dns/promises", "node_dns_promises", true, "object"],
+  ["node:module", "node_module", true, "object"],
+  ["node:path", "node_path", true, "object"],
+  ["node:path/posix", "path_posix_alias", true, "object"],
+  ["node:path/win32", "path_win32_alias", true, "object"],
+  ["node:punycode", "node_punycode", true, "object"],
+  ["node:querystring", "node_querystring", true, "object"],
+  ["node:string_decoder", "node_string_decoder", true, "function"],
+  ["node:timers", "node_timers", true, "object"],
+  ["node:timers/promises", "node_timers_promises", true, "object"],
+  ["node:trace_events", "node_trace_events", true, "object"],
+  ["node:v8", "node_v8", true, "object"],
+  ["path", "node_path", true, "object"],
+  ["path/posix", "path_posix_alias", true, "object"],
+  ["path/win32", "path_win32_alias", true, "object"],
+  ["punycode", "node_punycode", true, "object"],
+  ["querystring", "node_querystring", true, "object"],
+  ["string_decoder", "node_string_decoder", true, "function"],
+  ["timers", "node_timers", true, "object"],
+  ["timers/promises", "node_timers_promises", true, "object"],
+  ["trace_events", "node_trace_events", true, "object"],
+  ["v8", "node_v8", true, "object"],
+];
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const builtinInvocationHarness = new Function(
   "require",
@@ -116,12 +152,18 @@ describe("source-bound builtin public probes", () => {
     ).toBeNull();
   });
 
-  test("leaves cache-order-dependent module aliases residual", () => {
+  test("rejects incomplete, bootstrap-owned, and source-shadowed aliases", () => {
     for (const [moduleSpecifier, sourceKey, importReachability] of [
       ["node:path", "node_path", "public"],
       ["internal/fs/utils", "internal_fs_utils", "bootstrap-internal"],
       ["buffer", "node_buffer", "public"],
       ["bun:sqlite", "exact_sqlite", "public"],
+      ["stream/consumers", "node_stream_consumers", "bootstrap-internal"],
+      [
+        "node:stream/consumers",
+        "node_stream_consumers",
+        "bootstrap-internal",
+      ],
     ]) {
       const observedKey = `builtin:${moduleSpecifier}`;
       expect(
@@ -152,17 +194,15 @@ describe("source-bound builtin public probes", () => {
     }
   });
 
-  test("authors fresh-engine zero-decision probes for exactly four DNS aliases", () => {
-    for (const [moduleSpecifier, sourceKey, edgeId] of [
-      ["dns", "node_dns", "edge.dns"],
-      ["node:dns", "node_dns", "edge.node-dns"],
-      ["dns/promises", "node_dns_promises", "edge.dns-promises"],
-      [
-        "node:dns/promises",
-        "node_dns_promises",
-        "edge.node-dns-promises",
-      ],
-    ]) {
+  test("authors fresh-engine zero-decision probes for the exact reviewed aliases", () => {
+    expect(REVIEWED_MODULE_IMPORTS).toHaveLength(34);
+    for (const [
+      moduleSpecifier,
+      sourceKey,
+      moduleBuiltin,
+      expectedRootType,
+    ] of REVIEWED_MODULE_IMPORTS) {
+      const edgeId = `edge.${moduleSpecifier}`;
       const observedKey = `builtin:${moduleSpecifier}`;
       const probe = authoredNonCapabilityBuiltinProbe({
         plan: { ...plan, edgeIds: [edgeId] },
@@ -186,7 +226,7 @@ describe("source-bound builtin public probes", () => {
                 sourceKey,
                 bundleExternal: true,
                 importReachability: "public",
-                moduleBuiltin: true,
+                moduleBuiltin,
               },
             },
           ],
@@ -221,8 +261,9 @@ describe("source-bound builtin public probes", () => {
               sourceKey,
               bundleExternal: true,
               importReachability: "public",
-              moduleBuiltin: true,
+              moduleBuiltin,
             },
+            expectedRootType,
             carrierEdgeId: edgeId,
           },
         },
@@ -231,7 +272,7 @@ describe("source-bound builtin public probes", () => {
     }
   });
 
-  test("rejects near-miss DNS import carriers and export-call conflation", () => {
+  test("rejects near-miss reviewed import carriers and export-call conflation", () => {
     const invoke = ({
       moduleSpecifier = "node:dns",
       sourceKey = "node_dns",
@@ -273,7 +314,12 @@ describe("source-bound builtin public probes", () => {
       });
     };
 
-    expect(invoke({ moduleSpecifier: "node:path", sourceKey: "node_path" })).toBeNull();
+    expect(
+      invoke({
+        moduleSpecifier: "node:stream/consumers",
+        sourceKey: "node_stream_consumers",
+      }),
+    ).toBeNull();
     expect(invoke({ sourceKey: "node_dns_promises" })).toBeNull();
     expect(invoke({ sourceRef: "src/builtins/dns.js#exports:getServers" })).toBeNull();
     expect(

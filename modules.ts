@@ -970,4 +970,12 @@ export const bootstrapInternalModules = [
   'internal/fs/utils',
   'internal/test/binding',
   'internal/child_process',
+  // loadInternal() returns these public compatibility names from node_stream
+  // before the same-named manifest sources can execute. Inventory must bind
+  // the declared manifest sources as unreachable through those public names.
+  // @ref LLP 0004#one-source-many-specifiers
+  'stream/consumers',
+  'node:stream/consumers',
+  'stream/promises',
+  'node:stream/promises',
 ] as const;

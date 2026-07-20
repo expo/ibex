@@ -937,6 +937,39 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     });
   });
 
+  test("compatibility-owned stream submodules cannot claim manifest source reachability", () => {
+    const shadowed = [
+      "node:stream/consumers",
+      "node:stream/promises",
+      "stream/consumers",
+      "stream/promises",
+    ];
+    const rows = scanModuleSpecifierEntries({
+      bootstrapInternalModules: shadowed,
+      sources: {
+        node_stream_consumers: { kind: "inline", code: "" },
+        node_stream_promises: { kind: "inline", code: "" },
+      },
+      specifiers: [
+        {
+          names: ["node:stream/consumers", "stream/consumers"],
+          source: "node_stream_consumers",
+        },
+        {
+          names: ["node:stream/promises", "stream/promises"],
+          source: "node_stream_promises",
+        },
+      ],
+    });
+
+    expect(rows.map((row) => row.name)).toEqual(shadowed);
+    expect(
+      rows.every(
+        (row) => row.metadata.importReachability === "bootstrap-internal",
+      ),
+    ).toBe(true);
+  });
+
   test("duplicate module specifiers fail closed", () => {
     expect(() =>
       scanModuleSpecifierEntries({
@@ -5661,6 +5694,23 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       moduleSpecifiers: ["internal/fs/utils"],
       publicModuleSpecifiers: [],
     });
+    for (const [name, moduleSpecifiers] of [
+      [
+        "export:node_stream_consumers:text",
+        ["node:stream/consumers", "stream/consumers"],
+      ],
+      [
+        "export:node_stream_promises:pipeline",
+        ["node:stream/promises", "stream/promises"],
+      ],
+    ]) {
+      expect(exports.find((row) => row.name === name)?.metadata).toMatchObject({
+        bootstrapInternalModuleSpecifiers: moduleSpecifiers,
+        importReachability: "bootstrap-internal",
+        moduleSpecifiers,
+        publicModuleSpecifiers: [],
+      });
+    }
     expect(
       exports.find((row) => row.name === "export:node_fs_promises:readFile")
         ?.metadata,

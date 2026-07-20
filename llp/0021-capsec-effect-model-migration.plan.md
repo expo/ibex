@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-20 (extends authenticated fresh-engine, zero-decision source receipts to 30 additional reviewed public builtin spellings, binds their exact root value types, and leaves both `stream/consumers` spellings residual because compatibility loading shadows their manifest source)
 **Revised:** 2026-07-19 (binds the exact `dns/promises` carrier/provider callable shape to independent inventory and classifier review pins while leaving all 45 derived routes residual; strengthens four DNS no-effect alias receipts with exact cache-miss, VFS source, body-completion, alias, and runtime-nonce evidence)
 **Revised:** 2026-07-17 (ENG-24578 moves the lockdown startup postcondition to authenticated direct-file native-graph execution while retaining a separate zero-decision startup window, because persistent-session lowering intentionally closes evaluator syntax)
 **Revised:** 2026-07-17 (ENG-24578 moves the four lockdown-tamed evaluator probes from the deliberately syntax-closed persistent-session route to authenticated direct-file native-graph admission, preserving exact loaded-engine evidence without reopening REPL dynamic code)
@@ -1632,11 +1633,23 @@ effect, closed, and non-capability probe authors. `getServers` and `Resolver`
 are effect-bearing conditional rows:
 uncached system-server discovery uses the native `network:resolve` gate and may
 fall back to `fs:list` plus `fs:read`; cached or explicitly configured server
-state is the no-effect branch. Other non-capability aliases remain residual: a
-shared-engine zero-decision result cannot establish that each spelling has an
-effect-free first load because later aliases reuse the module cache. Cache
-order is not independent execution evidence. Export reads and calls remain
-separate
+state is the no-effect branch. A reviewed decision-free root cohort uses the
+same exact fresh-engine receipt for
+30 additional spellings: the bare/`node:` pairs for `buffer`, `console`,
+`module`, `path`, `path/posix`, `path/win32`, `punycode`, `querystring`,
+`string_decoder`, `timers`, `timers/promises`, `trace_events`, and `v8`, plus
+`exact:clipboard`, `exact:http`, and the shared `exact:sqlite`/`bun:sqlite`
+source. The SQLite and string-decoder roots must return a function; every other
+root in this set must return an object. The root type is descriptor-bound
+presence evidence only and does not credit any export or lazy installer edge.
+Both `stream/consumers` spellings remain residual because `loadInternal()`
+returns the compatibility `stream.consumers` value before the declared
+`node_stream_consumers` manifest body can execute; `internal/fs/utils` remains
+bootstrap-shadowed for the same evidence reason. All other non-capability
+aliases remain residual: a shared-engine zero-decision result cannot establish
+that each spelling has an effect-free first load because later aliases reuse
+the module cache. Cache order is not independent execution evidence. Export
+reads and calls remain separate
 obligations: their exact public module is loaded and driven to
 event-loop quiescence before the per-export observer opens, then the invocation
 still performs the authenticated public `require` and resolves the
