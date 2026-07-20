@@ -1,8 +1,8 @@
-// @ref LLP 0034#manifest — portable identity is an exact JCS/I-JSON manifest
+// @ref LLP 0035#manifest — portable identity is an exact JCS/I-JSON manifest
 // projection with typed digests, canonical sets, and a self-excluding ID.
-// @ref LLP 0034#runtime-identity-split — portable identity must stay path-free,
+// @ref LLP 0035#runtime-identity-split — portable identity must stay path-free,
 // while mapped-instance evidence binds the local object and pre/post bytes.
-// @ref LLP 0034#cross-runner-conformance-authority — coordinator assignment,
+// @ref LLP 0035#cross-runner-conformance-authority — coordinator assignment,
 // diagnostic shard evidence, and detached provenance form an acyclic digest DAG.
 // @ref LLP 0032#shard-manifest — shard manifests are exact-field records whose
 // semantic digest omits only their own manifestDigest field.
@@ -1828,7 +1828,7 @@ function bundleSemantics(documents, rawFixtures = validVectors.rawFixtures) {
   );
 }
 
-describe("LLP 0034 portable engine authority schemas", () => {
+describe("LLP 0035 portable engine authority schemas", () => {
   test("strict Draft 2020-12 schemas accept the complete golden DAG", () => {
     const ajv = buildAjv();
     for (const [documentName, schemaFile] of Object.entries(documentSchemas)) {

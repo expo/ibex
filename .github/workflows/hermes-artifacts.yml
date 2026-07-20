@@ -12,13 +12,13 @@
 # and installer Git blobs; its manifest and receipt bind their full checked-out
 # content digests.
 # All published runtime bundles receive workflow-bound provenance attestations.
-# @ref LLP 0034#transport-and-distribution-provenance — retain exact raw bundles
+# @ref LLP 0035#transport-and-distribution-provenance — retain exact raw bundles
 # without turning their presence into portable-artifact authority.
 # The action's exact, single-document Sigstore v0.3 output is copied byte-for-
 # byte to <archive>.sigstore.json, checksummed, and uploaded beside the archive.
 # These retained bundles are diagnostic evidence only: portable artifact
 # acceptance remains disabled until the offline verifier and admission policy
-# described by LLP 0034 are complete.
+# described by LLP 0035 are complete.
 #
 # Releases created here are ARTIFACT CACHES, not product releases: always
 # prerelease, titled "Hermes artifact cache …".
@@ -34,6 +34,7 @@ on:
   push:
     branches: [main]
     paths:
+      - ".gitattributes"
       - "scripts/hermes-version.sh"
       - "patches/hermes/**"
       - "scripts/build-hermes.sh"
@@ -41,6 +42,11 @@ on:
       - "scripts/build-hermes-windows.ps1"
       - "scripts/install-windows-hermes.ps1"
       - "scripts/apply-hermes-patches.sh"
+      - "scripts/package-portable-hermes-macos.mjs"
+      - "scripts/portable-engine-contract.mjs"
+      - "scripts/package-portable-hermes-macos.test.mjs"
+      - "schemas/portable-engine-*.json"
+      - "tests/fixtures/portable-engine/**"
       - ".github/workflows/hermes-artifacts.yml"
 
 # Serialize runs: two overlapping publishes for the same identity would race
@@ -159,7 +165,12 @@ jobs:
       need_windows: ${{ steps.assets.outputs.need_windows }}
     steps:
       - name: Check out Ibex
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Test diagnostic portable-package producer
+        run: node --test scripts/package-portable-hermes-macos.test.mjs
 
       - name: Verify source-build lock and cache-key contract
         run: ./scripts/hermes-build-lock.test.sh
@@ -196,7 +207,7 @@ jobs:
         run: |
           set -euo pipefail
           tag="${{ steps.compute.outputs.tag }}"
-          notes="Prebuilt PATCHED Hermes bundles (LLP 0013 patch stack applied) for the platform installers. Release identity = pinned Hermes commit (12) + patches/hermes digest (12); Darwin/Linux asset names additionally bind both builders plus the patch-application and receipt/identity authorities, while the Windows asset binds those patch authorities plus its source builder and installer. The Windows manifest and profile receipt retain the full digests. Each archive's exact actions/attest-build-provenance output is retained as <archive>.sigstore.json with a raw-byte checksum; these detached bundles are diagnostic evidence and portable artifact acceptance remains disabled pending the LLP 0034 offline verifier and admission policy. This is an artifact cache, not a product release. Published by the hermes-artifacts workflow (ENG-23147)."
+          notes="Prebuilt PATCHED Hermes bundles (LLP 0013 patch stack applied) for the platform installers. Release identity = pinned Hermes commit (12) + patches/hermes digest (12); Darwin/Linux asset names additionally bind both builders plus the patch-application and receipt/identity authorities, while the Windows asset binds those patch authorities plus its source builder and installer. The Windows manifest and profile receipt retain the full digests. Each archive's exact actions/attest-build-provenance output is retained as <archive>.sigstore.json with a raw-byte checksum; these detached bundles are diagnostic evidence and portable artifact acceptance remains disabled pending the LLP 0035 offline verifier and admission policy. This is an artifact cache, not a product release. Published by the hermes-artifacts workflow (ENG-23147)."
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $tag already exists."
             gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes "$notes"
@@ -231,11 +242,12 @@ jobs:
           }
           macos_asset="hermes-macos-arm64-${{ steps.compute.outputs.macos_cache_key }}.tar.gz"
           macos_release_asset="hermes-macos-arm64-release-${{ steps.compute.outputs.macos_release_cache_key }}.tar.gz"
+          macos_portable_asset="hermes-portable-macos-arm64-release-${{ steps.compute.outputs.macos_release_cache_key }}-$GITHUB_SHA.tar.gz"
           linux_asset="hermes-linux-x64-${{ steps.compute.outputs.linux_cache_key }}.tar.gz"
           windows_asset="hermes-windows-x64-${{ steps.compute.outputs.windows_asset_key }}.zip"
           {
             echo "need_macos=$(need "$macos_asset" "$macos_asset.sha256" "$macos_asset.sigstore.json" "$macos_asset.sigstore.json.sha256")"
-            echo "need_macos_release=$(need "$macos_release_asset" "$macos_release_asset.sha256" "$macos_release_asset.sigstore.json" "$macos_release_asset.sigstore.json.sha256")"
+            echo "need_macos_release=$(need "$macos_release_asset" "$macos_release_asset.sha256" "$macos_release_asset.sigstore.json" "$macos_release_asset.sigstore.json.sha256" "$macos_portable_asset" "$macos_portable_asset.sha256" "$macos_portable_asset.sigstore.json" "$macos_portable_asset.sigstore.json.sha256")"
             echo "need_linux=$(need "$linux_asset" "$linux_asset.sha256" "$linux_asset.sigstore.json" "$linux_asset.sigstore.json.sha256")"
             echo "need_windows=$(need "$windows_asset" "$windows_asset.sha256" "$windows_asset.sigstore.json" "$windows_asset.sigstore.json.sha256")"
           } >> "$GITHUB_OUTPUT"
@@ -253,7 +265,9 @@ jobs:
       SOURCE_CACHE_KEY: ${{ needs.identity.outputs.macos_cache_key }}
     steps:
       - name: Check out Ibex
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       # build-hermes.sh checks out the pin, applies patches/hermes/*, and
       # builds host hermesc/hermes + iOS/simulator/macOS frameworks. It never
@@ -293,7 +307,7 @@ jobs:
 
       - name: Attest bundle provenance
         id: attest
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
         with:
           subject-path: hermes-macos-arm64-${{ env.SOURCE_CACHE_KEY }}.tar.gz
 
@@ -331,7 +345,9 @@ jobs:
       SOURCE_CACHE_KEY: ${{ needs.identity.outputs.linux_cache_key }}
     steps:
       - name: Check out Ibex
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Install build dependencies
         run: |
@@ -374,7 +390,7 @@ jobs:
 
       - name: Attest bundle provenance
         id: attest
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
         with:
           subject-path: hermes-linux-x64-${{ env.SOURCE_CACHE_KEY }}.tar.gz
 
@@ -412,7 +428,9 @@ jobs:
       SOURCE_CACHE_KEY: ${{ needs.identity.outputs.macos_release_cache_key }}
     steps:
       - name: Check out Ibex
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Build patched no-debugger Hermes from source
         run: ./scripts/build-hermes.sh --release
@@ -442,6 +460,18 @@ jobs:
           "$cache/bin/hermes" --help >/dev/null
           echo "Release bundle verified: patch present, debugger absent, host tools run."
 
+      - name: Package diagnostic portable Release artifact
+        run: |
+          set -euo pipefail
+          portable_asset="hermes-portable-macos-arm64-release-$SOURCE_CACHE_KEY-$GITHUB_SHA.tar.gz"
+          node scripts/package-portable-hermes-macos.mjs \
+            --cache-root "$cache" \
+            --source-ref "$GITHUB_REF" \
+            --expected-source-revision "$GITHUB_SHA" \
+            --output "$portable_asset"
+          shasum -a 256 "$portable_asset" > "$portable_asset.sha256"
+          ls -lh "$portable_asset" "$portable_asset.sha256"
+
       - name: Package + checksum
         run: |
           set -euo pipefail
@@ -452,7 +482,7 @@ jobs:
 
       - name: Attest bundle provenance
         id: attest
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
         with:
           subject-path: hermes-macos-arm64-release-${{ env.SOURCE_CACHE_KEY }}.tar.gz
 
@@ -478,6 +508,34 @@ jobs:
           bundle="$asset.sigstore.json"
           gh release upload "$TAG" "$asset" "$asset.sha256" "$bundle" "$bundle.sha256" --repo "$GITHUB_REPOSITORY" --clobber
 
+      - name: Attest diagnostic portable Release artifact
+        id: attest_portable
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+        with:
+          subject-path: hermes-portable-macos-arm64-release-${{ env.SOURCE_CACHE_KEY }}-${{ github.sha }}.tar.gz
+
+      - name: Retain exact portable-artifact provenance bundle (diagnostic only)
+        env:
+          ATTESTATION_BUNDLE_PATH: ${{ steps.attest_portable.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          asset="hermes-portable-macos-arm64-release-$SOURCE_CACHE_KEY-$GITHUB_SHA.tar.gz"
+          bundle="$asset.sigstore.json"
+          test -n "$ATTESTATION_BUNDLE_PATH"
+          test -f "$ATTESTATION_BUNDLE_PATH"
+          cp "$ATTESTATION_BUNDLE_PATH" "$bundle"
+          cmp "$ATTESTATION_BUNDLE_PATH" "$bundle"
+          python3 -c "$IBEX_SIGSTORE_BUNDLE_VALIDATOR" "$bundle"
+          shasum -a 256 "$bundle" > "$bundle.sha256"
+          ls -lh "$bundle" "$bundle.sha256"
+
+      - name: Upload diagnostic portable artifact (idempotent overwrite)
+        run: |
+          set -euo pipefail
+          asset="hermes-portable-macos-arm64-release-$SOURCE_CACHE_KEY-$GITHUB_SHA.tar.gz"
+          bundle="$asset.sigstore.json"
+          gh release upload "$TAG" "$asset" "$asset.sha256" "$bundle" "$bundle.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+
   windows:
     name: Build + publish Windows bundle (x64)
     needs: identity
@@ -490,10 +548,12 @@ jobs:
       ASSET_KEY: ${{ needs.identity.outputs.windows_asset_key }}
     steps:
       - name: Check out Ibex
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Configure MSVC developer environment
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
 
       - name: Build patched Release Hermes from source
         shell: pwsh
@@ -599,7 +659,7 @@ jobs:
 
       - name: Attest bundle provenance
         id: attest
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
         with:
           subject-path: hermes-windows-x64-${{ env.ASSET_KEY }}.zip
 

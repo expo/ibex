@@ -1,14 +1,13 @@
-# LLP 0034: Portable Engine Artifact Provenance
+# LLP 0035: Portable Engine Artifact Provenance
 
 **Type:** RFC
 **Status:** Draft
 **Systems:** Security, Engine, Build, Distribution, CI, Runtime, Host ABI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-19 (Phase 0 now also freezes the source-tree, reviewed-
-profile, header, export-policy, ABI, and host-tool compatibility inputs plus
-the raw Sigstore bundle byte contract; authority remains disabled pending RFC
-review, physical non-Apple dependency validation, and the Windows bridge spike)
+**Revised:** 2026-07-20 (the macOS arm64 publisher now emits and separately
+attests a producer-validated diagnostic portable package; acceptance,
+installation, selection, runtime consumption, and advertisements remain off)
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021; LLP 0032
 
 ## Summary
@@ -362,7 +361,9 @@ documents, not implementation-defined strings:
 - Each host-tool `compatibilityDigest` binds one
   `ibex/portable-engine-host-tool-compatibility/1` document. It names the exact
   tool path/bytes, actual host triple, binary format/machine, and complete
-  transitive host dependency closure. Its reviewed execution contract replaces
+  transitive non-system host dependency closure. Closed platform-system names
+  are terminal leaves whose trust policy is outside the artifact, matching the
+  manifest's platform-row rule above. Its reviewed execution contract replaces
   rather than inherits the environment, supplies empty stdin, fixes argv0,
   uses a fresh private directory per invocation, and bounds time, stdout,
   stderr, and output bytes. Every fixture is an exact regular
@@ -836,7 +837,8 @@ table contains exactly `aarch64-apple-darwin`; that row joins structural
 features, the exact `source-patched/default/Release` debugger-off bytecode-v99
 profile, SHA-1 source-object format, profile origin, the exact required and
 forbidden export matcher policy, complete build-authority path membership
-(for the currently existing Hermes build inputs), the required `bin/hermesc`
+(including the diagnostic physical producer, its closed schemas/policy,
+workflow, LF authority, and checked smoke fixture), the required `bin/hermesc`
 behavior proof, the runtime-only non-system loadable-component topology, export extractor,
 mapping proof, dependency policy, receipt architecture, exact direct-JSI ABI
 dimensions, and the hermetic host-tool execution contract. Unknown triples
@@ -889,11 +891,15 @@ Phase 0. The Windows function-table inventory/feasibility spike and physical
 Linux and Windows system-dependency allowlist validation remain open, and this
 Draft has not completed its author-approved review. No installer or runtime is
 yet permitted to accept these documents as promotion authority. The golden-
-vector updater is not an artifact producer; Phase 1 must add the real manifest
-packager to the publisher workflow and extend `buildAuthorityPaths` to its
-complete code, schema, dependency-lock, and identity-authority closure before
-any physical package can be admitted. Reports and advertisements therefore
-stay unchanged and empty.
+vector updater is not an artifact producer. The Phase 1 diagnostic publisher
+now has a separate real manifest packager, and `buildAuthorityPaths` covers the
+exact producer/workflow, `.gitattributes`, closed schemas and trust policy,
+source-build authorities, and checked fixture that can affect its bytes. The
+producer uses Node built-ins only, so no package dependency or lock file is in
+that output closure. This does not admit the physical package: offline
+distribution-provenance verification, safe installation, authoritative build
+consumption, and the accepted RFC switch remain absent. Reports and
+advertisements therefore stay unchanged and empty.
 
 Exit: two paths containing the same validated payload derive the same portable
 ID, every local/provenance field mutation is classified correctly, and no new
@@ -910,6 +916,49 @@ authority is consumed.
   executable with the post-link verifier, and protect the store from every
   evaluated-JavaScript mutation route; and
 - retain the existing local mapped-object proof.
+
+Implementation checkpoint (2026-07-20): the reviewed Release publisher now
+constructs a **diagnostic-only** macOS arm64 package containing exactly the
+runtime framework, public header tree, `hermesc`, schema-2 profile receipt,
+checked smoke source, raw Ibex commit/tree contents, and canonical authority
+documents. It omits the xcframework/iOS slices and standalone `hermes` CLI.
+The producer strict-parses the receipt and reconstructs its source, patch,
+builder, cache-key, and runtime-byte joins. It parses the arm64 Mach-O slices
+directly for machine, generic CPU subtype, role-specific file type, external-
+defined nlist names, and load-dylib commands; fat-header subtypes must equal
+their selected slice. No `nm`, `otool`, or rendered line is an identity input.
+The source builders select a 40-hex request as an exact peeled commit before
+considering any same-named remote ref and compare the resulting `HEAD` to that
+request before patch replay or receipt creation. The producer independently
+reconstructs the default upstream version/ref/commit literals from the exact
+tracked `hermes-version.sh` bytes and rejects a receipt for any other source.
+
+The publisher runs `hermesc --version` and a smoke compilation in distinct
+fresh private workspaces with an exact replacement environment, empty stdin,
+fixed relative paths, and bounded output. It binds raw stdout/stderr and HBC
+output bytes and checks the HBC magic, header length, and version 99. It also
+compiles a bounded arm64 probe with no pre-main Hermes import, verifies that
+probe's Mach-O dependencies from bytes, `dlopen`s the exact runtime component,
+and reads `IHermesRootAPI::getBytecodeVersion()` as a producer gate. The probe
+reports 99 and the runtime bytes are rehashed before and after. This observation
+does not substitute for Phase 2's retained mapped-instance proof; the compiler
+is still represented only by the reviewed GitHub-hosted publisher environment
+and the ABI family contract, not an exact SDK/compiler build identity.
+
+Authority documents and the manifest are RFC 8785 bytes. The transport is a
+deterministic safe ustar archive inside a fixed gzip envelope whose DEFLATE
+stream uses producer-owned stored blocks rather than zlib-version-dependent
+compression. The producer reconstructively inspects exact member order,
+metadata, checksums, padding, limits, path equivalence, symlink existence and
+cycles before publication. Member, per-file, cumulative-expanded, archive,
+and symlink-depth limits are applied before retaining input bytes and again
+while inspecting the archive. The workflow pins every invoked action by commit,
+requires the checked producer `HEAD` to equal `GITHUB_SHA`, separately attests
+this final archive, and retains the exact Sigstore bundle beside it. No
+installer, local store,
+selector, `build.rs` consumer, post-link audit, runtime identity migration, or
+advertisement change is implemented by this checkpoint, and
+`portableArtifactAcceptanceEnabled` remains false.
 
 Exit: a clean checkout can install and run the reviewed Release engine without
 another worktree, and archive/manifest/path/profile tampering fails before

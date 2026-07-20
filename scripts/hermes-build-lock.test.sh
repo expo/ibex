@@ -211,6 +211,24 @@ assert_pristine_before_patch_replay() {
 assert_pristine_before_patch_replay "$SCRIPT_DIR/build-hermes.sh"
 assert_pristine_before_patch_replay "$SCRIPT_DIR/build-hermes-linux.sh"
 
+assert_exact_object_precedes_remote_ref() {
+    local script="$1"
+    local exact_line remote_line compare_line apply_line
+    exact_line="$(grep -nF 'if [[ "$HERMES_VERSION" =~ ^[0-9a-f]{40}$ ]]; then' "$script" | cut -d: -f1)"
+    remote_line="$(grep -nF 'elif git rev-parse --verify --quiet "origin/$HERMES_VERSION"' "$script" | cut -d: -f1)"
+    compare_line="$(grep -nF '"$CHECKED_OUT_COMMIT" != "$HERMES_VERSION"' "$script" | cut -d: -f1)"
+    apply_line="$(grep -nF '"$SCRIPT_DIR/apply-hermes-patches.sh"' "$script" | cut -d: -f1)"
+    [[ -n "$exact_line" && -n "$remote_line" && -n "$compare_line" && -n "$apply_line" ]] \
+        || fail "$(basename "$script") omits exact Hermes object selection"
+    (( exact_line < remote_line && remote_line < compare_line && compare_line < apply_line )) \
+        || fail "$(basename "$script") permits a remote ref to shadow an exact Hermes object"
+    grep -Fq 'git checkout --detach "${HERMES_VERSION}^{commit}"' "$script" \
+        || fail "$(basename "$script") does not peel the exact requested commit"
+}
+
+assert_exact_object_precedes_remote_ref "$SCRIPT_DIR/build-hermes.sh"
+assert_exact_object_precedes_remote_ref "$SCRIPT_DIR/build-hermes-linux.sh"
+
 assert_windows_locked_pristine_publication() {
     local builder="$SCRIPT_DIR/build-hermes-windows.ps1"
     local installer="$SCRIPT_DIR/install-windows-hermes.ps1"

@@ -297,7 +297,7 @@
       }
     },
     "dependencyClosure": {
-      "description": "The complete transitive host-load dependency closure of the exact tool binary.",
+      "description": "The complete transitive non-system host-load dependency closure of the exact tool binary. Closed platform-system dependency names are terminal leaves whose trust policy is defined outside the artifact.",
       "type": "object",
       "additionalProperties": false,
       "required": [

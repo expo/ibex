@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 
-// @ref LLP 0034#portable-package-contract — the golden authority DAG binds
+// @ref LLP 0035#portable-package-contract — the golden authority DAG binds
 // each independently reviewed input projection before deriving artifact ID.
-// @ref LLP 0034#cross-runner-conformance-authority — downstream descriptor,
+// @ref LLP 0035#cross-runner-conformance-authority — downstream descriptor,
 // assignment, bundle, and detached-provenance digests form an acyclic chain.
 
 import { createHash } from "node:crypto";
@@ -332,6 +332,25 @@ assertSame(
   })),
   targetPolicy.requiredHostTools,
   "golden required host-tool membership",
+);
+const existingGoldenAuthorityDigests = new Map(
+  documents.manifest.build.authorityDigests.map((row) => [row.path, row.digest]),
+);
+documents.manifest.build.authorityDigests = targetPolicy.buildAuthorityPaths.map(
+  (authorityPath) => ({
+    path: authorityPath,
+    // Core source-profile authorities retain their hand-authored receipt joins.
+    // New outer-producer inputs receive stable synthetic fixture digests; this
+    // updater is a schema-vector generator, never the physical packager.
+    digest:
+      existingGoldenAuthorityDigests.get(authorityPath) ??
+      rawDigest(
+        Buffer.from(
+          `ibex portable engine golden build authority\0${authorityPath}`,
+          "utf8",
+        ),
+      ),
+  }),
 );
 assertSame(
   documents.manifest.build.authorityDigests.map((row) => row.path),

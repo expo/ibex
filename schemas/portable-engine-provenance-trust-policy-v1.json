@@ -53,11 +53,25 @@
         }
       ],
       "buildAuthorityPaths": [
+        ".gitattributes",
         ".github/workflows/hermes-artifacts.yml",
+        "schemas/portable-engine-abi-contract-v1.schema.json",
+        "schemas/portable-engine-common-v1.schema.json",
+        "schemas/portable-engine-export-set-v1.schema.json",
+        "schemas/portable-engine-header-set-v1.schema.json",
+        "schemas/portable-engine-host-tool-compatibility-v1.schema.json",
+        "schemas/portable-engine-manifest-v1.schema.json",
+        "schemas/portable-engine-provenance-trust-policy-v1.json",
+        "schemas/portable-engine-provenance-trust-policy-v1.schema.json",
+        "schemas/portable-engine-reviewed-profile-identity-v1.schema.json",
+        "schemas/portable-engine-source-tree-identity-v1.schema.json",
         "scripts/apply-hermes-patches.sh",
         "scripts/build-hermes-linux.sh",
         "scripts/build-hermes.sh",
-        "scripts/hermes-version.sh"
+        "scripts/hermes-version.sh",
+        "scripts/package-portable-hermes-macos.mjs",
+        "scripts/portable-engine-contract.mjs",
+        "tests/fixtures/portable-engine/host-tools/smoke.js"
       ],
       "mappingProof": {
         "class": "macos-proc-pid-region-path-info",

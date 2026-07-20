@@ -288,22 +288,29 @@ git clean -ffdx
 
 echo "Checking out $HERMES_VERSION..."
 git fetch origin --tags
-if [[ "$HERMES_VERSION" == "static_h" || "$HERMES_VERSION" == "main" ]]; then
+if [[ "$HERMES_VERSION" =~ ^[0-9a-f]{40}$ ]]; then
+    # A full object ID is an object identity, never a branch name. Resolve it
+    # before any origin/<name> lookup so an upstream ref named with 40 hex
+    # characters cannot substitute another commit for the reviewed pin.
+    if ! git rev-parse --verify --quiet "${HERMES_VERSION}^{commit}" >/dev/null; then
+        git fetch origin "$HERMES_VERSION"
+    fi
+    git rev-parse --verify --quiet "${HERMES_VERSION}^{commit}" >/dev/null \
+        || { echo "[✗] Requested Hermes commit is unavailable: $HERMES_VERSION" >&2; exit 1; }
+    git checkout --detach "${HERMES_VERSION}^{commit}"
+elif [[ "$HERMES_VERSION" == "static_h" || "$HERMES_VERSION" == "main" ]]; then
     git checkout --detach origin/static_h
 elif git rev-parse --verify --quiet "origin/$HERMES_VERSION" >/dev/null; then
     git checkout --detach "origin/$HERMES_VERSION"
 else
-    # A pinned commit may not be reachable from any currently advertised
-    # branch/tag (upstream rebases/deletes release branches); GitHub serves
-    # explicit SHA fetches, so ask for it directly before checking out.
-    if [[ "$HERMES_VERSION" =~ ^[0-9a-f]{40}$ ]] \
-        && ! git rev-parse --verify --quiet "${HERMES_VERSION}^{commit}" >/dev/null; then
-        git fetch origin "$HERMES_VERSION"
-    fi
     git checkout --detach "$HERMES_VERSION"
 fi
 
 CHECKED_OUT_COMMIT="$(git rev-parse HEAD^{commit})"
+if [[ "$HERMES_VERSION" =~ ^[0-9a-f]{40}$ && "$CHECKED_OUT_COMMIT" != "$HERMES_VERSION" ]]; then
+    echo "[✗] Checked-out Hermes commit $CHECKED_OUT_COMMIT differs from requested object $HERMES_VERSION" >&2
+    exit 1
+fi
 git reset --hard "$CHECKED_OUT_COMMIT"
 git clean -ffdx
 if [[ -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
