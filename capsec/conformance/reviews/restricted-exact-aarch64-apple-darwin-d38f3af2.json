@@ -1,0 +1,87 @@
+{
+  "kind": "ibex-llp-0033-independent-security-review",
+  "independent": true,
+  "reviewedCommit": "d38f3af202ec68c2ff9233dbbf1f559f866b89f0",
+  "reviewedReportDigest": "sha256-HxlUmivNfAWqBwCFSE1oN914Dm-UyZEaRBX5vkFbE-I",
+  "reviewedReportRawContentDigest": "sha256-hhNdzeMxVmxiJVbFWid8bZi4DhhNMy1FEGNaMB9whH0",
+  "reviewedRouteGraphRawContentDigest": "sha256-YqJMozD8ELkIx20yj833w3Zp8h2xLF80z3H3p4VhalE",
+  "reviewedProbePlanRawContentDigest": "sha256-uiDjvBVYejS5cgvqiTIb_17nzCVmdKBbowId_9a86kM",
+  "reviewedEvidenceRawContentDigests": {
+    "absence-aarch64-apple-darwin-9e3de2a0.json": "sha256-IWfk9-kwHG-C49tZ-m6zCPXEK33tFFqiBf_yCEbHnMc",
+    "control-aarch64-apple-darwin-9e3de2a0.json": "sha256-MWzUwOti5liaxipAW9Yy6VkigqBqGAqtDVVYfUZ0WDA",
+    "global-corpora-aarch64-apple-darwin-9e3de2a0.json": "sha256-jN8lKqeTItyY7Bvq0t7NUqPxOLYtG-fQB82rgLhKJzs",
+    "reachable-aarch64-apple-darwin-9e3de2a0.json": "sha256-eIq7f16wCR6GTSR2WJvy8v_v88SJWlph4PCWcDNayXU"
+  },
+  "verdict": "fail",
+  "summary": "The report must remain incomplete. The new five cut-set observations are genuine ordered events emitted from the restricted runtime, which resolves the prior synthetic-observation defect. However, the claimed dominance remains dominance only within a generated universal topology, not a source-derived model of executable routes. Every implementation branch is attached to the same common cut sets and surface gateway by construction, and most live executors still ignore the named target and test only categorical global-root predicates. Consequently, the 7,147 structural-absence claims remain unsupported.",
+  "findings": [
+    {
+      "severity": "critical",
+      "status": "unresolved",
+      "title": "The instrumented events do not establish source-route or exact-target dominance",
+      "evidence": [
+        "generate-restricted-exact-absence-route-graph.mjs:133-141 hard-codes one gateway per surface kind, while lines 193-224 connect both common cut-set chains to every gateway and every planned terminal. The resulting graph has 7,160 nodes but only two attacker roots, five cut sets, six generic gateways, and 7,147 terminals; it contains no implementation, installer, registry, alias, lazy-route, callback-producer, retained-reference, or target-selection nodes.",
+        "buildSourceDerivedTopology uses the implementation manifest only to attach branchId arrays to terminals at lines 206-224. Branch sourceRefs do not contribute nodes or edges. Lines 435-478 subsequently manufacture every route from the same sourceRoot/sourceCutsets/gateway/terminal and liveRoot/liveCutsets/gateway/terminal templates.",
+        "validateSourceDerivedTopology at lines 290-314 removes all common source cut sets or all common live cut sets from that generated graph and checks reachability. This proves the generator placed terminals behind its own cut sets; it does not prove those cut sets dominate executable attacker-root-to-target paths.",
+        "The five runtime observations are real: hermes_runtime.cc:7591-7592, 7734-7735, 7867-7868, 12890-12891, and 14440-14441 record ordered, runtime-generation-bound events exposed through the FFI observer at lines 430-454. However, they observe profile selection, entry into the restricted installer branch, and generic posture checks—not traversal or refusal of each implementation route.",
+        "The graph's five source spans cover only common regions of src/engine/hermes_runtime.cc. The restricted-installer span is not referenced by any cut-set node. The 208 implementation files are whole-file digest bindings, and splitSourceRef at lines 48-65 never verifies that a locator exists, is unique, or participates in a path to a cut set.",
+        "src/host/embedder_artifacts.rs:3601-3655 ignores target for restricted-module-resolution, restricted-loader-entry, restricted-cli-entry, restricted-js-native-abi, and restricted-callback-route. Every target in each category reduces to the same fixed root set and, for callbacks, shared zero counters.",
+        "Source-selection receipts perform no branch-specific execution. At embedder_artifacts.rs:3736-3740 they only compare the supplied label to route.observedIdentity; execute_cutset then copies the common observed events and graph-derived boundary into a passing receipt.",
+        "The alleged failure boundary is inferred rather than observed. embedder_artifacts.rs:3758-3773 always sets lastObservedNode and blockedEdge from path[-3] and path[-2]. For builtin:assert, the committed evidence claims that cutset.temporal-poll-posture-sealed blocked gateway.module-loader even though the executable predicate merely checked absence of require and three generic resolver globals.",
+        "Temporal coverage queues one generic microtask and timer and performs one poll, but it does not exercise the exact lazy, alias, completion, getter, prototype, computed-table, or retained-closure path for each target.",
+        "applicabilityForMac at generator lines 67-80 classifies every build-condition as compiled-but-disabled and unmatched applicability as runtime-disabled without compiler or runtime-selection evidence.",
+        "The mutation suite validates mutations to the generated graph and receipts. Its bypass test inserts an edge into the invented topology; it does not add a bypass to executable installer/resolver/producer source and demonstrate that runtime-originated evidence detects it."
+      ],
+      "recommendation": "Do not credit structural absence yet. Generate the directed topology from executable installer, registry, resolver, alias, producer, retention, lazy-activation, and target nodes, with source-range bindings that validate each locator and edge. Prove dominance over every real attacker-root-to-exact-target path. Instrument actual branch-selection and refusal boundaries, make each live executor consume and traverse its exact target, keep source-selection evidence operationally independent from live reachability, and add source mutations that introduce real bypasses and must fail the instrumented Apple run."
+    }
+  ],
+  "constraintAssessment": {
+    "trueCutSetDominance": "fail: real common events exist, but dominance is computed over a topology synthesized to place every terminal behind them",
+    "sourceContentBinding": "partial: 208 whole files and five common C++ spans are digest-bound, but locators and executable source-to-cut-set edges are not validated",
+    "platformCompiledRuntimeDistinctions": "fail: applicability classes are heuristic and lack compiler/runtime-selection receipts",
+    "temporalIndirectRoutes": "partial: a generic microtask and timer are drained, but exact per-target indirect and retained paths are not traversed",
+    "exactTargetConsumption": "fail for builtin, loader, CLI, Host ABI, callback, and most startup routes; descriptor-prefix and ordinary native-global probes do consume a logical target",
+    "actualFailureBoundary": "fail: receipt boundaries are copied from generated path positions rather than emitted at a target-specific refusal",
+    "observerNonInterference": "partial: instrumentation is simple observer-only state recording, but no equivalence or non-interference evidence compares observer and production builds",
+    "graphCompleteness": "fail: branch cardinality is complete, but executable topology is absent",
+    "sourceLiveIndependence": "fail: source selection is a label assertion plus common cut-set copying, not an independent branch observation",
+    "reviewArtifactIntegrity": "pass: the pending report and four evidence artifacts are revision-, target-, engine-, authority-, and raw-content-bound"
+  },
+  "resolvedPriorFindings": {
+    "runtimeCutsetOrigins": {
+      "status": "resolved",
+      "evidence": [
+        "Five ordered cut-set events are now recorded at actual restricted-runtime code points and exposed with the runtime nonce through the conformance FFI observer.",
+        "The committed absence evidence contains sequences 1 through 5 for one runtime generation."
+      ]
+    },
+    "evidenceIngestionMutationTests": {
+      "status": "resolved",
+      "evidence": [
+        "Tests now target absence-aarch64-apple-darwin-9e3de2a0.json.",
+        "Focused tests reject fabricated generations, fabricated boundaries, target substitution, missing receipts, and source/live receipt reuse."
+      ]
+    },
+    "reviewArtifactIntegrity": {
+      "status": "resolved"
+    },
+    "teardownLifecycleEvidence": {
+      "status": "resolved"
+    },
+    "nativeFreezeHatches": {
+      "status": "resolved"
+    }
+  },
+  "verification": {
+    "routeGraphDriftCheck": "passed",
+    "probePlanDriftCheck": "passed",
+    "reportDriftCheck": "passed",
+    "routeGraphMutationTests": "9 passed",
+    "targetReportTests": "8 passed",
+    "evidenceIngestionMutationTests": "5 passed across focused invocations",
+    "reportState": "incomplete with independent review pending",
+    "workingTree": "clean"
+  },
+  "unresolvedCritical": 1,
+  "unresolvedHigh": 0
+}
