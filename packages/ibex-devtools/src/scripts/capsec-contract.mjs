@@ -368,8 +368,12 @@ export function parseJsonStrict(bytes, label = "<json>") {
   return value;
 }
 
+export function portableDiagnosticPath(value) {
+  return String(value).replaceAll("\\", "/");
+}
+
 export function readJsonStrict(filePath) {
-  const label = path.relative(repoRoot, filePath);
+  const label = portableDiagnosticPath(path.relative(repoRoot, filePath));
   return parseJsonStrict(fs.readFileSync(filePath), label);
 }
 

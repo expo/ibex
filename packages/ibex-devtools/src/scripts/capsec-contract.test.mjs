@@ -26,6 +26,7 @@ import {
   invalidFixtureNames,
   loadAndValidateContract as loadAndValidateContractUncached,
   parseJsonStrict,
+  portableDiagnosticPath,
   renderLegacyReconciliation,
   runContractCheck,
   validateArmedSnapshotSemantics,
@@ -115,6 +116,12 @@ describe("LLP 0021 capsec contract", () => {
       /^testdata\/invalid\/duplicate-key\.json: duplicate JSON object key "cap"/,
     );
   }, 30_000);
+
+  test("strict JSON diagnostics use portable repository paths", () => {
+    expect(
+      portableDiagnosticPath("capsec\\testdata\\invalid\\duplicate-key.json"),
+    ).toBe("capsec/testdata/invalid/duplicate-key.json");
+  });
 
   test("schema-declared sets must use canonical order", () => {
     const contract = loadAndValidateContract();
