@@ -1,0 +1,210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/capsec-conformance-report-v2.schema.json",
+  "title": "Ibex CapSec portable-engine exact-target conformance report v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "conformanceSchema",
+    "profile",
+    "status",
+    "bindings",
+    "summary",
+    "executions",
+    "cells",
+    "conformanceDigest"
+  ],
+  "properties": {
+    "conformanceSchema": { "const": "ibex/capsec-conformance/2" },
+    "profile": { "const": "ibex/capsec/1" },
+    "status": { "enum": ["conformant", "incomplete"] },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceRevision",
+        "sourceTreeDigest",
+        "engine",
+        "target",
+        "vocabularyDigest",
+        "registryDigest",
+        "implementationManifestDigest",
+        "fixtureCatalogDigest",
+        "recipeCatalogDigest",
+        "publicSurfaceExecutionDigest",
+        "mappedEngineExecutionEvidence"
+      ],
+      "properties": {
+        "sourceRevision": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/sourceRevision"
+        },
+        "sourceTreeDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "engine": { "$ref": "portable-engine-artifact-identity-v1.schema.json" },
+        "target": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/target"
+        },
+        "vocabularyDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "registryDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "implementationManifestDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "fixtureCatalogDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "recipeCatalogDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "publicSurfaceExecutionDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "outputDispositionEvidenceRawContentDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "mappedEngineExecutionEvidence": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/mappedEvidenceReferenceSet"
+        }
+      }
+    },
+    "summary": { "$ref": "#/$defs/summary" },
+    "executions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/execution" }
+    },
+    "cells": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/cell" }
+    },
+    "conformanceDigest": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest",
+      "$comment": "SHA-256 over JCS(report without conformanceDigest), domain ibex:capsec:conformance:2 followed by one NUL byte."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "conformant" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "bindings": {
+            "type": "object",
+            "properties": {
+              "outputDispositionEvidenceRawContentDigest": {
+                "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+              }
+            },
+            "required": ["outputDispositionEvidenceRawContentDigest"]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cells",
+        "conformantCells",
+        "incompleteCells",
+        "requiredFixtures",
+        "passedFixtures",
+        "missingFixtures",
+        "failedFixtures"
+      ],
+      "properties": {
+        "cells": { "type": "integer", "minimum": 1 },
+        "conformantCells": { "type": "integer", "minimum": 0 },
+        "incompleteCells": { "type": "integer", "minimum": 0 },
+        "requiredFixtures": { "type": "integer", "minimum": 1 },
+        "passedFixtures": { "type": "integer", "minimum": 0 },
+        "missingFixtures": { "type": "integer", "minimum": 0 },
+        "failedFixtures": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fixtureId",
+        "outcome",
+        "executor",
+        "artifactDigest",
+        "rawContentDigest",
+        "bindingDigest",
+        "mappedEngineExecutionEvidenceDigest"
+      ],
+      "properties": {
+        "fixtureId": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/stableId"
+        },
+        "outcome": { "enum": ["passed", "failed"] },
+        "executor": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/stableId"
+        },
+        "artifactDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest",
+          "$comment": "Semantic digest of the detached fixture evidence."
+        },
+        "rawContentDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest",
+          "$comment": "SHA-256 of the exact detached fixture-evidence bytes."
+        },
+        "bindingDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "mappedEngineExecutionEvidenceDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest",
+          "$comment": "Semantic digest of the per-process mapped-engine evidence that produced this fixture result."
+        }
+      }
+    },
+    "cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "edgeId",
+        "implementationBranchIds",
+        "enforcementBranchIds",
+        "status",
+        "requiredFixtures",
+        "passedFixtures",
+        "missingFixtures",
+        "failedFixtures"
+      ],
+      "properties": {
+        "edgeId": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/stableId"
+        },
+        "implementationBranchIds": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/idSet"
+        },
+        "enforcementBranchIds": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/idSet"
+        },
+        "status": { "enum": ["conformant", "incomplete"] },
+        "requiredFixtures": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/idSet"
+        },
+        "passedFixtures": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/idSet"
+        },
+        "missingFixtures": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/idSet"
+        },
+        "failedFixtures": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/idSet"
+        }
+      }
+    }
+  }
+}

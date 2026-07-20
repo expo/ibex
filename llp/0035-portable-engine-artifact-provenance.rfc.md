@@ -7,8 +7,9 @@
 **Date:** 2026-07-19
 **Revised:** 2026-07-20 (native compilation/package production is now isolated
 from the credentialed publisher by immutable raw-artifact handoffs; the
-portable macOS package is emitted for every `main` revision, while acceptance,
-installation, selection, runtime consumption, and advertisements remain off)
+portable macOS package is emitted for every `main` revision; additive Phase 2
+publication/evidence schemas are frozen while live runtime consumption,
+acceptance, and advertisements remain off)
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021; LLP 0032
 
 ## Summary
@@ -742,6 +743,40 @@ their semantic `engine` value with the portable identity. Execution artifacts
 and shard manifests additionally retain mapped-instance identities before and
 after engine-using work.
 
+Those additive revisions are exactly `ibex/capsec-conformance/2`,
+`ibex/capsec-target-attestations/2`, and
+`ibex/capsec-target-advertisements/2`. The report and advertisement `engine`
+field is the complete `ibex/portable-engine-artifact-identity/1`; the authored
+attestation names its `portableArtifactId` and must rejoin the complete report
+identity. The CapSec target's `features` remain enforcement/security
+properties and are not compared with the portable target's package-layout
+`structuralFeatures`. Only their exact target triples join.
+
+Mapped evidence is detached one engine-using process at a time under
+`ibex/capsec-mapped-engine-execution-evidence/1`. Each record binds the source,
+CapSec target, pre-execution command-identity digest, fixture/output
+membership, complete portable identity, and one complete mapped-instance
+identity. It does not bind the post-execution command-envelope record, which
+may already name this detached output and would create a digest cycle. Its
+`outputDigests` name the command's other declared evidence outputs and never
+the mapped-evidence record itself. Its
+semantic digest is
+`SHA-256("ibex:capsec:mapped-engine-execution-evidence:1\0" || JCS(record
+without evidenceDigest))`. Reports, attestations, and advertisements carry
+only exact `{evidenceDigest, rawContentDigest}` references to those records.
+Fixture execution rows likewise carry raw/semantic fixture-evidence digests
+and the mapped-evidence digest of the process that produced them; they do not
+embed the mapped record. The report digest moves to
+`ibex:capsec:conformance:2`, omitting only `conformanceDigest`.
+
+Absolute POSIX/Windows paths, `file://` URLs, mapping addresses, device/inode
+or volume/file identities, and every field of the old combined
+`LoadedEngineBinaryIdentity` are forbidden recursively in those three
+publication documents. A digest of detached local evidence is admissible; the
+observation it names is not. Each detached record is validated independently,
+and only its complete portable identity is compared across processes or
+runners.
+
 Production startup accepts an advertisement only when its portable identity
 equals the independently reconstructed portable identity of the locally mapped
 engine. It separately requires the local mapped-instance proof to pass. Thus an
@@ -1118,6 +1153,23 @@ linking or execution.
 - update Host startup to compare the portable advertisement and independently
   verify its local mapping; and
 - regenerate complete macOS evidence under the new schema.
+
+Implementation checkpoint (2026-07-20): additive, versioned Phase 2 schemas
+now freeze the portable conformance report, authored target attestation,
+derived target advertisement, and per-process mapped-engine execution-evidence
+contracts together with the two new digest domains above. Semantic tests join
+detached raw bytes to both digests, reject mapped/portable substitution even
+after digest recomputation, distinguish ASLR-local mapped observations from
+portable equality, keep CapSec security features separate from package
+structural features, reject recursive path/address/object leakage, and prove
+that renaming the old `binaryDigest`/path identity cannot satisfy v2.
+
+This checkpoint is contract-only. The live v1 runner and generators are not
+coerced or switched, the authored v1 attestation and advertisement arrays
+remain empty, and `portableArtifactAcceptanceEnabled` remains exactly false.
+Runtime producers, Host comparison, promotion loading, v2 generation, and
+regenerated physical macOS evidence remain later Phase 2 work. Merely
+validating a hypothetical v2 document grants no authority.
 
 Exit: reports and advertisements contain no host-local values, while every
 accepted local run still proves its exact mapped file.
