@@ -16,6 +16,7 @@
     "generate:restricted-exact-absence-route-graph": "bun packages/ibex-devtools/src/scripts/generate-restricted-exact-absence-route-graph.mjs --write",
     "generate:restricted-exact-macos-report": "bun packages/ibex-devtools/src/scripts/generate-restricted-exact-target-report.mjs capsec/conformance/evidence/restricted-exact/reachable-aarch64-apple-darwin-9e3de2a0.json capsec/conformance/evidence/restricted-exact/control-aarch64-apple-darwin-9e3de2a0.json capsec/conformance/evidence/restricted-exact/absence-aarch64-apple-darwin-9e3de2a0.json capsec/conformance/evidence/restricted-exact/global-corpora-aarch64-apple-darwin-9e3de2a0.json capsec/conformance/restricted-exact-aarch64-apple-darwin-report.json --failed-review=capsec/conformance/reviews/restricted-exact-aarch64-apple-darwin-d38f3af2.json --write",
     "generate:capsec-conformance": "bun packages/ibex-devtools/src/scripts/generate-capsec-conformance.mjs",
+    "audit:restricted-exact-source-bindings": "bun packages/ibex-devtools/src/scripts/restricted-exact-source-anchors.mjs",
     "generate:capsec-recipes": "bun packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs",
     "verify:capsec-conformance": "bun packages/ibex-devtools/src/scripts/run-capsec-conformance.mjs",
     "generate:identity": "bun packages/ibex-devtools/src/scripts/generate-runtime-identity.ts",
