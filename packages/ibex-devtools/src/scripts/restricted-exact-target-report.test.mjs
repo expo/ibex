@@ -7,8 +7,9 @@ import {
   validateRestrictedTargetReport,
 } from "./restricted-exact-target-report.mjs";
 
+const authorities = loadRestrictedReportAuthorities();
+
 function fixture() {
-  const authorities = loadRestrictedReportAuthorities();
   const digest = (name) => taggedDigest(Buffer.from(name, "utf8"));
   const target = authorities.projection.candidateTargets[0];
   const bindings = {
@@ -49,6 +50,30 @@ function fixture() {
       unresolvedHigh: 0,
     },
   };
+}
+
+function observedFixture() {
+  const input = fixture();
+  const projected = input.projection.rows.find((row) => row[1] === "reachable");
+  const edge = input.coverage.edges.find((row) => row.id === projected[0]);
+  const observation = {
+    edgeId: projected[0],
+    kind: "live-invocation",
+    outcome: "passed",
+    observedIdentity: `${edge.surface.kind}:${edge.surface.name}`,
+  };
+  const execution = {
+    executionId: "execution.one",
+    fixtureId: `restricted.live-invocation.${projected[0]}`,
+    outcome: "passed",
+    command: ["observer"],
+    exitCode: 0,
+    resultMarker: "PASS",
+    artifactDigest: taggedDigest(Buffer.from("one", "utf8")),
+    engineBinaryDigest: input.bindings.engine.binaryDigest,
+    observations: [observation],
+  };
+  return { input, observation, execution };
 }
 
 describe("LLP 0033 restricted Exact target report", () => {
@@ -132,48 +157,35 @@ describe("LLP 0033 restricted Exact target report", () => {
     expect(row.missingEvidenceKinds).toEqual(["live-reachability"]);
   }, 15_000);
 
-  test("rejects duplicate, wrong-engine, identity-drift, and summary synthesis", () => {
-    const input = fixture();
-    const projected = input.projection.rows.find((row) => row[1] === "reachable");
-    const edge = input.coverage.edges.find((row) => row.id === projected[0]);
-    const observation = {
-      edgeId: projected[0],
-      kind: "live-invocation",
-      outcome: "passed",
-      observedIdentity: `${edge.surface.kind}:${edge.surface.name}`,
-    };
-    const execution = {
-      executionId: "execution.one",
-      fixtureId: `restricted.live-invocation.${projected[0]}`,
-      outcome: "passed",
-      command: ["observer"],
-      exitCode: 0,
-      resultMarker: "PASS",
-      artifactDigest: taggedDigest(Buffer.from("one", "utf8")),
-      engineBinaryDigest: input.bindings.engine.binaryDigest,
-      observations: [observation],
-    };
+  test("rejects duplicate per-edge observations", () => {
+    const { input, execution } = observedFixture();
     input.executions = [execution, {
       ...execution,
       executionId: "execution.two",
       artifactDigest: taggedDigest(Buffer.from("two", "utf8")),
     }];
     expect(() => buildRestrictedTargetReport(input)).toThrow("duplicate restricted per-edge");
+  }, 15_000);
 
-    const wrongEngine = fixture();
-    wrongEngine.executions = [{
+  test("rejects evidence from a different engine", () => {
+    const { input, execution } = observedFixture();
+    input.executions = [{
       ...execution,
       engineBinaryDigest: taggedDigest(Buffer.from("other-engine", "utf8")),
     }];
-    expect(() => buildRestrictedTargetReport(wrongEngine)).toThrow("different engine");
+    expect(() => buildRestrictedTargetReport(input)).toThrow("different engine");
+  }, 15_000);
 
-    const wrongIdentity = fixture();
-    wrongIdentity.executions = [{
+  test("rejects observed identity drift", () => {
+    const { input, observation, execution } = observedFixture();
+    input.executions = [{
       ...execution,
       observations: [{ ...observation, observedIdentity: "native-op:wrong" }],
     }];
-    expect(() => buildRestrictedTargetReport(wrongIdentity)).toThrow("identity drift");
+    expect(() => buildRestrictedTargetReport(input)).toThrow("identity drift");
+  }, 15_000);
 
+  test("rejects a synthesized report summary", () => {
     const valid = buildRestrictedTargetReport(fixture());
     valid.summary.conformant = valid.summary.total;
     expect(() => validateRestrictedTargetReport(valid, fixture())).toThrow(

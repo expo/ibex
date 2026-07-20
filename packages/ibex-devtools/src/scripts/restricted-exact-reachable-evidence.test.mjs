@@ -15,7 +15,7 @@ const absenceEvidencePath = path.join(evidenceRoot, "absence-aarch64-apple-darwi
 const corpusEvidencePath = path.join(evidenceRoot, "global-corpora-aarch64-apple-darwin-04a08eeb.json");
 const currentAbsenceEvidencePath = path.join(
   evidenceRoot,
-  "absence-aarch64-apple-darwin-59382127.json",
+  "absence-aarch64-apple-darwin-9e3de2a0.json",
 );
 const currentAbsenceArtifact = JSON.parse(
   fs.readFileSync(currentAbsenceEvidencePath, "utf8"),
@@ -76,8 +76,8 @@ describe("LLP 0033 per-edge absence evidence", () => {
 
     const boundary = currentArtifact();
     const boundarySource = boundary.observations.find((row) => row.kind === "source-install");
-    boundarySource.proof.probeResults[0].routeReceipt.failedSegment =
-      boundarySource.proof.probeResults[0].routeReceipt.lastReachedSegment;
+    boundarySource.proof.probeResults[0].routeReceipt.blockedEdge.to =
+      "terminal.forged-bypass";
     expect(() => ingestRestrictedAbsenceEvidence(
       Buffer.from(`${JSON.stringify(boundary)}\n`),
     )).toThrow("absence route receipt drift");
