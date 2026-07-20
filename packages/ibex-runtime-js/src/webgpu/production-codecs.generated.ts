@@ -107,11 +107,11 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
     "dictionary": "u8-value-tag-plus-u32-count-plus-unique-well-formed-utf8-key-and-canonical-value-pairs-sorted-by-unsigned-utf8-bytes-shorter-prefix-first"
   },
   "digests": {
-    "operationSet": "340a65d76f7a6e4d414f8c53086cd1cf8c729abd27c0f14646d9dba219dcaf29",
-    "semanticProgramSet": "97f2e6e7151f6f82d82c77212bb36e6f016f5ad873ccdd34aee301adaef00943",
-    "runtimeRouting": "4eb5390f67a3fc6c2dbbb1385be278b43920189899f7c65e04aaa354c3fa4645",
-    "webgpuCVocabulary": "88a050395605d356d0b8518dabd3d673455623195063c31910e4ac2037dceb35",
-    "projection": "e7a162f6018b51e8f6de82d51f6448a50d7f5716447c57927a52438aaba1c0a0"
+    "operationSet": "a156786e8e286b2cc1c0a51281c888504976f30668862485c7242cd27371651f",
+    "semanticProgramSet": "f4b33d9ea125dd60543d70a8d889e7ce65a045551939ee035c4a1e79c8443296",
+    "runtimeRouting": "06315dddb41182287828aa9b92e983ad16dc7e9b7475b455ee50dc8123283447",
+    "webgpuCVocabulary": "4bdddf608b0a893527dcc7afc607ef2e8e78d6229c7864a7331347c908d2c623",
+    "projection": "0867c45c10ac786f6ce025502d2f13c624f3ce3a6ac85e7a1648260dc47e7d94"
   },
   "layout": {
     "requestMagic": "IBGQ",
@@ -10419,7 +10419,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
       },
       {
         "operationId": "GPUCanvasContext.configure",
-        "wireId": 3865035710,
+        "wireId": 56177326,
         "request": {
           "payloadRole": "service-request-payload-decoder-plus-operation-specific-call-joins",
           "catalog": {
@@ -10437,7 +10437,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
                   "magic": "IBGQ",
                   "version": 1,
                   "codecTag": 4,
-                  "operationWireId": 3865035710
+                  "operationWireId": 56177326
                 }
               },
               {
@@ -10545,7 +10545,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             {
               "carrierPath": "operation_id",
               "operator": "equal",
-              "value": 3865035710
+              "value": 56177326
             },
             {
               "carrierPath": "flags",
@@ -10674,7 +10674,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             {
               "carrierPath": "record.operation_result.operation.operation_id",
               "operator": "equal",
-              "value": 3865035710
+              "value": 56177326
             },
             {
               "carrierPath": "record.operation_result.operation.device_transition",
@@ -10739,6 +10739,17 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
               {
                 "terminalId": "webidl-rejection",
                 "errorTiming": "synchronous-webidl",
+                "resultDisposition": "throw",
+                "providerTokenCount": 0,
+                "physicalSequenceCount": 0,
+                "event": {
+                  "kind": "no-service-call",
+                  "completionPayloadEncoderEligibility": "excluded-before-service-ingress"
+                }
+              },
+              {
+                "terminalId": "content-rejection",
+                "errorTiming": "content-timeline",
                 "resultDisposition": "throw",
                 "providerTokenCount": 0,
                 "physicalSequenceCount": 0,

@@ -46,7 +46,7 @@ const EXPECTED_RENDER_PIPELINE_DESCRIPTOR_TYPE_SHA256 =
 const EXPECTED_COMPUTE_PIPELINE_DESCRIPTOR_TYPE_SHA256 =
   "a3acb8ac3e4c8a8b19efdbc015819f2387297686265b40d1c3fe79578c0a4ac5";
 const EXPECTED_CANVAS_NATIVE_PROGRAM_SHA256 =
-  "129337b77eafc714c1b696dcb7045ce1192916d33ba7da304cd2461ab9252ab5";
+  "fd05a301ceb2e3f476d732a81ac084aa1b3c9ef27ea4c5ee4d46ed59ad120db3";
 
 function assert(condition, message) {
   if (!condition) throw new Error("webgpu test-wrapper authority: " + message);
