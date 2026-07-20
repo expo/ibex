@@ -5031,11 +5031,9 @@ function buildReviewedGlobalApiNames() {
         `reviewed global API members for ${globalName} are empty, duplicate, or not canonical UTF-8 order`,
       );
     }
-    names.push(
-      ...memberNames.map((memberName) =>
-        reviewedGlobalSurfaceName(globalName, memberName),
-      ),
-    );
+    for (const memberName of memberNames) {
+      names.push(reviewedGlobalSurfaceName(globalName, memberName));
+    }
   }
   if (new Set(names).size !== names.length) {
     throw new Error(

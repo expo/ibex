@@ -2665,9 +2665,10 @@ function buildHostAbiOutputContract({
         selector: outputSelector(parameter.name),
       });
     } else if (parameter.role === "callback-payload") {
-      outputChannels.push(
-        ...(callbackBindings.get(parameter.index)?.outputChannels ?? []),
-      );
+      for (const channel of
+        callbackBindings.get(parameter.index)?.outputChannels ?? []) {
+        outputChannels.push(channel);
+      }
     }
   }
 
@@ -2695,9 +2696,10 @@ function buildHostAbiOutputContract({
     ) {
       unresolved.push(`aggregate-schema:${label}`);
     }
-    unresolved.push(
-      ...(callbackBindings.get(parameter.index)?.unresolved ?? []),
-    );
+    for (const reason of
+      callbackBindings.get(parameter.index)?.unresolved ?? []) {
+      unresolved.push(reason);
+    }
   }
 
   return {
@@ -3343,9 +3345,9 @@ function javascriptLexicalBindingIndex(program) {
     for (const [key, value] of Object.entries(node)) {
       if (omittedKeys.has(key)) continue;
       if (Array.isArray(value)) {
-        children.push(
-          ...value.filter((child) => child && typeof child === "object"),
-        );
+        for (const child of value) {
+          if (child && typeof child === "object") children.push(child);
+        }
       } else if (value && typeof value === "object") {
         children.push(value);
       }
@@ -10352,14 +10354,22 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
       const values = [];
       for (const declaration of symbol.declarations ?? []) {
         if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
-          values.push(
-            ...staticStrings(declaration.initializer, environment, seen),
-          );
+          for (const value of staticStrings(
+            declaration.initializer,
+            environment,
+            seen,
+          )) {
+            values.push(value);
+          }
         }
         if (ts.isParameter(declaration) && bound?.expression) {
-          values.push(
-            ...staticStrings(bound.expression, bound.environment, seen),
-          );
+          for (const value of staticStrings(
+            bound.expression,
+            bound.environment,
+            seen,
+          )) {
+            values.push(value);
+          }
         }
       }
       return uniqueSorted(values);
@@ -10406,24 +10416,24 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
       const paths = [];
       for (const declaration of symbol.declarations ?? []) {
         if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
-          paths.push(
-            ...globalPaths(
-              declaration.initializer,
-              environment,
-              seen,
-              includeInstalled,
-            ),
-          );
+          for (const candidate of globalPaths(
+            declaration.initializer,
+            environment,
+            seen,
+            includeInstalled,
+          )) {
+            paths.push(candidate);
+          }
         }
         if (ts.isParameter(declaration) && bound?.expression) {
-          paths.push(
-            ...globalPaths(
-              bound.expression,
-              bound.environment,
-              seen,
-              includeInstalled,
-            ),
-          );
+          for (const candidate of globalPaths(
+            bound.expression,
+            bound.environment,
+            seen,
+            includeInstalled,
+          )) {
+            paths.push(candidate);
+          }
         }
       }
       return paths;
@@ -11565,9 +11575,11 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
         (ts.isArrowFunction(tsUnwrapExpression(property.initializer)) ||
           ts.isFunctionExpression(tsUnwrapExpression(property.initializer)))
       ) {
-        values.push(
-          ...tsReturnExpressions(tsUnwrapExpression(property.initializer)),
-        );
+        for (const value of tsReturnExpressions(
+          tsUnwrapExpression(property.initializer),
+        )) {
+          values.push(value);
+        }
       }
     }
     return values;
@@ -14073,8 +14085,7 @@ export async function scanBuiltinSurfaces(
       );
     }
     const sourceAliases = aliasesBySource.get(sourceKey) ?? [];
-    exports.push(
-      ...scanStaticBuiltinExports(text, {
+    for (const row of scanStaticBuiltinExports(text, {
         bootstrapInternalModuleSpecifiers: sourceAliases
           .filter(
             (alias) =>
@@ -14088,8 +14099,9 @@ export async function scanBuiltinSurfaces(
         publicModuleSpecifiers: sourceAliases
           .filter((alias) => alias.metadata.importReachability === "public")
           .map((alias) => alias.name),
-      }),
-    );
+      })) {
+      exports.push(row);
+    }
   }
 
   composeRequiredBuiltinRoutes(exports, aliases);
@@ -14911,16 +14923,16 @@ export function scanRuntimeCliSurfaces(
           ),
         );
       }
-      rows.push(
-        ...cliValueShapeRows(
+      for (const row of cliValueShapeRows(
           "option",
           command.path,
           option.id,
           option.valueShape,
           sourcePath,
           ref,
-        ),
-      );
+        )) {
+        rows.push(row);
+      }
     }
 
     const positionals = command.positionals ?? [];
@@ -14992,16 +15004,16 @@ export function scanRuntimeCliSurfaces(
           },
         ),
       );
-      rows.push(
-        ...cliValueShapeRows(
+      for (const row of cliValueShapeRows(
           "positional",
           command.path,
           positional.id,
           positional.valueShape,
           sourcePath,
           ref,
-        ),
-      );
+        )) {
+        rows.push(row);
+      }
     }
   }
 
@@ -22043,9 +22055,12 @@ export async function discoverRepositorySurfaces(repoRoot) {
     (candidate) => path.extname(candidate) === ".rs",
   )) {
     const relativePath = posixPath(path.relative(repoRoot, filePath));
-    abiRows.push(
-      ...scanRustPublicAbiDefinitions(readUtf8(filePath), relativePath),
-    );
+    for (const row of scanRustPublicAbiDefinitions(
+      readUtf8(filePath),
+      relativePath,
+    )) {
+      abiRows.push(row);
+    }
   }
   const androidJavaPath =
     "platform/android/java/dev/ibex/runtime/IbexNetworking.java";
@@ -22122,22 +22137,26 @@ export async function discoverRepositorySurfaces(repoRoot) {
     (candidate) => path.extname(candidate) === ".js",
   )) {
     const relativePath = posixPath(path.relative(repoRoot, filePath));
-    globalRows.push(
-      ...scanStaticGlobalApiSurfaces(readUtf8(filePath), relativePath, {
+    for (const row of scanStaticGlobalApiSurfaces(
+      readUtf8(filePath),
+      relativePath,
+      {
         evaluatorInstallation:
           legacyEvaluatorInstallations[path.basename(filePath)],
-      }),
-    );
+      },
+    )) {
+      globalRows.push(row);
+    }
   }
   const hermesEvaluatorProfiles =
     discoverHermesEvaluatorIdentityProfiles(repoRoot);
-  globalRows.push(
-    ...scanLockdownEvaluatorSurfaces(
+  for (const row of scanLockdownEvaluatorSurfaces(
       readUtf8(path.join(engineRoot, "hermes_runtime.cc")),
       "src/engine/hermes_runtime.cc",
       hermesEvaluatorProfiles,
-    ),
-  );
+    )) {
+    globalRows.push(row);
+  }
   const globals = mergeSurfaceEvidence(
     globalRows,
     "bootstrap global API inventory",

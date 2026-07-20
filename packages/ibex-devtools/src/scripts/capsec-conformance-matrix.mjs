@@ -5,6 +5,33 @@
  * evidence is accepted.
  */
 const pythonCommand = process.platform === "win32" ? "python" : "python3";
+const WINDOWS_TARGET = "x86_64-pc-windows-msvc";
+const REGISTRY_GENERATOR =
+  "packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs";
+
+export function resolveConformanceMatrixInvocation({
+  id,
+  command,
+  args,
+  target,
+  environment,
+  repoRoot,
+}) {
+  if (target !== WINDOWS_TARGET || id !== "capsec-registry-drift") {
+    return { command, args, environmentKeys: [] };
+  }
+  const nodeOracle = environment.IBEX_NODE_ORACLE_BIN;
+  if (typeof nodeOracle !== "string" || nodeOracle.length === 0) {
+    throw new Error(
+      "Windows CapSec registry drift requires IBEX_NODE_ORACLE_BIN",
+    );
+  }
+  return {
+    command: nodeOracle,
+    args: [`${repoRoot}/${REGISTRY_GENERATOR}`, "--check"],
+    environmentKeys: ["IBEX_NODE_ORACLE_BIN"],
+  };
+}
 
 export const CONFORMANCE_PREFLIGHT_COMMANDS = Object.freeze([
   ["capsec-registry-drift", "bun", ["run", "check:capsec-registry"]],

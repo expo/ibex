@@ -24,6 +24,7 @@ import {
 import {
   CONFORMANCE_PREFLIGHT_COMMANDS,
   CONFORMANCE_PRODUCT_COMMANDS,
+  resolveConformanceMatrixInvocation,
 } from "./capsec-conformance-matrix.mjs";
 import {
   commandEvidenceIdSuffix,
@@ -307,14 +308,25 @@ const runEngineAttestation = async (id, identityPath) => {
 const runMatrixCommands = async (commands) => {
   const evidence = [];
   for (const [id, command, commandArgs] of commands) {
-    const attempt = await runObservedCommand({
-      supervisor,
+    const invocation = resolveConformanceMatrixInvocation({
       id,
       command,
       args: commandArgs,
+      target: target.triple,
+      environment: exactEngineEnvironment,
+      repoRoot,
+    });
+    const attempt = await runObservedCommand({
+      supervisor,
+      id,
+      command: invocation.command,
+      args: invocation.args,
       cwd: repoRoot,
       env: exactEngineEnvironment,
-      environmentKeys: exactEngineEnvironmentKeys,
+      environmentKeys: [
+        ...exactEngineEnvironmentKeys,
+        ...invocation.environmentKeys,
+      ],
       declaredInputs: [
         { name: "suitePlan", digest: suitePlanBinding.suitePlanDigest },
       ],
