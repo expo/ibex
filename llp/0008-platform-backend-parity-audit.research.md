@@ -5,7 +5,7 @@
 **Systems:** Engine, Build, Runtime
 **Author:** Codex
 **Date:** 2026-06-14
-**Revised:** 2026-07-20 (ENG-24933: the Windows BCrypt/CNG profile supplies PBKDF2, portable RFC 7914 scrypt, and RFC 5869 HKDF in addition to hash and HMAC); 2026-07-12 (ENG-24261: executable host-JVM tests cover the production Android WebSocket queue's flood, overflow, terminal, and repeated flow-control behavior); 2026-07-12 (spawn registry teardown now honors explicit ChildProcess unref state; previously 2026-07-11: ENG-23541 Windows async fs worker-pool hooks and verified error/handle/durability semantics; 2026-07-09: Linux curl CLI fallback now spawns via posix_spawnp instead of std::system — ENG-23874; Windows Child Process section — ENG-23485; default-path DNS rcode fidelity and the raw UDP transport decision — ENG-23506)
+**Revised:** 2026-07-20 (ENG-24933: the Windows BCrypt/CNG profile supplies PBKDF2, portable RFC 7914 scrypt, RFC 5869 HKDF, and padded AES-CBC in addition to hash and HMAC); 2026-07-12 (ENG-24261: executable host-JVM tests cover the production Android WebSocket queue's flood, overflow, terminal, and repeated flow-control behavior); 2026-07-12 (spawn registry teardown now honors explicit ChildProcess unref state; previously 2026-07-11: ENG-23541 Windows async fs worker-pool hooks and verified error/handle/durability semantics; 2026-07-09: Linux curl CLI fallback now spawns via posix_spawnp instead of std::system — ENG-23874; Windows Child Process section — ENG-23485; default-path DNS rcode fidelity and the raw UDP transport decision — ENG-23506)
 **Related:** LLP 0001; LLP 0003; LLP 0005
 
 ## Purpose
@@ -194,7 +194,7 @@ Apple uses CommonCrypto/Security in the non-Windows shim. Android currently
 requires `openssl-crypto` with vendored OpenSSL. Windows uses the
 Windows-specific native crypto file and BCrypt/CNG, including hash, HMAC,
 PBKDF2, portable RFC 7914 scrypt over CNG PBKDF2-HMAC-SHA256, and RFC 5869
-HKDF over its HMAC primitive. Those platform files own
+HKDF over its HMAC primitive, plus padded AES-CBC. Those platform files own
 only the native primitives: every target resolves the same manifest-owned
 `src/builtins/crypto.js` JavaScript surface so reduced profiles retain the
 canonical exports, validation, and explicit unsupported-operation errors.

@@ -143042,7 +143042,9 @@
         ]
       },
       "disposition": "unsupported",
-      "implementationBranchIds": [],
+      "implementationBranchIds": [
+        "surface.native.op.exactaescbcdecrypt.12v0if3.windows"
+      ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
@@ -143074,7 +143076,9 @@
         ]
       },
       "disposition": "unsupported",
-      "implementationBranchIds": [],
+      "implementationBranchIds": [
+        "surface.native.op.exactaescbcencrypt.03oymej.windows"
+      ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },

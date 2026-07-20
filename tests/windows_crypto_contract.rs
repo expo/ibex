@@ -24,6 +24,8 @@ fn windows_native_crypto_remains_a_primitive_backend() {
         "__exactPbkdf2",
         "__exactScryptSync",
         "__exactHkdf",
+        "__exactAesCbcEncrypt",
+        "__exactAesCbcDecrypt",
     ] {
         assert!(
             WINDOWS_CRYPTO.contains(primitive),
@@ -45,5 +47,10 @@ fn windows_native_crypto_remains_a_primitive_backend() {
     assert!(
         WINDOWS_CRYPTO.contains("scryptRoMix") && WINDOWS_CRYPTO.contains("salsa20_8"),
         "Windows scrypt must retain the portable RFC 7914 ROMix construction"
+    );
+    assert!(
+        WINDOWS_CRYPTO.contains("BCRYPT_CHAIN_MODE_CBC")
+            && WINDOWS_CRYPTO.contains("BCRYPT_BLOCK_PADDING"),
+        "Windows AES-CBC must use CNG CBC mode with native block padding"
     );
 }

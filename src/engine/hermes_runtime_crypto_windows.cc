@@ -280,6 +280,146 @@ void scryptRoMix(uint32_t* block, uint64_t n, uint32_t r) {
   }
 }
 
+std::vector<uint8_t> aesCbcCrypt(
+    facebook::jsi::Runtime& runtime,
+    const std::vector<uint8_t>& key,
+    const std::vector<uint8_t>& iv,
+    const std::vector<uint8_t>& data,
+    bool encrypt) {
+  if (key.size() != 16 && key.size() != 24 && key.size() != 32) {
+    throw facebook::jsi::JSError(runtime, "AES key must be 128, 192, or 256 bits");
+  }
+  if (iv.size() != 16) {
+    throw facebook::jsi::JSError(runtime, "AES-CBC IV must be 16 bytes");
+  }
+  const auto max_input_size = static_cast<size_t>(std::numeric_limits<ULONG>::max());
+  if (data.size() > max_input_size || (encrypt && data.size() > max_input_size - 16)) {
+    throw facebook::jsi::JSError(runtime, "AES-CBC input is too large");
+  }
+
+  BCRYPT_ALG_HANDLE algorithm_handle = nullptr;
+  BCRYPT_KEY_HANDLE key_handle = nullptr;
+  auto close_handles = [&]() {
+    if (key_handle) {
+      BCryptDestroyKey(key_handle);
+      key_handle = nullptr;
+    }
+    if (algorithm_handle) {
+      BCryptCloseAlgorithmProvider(algorithm_handle, 0);
+      algorithm_handle = nullptr;
+    }
+  };
+
+  if (!ntSuccess(BCryptOpenAlgorithmProvider(
+          &algorithm_handle,
+          BCRYPT_AES_ALGORITHM,
+          nullptr,
+          0))) {
+    throw facebook::jsi::JSError(runtime, "BCryptOpenAlgorithmProvider failed for AES-CBC");
+  }
+  if (!ntSuccess(BCryptSetProperty(
+          algorithm_handle,
+          BCRYPT_CHAINING_MODE,
+          reinterpret_cast<PUCHAR>(const_cast<wchar_t*>(BCRYPT_CHAIN_MODE_CBC)),
+          sizeof(BCRYPT_CHAIN_MODE_CBC),
+          0))) {
+    close_handles();
+    throw facebook::jsi::JSError(runtime, "BCryptSetProperty failed for AES-CBC");
+  }
+
+  DWORD object_length = 0;
+  DWORD result_length = 0;
+  if (!ntSuccess(BCryptGetProperty(
+          algorithm_handle,
+          BCRYPT_OBJECT_LENGTH,
+          reinterpret_cast<PUCHAR>(&object_length),
+          sizeof(object_length),
+          &result_length,
+          0))) {
+    close_handles();
+    throw facebook::jsi::JSError(runtime, "BCryptGetProperty failed for AES-CBC");
+  }
+
+  std::vector<uint8_t> key_object(object_length);
+  if (!ntSuccess(BCryptGenerateSymmetricKey(
+          algorithm_handle,
+          &key_handle,
+          key_object.data(),
+          static_cast<ULONG>(key_object.size()),
+          const_cast<PUCHAR>(key.data()),
+          static_cast<ULONG>(key.size()),
+          0))) {
+    close_handles();
+    throw facebook::jsi::JSError(runtime, "BCryptGenerateSymmetricKey failed for AES-CBC");
+  }
+
+  UCHAR empty_input = 0;
+  auto* input = data.empty() ? &empty_input : const_cast<PUCHAR>(data.data());
+  std::vector<uint8_t> mutable_iv(iv);
+  ULONG output_length = 0;
+  NTSTATUS status = encrypt
+      ? BCryptEncrypt(
+            key_handle,
+            input,
+            static_cast<ULONG>(data.size()),
+            nullptr,
+            mutable_iv.data(),
+            static_cast<ULONG>(mutable_iv.size()),
+            nullptr,
+            0,
+            &output_length,
+            BCRYPT_BLOCK_PADDING)
+      : BCryptDecrypt(
+            key_handle,
+            input,
+            static_cast<ULONG>(data.size()),
+            nullptr,
+            mutable_iv.data(),
+            static_cast<ULONG>(mutable_iv.size()),
+            nullptr,
+            0,
+            &output_length,
+            BCRYPT_BLOCK_PADDING);
+  if (!ntSuccess(status)) {
+    close_handles();
+    throw facebook::jsi::JSError(runtime, "AES-CBC output sizing failed");
+  }
+
+  std::vector<uint8_t> output(output_length);
+  mutable_iv = iv;
+  status = encrypt
+      ? BCryptEncrypt(
+            key_handle,
+            input,
+            static_cast<ULONG>(data.size()),
+            nullptr,
+            mutable_iv.data(),
+            static_cast<ULONG>(mutable_iv.size()),
+            output.data(),
+            static_cast<ULONG>(output.size()),
+            &output_length,
+            BCRYPT_BLOCK_PADDING)
+      : BCryptDecrypt(
+            key_handle,
+            input,
+            static_cast<ULONG>(data.size()),
+            nullptr,
+            mutable_iv.data(),
+            static_cast<ULONG>(mutable_iv.size()),
+            output.data(),
+            static_cast<ULONG>(output.size()),
+            &output_length,
+            BCRYPT_BLOCK_PADDING);
+  close_handles();
+  if (!ntSuccess(status)) {
+    throw facebook::jsi::JSError(
+        runtime,
+        encrypt ? "AES-CBC encryption failed" : "AES-CBC decryption failed");
+  }
+  output.resize(output_length);
+  return output;
+}
+
 std::string hexEncode(const std::vector<uint8_t>& bytes) {
   std::ostringstream out;
   out << std::hex << std::setfill('0');
@@ -691,6 +831,52 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
             derivePbkdf2(runtime, password, mixed, 1, length, "sha256"));
       });
   rt.global().setProperty(rt, "__exactScryptSync", std::move(scryptFn));
+
+  // @ref LLP 0008#crypto — Windows AES-CBC uses the CNG symmetric-key
+  // primitive with native PKCS#7 block padding.
+  auto aesCbcEncryptFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactAesCbcEncrypt"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 3) {
+          throw facebook::jsi::JSError(runtime, "__exactAesCbcEncrypt: key, iv, and data required");
+        }
+        return makeUint8Array(
+            runtime,
+            aesCbcCrypt(
+                runtime,
+                extractBytes(runtime, args[0]),
+                extractBytes(runtime, args[1]),
+                extractBytes(runtime, args[2]),
+                true));
+      });
+  rt.global().setProperty(rt, "__exactAesCbcEncrypt", std::move(aesCbcEncryptFn));
+
+  auto aesCbcDecryptFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactAesCbcDecrypt"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 3) {
+          throw facebook::jsi::JSError(runtime, "__exactAesCbcDecrypt: key, iv, and data required");
+        }
+        return makeUint8Array(
+            runtime,
+            aesCbcCrypt(
+                runtime,
+                extractBytes(runtime, args[0]),
+                extractBytes(runtime, args[1]),
+                extractBytes(runtime, args[2]),
+                false));
+      });
+  rt.global().setProperty(rt, "__exactAesCbcDecrypt", std::move(aesCbcDecryptFn));
 
   // @ref LLP 0008#crypto — Windows keeps the canonical JavaScript crypto
   // surface and supplies its available native primitives through BCrypt/CNG.

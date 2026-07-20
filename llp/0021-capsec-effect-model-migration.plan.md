@@ -2199,6 +2199,11 @@ call would otherwise encounter the same target-backend gap, so Windows also
 installs the existing portable RFC 7914 Salsa20/8 ROMix construction with CNG
 PBKDF2-HMAC-SHA256 for its initial and final derivations. Its RFC vector is a
 separate gate; it likewise earns no target credit before physical execution.
+The retained product failure cluster also requires AES-CBC for the canonical
+Node UTF-8 cipher golden and WebCrypto IV validation. Windows now supplies
+those encrypt/decrypt hooks through CNG CBC mode with native block padding;
+this adjacent repair remains uncredited until the same physical matrix reaches
+and passes those product tests.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked
