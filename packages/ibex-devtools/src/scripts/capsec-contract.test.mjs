@@ -168,6 +168,15 @@ describe("LLP 0021 capsec contract", () => {
     }
   });
 
+  test("canonical JSON does not depend on the JavaScript call-stack ceiling", () => {
+    let value = 0;
+    for (let depth = 0; depth < 50_000; depth += 1) value = [value];
+    const canonical = canonicalJson(value);
+    expect(canonical.length).toBe(100_001);
+    expect(canonical.startsWith("[[[[")).toBe(true);
+    expect(canonical.endsWith("]]]]")).toBe(true);
+  });
+
   test("keyed sets must use their declared composite order", () => {
     const contract = loadAndValidateContract();
     const mutated = structuredClone(contract.targetCells);

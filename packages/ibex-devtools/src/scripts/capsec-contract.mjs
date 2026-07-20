@@ -188,12 +188,40 @@ export function assertIJson(value, label = "$") {
 /** RFC 8785 uses ECMAScript number/string serialization and UTF-16 key order. */
 export function canonicalJson(value) {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value))
-    return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
-  return `{${Object.keys(value)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
-    .join(",")}}`;
+  const output = [];
+  const stack = [{ type: "value", value }];
+  while (stack.length > 0) {
+    const frame = stack.pop();
+    if (frame.type === "text") {
+      output.push(frame.value);
+      continue;
+    }
+    const current = frame.value;
+    if (current === null || typeof current !== "object") {
+      output.push(JSON.stringify(current));
+      continue;
+    }
+    if (Array.isArray(current)) {
+      stack.push({ type: "text", value: "]" });
+      for (let index = current.length - 1; index >= 0; index -= 1) {
+        stack.push({ type: "value", value: current[index] });
+        if (index > 0) stack.push({ type: "text", value: "," });
+      }
+      stack.push({ type: "text", value: "[" });
+      continue;
+    }
+    const keys = Object.keys(current).sort();
+    stack.push({ type: "text", value: "}" });
+    for (let index = keys.length - 1; index >= 0; index -= 1) {
+      const key = keys[index];
+      stack.push({ type: "value", value: current[key] });
+      stack.push({ type: "text", value: ":" });
+      stack.push({ type: "text", value: JSON.stringify(key) });
+      if (index > 0) stack.push({ type: "text", value: "," });
+    }
+    stack.push({ type: "text", value: "{" });
+  }
+  return output.join("");
 }
 
 export function computeDomainDigest(domain, payload, omitFields = []) {
