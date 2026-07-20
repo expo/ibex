@@ -4,7 +4,8 @@ param(
   [string]$Ref = "",
   [switch]$Debug,
   [switch]$Clean,
-  [switch]$PrintIdentity
+  [switch]$PrintIdentity,
+  [switch]$PrintCMakeGenerator
 )
 
 $ErrorActionPreference = "Stop"
@@ -111,6 +112,25 @@ function Convert-ToBashPath {
   return $full.Replace('\', '/')
 }
 
+function Get-VisualStudioCMakeGenerator {
+  # The hosted Windows image can move between reviewed Visual Studio major
+  # versions while this source build falls back from a missing release asset.
+  # Select only the exact CMake generator matching the already-activated MSVC
+  # developer environment; never silently fall back to an ambient generator.
+  # @ref LLP 0001#4-what-ci-must-handle-per-cell — Windows source builds
+  # must remain reproducible on the supported hosted MSVC image rather than
+  # naming a retired installation.
+  $version = $env:VisualStudioVersion
+  if (-not $version -or $version -notmatch '^(17|18)\.\d+(?:\.\d+){0,2}$') {
+    throw "Supported Visual Studio developer environment is required (observed VisualStudioVersion '$version')"
+  }
+  switch ($matches[1]) {
+    "17" { return "Visual Studio 17 2022" }
+    "18" { return "Visual Studio 18 2026" }
+    default { throw "Unsupported Visual Studio major version $($matches[1])" }
+  }
+}
+
 # FileShare.None gives all cooperating Windows builder/installer processes one
 # kernel-owned lock. The stable file is never unlinked: process termination
 # closes the handle, so recovery does not depend on PID/stale-owner heuristics.
@@ -195,6 +215,11 @@ if ($PrintIdentity) {
   Write-Output $identity
   exit 0
 }
+if ($PrintCMakeGenerator) {
+  Write-Output (Get-VisualStudioCMakeGenerator)
+  exit 0
+}
+$cmakeGenerator = Get-VisualStudioCMakeGenerator
 $profile = if ($Debug) { "debug" } else { "release" }
 $cacheRoot = Join-Path $env:LOCALAPPDATA "Exact\hermes-windows"
 $cacheDir = Join-Path $cacheRoot "$commitKey-$profile-p$patchDigest-$Arch"
@@ -250,7 +275,7 @@ try {
   New-Item -ItemType Directory -Force -Path $buildDir, $installDir | Out-Null
   $cmakeArch = if ($Arch -eq "arm64") { "ARM64" } else { "x64" }
   $debuggerFlag = if ($Debug) { "ON" } else { "OFF" }
-  cmake -S $sourceDir -B $buildDir -G "Visual Studio 17 2022" -A $cmakeArch `
+  cmake -S $sourceDir -B $buildDir -G $cmakeGenerator -A $cmakeArch `
     "-DHERMES_ENABLE_DEBUGGER:BOOL=$debuggerFlag" `
     -DHERMES_ENABLE_INTL=OFF `
     -DHERMES_ENABLE_WIN10_ICU_FALLBACK=ON `

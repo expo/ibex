@@ -13111,7 +13111,7 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
       patchStackDigest:
         "sha256-4ee8b3103bf9341b9d7460884323978471558d5a03f0926d70e5593c07ff9025",
       sourceBuildAuthorityDigest:
-        "sha256-38b23085b000c0341365e66b86a7e2afc488f3058a94b78b27c152a1a298a3fd",
+        "sha256-a0241603b740cdd9b2747a53f6c97803192b60c7f8579b8b2f661dd048c7b1e4",
       sourceCommit: "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",
       sourceRef: "260318099.0.0-stable",
       sourceVersion: "260318099.0.0",
