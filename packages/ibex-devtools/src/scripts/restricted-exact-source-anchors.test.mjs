@@ -119,6 +119,49 @@ describe("restricted Exact source anchors", () => {
     ).toMatch(/Cipher\.prototype\.update|update\s*\(/u);
   });
 
+  test("binds prototype members published through direct CommonJS root assignments", () => {
+    const sourceRef = "src/builtins/assert.js#exports:CallTracker.calls";
+    const route = buildRestrictedExactBranchSourceRoute(
+      {
+        branchId: "surface.builtin.assert.call-tracker.calls",
+        observedKey: "builtin:export:node_assert:CallTracker.calls",
+        targetVariant: "main",
+      },
+      [sourceRef],
+    );
+    expect(route.status).toBe("executable");
+    expect(route.producerPaths).toHaveLength(1);
+    expect(route.sites.map((site) => site.role)).toEqual([
+      "value-producer",
+      "registration",
+      "publication",
+    ]);
+    const source = fs.readFileSync("src/builtins/assert.js");
+    expect(source.subarray(route.sites[0].startByte, route.sites[0].endByte).toString())
+      .toContain("CallTracker.prototype.calls");
+    expect(source.subarray(route.sites[2].startByte, route.sites[2].endByte).toString())
+      .toContain("module.exports.CallTracker");
+  });
+
+  test("keeps conditioned CommonJS module publications as distinct export paths", () => {
+    const route = buildRestrictedExactBranchSourceRoute(
+      {
+        branchId: "surface.builtin.process.argv",
+        observedKey: "builtin:export:exact_process:argv",
+        targetVariant: "main",
+      },
+      ["src/builtins/process.js#exports:argv"],
+    );
+    expect(route.status).toBe("executable");
+    expect(route.producerPaths).toHaveLength(2);
+    expect(new Set(route.producerPaths.map((path) => path.conditionId)).size).toBe(2);
+    const source = fs.readFileSync("src/builtins/process.js");
+    const publications = route.sites.filter((site) => site.role === "publication")
+      .map((site) => source.subarray(site.startByte, site.endByte).toString());
+    expect(publications.some((value) => value.includes("module.exports = proc"))).toBe(true);
+    expect(publications.some((value) => value.includes("module.exports = {"))).toBe(true);
+  });
+
   test("binds JSI globals through HostFunction construction and exact publication", () => {
     const branch = {
       branchId: "surface.native.op.exactaccess.default",

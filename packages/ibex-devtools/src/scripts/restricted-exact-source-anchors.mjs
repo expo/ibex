@@ -23,6 +23,10 @@ const rangeCache = new Map();
 const containerRangeCache = new Map();
 const javascriptIndexCache = new Map();
 const rustTestModuleRangeCache = new Map();
+const lineStartCache = new Map();
+const declarationRangeCache = new Map();
+const robustFunctionRangeCache = new Map();
+const javaTypeRangeCache = new Map();
 
 function digest(bytes) {
   return `sha256-${crypto.createHash("sha256").update(bytes).digest("base64url")}`;
@@ -111,17 +115,38 @@ function declarationCandidateGroups(text, name) {
 }
 
 function declarationRange(text, name) {
+  let byName = declarationRangeCache.get(text);
+  if (!byName) {
+    byName = new Map();
+    declarationRangeCache.set(text, byName);
+  }
+  if (byName.has(name)) return byName.get(name);
   const candidates = [...new Set(declarationCandidateGroups(text, name).flat())]
     .sort((left, right) => left - right);
-  if (candidates.length !== 1) return null;
+  if (candidates.length !== 1) {
+    byName.set(name, null);
+    return null;
+  }
   const startByte = candidates[0];
   const opening = text.indexOf("{", startByte);
-  if (opening < 0) return lineRange(text, startByte);
+  if (opening < 0) {
+    const range = lineRange(text, startByte);
+    byName.set(name, range);
+    return range;
+  }
   const endByte = matchingBraceEnd(text, opening);
-  return endByte < 0 ? null : { startByte, endByte };
+  const range = endByte < 0 ? null : { startByte, endByte };
+  byName.set(name, range);
+  return range;
 }
 
 function robustFunctionDeclarationRange(text, name) {
+  let byName = robustFunctionRangeCache.get(text);
+  if (!byName) {
+    byName = new Map();
+    robustFunctionRangeCache.set(text, byName);
+  }
+  if (byName.has(name)) return byName.get(name);
   const definitions = [];
   for (const call of callExpressionRangesWithin(text, name, { startByte: 0, endByte: text.length })) {
     let cursor = call.endByte;
@@ -141,7 +166,9 @@ function robustFunctionDeclarationRange(text, name) {
     definitions.push({ startByte: prefixStart < 0 ? call.startByte : lineStart + prefixStart, endByte });
   }
   const unique = [...new Map(definitions.map((range) => [`${range.startByte}:${range.endByte}`, range])).values()];
-  return unique.length === 1 ? unique[0] : null;
+  const range = unique.length === 1 ? unique[0] : null;
+  byName.set(name, range);
+  return range;
 }
 
 function typeDeclarationRange(text, name) {
@@ -204,6 +231,8 @@ function declarationRanges(text, name) {
 }
 
 function javaTypeRanges(text) {
+  const cached = javaTypeRangeCache.get(text);
+  if (cached) return cached;
   const ranges = [];
   const pattern = /\b(?:class|interface|enum)\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/gu;
   for (const match of text.matchAll(pattern)) {
@@ -211,6 +240,7 @@ function javaTypeRanges(text) {
     const endByte = opening < 0 ? -1 : matchingBraceEnd(text, opening);
     if (endByte > opening) ranges.push({ name: match[1], startByte: match.index, endByte });
   }
+  javaTypeRangeCache.set(text, ranges);
   return ranges;
 }
 
@@ -616,9 +646,35 @@ function stableId(prefix, value) {
   return `${prefix}-${crypto.createHash("sha256").update(value).digest("hex").slice(0, 20)}`;
 }
 
+function lineNumberAt(text, offset) {
+  let starts = lineStartCache.get(text);
+  if (!starts) {
+    starts = [0];
+    let newline = text.indexOf("\n");
+    while (newline >= 0) {
+      starts.push(newline + 1);
+      newline = text.indexOf("\n", newline + 1);
+    }
+    lineStartCache.set(text, starts);
+  }
+  let low = 0;
+  let high = starts.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (starts[middle] <= offset) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
 function sourceSite({ sourceRef, path: sourcePath, role, siteKey, range, text, bytes }) {
-  const startByte = Buffer.byteLength(text.slice(0, range.startByte), "utf8");
-  const endByte = Buffer.byteLength(text.slice(0, range.endByte), "utf8");
+  const ascii = bytes.length === text.length;
+  const startByte = ascii
+    ? range.startByte
+    : Buffer.byteLength(text.slice(0, range.startByte), "utf8");
+  const endByte = ascii
+    ? range.endByte
+    : Buffer.byteLength(text.slice(0, range.endByte), "utf8");
   const slice = bytes.subarray(startByte, endByte);
   return {
     siteId: stableId("site", `${sourceRef}\0${siteKey}`),
@@ -626,8 +682,8 @@ function sourceSite({ sourceRef, path: sourcePath, role, siteKey, range, text, b
     role,
     startByte,
     endByte,
-    startLine: text.slice(0, range.startByte).split("\n").length,
-    endLine: text.slice(0, range.endByte).split("\n").length,
+    startLine: lineNumberAt(text, range.startByte),
+    endLine: lineNumberAt(text, range.endByte),
     rawContentDigest: digest(slice),
   };
 }
@@ -1371,6 +1427,127 @@ function builtinExportBranchBinding({ branch, sourceRef, sourcePath, locator, ab
   });
 }
 
+function builtinExportFallbackBinding({ branch, sourceRef, sourcePath, locator, absolute, text, bytes }) {
+  if (
+    !sourcePath.endsWith(".js")
+    || !locator.startsWith("exports:")
+    || !branch?.observedKey?.startsWith("builtin:export:")
+  ) return null;
+  const exportPath = locator.slice("exports:".length);
+  if (exportPath.includes("[[") || exportPath.includes("<")) return null;
+  const parts = exportPath.split(".");
+  const root = parts[0];
+  const index = javascriptIndex(absolute, text);
+  const directPublications = index.assignments.filter(({ segments }) =>
+    JSON.stringify(segments) === JSON.stringify(["module", "exports", root])
+    || JSON.stringify(segments) === JSON.stringify(["exports", root]));
+  const publications = directPublications.length > 0
+    ? directPublications.map((row) => ({ node: row.parent ?? row.node, value: row.value, rootNode: row.node }))
+    : index.modulePublications.map((publication) => ({
+      node: publication.node,
+      value: publication.value,
+      rootNode: null,
+    }));
+  const candidates = [];
+  for (const publication of publications) {
+    let rootNode = publication.rootNode;
+    let rootValue = publication.value;
+    if (!publication.rootNode && root !== "default") {
+      const moduleValue = resolveIdentifierValue(index, publication.value).node;
+      const property = objectProperty(moduleValue, root);
+      if (property) {
+        rootNode = property;
+        rootValue = property.type === "ObjectMethod" ? property : property.value;
+      } else if (publication.value?.type === "Identifier") {
+        const row = index.assignments.find(({ segments }) =>
+          JSON.stringify(segments) === JSON.stringify([publication.value.name, root]));
+        if (row) {
+          rootNode = row.node;
+          rootValue = row.value;
+        }
+      }
+    }
+    if (!rootValue) continue;
+    let producer;
+    if (parts.length === 1 || (parts.length === 2 && parts[1] === "constructor")) {
+      const resolved = resolveIdentifierValue(index, rootValue);
+      producer = resolved.declaration?.node ?? resolved.node;
+    } else {
+      const resolved = resolveIdentifierValue(index, rootValue);
+      const owner = rootValue.type === "Identifier"
+        ? (resolved.declaration?.node?.id?.name ?? rootValue.name)
+        : resolved.declaration?.node?.id?.name;
+      producer = owner
+        ? memberProducer(index, owner, parts.at(-1), parts.includes("prototype") ? "prototype" : "either")
+        : null;
+    }
+    if (
+      producer?.start === undefined
+      || producer?.end === undefined
+      || publication.node?.start === undefined
+      || publication.node?.end === undefined
+    ) continue;
+    candidates.push({ publication, rootNode, producer });
+  }
+  if (candidates.length === 0) return null;
+
+  const sites = [];
+  const producerPaths = [];
+  for (const [indexValue, candidate] of candidates.entries()) {
+    const producerSite = sourceSite({
+      sourceRef,
+      path: sourcePath,
+      role: "value-producer",
+      siteKey: `${exportPath}.fallback-producer.${indexValue + 1}`,
+      range: { startByte: candidate.producer.start, endByte: candidate.producer.end },
+      text,
+      bytes,
+    });
+    const requiredSiteIds = [producerSite.siteId];
+    sites.push(producerSite);
+    if (
+      candidate.rootNode
+      && candidate.rootNode !== candidate.producer
+      && candidate.rootNode !== candidate.publication.node
+    ) {
+      const registrationSite = sourceSite({
+        sourceRef,
+        path: sourcePath,
+        role: "registration",
+        siteKey: `${exportPath}.fallback-registration.${indexValue + 1}`,
+        range: { startByte: candidate.rootNode.start, endByte: candidate.rootNode.end },
+        text,
+        bytes,
+      });
+      sites.push(registrationSite);
+      requiredSiteIds.push(registrationSite.siteId);
+    }
+    const publicationSite = sourceSite({
+      sourceRef,
+      path: sourcePath,
+      role: "publication",
+      siteKey: `${exportPath}.fallback-publication.${indexValue + 1}`,
+      range: { startByte: candidate.publication.node.start, endByte: candidate.publication.node.end },
+      text,
+      bytes,
+    });
+    sites.push(publicationSite);
+    requiredSiteIds.push(publicationSite.siteId);
+    producerPaths.push({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0builtin-fallback\0${indexValue}`),
+      conditionId: `builtin-publication:${branch.targetVariant}:${indexValue + 1}`,
+      requiredSiteIds,
+    });
+  }
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "commonjs-export-fallback-route",
+    resolutionPolicy: producerPaths.length > 1 ? "conditioned-alternatives" : "composite-path",
+    sites,
+    producerPaths,
+  });
+}
+
 function splitTopLevelArguments(text) {
   const parts = [];
   let start = 0;
@@ -1523,7 +1700,28 @@ function exportedHostAbiBinding({ branch, sourceRef, sourcePath, locator, text, 
   }
   const symbol = branch.observedKey.slice("host-abi:".length);
   if (locator !== symbol || !/\.(?:cc|mm|rs)$/u.test(sourcePath)) return null;
-  const range = declarationRange(text, symbol)
+  const escaped = escapeRegExp(symbol);
+  const candidates = [];
+  const signature = new RegExp(`(?:^|\\n)[^\\n;{}]*\\b${escaped}\\s*\\(`, "gu");
+  for (const match of text.matchAll(signature)) {
+    const startByte = match.index + match[0].search(/\S/u);
+    const parameterStart = text.indexOf("(", startByte);
+    const parameterEnd = parameterStart < 0
+      ? -1
+      : matchingDelimiterEnd(text, parameterStart, "(", ")");
+    if (parameterEnd < 0) continue;
+    let opening = parameterEnd;
+    while (opening < text.length && opening < parameterEnd + 5_000 && text[opening] !== "{") {
+      if (text[opening] === ";") break;
+      opening += 1;
+    }
+    if (text[opening] !== "{") continue;
+    const endByte = matchingBraceEnd(text, opening);
+    if (endByte > opening) candidates.push({ startByte, endByte });
+  }
+  const uniqueCandidates = dedupeRanges(candidates);
+  const range = (uniqueCandidates.length === 1 ? uniqueCandidates[0] : null)
+    ?? declarationRange(text, symbol)
     ?? robustFunctionDeclarationRange(text, symbol);
   if (!range) return null;
   const declaration = text.slice(range.startByte, Math.min(range.endByte, range.startByte + 500));
@@ -3219,6 +3417,7 @@ export function resolveRestrictedExactBranchSourceBinding(
   const loaded = loadSourceRef(sourceRef, root);
   const contextual = moduleSpecifierBranchBinding({ branch, sourceRef, ...loaded })
     ?? builtinExportBranchBinding({ branch, sourceRef, ...loaded })
+    ?? builtinExportFallbackBinding({ branch, sourceRef, ...loaded })
     ?? jsiGlobalBranchBinding({ branch, sourceRef, ...loaded })
     ?? javaHostMethodBinding({ branch, sourceRef, ...loaded })
     ?? androidJavaCallBinding({ branch, sourceRef, ...loaded })
