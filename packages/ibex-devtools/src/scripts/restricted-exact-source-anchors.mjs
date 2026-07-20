@@ -385,30 +385,88 @@ function modulesRange(text, locator) {
 
 function runtimeSurfaceRange(text, locator) {
   const prefix = "clapSurface.command:";
-  if (!locator.startsWith(prefix)) return null;
-  const rest = locator.slice(prefix.length);
-  const optionMarker = ":option:";
-  const positionalMarker = ":positional:";
-  const marker = rest.includes(optionMarker)
-    ? optionMarker
-    : rest.includes(positionalMarker)
-      ? positionalMarker
-      : null;
-  const command = marker ? rest.slice(0, rest.indexOf(marker)) : rest;
-  const child = marker ? rest.slice(rest.indexOf(marker) + marker.length) : null;
-  const commandRange = uniqueTokenRange(text, [`"path": "${command}"`]);
-  if (!commandRange || !child) return commandRange;
-  const commandStart = commandRange.startByte;
-  const nextCommand = text.indexOf('"path": "ibex', commandRange.endByte);
-  const commandEnd = nextCommand < 0 ? text.length : nextCommand;
-  const slice = text.slice(commandStart, commandEnd);
-  const childRange = uniqueTokenRange(slice, [`"id": "${child}"`]);
-  return childRange
-    ? {
-        startByte: commandStart + childRange.startByte,
-        endByte: commandStart + childRange.endByte,
-      }
-    : null;
+  if (locator.startsWith(prefix)) {
+    const rest = locator.slice(prefix.length);
+    const optionMarker = ":option:";
+    const positionalMarker = ":positional:";
+    const marker = rest.includes(optionMarker)
+      ? optionMarker
+      : rest.includes(positionalMarker)
+        ? positionalMarker
+        : null;
+    const command = marker ? rest.slice(0, rest.indexOf(marker)) : rest;
+    const child = marker ? rest.slice(rest.indexOf(marker) + marker.length) : null;
+    const commandLine = uniqueTokenRange(text, [`"path": "${command}"`]);
+    if (!commandLine) return null;
+    const commandRange = enclosingObjectRange(text, commandLine.startByte, 0, text.length);
+    if (!commandRange || !child) return commandRange;
+    const childLines = tokenRangesWithin(text, `"id": "${child}"`, commandRange);
+    if (childLines.length !== 1) return null;
+    return enclosingObjectRange(
+      text,
+      childLines[0].startByte,
+      commandRange.startByte,
+      commandRange.endByte,
+    );
+  }
+
+  const semanticPrefix = "clapSurface.semanticRelations:";
+  if (locator.startsWith(semanticPrefix)) {
+    const parts = locator.slice(semanticPrefix.length).split(":");
+    const [kind, commandPath, argumentId, value] = parts;
+    if (!["parser", "argument-conflict"].includes(kind) || !value) return null;
+    const candidateLines = tokenRangesWithin(
+      text,
+      `"commandPath": "${commandPath}"`,
+      { startByte: 0, endByte: text.length },
+    );
+    const candidates = candidateLines
+      .map((line) => enclosingObjectRange(text, line.startByte, 0, text.length))
+      .filter(Boolean)
+      .filter((range) => {
+        const slice = text.slice(range.startByte, range.endByte);
+        return slice.includes(`"argumentId": "${argumentId}"`)
+          && slice.includes(`"${value}"`);
+      });
+    const unique = [...new Map(candidates.map((range) => [`${range.startByte}:${range.endByte}`, range])).values()];
+    return unique.length === 1 ? unique[0] : null;
+  }
+
+  const replCommandPrefix = "replSurface.command:";
+  if (locator.startsWith(replCommandPrefix)) {
+    const id = locator.slice(replCommandPrefix.length);
+    const lines = tokenRangesWithin(text, `"name": ".${id}"`, { startByte: 0, endByte: text.length });
+    if (lines.length !== 1) return null;
+    return enclosingObjectRange(text, lines[0].startByte, 0, text.length);
+  }
+
+  const loadExtensionPrefix = "replSurface.loadExtension:";
+  if (locator.startsWith(loadExtensionPrefix)) {
+    const extension = locator.slice(loadExtensionPrefix.length).split(":")[0];
+    if (extension === "default") {
+      const line = uniqueTokenRange(text, ['"defaultDisposition": "refuse-unknown-or-extensionless"']);
+      return line ? enclosingObjectRange(text, line.startByte, 0, text.length) : null;
+    }
+    const lines = tokenRangesWithin(text, `"extension": "${extension}"`, { startByte: 0, endByte: text.length });
+    if (lines.length !== 1) return null;
+    return enclosingObjectRange(text, lines[0].startByte, 0, text.length);
+  }
+
+  const keybindingPrefix = "keybindingSurface.binding:";
+  if (locator.startsWith(keybindingPrefix)) {
+    const id = locator.slice(keybindingPrefix.length);
+    const lines = tokenRangesWithin(text, `"id": "${id}"`, { startByte: 0, endByte: text.length })
+      .map((line) => enclosingObjectRange(text, line.startByte, 0, text.length))
+      .filter((range) => range && text.slice(range.startByte, range.endByte).includes('"bytes":'));
+    const unique = [...new Map(lines.map((range) => [`${range.startByte}:${range.endByte}`, range])).values()];
+    return unique.length === 1 ? unique[0] : null;
+  }
+
+  if (locator === "replSurface.recognition") {
+    const line = uniqueTokenRange(text, ['"unknownDisposition": "recoverable-error-naming-.help"']);
+    return line ? enclosingObjectRange(text, line.startByte, 0, text.length) : null;
+  }
+  return null;
 }
 
 function buildSelectionRange(text, locator) {
@@ -2122,6 +2180,118 @@ function cliVisibleCommandBinding({ branch, sourceRef, sourcePath, locator, abso
   });
 }
 
+function cliGeneratedSurfaceBinding({ branch, sourceRef, sourcePath, locator, absolute, text, bytes }) {
+  if (
+    !branch?.observedKey?.startsWith("cli:")
+    || sourcePath !== "runtime-surface.json"
+    || ![
+      "clapSurface.command:",
+      "clapSurface.semanticRelations:",
+      "replSurface.command:",
+      "replSurface.loadExtension:",
+      "keybindingSurface.binding:",
+    ].some((prefix) => locator.startsWith(prefix))
+      && locator !== "replSurface.recognition"
+  ) return null;
+  const range = runtimeSurfaceRange(text, locator, absolute);
+  if (!range) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "registration", siteKey: `${locator}.row`, range, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${locator}.surface-publication`, range, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "cli-generated-surface-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0cli-generated-surface`),
+      conditionId: "cli-surface:registered",
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function cliAuthenticatedIngressBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (!branch?.observedKey?.startsWith("cli:") || sourcePath !== "src/bin/ibex/main.rs") return null;
+  const specifications = {
+    "cli:authenticated-direct-file-ingress": {
+      locator: "run_file_with_execution_adapter",
+      guard: "authenticated_product_ingress",
+      dispatches: ["run_file"],
+      conditions: ["authenticated-ingress:file-program"],
+    },
+    "cli:authenticated-one-shot-ingress": {
+      locator: "eval_code",
+      guard: "authenticated_product_ingress",
+      dispatches: ["terminal_session::run_authenticated_inline_execution_adapter"],
+      conditions: ["authenticated-ingress:inline-one-shot"],
+    },
+    "cli:authenticated-program-stdin-ingress": {
+      locator: "run_stdin_program",
+      guard: "authenticated_product_ingress",
+      dispatches: ["terminal_session::run_worker_program_execution_adapter"],
+      conditions: ["authenticated-ingress:worker-program"],
+    },
+    "cli:authenticated-repl-ingress": {
+      locator: "start_repl",
+      guard: "authenticated_product_ingress",
+      dispatches: ["repl::start_worker"],
+      conditions: ["authenticated-ingress:worker-repl"],
+    },
+    "cli:implicit-no-file-dispatch": {
+      locator: "run",
+      guard: "authenticated_product_ingress",
+      dispatches: ["run_stdin_program", "start_repl"],
+      conditions: ["implicit-input:program-stdin", "implicit-input:interactive-repl"],
+    },
+  };
+  const specification = specifications[branch.observedKey];
+  if (!specification || locator !== specification.locator) return null;
+  const definition = declarationRange(text, locator)
+    ?? robustFunctionDeclarationRange(text, locator);
+  if (!definition) return null;
+  let guards = callExpressionRangesWithin(text, specification.guard, definition);
+  if (guards.length !== 1) {
+    guards = tokenRangesWithin(text, `${specification.guard}(`, definition);
+  }
+  if (guards.length !== 1) return null;
+  const dispatchRanges = specification.dispatches.map((callee) => {
+    let allCalls = callExpressionRangesWithin(text, callee, definition);
+    if (allCalls.length === 0) {
+      allCalls = tokenRangesWithin(text, `${callee}(`, definition);
+    }
+    const calls = locator === "run"
+      ? allCalls.filter((range) => range.startByte > guards[0].startByte)
+      : allCalls;
+    return calls.length === 1 ? calls[0] : null;
+  });
+  if (dispatchRanges.some((range) => !range)) return null;
+  const definitionSite = sourceSite({ sourceRef, path: sourcePath, role: "definition", siteKey: `${locator}.definition`, range: definition, text, bytes });
+  const guardSite = sourceSite({ sourceRef, path: sourcePath, role: "guard", siteKey: `${locator}.authenticated-ingress-guard`, range: guards[0], text, bytes });
+  const dispatchSites = dispatchRanges.map((range, index) => sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "dispatch",
+    siteKey: `${locator}.dispatch.${index + 1}`,
+    range,
+    text,
+    bytes,
+  }));
+  const sites = [definitionSite, guardSite, ...dispatchSites];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "cli-authenticated-ingress-route",
+    resolutionPolicy: dispatchSites.length > 1 ? "conditioned-alternatives" : "composite-path",
+    sites,
+    producerPaths: dispatchSites.map((site, index) => ({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0${specification.conditions[index]}`),
+      conditionId: specification.conditions[index],
+      requiredSiteIds: [definitionSite.siteId, guardSite.siteId, site.siteId],
+    })),
+  });
+}
+
 export function validateRestrictedExactSourceBinding(binding) {
   binding.refusalPaths ??= [];
   const siteIds = binding.sites.map((site) => site.siteId);
@@ -2267,6 +2437,8 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? timerCallbackBinding({ branch, sourceRef, ...loaded })
     ?? websocketContextReleaseBinding({ branch, sourceRef, ...loaded })
     ?? signalDispatchBinding({ branch, sourceRef, ...loaded })
+    ?? cliAuthenticatedIngressBinding({ branch, sourceRef, ...loaded })
+    ?? cliGeneratedSurfaceBinding({ branch, sourceRef, ...loaded })
     ?? cliVisibleCommandBinding({ branch, sourceRef, ...loaded })
     ?? cliNamespaceRefusalBinding({ branch, sourceRef, ...loaded })
     ?? bootstrapGlobalBinding({ branch, sourceRef, ...loaded })

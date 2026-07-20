@@ -701,6 +701,96 @@ void install(Runtime& rt) {
     ]);
   });
 
+  test("binds a generated CLI option to its exact command-local object", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.cli.option.run.inspect-port",
+        observedKey: "cli:option:ibex%20run:inspect_port",
+        targetVariant: "all",
+      },
+      "runtime-surface.json#clapSurface.command:ibex run:option:inspect_port",
+    );
+    expect(binding.locatorKind).toBe("cli-generated-surface-route");
+    const source = fs.readFileSync("runtime-surface.json");
+    const row = source.subarray(binding.sites[0].startByte, binding.sites[0].endByte).toString();
+    expect(row).toContain('"id": "inspect_port"');
+    expect(row).toContain('"valueNames"');
+    expect(row).not.toContain('"path": "ibex compat"');
+  });
+
+  test("binds a CLI parser relation to its exact generated semantic row", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.cli.parser.run.inspect-port",
+        observedKey: "cli:argument-parser:ibex%20run:inspect_port:unsigned-integer-u16",
+        targetVariant: "all",
+      },
+      "runtime-surface.json#clapSurface.semanticRelations:parser:ibex run:inspect_port:unsigned-integer-u16",
+    );
+    const source = fs.readFileSync("runtime-surface.json");
+    const row = source.subarray(binding.sites[0].startByte, binding.sites[0].endByte).toString();
+    expect(row).toContain('"commandPath": "ibex run"');
+    expect(row).toContain('"argumentId": "inspect_port"');
+    expect(row).toContain('"parserKind": "unsigned-integer-u16"');
+  });
+
+  test("binds the default REPL load refusal without crediting an extension row", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.cli.repl.load.default",
+        observedKey: "cli:repl-load-extension:default",
+        targetVariant: "all",
+      },
+      "runtime-surface.json#replSurface.loadExtension:default",
+    );
+    const source = fs.readFileSync("runtime-surface.json");
+    const row = source.subarray(binding.sites[0].startByte, binding.sites[0].endByte).toString();
+    expect(row).toContain('"defaultDisposition": "refuse-unknown-or-extensionless"');
+  });
+
+  test("binds implicit input selection to authenticated program and REPL dispatches", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.cli.implicit-no-file-dispatch",
+        observedKey: "cli:implicit-no-file-dispatch",
+        targetVariant: "all",
+      },
+      "src/bin/ibex/main.rs#run",
+    );
+    expect(binding.locatorKind).toBe("cli-authenticated-ingress-route");
+    expect(binding.producerPaths.map((producerPath) => producerPath.conditionId)).toEqual([
+      "implicit-input:program-stdin",
+      "implicit-input:interactive-repl",
+    ]);
+    expect(binding.sites.map((site) => site.role)).toEqual([
+      "definition",
+      "guard",
+      "dispatch",
+      "dispatch",
+    ]);
+  });
+
+  test("binds every CLI implementation branch to an executable source route", () => {
+    const implementation = JSON.parse(
+      fs.readFileSync("capsec/generated/implementation-manifest.json", "utf8"),
+    );
+    const incomplete = [];
+    for (const branch of implementation.surfaces.filter(
+      (surface) => surface.observedKey.startsWith("cli:"),
+    )) {
+      const refs = [...new Set([
+        ...branch.sourceRefs,
+        ...branch.enforcementRoute.sourceRefs,
+        ...branch.enforcementRoute.proofSourceRefs,
+      ])];
+      const route = buildRestrictedExactBranchSourceRoute(branch, refs);
+      if (route.status !== "executable") {
+        incomplete.push({ branchId: branch.branchId, unresolved: route.unresolved });
+      }
+    }
+    expect(incomplete).toEqual([]);
+  });
+
   test("uses UTF-8 byte offsets and isolates alternate-root caches", () => {
     const firstRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-anchor-a-"));
     const secondRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-anchor-b-"));
