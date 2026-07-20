@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/capsec-mapped-engine-execution-evidence-v1.schema.json",
+  "title": "Ibex CapSec per-process mapped-engine execution evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "mappedEngineExecutionEvidenceSchema",
+    "profile",
+    "authorityClass",
+    "sourceRevision",
+    "sourceTreeDigest",
+    "target",
+    "phaseId",
+    "commandId",
+    "commandIdentityDigest",
+    "fixtureIds",
+    "outputDigests",
+    "engine",
+    "mappedEngine",
+    "evidenceDigest"
+  ],
+  "properties": {
+    "mappedEngineExecutionEvidenceSchema": {
+      "const": "ibex/capsec-mapped-engine-execution-evidence/1"
+    },
+    "profile": { "const": "ibex/capsec/1" },
+    "authorityClass": { "const": "same-runner-authoritative" },
+    "sourceRevision": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/sourceRevision"
+    },
+    "sourceTreeDigest": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+    },
+    "target": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/target"
+    },
+    "phaseId": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/stableId"
+    },
+    "commandId": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/stableId"
+    },
+    "commandIdentityDigest": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest",
+      "$comment": "Pre-execution command-descriptor identity, never the post-execution envelope that may name this evidence output."
+    },
+    "fixtureIds": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/idSet"
+    },
+    "outputDigests": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digestSet",
+      "$comment": "Exact raw-content digests from the successful supervisor attempt's declared output rows, excluding only this mapped-evidence record to keep the digest graph acyclic."
+    },
+    "engine": { "$ref": "portable-engine-artifact-identity-v1.schema.json" },
+    "mappedEngine": { "$ref": "mapped-engine-instance-identity-v1.schema.json" },
+    "evidenceDigest": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest",
+      "$comment": "SHA-256 over JCS(evidence without evidenceDigest), domain ibex:capsec:mapped-engine-execution-evidence:1 followed by one NUL byte."
+    }
+  }
+}

@@ -6,10 +6,15 @@
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
 **Revised:** 2026-07-20 (native package production and credentialed publishing
-are isolated by immutable raw-artifact handoffs; the closed build-consumption
-and macOS post-link contracts bind complete payload revalidation plus a
-replayed byte-level final-executable observation; acceptance, build/runtime
-consumption, and advertisements remain off)
+are isolated by immutable raw-artifact handoffs; the checkout-local installer
+uses a policy-bound, byte-pinned offline verifier and reconstructive transport
+verification; installer publication uses validated checkout ancestry and
+atomically released, restart-recoverable serialization records; and the closed
+build, post-link, and additive Phase 2 publication/evidence contracts bind
+complete payload, executable replay, and mapped execution membership. The
+portable macOS package is emitted for every `main` revision. Acceptance,
+runtime consumption, and advertisements remain off pending a real private Ibex
+corpus and the remaining build/runtime evidence gates.)
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021; LLP 0032
 
 ## Summary
@@ -186,9 +191,13 @@ from this RFC's content addressing.
 
 The initial promotion trust roots are:
 
-- the checked-in expected repository, publisher workflow path, and protected
-  `refs/heads/main` source-ref policy;
+- the checked-in expected repository and numeric repository/owner IDs,
+  publisher workflow name/path, protected `refs/heads/main` source ref,
+  private visibility, GitHub-hosted runner class, allowed triggers, current
+  GitHub workflow build type, and OIDC issuer;
 - GitHub's OIDC-backed artifact-attestation verification root;
+- the exact checked-in private signed-timestamp trust-root digest/size and the
+  exact Go 1.26.5 Darwin arm64 offline-verifier output digest/size;
 - GitHub-hosted runner isolation for the reviewed publisher, authoritative
   shards, and aggregate; and
 - the reviewed Ibex source revision and suite plan.
@@ -198,6 +207,14 @@ workflow, ref, source revision, subject digest, or runner class. Mirrors may
 carry bytes but cannot change those expected identities. Self-hosted builders
 or conformance runners are diagnostic until a separate accepted trust policy
 admits them.
+
+Verifier expectations v2 contain only stable admission authority plus the
+externally selected source revision and exact subject basename. The selected
+allowed trigger, run ID, and run attempt are derived from the signed
+certificate, required to be canonical, and then joined exactly to the signed
+SLSA statement. An artifact channel therefore cannot choose repository,
+workflow, source, visibility, runner, root, or build-type authority, while the
+caller does not need to know signed run observations before verification.
 
 The runner operating system is trusted to report mapped file objects and to
 enforce file-handle sharing/locking semantics. Repository build and fixture
@@ -575,15 +592,16 @@ self-assert the other's binding.
 
 The offline verifier's expectation document contains only independently
 selected policy: subject name, repository and numeric identities, publisher
-workflow path, source ref/revision, admitted event set, hosted-runner class,
-private visibility, and the closed certificate/build identities derived from
-those values. A workflow display name, the selected event, run ID, and attempt
+workflow path and display name, source ref/revision, admitted event set,
+hosted-runner class, private visibility, and the closed certificate/build
+identities derived from those values. The selected event, run ID, and attempt
 are signed observations rather than local authority inputs. The verifier
-derives them from the signing certificate, requires the selected event to be a
-member of the admitted set, validates the run URI canonically, and joins both
-the event and invocation exactly to the signed provenance statement. An
-installer MUST NOT accept those run-specific observations from the bundle,
-release metadata, or caller as if they were independent expectations.
+derives those observations from the signing certificate, requires the selected
+event to be a member of the admitted set, validates the run URI canonically,
+and joins both the event and invocation exactly to the signed provenance
+statement. An installer MUST NOT accept those run-specific observations from
+the bundle, release metadata, or caller as if they were independent
+expectations.
 
 The installer retains the verified attestation bundle, archive digest,
 verification policy identity, signer workflow/ref/source revision, and
@@ -591,6 +609,15 @@ portable artifact ID in a canonical installation receipt. The receipt is not
 trusted because it says `verified`; later consumers either reverify the
 retained signed bundle or rely on a shard-provenance statement whose trusted
 job independently performed that verification.
+
+Fresh retained-bundle verification is followed by reconstructive validation,
+not a receipt-only join. The installer rehashes the selected retained archive
+and bundle, extracts that archive through the same bounded validator into a
+new private candidate, rehashes both retained inputs again, validates the
+canonical manifest, exact payload graph, and authority preimages, and compares
+that complete reconstruction to the installed store. A valid attestation for
+another internally valid package therefore cannot be attached to a store by
+rewriting unsigned local receipt fields.
 
 V1 retains exactly one Sigstore bundle JSON document with media type
 `application/vnd.dev.sigstore.bundle.v0.3+json`. The stored file must be UTF-8
@@ -648,6 +675,40 @@ revalidate the checkout-local store and never inherit a path from another
 worktree. A convenience selector such as `target/hermes-artifacts/current`
 may exist, but selectors and paths never enter semantic identity.
 
+Production installer entry points accept one closed options object and expose
+no dependency, verifier, checked-context, filesystem, or failpoint override.
+The injectable adversarial harness is permanently bound to a differently
+named test-only store root and test-only local receipt/completion/lock schemas;
+it cannot emit a production store record. A source-level caller guard keeps
+the CLI on the production wrapper and confines direct core imports to that
+wrapper and the named test harness.
+
+The checkout's canonical ancestor chain is validated from the filesystem root:
+each directory is root- or effective-UID-owned, has no group/world write or
+special mode bits, and has no ACL that grants mutation authority. Object
+identities are rechecked after validation so a concurrent parent rename or
+substitution is detected. The checkout itself and its `target` ancestry are
+effective-UID-owned and ACL-free; the store root is an effective-UID-owned
+exact mode-0700 directory, including absence of setuid, setgid, and sticky
+bits. Restrictive ancestor ACLs, such as the standard macOS home-directory
+delete denial, remain admissible. Every expected installed node is likewise
+owned and ACL-free; published payload and record modes are then narrowed
+separately. These checks remove ambient alternate-principal mutation paths but
+do not turn filesystem permissions into protection against the malicious
+same-user process excluded by the v1 threat model.
+
+Reads of checked revision authority use the OS-trusted absolute Git executable
+under a closed environment, with replacement objects and lazy network fetching
+disabled. The selected checkout must be the canonical Git worktree root.
+Ambient `PATH`, user/system Git configuration, loader variables, and remote
+object fetching cannot select the policy or source objects used by the
+installer. A linked worktree's external Git directory, common directory,
+object database, and every bounded local alternate must satisfy the same
+owner/mode/ACL ancestry premise; HTTP alternates are rejected. The installer
+independently hashes every raw commit, tree, and blob returned by Git and walks
+the selected commit's raw tree objects to each checked authority path, so an
+object database cannot serve different bytes under a referenced object ID.
+
 The store is not part of an evaluated application's virtual namespace. Armed
 Host construction installs an unconditional lexical and retained-object fence
 that denies evaluated JavaScript every write, truncate, rename, unlink, link,
@@ -665,6 +726,22 @@ revalidates under current policy. Additional admitted transport records may be
 published atomically without changing portable identity. Partial, writable,
 redirected, identity-colliding, or provenance-confused stores are rejected and
 rebuilt in a new location.
+
+Publication is serialized per artifact ID. Releasing that serialization never
+deletes the owner record inside the canonical lock directory: it atomically
+renames the whole owned directory to a nonce-qualified tombstone, synchronizes
+the lock parent, and only then removes the tombstone. Restart recovery accepts
+and finishes both complete and already-emptied owned tombstones; dead-owner
+locks use the same rename-before-cleanup state model. All final regular-file
+contents and metadata are synchronized before directories are synchronized
+bottom-up; the candidate rename, final root narrowing, and source/destination
+parent directories are then synchronized in order. An invalid exact
+destination is atomically renamed, without following or recursively deleting
+it, into a private quarantine and both changed parents are synchronized before
+a verified candidate is published. Quarantines are retained and reported.
+Every injected interruption boundary has a defined restart path: the next
+invocation either fully revalidates the completed store or quarantines the
+incomplete exact entry before republishing.
 
 Authoritative build consumption occurs only in the fresh runner and job-owned
 store described by the threat model. `build.rs` records the digests of every
@@ -838,6 +915,98 @@ The next conformance-report and target-advertisement schema revisions replace
 their semantic `engine` value with the portable identity. Execution artifacts
 and shard manifests additionally retain mapped-instance identities before and
 after engine-using work.
+
+Those additive revisions are exactly `ibex/capsec-conformance/2`,
+`ibex/capsec-target-attestations/2`, and
+`ibex/capsec-target-advertisements/2`. The report and advertisement `engine`
+field is the complete `ibex/portable-engine-artifact-identity/1`; the authored
+attestation names its `portableArtifactId` and must rejoin the complete report
+identity. The CapSec target's `features` remain enforcement/security
+properties and are not compared with the portable target's package-layout
+`structuralFeatures`. Only their exact target triples join.
+
+Mapped evidence is detached one engine-using process at a time under
+`ibex/capsec-mapped-engine-execution-evidence/1`. Each record binds the source,
+CapSec target, pre-execution command-identity digest, fixture/output
+membership, complete portable identity, and one complete mapped-instance
+identity. It does not bind the post-execution command-envelope record, which
+may already name this detached output and would create a digest cycle. Its
+`commandIdentityDigest` must equal the successful current supervisor attempt's
+`commandIdentity`. Its `outputDigests` are exactly the raw-content digests of
+that attempt's declared output rows after excluding only the mapped-evidence
+record itself. Every remaining row must be supplied as exact bytes and must
+join one report execution's raw-content and semantic artifact digests. Its
+semantic digest is
+`SHA-256("ibex:capsec:mapped-engine-execution-evidence:1\0" || JCS(record
+without evidenceDigest))`. Reports, attestations, and advertisements carry
+only exact `{evidenceDigest, rawContentDigest, attemptDigest,
+attemptRawContentDigest}` references to those records and the finalized
+supervisor attempts that produced them. The digest graph is deliberately
+ordered as pre-execution command identity, mapped evidence, finalized attempt,
+report, then attestation/advertisement. Mapped evidence cannot name the attempt
+that already names it as an output. Fixture execution rows likewise carry
+raw/semantic fixture-evidence digests and the mapped-evidence digest of the
+process that produced them; they do not embed the mapped record. The report
+digest moves to
+`ibex:capsec:conformance:2`, omitting only `conformanceDigest`.
+
+The additive promotion input also closes the formerly permissive recipe,
+public-surface, and output-disposition edges. It consumes only
+`ibex/capsec-executable-recipes/2`,
+`ibex/capsec-public-surface-executions/2`, and
+`ibex/capsec-output-disposition-evidence/4`. A recipe row has exact fields
+`fixtureId, status, executor, planDigest`; its plan digest uses domain
+`ibex:capsec:executable-recipe-plan:1` over the exact fixture/executor
+projection, and the catalog uses domain `ibex:capsec:executable-recipes:2`.
+A public execution has exact fields `fixtureId, outcome, executor,
+evidenceDigest`; its evidence digest uses domain
+`ibex:capsec:public-surface-execution-evidence:1` over that row's exact
+execution projection, the artifact binds both semantic and raw recipe-catalog
+identity, and its own domain is
+`ibex:capsec:public-surface-executions:2`. An output-disposition observation
+has exact fields `key, disposition, proofKind, observationDigest`, with domain
+`ibex:capsec:output-disposition-observation:1`. The output artifact itself is
+bound as exact raw bytes because it has no semantic self-digest.
+
+Each portable fixture carries
+`SHA-256("ibex:capsec:portable-execution-binding:1\0" || JCS(projection))`,
+where the closed projection contains source revision/tree, exact CapSec target,
+complete portable engine identity, vocabulary, registry, implementation
+manifest, fixture catalog, target-cell raw bytes, recipe semantic/raw identity,
+public-execution semantic/raw identity, and output-disposition raw identity.
+The projection intentionally excludes mapped-evidence and attempt digests:
+fixture bytes are supervisor outputs committed by the mapped record, so either
+back-reference would create a cycle. The later report execution joins the
+fixture to mapped evidence, and its detached evidence reference joins the
+finalized attempt, preserving complete authority without a cyclic digest DAG.
+
+Promotion validation has one fail-closed entry point. It strict-parses and
+schema-validates exact report, catalog, mapped-evidence, fixture-evidence, and
+supervisor-attempt bytes before applying semantic joins; callers cannot select
+a schema-only or semantics-only authority path. Detached mapped evidence and
+its attempt/output bytes are mandatory. The report must be `conformant`, every
+cell must have zero missing or failed fixtures, and its exact required fixture
+set must equal its passing execution set. The target-cell catalog and the raw
+recipe, public-surface, and output-disposition artifacts are independently
+provided and joined by both available semantic identities and exact
+raw-content digests.
+
+Target/security features and the complete portable identity are not admitted
+by a locality heuristic. They must exactly equal one target entry in an
+independently source-derived `ibex/capsec-portable-promotion-authority/1`
+catalog, including the exact `macos`, `linux`, or `windows` target-family
+dispatch and every report/artifact identity. Recursive path, URI, address, and
+object rejection remains defense in depth, including case and percent-encoded
+forms. CapSec IDs use the closed CapSec stable-ID grammar rather than the looser
+portable-package identifier grammar.
+
+Absolute POSIX/Windows paths, `file://` URLs, mapping addresses, device/inode
+or volume/file identities, and every field of the old combined
+`LoadedEngineBinaryIdentity` are forbidden recursively in those three
+publication documents. A digest of detached local evidence is admissible; the
+observation it names is not. Each detached record is validated independently,
+and only its complete portable identity is compared across processes or
+runners.
 
 Production startup accepts an advertisement only when its portable identity
 equals the independently reconstructed portable identity of the locally mapped
@@ -1237,6 +1406,44 @@ choosing authority-scoped legacy releases versus a retention policy is
 follow-up work because deleting old sets would break cold installs from
 historical checkouts.
 
+The checkout-local installer foundation pins the archive and detached bundle
+into a private same-filesystem workspace, requires a canonical offline-
+verification result before creating a gzip reader, and streams bounded gzip /
+ustar input through an exact-member extractor without a generic archive tool
+or whole-archive buffer. Output handles remain owned through synchronization
+and close on both success and synchronization failure. It rejects the cross-
+platform path-equivalence, special-member, symlink, limit, digest, mode,
+authority-document, partial-store, mutation, truncation/resource-lifecycle,
+ownership, ancestor-substitution, ACL, special-bit, lock-tombstone, and crash-
+restart cases in the acceptance corpus. It reconstructs publisher
+expectations from checked policy plus the externally selected current checkout
+revision, validates the manifest plus every declared authority-document
+preimage and its payload join, writes canonical transport/completion records
+last, atomically publishes the artifact-ID store, and fully reverifies an
+existing store and selected transport. That
+reverification re-extracts the freshly authenticated retained archive into a
+new private candidate, rehashes archive and bundle around extraction, and
+compares its canonical manifest and full validated graph to the store. A second
+authenticated transport encoding can be added atomically without changing
+portable identity. Per-artifact serialization uses atomic whole-directory
+release plus durable, recoverable tombstones; bottom-up synchronization and
+no-follow retained quarantine make incomplete or invalid exact destinations
+restartable without deletion. The production wrapper accepts no injection;
+the separately named harness injects a verifier into a test-only store contract
+so it can exercise valid and adversarial transports without fabricating an
+Ibex signature or writing production local records. Effective-UID ownership,
+non-shared checkout/target modes, a mode-0700 store root, and rejection of
+macOS extended ACLs make the filesystem premise explicit. Production
+copies the exact policy-digested verifier into a private workspace, writes
+canonical stable v2 expectations, invokes it without a shell or network-
+dependent inputs, bounds its output and time, and rehashes the verifier and
+expectations around execution. A missing, redirected, writable-by-another-
+principal, or byte-different verifier fails closed. A real private Ibex
+archive/bundle corpus is still required before this path can furnish promotion
+evidence. The store still has no `build.rs`, post-link, runtime, REPL, or
+conformance consumer; target advertisements and
+`portableArtifactAcceptanceEnabled` remain unchanged and closed.
+
 The additive `build.rs` consumer now implements the next isolated Phase 1
 slice. An opt-in macOS arm64 selector names one artifact ID and one retained
 archive digest in the current checkout's `target/hermes-artifacts` store; it
@@ -1266,12 +1473,11 @@ Its macOS link directives use only loader-relative paths from Cargo's direct
 and nested output locations back into that canonical store. Authoritative mode
 therefore refuses Cargo output roots outside the checkout
 or beneath an explicit target-triple layer. Legacy non-authoritative builds
-retain their existing absolute development rpath. This slice does not
-integrate the installer/verifier, perform the final-executable post-link audit,
-migrate runtime/mapped identity, make any binary promotable, or change any
-report, attestation, or advertisement.
-Consequently `portableArtifactAcceptanceEnabled` remains false and target
-authority remains empty.
+retain their existing absolute development rpath. This slice does not yet
+perform the final-executable post-link audit, migrate runtime/mapped identity,
+make any binary promotable, or change any report, attestation, or
+advertisement. Consequently `portableArtifactAcceptanceEnabled` remains false
+and target authority remains empty.
 
 Exit: a clean checkout can install and run the reviewed Release engine without
 another worktree, and archive/manifest/path/profile tampering fails before
@@ -1286,6 +1492,31 @@ linking or execution.
 - update Host startup to compare the portable advertisement and independently
   verify its local mapping; and
 - regenerate complete macOS evidence under the new schema.
+
+Implementation checkpoint (2026-07-20): additive, versioned Phase 2 schemas
+now freeze the portable conformance report, authored target attestation,
+derived target advertisement, and per-process mapped-engine execution-evidence
+contracts together with their command-attempt, portable-fixture, and
+independently derived promotion-authority inputs. The additional portable
+fixture domain is
+`SHA-256("ibex:capsec:portable-fixture-evidence:1\0" || JCS(record without
+artifactDigest))`. The checkpoint additionally freezes the acyclic execution
+binding, recipe-plan/catalog, public-execution row/artifact, and
+output-disposition observation domains described above. Adversarial tests join
+exact supervisor output rows, finalized-attempt identities, closed
+recipe/public/output semantics, and raw artifact bytes; reject incomplete
+coverage and mapped/portable substitution even after digest recomputation;
+distinguish ASLR-local mapped observations from portable equality; keep CapSec
+security features separate from package structural features; reject recursive
+encoded path/address/object leakage; and prove that renaming the old
+`binaryDigest`/path identity cannot satisfy v2.
+
+This checkpoint is contract-only. The live v1 runner and generators are not
+coerced or switched, the authored v1 attestation and advertisement arrays
+remain empty, and `portableArtifactAcceptanceEnabled` remains exactly false.
+Runtime producers, Host comparison, promotion loading, v2 generation, and
+regenerated physical macOS evidence remain later Phase 2 work. Merely
+validating a hypothetical v2 document grants no authority.
 
 Exit: reports and advertisements contain no host-local values, while every
 accepted local run still proves its exact mapped file.

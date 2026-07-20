@@ -289,16 +289,50 @@ function validateTrustPolicy(policy, sourceRef) {
   assert(policy.portableArtifactAcceptanceEnabled === false, "diagnostic producer refuses while acceptance is not explicitly false");
   assertExactKeys(
     policy.enginePublisher,
-    ["enabled", "repository", "workflowPath", "sourceRef", "runnerClass", "provenanceRoot"],
+    [
+      "allowedTriggers",
+      "buildType",
+      "certificateIssuer",
+      "enabled",
+      "offlineVerifier",
+      "repository",
+      "repositoryId",
+      "repositoryOwnerId",
+      "repositoryVisibility",
+      "workflowPath",
+      "workflowName",
+      "sourceRef",
+      "runnerClass",
+      "provenanceRoot",
+      "trustedRoot",
+    ],
     "enginePublisher",
   );
   assert(
     policy.enginePublisher.enabled === true &&
+      canonicalJson(policy.enginePublisher.offlineVerifier) === canonicalJson({
+        binaryDigest: "sha256-f69505f54caad78b6012519ac866eea23c19ade9d274bd61044c791a1e30f594",
+        binarySize: 25130562,
+        goVersion: "go1.26.5",
+        targetTriple: "aarch64-apple-darwin",
+      }) &&
       policy.enginePublisher.repository === "ccheever/ibex" &&
+      policy.enginePublisher.repositoryId === "1268046138" &&
+      policy.enginePublisher.repositoryOwnerId === "56719" &&
+      policy.enginePublisher.repositoryVisibility === "private" &&
       policy.enginePublisher.workflowPath === ".github/workflows/hermes-artifacts.yml" &&
+      policy.enginePublisher.workflowName === "Hermes artifact cache" &&
       policy.enginePublisher.sourceRef === "refs/heads/main" &&
       policy.enginePublisher.runnerClass === "github-hosted" &&
-      policy.enginePublisher.provenanceRoot === "github-oidc-artifact-attestations",
+      policy.enginePublisher.provenanceRoot === "github-oidc-artifact-attestations" &&
+      policy.enginePublisher.buildType === "https://actions.github.io/buildtypes/workflow/v1" &&
+      policy.enginePublisher.certificateIssuer === "https://token.actions.githubusercontent.com" &&
+      canonicalJson(policy.enginePublisher.allowedTriggers) === canonicalJson(["push", "workflow_dispatch"]) &&
+      canonicalJson(policy.enginePublisher.trustedRoot) === canonicalJson({
+        profile: "github-private-signed-timestamp-v1",
+        sha256: "484cdfe1a7c65479c5ba2a22193d1be90f0020db1997de696ab207434c62fbb7",
+        size: 31645,
+      }),
     "checked publisher policy is not the diagnostic v1 authority",
   );
   assert(sourceRef === policy.enginePublisher.sourceRef, `source ref ${sourceRef} is not admitted`);

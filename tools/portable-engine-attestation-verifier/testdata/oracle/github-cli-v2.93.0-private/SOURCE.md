@@ -15,8 +15,7 @@ Upstream: `https://github.com/cli/cli/tree/f96972ce1c11fdb8eaa556257fde962a363df
 GitHub CLI is distributed under the MIT License; the upstream notice is
 retained in `LICENSE.upstream`.
 
-`expectations.json` is Ibex test policy containing only the locally knowable
-authority fields needed to exercise exact joins. Dynamic workflow name,
-selected trigger, run ID, and attempt remain signed observations derived by the
-verifier. This corpus belongs to `actions/attest-demo`; it is not an Ibex
-artifact, publisher authorization, or release-acceptance fixture.
+`expectations.json` is Ibex test metadata transcribed from the signed statement
+and certificate so the fixture can exercise exact joins. This corpus belongs
+to `actions/attest-demo`; it is not an Ibex artifact, publisher authorization,
+or release-acceptance fixture.

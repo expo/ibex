@@ -152,20 +152,51 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "allowedTriggers",
+        "buildType",
+        "certificateIssuer",
         "enabled",
+        "offlineVerifier",
         "repository",
+        "repositoryId",
+        "repositoryOwnerId",
+        "repositoryVisibility",
         "workflowPath",
+        "workflowName",
         "sourceRef",
         "runnerClass",
-        "provenanceRoot"
+        "provenanceRoot",
+        "trustedRoot"
       ],
       "properties": {
+        "allowedTriggers": { "const": ["push", "workflow_dispatch"] },
+        "buildType": { "const": "https://actions.github.io/buildtypes/workflow/v1" },
+        "certificateIssuer": { "const": "https://token.actions.githubusercontent.com" },
         "enabled": { "const": true },
+        "offlineVerifier": {
+          "const": {
+            "binaryDigest": "sha256-f69505f54caad78b6012519ac866eea23c19ade9d274bd61044c791a1e30f594",
+            "binarySize": 25130562,
+            "goVersion": "go1.26.5",
+            "targetTriple": "aarch64-apple-darwin"
+          }
+        },
         "repository": { "const": "ccheever/ibex" },
+        "repositoryId": { "const": "1268046138" },
+        "repositoryOwnerId": { "const": "56719" },
+        "repositoryVisibility": { "const": "private" },
         "workflowPath": { "const": ".github/workflows/hermes-artifacts.yml" },
+        "workflowName": { "const": "Hermes artifact cache" },
         "sourceRef": { "const": "refs/heads/main" },
         "runnerClass": { "const": "github-hosted" },
-        "provenanceRoot": { "const": "github-oidc-artifact-attestations" }
+        "provenanceRoot": { "const": "github-oidc-artifact-attestations" },
+        "trustedRoot": {
+          "const": {
+            "profile": "github-private-signed-timestamp-v1",
+            "sha256": "484cdfe1a7c65479c5ba2a22193d1be90f0020db1997de696ab207434c62fbb7",
+            "size": 31645
+          }
+        }
       }
     },
     "provenanceBundleBytes": {

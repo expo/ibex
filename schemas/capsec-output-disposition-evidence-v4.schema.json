@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/capsec-output-disposition-evidence-v4.schema.json",
+  "title": "Ibex portable CapSec output-disposition evidence v4",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "outputDispositionEvidenceSchema",
+    "profile",
+    "status",
+    "sourceRevision",
+    "sourceTreeDigest",
+    "target",
+    "engine",
+    "summary",
+    "observations"
+  ],
+  "properties": {
+    "outputDispositionEvidenceSchema": {
+      "const": "ibex/capsec-output-disposition-evidence/4"
+    },
+    "profile": { "const": "ibex/capsec/1" },
+    "status": { "const": "verified" },
+    "sourceRevision": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/sourceRevision"
+    },
+    "sourceTreeDigest": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+    },
+    "target": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/target"
+    },
+    "engine": { "$ref": "portable-engine-artifact-identity-v1.schema.json" },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observations"],
+      "properties": {
+        "observations": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "observations": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/observation" }
+    }
+  },
+  "$defs": {
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "disposition", "proofKind", "observationDigest"],
+      "properties": {
+        "key": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/stableId"
+        },
+        "disposition": {
+          "enum": [
+            "virtual-absolute",
+            "virtual-relative",
+            "virtual-basename",
+            "synthetic-source-id",
+            "absent",
+            "closed",
+            "refused",
+            "typed-logical",
+            "reserved-constant",
+            "private-native-path",
+            "non-path"
+          ]
+        },
+        "proofKind": {
+          "enum": [
+            "compiled-runtime-return-record",
+            "loaded-engine-descriptor",
+            "loaded-engine-return-record"
+          ]
+        },
+        "observationDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest",
+          "$comment": "SHA-256 over JCS(observation without observationDigest), domain ibex:capsec:output-disposition-observation:1 followed by one NUL byte."
+        }
+      }
+    }
+  }
+}

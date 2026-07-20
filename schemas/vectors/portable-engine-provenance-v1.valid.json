@@ -677,7 +677,7 @@
       "manifestDigest": "sha256-R2FtpDYsLxAQ-BpnHLNS8eUijYVZLwWYQVdWeToGptY",
       "archiveDigest": "sha256-7777777777777777777777777777777777777777777777777777777777777777",
       "provenanceBundleDigest": "sha256-29b353204eebcc86637cb251e5e515b9033d4bbdd24ee181b3ed2d8b935c30e4",
-      "verificationPolicyDigest": "sha256-uvzjA54HCJrdOGUuPixR_NfQB2a9uv2jBRnUEvNQyNg",
+      "verificationPolicyDigest": "sha256-G7TJMFC1GBSQAUfwJGj0ntiaD__XpcGkakGUw9wap4w",
       "repository": "ccheever/ibex",
       "publisherWorkflow": ".github/workflows/hermes-artifacts.yml",
       "sourceRef": "refs/heads/main",
@@ -731,8 +731,8 @@
         "interfaceContractDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
       },
       "manifestDigest": "sha256-R2FtpDYsLxAQ-BpnHLNS8eUijYVZLwWYQVdWeToGptY",
-      "installationReceiptDigest": "sha256-cCseFiII81Da3Leil0SPLP8G7P5hmvIJigturd4RNgE",
-      "verificationPolicyDigest": "sha256-uvzjA54HCJrdOGUuPixR_NfQB2a9uv2jBRnUEvNQyNg",
+      "installationReceiptDigest": "sha256-bwMgxBsVI-cQ9SKUT1iMU_HTfqQs3XEWfVplD3wbgao",
+      "verificationPolicyDigest": "sha256-G7TJMFC1GBSQAUfwJGj0ntiaD__XpcGkakGUw9wap4w",
       "target": {
         "triple": "aarch64-apple-darwin",
         "structuralFeatures": [
@@ -781,7 +781,7 @@
         }
       ],
       "nonSystemLoadableDependencies": [],
-      "consumptionDigest": "sha256-_EkNABw23FsL9P3YI0pICzQ33HGVK7fdMO8XJnBzcM4"
+      "consumptionDigest": "sha256-BNu3P1-QZI3gOv4E1kcYlNibQKdD1RQG_hovYAakGbg"
     },
     "postLinkVerification": {
       "schema": "ibex/portable-engine-post-link-verification/1",
@@ -807,10 +807,10 @@
         "reviewedProfileIdentityDigest": "sha256-u5dQA6qdaF5TB9N52neD2EJyN2HPt3KGNbSI1HUkb-Q",
         "interfaceContractDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
       },
-      "buildConsumptionDigest": "sha256-_EkNABw23FsL9P3YI0pICzQ33HGVK7fdMO8XJnBzcM4",
+      "buildConsumptionDigest": "sha256-BNu3P1-QZI3gOv4E1kcYlNibQKdD1RQG_hovYAakGbg",
       "manifestDigest": "sha256-R2FtpDYsLxAQ-BpnHLNS8eUijYVZLwWYQVdWeToGptY",
-      "installationReceiptDigest": "sha256-cCseFiII81Da3Leil0SPLP8G7P5hmvIJigturd4RNgE",
-      "verificationPolicyDigest": "sha256-uvzjA54HCJrdOGUuPixR_NfQB2a9uv2jBRnUEvNQyNg",
+      "installationReceiptDigest": "sha256-bwMgxBsVI-cQ9SKUT1iMU_HTfqQs3XEWfVplD3wbgao",
+      "verificationPolicyDigest": "sha256-G7TJMFC1GBSQAUfwJGj0ntiaD__XpcGkakGUw9wap4w",
       "target": {
         "triple": "aarch64-apple-darwin",
         "structuralFeatures": [
@@ -831,10 +831,10 @@
       },
       "payloadRevalidation": {
         "artifactId": "sha256-1Zn4fxnACSTUiCG0_DpVyy0jXAajBFjYV9st5X9i0Pw",
-        "buildConsumptionDigest": "sha256-_EkNABw23FsL9P3YI0pICzQ33HGVK7fdMO8XJnBzcM4",
+        "buildConsumptionDigest": "sha256-BNu3P1-QZI3gOv4E1kcYlNibQKdD1RQG_hovYAakGbg",
         "manifestDigest": "sha256-R2FtpDYsLxAQ-BpnHLNS8eUijYVZLwWYQVdWeToGptY",
-        "installationReceiptDigest": "sha256-cCseFiII81Da3Leil0SPLP8G7P5hmvIJigturd4RNgE",
-        "verificationPolicyDigest": "sha256-uvzjA54HCJrdOGUuPixR_NfQB2a9uv2jBRnUEvNQyNg",
+        "installationReceiptDigest": "sha256-bwMgxBsVI-cQ9SKUT1iMU_HTfqQs3XEWfVplD3wbgao",
+        "verificationPolicyDigest": "sha256-G7TJMFC1GBSQAUfwJGj0ntiaD__XpcGkakGUw9wap4w",
         "manifestEntryCount": 28,
         "regularEntryCount": 14,
         "regularByteCount": 1067670,
@@ -873,7 +873,7 @@
         ]
       },
       "outcome": "verified",
-      "verificationDigest": "sha256-DLga7wc0v4nYIPeF-C4Uq2gJBV7PL1C3VKzChe8Eqeg"
+      "verificationDigest": "sha256-bFoEhNVazTSKmITVV6I8gvlpxOWsm_lBEPIv3OGz18M"
     },
     "mappedInstance": {
       "schema": "ibex/mapped-engine-instance-identity/1",
@@ -1654,12 +1654,33 @@
         }
       ],
       "enginePublisher": {
+        "allowedTriggers": [
+          "push",
+          "workflow_dispatch"
+        ],
+        "buildType": "https://actions.github.io/buildtypes/workflow/v1",
+        "certificateIssuer": "https://token.actions.githubusercontent.com",
         "enabled": true,
+        "offlineVerifier": {
+          "binaryDigest": "sha256-f69505f54caad78b6012519ac866eea23c19ade9d274bd61044c791a1e30f594",
+          "binarySize": 25130562,
+          "goVersion": "go1.26.5",
+          "targetTriple": "aarch64-apple-darwin"
+        },
         "repository": "ccheever/ibex",
+        "repositoryId": "1268046138",
+        "repositoryOwnerId": "56719",
+        "repositoryVisibility": "private",
         "workflowPath": ".github/workflows/hermes-artifacts.yml",
+        "workflowName": "Hermes artifact cache",
         "sourceRef": "refs/heads/main",
         "runnerClass": "github-hosted",
-        "provenanceRoot": "github-oidc-artifact-attestations"
+        "provenanceRoot": "github-oidc-artifact-attestations",
+        "trustedRoot": {
+          "profile": "github-private-signed-timestamp-v1",
+          "sha256": "484cdfe1a7c65479c5ba2a22193d1be90f0020db1997de696ab207434c62fbb7",
+          "size": 31645
+        }
       },
       "provenanceBundleBytes": {
         "container": "single-json-document",
@@ -1831,14 +1852,14 @@
       "documentPath": "trustPolicy",
       "domain": "ibex.portable-engine-provenance-trust-policy.v1",
       "omitFields": [],
-      "expectedDigest": "sha256-uvzjA54HCJrdOGUuPixR_NfQB2a9uv2jBRnUEvNQyNg"
+      "expectedDigest": "sha256-G7TJMFC1GBSQAUfwJGj0ntiaD__XpcGkakGUw9wap4w"
     },
     {
       "id": "installation-receipt-digest",
       "documentPath": "installationReceipt",
       "domain": "ibex.portable-engine-installation-receipt.v1",
       "omitFields": [],
-      "expectedDigest": "sha256-cCseFiII81Da3Leil0SPLP8G7P5hmvIJigturd4RNgE"
+      "expectedDigest": "sha256-bwMgxBsVI-cQ9SKUT1iMU_HTfqQs3XEWfVplD3wbgao"
     },
     {
       "id": "interface-contract-digest",
@@ -1854,7 +1875,7 @@
       "omitFields": [
         "consumptionDigest"
       ],
-      "expectedDigest": "sha256-_EkNABw23FsL9P3YI0pICzQ33HGVK7fdMO8XJnBzcM4"
+      "expectedDigest": "sha256-BNu3P1-QZI3gOv4E1kcYlNibQKdD1RQG_hovYAakGbg"
     },
     {
       "id": "post-link-verification-digest",
@@ -1863,7 +1884,7 @@
       "omitFields": [
         "verificationDigest"
       ],
-      "expectedDigest": "sha256-DLga7wc0v4nYIPeF-C4Uq2gJBV7PL1C3VKzChe8Eqeg"
+      "expectedDigest": "sha256-bFoEhNVazTSKmITVV6I8gvlpxOWsm_lBEPIv3OGz18M"
     },
     {
       "id": "mapped-observation-digest",
