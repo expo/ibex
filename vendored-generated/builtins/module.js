@@ -998,7 +998,11 @@ var runtimeModuleManifest = (/* @__PURE__ */ __commonJSMin(((exports, module) =>
 		"internal/url",
 		"internal/fs/utils",
 		"internal/test/binding",
-		"internal/child_process"
+		"internal/child_process",
+		"stream/consumers",
+		"node:stream/consumers",
+		"stream/promises",
+		"node:stream/promises"
 	]);
 	const nodeBuiltins = Object.freeze(publicBuiltins.map((entry) => entry.name));
 	const runtimeGatedNodeBuiltins = Object.freeze([

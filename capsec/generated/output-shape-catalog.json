@@ -20476,69 +20476,57 @@
     },
     {
       "surfaceId": "surface.builtin.export.node.stream.consumers.arraybuffer.10onqs4",
-      "status": "output-bearing",
-      "reasonCode": "source-derived-public-output",
+      "status": "structural-only",
+      "reasonCode": "bootstrap-internal-builtin",
       "sourceRefs": [
         "modules.ts#sources:node_stream_consumers:exports:arrayBuffer"
       ],
-      "outputKinds": [
-        "public-invocation"
-      ]
+      "outputKinds": []
     },
     {
       "surfaceId": "surface.builtin.export.node.stream.consumers.blob.0admdnq",
-      "status": "output-bearing",
-      "reasonCode": "source-derived-public-output",
+      "status": "structural-only",
+      "reasonCode": "bootstrap-internal-builtin",
       "sourceRefs": [
         "modules.ts#sources:node_stream_consumers:exports:blob"
       ],
-      "outputKinds": [
-        "public-invocation"
-      ]
+      "outputKinds": []
     },
     {
       "surfaceId": "surface.builtin.export.node.stream.consumers.buffer.13l8x6f",
-      "status": "output-bearing",
-      "reasonCode": "source-derived-public-output",
+      "status": "structural-only",
+      "reasonCode": "bootstrap-internal-builtin",
       "sourceRefs": [
         "modules.ts#sources:node_stream_consumers:exports:buffer"
       ],
-      "outputKinds": [
-        "public-invocation"
-      ]
+      "outputKinds": []
     },
     {
       "surfaceId": "surface.builtin.export.node.stream.consumers.default.005esxe",
-      "status": "output-bearing",
-      "reasonCode": "source-derived-public-output",
+      "status": "structural-only",
+      "reasonCode": "bootstrap-internal-builtin",
       "sourceRefs": [
         "modules.ts#sources:node_stream_consumers:exports:default"
       ],
-      "outputKinds": [
-        "public-property-read"
-      ]
+      "outputKinds": []
     },
     {
       "surfaceId": "surface.builtin.export.node.stream.consumers.json.08hsif3",
-      "status": "output-bearing",
-      "reasonCode": "source-derived-public-output",
+      "status": "structural-only",
+      "reasonCode": "bootstrap-internal-builtin",
       "sourceRefs": [
         "modules.ts#sources:node_stream_consumers:exports:json"
       ],
-      "outputKinds": [
-        "public-invocation"
-      ]
+      "outputKinds": []
     },
     {
       "surfaceId": "surface.builtin.export.node.stream.consumers.text.08nok7m",
-      "status": "output-bearing",
-      "reasonCode": "source-derived-public-output",
+      "status": "structural-only",
+      "reasonCode": "bootstrap-internal-builtin",
       "sourceRefs": [
         "modules.ts#sources:node_stream_consumers:exports:text"
       ],
-      "outputKinds": [
-        "public-invocation"
-      ]
+      "outputKinds": []
     },
     {
       "surfaceId": "surface.builtin.export.node.stream.default.091dim4",
@@ -21895,36 +21883,30 @@
     },
     {
       "surfaceId": "surface.builtin.export.node.stream.promises.default.1y3cqrh",
-      "status": "output-bearing",
-      "reasonCode": "source-derived-public-output",
+      "status": "structural-only",
+      "reasonCode": "bootstrap-internal-builtin",
       "sourceRefs": [
         "src/builtins/stream-promises.js#exports:default"
       ],
-      "outputKinds": [
-        "public-property-read"
-      ]
+      "outputKinds": []
     },
     {
       "surfaceId": "surface.builtin.export.node.stream.promises.finished.0cc5evi",
-      "status": "output-bearing",
-      "reasonCode": "source-derived-public-output",
+      "status": "structural-only",
+      "reasonCode": "bootstrap-internal-builtin",
       "sourceRefs": [
         "src/builtins/stream-promises.js#exports:finished"
       ],
-      "outputKinds": [
-        "public-invocation"
-      ]
+      "outputKinds": []
     },
     {
       "surfaceId": "surface.builtin.export.node.stream.promises.pipeline.1qae50e",
-      "status": "output-bearing",
-      "reasonCode": "source-derived-public-output",
+      "status": "structural-only",
+      "reasonCode": "bootstrap-internal-builtin",
       "sourceRefs": [
         "src/builtins/stream-promises.js#exports:pipeline"
       ],
-      "outputKinds": [
-        "public-invocation"
-      ]
+      "outputKinds": []
     },
     {
       "surfaceId": "surface.builtin.export.node.stream.readable.02bylkb",
@@ -31782,25 +31764,21 @@
     },
     {
       "surfaceId": "surface.builtin.node.stream.consumers.1u6x0fa",
-      "status": "output-bearing",
-      "reasonCode": "source-derived-public-output",
+      "status": "structural-only",
+      "reasonCode": "bootstrap-internal-builtin",
       "sourceRefs": [
         "modules.ts#specifiers:node_stream_consumers"
       ],
-      "outputKinds": [
-        "public-import"
-      ]
+      "outputKinds": []
     },
     {
       "surfaceId": "surface.builtin.node.stream.promises.0v0hsyz",
-      "status": "output-bearing",
-      "reasonCode": "source-derived-public-output",
+      "status": "structural-only",
+      "reasonCode": "bootstrap-internal-builtin",
       "sourceRefs": [
         "modules.ts#specifiers:node_stream_promises"
       ],
-      "outputKinds": [
-        "public-import"
-      ]
+      "outputKinds": []
     },
     {
       "surfaceId": "surface.builtin.node.stream.web.1yliqwp",
@@ -32101,14 +32079,12 @@
     },
     {
       "surfaceId": "surface.builtin.stream.consumers.0u19qj4",
-      "status": "output-bearing",
-      "reasonCode": "source-derived-public-output",
+      "status": "structural-only",
+      "reasonCode": "bootstrap-internal-builtin",
       "sourceRefs": [
         "modules.ts#specifiers:node_stream_consumers"
       ],
-      "outputKinds": [
-        "public-import"
-      ]
+      "outputKinds": []
     },
     {
       "surfaceId": "surface.builtin.stream.duplex.18xl6ee",
@@ -32134,14 +32110,12 @@
     },
     {
       "surfaceId": "surface.builtin.stream.promises.18r0fah",
-      "status": "output-bearing",
-      "reasonCode": "source-derived-public-output",
+      "status": "structural-only",
+      "reasonCode": "bootstrap-internal-builtin",
       "sourceRefs": [
         "modules.ts#specifiers:node_stream_promises"
       ],
-      "outputKinds": [
-        "public-import"
-      ]
+      "outputKinds": []
     },
     {
       "surfaceId": "surface.builtin.stream.readable.184vafs",
@@ -83490,15 +83464,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-EtcgZThPjpr6tODohVlJjwWv2X44JvJa_0DNKP-mjvc",
+  "catalogKeyDigest": "sha256-Grdk3lJg-td1LRK4Riavm7xU_vrHceHnkOXzJ0BRZf4",
   "counts": {
     "coverageSurfaces": 7327,
-    "outputBearingSurfaces": 5774,
-    "structuralOnlySurfaces": 1549,
+    "outputBearingSurfaces": 5761,
+    "structuralOnlySurfaces": 1562,
     "unresolvedSurfaces": 4,
-    "catalogRows": 6442,
+    "catalogRows": 6429,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6035,
+    "sourceInventoryRows": 6022,
     "structuredRows": 407
   },
   "rows": [
@@ -122319,132 +122293,6 @@
     },
     {
       "key": {
-        "surfaceId": "surface.builtin.export.node.stream.consumers.arraybuffer.10onqs4",
-        "output": "[[return]]",
-        "alias": "export:node_stream_consumers:arrayBuffer",
-        "mode": "all",
-        "sourceKind": "builtin",
-        "returnVariant": "default",
-        "contextId": "javascript.package-call-loaded"
-      },
-      "discovery": {
-        "kind": "source-inventory-surface",
-        "observedKeys": [
-          "builtin:export:node_stream_consumers:arrayBuffer"
-        ],
-        "sourceRefs": [
-          "modules.ts#sources:node_stream_consumers:exports:arrayBuffer"
-        ]
-      },
-      "requiredValueProof": "live-value-observation"
-    },
-    {
-      "key": {
-        "surfaceId": "surface.builtin.export.node.stream.consumers.blob.0admdnq",
-        "output": "[[return]]",
-        "alias": "export:node_stream_consumers:blob",
-        "mode": "all",
-        "sourceKind": "builtin",
-        "returnVariant": "default",
-        "contextId": "javascript.package-call-loaded"
-      },
-      "discovery": {
-        "kind": "source-inventory-surface",
-        "observedKeys": [
-          "builtin:export:node_stream_consumers:blob"
-        ],
-        "sourceRefs": [
-          "modules.ts#sources:node_stream_consumers:exports:blob"
-        ]
-      },
-      "requiredValueProof": "live-value-observation"
-    },
-    {
-      "key": {
-        "surfaceId": "surface.builtin.export.node.stream.consumers.buffer.13l8x6f",
-        "output": "[[return]]",
-        "alias": "export:node_stream_consumers:buffer",
-        "mode": "all",
-        "sourceKind": "builtin",
-        "returnVariant": "default",
-        "contextId": "javascript.package-call-loaded"
-      },
-      "discovery": {
-        "kind": "source-inventory-surface",
-        "observedKeys": [
-          "builtin:export:node_stream_consumers:buffer"
-        ],
-        "sourceRefs": [
-          "modules.ts#sources:node_stream_consumers:exports:buffer"
-        ]
-      },
-      "requiredValueProof": "live-value-observation"
-    },
-    {
-      "key": {
-        "surfaceId": "surface.builtin.export.node.stream.consumers.default.005esxe",
-        "output": "[[value]]",
-        "alias": "export:node_stream_consumers:default",
-        "mode": "all",
-        "sourceKind": "builtin",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "discovery": {
-        "kind": "source-inventory-surface",
-        "observedKeys": [
-          "builtin:export:node_stream_consumers:default"
-        ],
-        "sourceRefs": [
-          "modules.ts#sources:node_stream_consumers:exports:default"
-        ]
-      },
-      "requiredValueProof": "live-value-observation"
-    },
-    {
-      "key": {
-        "surfaceId": "surface.builtin.export.node.stream.consumers.json.08hsif3",
-        "output": "[[return]]",
-        "alias": "export:node_stream_consumers:json",
-        "mode": "all",
-        "sourceKind": "builtin",
-        "returnVariant": "default",
-        "contextId": "javascript.package-call-loaded"
-      },
-      "discovery": {
-        "kind": "source-inventory-surface",
-        "observedKeys": [
-          "builtin:export:node_stream_consumers:json"
-        ],
-        "sourceRefs": [
-          "modules.ts#sources:node_stream_consumers:exports:json"
-        ]
-      },
-      "requiredValueProof": "live-value-observation"
-    },
-    {
-      "key": {
-        "surfaceId": "surface.builtin.export.node.stream.consumers.text.08nok7m",
-        "output": "[[return]]",
-        "alias": "export:node_stream_consumers:text",
-        "mode": "all",
-        "sourceKind": "builtin",
-        "returnVariant": "default",
-        "contextId": "javascript.package-call-loaded"
-      },
-      "discovery": {
-        "kind": "source-inventory-surface",
-        "observedKeys": [
-          "builtin:export:node_stream_consumers:text"
-        ],
-        "sourceRefs": [
-          "modules.ts#sources:node_stream_consumers:exports:text"
-        ]
-      },
-      "requiredValueProof": "live-value-observation"
-    },
-    {
-      "key": {
         "surfaceId": "surface.builtin.export.node.stream.default.091dim4",
         "output": "[[return]]",
         "alias": "export:node_stream:default",
@@ -125022,69 +124870,6 @@
         ],
         "sourceRefs": [
           "src/builtins/stream.js#exports:promises"
-        ]
-      },
-      "requiredValueProof": "live-value-observation"
-    },
-    {
-      "key": {
-        "surfaceId": "surface.builtin.export.node.stream.promises.default.1y3cqrh",
-        "output": "[[value]]",
-        "alias": "export:node_stream_promises:default",
-        "mode": "all",
-        "sourceKind": "builtin",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "discovery": {
-        "kind": "source-inventory-surface",
-        "observedKeys": [
-          "builtin:export:node_stream_promises:default"
-        ],
-        "sourceRefs": [
-          "src/builtins/stream-promises.js#exports:default"
-        ]
-      },
-      "requiredValueProof": "live-value-observation"
-    },
-    {
-      "key": {
-        "surfaceId": "surface.builtin.export.node.stream.promises.finished.0cc5evi",
-        "output": "[[return]]",
-        "alias": "export:node_stream_promises:finished",
-        "mode": "all",
-        "sourceKind": "builtin",
-        "returnVariant": "default",
-        "contextId": "javascript.package-call-loaded"
-      },
-      "discovery": {
-        "kind": "source-inventory-surface",
-        "observedKeys": [
-          "builtin:export:node_stream_promises:finished"
-        ],
-        "sourceRefs": [
-          "src/builtins/stream-promises.js#exports:finished"
-        ]
-      },
-      "requiredValueProof": "live-value-observation"
-    },
-    {
-      "key": {
-        "surfaceId": "surface.builtin.export.node.stream.promises.pipeline.1qae50e",
-        "output": "[[return]]",
-        "alias": "export:node_stream_promises:pipeline",
-        "mode": "all",
-        "sourceKind": "builtin",
-        "returnVariant": "default",
-        "contextId": "javascript.package-call-loaded"
-      },
-      "discovery": {
-        "kind": "source-inventory-surface",
-        "observedKeys": [
-          "builtin:export:node_stream_promises:pipeline"
-        ],
-        "sourceRefs": [
-          "src/builtins/stream-promises.js#exports:pipeline"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -143886,48 +143671,6 @@
     },
     {
       "key": {
-        "surfaceId": "surface.builtin.node.stream.consumers.1u6x0fa",
-        "output": "[[binding]]",
-        "alias": "node:stream/consumers",
-        "mode": "all",
-        "sourceKind": "builtin",
-        "returnVariant": "default",
-        "contextId": "javascript.package-import-fresh"
-      },
-      "discovery": {
-        "kind": "source-inventory-surface",
-        "observedKeys": [
-          "builtin:node:stream/consumers"
-        ],
-        "sourceRefs": [
-          "modules.ts#specifiers:node_stream_consumers"
-        ]
-      },
-      "requiredValueProof": "live-value-observation"
-    },
-    {
-      "key": {
-        "surfaceId": "surface.builtin.node.stream.promises.0v0hsyz",
-        "output": "[[binding]]",
-        "alias": "node:stream/promises",
-        "mode": "all",
-        "sourceKind": "builtin",
-        "returnVariant": "default",
-        "contextId": "javascript.package-import-fresh"
-      },
-      "discovery": {
-        "kind": "source-inventory-surface",
-        "observedKeys": [
-          "builtin:node:stream/promises"
-        ],
-        "sourceRefs": [
-          "modules.ts#specifiers:node_stream_promises"
-        ]
-      },
-      "requiredValueProof": "live-value-observation"
-    },
-    {
-      "key": {
         "surfaceId": "surface.builtin.node.stream.web.1yliqwp",
         "output": "[[binding]]",
         "alias": "node:stream/web",
@@ -144495,27 +144238,6 @@
     },
     {
       "key": {
-        "surfaceId": "surface.builtin.stream.consumers.0u19qj4",
-        "output": "[[binding]]",
-        "alias": "stream/consumers",
-        "mode": "all",
-        "sourceKind": "builtin",
-        "returnVariant": "default",
-        "contextId": "javascript.package-import-fresh"
-      },
-      "discovery": {
-        "kind": "source-inventory-surface",
-        "observedKeys": [
-          "builtin:stream/consumers"
-        ],
-        "sourceRefs": [
-          "modules.ts#specifiers:node_stream_consumers"
-        ]
-      },
-      "requiredValueProof": "live-value-observation"
-    },
-    {
-      "key": {
         "surfaceId": "surface.builtin.stream.duplex.18xl6ee",
         "output": "[[binding]]",
         "alias": "_stream_duplex",
@@ -144552,27 +144274,6 @@
         ],
         "sourceRefs": [
           "modules.ts#specifiers:legacy_stream_passthrough"
-        ]
-      },
-      "requiredValueProof": "live-value-observation"
-    },
-    {
-      "key": {
-        "surfaceId": "surface.builtin.stream.promises.18r0fah",
-        "output": "[[binding]]",
-        "alias": "stream/promises",
-        "mode": "all",
-        "sourceKind": "builtin",
-        "returnVariant": "default",
-        "contextId": "javascript.package-import-fresh"
-      },
-      "discovery": {
-        "kind": "source-inventory-surface",
-        "observedKeys": [
-          "builtin:stream/promises"
-        ],
-        "sourceRefs": [
-          "modules.ts#specifiers:node_stream_promises"
         ]
       },
       "requiredValueProof": "live-value-observation"

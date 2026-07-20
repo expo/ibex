@@ -455,19 +455,19 @@ describe("LLP 0023 output-disposition dataset", () => {
     );
   });
 
-  test("accounts for all 7,327 covered surfaces and emits 6,442 context-bound output rows", async () => {
+  test("accounts for all 7,327 covered surfaces and emits 6,429 context-bound output rows", async () => {
     const { catalog, coverage } = await repositoryCatalogFixture();
     expect(catalog.outputShapeCatalogSchema).toBe(
       "ibex/capsec-output-shape-catalog/2",
     );
     expect(catalog.counts).toEqual({
       coverageSurfaces: 7_327,
-      outputBearingSurfaces: 5_774,
-      structuralOnlySurfaces: 1_549,
+      outputBearingSurfaces: 5_761,
+      structuralOnlySurfaces: 1_562,
       unresolvedSurfaces: 4,
-      catalogRows: 6_442,
+      catalogRows: 6_429,
       parameterizedBindings: 1,
-      sourceInventoryRows: 6_035,
+      sourceInventoryRows: 6_022,
       structuredRows: 407,
     });
     expect(catalog.surfaceAccounts).toHaveLength(coverage.edges.length);
@@ -482,8 +482,8 @@ describe("LLP 0023 output-disposition dataset", () => {
         parameterizedOutputBindings: catalog.parameterizedOutputBindings,
       }),
     ).toEqual({
-      "output-bearing": 5_774,
-      "structural-only": 1_549,
+      "output-bearing": 5_761,
+      "structural-only": 1_562,
       unresolved: 4,
     });
     expect(
@@ -1453,7 +1453,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-disposition-policy/2",
     );
     expect(policy.catalogKeyDigest).toBe(
-      "sha256-EtcgZThPjpr6tODohVlJjwWv2X44JvJa_0DNKP-mjvc",
+      "sha256-Grdk3lJg-td1LRK4Riavm7xU_vrHceHnkOXzJ0BRZf4",
     );
     expect(policy.catalogKeyDigest).toBe(catalog.catalogKeyDigest);
     expect(policy.overrides).toHaveLength(369);
@@ -1487,12 +1487,12 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-dispositions/2",
     );
     expect(dataset.counts).toEqual({
-      catalogRows: 6_442,
-      dispositionRows: 6_442,
+      catalogRows: 6_429,
+      dispositionRows: 6_429,
       byDisposition: {
         absent: 152,
         closed: 28,
-        "non-path": 6_114,
+        "non-path": 6_101,
         "private-native-path": 5,
         refused: 12,
         "reserved-constant": 1,
