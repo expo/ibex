@@ -107,6 +107,219 @@ function observerFor(kind) {
   }[kind];
 }
 
+function sourceSpan(spanId, sourcePath, startToken, endToken) {
+  const bytes = fs.readFileSync(path.join(repoRoot, sourcePath));
+  const text = bytes.toString("utf8");
+  const startByte = text.indexOf(startToken);
+  if (startByte < 0 || text.indexOf(startToken, startByte + 1) >= 0) {
+    throw new Error(`source span ${spanId} start token is missing or ambiguous`);
+  }
+  const endByte = text.indexOf(endToken, startByte + startToken.length);
+  if (endByte < 0) throw new Error(`source span ${spanId} end token is missing`);
+  const slice = bytes.subarray(startByte, endByte);
+  return {
+    spanId,
+    path: sourcePath,
+    startToken,
+    endToken,
+    startByte,
+    endByte,
+    startLine: text.slice(0, startByte).split("\n").length,
+    endLine: text.slice(0, endByte).split("\n").length,
+    rawContentDigest: digest(slice),
+  };
+}
+
+const gatewayBySurfaceKind = Object.freeze({
+  builtin: "gateway.module-loader",
+  callback: "gateway.callback-producer",
+  cli: "gateway.external-process-cli",
+  "host-abi": "gateway.javascript-native-abi",
+  loader: "gateway.module-loader",
+  "native-op": "gateway.native-installer",
+  startup: "gateway.full-startup",
+});
+
+function buildSourceDerivedTopology(probePlan, implementationManifest) {
+  const sourceSpans = [
+    sourceSpan(
+      "span.profile-selection",
+      "src/engine/hermes_runtime.cc",
+      "static ExactHermesRuntime* ex_hermes_create_impl(\n    uint64_t host_context_id,\n    RuntimeProfile profile) {",
+      "bool captureStructuredSessionIntrinsics(",
+    ),
+    sourceSpan(
+      "span.restricted-installer",
+      "src/engine/hermes_runtime.cc",
+      "void installRestrictedExactGlobals(struct ExactHermesRuntime* handle) {",
+      "void installGlobals(struct ExactHermesRuntime* handle) {",
+    ),
+    sourceSpan(
+      "span.restricted-posture",
+      "src/engine/hermes_runtime.cc",
+      "static bool verifyRestrictedExactRuntimePosture(ExactHermesRuntime* handle) {",
+      "static void cleanupPartiallyConstructedRuntime(",
+    ),
+    sourceSpan(
+      "span.bundle-evaluation",
+      "src/engine/hermes_runtime.cc",
+      "extern \"C\" int ex_hermes_run_restricted_exact_bundle(\n    ExactHermesRuntime* runtime,\n    char** out_error) {",
+      "extern \"C\" int ex_hermes_eval(",
+    ),
+    sourceSpan(
+      "span.temporal-poll",
+      "src/engine/hermes_runtime.cc",
+      "extern \"C\" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {\n",
+      "extern \"C\" int ex_hermes_poll_with_external_keep_alive(",
+    ),
+  ];
+  const cutsets = [
+    ["cutset.profile-selected", "restricted-exact.profile-selected", "span.profile-selection"],
+    ["cutset.full-installer-skipped", "restricted-exact.full-installer-skipped", "span.profile-selection"],
+    ["cutset.bootstrap-posture-sealed", "restricted-exact.bootstrap-posture-sealed", "span.restricted-posture"],
+    ["cutset.bundle-posture-sealed", "restricted-exact.bundle-posture-sealed", "span.bundle-evaluation"],
+    ["cutset.temporal-poll-posture-sealed", "restricted-exact.temporal-poll-posture-sealed", "span.temporal-poll"],
+  ];
+  const nodes = [
+    { nodeId: "root.authenticated-constructor", kind: "attacker-root", sourceSpanId: "span.profile-selection" },
+    { nodeId: "root.authenticated-bundle", kind: "attacker-root", sourceSpanId: "span.bundle-evaluation" },
+    ...cutsets.map(([nodeId, observationId, sourceSpanId]) => ({
+      nodeId, kind: "instrumented-cutset", observationId, sourceSpanId,
+    })),
+    ...Object.entries(gatewayBySurfaceKind).map(([surfaceKind, nodeId]) => ({
+      nodeId, kind: "exposure-gateway", surfaceKind,
+    })).filter((node, index, rows) => rows.findIndex((row) => row.nodeId === node.nodeId) === index),
+  ];
+  const edges = [
+    { from: "root.authenticated-constructor", to: "cutset.profile-selected", routeClass: "source-selection" },
+    { from: "cutset.profile-selected", to: "cutset.full-installer-skipped", routeClass: "source-selection" },
+    { from: "root.authenticated-bundle", to: "cutset.bootstrap-posture-sealed", routeClass: "live-reachability" },
+    { from: "cutset.bootstrap-posture-sealed", to: "cutset.bundle-posture-sealed", routeClass: "live-reachability" },
+    { from: "cutset.bundle-posture-sealed", to: "cutset.temporal-poll-posture-sealed", routeClass: "live-reachability" },
+  ];
+  for (const gatewayNodeId of [...new Set(Object.values(gatewayBySurfaceKind))].sort()) {
+    edges.push(
+      { from: "cutset.full-installer-skipped", to: gatewayNodeId, routeClass: "source-selection" },
+      { from: "cutset.temporal-poll-posture-sealed", to: gatewayNodeId, routeClass: "live-reachability" },
+    );
+  }
+  const implementationsByEdge = new Map();
+  for (const branch of implementationManifest.surfaces) {
+    const rows = implementationsByEdge.get(branch.edgeId) ?? [];
+    rows.push(branch.branchId);
+    implementationsByEdge.set(branch.edgeId, rows);
+  }
+  const terminals = probePlan.edges.map((edge) => {
+    const nodeId = `terminal.${edge.edgeId}`;
+    const gatewayNodeId = gatewayBySurfaceKind[edge.surfaceKind];
+    if (!gatewayNodeId) throw new Error(`absence edge has no exposure gateway: ${edge.edgeId}`);
+    nodes.push({ nodeId, kind: "terminal", edgeId: edge.edgeId });
+    edges.push({ from: gatewayNodeId, to: nodeId, routeClass: "terminal-exposure" });
+    return {
+      edgeId: edge.edgeId,
+      nodeId,
+      gatewayNodeId,
+      branchIds: [...implementationsByEdge.get(edge.edgeId)].sort(),
+      liveProbeIds: edge.liveReachability.map((probe) => probe.probeId).sort(),
+    };
+  });
+  nodes.sort((left, right) => left.nodeId.localeCompare(right.nodeId));
+  edges.sort((left, right) => `${left.from}\0${left.to}`.localeCompare(`${right.from}\0${right.to}`));
+  return {
+    sourceSpans,
+    nodes,
+    edges,
+    sourceRoot: "root.authenticated-constructor",
+    liveRoot: "root.authenticated-bundle",
+    sourceCutsets: ["cutset.profile-selected", "cutset.full-installer-skipped"],
+    liveCutsets: [
+      "cutset.bootstrap-posture-sealed",
+      "cutset.bundle-posture-sealed",
+      "cutset.temporal-poll-posture-sealed",
+    ],
+    terminals,
+  };
+}
+
+function reachableNodes(topology, root, blocked = new Set()) {
+  const adjacency = new Map();
+  for (const edge of topology.edges) {
+    const targets = adjacency.get(edge.from) ?? [];
+    targets.push(edge.to);
+    adjacency.set(edge.from, targets);
+  }
+  const reached = new Set();
+  const pending = blocked.has(root) ? [] : [root];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (reached.has(node) || blocked.has(node)) continue;
+    reached.add(node);
+    for (const target of adjacency.get(node) ?? []) pending.push(target);
+  }
+  return reached;
+}
+
+function validateSourceDerivedTopology(topology, probePlan, implementationManifest) {
+  const nodeIds = topology.nodes.map((node) => node.nodeId);
+  sortedUnique(nodeIds, "absence topology node IDs");
+  const nodeSet = new Set(nodeIds);
+  const edgeKeys = topology.edges.map((edge) => `${edge.from}\0${edge.to}`);
+  sortedUnique(edgeKeys, "absence topology edges");
+  if (topology.edges.some((edge) => !nodeSet.has(edge.from) || !nodeSet.has(edge.to))) {
+    throw new Error("absence topology edge references an unknown node");
+  }
+  const indegree = new Map(nodeIds.map((nodeId) => [nodeId, 0]));
+  const adjacency = new Map();
+  for (const edge of topology.edges) {
+    indegree.set(edge.to, indegree.get(edge.to) + 1);
+    const targets = adjacency.get(edge.from) ?? [];
+    targets.push(edge.to);
+    adjacency.set(edge.from, targets);
+  }
+  const pending = nodeIds.filter((nodeId) => indegree.get(nodeId) === 0);
+  let visited = 0;
+  while (pending.length > 0) {
+    const node = pending.pop();
+    visited += 1;
+    for (const target of adjacency.get(node) ?? []) {
+      indegree.set(target, indegree.get(target) - 1);
+      if (indegree.get(target) === 0) pending.push(target);
+    }
+  }
+  if (visited !== nodeIds.length) throw new Error("absence topology contains a cycle");
+  const allSource = reachableNodes(topology, topology.sourceRoot);
+  const allLive = reachableNodes(topology, topology.liveRoot);
+  const withoutSourceCutsets = reachableNodes(topology, topology.sourceRoot, new Set(topology.sourceCutsets));
+  const withoutLiveCutsets = reachableNodes(topology, topology.liveRoot, new Set(topology.liveCutsets));
+  const plannedEdgeIds = probePlan.edges.map((edge) => edge.edgeId);
+  if (JSON.stringify(topology.terminals.map((row) => row.edgeId)) !== JSON.stringify(plannedEdgeIds)) {
+    throw new Error("absence topology terminals do not equal the probe-plan edges");
+  }
+  const branchesByEdge = new Map();
+  for (const branch of implementationManifest.surfaces) {
+    const branches = branchesByEdge.get(branch.edgeId) ?? [];
+    branches.push(branch.branchId);
+    branchesByEdge.set(branch.edgeId, branches);
+  }
+  for (const terminal of topology.terminals) {
+    if (!allSource.has(terminal.nodeId) || !allLive.has(terminal.nodeId)) {
+      throw new Error(`absence topology terminal has no attacker-root path: ${terminal.edgeId}`);
+    }
+    if (withoutSourceCutsets.has(terminal.nodeId) || withoutLiveCutsets.has(terminal.nodeId)) {
+      throw new Error(`instrumented cut sets do not dominate terminal: ${terminal.edgeId}`);
+    }
+    if (JSON.stringify(terminal.branchIds) !== JSON.stringify([...branchesByEdge.get(terminal.edgeId)].sort())) {
+      throw new Error(`absence topology omits an implementation branch: ${terminal.edgeId}`);
+    }
+  }
+  for (const span of topology.sourceSpans) {
+    const current = sourceSpan(span.spanId, span.path, span.startToken, span.endToken);
+    if (JSON.stringify(current) !== JSON.stringify(span)) {
+      throw new Error(`absence topology source span drifted: ${span.spanId}`);
+    }
+  }
+}
+
 export function validateRestrictedExactAbsenceRouteGraph(graph, { probePlan, implementationManifest }) {
   for (const sourceFile of graph.sourceFiles) {
     const absolute = path.resolve(repoRoot, sourceFile.path);
@@ -120,6 +333,7 @@ export function validateRestrictedExactAbsenceRouteGraph(graph, { probePlan, imp
       throw new Error(`route graph source file drifted: ${sourceFile.path}`);
     }
   }
+  validateSourceDerivedTopology(graph.topology, probePlan, implementationManifest);
   const routesBySourceProbe = new Map();
   const liveProbeCounts = new Map();
   const implementationByBranch = new Map(implementationManifest.surfaces.map((row) => [row.branchId, row]));
@@ -141,23 +355,36 @@ export function validateRestrictedExactAbsenceRouteGraph(graph, { probePlan, imp
     if (JSON.stringify(route.attackerRoots) !== JSON.stringify(expectedRoots)) {
       throw new Error(`route omits or invents an attacker root ${route.routeId}`);
     }
-    const kinds = route.segments.map((segment) => segment.kind);
-    if (JSON.stringify(kinds) !== JSON.stringify(["attacker-root", "target-selection", "implementation-branch", "cut-set"])) {
-      throw new Error(`route is cyclic, branched, or missing a dominance segment: ${route.routeId}`);
+    const topologyEdges = new Set(graph.topology.edges.map((edge) => `${edge.from}\0${edge.to}`));
+    const validatePath = (routePath, label) => {
+      if (new Set(routePath).size !== routePath.length) throw new Error(`${label} contains a cycle`);
+      for (let index = 1; index < routePath.length; index += 1) {
+        if (!topologyEdges.has(`${routePath[index - 1]}\0${routePath[index]}`)) {
+          throw new Error(`${label} contains a non-edge`);
+        }
+      }
+    };
+    validatePath(route.sourcePath, `${route.routeId} source path`);
+    validatePath(route.livePath, `${route.routeId} live path`);
+    const terminal = graph.topology.terminals.find((row) => row.edgeId === route.edgeId);
+    if (
+      route.sourcePath[0] !== graph.topology.sourceRoot
+      || route.livePath[0] !== graph.topology.liveRoot
+      || route.sourcePath.at(-1) !== terminal?.nodeId
+      || route.livePath.at(-1) !== terminal?.nodeId
+    ) {
+      throw new Error(`route path does not bind its exact terminal ${route.routeId}`);
     }
-    const segmentIds = route.segments.map((segment) => segment.segmentId);
-    sortedUnique(segmentIds, `${route.routeId} segment IDs`);
-    const target = route.segments[1];
-    const implementation = route.segments[2];
-    const cutset = route.segments[3];
-    if (target.expectedTarget !== route.observedIdentity) throw new Error(`target-ignoring route ${route.routeId}`);
-    if (implementation.branchId !== route.branchId) throw new Error(`wrong implementation segment ${route.routeId}`);
-    if (cutset.expectedFailureSegment !== cutset.segmentId) throw new Error(`wrong failed segment ${route.routeId}`);
-    if (cutset.observer !== observerFor(plannedEdge.surfaceKind)) {
-      throw new Error(`wrong cut-set observer ${route.routeId}`);
-    }
-    if (!cutset.cutsetObservationId.includes(stableDigest(`${route.routeId}\0${route.observedIdentity}`))) {
-      throw new Error(`cut-set observation is not target-bound ${route.routeId}`);
+    const observationByNode = new Map(graph.topology.nodes
+      .filter((node) => node.kind === "instrumented-cutset")
+      .map((node) => [node.nodeId, node.observationId]));
+    const expectedSourceObservations = graph.topology.sourceCutsets.map((nodeId) => observationByNode.get(nodeId));
+    const expectedLiveObservations = graph.topology.liveCutsets.map((nodeId) => observationByNode.get(nodeId));
+    if (
+      JSON.stringify(route.sourceCutsetObservationIds) !== JSON.stringify(expectedSourceObservations)
+      || JSON.stringify(route.liveCutsetObservationIds) !== JSON.stringify(expectedLiveObservations)
+    ) {
+      throw new Error(`route does not bind actual cut-set observations ${route.routeId}`);
     }
     const expectedBindings = [...new Set([
       ...branch.sourceRefs,
@@ -199,6 +426,8 @@ export function buildRestrictedExactAbsenceRouteGraph({ projection, coverage, im
   const target = implementationManifest.candidateTargets.find((candidate) => candidate.triple === "aarch64-apple-darwin");
   if (!target) throw new Error("implementation manifest lacks the preregistered Apple target");
   const branches = new Map(implementationManifest.surfaces.map((row) => [row.branchId, row]));
+  const topology = buildSourceDerivedTopology(probePlan, implementationManifest);
+  const terminalByEdge = new Map(topology.terminals.map((terminal) => [terminal.edgeId, terminal]));
   const sourceFileMap = new Map();
   let sourceBindings = 0;
   let liveProbeBindings = 0;
@@ -213,7 +442,8 @@ export function buildRestrictedExactAbsenceRouteGraph({ projection, coverage, im
       sourceBindings += bindings.length;
       liveProbeBindings += liveProbeIds.length;
       const routeId = `route.${stableDigest(`${edge.edgeId}\0${sourceProbe.branchId}`)}`;
-      const cutsetId = `cutset.${stableDigest(`${routeId}\0${edge.observedIdentity}`)}`;
+      const terminal = terminalByEdge.get(edge.edgeId);
+      const gateway = terminal.gatewayNodeId;
       routes.push({
         routeId,
         edgeId: edge.edgeId,
@@ -224,11 +454,26 @@ export function buildRestrictedExactAbsenceRouteGraph({ projection, coverage, im
         liveProbeIds,
         applicability: applicabilityForMac(branch),
         sourceBindings: bindings,
-        segments: [
-          { segmentId: `${routeId}.attacker`, kind: "attacker-root" },
-          { segmentId: `${routeId}.target`, kind: "target-selection", expectedTarget: edge.observedIdentity },
-          { segmentId: `${routeId}.implementation`, kind: "implementation-branch", branchId: sourceProbe.branchId },
-          { segmentId: `${routeId}.cutset`, kind: "cut-set", cutsetObservationId: cutsetId, observer: observerFor(edge.surfaceKind), expectedFailureSegment: `${routeId}.cutset` },
+        sourcePath: [
+          topology.sourceRoot,
+          ...topology.sourceCutsets,
+          gateway,
+          terminal.nodeId,
+        ],
+        livePath: [
+          topology.liveRoot,
+          ...topology.liveCutsets,
+          gateway,
+          terminal.nodeId,
+        ],
+        sourceCutsetObservationIds: [
+          "restricted-exact.profile-selected",
+          "restricted-exact.full-installer-skipped",
+        ],
+        liveCutsetObservationIds: [
+          "restricted-exact.bootstrap-posture-sealed",
+          "restricted-exact.bundle-posture-sealed",
+          "restricted-exact.temporal-poll-posture-sealed",
         ],
       });
     }
@@ -246,6 +491,7 @@ export function buildRestrictedExactAbsenceRouteGraph({ projection, coverage, im
     },
     counts: { edges: probePlan.counts.edges, routes: routes.length, sourceFiles: sourceFiles.length, sourceBindings, liveProbeBindings },
     sourceFiles,
+    topology,
     routes,
   };
   const validate = new Ajv2020({ strict: true, allErrors: true }).compile(readJsonStrict(schemaPath));

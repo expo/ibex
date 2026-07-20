@@ -253,6 +253,14 @@ bool env_flag_enabled(const char* env_name) {
 
 extern "C" void ex_host_console_log(int32_t level, const char* message);
 
+enum class RestrictedExactCutset : uint32_t {
+  ProfileSelected = 0,
+  FullInstallerSkipped = 1,
+  BootstrapPostureSealed = 2,
+  BundlePostureSealed = 3,
+  TemporalPollPostureSealed = 4,
+};
+
 #ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
 thread_local std::string g_injected_armed_startup_failure_stage;
 thread_local std::string g_injected_diagnostic_startup_failure_stage;
@@ -418,6 +426,35 @@ extern "C" uint64_t ibex_test_restricted_exact_conformance_trace(
   if (runtime == nullptr || !runtime->restricted_exact) return 0;
   return runtime->restricted_exact_conformance_trace;
 }
+
+void recordRestrictedExactCutset(
+    ExactHermesRuntime* runtime,
+    RestrictedExactCutset cutset) {
+  if (runtime == nullptr || !runtime->restricted_exact) return;
+  const auto index = static_cast<size_t>(cutset);
+  const uint64_t bit = 1ull << index;
+  runtime->restricted_exact_cutset_observations |= bit;
+  runtime->restricted_exact_cutset_sequences[index] =
+      ++runtime->restricted_exact_cutset_sequence;
+}
+
+extern "C" int32_t ibex_test_restricted_exact_cutset_observation(
+    ExactHermesRuntime* runtime,
+    uint32_t cutset,
+    uint64_t* runtime_nonce,
+    uint64_t* sequence) {
+  if (runtime == nullptr || runtime_nonce == nullptr || sequence == nullptr ||
+      cutset >= runtime->restricted_exact_cutset_sequences.size()) {
+    return 0;
+  }
+  const uint64_t bit = 1ull << cutset;
+  if ((runtime->restricted_exact_cutset_observations & bit) == 0) return 0;
+  *runtime_nonce = runtime->runtime_nonce;
+  *sequence = runtime->restricted_exact_cutset_sequences[cutset];
+  return *runtime_nonce != 0 && *sequence != 0 ? 1 : 0;
+}
+#else
+void recordRestrictedExactCutset(ExactHermesRuntime*, RestrictedExactCutset) {}
 #endif
 
 void requireArmedStartupStage(ExactHermesRuntime* handle, const char* stage) {
@@ -7550,6 +7587,10 @@ static ExactHermesRuntime* ex_hermes_create_impl(
   handle->host_context_id = host_context_id;
   handle->armed = armed;
   handle->restricted_exact = restrictedExact;
+  if (restrictedExact) {
+    recordRestrictedExactCutset(
+        handle, RestrictedExactCutset::ProfileSelected);
+  }
 #ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
   if (restrictedExact) {
     // startup:runtime-create
@@ -7687,6 +7728,11 @@ static ExactHermesRuntime* ex_hermes_create_impl(
   TRACE_START(install_globals);
   try {
     if (restrictedExact) {
+      // This is the actual mutually exclusive production branch: a restricted
+      // runtime cannot enter installGlobals(), including any loader, native
+      // bridge, compatibility, callback-producer, or full-startup installer.
+      recordRestrictedExactCutset(
+          handle, RestrictedExactCutset::FullInstallerSkipped);
 #ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
       // install route:ex_hermes_create_impl -> installRestrictedExactGlobals
       handle->restricted_exact_conformance_trace |= 1ull << 1;
@@ -7816,6 +7862,10 @@ static ExactHermesRuntime* ex_hermes_create_impl(
   if (restrictedExact && !verifyRestrictedExactRuntimePosture(handle)) {
     cleanupPartiallyConstructedRuntime(handle);
     return nullptr;
+  }
+  if (restrictedExact) {
+    recordRestrictedExactCutset(
+        handle, RestrictedExactCutset::BootstrapPostureSealed);
   }
 
   handle->bootstrap_in_progress = false;
@@ -12837,6 +12887,8 @@ extern "C" int ex_hermes_run_restricted_exact_bundle(
       throw facebook::jsi::JSError(
           rt, "restricted Exact bundle changed the locked runtime posture");
     }
+    recordRestrictedExactCutset(
+        runtime, RestrictedExactCutset::BundlePostureSealed);
     runtime->restricted_exact_poisoned = false;
     return 0;
   } catch (const facebook::jsi::JSError& error) {
@@ -14382,7 +14434,13 @@ static int pollRuntime(
 extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
   ExactRuntimeDriveGuard drive(runtime);
   if (!drive) return drive.status();
-  return pollRuntime(runtime, now_ms, false);
+  const int result = pollRuntime(runtime, now_ms, false);
+  if (result >= 0 && runtime->restricted_exact &&
+      verifyRestrictedExactRuntimePosture(runtime)) {
+    recordRestrictedExactCutset(
+        runtime, RestrictedExactCutset::TemporalPollPostureSealed);
+  }
+  return result;
 }
 
 extern "C" int ex_hermes_poll_with_external_keep_alive(

@@ -145,6 +145,7 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
       "forbiddenRoots",
       "restrictedStartupTrace",
       "completionObserver",
+      "actualCutsetObservations",
       "descriptorProbedEdges",
     ],
     "absence barrier attestation",
@@ -161,6 +162,32 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
   ) {
     throw new Error("absence barrier attestation did not close startup/callback routes");
   }
+  const expectedCutsetIds = [
+    "restricted-exact.profile-selected",
+    "restricted-exact.full-installer-skipped",
+    "restricted-exact.bootstrap-posture-sealed",
+    "restricted-exact.bundle-posture-sealed",
+    "restricted-exact.temporal-poll-posture-sealed",
+  ];
+  if (
+    !Array.isArray(barrier.actualCutsetObservations)
+    || canonicalJson(barrier.actualCutsetObservations.map((row) => row.observationId))
+      !== canonicalJson(expectedCutsetIds)
+    || barrier.actualCutsetObservations.some((row, index) => (
+      !Number.isSafeInteger(row.runtimeGeneration)
+      || row.runtimeGeneration <= 0
+      || !Number.isSafeInteger(row.sequence)
+      || row.sequence <= 0
+      || (index > 0
+        && row.sequence <= barrier.actualCutsetObservations[index - 1].sequence)
+      || row.runtimeGeneration
+        !== barrier.actualCutsetObservations[0].runtimeGeneration
+    ))
+  ) {
+    throw new Error("absence barrier lacks ordered actual cut-set observations");
+  }
+  const cutsetRuntimeGeneration =
+    barrier.actualCutsetObservations[0].runtimeGeneration;
   const rootManifestBytes = fs.readFileSync(path.join(repoRoot, rootManifestRelativePath));
   const historicalRootManifestBytes = revisionBytes(
     artifact.sourceRevision,
@@ -235,35 +262,56 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
       routesByLiveProbe.set(probeId, routes);
     }
   }
-  let observedRuntimeGeneration = null;
-  const validateRouteReceipt = (receipt, route, probeId, probeTarget) => {
+  let observedRuntimeGeneration = cutsetRuntimeGeneration;
+  const cutsetObservationById = new Map(
+    barrier.actualCutsetObservations.map((row) => [row.observationId, row]),
+  );
+  const validateRouteReceipt = (
+    receipt,
+    route,
+    probeId,
+    probeTarget,
+    proofKind,
+  ) => {
     assertExactKeys(
       receipt,
       [
         "routeId", "probeId", "selectedTarget", "probeTarget", "branchId",
-        "cutsetObservationId", "lastReachedSegment", "failedSegment",
+        "proofKind", "cutsetObservations", "lastObservedNode", "blockedEdge",
         "runtimeGeneration", "outcome",
       ],
       `absence route receipt ${probeId}/${route.routeId}`,
     );
-    const implementation = route.segments[2];
-    const cutset = route.segments[3];
+    const sourceSelection = proofKind === "source-selection";
+    const routePath = sourceSelection ? route.sourcePath : route.livePath;
+    const observationIds = sourceSelection
+      ? route.sourceCutsetObservationIds
+      : route.liveCutsetObservationIds;
+    const expectedObservations = observationIds.map((observationId) =>
+      cutsetObservationById.get(observationId));
+    const expectedOutcome = sourceSelection
+      ? "not-selected-or-retained"
+      : "unreachable";
     if (
       receipt.routeId !== route.routeId
       || receipt.probeId !== probeId
       || receipt.selectedTarget !== route.observedIdentity
       || receipt.probeTarget !== probeTarget
       || receipt.branchId !== route.branchId
-      || receipt.cutsetObservationId !== cutset.cutsetObservationId
-      || receipt.lastReachedSegment !== implementation.segmentId
-      || receipt.failedSegment !== cutset.segmentId
-      || receipt.outcome !== "unreachable"
+      || receipt.proofKind !== proofKind
+      || canonicalJson(receipt.cutsetObservations)
+        !== canonicalJson(expectedObservations)
+      || receipt.lastObservedNode !== routePath.at(-3)
+      || canonicalJson(receipt.blockedEdge) !== canonicalJson({
+        from: routePath.at(-3),
+        to: routePath.at(-2),
+      })
+      || receipt.outcome !== expectedOutcome
       || !Number.isSafeInteger(receipt.runtimeGeneration)
       || receipt.runtimeGeneration <= 0
     ) {
       throw new Error(`absence route receipt drift for ${probeId}/${route.routeId}`);
     }
-    observedRuntimeGeneration ??= receipt.runtimeGeneration;
     if (receipt.runtimeGeneration !== observedRuntimeGeneration) {
       throw new Error("absence route receipts crossed runtime generations");
     }
@@ -352,7 +400,13 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
         }
         const route = routeBySourceProbe.get(probe.probeId);
         if (!route) throw new Error(`source-install probe lacks route ${probe.probeId}`);
-        validateRouteReceipt(result.routeReceipt, route, probe.probeId, observation.observedIdentity);
+        validateRouteReceipt(
+          result.routeReceipt,
+          route,
+          probe.probeId,
+          observation.observedIdentity,
+          "source-selection",
+        );
       }
     } else {
       assertExactKeys(
@@ -405,6 +459,7 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
             routes[routeIndex],
             probe.probeId,
             probe.target,
+            "live-reachability",
           );
         }
       }

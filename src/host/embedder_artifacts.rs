@@ -1471,6 +1471,12 @@ mod tests {
             timer_invocations: *mut u64,
         ) -> i32;
         fn ibex_test_restricted_exact_conformance_trace(runtime: *mut HermesRuntimeOpaque) -> u64;
+        fn ibex_test_restricted_exact_cutset_observation(
+            runtime: *mut HermesRuntimeOpaque,
+            cutset: u32,
+            runtime_nonce: *mut u64,
+            sequence: *mut u64,
+        ) -> i32;
         fn ibex_test_runtime_registered(runtime: *mut HermesRuntimeOpaque) -> i32;
         fn ibex_test_runtime_host_context_id(runtime: *mut HermesRuntimeOpaque) -> u64;
         fn ibex_test_keep_alive_on_async_error(runtime: *mut HermesRuntimeOpaque) -> i32;
@@ -3308,10 +3314,21 @@ mod tests {
         }
 
         let bundle = br#"(() => {
-          if (typeof globalThis.__exactDeepFreeze !== 'undefined' ||
-              typeof globalThis.__exactNativeFreeze !== 'undefined') {
-            throw new Error('a native freeze hatch reached the Contract bundle');
-          }
+          const assertClosed = () => {
+            for (const name of [
+              'require', 'process', 'Bun', 'Deno', 'Ibex', 'fetch',
+              'WebSocket', '__hostCall', '__hostCallAsync',
+              '__exactResolveModule', '__exactRegisterPackage',
+              '__exactDeepFreeze', '__exactNativeFreeze'
+            ]) {
+              if (typeof globalThis[name] !== 'undefined') {
+                throw new Error(`a forbidden route reached the Contract bundle: ${name}`);
+              }
+            }
+          };
+          assertClosed();
+          queueMicrotask(assertClosed);
+          setTimeout(assertClosed, 0);
           exact.takeCheckpointBytes();
           exact.publishCheckpoint(new Uint8Array([0]));
         })();"#;
@@ -3334,6 +3351,44 @@ mod tests {
             );
             assert!(error.is_null());
         }
+        let poll_result = unsafe { ex_hermes_poll(runtime, ex_hermes_now_ms() + 1_000) };
+        assert!(poll_result >= 0, "restricted temporal proof poll failed");
+        let cutset_names = [
+            "profile-selected",
+            "full-installer-skipped",
+            "bootstrap-posture-sealed",
+            "bundle-posture-sealed",
+            "temporal-poll-posture-sealed",
+        ];
+        let mut prior_cutset_sequence = 0_u64;
+        let actual_cutset_observations = cutset_names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| {
+                let mut runtime_nonce = 0_u64;
+                let mut sequence = 0_u64;
+                assert_eq!(
+                    unsafe {
+                        ibex_test_restricted_exact_cutset_observation(
+                            runtime,
+                            index as u32,
+                            &mut runtime_nonce,
+                            &mut sequence,
+                        )
+                    },
+                    1,
+                    "actual restricted cut-set site was not observed: {name}"
+                );
+                assert_eq!(runtime_nonce, unsafe { ex_hermes_runtime_nonce(runtime) });
+                assert!(sequence > prior_cutset_sequence);
+                prior_cutset_sequence = sequence;
+                serde_json::json!({
+                    "observationId": format!("restricted-exact.{name}"),
+                    "runtimeGeneration": runtime_nonce,
+                    "sequence": sequence,
+                })
+            })
+            .collect::<Vec<_>>();
 
         let projection: serde_json::Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -3608,6 +3663,15 @@ mod tests {
             "native-op" => "descriptor-path-or-ambient-installer-absent",
             _ => panic!("unexpected absent surface kind {kind}"),
         };
+        let cutset_observation_by_id = actual_cutset_observations
+            .iter()
+            .map(|observation| {
+                (
+                    observation["observationId"].as_str().unwrap().to_owned(),
+                    observation.clone(),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
         let barrier_attestation = serde_json::json!({
             "observer": "exact-engine-closed-world-barriers",
             "rootGlobalManifestRawContentDigest": format!(
@@ -3623,6 +3687,7 @@ mod tests {
                 "callbacksQueued": callbacks_queued,
                 "callbacksDelivered": callbacks_delivered,
             },
+            "actualCutsetObservations": actual_cutset_observations,
             "descriptorProbedEdges": descriptor_prefixes.len(),
         });
         let barrier_bytes =
@@ -3640,25 +3705,34 @@ mod tests {
                               source_selection: bool| {
             let route_id = route["routeId"].as_str().unwrap();
             let selected_target = route["observedIdentity"].as_str().unwrap();
-            let segments = route["segments"].as_array().unwrap();
-            assert_eq!(
-                segments.len(),
-                4,
-                "route graph segment count drift: {route_id}"
+            let path_key = if source_selection {
+                "sourcePath"
+            } else {
+                "livePath"
+            };
+            let cutset_key = if source_selection {
+                "sourceCutsetObservationIds"
+            } else {
+                "liveCutsetObservationIds"
+            };
+            let path = route[path_key].as_array().unwrap();
+            assert!(
+                path.len() >= 5,
+                "route graph path is incomplete: {route_id}"
             );
-            assert_eq!(segments[0]["kind"].as_str(), Some("attacker-root"));
-            assert_eq!(segments[1]["kind"].as_str(), Some("target-selection"));
-            assert_eq!(segments[2]["kind"].as_str(), Some("implementation-branch"));
-            assert_eq!(segments[3]["kind"].as_str(), Some("cut-set"));
-            assert_eq!(
-                segments[1]["expectedTarget"].as_str(),
-                Some(selected_target)
-            );
-            assert_eq!(segments[2]["branchId"].as_str(), route["branchId"].as_str());
-            assert_eq!(
-                segments[3]["expectedFailureSegment"].as_str(),
-                segments[3]["segmentId"].as_str()
-            );
+            let cutset_observations = route[cutset_key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|observation_id| {
+                    cutset_observation_by_id
+                        .get(observation_id.as_str().unwrap())
+                        .unwrap_or_else(|| {
+                            panic!("route references an unobserved production cut set: {route_id}")
+                        })
+                        .clone()
+                })
+                .collect::<Vec<_>>();
             if source_selection {
                 assert_eq!(
                     target, selected_target,
@@ -3675,21 +3749,27 @@ mod tests {
                     "live target is not an attacker root for {route_id}: {attacker_identity}"
                 );
             }
-            assert!(
-                route_absent(route_kind, target),
-                "target-specific cut set did not fail {route_id}: {route_kind} {target}"
-            );
+            if !source_selection {
+                assert!(
+                    route_absent(route_kind, target),
+                    "target-specific live traversal did not fail {route_id}: {route_kind} {target}"
+                );
+            }
             serde_json::json!({
                 "routeId": route_id,
                 "probeId": probe_id,
                 "selectedTarget": selected_target,
                 "probeTarget": target,
                 "branchId": route["branchId"],
-                "cutsetObservationId": segments[3]["cutsetObservationId"],
-                "lastReachedSegment": segments[2]["segmentId"],
-                "failedSegment": segments[3]["segmentId"],
+                "proofKind": if source_selection { "source-selection" } else { "live-reachability" },
+                "cutsetObservations": cutset_observations,
+                "lastObservedNode": path[path.len() - 3],
+                "blockedEdge": {
+                    "from": path[path.len() - 3],
+                    "to": path[path.len() - 2],
+                },
                 "runtimeGeneration": runtime_generation,
-                "outcome": "unreachable",
+                "outcome": if source_selection { "not-selected-or-retained" } else { "unreachable" },
             })
         };
 

@@ -677,6 +677,12 @@ struct ExactHermesRuntime {
   // intentionally unavailable to JavaScript and absent from production builds.
   // @ref LLP 0033#8-generated-authority-and-conformance
   uint64_t restricted_exact_conformance_trace = 0;
+  // Actual production-path checkpoints used by the LLP 0033 absence proof.
+  // Each bit is recorded only at its owning constructor/install/evaluation/
+  // poll site; the test ABI may read but never synthesize these observations.
+  uint64_t restricted_exact_cutset_observations = 0;
+  uint64_t restricted_exact_cutset_sequence = 0;
+  std::array<uint64_t, 5> restricted_exact_cutset_sequences{};
 #endif
   uint64_t restricted_exact_wall_clock_ms = 0;
   uint64_t restricted_exact_rng_state_0 = 0;

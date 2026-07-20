@@ -10,6 +10,7 @@
     "authorityDigests",
     "counts",
     "sourceFiles",
+    "topology",
     "routes"
   ],
   "properties": {
@@ -66,6 +67,80 @@
         "additionalProperties": false
       }
     },
+    "topology": {
+      "type": "object",
+      "required": ["sourceSpans", "nodes", "edges", "sourceRoot", "liveRoot", "sourceCutsets", "liveCutsets", "terminals"],
+      "properties": {
+        "sourceSpans": {
+          "type": "array", "minItems": 5,
+          "items": {
+            "type": "object",
+            "required": ["spanId", "path", "startToken", "endToken", "startByte", "endByte", "startLine", "endLine", "rawContentDigest"],
+            "properties": {
+              "spanId": { "$ref": "#/$defs/stableId" },
+              "path": { "$ref": "#/$defs/repoPath" },
+              "startToken": { "type": "string", "minLength": 1 },
+              "endToken": { "type": "string", "minLength": 1 },
+              "startByte": { "type": "integer", "minimum": 0 },
+              "endByte": { "type": "integer", "minimum": 1 },
+              "startLine": { "type": "integer", "minimum": 1 },
+              "endLine": { "type": "integer", "minimum": 1 },
+              "rawContentDigest": { "$ref": "#/$defs/digest" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "nodes": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["nodeId", "kind"],
+            "properties": {
+              "nodeId": { "$ref": "#/$defs/stableId" },
+              "kind": { "enum": ["attacker-root", "instrumented-cutset", "exposure-gateway", "terminal"] },
+              "sourceSpanId": { "$ref": "#/$defs/stableId" },
+              "observationId": { "$ref": "#/$defs/stableId" },
+              "surfaceKind": { "type": "string", "minLength": 1 },
+              "edgeId": { "$ref": "#/$defs/stableId" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "edges": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["from", "to", "routeClass"],
+            "properties": {
+              "from": { "$ref": "#/$defs/stableId" },
+              "to": { "$ref": "#/$defs/stableId" },
+              "routeClass": { "enum": ["source-selection", "live-reachability", "terminal-exposure"] }
+            },
+            "additionalProperties": false
+          }
+        },
+        "sourceRoot": { "$ref": "#/$defs/stableId" },
+        "liveRoot": { "$ref": "#/$defs/stableId" },
+        "sourceCutsets": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } },
+        "liveCutsets": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } },
+        "terminals": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["edgeId", "nodeId", "gatewayNodeId", "branchIds", "liveProbeIds"],
+            "properties": {
+              "edgeId": { "$ref": "#/$defs/stableId" },
+              "nodeId": { "$ref": "#/$defs/stableId" },
+              "gatewayNodeId": { "$ref": "#/$defs/stableId" },
+              "branchIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } },
+              "liveProbeIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "routes": {
       "type": "array",
       "minItems": 1,
@@ -106,7 +181,8 @@
       "type": "object",
       "required": [
         "routeId", "edgeId", "sourceProbeId", "branchId", "observedIdentity",
-        "attackerRoots", "liveProbeIds", "applicability", "sourceBindings", "segments"
+        "attackerRoots", "liveProbeIds", "applicability", "sourceBindings",
+        "sourcePath", "livePath", "sourceCutsetObservationIds", "liveCutsetObservationIds"
       ],
       "properties": {
         "routeId": { "$ref": "#/$defs/stableId" },
@@ -132,7 +208,10 @@
           "additionalProperties": false
         },
         "sourceBindings": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/sourceBinding" } },
-        "segments": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "$ref": "#/$defs/segment" } }
+        "sourcePath": { "type": "array", "minItems": 5, "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } },
+        "livePath": { "type": "array", "minItems": 6, "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } },
+        "sourceCutsetObservationIds": { "type": "array", "minItems": 2, "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } },
+        "liveCutsetObservationIds": { "type": "array", "minItems": 3, "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } }
       },
       "additionalProperties": false
     }
