@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/capsec-public-surface-executions-v2.schema.json",
+  "title": "Ibex portable CapSec public-surface executions v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "publicSurfaceExecutionSchema",
+    "profile",
+    "sourceRevision",
+    "sourceTreeDigest",
+    "target",
+    "engine",
+    "recipeCatalogDigest",
+    "recipeCatalogRawContentDigest",
+    "summary",
+    "executions",
+    "publicSurfaceExecutionDigest"
+  ],
+  "properties": {
+    "publicSurfaceExecutionSchema": {
+      "const": "ibex/capsec-public-surface-executions/2"
+    },
+    "profile": { "const": "ibex/capsec/1" },
+    "sourceRevision": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/sourceRevision"
+    },
+    "sourceTreeDigest": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+    },
+    "target": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/target"
+    },
+    "engine": { "$ref": "portable-engine-artifact-identity-v1.schema.json" },
+    "recipeCatalogDigest": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+    },
+    "recipeCatalogRawContentDigest": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+    },
+    "summary": { "$ref": "#/$defs/summary" },
+    "executions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/execution" }
+    },
+    "publicSurfaceExecutionDigest": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest",
+      "$comment": "SHA-256 over JCS(artifact without publicSurfaceExecutionDigest), domain ibex:capsec:public-surface-executions:2 followed by one NUL byte."
+    }
+  },
+  "$defs": {
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fixtureId", "outcome", "executor", "evidenceDigest"],
+      "properties": {
+        "fixtureId": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/stableId"
+        },
+        "outcome": { "enum": ["passed", "failed"] },
+        "executor": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/stableId"
+        },
+        "evidenceDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest",
+          "$comment": "SHA-256 over the exact fixtureId/outcome/executor execution projection, domain ibex:capsec:public-surface-execution-evidence:1 followed by one NUL byte."
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requiredFixtures",
+        "executableFixtures",
+        "residualFixtures",
+        "executedFixtures",
+        "passedFixtures",
+        "failedFixtures",
+        "missingFixtures"
+      ],
+      "properties": {
+        "requiredFixtures": { "type": "integer", "minimum": 1 },
+        "executableFixtures": { "type": "integer", "minimum": 1 },
+        "residualFixtures": { "const": 0 },
+        "executedFixtures": { "type": "integer", "minimum": 1 },
+        "passedFixtures": { "type": "integer", "minimum": 1 },
+        "failedFixtures": { "const": 0 },
+        "missingFixtures": { "const": 0 }
+      }
+    }
+  }
+}

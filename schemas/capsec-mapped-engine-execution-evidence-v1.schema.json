@@ -50,7 +50,7 @@
     },
     "outputDigests": {
       "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digestSet",
-      "$comment": "Digests of the command's other declared evidence outputs; this mapped-evidence record is excluded to keep the digest graph acyclic."
+      "$comment": "Exact raw-content digests from the successful supervisor attempt's declared output rows, excluding only this mapped-evidence record to keep the digest graph acyclic."
     },
     "engine": { "$ref": "portable-engine-artifact-identity-v1.schema.json" },
     "mappedEngine": { "$ref": "mapped-engine-instance-identity-v1.schema.json" },

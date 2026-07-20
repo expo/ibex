@@ -758,16 +758,74 @@ CapSec target, pre-execution command-identity digest, fixture/output
 membership, complete portable identity, and one complete mapped-instance
 identity. It does not bind the post-execution command-envelope record, which
 may already name this detached output and would create a digest cycle. Its
-`outputDigests` name the command's other declared evidence outputs and never
-the mapped-evidence record itself. Its
+`commandIdentityDigest` must equal the successful current supervisor attempt's
+`commandIdentity`. Its `outputDigests` are exactly the raw-content digests of
+that attempt's declared output rows after excluding only the mapped-evidence
+record itself. Every remaining row must be supplied as exact bytes and must
+join one report execution's raw-content and semantic artifact digests. Its
 semantic digest is
 `SHA-256("ibex:capsec:mapped-engine-execution-evidence:1\0" || JCS(record
 without evidenceDigest))`. Reports, attestations, and advertisements carry
-only exact `{evidenceDigest, rawContentDigest}` references to those records.
-Fixture execution rows likewise carry raw/semantic fixture-evidence digests
-and the mapped-evidence digest of the process that produced them; they do not
-embed the mapped record. The report digest moves to
+only exact `{evidenceDigest, rawContentDigest, attemptDigest,
+attemptRawContentDigest}` references to those records and the finalized
+supervisor attempts that produced them. The digest graph is deliberately
+ordered as pre-execution command identity, mapped evidence, finalized attempt,
+report, then attestation/advertisement. Mapped evidence cannot name the attempt
+that already names it as an output. Fixture execution rows likewise carry
+raw/semantic fixture-evidence digests and the mapped-evidence digest of the
+process that produced them; they do not embed the mapped record. The report
+digest moves to
 `ibex:capsec:conformance:2`, omitting only `conformanceDigest`.
+
+The additive promotion input also closes the formerly permissive recipe,
+public-surface, and output-disposition edges. It consumes only
+`ibex/capsec-executable-recipes/2`,
+`ibex/capsec-public-surface-executions/2`, and
+`ibex/capsec-output-disposition-evidence/4`. A recipe row has exact fields
+`fixtureId, status, executor, planDigest`; its plan digest uses domain
+`ibex:capsec:executable-recipe-plan:1` over the exact fixture/executor
+projection, and the catalog uses domain `ibex:capsec:executable-recipes:2`.
+A public execution has exact fields `fixtureId, outcome, executor,
+evidenceDigest`; its evidence digest uses domain
+`ibex:capsec:public-surface-execution-evidence:1` over that row's exact
+execution projection, the artifact binds both semantic and raw recipe-catalog
+identity, and its own domain is
+`ibex:capsec:public-surface-executions:2`. An output-disposition observation
+has exact fields `key, disposition, proofKind, observationDigest`, with domain
+`ibex:capsec:output-disposition-observation:1`. The output artifact itself is
+bound as exact raw bytes because it has no semantic self-digest.
+
+Each portable fixture carries
+`SHA-256("ibex:capsec:portable-execution-binding:1\0" || JCS(projection))`,
+where the closed projection contains source revision/tree, exact CapSec target,
+complete portable engine identity, vocabulary, registry, implementation
+manifest, fixture catalog, target-cell raw bytes, recipe semantic/raw identity,
+public-execution semantic/raw identity, and output-disposition raw identity.
+The projection intentionally excludes mapped-evidence and attempt digests:
+fixture bytes are supervisor outputs committed by the mapped record, so either
+back-reference would create a cycle. The later report execution joins the
+fixture to mapped evidence, and its detached evidence reference joins the
+finalized attempt, preserving complete authority without a cyclic digest DAG.
+
+Promotion validation has one fail-closed entry point. It strict-parses and
+schema-validates exact report, catalog, mapped-evidence, fixture-evidence, and
+supervisor-attempt bytes before applying semantic joins; callers cannot select
+a schema-only or semantics-only authority path. Detached mapped evidence and
+its attempt/output bytes are mandatory. The report must be `conformant`, every
+cell must have zero missing or failed fixtures, and its exact required fixture
+set must equal its passing execution set. The target-cell catalog and the raw
+recipe, public-surface, and output-disposition artifacts are independently
+provided and joined by both available semantic identities and exact
+raw-content digests.
+
+Target/security features and the complete portable identity are not admitted
+by a locality heuristic. They must exactly equal one target entry in an
+independently source-derived `ibex/capsec-portable-promotion-authority/1`
+catalog, including the exact `macos`, `linux`, or `windows` target-family
+dispatch and every report/artifact identity. Recursive path, URI, address, and
+object rejection remains defense in depth, including case and percent-encoded
+forms. CapSec IDs use the closed CapSec stable-ID grammar rather than the looser
+portable-package identifier grammar.
 
 Absolute POSIX/Windows paths, `file://` URLs, mapping addresses, device/inode
 or volume/file identities, and every field of the old combined
@@ -1157,12 +1215,20 @@ linking or execution.
 Implementation checkpoint (2026-07-20): additive, versioned Phase 2 schemas
 now freeze the portable conformance report, authored target attestation,
 derived target advertisement, and per-process mapped-engine execution-evidence
-contracts together with the two new digest domains above. Semantic tests join
-detached raw bytes to both digests, reject mapped/portable substitution even
-after digest recomputation, distinguish ASLR-local mapped observations from
-portable equality, keep CapSec security features separate from package
-structural features, reject recursive path/address/object leakage, and prove
-that renaming the old `binaryDigest`/path identity cannot satisfy v2.
+contracts together with their command-attempt, portable-fixture, and
+independently derived promotion-authority inputs. The additional portable
+fixture domain is
+`SHA-256("ibex:capsec:portable-fixture-evidence:1\0" || JCS(record without
+artifactDigest))`. The checkpoint additionally freezes the acyclic execution
+binding, recipe-plan/catalog, public-execution row/artifact, and
+output-disposition observation domains described above. Adversarial tests join
+exact supervisor output rows, finalized-attempt identities, closed
+recipe/public/output semantics, and raw artifact bytes; reject incomplete
+coverage and mapped/portable substitution even after digest recomputation;
+distinguish ASLR-local mapped observations from portable equality; keep CapSec
+security features separate from package structural features; reject recursive
+encoded path/address/object leakage; and prove that renaming the old
+`binaryDigest`/path identity cannot satisfy v2.
 
 This checkpoint is contract-only. The live v1 runner and generators are not
 coerced or switched, the authored v1 attestation and advertisement arrays

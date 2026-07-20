@@ -31,7 +31,11 @@
         "implementationManifestDigest",
         "fixtureCatalogDigest",
         "recipeCatalogDigest",
+        "recipeCatalogRawContentDigest",
         "publicSurfaceExecutionDigest",
+        "publicSurfaceExecutionRawContentDigest",
+        "targetCellsRawContentDigest",
+        "outputDispositionEvidenceRawContentDigest",
         "mappedEngineExecutionEvidence"
       ],
       "properties": {
@@ -60,7 +64,16 @@
         "recipeCatalogDigest": {
           "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
         },
+        "recipeCatalogRawContentDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
         "publicSurfaceExecutionDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "publicSurfaceExecutionRawContentDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "targetCellsRawContentDigest": {
           "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
         },
         "outputDispositionEvidenceRawContentDigest": {

@@ -11,7 +11,8 @@
       "pattern": "^[0-9a-f]{40}$"
     },
     "stableId": {
-      "$ref": "portable-engine-common-v1.schema.json#/$defs/stableId"
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[._/-][a-z0-9]+)*$"
     },
     "idSet": {
       "type": "array",
@@ -39,10 +40,17 @@
     "mappedEvidenceReference": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["evidenceDigest", "rawContentDigest"],
+      "required": [
+        "evidenceDigest",
+        "rawContentDigest",
+        "attemptDigest",
+        "attemptRawContentDigest"
+      ],
       "properties": {
         "evidenceDigest": { "$ref": "#/$defs/digest" },
-        "rawContentDigest": { "$ref": "#/$defs/digest" }
+        "rawContentDigest": { "$ref": "#/$defs/digest" },
+        "attemptDigest": { "$ref": "#/$defs/digest" },
+        "attemptRawContentDigest": { "$ref": "#/$defs/digest" }
       }
     },
     "mappedEvidenceReferenceSet": {
