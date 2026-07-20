@@ -511,6 +511,33 @@ module.exports = { Public: Public };
     }
   });
 
+  test("binds preprocessor-selected JSI members as conditioned alternatives", () => {
+    for (const [member, pathCount] of [["platform", 5], ["arch", 3]]) {
+      const branch = {
+        branchId: `surface.process.${member}.default`,
+        observedKey: `native-op:global:process.${member}`,
+        targetVariant: "default",
+      };
+      const sourceRef = `src/engine/hermes_runtime_process_setup.cc#jsi-global:process.${member}`;
+      const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+      expect(binding.locatorKind).toBe("jsi-conditional-root-member-route");
+      expect(binding.producerPaths).toHaveLength(pathCount);
+      expect(new Set(binding.producerPaths.map((entry) => entry.conditionId)).size).toBe(pathCount);
+      expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status).toBe("executable");
+    }
+    const envBranch = {
+      branchId: "surface.process.env.default",
+      observedKey: "native-op:global:process.env",
+      targetVariant: "default",
+    };
+    const envRef = "src/engine/hermes_runtime_process_setup.cc#jsi-global:process.env";
+    const env = resolveRestrictedExactBranchSourceBinding(envBranch, envRef);
+    expect(env.locatorKind).toBe("jsi-process-env-route");
+    expect(env.producerPaths).toHaveLength(2);
+    expect(env.refusalPaths).toHaveLength(1);
+    expect(buildRestrictedExactBranchSourceRoute(envBranch, [envRef]).status).toBe("executable");
+  });
+
   test("rejects an unclassified second JSI publication", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-jsi-branch-"));
     try {

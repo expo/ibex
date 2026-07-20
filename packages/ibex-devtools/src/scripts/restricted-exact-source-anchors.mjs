@@ -3561,6 +3561,98 @@ function pairedControlConditions(text, rootCalls) {
   return [`runtime-if:${conditionId}`, `runtime-else:${conditionId}`];
 }
 
+function jsiConditionalRootMemberBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (!/\.(?:cc|mm)$/u.test(sourcePath) || !locator.startsWith("jsi-global:")) return null;
+  const logicalPath = locator.slice("jsi-global:".length).split(".");
+  if (logicalPath.length !== 2 || logicalPath.some((part) => part.includes("[["))) return null;
+  const rootCalls = setPropertyCalls(text, logicalPath[0]).filter(
+    (call) => ["rt.global()", "runtime.global()"].includes(call.caller),
+  );
+  if (rootCalls.length !== 1) return null;
+  const rootVariable = movedIdentifier(rootCalls[0].value);
+  if (!rootVariable) return null;
+  const memberCalls = setPropertyCalls(text, logicalPath[1]).filter(
+    (call) => call.caller === rootVariable && call.range.startByte < rootCalls[0].range.startByte,
+  );
+  if (memberCalls.length < 2) return null;
+  const conditions = memberCalls.map((call) =>
+    activePreprocessorCondition(text, call.range.startByte));
+  if (conditions.some((condition) => !condition)
+    || new Set(conditions).size !== conditions.length) return null;
+  const rootSite = sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "publication",
+    siteKey: `${logicalPath[0]}.root-publication`,
+    range: rootCalls[0].range,
+    text,
+    bytes,
+  });
+  const sites = [rootSite];
+  const producerPaths = [];
+  for (const [indexValue, memberCall] of memberCalls.entries()) {
+    const producer = sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${logicalPath.join(".")}.producer.${indexValue}`, range: cppValueProducerRange(text, movedIdentifier(memberCall.value), memberCall.range.startByte) ?? memberCall.range, text, bytes });
+    const publication = sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${logicalPath.join(".")}.publication.${indexValue}`, range: memberCall.range, text, bytes });
+    sites.push(producer, publication);
+    producerPaths.push({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0conditional-member\0${indexValue}`),
+      conditionId: `preprocessor:${conditions[indexValue]}`,
+      requiredSiteIds: [producer.siteId, publication.siteId, rootSite.siteId],
+    });
+  }
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "jsi-conditional-root-member-route",
+    targetGlobalPath: logicalPath.join("."),
+    resolutionPolicy: "conditioned-alternatives",
+    sites,
+    producerPaths,
+  });
+}
+
+function jsiProcessEnvBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (sourcePath !== "src/engine/hermes_runtime_process_setup.cc"
+    || locator !== "jsi-global:process.env") return null;
+  const rootCalls = setPropertyCalls(text, "process").filter(
+    (call) => ["rt.global()", "runtime.global()"].includes(call.caller),
+  );
+  const memberCalls = setPropertyCalls(text, "env").filter((call) =>
+    call.caller === "processObj" && call.range.startByte < rootCalls[0]?.range.startByte);
+  if (rootCalls.length !== 1 || memberCalls.length !== 2) return null;
+  const armedGuard = uniqueTokenRange(text, ["if (handle->armed) {"]);
+  const copyGuard = uniqueTokenRange(text, ["} else if (!skipEnvCopy) {"]);
+  if (!armedGuard || !copyGuard) return null;
+  const rootSite = sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: "process.root-publication", range: rootCalls[0].range, text, bytes });
+  const guardSites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "guard", siteKey: "process.env.armed-guard", range: armedGuard, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "guard", siteKey: "process.env.copy-guard", range: copyGuard, text, bytes }),
+  ];
+  const sites = [rootSite, ...guardSites];
+  const producerPaths = memberCalls.map((call, indexValue) => {
+    const producer = sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `process.env.producer.${indexValue}`, range: call.range, text, bytes });
+    const publication = sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `process.env.publication.${indexValue}`, range: call.range, text, bytes });
+    sites.push(producer, publication);
+    return {
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0process-env\0${indexValue}`),
+      conditionId: indexValue === 0 ? "runtime:armed" : "runtime:unarmed+copy-host-env",
+      requiredSiteIds: [producer.siteId, publication.siteId, rootSite.siteId, guardSites[indexValue].siteId],
+    };
+  });
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "jsi-process-env-route",
+    targetGlobalPath: "process.env",
+    resolutionPolicy: "conditioned-alternatives",
+    sites,
+    producerPaths,
+    refusalPaths: [{
+      pathId: stableId("refusal", `${branch.branchId}\0${sourceRef}\0process-env-omitted`),
+      conditionId: "runtime:unarmed+shared-bundle-env",
+      requiredSiteIds: guardSites.map((site) => site.siteId),
+    }],
+  });
+}
+
 function jsiGlobalBranchBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
   if (!/\.(?:cc|mm|h)$/u.test(sourcePath)) return null;
   const observedPath = branch?.observedKey?.startsWith("native-op:global:")
@@ -5407,6 +5499,8 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? legacyEvaluatorRunnerBinding({ branch, sourceRef, ...loaded })
     ?? nativeDefinitionBinding({ branch, sourceRef, ...loaded })
     ?? preprocessorBranchBinding({ branch, sourceRef, ...loaded })
+    ?? jsiProcessEnvBinding({ branch, sourceRef, ...loaded })
+    ?? jsiConditionalRootMemberBinding({ branch, sourceRef, ...loaded })
     ?? jsiGlobalBranchBinding({ branch, sourceRef, ...loaded })
     ?? javaHostMethodBinding({ branch, sourceRef, ...loaded })
     ?? androidJavaCallBinding({ branch, sourceRef, ...loaded })
