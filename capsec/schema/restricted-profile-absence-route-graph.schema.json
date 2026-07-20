@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/restricted-profile-absence-route-graph.schema.json",
+  "title": "Ibex restricted-profile absence dominance graph",
+  "type": "object",
+  "required": [
+    "routeGraphSchema",
+    "profile",
+    "target",
+    "authorityDigests",
+    "counts",
+    "sourceFiles",
+    "routes"
+  ],
+  "properties": {
+    "routeGraphSchema": { "const": "ibex/restricted-profile-absence-route-graph/1" },
+    "profile": { "type": "string", "minLength": 1 },
+    "target": {
+      "type": "object",
+      "required": ["triple", "features"],
+      "properties": {
+        "triple": { "type": "string", "minLength": 1 },
+        "features": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "additionalProperties": false
+    },
+    "authorityDigests": {
+      "type": "object",
+      "required": ["projection", "coverage", "implementationManifest", "rootGlobalManifest", "probePlan"],
+      "properties": {
+        "projection": { "$ref": "#/$defs/digest" },
+        "coverage": { "$ref": "#/$defs/digest" },
+        "implementationManifest": { "$ref": "#/$defs/digest" },
+        "rootGlobalManifest": { "$ref": "#/$defs/digest" },
+        "probePlan": { "$ref": "#/$defs/digest" }
+      },
+      "additionalProperties": false
+    },
+    "counts": {
+      "type": "object",
+      "required": ["edges", "routes", "sourceFiles", "sourceBindings", "liveProbeBindings"],
+      "properties": {
+        "edges": { "type": "integer", "minimum": 1 },
+        "routes": { "type": "integer", "minimum": 1 },
+        "sourceFiles": { "type": "integer", "minimum": 1 },
+        "sourceBindings": { "type": "integer", "minimum": 1 },
+        "liveProbeBindings": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "sourceFiles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "rawContentDigest"],
+        "properties": {
+          "path": { "$ref": "#/$defs/repoPath" },
+          "rawContentDigest": { "$ref": "#/$defs/digest" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/route" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256-[A-Za-z0-9_-]{43}$" },
+    "repoPath": { "type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$" },
+    "stableId": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]*$" },
+    "sourceBinding": {
+      "type": "object",
+      "required": ["sourceRef", "path", "locator", "rawContentDigest"],
+      "properties": {
+        "sourceRef": { "type": "string", "minLength": 3 },
+        "path": { "$ref": "#/$defs/repoPath" },
+        "locator": { "type": "string", "minLength": 1 },
+        "rawContentDigest": { "$ref": "#/$defs/digest" }
+      },
+      "additionalProperties": false
+    },
+    "segment": {
+      "type": "object",
+      "required": ["segmentId", "kind"],
+      "properties": {
+        "segmentId": { "$ref": "#/$defs/stableId" },
+        "kind": { "enum": ["attacker-root", "target-selection", "implementation-branch", "cut-set"] },
+        "expectedTarget": { "type": "string", "minLength": 1 },
+        "branchId": { "$ref": "#/$defs/stableId" },
+        "cutsetObservationId": { "$ref": "#/$defs/stableId" },
+        "observer": { "type": "string", "minLength": 1 },
+        "expectedFailureSegment": { "$ref": "#/$defs/stableId" }
+      },
+      "additionalProperties": false
+    },
+    "route": {
+      "type": "object",
+      "required": [
+        "routeId", "edgeId", "sourceProbeId", "branchId", "observedIdentity",
+        "attackerRoots", "liveProbeIds", "applicability", "sourceBindings", "segments"
+      ],
+      "properties": {
+        "routeId": { "$ref": "#/$defs/stableId" },
+        "edgeId": { "$ref": "#/$defs/stableId" },
+        "sourceProbeId": { "$ref": "#/$defs/stableId" },
+        "branchId": { "$ref": "#/$defs/stableId" },
+        "observedIdentity": { "type": "string", "minLength": 3 },
+        "attackerRoots": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "liveProbeIds": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        },
+        "applicability": {
+          "type": "object",
+          "required": ["classification", "reason"],
+          "properties": {
+            "classification": { "enum": ["selected", "platform-excluded", "compiled-but-disabled", "runtime-disabled"] },
+            "reason": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "sourceBindings": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/sourceBinding" } },
+        "segments": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "$ref": "#/$defs/segment" } }
+      },
+      "additionalProperties": false
+    }
+  }
+}

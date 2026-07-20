@@ -4,7 +4,11 @@
   "registrationStatus": "late-after-positive-pilot-before-per-edge-execution",
   "absenceProbePlan": {
     "path": "capsec/generated/restricted-exact-absence-probe-plan.json",
-    "rawContentDigest": "sha256-RqFH1A6VXD6zKHReua-LYZj0STaxQ3t4vTcTKJm6iCc"
+    "rawContentDigest": "sha256-uiDjvBVYejS5cgvqiTIb_17nzCVmdKBbowId_9a86kM"
+  },
+  "absenceRouteGraph": {
+    "path": "capsec/generated/restricted-exact-absence-route-graph.json",
+    "rawContentDigest": "sha256-Ii40UsppOFCjCXNgwNcu9lYT1AM4E2wN9BczETpuBlg"
   },
   "evidenceKinds": [
     {

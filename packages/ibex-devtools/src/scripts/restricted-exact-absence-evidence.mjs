@@ -16,12 +16,15 @@ import {
   taggedDigest,
   validateRestrictedFixturePlan,
 } from "./restricted-exact-target-report.mjs";
+import { validateRestrictedExactAbsenceRouteGraph } from "./generate-restricted-exact-absence-route-graph.mjs";
 
 const EVIDENCE_SCHEMA = "ibex/restricted-profile-absence-evidence/1";
 const PROFILE = "ibex/exact-embedder-contract/1";
 const RESULT_MARKER = "ibex-restricted-absence-evidence:passed";
 const rootManifestRelativePath =
   "capsec/generated/root-global-disposition-manifest.json";
+const routeGraphRelativePath =
+  "capsec/generated/restricted-exact-absence-route-graph.json";
 
 const expectedForbiddenRoots = [
   "Atomics",
@@ -203,6 +206,68 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
   }
   const probePlanRawContentDigest = reportAuthorities.fixturePlan
     .absenceProbePlan.rawContentDigest;
+  const routeGraphBytes = fs.readFileSync(path.join(repoRoot, routeGraphRelativePath));
+  const historicalRouteGraphBytes = revisionBytes(
+    artifact.sourceRevision,
+    routeGraphRelativePath,
+  );
+  const routeGraphRawContentDigest = reportAuthorities.fixturePlan
+    .absenceRouteGraph.rawContentDigest;
+  if (
+    !historicalRouteGraphBytes.equals(routeGraphBytes)
+    || taggedDigest(routeGraphBytes) !== routeGraphRawContentDigest
+  ) {
+    throw new Error("absence evidence does not bind the historical route graph");
+  }
+  const routeGraph = parseJsonStrict(routeGraphBytes, routeGraphRelativePath);
+  validateRestrictedExactAbsenceRouteGraph(routeGraph, {
+    probePlan,
+    implementationManifest: reportAuthorities.implementationManifest,
+  });
+  const routeBySourceProbe = new Map(
+    routeGraph.routes.map((route) => [route.sourceProbeId, route]),
+  );
+  const routesByLiveProbe = new Map();
+  for (const route of routeGraph.routes) {
+    for (const probeId of route.liveProbeIds) {
+      const routes = routesByLiveProbe.get(probeId) ?? [];
+      routes.push(route);
+      routesByLiveProbe.set(probeId, routes);
+    }
+  }
+  let observedRuntimeGeneration = null;
+  const validateRouteReceipt = (receipt, route, probeId, probeTarget) => {
+    assertExactKeys(
+      receipt,
+      [
+        "routeId", "probeId", "selectedTarget", "probeTarget", "branchId",
+        "cutsetObservationId", "lastReachedSegment", "failedSegment",
+        "runtimeGeneration", "outcome",
+      ],
+      `absence route receipt ${probeId}/${route.routeId}`,
+    );
+    const implementation = route.segments[2];
+    const cutset = route.segments[3];
+    if (
+      receipt.routeId !== route.routeId
+      || receipt.probeId !== probeId
+      || receipt.selectedTarget !== route.observedIdentity
+      || receipt.probeTarget !== probeTarget
+      || receipt.branchId !== route.branchId
+      || receipt.cutsetObservationId !== cutset.cutsetObservationId
+      || receipt.lastReachedSegment !== implementation.segmentId
+      || receipt.failedSegment !== cutset.segmentId
+      || receipt.outcome !== "unreachable"
+      || !Number.isSafeInteger(receipt.runtimeGeneration)
+      || receipt.runtimeGeneration <= 0
+    ) {
+      throw new Error(`absence route receipt drift for ${probeId}/${route.routeId}`);
+    }
+    observedRuntimeGeneration ??= receipt.runtimeGeneration;
+    if (receipt.runtimeGeneration !== observedRuntimeGeneration) {
+      throw new Error("absence route receipts crossed runtime generations");
+    }
+  };
   const rootManifest = parseJsonStrict(rootManifestBytes, rootManifestRelativePath);
   const descriptorPrefixes = expectedDescriptorPrefixes(rootManifest, absentSet);
   if (barrier.descriptorProbedEdges !== descriptorPrefixes.size) {
@@ -253,6 +318,7 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
           "barrier",
           "barrierAttestationDigest",
           "probePlanRawContentDigest",
+          "routeGraphRawContentDigest",
           "probeResults",
         ],
         `source-install proof ${observation.edgeId}`,
@@ -260,20 +326,33 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
       if (
         observation.proof.observer !== "executed-edge-source-install-closure"
         || observation.proof.probePlanRawContentDigest !== probePlanRawContentDigest
+        || observation.proof.routeGraphRawContentDigest !== routeGraphRawContentDigest
       ) {
         throw new Error(`source-install proof drift for ${observation.edgeId}`);
       }
-      const expectedResults = plannedByEdge.get(observation.edgeId).sourceInstall.map((probe) => ({
-        probeId: probe.probeId,
-        branchId: probe.branchId,
-        enforcementBranchId: probe.enforcementBranchId,
-        outcome: "not-selected-or-retained",
-      }));
-      if (
-        canonicalJson(observation.proof.probeResults) !== canonicalJson(expectedResults)
-        || observation.proof.probeResults.length === 0
-      ) {
-        throw new Error(`source-install proof ${observation.edgeId} was not executed per probe`);
+      const plannedResults = plannedByEdge.get(observation.edgeId).sourceInstall;
+      if (observation.proof.probeResults.length !== plannedResults.length) {
+        throw new Error(`source-install proof ${observation.edgeId} has wrong receipt count`);
+      }
+      for (let index = 0; index < plannedResults.length; index += 1) {
+        const probe = plannedResults[index];
+        const result = observation.proof.probeResults[index];
+        assertExactKeys(
+          result,
+          ["probeId", "branchId", "enforcementBranchId", "outcome", "routeReceipt"],
+          `source-install result ${probe.probeId}`,
+        );
+        if (
+          result.probeId !== probe.probeId
+          || result.branchId !== probe.branchId
+          || result.enforcementBranchId !== probe.enforcementBranchId
+          || result.outcome !== "not-selected-or-retained"
+        ) {
+          throw new Error(`source-install proof drift for ${probe.probeId}`);
+        }
+        const route = routeBySourceProbe.get(probe.probeId);
+        if (!route) throw new Error(`source-install probe lacks route ${probe.probeId}`);
+        validateRouteReceipt(result.routeReceipt, route, probe.probeId, observation.observedIdentity);
       }
     } else {
       assertExactKeys(
@@ -284,6 +363,7 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
           "barrier",
           "barrierAttestationDigest",
           "probePlanRawContentDigest",
+          "routeGraphRawContentDigest",
           "probeResults",
         ],
         `live-reachability proof ${observation.edgeId}`,
@@ -291,20 +371,42 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
       if (
         observation.proof.observer !== "executed-exact-engine-edge-routes"
         || observation.proof.probePlanRawContentDigest !== probePlanRawContentDigest
+        || observation.proof.routeGraphRawContentDigest !== routeGraphRawContentDigest
       ) {
         throw new Error(`live-reachability proof drift for ${observation.edgeId}`);
       }
-      const expectedResults = plannedByEdge.get(observation.edgeId).liveReachability.map((probe) => ({
-        probeId: probe.probeId,
-        routeKind: probe.routeKind,
-        target: probe.target,
-        outcome: "unreachable",
-      }));
-      if (
-        canonicalJson(observation.proof.probeResults) !== canonicalJson(expectedResults)
-        || observation.proof.probeResults.length === 0
-      ) {
-        throw new Error(`live-reachability proof ${observation.edgeId} was not executed per probe`);
+      const plannedResults = plannedByEdge.get(observation.edgeId).liveReachability;
+      if (observation.proof.probeResults.length !== plannedResults.length) {
+        throw new Error(`live-reachability proof ${observation.edgeId} has wrong receipt count`);
+      }
+      for (let index = 0; index < plannedResults.length; index += 1) {
+        const probe = plannedResults[index];
+        const result = observation.proof.probeResults[index];
+        assertExactKeys(
+          result,
+          ["probeId", "routeKind", "target", "outcome", "routeReceipts"],
+          `live-reachability result ${probe.probeId}`,
+        );
+        if (
+          result.probeId !== probe.probeId
+          || result.routeKind !== probe.routeKind
+          || result.target !== probe.target
+          || result.outcome !== "unreachable"
+        ) {
+          throw new Error(`live-reachability proof drift for ${probe.probeId}`);
+        }
+        const routes = routesByLiveProbe.get(probe.probeId) ?? [];
+        if (result.routeReceipts.length !== routes.length || routes.length === 0) {
+          throw new Error(`live-reachability probe lacks complete routes ${probe.probeId}`);
+        }
+        for (let routeIndex = 0; routeIndex < routes.length; routeIndex += 1) {
+          validateRouteReceipt(
+            result.routeReceipts[routeIndex],
+            routes[routeIndex],
+            probe.probeId,
+            probe.target,
+          );
+        }
       }
     }
   }

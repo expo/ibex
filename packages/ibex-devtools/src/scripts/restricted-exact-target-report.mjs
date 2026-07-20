@@ -22,6 +22,7 @@ import {
   readJsonStrict,
   repoRoot,
 } from "./capsec-contract.mjs";
+import { validateRestrictedExactAbsenceRouteGraph } from "./generate-restricted-exact-absence-route-graph.mjs";
 
 const reportSchemaPath = path.join(
   capsecRoot,
@@ -35,12 +36,19 @@ const absenceProbePlanSchemaPath = path.join(
   capsecRoot,
   "schema/restricted-profile-absence-probe-plan.schema.json",
 );
+const absenceRouteGraphSchemaPath = path.join(
+  capsecRoot,
+  "schema/restricted-profile-absence-route-graph.schema.json",
+);
 
 const requiredByDisposition = new Map([
   ["reachable", ["live-invocation"]],
   ["structurally-absent", ["live-reachability", "source-install"]],
   ["trusted-control-plane", ["control-plane-negative"]],
 ]);
+const schemaValidators = new Map();
+const routeGraphsByRawDigest = new Map();
+const validatedRouteGraphsByImplementation = new WeakMap();
 
 export function taggedDigest(bytes) {
   return `sha256-${crypto.createHash("sha256").update(bytes).digest("base64url")}`;
@@ -189,8 +197,11 @@ function validateIndependentReviewArtifact(independentReview, reviewedState) {
       typeof review.reviewedProbePlanRawContentDigest !== "string"
       || review.reviewedProbePlanRawContentDigest
         !== currentFixturePlan.absenceProbePlan.rawContentDigest
+      || typeof review.reviewedRouteGraphRawContentDigest !== "string"
+      || review.reviewedRouteGraphRawContentDigest
+        !== currentFixturePlan.absenceRouteGraph.rawContentDigest
     ) {
-      throw new Error("clear restricted review does not bind the current probe plan");
+      throw new Error("clear restricted review does not bind the current probe plan and route graph");
     }
     for (const field of ["bindings", "executions", "globalCorpora", "rows", "summary"]) {
       if (canonicalJson(reviewedReport[field]) !== canonicalJson(reviewedState[field])) {
@@ -201,9 +212,14 @@ function validateIndependentReviewArtifact(independentReview, reviewedState) {
 }
 
 function schemaValidator(schemaPath) {
-  return new Ajv2020({ strict: true, allErrors: true }).compile(
-    readJsonStrict(schemaPath),
-  );
+  let validate = schemaValidators.get(schemaPath);
+  if (!validate) {
+    validate = new Ajv2020({ strict: true, allErrors: true }).compile(
+      readJsonStrict(schemaPath),
+    );
+    schemaValidators.set(schemaPath, validate);
+  }
+  return validate;
 }
 
 function assertSchema(validate, value, label) {
@@ -282,6 +298,35 @@ export function validateRestrictedFixturePlan(fixturePlan) {
   ) {
     throw new Error("restricted absence probe-plan counts drifted");
   }
+  const routeGraphPath = path.resolve(repoRoot, fixturePlan.absenceRouteGraph.path);
+  if (!routeGraphPath.startsWith(generatedRoot)) {
+    throw new Error("restricted absence route graph path escapes capsec/generated");
+  }
+  const routeGraphStat = fs.lstatSync(routeGraphPath);
+  if (!routeGraphStat.isFile() || routeGraphStat.isSymbolicLink()) {
+    throw new Error("restricted absence route graph must be a regular non-symlink file");
+  }
+  const rawRouteGraph = fs.readFileSync(routeGraphPath);
+  if (taggedDigest(rawRouteGraph) !== fixturePlan.absenceRouteGraph.rawContentDigest) {
+    throw new Error("restricted absence route graph raw-content digest mismatch");
+  }
+  let routeGraph = routeGraphsByRawDigest.get(fixturePlan.absenceRouteGraph.rawContentDigest);
+  if (!routeGraph) {
+    routeGraph = parseJsonStrict(rawRouteGraph, fixturePlan.absenceRouteGraph.path);
+    assertSchema(
+      schemaValidator(absenceRouteGraphSchemaPath),
+      routeGraph,
+      "restricted absence route graph",
+    );
+    routeGraphsByRawDigest.set(fixturePlan.absenceRouteGraph.rawContentDigest, routeGraph);
+  }
+  if (
+    routeGraph.authorityDigests.probePlan !== fixturePlan.absenceProbePlan.rawContentDigest
+    || routeGraph.counts.edges !== probePlan.counts.edges
+    || routeGraph.counts.routes !== probePlan.counts.sourceInstallProbes
+  ) {
+    throw new Error("restricted absence route graph does not bind the probe plan");
+  }
   return probePlan;
 }
 
@@ -323,6 +368,24 @@ function deriveRestrictedTargetReport({
   rawAuthorities,
 }) {
   const absenceProbePlan = validateRestrictedFixturePlan(fixturePlan);
+  const graphDigest = fixturePlan.absenceRouteGraph.rawContentDigest;
+  const absenceRouteGraph = routeGraphsByRawDigest.get(graphDigest);
+  if (!absenceRouteGraph) {
+    throw new Error("restricted absence route graph was not reopened");
+  }
+  const validatedForImplementation = validatedRouteGraphsByImplementation
+    .get(implementationManifest) ?? new Set();
+  if (!validatedForImplementation.has(graphDigest)) {
+    validateRestrictedExactAbsenceRouteGraph(absenceRouteGraph, {
+      probePlan: absenceProbePlan,
+      implementationManifest,
+    });
+    validatedForImplementation.add(graphDigest);
+    validatedRouteGraphsByImplementation.set(
+      implementationManifest,
+      validatedForImplementation,
+    );
+  }
   validateBindings(bindings, rawAuthorities);
   const coverageById = new Map(coverage.edges.map((edge) => [edge.id, edge]));
   const implementationIds = new Set(
@@ -347,8 +410,13 @@ function deriveRestrictedTargetReport({
     || absenceProbePlan.coverageRawContentDigest !== taggedDigest(rawAuthorities.coverage)
     || absenceProbePlan.implementationManifestRawContentDigest
       !== taggedDigest(rawAuthorities.implementationManifest)
+    || absenceRouteGraph.profile !== projection.profile
+    || absenceRouteGraph.authorityDigests.projection !== taggedDigest(rawAuthorities.projection)
+    || absenceRouteGraph.authorityDigests.coverage !== taggedDigest(rawAuthorities.coverage)
+    || absenceRouteGraph.authorityDigests.implementationManifest
+      !== taggedDigest(rawAuthorities.implementationManifest)
   ) {
-    throw new Error("restricted absence probe plan does not bind the report authorities");
+    throw new Error("restricted absence authorities do not bind the report inputs");
   }
 
   assertSortedUnique(executions.map((row) => row.executionId), "restricted execution IDs");

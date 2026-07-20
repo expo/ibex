@@ -3482,6 +3482,46 @@ mod tests {
             fixture_plan["absenceProbePlan"]["rawContentDigest"].as_str(),
             Some(probe_plan_digest.as_str())
         );
+        let route_graph_bytes = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/generated/restricted-exact-absence-route-graph.json"
+        ));
+        let route_graph: serde_json::Value = serde_json::from_slice(route_graph_bytes).unwrap();
+        let route_graph_digest = format!(
+            "sha256-{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(Sha256::digest(route_graph_bytes))
+        );
+        assert_eq!(
+            fixture_plan["absenceRouteGraph"]["rawContentDigest"].as_str(),
+            Some(route_graph_digest.as_str())
+        );
+        assert_eq!(
+            route_graph["authorityDigests"]["probePlan"].as_str(),
+            Some(probe_plan_digest.as_str())
+        );
+        assert_eq!(
+            route_graph["target"]["triple"].as_str(),
+            Some("aarch64-apple-darwin")
+        );
+        let routes = route_graph["routes"].as_array().unwrap();
+        assert_eq!(routes.len(), 7_361);
+        let route_by_source_probe = routes
+            .iter()
+            .map(|route| (route["sourceProbeId"].as_str().unwrap().to_owned(), route))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(route_by_source_probe.len(), routes.len());
+        let mut routes_by_live_probe =
+            std::collections::BTreeMap::<String, Vec<&serde_json::Value>>::new();
+        for route in routes {
+            for probe_id in route["liveProbeIds"].as_array().unwrap() {
+                routes_by_live_probe
+                    .entry(probe_id.as_str().unwrap().to_owned())
+                    .or_default()
+                    .push(route);
+            }
+        }
+        assert_eq!(routes_by_live_probe.len(), 9_749);
 
         let logical_path_absent = |path: &str| {
             let path_c = std::ffi::CString::new(path).unwrap();
@@ -3591,6 +3631,67 @@ mod tests {
             "sha256-{}",
             base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(&barrier_bytes))
         );
+        let runtime_generation = unsafe { ex_hermes_runtime_nonce(runtime) };
+        assert_ne!(runtime_generation, 0);
+        let execute_cutset = |route: &serde_json::Value,
+                              probe_id: &str,
+                              route_kind: &str,
+                              target: &str,
+                              source_selection: bool| {
+            let route_id = route["routeId"].as_str().unwrap();
+            let selected_target = route["observedIdentity"].as_str().unwrap();
+            let segments = route["segments"].as_array().unwrap();
+            assert_eq!(
+                segments.len(),
+                4,
+                "route graph segment count drift: {route_id}"
+            );
+            assert_eq!(segments[0]["kind"].as_str(), Some("attacker-root"));
+            assert_eq!(segments[1]["kind"].as_str(), Some("target-selection"));
+            assert_eq!(segments[2]["kind"].as_str(), Some("implementation-branch"));
+            assert_eq!(segments[3]["kind"].as_str(), Some("cut-set"));
+            assert_eq!(
+                segments[1]["expectedTarget"].as_str(),
+                Some(selected_target)
+            );
+            assert_eq!(segments[2]["branchId"].as_str(), route["branchId"].as_str());
+            assert_eq!(
+                segments[3]["expectedFailureSegment"].as_str(),
+                segments[3]["segmentId"].as_str()
+            );
+            if source_selection {
+                assert_eq!(
+                    target, selected_target,
+                    "source route target substitution: {route_id}"
+                );
+            } else {
+                let attacker_identity = format!("{route_kind}:{target}");
+                assert!(
+                    route["attackerRoots"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|root| root.as_str() == Some(attacker_identity.as_str())),
+                    "live target is not an attacker root for {route_id}: {attacker_identity}"
+                );
+            }
+            assert!(
+                route_absent(route_kind, target),
+                "target-specific cut set did not fail {route_id}: {route_kind} {target}"
+            );
+            serde_json::json!({
+                "routeId": route_id,
+                "probeId": probe_id,
+                "selectedTarget": selected_target,
+                "probeTarget": target,
+                "branchId": route["branchId"],
+                "cutsetObservationId": segments[3]["cutsetObservationId"],
+                "lastReachedSegment": segments[2]["segmentId"],
+                "failedSegment": segments[3]["segmentId"],
+                "runtimeGeneration": runtime_generation,
+                "outcome": "unreachable",
+            })
+        };
 
         let mut observations = Vec::<serde_json::Value>::with_capacity(absent_ids.len() * 2);
         for planned in planned_edges {
@@ -3618,19 +3719,20 @@ mod tests {
                 .unwrap()
                 .iter()
                 .map(|probe| {
-                    assert!(
-                        route_absent(source_route_kind, &identity)
-                            && probe["proofPaths"].as_array().unwrap().iter().all(|path| {
-                                route_absent(source_route_kind, path.as_str().unwrap())
-                            }),
-                        "source-install route remained selected or retained: {}",
-                        probe["probeId"]
-                    );
+                    let probe_id = probe["probeId"].as_str().unwrap();
+                    let route = route_by_source_probe.get(probe_id).unwrap_or_else(|| {
+                        panic!("source probe lacks dominance route: {probe_id}")
+                    });
+                    assert_eq!(route["edgeId"].as_str(), Some(edge_id));
+                    assert_eq!(route["branchId"], probe["branchId"]);
+                    let receipt =
+                        execute_cutset(route, probe_id, source_route_kind, &identity, true);
                     serde_json::json!({
                         "probeId": probe["probeId"],
                         "branchId": probe["branchId"],
                         "enforcementBranchId": probe["enforcementBranchId"],
                         "outcome": "not-selected-or-retained",
+                        "routeReceipt": receipt,
                     })
                 })
                 .collect::<Vec<_>>();
@@ -3639,18 +3741,25 @@ mod tests {
                 .unwrap()
                 .iter()
                 .map(|probe| {
+                    let probe_id = probe["probeId"].as_str().unwrap();
                     let route_kind = probe["routeKind"].as_str().unwrap();
                     let target = probe["target"].as_str().unwrap();
-                    assert!(
-                        route_absent(route_kind, target),
-                        "live attacker route remained reachable: {} ({route_kind} {target})",
-                        probe["probeId"]
-                    );
+                    let bound_routes = routes_by_live_probe
+                        .get(probe_id)
+                        .unwrap_or_else(|| panic!("live probe lacks dominance route: {probe_id}"));
+                    let receipts = bound_routes
+                        .iter()
+                        .map(|route| {
+                            assert_eq!(route["edgeId"].as_str(), Some(edge_id));
+                            execute_cutset(route, probe_id, route_kind, target, false)
+                        })
+                        .collect::<Vec<_>>();
                     serde_json::json!({
                         "probeId": probe["probeId"],
                         "routeKind": route_kind,
                         "target": target,
                         "outcome": "unreachable",
+                        "routeReceipts": receipts,
                     })
                 })
                 .collect::<Vec<_>>();
@@ -3665,6 +3774,7 @@ mod tests {
                     "barrier": barrier_for(kind),
                     "barrierAttestationDigest": barrier_digest,
                     "probePlanRawContentDigest": probe_plan_digest,
+                    "routeGraphRawContentDigest": route_graph_digest,
                     "probeResults": source_probe_results,
                 },
             }));
@@ -3679,6 +3789,7 @@ mod tests {
                     "barrier": barrier_for(kind),
                     "barrierAttestationDigest": barrier_digest,
                     "probePlanRawContentDigest": probe_plan_digest,
+                    "routeGraphRawContentDigest": route_graph_digest,
                     "probeResults": live_probe_results,
                 },
             }));

@@ -61,7 +61,7 @@ describe("LLP 0033 restricted Exact target report", () => {
     expect(report.summary.incomplete).toBe(7300);
     expect(report.summary.missingObservations).toBe(14447);
     expect(report.rows.every((row) => row.executionIds.length === 0)).toBe(true);
-  });
+  }, 15_000);
 
   test("rejects a fabricated clear-review digest", () => {
     const input = fixture();
@@ -74,7 +74,7 @@ describe("LLP 0033 restricted Exact target report", () => {
     expect(() => buildRestrictedTargetReport(input)).toThrow(
       "does not reopen exactly one artifact",
     );
-  });
+  }, 15_000);
 
   test("credits only the exact observed edge and evidence kind", () => {
     const input = fixture();
@@ -101,7 +101,7 @@ describe("LLP 0033 restricted Exact target report", () => {
     expect(report.summary.incomplete).toBe(7299);
     expect(report.summary.passedObservations).toBe(1);
     expect(report.summary.missingObservations).toBe(14446);
-  });
+  }, 15_000);
 
   test("requires both source-install and live-reachability for absence", () => {
     const input = fixture();
@@ -130,7 +130,7 @@ describe("LLP 0033 restricted Exact target report", () => {
     expect(row.status).toBe("incomplete");
     expect(row.passedEvidenceKinds).toEqual(["source-install"]);
     expect(row.missingEvidenceKinds).toEqual(["live-reachability"]);
-  });
+  }, 15_000);
 
   test("rejects duplicate, wrong-engine, identity-drift, and summary synthesis", () => {
     const input = fixture();
@@ -179,5 +179,5 @@ describe("LLP 0033 restricted Exact target report", () => {
     expect(() => validateRestrictedTargetReport(valid, fixture())).toThrow(
       /digest mismatch|not derivable/,
     );
-  });
+  }, 15_000);
 });

@@ -3,9 +3,9 @@
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
   "vocabDigest": "sha256-DcIlfC17uOhz1EPb0mEfew_Z39nMKmnRay02KjQ5FJ0",
-  "registryDigest": "sha256-TryHIvanM15VB8DEYmGsW9jdjrKABP0StVCyq0yeMms",
-  "policyDigest": "sha256-bJ-Zo2joEXI6Igoe__d8VKQPIGB9lz8yIytDlp9pZ1I",
-  "armedSnapshotDigest": "sha256-mul3zx-NfK7y37Nspp5HiBUqJWOa_m5pUKHo_xV2rwQ",
+  "registryDigest": "sha256-YEYSkq7VKT6a18FmMrPMCIRuJhwm1zd0A6SH2nEKKVk",
+  "policyDigest": "sha256-Aew1ux_EWw4-xVm9fFiNr7vGt9kCiwyf1ddF7Gyywe0",
+  "armedSnapshotDigest": "sha256-MrRKeRO3QDsrY4UCaWBUB3Q5PK8lsopMQhkSH0I2p20",
   "workflow": "contract-fixture",
   "effectiveMode": "enforce",
   "engine": {

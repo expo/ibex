@@ -8,6 +8,7 @@
     "profile",
     "registrationStatus",
     "absenceProbePlan",
+    "absenceRouteGraph",
     "evidenceKinds",
     "globalCorpora",
     "invalidRunRules"
@@ -24,6 +25,15 @@
       "required": ["path", "rawContentDigest"],
       "properties": {
         "path": { "const": "capsec/generated/restricted-exact-absence-probe-plan.json" },
+        "rawContentDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "absenceRouteGraph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "rawContentDigest"],
+      "properties": {
+        "path": { "const": "capsec/generated/restricted-exact-absence-route-graph.json" },
         "rawContentDigest": { "$ref": "#/$defs/digest" }
       }
     },
