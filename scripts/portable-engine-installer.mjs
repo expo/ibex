@@ -9,6 +9,9 @@ import {
   installPortableEngineProductionCore,
   verifyPortableEngineStoreProductionCore,
 } from "./portable-engine-installer-core.mjs";
+import { verifyPortableEngineCheckedPromotionAdmission } from "./portable-engine-promotion-lineage.mjs";
+
+const PRODUCTION_TARGET_TRIPLE = "aarch64-apple-darwin";
 
 function exactOptions(input, allowed, required, label) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error(`${label}: expected one options object`);
@@ -36,4 +39,22 @@ export async function verifyPortableEngineStore(options) {
     ["artifactId", "expectedSourceRevision"],
     "verifyPortableEngineStore",
   ));
+}
+
+// @ref LLP 0035#promotion-lineage-and-admission — expose the fixed checked
+// A/C decision without accepting a verifier or target override from callers.
+export function verifyPortableEngineCheckoutAdmission(options) {
+  if (arguments.length !== 1) throw new Error("verifyPortableEngineCheckoutAdmission accepts exactly one production options object");
+  const selected = exactOptions(
+    options,
+    ["artifactId", "expectedSourceRevision", "repoRoot"],
+    ["artifactId", "expectedSourceRevision"],
+    "verifyPortableEngineCheckoutAdmission",
+  );
+  return verifyPortableEngineCheckedPromotionAdmission({
+    repoRoot: selected.repoRoot,
+    expectedSourceRevision: selected.expectedSourceRevision,
+    targetTriple: PRODUCTION_TARGET_TRIPLE,
+    portableArtifactId: selected.artifactId,
+  });
 }

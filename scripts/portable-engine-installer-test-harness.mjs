@@ -6,6 +6,7 @@ export {
   buildFixedVerifierExpectationsTestOnly as buildFixedVerifierExpectations,
   detectMacOsExtendedAclTestOnly as detectMacOsExtendedAcl,
   installPortableEngineTestOnly as installPortableEngine,
+  installPortableEngineWithPromotionLineageTestOnly as installPortableEngineWithPromotionLineage,
   listCheckedRevisionFilesTestOnly as listCheckedRevisionFiles,
   readCheckedRevisionFileTestOnly as readCheckedRevisionFile,
   resolveGitControlPathsTestOnly as resolveGitControlPaths,

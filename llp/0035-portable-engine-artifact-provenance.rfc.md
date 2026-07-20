@@ -13,10 +13,12 @@ atomically released, restart-recoverable serialization records; and the closed
 build, post-link, and additive Phase 2 publication/evidence contracts bind
 complete payload, executable replay, and mapped execution membership. A
 checked, non-inheriting Git promotion-lineage contract separates the closed
-artifact-source revision from a later evidence-only admission merge. The
-portable macOS package is emitted for every `main` revision. Acceptance,
-runtime consumption, and advertisements remain off pending a real private Ibex
-corpus and the remaining build/runtime evidence gates.)
+artifact-source revision from a later evidence-only admission merge, and the
+production installer now rejoins that exact current-checkout decision to its
+separately sourced package. The portable macOS package is emitted for every
+`main` revision. Legacy acceptance, runtime consumption, and advertisements
+remain off pending a real private Ibex corpus and the remaining build/runtime
+evidence gates.)
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021; LLP 0032
 
 ## Summary
@@ -685,6 +687,39 @@ it cannot emit a production store record. A source-level caller guard keeps
 the CLI on the production wrapper and confines direct core imports to that
 wrapper and the named test harness.
 
+Before a production install or store verification, the installer invokes the
+fixed promotion-lineage verifier against the selected checkout. At disabled
+source A it requires current `HEAD == A` and returns a diagnostic
+`authorized: false` result. At active C it requires the lineage result to be
+authorized and joins its source revision, target triple, and portable artifact
+ID to the selected manifest/store while retaining C as the distinct current
+revision. The manifest join occurs immediately after authenticated extraction,
+before completion records, locks, or final atomic publication. A wrong active
+artifact therefore leaves no final store entry. Store verification can reject
+a wrong selected artifact before opening it. The installer reruns the fixed
+lineage verifier after the operation and requires the complete result to equal
+the first result; D, a dirty checkout, or persistent authority mutation fails
+rather than degrading to source-A diagnostics.
+
+The build-consumable checked result has schema
+`ibex/portable-engine-checked-promotion-admission/1` and exact fields `schema,
+authorized, currentRevision, sourceRevision, promotionTopicRevision,
+sourceTreeObjectId, targetTriple, portableArtifactId, admissionDigest,
+verificationDigest`. At A the three promotion-only fields are null; at C they
+are the verifier's exact values. `targetTriple` and `portableArtifactId` always
+name the selected, freshly verified package, including diagnostic A. Its digest
+is:
+
+```text
+"sha256-" || base64url(
+  SHA-256("ibex.portable-engine-checked-promotion-admission.v1\0" ||
+          JCS(result without verificationDigest))
+)
+```
+
+This is current-checkout admission evidence, not another transport receipt and
+not a switch for the legacy `portableArtifactAcceptanceEnabled` field.
+
 The checkout's canonical ancestor chain is validated from the filesystem root:
 each directory is root- or effective-UID-owned, has no group/world write or
 special mode bits, and has no ACL that grants mutation authority. Object
@@ -1101,10 +1136,12 @@ platforms fail closed until they have an explicitly reviewed OS/Git/ACL trust
 adapter; their test lanes exercise the schema and platform gate without
 claiming Darwin authority.
 
-This checked foundation is not yet connected to installation, build
-consumption, runtime identity, Host target cells, or advertisement loading. Its
-catalog remains disabled in the code revision that introduces it, and it makes
-no physical promotion claim.
+The production installer and store verifier consume this checked foundation
+and expose the common checked result for build preflight. Build consumption,
+runtime identity, Host target cells, and advertisement loading remain separate
+gates. The catalog remains disabled in the implementation revision, the legacy
+acceptance field remains false, and this connection makes no physical promotion
+claim.
 
 ## Cross-runner conformance authority
 
@@ -1503,9 +1540,10 @@ platform path-equivalence, special-member, symlink, limit, digest, mode,
 authority-document, partial-store, mutation, truncation/resource-lifecycle,
 ownership, ancestor-substitution, ACL, special-bit, lock-tombstone, and crash-
 restart cases in the acceptance corpus. It reconstructs publisher
-expectations from checked policy plus the externally selected current checkout
+expectations from checked policy plus the externally selected artifact-source
 revision, validates the manifest plus every declared authority-document
-preimage and its payload join, writes canonical transport/completion records
+preimage and its payload join, rejoins the distinct current A/C checkout
+admission before publication, writes canonical transport/completion records
 last, atomically publishes the artifact-ID store, and fully reverifies an
 existing store and selected transport. That
 reverification re-extracts the freshly authenticated retained archive into a
@@ -1526,9 +1564,10 @@ canonical stable v2 expectations, invokes it without a shell or network-
 dependent inputs, bounds its output and time, and rehashes the verifier and
 expectations around execution. A missing, redirected, writable-by-another-
 principal, or byte-different verifier fails closed. A real private Ibex
-archive/bundle corpus is still required before this path can furnish promotion
-evidence. The store still has no `build.rs`, post-link, runtime, REPL, or
-conformance consumer; target advertisements and
+archive/bundle corpus is still required before this path can furnish physical
+promotion evidence. The store exposes its checked admission result but still
+has no `build.rs`, post-link, runtime, REPL, or conformance consumer in this
+checkpoint; target advertisements and
 `portableArtifactAcceptanceEnabled` remain unchanged and closed.
 
 Exit: a clean checkout can install and run the reviewed Release engine without

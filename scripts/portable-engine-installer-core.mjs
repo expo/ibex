@@ -1,7 +1,8 @@
 // Safe, checkout-local materialization for an authenticated portable engine.
-// This phase-1 foundation deliberately does not make the resulting store an
-// accepted build/runtime authority; build.rs and target advertisement remain
-// disconnected until LLP 0035's remaining gates are complete.
+// The store remains transport-authenticated independently of current-checkout
+// promotion. Production additionally binds its result to the fixed, exact
+// A/P/C promotion-lineage verifier; build/runtime consumers still decide how
+// an authorized or diagnostic result may be used.
 //
 // @ref LLP 0035#transport-and-distribution-provenance — authenticate the
 // detached publisher statement and exact archive bytes before parsing gzip or
@@ -27,6 +28,10 @@ import {
   rawDigest,
   semanticDigest,
 } from "./portable-engine-contract.mjs";
+import {
+  bindVerifiedPortableEnginePromotionAdmission,
+  verifyPortableEnginePromotionAdmission,
+} from "./portable-engine-promotion-lineage.mjs";
 
 const TARGET_TRIPLE = "aarch64-apple-darwin";
 const POLICY_PATH = "schemas/portable-engine-provenance-trust-policy-v1.json";
@@ -457,6 +462,76 @@ function assertCurrentCheckoutRevision(repoRoot, expected, dependencies) {
   const resolveCheckoutRevision = dependencies.resolveCheckoutRevision ?? defaultResolveCheckoutRevision;
   const observed = resolveCheckoutRevision(repoRoot);
   assert(observed === expected, `externally selected revision ${expected} is not current checkout HEAD ${observed}`);
+}
+
+// @ref LLP 0035#promotion-lineage-and-admission — package authority remains at
+// source A while only the exact reviewed merge C grants current-checkout
+// admission; a later descendant cannot inherit C's result.
+function assertProductionPromotionPreselection(lineage, sourceRevision) {
+  assert(lineage && typeof lineage === "object" && !Array.isArray(lineage), "fixed promotion verifier returned no checked result");
+  assert(typeof lineage.authorized === "boolean", "fixed promotion verifier returned no closed authorization outcome");
+  assertSourceRevision(lineage.currentRevision, "promotion checkout revision");
+  if (lineage.authorized) {
+    assert(lineage.sourceRevision === sourceRevision, "promoted artifact source revision differs from the selected installer source revision");
+    assert(lineage.targetTriple === TARGET_TRIPLE, "promoted target triple differs from the production portable installer target");
+  } else {
+    assert(lineage.currentRevision === sourceRevision, "a disabled promotion catalog is diagnostic only at its exact artifact-source checkout");
+  }
+}
+
+function bindManifestPromotionAdmission(lineage, manifest, sourceRevision) {
+  assert(manifest.build.sourceRevision === sourceRevision, "portable manifest source revision changed before promotion admission binding");
+  return bindVerifiedPortableEnginePromotionAdmission(lineage, {
+    expectedSourceRevision: sourceRevision,
+    targetTriple: manifest.target.triple,
+    portableArtifactId: manifest.artifactId,
+  });
+}
+
+async function withProductionPromotionAdmission(options, operation) {
+  const selectedRoot = options.repoRoot ?? process.cwd();
+  const sourceRevision = options.expectedSourceRevision;
+  assertSourceRevision(sourceRevision, "externally selected artifact source revision");
+  const before = verifyPortableEnginePromotionAdmission({ repoRoot: selectedRoot });
+  assertProductionPromotionPreselection(before, sourceRevision);
+  if (options.artifactId !== undefined) {
+    bindVerifiedPortableEnginePromotionAdmission(before, {
+      expectedSourceRevision: sourceRevision,
+      targetTriple: TARGET_TRIPLE,
+      portableArtifactId: options.artifactId,
+    });
+  }
+
+  let result;
+  let operationFailure = null;
+  try {
+    result = await operation(before);
+  } catch (error) {
+    operationFailure = error;
+  }
+
+  let after;
+  try {
+    after = verifyPortableEnginePromotionAdmission({ repoRoot: selectedRoot });
+    assertSame(after, before, "promotion authority before/after production installer operation");
+  } catch (recheckFailure) {
+    if (operationFailure) {
+      throw new AggregateError(
+        [operationFailure, recheckFailure],
+        `production installer operation failed and promotion authority recheck also failed: ${recheckFailure.message}`,
+      );
+    }
+    throw recheckFailure;
+  }
+  if (operationFailure) throw operationFailure;
+
+  const promotionAdmission = bindManifestPromotionAdmission(after, result.manifest, sourceRevision);
+  return {
+    ...result,
+    authorized: promotionAdmission.authorized,
+    diagnosticOnly: !promotionAdmission.authorized,
+    promotionAdmission,
+  };
 }
 
 function jsonPointer(value, fragment, label) {
@@ -1666,12 +1741,13 @@ async function verifyRetainedArchiveMaterialization({ repoRoot, storeRoot, artif
   }
 }
 
-async function verifyPortableEngineStoreCore(options, runtime, checkedContext = null) {
+async function verifyPortableEngineStoreCore(options, runtime, checkedContext = null, promotionLineage = null) {
   const dependencies = runtime.dependencies;
   const repoRoot = await requireCheckoutRoot(options.repoRoot, runtime);
   const sourceRevision = options.expectedSourceRevision;
   assertSourceRevision(sourceRevision, "externally selected checkout revision");
-  assertCurrentCheckoutRevision(repoRoot, sourceRevision, dependencies);
+  if (promotionLineage) assertProductionPromotionPreselection(promotionLineage, sourceRevision);
+  assertCurrentCheckoutRevision(repoRoot, promotionLineage?.currentRevision ?? sourceRevision, dependencies);
   const context = checkedContext ?? await loadCheckedContext(repoRoot, sourceRevision, dependencies);
   const artifactId = options.artifactId;
   assertSemanticDigest(artifactId, "portable artifact ID");
@@ -1699,6 +1775,7 @@ async function verifyPortableEngineStoreCore(options, runtime, checkedContext = 
   const manifestBytes = await readBoundedRegular(path.join(artifactRoot, MANIFEST_PATH), "installed portable manifest", context.policy.archiveLimits.maxRegularFileBytes);
   const manifest = validateManifestShape(manifestBytes, context, sourceRevision);
   assert(manifest.artifactId === artifactId, "store directory and manifest artifact IDs differ");
+  if (promotionLineage) bindManifestPromotionAdmission(promotionLineage, manifest, sourceRevision);
   const installedGraph = await validateInstalledPayload(artifactRoot, manifest, context, runtime);
   await validateManifestAuthorities(artifactRoot, manifest, context, sourceRevision, { ...dependencies, repoRoot });
   const localNames = (await fsp.readdir(path.join(artifactRoot, "LOCAL"))).sort(compareUtf8);
@@ -2241,12 +2318,13 @@ async function publishFreshCandidate(candidateRoot, finalRoot, storeRoot, runtim
   await invokeFailpoint(runtime, "after-published-parent-fsync", { finalRoot });
 }
 
-async function installPortableEngineCore(options, runtime) {
+async function installPortableEngineCore(options, runtime, promotionLineage = null) {
   const dependencies = runtime.dependencies;
   const repoRoot = await requireCheckoutRoot(options.repoRoot, runtime);
   const sourceRevision = options.expectedSourceRevision;
   assertSourceRevision(sourceRevision, "externally selected checkout revision");
-  assertCurrentCheckoutRevision(repoRoot, sourceRevision, dependencies);
+  if (promotionLineage) assertProductionPromotionPreselection(promotionLineage, sourceRevision);
+  assertCurrentCheckoutRevision(repoRoot, promotionLineage?.currentRevision ?? sourceRevision, dependencies);
   const context = await loadCheckedContext(repoRoot, sourceRevision, dependencies);
   const storeRoot = await requireStoreRoot(repoRoot, runtime);
   const workspace = await fsp.mkdtemp(path.join(storeRoot, ".install-"));
@@ -2277,6 +2355,7 @@ async function installPortableEngineCore(options, runtime) {
     const candidateRoot = path.join(workspace, "candidate");
     await fsp.mkdir(candidateRoot, { mode: 0o700 });
     const extracted = await extractAuthenticatedArchive(pinnedArchive, candidateRoot, context, sourceRevision, dependencies);
+    if (promotionLineage) bindManifestPromotionAdmission(promotionLineage, extracted.manifest, sourceRevision);
     const afterExtraction = await digestRegularFile(pinnedArchive, "authenticated pinned archive after extraction", context.policy.archiveLimits.maxArchiveBytes);
     assert(afterExtraction.digest === archive.digest && afterExtraction.size === archive.size && fileObjectEqual(afterExtraction.stat, archive.stat), "authenticated archive mutated during extraction");
     const bundleAfterExtraction = await digestRegularFile(pinnedBundle, "authenticated pinned provenance bundle after extraction", context.policy.provenanceBundleBytes.maxBundleBytes);
@@ -2317,7 +2396,7 @@ async function installPortableEngineCore(options, runtime) {
             expectedSourceRevision: sourceRevision,
             artifactId: extracted.manifest.artifactId,
             archiveDigest: destinationTransportExists ? archive.digest : undefined,
-          }, runtime, context);
+          }, runtime, context, promotionLineage);
           assertSame(existing.manifest, extracted.manifest, "existing store portable identity");
         } catch (error) {
           currentQuarantine = await quarantineExactDestination(storeRoot, finalRoot, extracted.manifest.artifactId, runtime, error);
@@ -2334,7 +2413,7 @@ async function installPortableEngineCore(options, runtime) {
         expectedSourceRevision: sourceRevision,
         artifactId: extracted.manifest.artifactId,
         archiveDigest: archive.digest,
-      }, runtime, context);
+      }, runtime, context, promotionLineage);
       const quarantines = await listArtifactQuarantines(storeRoot, extracted.manifest.artifactId, runtime);
       return { ...selected, installed, replacedInvalid, quarantine: currentQuarantine, quarantines, diagnosticOnly: true };
     });
@@ -2345,19 +2424,25 @@ async function installPortableEngineCore(options, runtime) {
   }
 }
 
-async function verifyWithArtifactLock(options, runtime) {
+async function verifyWithArtifactLock(options, runtime, promotionLineage = null) {
   assertSemanticDigest(options.artifactId, "portable artifact ID");
   const repoRoot = await requireCheckoutRoot(options.repoRoot, runtime);
   const storeRoot = await requireStoreRoot(repoRoot, runtime);
-  return await withArtifactLock(storeRoot, options.artifactId, runtime, async () => verifyPortableEngineStoreCore(options, runtime));
+  return await withArtifactLock(storeRoot, options.artifactId, runtime, async () => verifyPortableEngineStoreCore(options, runtime, null, promotionLineage));
 }
 
 export async function installPortableEngineProductionCore(options) {
-  return await installPortableEngineCore(options, createRuntime(PRODUCTION_STORE_CONTRACT, {}));
+  const runtime = createRuntime(PRODUCTION_STORE_CONTRACT, {});
+  return await withProductionPromotionAdmission(options, async (promotionLineage) => (
+    installPortableEngineCore(options, runtime, promotionLineage)
+  ));
 }
 
 export async function verifyPortableEngineStoreProductionCore(options) {
-  return await verifyWithArtifactLock(options, createRuntime(PRODUCTION_STORE_CONTRACT, {}));
+  const runtime = createRuntime(PRODUCTION_STORE_CONTRACT, {});
+  return await withProductionPromotionAdmission(options, async (promotionLineage) => (
+    verifyWithArtifactLock(options, runtime, promotionLineage)
+  ));
 }
 
 function testRuntime(dependencies = {}) {
@@ -2371,6 +2456,10 @@ function testRuntime(dependencies = {}) {
 
 export async function installPortableEngineTestOnly(options, dependencies = {}) {
   return await installPortableEngineCore(options, testRuntime(dependencies));
+}
+
+export async function installPortableEngineWithPromotionLineageTestOnly(options, promotionLineage, dependencies = {}) {
+  return await installPortableEngineCore(options, testRuntime(dependencies), promotionLineage);
 }
 
 export async function verifyPortableEngineStoreTestOnly(options, dependencies = {}) {

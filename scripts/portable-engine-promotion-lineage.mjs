@@ -1,10 +1,10 @@
 // Verify that a portable-engine admission is the only authority-bearing change
 // in one exact, non-fast-forward promotion merge.
 //
-// This module is intentionally not wired into installation, build, runtime, or
-// Host startup yet. A disabled catalog returns no authority. An active catalog
-// is useful only after this verifier reconstructs and hashes the complete Git
-// lineage and exact changed-blob set.
+// Production installation and store verification consume this fixed verifier.
+// A disabled catalog returns a checked diagnostic result; an active catalog is
+// useful only after this verifier reconstructs and hashes the complete Git
+// lineage and exact changed-blob set. Runtime and Host startup remain closed.
 //
 // @ref LLP 0035#promotion-lineage-and-admission — source artifacts are built at
 // a closed commit, then admitted only by a current, non-inheriting merge whose
@@ -31,10 +31,13 @@ import {
 const CATALOG_SCHEMA = "ibex/portable-engine-promotion-admission-catalog/1";
 const ADMISSION_SCHEMA = "ibex/portable-engine-promotion-admission/1";
 const VERIFICATION_SCHEMA = "ibex/portable-engine-promotion-lineage-verification/1";
+const CHECKED_ADMISSION_SCHEMA = "ibex/portable-engine-checked-promotion-admission/1";
 const ADMISSION_DOMAIN = "ibex.portable-engine-promotion-admission.v1";
+const CHECKED_ADMISSION_DOMAIN = "ibex.portable-engine-checked-promotion-admission.v1";
 const MERGE_TOPOLOGY = "github-pull-request-merge/direct-single-commit-topic/1";
 const CATALOG_PATH = "schemas/portable-engine-promotion-admission-catalog-v1.json";
 const CATALOG_SCHEMA_PATH = "schemas/portable-engine-promotion-admission-catalog-v1.schema.json";
+const CHECKED_ADMISSION_SCHEMA_PATH = "schemas/portable-engine-checked-promotion-admission-v1.schema.json";
 const TRUST_POLICY_PATH = "schemas/portable-engine-provenance-trust-policy-v1.json";
 const TARGET_ATTESTATION_PATH = "capsec/conformance/target-attestations.json";
 const TARGET_ADVERTISEMENT_PATH = "capsec/generated/target-advertisements.json";
@@ -799,7 +802,7 @@ function pinWorkingAuthorityFile(repoRoot, currentLeaves, relativePath, authorit
 function pinRunningAuthority(repoRoot, currentLeaves, authorityPlane) {
   const expectedModule = path.join(repoRoot, MODULE_PATH);
   assert(fs.realpathSync(moduleFilePath) === fs.realpathSync(expectedModule), "promotion verifier is not running from the selected checkout's exact checked path");
-  for (const relativePath of [MODULE_PATH, CONTRACT_PATH, CATALOG_SCHEMA_PATH, CATALOG_PATH]) {
+  for (const relativePath of [MODULE_PATH, CONTRACT_PATH, CATALOG_SCHEMA_PATH, CHECKED_ADMISSION_SCHEMA_PATH, CATALOG_PATH]) {
     pinWorkingAuthorityFile(repoRoot, currentLeaves, relativePath, authorityPlane);
   }
 }
@@ -874,6 +877,106 @@ export function verifyPortableEnginePromotionAdmission(options = {}) {
   } finally {
     authorityPlane.close();
   }
+}
+
+function exactCheckedSelectionOptions(options) {
+  assert(options && typeof options === "object" && !Array.isArray(options), "checked promotion admission expects one options object");
+  const keys = Object.keys(options).sort();
+  const allowed = ["expectedSourceRevision", "portableArtifactId", "repoRoot", "targetTriple"];
+  assert(keys.every((key) => allowed.includes(key)), `checked promotion admission received unknown option ${keys.find((key) => !allowed.includes(key))}`);
+  for (const required of ["expectedSourceRevision", "portableArtifactId", "targetTriple"]) {
+    assert(Object.prototype.hasOwnProperty.call(options, required), `checked promotion admission is missing ${required}`);
+  }
+  assertSha1ObjectId(options.expectedSourceRevision, "selected artifact source revision");
+  assertSemanticDigest(options.portableArtifactId, "selected portable artifact ID");
+  assert(
+    typeof options.targetTriple === "string"
+      && /^[a-z0-9_]+(?:-[a-z0-9_]+)+$/u.test(options.targetTriple)
+      && options.targetTriple.length <= 128,
+    "selected portable target triple is invalid",
+  );
+  return {
+    repoRoot: options.repoRoot ?? process.cwd(),
+    expectedSourceRevision: options.expectedSourceRevision,
+    targetTriple: options.targetTriple,
+    portableArtifactId: options.portableArtifactId,
+  };
+}
+
+function validateLineageVerificationResult(lineage) {
+  assert(lineage && typeof lineage === "object" && !Array.isArray(lineage), "promotion lineage verification result must be an object");
+  assert(lineage.schema === VERIFICATION_SCHEMA, "promotion lineage verification result has an unsupported schema");
+  assert(typeof lineage.authorized === "boolean", "promotion lineage verification result has no closed authorization outcome");
+  assertSha1ObjectId(lineage.currentRevision, "promotion lineage current revision");
+  if (!lineage.authorized) {
+    assertExactKeys(lineage, ["schema", "authorized", "currentRevision", "admission"], "disabled promotion lineage verification result");
+    assert(lineage.admission === null, "disabled promotion lineage verification result must carry a null admission");
+    return;
+  }
+  assertExactKeys(
+    lineage,
+    [
+      "schema",
+      "authorized",
+      "currentRevision",
+      "promotionTopicRevision",
+      "sourceRevision",
+      "sourceTreeObjectId",
+      "targetTriple",
+      "portableArtifactId",
+      "admissionDigest",
+    ],
+    "active promotion lineage verification result",
+  );
+  assertSha1ObjectId(lineage.promotionTopicRevision, "promotion lineage topic revision");
+  assertSha1ObjectId(lineage.sourceRevision, "promotion lineage source revision");
+  assertSha1ObjectId(lineage.sourceTreeObjectId, "promotion lineage source tree object ID");
+  assert(
+    typeof lineage.targetTriple === "string"
+      && /^[a-z0-9_]+(?:-[a-z0-9_]+)+$/u.test(lineage.targetTriple)
+      && lineage.targetTriple.length <= 128,
+    "promotion lineage target triple is invalid",
+  );
+  assertSemanticDigest(lineage.portableArtifactId, "promotion lineage portable artifact ID");
+  assertSemanticDigest(lineage.admissionDigest, "promotion lineage admission digest");
+}
+
+// This formatter does not establish Git authority by itself. Production calls
+// it only with the result returned by the fixed verifier above; the separately
+// exported checked entry point performs that composition for other consumers.
+export function bindVerifiedPortableEnginePromotionAdmission(lineage, selection) {
+  if (arguments.length !== 2) fail("checked promotion admission binding expects one verified lineage result and one selection");
+  validateLineageVerificationResult(lineage);
+  const selected = exactCheckedSelectionOptions(selection);
+  if (lineage.authorized) {
+    assert(lineage.sourceRevision === selected.expectedSourceRevision, "promoted artifact source revision differs from the selected manifest/store source revision");
+    assert(lineage.targetTriple === selected.targetTriple, "promoted target triple differs from the selected manifest/store target");
+    assert(lineage.portableArtifactId === selected.portableArtifactId, "promoted artifact ID differs from the selected manifest/store artifact ID");
+  } else {
+    assert(lineage.currentRevision === selected.expectedSourceRevision, "a disabled promotion catalog is diagnostic only at its exact artifact-source checkout");
+  }
+  const checked = {
+    schema: CHECKED_ADMISSION_SCHEMA,
+    authorized: lineage.authorized,
+    currentRevision: lineage.currentRevision,
+    sourceRevision: selected.expectedSourceRevision,
+    promotionTopicRevision: lineage.authorized ? lineage.promotionTopicRevision : null,
+    sourceTreeObjectId: lineage.authorized ? lineage.sourceTreeObjectId : null,
+    targetTriple: selected.targetTriple,
+    portableArtifactId: selected.portableArtifactId,
+    admissionDigest: lineage.authorized ? lineage.admissionDigest : null,
+  };
+  return Object.freeze({
+    ...checked,
+    verificationDigest: semanticDigest(CHECKED_ADMISSION_DOMAIN, checked),
+  });
+}
+
+export function verifyPortableEngineCheckedPromotionAdmission(options) {
+  if (arguments.length !== 1) fail("checked promotion admission accepts exactly one production options object");
+  const selected = exactCheckedSelectionOptions(options);
+  const lineage = verifyPortableEnginePromotionAdmission({ repoRoot: selected.repoRoot });
+  return bindVerifiedPortableEnginePromotionAdmission(lineage, selected);
 }
 
 function isDirectInvocation() {

@@ -22,11 +22,13 @@ const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 const temporaryRoots = new Set();
 const catalogPath = "schemas/portable-engine-promotion-admission-catalog-v1.json";
 const schemaPath = "schemas/portable-engine-promotion-admission-catalog-v1.schema.json";
+const checkedAdmissionSchemaPath = "schemas/portable-engine-checked-promotion-admission-v1.schema.json";
 const targetAttestationPath = "capsec/conformance/target-attestations.json";
 const targetAdvertisementPath = "capsec/generated/target-advertisements.json";
 const targetTriple = "aarch64-apple-darwin";
 const artifactId = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const admissionDomain = "ibex.portable-engine-promotion-admission.v1";
+const checkedAdmissionDomain = "ibex.portable-engine-checked-promotion-admission.v1";
 const gitEnvironment = Object.freeze({
   PATH: "/usr/bin:/bin",
   HOME: "/var/empty",
@@ -107,7 +109,10 @@ async function initializeSourceRepository() {
   for (const relativePath of [
     "scripts/portable-engine-promotion-lineage.mjs",
     "scripts/portable-engine-contract.mjs",
+    "scripts/portable-engine-installer.mjs",
+    "scripts/portable-engine-installer-core.mjs",
     schemaPath,
+    checkedAdmissionSchemaPath,
     catalogPath,
     "schemas/portable-engine-provenance-trust-policy-v1.json",
   ]) {
@@ -303,6 +308,39 @@ function assertVerifierRefuses(repoRoot, pattern) {
   assert.match(result.stderr, pattern);
 }
 
+function runCheckedAdmission(repoRoot, selection) {
+  const program = [
+    "import { verifyPortableEngineCheckoutAdmission } from './scripts/portable-engine-installer.mjs';",
+    "const selection = JSON.parse(process.env.IBEX_TEST_PROMOTION_SELECTION);",
+    "process.stdout.write(`${JSON.stringify(verifyPortableEngineCheckoutAdmission(selection))}\\n`);",
+  ].join("\n");
+  return spawnSync(process.execPath, ["--input-type=module", "--eval", program], {
+    cwd: repoRoot,
+    env: {
+      ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !["NODE_OPTIONS", "NODE_PATH"].includes(name))),
+      IBEX_TEST_PROMOTION_SELECTION: JSON.stringify({ repoRoot, ...selection }),
+    },
+    encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
+    timeout: 30_000,
+  });
+}
+
+function checkedAdmissionResult(repoRoot, selection = {}) {
+  const result = runCheckedAdmission(repoRoot, {
+    expectedSourceRevision: selection.expectedSourceRevision,
+    artifactId: selection.artifactId ?? artifactId,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  return JSON.parse(result.stdout);
+}
+
+function assertCheckedAdmissionRefuses(repoRoot, selection, pattern) {
+  const result = runCheckedAdmission(repoRoot, selection);
+  assert.notEqual(result.status, 0, `checked admission unexpectedly accepted: ${result.stdout}`);
+  assert.match(result.stderr, pattern);
+}
+
 describe("portable engine promotion admission schema and foundation", () => {
   test("the production trust adapter is explicitly Darwin-only", () => {
     assert.equal(portableEnginePromotionLineagePlatformSupported("darwin"), true);
@@ -343,6 +381,26 @@ describe("portable engine promotion admission schema and foundation", () => {
     assert.equal(validate({ ...vectors.activeCatalog, enabled: false }), false);
     assert.equal(validate({ ...vectors.disabledCatalog, enabled: true }), false);
   });
+
+  test("checked admission schema freezes one common A/C result shape", () => {
+    const schema = JSON.parse(fs.readFileSync(path.join(sourceRoot, checkedAdmissionSchemaPath), "utf8"));
+    const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
+    const diagnostic = {
+      schema: "ibex/portable-engine-checked-promotion-admission/1",
+      authorized: false,
+      currentRevision: "a".repeat(40),
+      sourceRevision: "a".repeat(40),
+      promotionTopicRevision: null,
+      sourceTreeObjectId: null,
+      targetTriple,
+      portableArtifactId: artifactId,
+      admissionDigest: null,
+      verificationDigest: artifactId,
+    };
+    assert.equal(validate(diagnostic), true, JSON.stringify(validate.errors));
+    assert.equal(validate({ ...diagnostic, authorized: true }), false);
+    assert.equal(validate({ ...diagnostic, note: "open field" }), false);
+  });
 });
 
 describe("portable engine checked Git promotion lineage", { skip: process.platform !== "darwin" }, () => {
@@ -359,6 +417,75 @@ describe("portable engine checked Git promotion lineage", { skip: process.platfo
     const sourceResult = verifiedResult(fixture.repoRoot);
     assert.equal(sourceResult.authorized, false);
     assert.equal(sourceResult.admission, null);
+  });
+
+  test("the production checked selection binds source A and exact merge C separately", async () => {
+    const fixture = await createPromotionRepository();
+    const promoted = checkedAdmissionResult(fixture.repoRoot, { expectedSourceRevision: fixture.sourceRevision });
+    assert.deepEqual(Object.keys(promoted).sort(), [
+      "schema",
+      "authorized",
+      "currentRevision",
+      "sourceRevision",
+      "promotionTopicRevision",
+      "sourceTreeObjectId",
+      "targetTriple",
+      "portableArtifactId",
+      "admissionDigest",
+      "verificationDigest",
+    ].sort());
+    assert.equal(promoted.authorized, true);
+    assert.equal(promoted.currentRevision, fixture.promotionMergeRevision);
+    assert.equal(promoted.sourceRevision, fixture.sourceRevision);
+    assert.equal(promoted.promotionTopicRevision, fixture.promotionTopicRevision);
+    assert.equal(promoted.sourceTreeObjectId, fixture.sourceTreeObjectId);
+    assert.equal(promoted.targetTriple, targetTriple);
+    assert.equal(promoted.portableArtifactId, artifactId);
+    assert.equal(
+      promoted.verificationDigest,
+      semanticDigest(checkedAdmissionDomain, promoted, ["verificationDigest"]),
+    );
+    const validate = new Ajv2020({ allErrors: true, strict: true }).compile(
+      JSON.parse(fs.readFileSync(path.join(sourceRoot, checkedAdmissionSchemaPath), "utf8")),
+    );
+    assert.equal(validate(promoted), true, JSON.stringify(validate.errors));
+
+    git(fixture.repoRoot, ["switch", "--quiet", "--detach", fixture.sourceRevision]);
+    const diagnostic = checkedAdmissionResult(fixture.repoRoot, { expectedSourceRevision: fixture.sourceRevision });
+    assert.equal(diagnostic.authorized, false);
+    assert.equal(diagnostic.currentRevision, fixture.sourceRevision);
+    assert.equal(diagnostic.sourceRevision, fixture.sourceRevision);
+    assert.equal(diagnostic.promotionTopicRevision, null);
+    assert.equal(diagnostic.sourceTreeObjectId, null);
+    assert.equal(diagnostic.admissionDigest, null);
+    assert.equal(
+      diagnostic.verificationDigest,
+      semanticDigest(checkedAdmissionDomain, diagnostic, ["verificationDigest"]),
+    );
+    assert.equal(validate(diagnostic), true, JSON.stringify(validate.errors));
+  });
+
+  test("checked selection refuses source, target, and artifact substitution", async () => {
+    const fixture = await createPromotionRepository();
+    const selection = {
+      expectedSourceRevision: fixture.sourceRevision,
+      artifactId,
+    };
+    assertCheckedAdmissionRefuses(
+      fixture.repoRoot,
+      { ...selection, expectedSourceRevision: "f".repeat(40) },
+      /source revision differs/u,
+    );
+    assertCheckedAdmissionRefuses(
+      fixture.repoRoot,
+      { ...selection, targetTriple: "x86_64-apple-darwin" },
+      /unknown option targetTriple/u,
+    );
+    assertCheckedAdmissionRefuses(
+      fixture.repoRoot,
+      { ...selection, artifactId: "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB" },
+      /artifact ID differs/u,
+    );
   });
 
   test("a canonical linked worktree gitfile and packed symbolic ref both verify", async () => {
@@ -399,6 +526,10 @@ describe("portable engine checked Git promotion lineage", { skip: process.platfo
   test("an unchanged later descendant cannot inherit an admission", async () => {
     const fixture = await createPromotionRepository({ laterDescendant: true });
     assertVerifierRefuses(fixture.repoRoot, /exact two-parent promotion merge/u);
+    assertCheckedAdmissionRefuses(fixture.repoRoot, {
+      expectedSourceRevision: fixture.sourceRevision,
+      artifactId,
+    }, /exact two-parent promotion merge/u);
   });
 
   test("fast-forward and squash-shaped single-parent promotion commits are refused", async () => {
@@ -467,6 +598,8 @@ describe("portable engine checked Git promotion lineage", { skip: process.platfo
     assertVerifierRefuses(moduleDrift.repoRoot, /changed-path set mismatch/u);
     const schemaDrift = await createPromotionRepository({ authorityDriftPath: schemaPath });
     assertVerifierRefuses(schemaDrift.repoRoot, /changed-path set mismatch/u);
+    const checkedSchemaDrift = await createPromotionRepository({ authorityDriftPath: checkedAdmissionSchemaPath });
+    assertVerifierRefuses(checkedSchemaDrift.repoRoot, /changed-path set mismatch/u);
   });
 
   test("blob object, size, digest, and admission-digest substitutions fail", async () => {
