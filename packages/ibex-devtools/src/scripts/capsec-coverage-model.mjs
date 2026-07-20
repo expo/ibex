@@ -5234,6 +5234,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_runtime_nonce",
     "ex_hermes_schedule_watchdog_heartbeat",
     "ex_hermes_schedule_watchdog_heartbeat_for_generation",
+    "ex_hermes_seal_armed_shared_runtime_globals_v1",
     "ex_hermes_session_display_ack",
     "ex_hermes_set_dispatch_callback",
     "ex_hermes_set_dispatch_with_debug_context_callback",
@@ -6792,6 +6793,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "evaluation:__has_include:18ool1z:stream-stability-patch",
     "evaluation:defined:13e9rgh:promise-unwrap",
     "evaluation:ex_hermes_debugger_eval:cdp",
+    "evaluation:ex_hermes_seal_armed_shared_runtime_globals_v1:armed-shared-runtime-seal-v1",
     "evaluation:installCompartmentRegistry:compartment-registry",
     "evaluation:installFetchGlobals:windows-fetch-shim",
     "evaluation:installGlobals:capability-hardening",
@@ -6881,6 +6883,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "private:ibex:session-worker-bootstrap:v1",
     "runtime-create",
     "scheduler-principal-capture",
+    "script:armed-shared-runtime-seal-v1",
     "script:bootstrap",
     "script:bytecode",
     "script:capability-hardening",
@@ -11162,6 +11165,9 @@ function startupClassification(surface) {
         "Immediate app-bundle artifact and prelude evaluation are closed authenticated embedder ingress.",
       );
     }
+    if (name === "script:armed-shared-runtime-seal-v1") {
+      return nonCapabilitySpec("runtime-bootstrap-state", "WP7");
+    }
     if (name === "script:ibex-cancellation-consistency") {
       return nonCapabilitySpec("terminal-session-control", "WP7");
     }
@@ -13454,6 +13460,9 @@ function classifyConcreteSurface(surface) {
     }
     if (surface.name === "ex_hermes_finish_bootstrap") {
       return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
+    }
+    if (surface.name === "ex_hermes_seal_armed_shared_runtime_globals_v1") {
+      return nonCapabilitySpec("runtime-bootstrap-state", "WP7");
     }
     if (
       surface.name === "ex_hermes_evaluation_result_init" ||

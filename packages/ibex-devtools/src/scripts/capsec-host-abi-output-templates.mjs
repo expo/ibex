@@ -181,6 +181,7 @@ const HERMES_DIAGNOSTIC_FUNCTIONS = new Set([
   "ex_hermes_resolve_host_call",
   "ex_hermes_runtime_nonce",
   "ex_hermes_schedule_watchdog_heartbeat_for_generation",
+  "ex_hermes_seal_armed_shared_runtime_globals_v1",
   "ex_hermes_set_exact_host_call_async",
   "ex_hermes_set_host_call",
   "ex_hermes_set_host_call_async",

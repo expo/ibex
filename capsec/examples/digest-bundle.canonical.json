@@ -141873,6 +141873,16 @@
             "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
           },
           {
+            "id": "surface.host.abi.ex.hermes.seal.armed.shared.runtime.globals.v1.1gs1iq6",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_seal_armed_shared_runtime_globals_v1"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.session.display.ack.0i9wiwm",
             "classification": "non-capability",
             "surface": {
@@ -269212,6 +269222,16 @@
             "rationale": "The CDP evaluation route executes debugger-controlled source in the inspected runtime."
           },
           {
+            "id": "surface.startup.evaluation.ex.hermes.seal.armed.shared.runtime.globals.v1.armed.shared.r.0pzzqhk",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "evaluation:ex_hermes_seal_armed_shared_runtime_globals_v1:armed-shared-runtime-seal-v1"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
             "id": "surface.startup.evaluation.has.include.18ool1z.stream.enhance.0x24hc2",
             "classification": "non-capability",
             "surface": {
@@ -270120,6 +270140,16 @@
             },
             "rationaleId": "callback-attribution-carrier",
             "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+          },
+          {
+            "id": "surface.startup.script.armed.shared.runtime.seal.v1.0gcognx",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "script:armed-shared-runtime-seal-v1"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
           },
           {
             "id": "surface.startup.script.bootstrap.04ar0fr",
@@ -278709,6 +278739,7 @@
                     "enum": [
                       "bootstrap-seal",
                       "session-binding",
+                      "shared-runtime-global-seal",
                       "submission-admission",
                       "submission-settlement"
                     ]

@@ -1267,9 +1267,21 @@ int32_t ex_hermes_deliver_gpu_canvas_attachment_receipt_v1(
     ExactHermesRuntime* runtime,
     const ExactGpuCanvasAttachmentReceiptV1* receipt);
 
+/// Run the reviewed shared-runtime ambient/global closure program for an armed
+/// runtime. This is an owner-thread, non-reentrant, trusted-bootstrap-only
+/// transition; diagnostic runtimes and provisional/failed embedder capability
+/// transactions are refused without executing JavaScript. A successful call
+/// is idempotent and is required before ex_hermes_finish_bootstrap.
+///
+/// Returns an ExHermesEvaluationFault value. A JavaScript or native sealing
+/// failure quarantines the runtime and returns EX_HERMES_EVAL_FAULT_ENGINE.
+uint32_t ex_hermes_seal_armed_shared_runtime_globals_v1(
+    ExactHermesRuntime* runtime);
+
 /// Irreversibly seal the armed runtime's phase-limited bare bootstrap
 /// evaluator after the trusted runtime bundle and compartment baseline are
-/// installed. Idempotent on an already-sealed armed runtime.
+/// installed and the named shared-runtime global seal has completed.
+/// Idempotent on an already-sealed armed runtime.
 uint32_t ex_hermes_finish_bootstrap(ExactHermesRuntime* runtime);
 
 /// Copy the filesystem path of the loaded artifact that contains Hermes'

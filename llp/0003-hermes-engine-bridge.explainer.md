@@ -371,8 +371,12 @@ After wrapper publication, package-baseline refresh, and sealing, the engine
 must verify the final root projection with its pristine descriptor-only
 intrinsics before admitting armed user execution. If bootstrap has already
 finished, finalization repeats the sweep immediately; if bootstrap remains
-open, `ex_hermes_finish_bootstrap` runs it after closing the other session
-bridges. An unexpected missing or extra conditional path invokes no getter,
+open, the embedder first calls the named owner-thread
+`ex_hermes_seal_armed_shared_runtime_globals_v1` transition and then
+`ex_hermes_finish_bootstrap` runs the sweep after closing the other session
+bridges. The native transition owns the only reviewed ambient-root closure
+program; embedders do not copy its list. An unexpected missing or extra
+conditional path invokes no getter,
 revokes every wrapper global, closes the GPU realm, and leaves the capability
 transaction terminally failed.
 

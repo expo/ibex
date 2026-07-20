@@ -597,6 +597,8 @@ void ibex_exact_runtime_c_abi_typecheck(void) {
       ex_hermes_resume_structured_session;
   uint32_t (*finish_bootstrap)(ExactHermesRuntime*) =
       ex_hermes_finish_bootstrap;
+  uint32_t (*seal_armed_shared_runtime_globals)(ExactHermesRuntime*) =
+      ex_hermes_seal_armed_shared_runtime_globals_v1;
   int32_t (*evaluate_gpu_canvas_immediate)(ExactHermesRuntime*,
                                            const uint8_t*,
                                            size_t,
@@ -731,6 +733,7 @@ void ibex_exact_runtime_c_abi_typecheck(void) {
   (void)finish_module_graph;
   (void)resume_structured_session;
   (void)finish_bootstrap;
+  (void)seal_armed_shared_runtime_globals;
   (void)evaluate_gpu_canvas_immediate;
   (void)evaluate_gpu_canvas_with_prelude_immediate;
   (void)begin_app_bundle_evaluation;

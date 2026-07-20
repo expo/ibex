@@ -5,7 +5,9 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-20 (adds an owner-thread outer host-task checkpoint to the construction-private V2 result: eval/result coercion, explicit promise advance, Exact poll callback batches, each timer, prepared runApp, native module/view/dispatch, structured evaluation, and debugger evaluation retain one Canvas epoch through nextTick and complete microtask drain; bounded Windows drains retain the same task across slices; the fifth exact frozen callback emits a distinct authenticated `texture-expire-v1` control under `GPUTexture.destroy`, while manual destroy remains orthogonal; ambiguous checkpoint failure quarantines the realm); 2026-07-20 (adds the explicit Exact-owned `EXACT_EXPERIMENTAL_WEBGPU_PRE1A` construction mode through separate Ibex artifact-builder and armed-host installer symbols: it raw-pins and derives exactly 58 private WebGPU target cells and 20 typed-positive `gpu:operation` selectors from the checked private registry, admits no app selector/cell/wildcard input, closes every ordinary target cell, leaves canonical arming and target advertisements unchanged, and still publishes the runtime wrapper only after authenticated V2 construction capture)
+**Revised:** 2026-07-20 (adds an owner-thread outer host-task checkpoint to the construction-private V2 result: eval/result coercion, explicit promise advance, Exact poll callback batches, each timer, prepared runApp, native module/view/dispatch, structured evaluation, and debugger evaluation retain one Canvas epoch through nextTick and complete microtask drain; bounded Windows drains retain the same task across slices; the fifth exact frozen callback emits a distinct authenticated `texture-expire-v1` control under `GPUTexture.destroy`, while manual destroy remains orthogonal; ambiguous checkpoint failure quarantines the realm)
+**Revised:** 2026-07-20 (adds the named owner-thread `ex_hermes_seal_armed_shared_runtime_globals_v1` trusted-bootstrap transition: Ibex owns the single reviewed ambient/global closure program, diagnostic/off-owner/reentrant/provisional calls execute none of it, a thrown or native failure quarantines the generation, and `ex_hermes_finish_bootstrap` now requires the successful seal witness before its pristine descriptor sweep)
+**Revised:** 2026-07-20 (adds the explicit Exact-owned `EXACT_EXPERIMENTAL_WEBGPU_PRE1A` construction mode through separate Ibex artifact-builder and armed-host installer symbols: it raw-pins and derives exactly 58 private WebGPU target cells and 20 typed-positive `gpu:operation` selectors from the checked private registry, admits no app selector/cell/wildcard input, closes every ordinary target cell, leaves canonical arming and target advertisements unchanged, and still publishes the runtime wrapper only after authenticated V2 construction capture)
 **Revised:** 2026-07-20 (adds the owner-thread outer app-bundle evaluation and irreversible quarantine ABI around the nested GPU Canvas handoff: debugger admission closes and pre-admitted queued commands are cancelled/settled before construction fencing and generated preparation; immediate source or prelude+HBC evaluation has no pump/coercion/mutable-handler hooks, with HBC sanity before prelude and status 2 as the sole source-fallback signal; native pristine-reflection classification caches an exact frozen carrier before Canvas root publication, staging deletes it and invokes only consume, runApp is admitted only after Canvas finish, final absence is re-proved before the outer gate opens, and every execution/cleanup/sequence ambiguity quarantines the generation for destruction; feature-off UNUSED startup retains the same outer/immediate/native-staging path)
 **Revised:** 2026-07-19 (publishes the source-derived WebGPU provider root set only from an authenticated V2 construction capture, publishes `createImageBitmap` only when decoded-image authority was attached, and requires an exact descriptor-only root-global sweep after publication and sealing but before user execution in either Apple bootstrap order; any mismatch revokes the wrapper and fails the runtime closed, while target advertisements, public grant issuance, and platform-support claims remain absent)
 **Revised:** 2026-07-19 (adds the source-derived construction-private WebGPU CapSec authority session: native-random bounded session identities, exact V2 Requested/Commit/Repeat and retire callbacks, full realm/account/device/object/handle and actor/effect-owner/scheduler/generation binding, typed `gpu:operation` positive decisions over generated private edge/cell mappings, structural authority-reducing decisions without positive grants, fail-closed service-admission enforcement, and teardown purge; `navigator.gpu`, embedded executable codecs, public grant issuance, target advertisement, and platform support claims remain absent)
@@ -1554,6 +1556,21 @@ additive owner-thread transaction:
    select different realm identities, and either Apple bootstrap order verifies
    the same final projection.
 
+The shared-runtime ambient/global closure is a separate named transition, not
+an implicit side effect of generic finalization. After the trusted runtime
+bundle is installed and any explicit embedder-capability transaction is no
+longer provisional, the owner calls
+`ex_hermes_seal_armed_shared_runtime_globals_v1`. Ibex evaluates its single
+reviewed native-owned program only while the armed bare-bootstrap phase is
+open; diagnostic, off-owner, reentrant, configuring, failed, or otherwise
+out-of-phase calls execute none of the program. Success records an idempotent
+witness. A JavaScript/native failure records the root-disposition diagnostic,
+quarantines the generation, and returns an engine fault. The caller then runs
+`ex_hermes_finish_bootstrap`, which requires that witness before validating the
+compartment posture, closing remaining private session bridges, and comparing
+the live descriptor graph to the generated three-set join. Embedders must not
+copy the program or its sealed-root list.
+
 Every user-code-driving entry point refuses while the transaction is
 `Configuring` or failed and, once trusted bootstrap closes, until the final
 root-global projection has passed that sweep; poll preserves queued callbacks
@@ -1583,7 +1600,8 @@ available independently of positive GPU authority.
 
 These GPU and construction-transaction symbols are provisional extensions for
 the pinned Exact consumer. Registration/finalization are classified as CapSec
-authority-control and the two ABI queries as runtime-bootstrap state; teardown
+authority-control; the two ABI queries and the named shared-runtime global seal
+are runtime-bootstrap state; teardown
 continues through the existing runtime release path. Conditional wrapper
 publication synthesizes no target advertisements and makes no platform-support
 claim. Every additional public GPU operation still requires complete generated

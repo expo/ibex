@@ -34,6 +34,16 @@
       "rationaleId": "authority-control-plane"
     },
     {
+      "role": "shared-runtime-global-seal",
+      "edgeId": "surface.host.abi.ex.hermes.seal.armed.shared.runtime.globals.v1.1gs1iq6",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_seal_armed_shared_runtime_globals_v1"
+      },
+      "classification": "non-capability",
+      "rationaleId": "runtime-bootstrap-state"
+    },
+    {
       "role": "submission-admission",
       "edgeId": "surface.host.abi.ex.hermes.structured.submission.admit.1hsgiyn",
       "surface": {
@@ -67,12 +77,15 @@
   "obligations": [
     {
       "id": "armed-session-bound",
-      "assertion": "Submission requires an armed runtime whose bootstrap seam is sealed and whose exact opaque session token has already been bound.",
+      "assertion": "Submission requires an armed runtime whose named shared-runtime global seal and bootstrap finalization completed and whose exact opaque session token has already been bound.",
       "sourceEvidence": [
         {
           "path": "src/engine/hermes_runtime.cc",
           "tokens": [
             "if (!runtime->armed) {",
+            "extern \"C\" uint32_t ex_hermes_seal_armed_shared_runtime_globals_v1(",
+            "runtime->armed_shared_runtime_globals_sealed = true;",
+            "if (!runtime->armed_shared_runtime_globals_sealed) {",
             "if (runtime->armed_bootstrap_eval_open) {",
             "runtime->structured_session_bound = true;",
             "if (!runtime->structured_session_bound) {",

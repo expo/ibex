@@ -540,6 +540,11 @@ struct ExactHermesRuntime {
   // armed runtime and irreversibly sealed before project source is admitted.
   // @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
   bool armed_bootstrap_eval_open{true};
+  // Set only by the named, owner-thread trusted seal after the reviewed
+  // shared-runtime ambient/global closure program completes without throwing.
+  // finish_bootstrap requires this witness instead of duplicating or
+  // implicitly running that program.
+  bool armed_shared_runtime_globals_sealed{false};
   // Immutable constructor-selected posture. Bootstrap must never consult
   // process-global environment toggles that other threads can observe/race.
   bool armed{false};

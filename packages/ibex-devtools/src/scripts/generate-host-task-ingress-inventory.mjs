@@ -52,6 +52,7 @@ const VALID_DISPOSITIONS = new Set([
   "restricted-no-app-webgpu",
   "terminal-cleanup",
   "test-only",
+  "trusted-bootstrap-no-app-code",
 ]);
 
 function classification(pathname, functionName, disposition, rationale) {
@@ -73,6 +74,8 @@ function classificationsFor(pathname, disposition, rationale, functions) {
 const RATIONALE = Object.freeze({
   construction:
     "Construction/bootstrap code runs before app WebGPU publication and invokes only captured bootstrap or pristine intrinsic functions.",
+  namedSeal:
+    "The named owner transition evaluates fixed native-owned seal bytes before any user-execution ingress; no app-controlled source or callback can run, and any failure quarantines the generation.",
   internal:
     "The helper runs only while an existing outer host task is finalizing its nextTick/microtask or GPU checkpoint closure.",
   nested:
@@ -169,6 +172,12 @@ export const HOST_TASK_INGRESS_CLASSIFICATIONS = Object.freeze([
       "sealUnarmedProcessExitCodeDescriptor",
       "verifyRootGlobalDisposition",
     ],
+  ),
+  classification(
+    "src/engine/hermes_runtime.cc",
+    "ex_hermes_seal_armed_shared_runtime_globals_v1",
+    "trusted-bootstrap-no-app-code",
+    RATIONALE.namedSeal,
   ),
   ...classificationsFor(
     "src/engine/hermes_runtime.cc",

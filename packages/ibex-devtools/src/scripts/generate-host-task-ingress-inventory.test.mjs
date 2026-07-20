@@ -45,12 +45,12 @@ describe("LLP 0002 host-task ingress inventory", () => {
     const artifact = checkHostTaskIngressInventory();
     expect(artifact.counts).toEqual({
       "user-execution-gate": 19,
-      "engine-eval-or-prepare": 27,
+      "engine-eval-or-prepare": 28,
       "jsi-function-call": 164,
     });
     expect(
       artifact.rows.reduce((count, row) => count + row.sites.length, 0),
-    ).toBe(210);
+    ).toBe(211);
     expect(artifact.ingressRows).toHaveLength(43);
     expect(
       artifact.ingressRows.find(

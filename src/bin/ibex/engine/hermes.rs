@@ -1344,6 +1344,8 @@ extern "C" {
         handle_count: usize,
     ) -> i32;
     #[cfg(any(test, feature = "module-runner"))]
+    fn ex_hermes_seal_armed_shared_runtime_globals_v1(runtime: *mut HermesRuntimeOpaque) -> u32;
+    #[cfg(any(test, feature = "module-runner"))]
     fn ex_hermes_finish_bootstrap(runtime: *mut HermesRuntimeOpaque) -> u32;
     fn ex_hermes_runtime_nonce(runtime: *mut HermesRuntimeOpaque) -> u64;
     #[cfg(feature = "module-runner")]
@@ -2515,6 +2517,17 @@ impl SharedRuntime {
         Ok(())
     }
 
+    fn seal_armed_shared_runtime_globals(&self) -> Result<()> {
+        let fault = self
+            .with_runtime(|raw| unsafe { ex_hermes_seal_armed_shared_runtime_globals_v1(raw) })?;
+        if fault != 0 {
+            anyhow::bail!(
+                "Hermes refused the named armed shared-runtime global seal (fault {fault})"
+            );
+        }
+        Ok(())
+    }
+
     fn ensure_module_generation_pinned(&self, nonce: u64, generation: u64) -> Result<()> {
         let pinned = self.module_generation_pinned.load(Ordering::Acquire);
         if pinned != 0 {
@@ -3412,66 +3425,14 @@ impl HermesEngine {
         if self.armed_snapshot_digest.is_none() {
             return Ok(());
         }
-
-        // @ref LLP 0011#state-modules — the trusted runtime keeps normalized
-        // accessibility state in module singletons; the public Exact/Bun
-        // namespace is not required by host snapshot or notification updates.
-        // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces —
-        // ambient embedder application-state channels are absent in armed code.
-        let seal = r#"(function(){
-  var rootNames = ['Exact', 'Bun'];
-  for (var index = 0; index < rootNames.length; index += 1) {
-    var rootName = rootNames[index];
-    var rootDescriptor = Object.getOwnPropertyDescriptor(globalThis, rootName);
-    if (rootDescriptor === undefined) {
-      if (rootName in globalThis) {
-        throw new Error('armed runtime inherited the ' + rootName + ' namespace');
-      }
-      continue;
-    }
-    if (!Object.prototype.hasOwnProperty.call(rootDescriptor, 'value')) {
-      throw new Error('armed runtime exposed an accessor-backed ' + rootName + ' namespace');
-    }
-    var root = rootDescriptor.value;
-    if ((typeof root !== 'object' && typeof root !== 'function') || root === null) continue;
-    var descriptor = Object.getOwnPropertyDescriptor(root, 'accessibility');
-    if (descriptor === undefined) {
-      if ('accessibility' in root) {
-        throw new Error('armed runtime inherited the accessibility namespace');
-      }
-      continue;
-    }
-    if (descriptor.configurable !== true || !delete root.accessibility ||
-        'accessibility' in root) {
-      throw new Error('armed runtime could not seal the accessibility namespace');
-    }
-  }
-  // @ref LLP 0011#ambient-shared-runtime-boundaries — armed code receives no
-  // ambient cross-context IPC or shared persistent-storage namespace. Trusted
-  // bootstrap modules may retain constructors that they captured internally.
-  var closedAmbientRoots = [
-    'BroadcastChannel', 'MessageChannel', 'MessagePort',
-    'caches', 'localStorage', 'sessionStorage',
-    'indexedDB', 'IDBCursor', 'IDBCursorWithValue', 'IDBDatabase', 'IDBIndex',
-    'IDBKeyRange', 'IDBObjectStore', 'IDBOpenDBRequest', 'IDBRequest', 'IDBTransaction'
-  ];
-  for (var ambientIndex = 0; ambientIndex < closedAmbientRoots.length; ambientIndex += 1) {
-    var ambientRoot = closedAmbientRoots[ambientIndex];
-    var ambientDescriptor = Object.getOwnPropertyDescriptor(globalThis, ambientRoot);
-    if (ambientDescriptor === undefined) {
-      if (ambientRoot in globalThis) {
-        throw new Error('armed runtime inherited the ' + ambientRoot + ' namespace');
-      }
-      continue;
-    }
-    if (ambientDescriptor.configurable !== true || !delete globalThis[ambientRoot] ||
-        ambientRoot in globalThis) {
-      throw new Error('armed runtime could not seal the ' + ambientRoot + ' namespace');
-    }
-  }
-})();"#;
-        let _ = self.eval_str(seal, "<armed-shared-runtime-seal>").await?;
-        Ok(())
+        // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+        // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+        // The native named transition owns the reviewed program and the full
+        // owner-thread/armed/bootstrap gate; embedders never duplicate its
+        // ambient-root list.
+        self.ensure_runtime()
+            .await?
+            .seal_armed_shared_runtime_globals()
     }
 
     async fn ensure_crypto_fallback(&self) -> Result<()> {
@@ -8542,6 +8503,9 @@ module.exports = JSON.stringify({
     const EXACT_RUNTIME_DRIVE_OFF_OWNER: i32 = -3;
     const EXACT_RUNTIME_DRIVE_QUARANTINED: i32 = -6;
     const EXACT_RUNTIME_DRIVE_APP_BUNDLE_OPEN: i32 = -7;
+    const EX_HERMES_EVAL_FAULT_ENGINE: u32 = 4;
+    const EX_HERMES_EVAL_FAULT_WRONG_THREAD: u32 = 6;
+    const EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED: u32 = 16;
     const EXACT_PREPARED_NATIVE_STARTUP_OK_V1: i32 = 0;
     const EXACT_PREPARED_NATIVE_STARTUP_REMOVED_AND_QUARANTINED_V1: i32 = 1;
     const EXACT_PREPARED_NATIVE_STARTUP_NONE_V1: u32 = 0;
@@ -15327,6 +15291,117 @@ module.exports = JSON.stringify({
         let runtime = SharedRuntime::new(Some(&digest))
             .expect("clearing injection must restore armed runtime creation");
         assert_eq!(runtime.shutdown(), RuntimeShutdown::Destroyed);
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn named_armed_shared_runtime_global_seal_is_owner_only_and_idempotent() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine
+            .eval_immediate(
+                r#"Object.defineProperty(globalThis, "BroadcastChannel", {
+                  value: function BroadcastChannel() {},
+                  writable: true,
+                  enumerable: false,
+                  configurable: true
+                }); "installed""#,
+            )
+            .await
+            .unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let raw_address = runtime.raw.load(Ordering::SeqCst) as usize;
+        let off_owner = std::thread::spawn(move || unsafe {
+            ex_hermes_seal_armed_shared_runtime_globals_v1(raw_address as *mut HermesRuntimeOpaque)
+        })
+        .join()
+        .unwrap();
+        assert_eq!(off_owner, EX_HERMES_EVAL_FAULT_WRONG_THREAD);
+        assert_eq!(
+            engine
+                .eval_immediate("typeof BroadcastChannel === 'function'")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("true"),
+            "off-owner refusal must not run any part of the seal program"
+        );
+
+        runtime.seal_armed_shared_runtime_globals().unwrap();
+        runtime.seal_armed_shared_runtime_globals().unwrap();
+        assert_eq!(
+            engine
+                .eval_immediate("typeof BroadcastChannel === 'undefined'")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("true"),
+            "the owner transition must remove the reviewed ambient root"
+        );
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn named_armed_shared_runtime_global_seal_refuses_diagnostic_runtime() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let engine = HermesEngine::new().unwrap();
+        engine
+            .eval_immediate(
+                r#"Object.defineProperty(globalThis, "BroadcastChannel", {
+                  value: function BroadcastChannel() {},
+                  writable: true,
+                  enumerable: false,
+                  configurable: true
+                }); "installed""#,
+            )
+            .await
+            .unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let fault = runtime
+            .with_runtime(|raw| unsafe { ex_hermes_seal_armed_shared_runtime_globals_v1(raw) })
+            .unwrap();
+        assert_eq!(fault, EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED);
+        assert_eq!(
+            engine
+                .eval_immediate("typeof BroadcastChannel === 'function'")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("true"),
+            "diagnostic refusal must not run any part of the seal program"
+        );
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn named_armed_shared_runtime_global_seal_failure_quarantines_runtime() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine
+            .eval_immediate(
+                r#"Object.defineProperty(globalThis, "MessageChannel", {
+                  value: function MessageChannel() {},
+                  writable: false,
+                  enumerable: false,
+                  configurable: false
+                }); "installed""#,
+            )
+            .await
+            .unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let fault = runtime
+            .with_runtime(|raw| unsafe { ex_hermes_seal_armed_shared_runtime_globals_v1(raw) })
+            .unwrap();
+        assert_eq!(fault, EX_HERMES_EVAL_FAULT_ENGINE);
+        assert_eq!(
+            runtime
+                .with_runtime(|raw| unsafe { ex_hermes_runtime_is_quarantined_v1(raw) })
+                .unwrap(),
+            1,
+            "a partial or failed seal must terminally quarantine the generation"
+        );
     }
 
     #[cfg(feature = "capsec-conformance-observer")]

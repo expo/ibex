@@ -8515,6 +8515,115 @@ bool installStructuredLifecycleAccessors(ExactHermesRuntime* handle) {
   }
 }
 
+// This program is deliberately native-owned: every embedder invokes the same
+// reviewed bytes through the named transition below, so neither the Ibex CLI
+// nor Exact carries a security-critical root list of its own.
+// @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+// @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+static constexpr char kArmedSharedRuntimeGlobalSealV1[] = R"JS((function(){
+  var rootNames = ['Exact', 'Bun'];
+  for (var index = 0; index < rootNames.length; index += 1) {
+    var rootName = rootNames[index];
+    var rootDescriptor = Object.getOwnPropertyDescriptor(globalThis, rootName);
+    if (rootDescriptor === undefined) {
+      if (rootName in globalThis) {
+        throw new Error('armed runtime inherited the ' + rootName + ' namespace');
+      }
+      continue;
+    }
+    if (!Object.prototype.hasOwnProperty.call(rootDescriptor, 'value')) {
+      throw new Error('armed runtime exposed an accessor-backed ' + rootName + ' namespace');
+    }
+    var root = rootDescriptor.value;
+    if ((typeof root !== 'object' && typeof root !== 'function') || root === null) continue;
+    var descriptor = Object.getOwnPropertyDescriptor(root, 'accessibility');
+    if (descriptor === undefined) {
+      if ('accessibility' in root) {
+        throw new Error('armed runtime inherited the accessibility namespace');
+      }
+      continue;
+    }
+    if (descriptor.configurable !== true || !delete root.accessibility ||
+        'accessibility' in root) {
+      throw new Error('armed runtime could not seal the accessibility namespace');
+    }
+  }
+  var closedAmbientRoots = [
+    'BroadcastChannel', 'MessageChannel', 'MessagePort',
+    'caches', 'localStorage', 'sessionStorage',
+    'indexedDB', 'IDBCursor', 'IDBCursorWithValue', 'IDBDatabase', 'IDBIndex',
+    'IDBKeyRange', 'IDBObjectStore', 'IDBOpenDBRequest', 'IDBRequest', 'IDBTransaction'
+  ];
+  for (var ambientIndex = 0; ambientIndex < closedAmbientRoots.length; ambientIndex += 1) {
+    var ambientRoot = closedAmbientRoots[ambientIndex];
+    var ambientDescriptor = Object.getOwnPropertyDescriptor(globalThis, ambientRoot);
+    if (ambientDescriptor === undefined) {
+      if (ambientRoot in globalThis) {
+        throw new Error('armed runtime inherited the ' + ambientRoot + ' namespace');
+      }
+      continue;
+    }
+    if (ambientDescriptor.configurable !== true || !delete globalThis[ambientRoot] ||
+        ambientRoot in globalThis) {
+      throw new Error('armed runtime could not seal the ' + ambientRoot + ' namespace');
+    }
+  }
+})();)JS";
+
+extern "C" uint32_t ex_hermes_seal_armed_shared_runtime_globals_v1(
+    ExactHermesRuntime* runtime) {
+  if (runtime == nullptr) {
+    return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return structuredRuntimeDriveFault(drive.status());
+  if (!runtime->armed) {
+    return EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED;
+  }
+  if (runtime->embedder_capability_state ==
+          EmbedderCapabilityState::Configuring ||
+      runtime->embedder_capability_state == EmbedderCapabilityState::Failed) {
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+  if (runtime->armed_shared_runtime_globals_sealed) {
+    return EX_HERMES_EVAL_FAULT_NONE;
+  }
+  if (!runtime->armed_bootstrap_eval_open ||
+      runtime->user_execution_started ||
+      runtime->structured_evaluation_in_flight ||
+      runtime->trusted_bootstrap_in_progress ||
+      !runtime->shared_runtime_bundle_installed) {
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+
+  ScopedRuntimeSecurityContext securityContext(runtime);
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  ScopedActiveAttributionRuntime activeAttributionRuntime(
+      runtime->attribution_runtime);
+#endif
+  try {
+    auto source = std::make_shared<MemoryBuffer>(
+        reinterpret_cast<const uint8_t*>(kArmedSharedRuntimeGlobalSealV1),
+        sizeof(kArmedSharedRuntimeGlobalSealV1) - 1);
+    (void)runtime->runtime->evaluateJavaScript(
+        source, "<armed-shared-runtime-seal-v1>");
+    runtime->armed_shared_runtime_globals_sealed = true;
+    return EX_HERMES_EVAL_FAULT_NONE;
+  } catch (const facebook::jsi::JSError& error) {
+    rootGlobalDispositionFailure(
+        "armed shared-runtime global seal failed: " + error.getMessage());
+  } catch (const std::exception& error) {
+    rootGlobalDispositionFailure(
+        "armed shared-runtime global seal failed: " +
+        std::string(error.what()));
+  } catch (...) {
+    rootGlobalDispositionFailure(
+        "armed shared-runtime global seal failed with an unknown exception");
+  }
+  (void)exactRuntimeQuarantine(runtime);
+  return EX_HERMES_EVAL_FAULT_ENGINE;
+}
+
 extern "C" uint32_t ex_hermes_finish_bootstrap(
     ExactHermesRuntime* runtime) {
   if (runtime == nullptr) {
@@ -8529,6 +8638,12 @@ extern "C" uint32_t ex_hermes_finish_bootstrap(
     return EX_HERMES_EVAL_FAULT_NONE;
   }
   runtime->root_global_disposition_verified_for_user_execution = false;
+  if (!runtime->armed_shared_runtime_globals_sealed) {
+    rootGlobalDispositionFailure(
+        "named armed shared-runtime global seal did not complete before bootstrap finalization");
+    failRootGlobalDispositionFinalization(runtime);
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
   if (!verifyArmedBootstrapFinalized(runtime)) {
     rootGlobalDispositionFailure(
         "armed bootstrap posture was not finalized before disposition sweep");

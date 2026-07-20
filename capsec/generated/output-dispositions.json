@@ -1,7 +1,7 @@
 {
   "outputDispositionDatasetSchema": "ibex/capsec-output-dispositions/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256--N0cWpa0KGQpf8l3sDWgsAbxv1S2VPJMm75pUPwfq_4",
+  "catalogKeyDigest": "sha256-vv6oF6mUs5S3MTa5z7IelniH3PVMUGcp9NLlOkjJ-O8",
   "evidence": {
     "status": "unpromotable",
     "reason": "The output corpus remains unpromotable: one native module-marker surface account and three inherited-intrinsic alias surface accounts are unresolved; the construction-private WebGPU program contributes 54 additional unresolved accounts (two callback ingresses, seven private bridge methods, and 45 operation routes) while public installation and platform support remain absent; and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes these account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations."
@@ -54068,6 +54068,23 @@
         "surfaceId": "surface.host.abi.ex.hermes.schedule.watchdog.heartbeat.for.generation.1tz4x4i",
         "output": "callback:callback/0",
         "alias": "ex_hermes_schedule_watchdog_heartbeat_for_generation",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.seal.armed.shared.runtime.globals.v1.1gs1iq6",
+        "output": "[[return]]",
+        "alias": "ex_hermes_seal_armed_shared_runtime_globals_v1",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -110080,12 +110097,12 @@
     }
   ],
   "counts": {
-    "catalogRows": 6474,
-    "dispositionRows": 6474,
+    "catalogRows": 6475,
+    "dispositionRows": 6475,
     "byDisposition": {
       "absent": 152,
       "closed": 28,
-      "non-path": 6146,
+      "non-path": 6147,
       "private-native-path": 5,
       "refused": 12,
       "reserved-constant": 1,

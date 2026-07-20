@@ -82,7 +82,7 @@ describe("LLP 0022 authenticated ingress obligations", () => {
       ingressEdges: 10,
       obligations: REQUIRED_INGRESS_OBLIGATIONS.length,
       sourceAssertions: 41,
-      supportingSurfaces: 6,
+      supportingSurfaces: 7,
     });
     expect(Object.keys(REQUIRED_INGRESS_ROW_PROFILES).sort()).toEqual([
       "cli:authenticated-direct-file-ingress",

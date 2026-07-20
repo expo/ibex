@@ -38326,6 +38326,17 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.seal.armed.shared.runtime.globals.v1.1gs1iq6",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_seal_armed_shared_runtime_globals_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.session.display.ack.0i9wiwm",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -83277,6 +83288,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.startup.evaluation.ex.hermes.seal.armed.shared.runtime.globals.v1.armed.shared.r.0pzzqhk",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_seal_armed_shared_runtime_globals_v1:evaluateJavaScript:<armed-shared-runtime-seal-v1>"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.startup.evaluation.has.include.18ool1z.stream.enhance.0x24hc2",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
@@ -84109,6 +84129,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.startup.script.armed.shared.runtime.seal.v1.0gcognx",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#script:<armed-shared-runtime-seal-v1>"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.startup.script.bootstrap.04ar0fr",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
@@ -84572,15 +84601,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256--N0cWpa0KGQpf8l3sDWgsAbxv1S2VPJMm75pUPwfq_4",
+  "catalogKeyDigest": "sha256-vv6oF6mUs5S3MTa5z7IelniH3PVMUGcp9NLlOkjJ-O8",
   "counts": {
-    "coverageSurfaces": 7437,
-    "outputBearingSurfaces": 5799,
-    "structuralOnlySurfaces": 1559,
+    "coverageSurfaces": 7440,
+    "outputBearingSurfaces": 5800,
+    "structuralOnlySurfaces": 1561,
     "unresolvedSurfaces": 79,
-    "catalogRows": 6474,
+    "catalogRows": 6475,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6067,
+    "sourceInventoryRows": 6068,
     "structuredRows": 407
   },
   "rows": [
@@ -151289,6 +151318,27 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime.cc#ex_hermes_schedule_watchdog_heartbeat_for_generation"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.seal.armed.shared.runtime.globals.v1.1gs1iq6",
+        "output": "[[return]]",
+        "alias": "ex_hermes_seal_armed_shared_runtime_globals_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_seal_armed_shared_runtime_globals_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_seal_armed_shared_runtime_globals_v1"
         ]
       },
       "requiredValueProof": "live-value-observation"
