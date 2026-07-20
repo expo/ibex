@@ -1,0 +1,88 @@
+{
+  "kind": "ibex-llp-0033-independent-security-review",
+  "independent": true,
+  "reviewedCommit": "fd661ee8758a28c804d1e92500c8f3365dcfc0c3",
+  "reviewedReportDigest": "sha256-F7Rv74i1SdIpXjO-YzoD6uPJ5DBcx4oMmiyxiTMtWe8",
+  "reviewedReportRawContentDigest": "sha256-dy2zIzL7yzgq1rNFSAlWP0L-MfJ6ckUb_YHUsMHrrt8",
+  "reviewedRouteGraphRawContentDigest": "sha256-Ii40UsppOFCjCXNgwNcu9lYT1AM4E2wN9BczETpuBlg",
+  "reviewedProbePlanRawContentDigest": "sha256-uiDjvBVYejS5cgvqiTIb_17nzCVmdKBbowId_9a86kM",
+  "reviewedEvidenceRawContentDigests": {
+    "absence-aarch64-apple-darwin-59382127.json": "sha256-ShT9k9ZI2TiHdHZj30KhBaC0uCdmCzXyGagZpL6Qvw4",
+    "control-aarch64-apple-darwin-59382127.json": "sha256-JTNz8stEO2EhpMyX4OcYhg42jDF84Gu3rU5ssYl-qM0",
+    "global-corpora-aarch64-apple-darwin-59382127.json": "sha256-r_hrem-xIk831jop_Fn44r2YkwuDYUTlrb9Aqrk9j-I",
+    "reachable-aarch64-apple-darwin-59382127.json": "sha256-epuSJUGHL_KGwcGHmB222HUmaY7vHjW04vkNru52F2U"
+  },
+  "verdict": "fail",
+  "summary": "The report must remain incomplete. Review-artifact integrity is repaired, but the absence architecture still does not implement dominance or instrumented cut sets. It creates a four-segment declaration for every branch, executes the previous categorical predicates, and manufactures receipts stating that the implementation segment was reached and the cut-set segment failed. The 7,147 absence claims therefore remain unsupported.",
+  "findings": [
+    {
+      "severity": "critical",
+      "status": "unresolved",
+      "title": "The dominance graph and runtime receipts are declarative associations, not observed source-route dominance",
+      "evidence": [
+        "generate-restricted-exact-absence-route-graph.mjs:245-273 constructs every route as the same synthetic four-node sequence: attacker-root, target-selection, implementation-branch, cut-set. There are no graph edges, alternate paths, producer/registry nodes, installer nodes, alias nodes, lazy routes, cycles, or computed dominance relation.",
+        "validateRestrictedExactAbsenceRouteGraph at lines 143-168 calls a route dominant merely when its four segment kinds appear in the prescribed order. Removing the declarative cut-set is rejected, but no algorithm proves that an implementation path cannot bypass it.",
+        "The seven observer names returned at lines 98-108 have no runtime implementation. Repository search finds them only in this generator and the generated JSON. No restricted installer, registry, resolver, callback producer, or bootstrap site publishes these cut-set observation IDs.",
+        "src/host/embedder_artifacts.rs:3636-3693 copies the generated cutsetObservationId into a receipt after route_absent returns true. It unconditionally reports lastReachedSegment as the implementation node and failedSegment as the cut-set node; neither transition is observed from runtime instrumentation.",
+        "The actual executor at src/host/embedder_artifacts.rs:3546-3600 remains the previous categorical executor. Builtin and loader targets all reduce to the same four root checks; CLI, Host ABI, and callback targets reduce to shared root sets; startup targets are compared against a fixed nine-item array. These predicates do not semantically consume or distinguish the exact target.",
+        "The source-install executor at lines 3707-3736 invokes the same route_absent predicate used for live reachability. It does not observe branch selection, installer execution, resolver registration, callback retention, or lazy installation, so source and live proofs are not independent.",
+        "attackerRoots are generated from a hard-coded surface-kind table at generate-restricted-exact-absence-route-graph.mjs:83-95, then supplemented with the already-generic probe-plan label. They are not derived from the branch's source routes, aliases, producers, or enforcement graph.",
+        "Source binding hashes each entire referenced file, but splitSourceRef at lines 52-67 does not verify that the locator exists or identifies the claimed branch. Whole-file content binding does not establish the path from that code to the alleged cut set.",
+        "applicabilityForMac at lines 69-81 classifies conditions heuristically: every build-condition becomes compiled-but-disabled and other unmatched kinds become runtime-disabled. No compiler receipt or runtime selection event verifies these classifications.",
+        "The committed builtin:assert receipt demonstrates the synthesis: it claims route.aa6c12405764d892fc01.implementation was reached and its unique cut set failed, although the executor only checked absence of require and three generic resolver globals.",
+        "Temporal and indirect routes are still absent. The evidence test takes one immediate snapshot and shared callback counters; it does not execute per-target lazy activation after poll, timer, event, microtask, completion, getter, symbol, prototype, computed-table, or retained-closure transitions.",
+        "The semantic mutation suite edits generated JSON associations—removing a segment, changing an ID, swapping a declared target, or adding a declared root. It does not introduce a real implementation bypass, select an installer branch, retain a closure, add a resolver alias, or prove that runtime instrumentation detects those mutations."
+      ],
+      "recommendation": "Invalidate all structural-absence credit. Build a real source-derived directed route graph containing installer, registry, alias, lazy, producer, retained-reference, target, and cut-set nodes with explicit edges. Compute and verify cut-set dominance over every attacker-root-to-target path. Add compile/runtime instrumentation at the actual cut sets and branch-selection sites; receipts must originate from those sites and include their real observation IDs. Make target-specific executors resolve the exact builtin/export/ABI/callback/startup identity, add temporal and indirect traversal phases, and keep source-selection receipts independent from live-reachability receipts. Mutation tests must change executable source paths and prove the instrumented run fails."
+    },
+    {
+      "severity": "medium",
+      "status": "unresolved",
+      "title": "Evidence-ingestion mutation tests still target obsolete f04bd910 evidence",
+      "evidence": [
+        "restricted-exact-reachable-evidence.test.mjs:16-19 defines currentAbsenceEvidencePath as absence-aarch64-apple-darwin-f04bd910.json rather than the 59382127 artifact.",
+        "Both mutation tests fail before reaching their intended receipt checks with 'restricted authority changed after evidence'.",
+        "bun test packages/ibex-devtools/src/scripts/restricted-exact-reachable-evidence.test.mjs exits 1 with two failures."
+      ],
+      "recommendation": "Point the mutation tests at the current evidence and add mutations for fabricated runtime-generation receipts, fabricated failure boundaries, target-insensitive execution, absent cut-set instrumentation, and source/live receipt reuse."
+    }
+  ],
+  "constraintAssessment": {
+    "trueCutSetDominance": "fail",
+    "sourceContentBinding": "partial: whole files are hashed, but locators and source-to-cut-set paths are not established",
+    "platformCompiledRuntimeDistinctions": "fail: classifications are generated heuristics without build or runtime receipts",
+    "temporalIndirectRoutes": "fail",
+    "exactTargetConsumption": "fail for builtin, loader, CLI, Host ABI, callback, and most startup routes",
+    "actualFailureBoundary": "fail: generated segment IDs are copied into receipts",
+    "observerNonInterference": "not established",
+    "graphCompleteness": "fail: branch cardinality is complete, route topology is not",
+    "sourceLiveIndependence": "fail",
+    "reviewArtifactIntegrity": "pass"
+  },
+  "resolvedPriorFindings": {
+    "reviewArtifactIntegrity": {
+      "status": "resolved",
+      "evidence": [
+        "restricted-exact-target-report.mjs:66-212 reopens exactly one review artifact by raw digest, validates findings and counts, reopens its historical report, verifies four evidence files, and requires clear reviews to bind the current plan and graph.",
+        "The focused report test rejects a fabricated clear-review digest."
+      ]
+    },
+    "teardownLifecycleEvidence": {
+      "status": "resolved"
+    },
+    "nativeFreezeHatches": {
+      "status": "resolved"
+    }
+  },
+  "verification": {
+    "routeGraphDriftCheck": "passed",
+    "probePlanDriftCheck": "passed",
+    "reportDriftCheck": "passed",
+    "routeGraphMutationTests": "passed but test only declarative graph mutations",
+    "targetReportTests": "passed",
+    "evidenceIngestionMutationTests": "failed: 2 obsolete-artifact failures",
+    "workingTree": "clean"
+  },
+  "unresolvedCritical": 1,
+  "unresolvedHigh": 0
+}
