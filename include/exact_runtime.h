@@ -41,6 +41,14 @@ typedef enum ExactRuntimeDriveStatus {
     EXACT_RUNTIME_DRIVE_OFF_OWNER = -3,
     EXACT_RUNTIME_DRIVE_REENTRANT = -4,
     EXACT_RUNTIME_DRIVE_ENGINE_ERROR = -5,
+    /// The generation remains live only so its owner can clean up and destroy
+    /// it; all ordinary eval, poll, dispatch, callback, and debugger ingress is
+    /// permanently closed.
+    EXACT_RUNTIME_DRIVE_QUARANTINED = -6,
+    /// An outer app-bundle evaluation transaction owns the runtime. Only its
+    /// immediate evaluator, prepared-carrier checks, nested Canvas handoff,
+    /// quarantine, and finish cleanup may drive until it closes.
+    EXACT_RUNTIME_DRIVE_APP_BUNDLE_OPEN = -7,
 } ExactRuntimeDriveStatus;
 
 /// Exact embedder execution contexts. App and agent runtimes receive separate
@@ -159,6 +167,26 @@ typedef enum ExactGpuCanvasAppBundleExpectationV1 {
     EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1 = 1,
     EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_VALID_V1 = 2,
 } ExactGpuCanvasAppBundleExpectationV1;
+
+/// Native classification of the prepared-startup record produced by Exact's
+/// generated app-bundle wrapper. Values intentionally match the Canvas bundle
+/// expectation discriminants while remaining a distinct ABI type.
+typedef enum ExactPreparedNativeStartupDispositionV1 {
+    /// Legacy raw app bundle: no prepared carrier is expected or classified.
+    EXACT_PREPARED_NATIVE_STARTUP_NONE_V1 = 0,
+    EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1 = 1,
+    EXACT_PREPARED_NATIVE_STARTUP_UNUSED_VALID_V1 = 2,
+} ExactPreparedNativeStartupDispositionV1;
+
+typedef enum ExactPreparedNativeStartupStatusV1 {
+    EXACT_PREPARED_NATIVE_STARTUP_OK_V1 = 0,
+    /// A stale/unexpected root was removed, but its very presence quarantined
+    /// the runtime and therefore requires physical retirement.
+    EXACT_PREPARED_NATIVE_STARTUP_REMOVED_AND_QUARANTINED_V1 = 1,
+    EXACT_PREPARED_NATIVE_STARTUP_MISSING_V1 = -12,
+    EXACT_PREPARED_NATIVE_STARTUP_INVALID_SHAPE_V1 = -13,
+    EXACT_PREPARED_NATIVE_STARTUP_CLEANUP_FAILED_V1 = -14,
+} ExactPreparedNativeStartupStatusV1;
 
 typedef enum ExactGpuClientEventReceipt {
     EXACT_GPU_CLIENT_EVENT_DISCARDED = 0,
@@ -1077,6 +1105,29 @@ int32_t ex_hermes_set_gpu_provider_v2(
     ExactHermesRuntime* runtime,
     const ExactHermesGpuProviderDescriptorV2* descriptor);
 
+/// Open the outer owner-thread app-bundle evaluation transaction before any
+/// generated preparation runs. `expected_prepared_disposition` is NONE for a
+/// legacy raw artifact or the exact generated carrier disposition. Success
+/// detaches/excludes the debugger, blocks ordinary eval/poll/dispatch drives,
+/// and proves the prepared root absent. The exclusion remains held across
+/// immediate preparation, native classification, nested Canvas begin/finish,
+/// cached consume staging, nested Canvas close, cached runApp invocation, and
+/// final absence verification.
+int32_t ex_hermes_begin_app_bundle_evaluation_v1(
+    ExactHermesRuntime* runtime,
+    uint32_t expected_prepared_disposition);
+
+/// Close the outer transaction only after the nested Canvas transaction (if
+/// any) is closed. A successful evaluation must have invoked a declared
+/// prepared carrier. Both outcomes use pristine native reflection to prove the
+/// carrier root absent before debugger restoration. Failure quarantines; a
+/// QUARANTINED result with prior immediate status 2 means cleanup was sound but
+/// this generation must retire (source fallback is normally attempted inside
+/// the still-open transaction before finish).
+int32_t ex_hermes_finish_app_bundle_evaluation_v1(
+    ExactHermesRuntime* runtime,
+    uint32_t evaluation_succeeded);
+
 /// Open one owner-thread app-bundle Canvas integration transaction immediately
 /// before the host evaluates that Exact bundle. A successful begin revokes the
 /// preceding bundle's integration. CONSUME_REQUIRED then exposes exactly one
@@ -1085,6 +1136,12 @@ int32_t ex_hermes_set_gpu_provider_v2(
 /// UNUSED_VALID proves the same root absent and never publishes it.
 /// The host MUST pair begin/finish around a raw, no-pump evaluation: no event
 /// loop, debugger, callback, or other untrusted ingress may run before finish.
+/// Ibex enforces the debugger portion at the runtime boundary: debugger calls,
+/// queued interrupt callbacks, event publication, and event polling all refuse
+/// while the transaction is open; a previously attached debugger is restored
+/// only after finish proves the temporary root absent.
+/// A standalone legacy begin also irreversibly enters user execution and seals
+/// every construction-only capability handoff before exposing the Canvas root.
 /// Reentrant begin, a pre-existing root property, an AGENT runtime, or an
 /// unavailable authenticated V2 provider fails without exposing a new hook.
 int32_t ex_hermes_begin_gpu_canvas_app_bundle_v1(
@@ -1101,6 +1158,97 @@ int32_t ex_hermes_begin_gpu_canvas_app_bundle_v1(
 int32_t ex_hermes_finish_gpu_canvas_app_bundle_v1(
     ExactHermesRuntime* runtime,
     uint32_t evaluation_succeeded);
+
+/// Evaluate exactly one source or Hermes bytecode buffer either as prepared
+/// generation under the outer transaction, or as a legacy raw bundle while its
+/// nested Canvas transaction is open. Prepared carriers must use the native
+/// classifier/invoker after this step; no second immediate eval is admitted
+/// between successful classification and Canvas begin. Success discards the
+/// resulting JSI value. This
+/// primitive performs no nextTick or microtask drain, debugger publication or
+/// pause, thenable inspection/poll, result coercion, mutable uncaught-exception
+/// handler, or other post-eval hook. `out_error` is NULL on success and is a
+/// caller-freed diagnostic on failure. Status 2 is reserved exclusively for a
+/// bytecode sanity rejection proven to occur before any program instruction;
+/// it is the only result for which the same open transaction may retry source.
+/// Every other evaluation failure quarantines the runtime before return; the
+/// host must still call finish with `evaluation_succeeded == 0`, then retire it.
+/// @abi-output ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1 out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+int32_t ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1(
+    ExactHermesRuntime* runtime,
+    const uint8_t* data,
+    size_t len,
+    const char* source_url,
+    int is_bytecode,
+    char** out_error);
+
+/// Atomically evaluate an optional trusted source prelude and one source/HBC
+/// artifact under the same ingress-excluded immediate drive. `(NULL, 0, NULL)`
+/// denotes no prelude. For HBC, native sanity validation completes before the
+/// prelude executes, so status 2 proves neither prelude nor artifact ran and is
+/// the only source-fallback eligibility result. No queue/debugger/coercion/
+/// mutable-handler hook runs between or after the two evaluations. Any
+/// prelude or artifact execution failure quarantines before return.
+/// @abi-output ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1 out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+int32_t ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1(
+    ExactHermesRuntime* runtime,
+    const uint8_t* prelude_data,
+    size_t prelude_len,
+    const char* prelude_source_url,
+    const uint8_t* artifact_data,
+    size_t artifact_len,
+    const char* artifact_source_url,
+    int artifact_is_bytecode,
+    char** out_error);
+
+/// Accessor-free native validation of the generated prepared-startup carrier,
+/// performed under the outer gate before Canvas begin. Pristine reflection can
+/// execute Proxy traps, so the carrier artifact must already be authenticated
+/// generated code; this is structural posture validation, not provenance
+/// authentication. Because the Canvas capture root is still absent and all
+/// other ingress is blocked, a hostile trap cannot steal the handoff. The
+/// validated functions are cached natively before return.
+/// The root descriptor must be a non-writable/non-enumerable/configurable data
+/// property. Its value must be a frozen, symbol-free exact four-field object:
+/// version 1, the expected disposition string, and two data functions named
+/// consumeGpuRuntimeIntegration and runApp. Missing, malformed, or owner-
+/// thread in-transaction out-of-sequence handling quarantines the runtime
+/// before return.
+int32_t ex_hermes_classify_prepared_native_startup_v1(
+    ExactHermesRuntime* runtime,
+    uint32_t expected_disposition);
+
+/// Remove the prepared root with pristine Reflect, then invoke only the cached
+/// consume function when required. CONSUME_REQUIRED requires an open nested
+/// Canvas transaction; UNUSED_VALID may stage with no Canvas provider. A
+/// second pristine absence proof runs after consume, before arbitrary runApp
+/// code can execute. No mutable Object/Reflect lookup, result coercion, queue
+/// drain, Promise poll, debugger hook, or uncaught handler occurs. Execution
+/// failures and owner-thread in-transaction sequence failures quarantine
+/// before return; `out_error` follows ex_hermes_free_string ownership.
+/// @abi-output ex_hermes_stage_prepared_native_startup_v1 out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+int32_t ex_hermes_stage_prepared_native_startup_v1(
+    ExactHermesRuntime* runtime,
+    char** out_error);
+
+/// Invoke only the natively cached runApp function after the nested Canvas
+/// transaction has closed and successful staging proved the prepared root
+/// absent. The outer gate remains held for the complete call. The same
+/// no-pump/no-coercion/no-mutable-handler rules and `out_error` ownership as
+/// staging apply. Execution failures and owner-thread in-transaction sequence
+/// failures quarantine before return.
+/// @abi-output ex_hermes_run_prepared_app_v1 out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+int32_t ex_hermes_run_prepared_app_v1(
+    ExactHermesRuntime* runtime,
+    char** out_error);
+
+/// Prove that `__exactPreparedNativeStartupV1` is absent using construction-
+/// captured pristine reflection. If present, best-effort delete it, verify the
+/// deletion, and quarantine the runtime even when removal succeeds. This is
+/// safe after project code has poisoned Object/Reflect or after the runtime was
+/// already quarantined by immediate evaluation.
+int32_t ex_hermes_verify_prepared_native_startup_absent_v1(
+    ExactHermesRuntime* runtime);
 
 /// Deliver one Exact native Canvas attachment terminal to the construction-
 /// captured runtime-js sink. The caller retains the record; Ibex converts it
@@ -1151,6 +1299,16 @@ uint64_t ex_hermes_current_runtime_nonce(void);
 uint64_t ex_hermes_current_principal_id(void);
 /// Destroy a Hermes runtime and free all resources.
 void ex_hermes_destroy(ExactHermesRuntime* runtime);
+
+/// Irreversibly quarantine a live runtime on its owner thread. Quarantine
+/// rejects all ordinary drives and new producer/debugger ingress immediately,
+/// but preserves owner-thread cleanup and destruction.
+int32_t ex_hermes_quarantine_runtime_v1(ExactHermesRuntime* runtime);
+
+/// Any-thread, non-dereferencing registry query. Returns 1 only while this
+/// address names a live quarantined generation; running/stale/null return 0.
+uint32_t ex_hermes_runtime_is_quarantined_v1(
+    const ExactHermesRuntime* runtime);
 
 /// Generation-bearing destruction with a stable refusal status. The legacy
 /// void destroy symbol delegates here with the currently registered nonce.

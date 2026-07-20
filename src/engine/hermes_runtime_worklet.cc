@@ -1094,6 +1094,9 @@ extern "C" int ex_hermes_dispatch_worklet_calls(
   if (!handle || (count > 0 && !calls) || !out_delivered) {
     return EX_WORKLET_ERROR;
   }
+  if (!exactRuntimeEnterUserExecution(handle)) {
+    return EX_WORKLET_ERROR;
+  }
   try {
     auto& rt = *handle->runtime;
     auto dispatcher_value =
@@ -1162,6 +1165,9 @@ extern "C" int ex_hermes_dispatch_worklet_json_batch(
   if (!handle || !batch_json || batch_len == 0) {
     return EX_WORKLET_ERROR;
   }
+  if (!exactRuntimeEnterUserExecution(handle)) {
+    return EX_WORKLET_ERROR;
+  }
   try {
     auto& rt = *handle->runtime;
     auto dispatcher_value =
@@ -1189,6 +1195,9 @@ extern "C" int ex_hermes_dispatch_motion_rated_publish(
     const ExMotionRatedPublishSample* sample) {
   if (!handle || !sample || sample->channel_identity == 0 ||
       sample->value_count > EX_WORKLET_MAX_RUN_ON_JS_SLOTS) {
+    return EX_WORKLET_ERROR;
+  }
+  if (!exactRuntimeEnterUserExecution(handle)) {
     return EX_WORKLET_ERROR;
   }
   for (uint32_t index = 0; index < sample->value_count; index++) {

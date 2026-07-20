@@ -5014,7 +5014,7 @@ extern "C" int32_t ex_hermes_begin_gpu_canvas_app_bundle_v1(
        expectation != EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_VALID_V1)) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
-  ExactRuntimeDriveGuard drive(runtime);
+  ExactRuntimeDriveGuard drive(runtime, 0, false, true);
   if (!drive) return drive.status();
 #if !defined(IBEX_ENABLE_WEBGPU_BINDING)
   return EXACT_GPU_CANVAS_APP_BUNDLE_UNAVAILABLE_V1;
@@ -5029,9 +5029,57 @@ extern "C" int32_t ex_hermes_begin_gpu_canvas_app_bundle_v1(
   }
   try {
     if (!gpuCanvasAppBundleCaptureAbsentV1(runtime)) {
+      (void)exactRuntimeQuarantine(runtime);
       return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
     }
   } catch (...) {
+    (void)exactRuntimeQuarantine(runtime);
+    return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
+  }
+
+  const bool outerEvaluationOpen = runtime->app_bundle_evaluation_open.load(
+      std::memory_order_acquire);
+  if (outerEvaluationOpen) {
+    const uint32_t preparedDisposition =
+        runtime->app_bundle_expected_prepared_disposition;
+    if (!runtime->gpu_canvas_app_bundle_debugger_blocked.load(
+            std::memory_order_acquire) ||
+        (preparedDisposition != 0 &&
+         (preparedDisposition != expectation ||
+          !runtime->app_bundle_prepared_classified ||
+          runtime->app_bundle_prepared_staged ||
+          runtime->app_bundle_prepared_invoked ||
+          !runtime->app_bundle_prepared_consume_gpu_integration ||
+          !runtime->app_bundle_prepared_run_app))) {
+      (void)exactRuntimeQuarantine(runtime);
+      return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
+    }
+    runtime->gpu_canvas_app_bundle_owns_debugger_exclusion = false;
+  } else {
+    runtime->gpu_canvas_app_bundle_owns_debugger_exclusion = true;
+    runtime->app_bundle_immediate_evaluation_completed = false;
+    runtime->app_bundle_immediate_source_fallback_allowed = false;
+  }
+
+  // A legacy standalone transaction closes debugger ingress here. The staged
+  // protocol arrives with the stronger outer exclusion already held from
+  // before prepared-carrier publication; nested Canvas finish must not reopen
+  // it before runApp cleanup and outer finish.
+  // @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
+  if (!outerEvaluationOpen &&
+      !exactRuntimeBeginGpuCanvasDebuggerExclusion(runtime)) {
+    runtime->gpu_canvas_app_bundle_owns_debugger_exclusion = false;
+    (void)exactRuntimeQuarantine(runtime);
+    return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
+  }
+  if (!outerEvaluationOpen &&
+      (!exactRuntimeEnterUserExecution(runtime) ||
+       !runtime->user_execution_started)) {
+    // Legacy callers have no outer transaction to seal the construction-only
+    // runtime-js handoff. Do that permanently after debugger ingress closes
+    // and before the Canvas controller can expose its temporary capture root.
+    runtime->gpu_canvas_app_bundle_owns_debugger_exclusion = false;
+    (void)exactRuntimeQuarantine(runtime);
     return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
   }
 
@@ -5041,6 +5089,8 @@ extern "C" int32_t ex_hermes_begin_gpu_canvas_app_bundle_v1(
     auto captureValue = binding->canvas_app_bundle_begin->call(
         *runtime->runtime, static_cast<double>(expectation));
     binding->canvas_app_bundle_open = true;
+    runtime->gpu_canvas_app_bundle_transaction_open.store(
+        true, std::memory_order_release);
     if (expectation == EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1) {
       if (!captureValue.isObject() ||
           !captureValue.asObject(*runtime->runtime).isFunction(
@@ -5077,14 +5127,162 @@ extern "C" int32_t ex_hermes_begin_gpu_canvas_app_bundle_v1(
     binding->canvas_app_bundle_capture.reset();
     binding->canvas_app_bundle_expectation = 0;
     binding->canvas_app_bundle_open = false;
+    runtime->gpu_canvas_app_bundle_transaction_open.store(
+        false, std::memory_order_release);
     binding->canvas_app_bundle_committed = false;
     if (!closeGpuCanvasAppBundleCaptureRootV1(runtime)) {
       failGpuCanvasAppBundleCleanupV1(runtime);
+      (void)exactRuntimeQuarantine(runtime);
       return EXACT_GPU_CANVAS_APP_BUNDLE_CLEANUP_FAILED_V1;
     }
+    const bool ownsDebuggerExclusion =
+        runtime->gpu_canvas_app_bundle_owns_debugger_exclusion;
+    runtime->gpu_canvas_app_bundle_owns_debugger_exclusion = false;
+    if (ownsDebuggerExclusion &&
+        !exactRuntimeFinishGpuCanvasDebuggerExclusion(runtime)) {
+      failGpuCanvasAppBundleCleanupV1(runtime);
+      (void)exactRuntimeQuarantine(runtime);
+      return EXACT_GPU_CANVAS_APP_BUNDLE_CLEANUP_FAILED_V1;
+    }
+    (void)exactRuntimeQuarantine(runtime);
     return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
   }
 #endif
+}
+
+namespace {
+
+void writeGpuCanvasImmediateEvalRefusal(
+    char** outError,
+    const char* message) noexcept {
+  if (outError == nullptr) return;
+  *outError = nullptr;
+  *outError = copyMallocString(message);
+}
+
+}  // namespace
+
+static int32_t evalGpuCanvasAppBundleImmediateV1(
+    ExactHermesRuntime* runtime,
+    const uint8_t* prelude_data,
+    size_t prelude_len,
+    const char* prelude_source_url,
+    const uint8_t* data,
+    size_t len,
+    const char* source_url,
+    int is_bytecode,
+    char** out_error) {
+  if (out_error != nullptr) *out_error = nullptr;
+  if (runtime == nullptr || data == nullptr || len == 0 ||
+      (is_bytecode != 0 && is_bytecode != 1) ||
+      ((prelude_data == nullptr) != (prelude_len == 0))) {
+    writeGpuCanvasImmediateEvalRefusal(
+        out_error, "GPU Canvas immediate eval received invalid input");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  ExactRuntimeDriveGuard drive(runtime, 0, false, true);
+  if (!drive) {
+    writeGpuCanvasImmediateEvalRefusal(
+        out_error, "GPU Canvas immediate eval refused by the runtime drive gate");
+    return drive.status();
+  }
+  const bool outerOpen = runtime->app_bundle_evaluation_open.load(
+      std::memory_order_acquire);
+  const bool canvasOpen =
+      runtime->gpu_canvas_app_bundle_transaction_open.load(
+          std::memory_order_acquire);
+  const uint32_t preparedDisposition =
+      runtime->app_bundle_expected_prepared_disposition;
+  const bool stagedPrepare = outerOpen && preparedDisposition != 0 &&
+      !canvasOpen && !runtime->app_bundle_prepared_classified;
+  const bool stagedLegacyEval =
+      outerOpen && preparedDisposition == 0;
+  const bool standaloneCanvasEval = !outerOpen && canvasOpen;
+  if ((!stagedPrepare && !stagedLegacyEval && !standaloneCanvasEval) ||
+      !runtime->gpu_canvas_app_bundle_debugger_blocked.load(
+          std::memory_order_acquire)) {
+    writeGpuCanvasImmediateEvalRefusal(
+        out_error,
+        "GPU Canvas immediate eval requires an open app-bundle transaction");
+    return EXACT_GPU_CANVAS_APP_BUNDLE_INVALID_STATE_V1;
+  }
+  if (runtime->app_bundle_immediate_evaluation_completed ||
+      (runtime->app_bundle_immediate_source_fallback_allowed &&
+       is_bytecode != 0)) {
+    writeGpuCanvasImmediateEvalRefusal(
+        out_error,
+        "GPU Canvas immediate eval already ran or requires source fallback");
+    return EXACT_GPU_CANVAS_APP_BUNDLE_INVALID_STATE_V1;
+  }
+
+  const int32_t status = exactHermesEvalImmediateNoJobs(
+      runtime,
+      data,
+      len,
+      source_url,
+      is_bytecode,
+      out_error,
+      prelude_data,
+      prelude_len,
+      prelude_source_url);
+  if (status == 2 && is_bytecode != 0) {
+    runtime->app_bundle_immediate_source_fallback_allowed = true;
+  } else {
+    runtime->app_bundle_immediate_source_fallback_allowed = false;
+    runtime->app_bundle_immediate_evaluation_completed = true;
+  }
+  if (status != 0 && status != 2) {
+    // Source/HBC execution may have partially mutated the world before
+    // throwing. Quarantine before returning so the embedder's idle loop cannot
+    // pump callbacks while physical retirement is merely queued. Status 2 is
+    // the sole pre-instruction bytecode rejection and may retry source.
+    (void)exactRuntimeQuarantine(runtime);
+  }
+  return status;
+}
+
+// @abi-output ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1 out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+extern "C" int32_t ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1(
+    ExactHermesRuntime* runtime,
+    const uint8_t* data,
+    size_t len,
+    const char* source_url,
+    int is_bytecode,
+    char** out_error) {
+  return evalGpuCanvasAppBundleImmediateV1(
+      runtime,
+      nullptr,
+      0,
+      nullptr,
+      data,
+      len,
+      source_url,
+      is_bytecode,
+      out_error);
+}
+
+// @abi-output ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1 out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+extern "C" int32_t
+ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1(
+    ExactHermesRuntime* runtime,
+    const uint8_t* prelude_data,
+    size_t prelude_len,
+    const char* prelude_source_url,
+    const uint8_t* artifact_data,
+    size_t artifact_len,
+    const char* artifact_source_url,
+    int artifact_is_bytecode,
+    char** out_error) {
+  return evalGpuCanvasAppBundleImmediateV1(
+      runtime,
+      prelude_data,
+      prelude_len,
+      prelude_source_url,
+      artifact_data,
+      artifact_len,
+      artifact_source_url,
+      artifact_is_bytecode,
+      out_error);
 }
 
 extern "C" int32_t ex_hermes_finish_gpu_canvas_app_bundle_v1(
@@ -5093,13 +5291,18 @@ extern "C" int32_t ex_hermes_finish_gpu_canvas_app_bundle_v1(
   if (!runtime || evaluation_succeeded > 1) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
-  ExactRuntimeDriveGuard drive(runtime);
+  ExactRuntimeDriveGuard drive(runtime, 0, true, true);
   if (!drive) return drive.status();
 #if !defined(IBEX_ENABLE_WEBGPU_BINDING)
   return EXACT_GPU_CANVAS_APP_BUNDLE_UNAVAILABLE_V1;
 #else
   auto binding = runtime->gpu_binding_v2;
   if (!gpuCanvasAppBundleControllerAvailableV1(runtime, binding)) {
+    if (binding && binding->canvas_app_bundle_open) {
+      failGpuCanvasAppBundleCleanupV1(runtime);
+      (void)exactRuntimeQuarantine(runtime);
+      return EXACT_GPU_CANVAS_APP_BUNDLE_CLEANUP_FAILED_V1;
+    }
     return EXACT_GPU_CANVAS_APP_BUNDLE_UNAVAILABLE_V1;
   }
   if (!binding->canvas_app_bundle_open ||
@@ -5111,6 +5314,13 @@ extern "C" int32_t ex_hermes_finish_gpu_canvas_app_bundle_v1(
            EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1 &&
        !binding->canvas_app_bundle_capture)) {
     return EXACT_GPU_CANVAS_APP_BUNDLE_INVALID_STATE_V1;
+  }
+
+  if (evaluation_succeeded == 0) {
+    // Legacy raw evaluators may report failure here without having used the
+    // immediate ABI. Close their world before invoking even trusted controller
+    // cleanup so the host cannot pump it while retirement is scheduled.
+    (void)exactRuntimeQuarantine(runtime);
   }
 
   const uint32_t expectation = binding->canvas_app_bundle_expectation;
@@ -5130,6 +5340,12 @@ extern "C" int32_t ex_hermes_finish_gpu_canvas_app_bundle_v1(
   binding->canvas_app_bundle_capture.reset();
   binding->canvas_app_bundle_expectation = 0;
   binding->canvas_app_bundle_open = false;
+  runtime->gpu_canvas_app_bundle_transaction_open.store(
+      false, std::memory_order_release);
+  if (!runtime->app_bundle_evaluation_open.load(std::memory_order_acquire)) {
+    runtime->app_bundle_immediate_evaluation_completed = false;
+    runtime->app_bundle_immediate_source_fallback_allowed = false;
+  }
   binding->canvas_app_bundle_committed =
       !controllerFailed && evaluation_succeeded != 0 &&
       expectation == EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1 &&
@@ -5138,20 +5354,34 @@ extern "C" int32_t ex_hermes_finish_gpu_canvas_app_bundle_v1(
   if (!closeGpuCanvasAppBundleCaptureRootV1(runtime)) {
     binding->canvas_app_bundle_committed = false;
     failGpuCanvasAppBundleCleanupV1(runtime);
+    (void)exactRuntimeQuarantine(runtime);
+    return EXACT_GPU_CANVAS_APP_BUNDLE_CLEANUP_FAILED_V1;
+  }
+  const bool ownsDebuggerExclusion =
+      runtime->gpu_canvas_app_bundle_owns_debugger_exclusion;
+  runtime->gpu_canvas_app_bundle_owns_debugger_exclusion = false;
+  if (ownsDebuggerExclusion &&
+      !exactRuntimeFinishGpuCanvasDebuggerExclusion(runtime)) {
+    binding->canvas_app_bundle_committed = false;
+    failGpuCanvasAppBundleCleanupV1(runtime);
+    (void)exactRuntimeQuarantine(runtime);
     return EXACT_GPU_CANVAS_APP_BUNDLE_CLEANUP_FAILED_V1;
   }
   if (controllerFailed) {
     binding->canvas_app_bundle_committed = false;
+    (void)exactRuntimeQuarantine(runtime);
     return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
   }
   if (evaluation_succeeded != 0 &&
       expectation == EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1 &&
       !consumed) {
+    (void)exactRuntimeQuarantine(runtime);
     return EXACT_GPU_CANVAS_APP_BUNDLE_REQUIRED_NOT_CONSUMED_V1;
   }
   if (evaluation_succeeded != 0 &&
       expectation == EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_VALID_V1 &&
       consumed) {
+    (void)exactRuntimeQuarantine(runtime);
     return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
   }
   return consumed ? EXACT_GPU_CANVAS_APP_BUNDLE_OK_V1
@@ -6001,6 +6231,64 @@ extern "C" int32_t ibex_test_gpu_v2_install_canvas_receipt_observer(
 
 extern "C" uint64_t ibex_test_gpu_v2_canvas_receipt_observer_calls(void) {
   return gGpuV2CanvasReceiptObserverCalls.load(std::memory_order_seq_cst);
+}
+
+extern "C" void ibex_test_gpu_v2_queue_debugger_event(
+    ExactHermesRuntime* runtime) {
+  pushDebugEvent(
+      runtime,
+      "{\"method\":\"Ibex.testDebuggerGate\",\"params\":{}}");
+}
+
+extern "C" void ibex_test_gpu_v2_pause_next_debugger_interrupt_after_enqueue(
+    ExactHermesRuntime* runtime) {
+  if (!runtime) return;
+  runtime->test_debugger_interrupt_enqueue_paused.store(
+      false, std::memory_order_release);
+  runtime->test_pause_debugger_after_interrupt_enqueue.store(
+      true, std::memory_order_release);
+}
+
+extern "C" uint32_t ibex_test_gpu_v2_debugger_interrupt_enqueue_paused(
+    ExactHermesRuntime* runtime) {
+  return runtime && runtime->test_debugger_interrupt_enqueue_paused.load(
+                        std::memory_order_acquire)
+      ? 1
+      : 0;
+}
+
+extern "C" uint32_t ibex_test_gpu_v2_immediate_eval_markers(
+    ExactHermesRuntime* runtime) {
+  if (!runtime || !runtime->runtime ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->root_global_get_own_property_descriptor) {
+    return UINT32_MAX;
+  }
+  try {
+    auto& rt = *runtime->runtime;
+    auto marker = [&](const char* name) -> bool {
+      auto descriptor = runtime->root_global_get_own_property_descriptor->call(
+          rt,
+          rt.global(),
+          facebook::jsi::String::createFromAscii(rt, name));
+      if (descriptor.isUndefined()) return false;
+      if (!descriptor.isObject()) {
+        throw std::runtime_error("immediate-eval marker descriptor invalid");
+      }
+      auto value = gpuCanvasDescriptorFieldV1(
+          runtime, descriptor.asObject(rt), "value");
+      return value.isBool() && value.getBool();
+    };
+    uint32_t bits = 0;
+    if (marker("__ibexImmediateNextTickRan")) bits |= 1u << 0;
+    if (marker("__ibexImmediateMicrotaskRan")) bits |= 1u << 1;
+    if (marker("__ibexImmediateThenInspected")) bits |= 1u << 2;
+    if (marker("__ibexImmediateResultCoerced")) bits |= 1u << 3;
+    if (marker("__ibexImmediateHandlerCalled")) bits |= 1u << 4;
+    return bits;
+  } catch (...) {
+    return UINT32_MAX;
+  }
 }
 
 extern "C" int32_t

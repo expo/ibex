@@ -595,6 +595,40 @@ void ibex_exact_runtime_c_abi_typecheck(void) {
       ex_hermes_resume_structured_session;
   uint32_t (*finish_bootstrap)(ExactHermesRuntime*) =
       ex_hermes_finish_bootstrap;
+  int32_t (*evaluate_gpu_canvas_immediate)(ExactHermesRuntime*,
+                                           const uint8_t*,
+                                           size_t,
+                                           const char*,
+                                           int,
+                                           char**) =
+      ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1;
+  int32_t (*evaluate_gpu_canvas_with_prelude_immediate)(
+      ExactHermesRuntime*,
+      const uint8_t*,
+      size_t,
+      const char*,
+      const uint8_t*,
+      size_t,
+      const char*,
+      int,
+      char**) =
+      ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1;
+  int32_t (*begin_app_bundle_evaluation)(ExactHermesRuntime*, uint32_t) =
+      ex_hermes_begin_app_bundle_evaluation_v1;
+  int32_t (*finish_app_bundle_evaluation)(ExactHermesRuntime*, uint32_t) =
+      ex_hermes_finish_app_bundle_evaluation_v1;
+  int32_t (*classify_prepared_startup)(ExactHermesRuntime*, uint32_t) =
+      ex_hermes_classify_prepared_native_startup_v1;
+  int32_t (*stage_prepared_startup)(ExactHermesRuntime*, char**) =
+      ex_hermes_stage_prepared_native_startup_v1;
+  int32_t (*run_prepared_app)(ExactHermesRuntime*, char**) =
+      ex_hermes_run_prepared_app_v1;
+  int32_t (*verify_prepared_startup_absent)(ExactHermesRuntime*) =
+      ex_hermes_verify_prepared_native_startup_absent_v1;
+  int32_t (*quarantine_runtime)(ExactHermesRuntime*) =
+      ex_hermes_quarantine_runtime_v1;
+  uint32_t (*runtime_is_quarantined)(const ExactHermesRuntime*) =
+      ex_hermes_runtime_is_quarantined_v1;
   uint32_t (*take_work_unit)(ExactHermesRuntime*,
                              uint64_t,
                              ExHermesWorkUnitEvent*) =
@@ -695,6 +729,16 @@ void ibex_exact_runtime_c_abi_typecheck(void) {
   (void)finish_module_graph;
   (void)resume_structured_session;
   (void)finish_bootstrap;
+  (void)evaluate_gpu_canvas_immediate;
+  (void)evaluate_gpu_canvas_with_prelude_immediate;
+  (void)begin_app_bundle_evaluation;
+  (void)finish_app_bundle_evaluation;
+  (void)classify_prepared_startup;
+  (void)stage_prepared_startup;
+  (void)run_prepared_app;
+  (void)verify_prepared_startup_absent;
+  (void)quarantine_runtime;
+  (void)runtime_is_quarantined;
   (void)take_work_unit;
   (void)take_cancellation;
   (void)take_async_failure;

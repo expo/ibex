@@ -5,6 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-20 (adds the owner-thread outer app-bundle evaluation and irreversible quarantine ABI around the nested GPU Canvas handoff: debugger admission closes and pre-admitted queued commands are cancelled/settled before construction fencing and generated preparation; immediate source or prelude+HBC evaluation has no pump/coercion/mutable-handler hooks, with HBC sanity before prelude and status 2 as the sole source-fallback signal; native pristine-reflection classification caches an exact frozen carrier before Canvas root publication, staging deletes it and invokes only consume, runApp is admitted only after Canvas finish, final absence is re-proved before the outer gate opens, and every execution/cleanup/sequence ambiguity quarantines the generation for destruction; feature-off UNUSED startup retains the same outer/immediate/native-staging path)
 **Revised:** 2026-07-19 (publishes the source-derived WebGPU provider root set only from an authenticated V2 construction capture, publishes `createImageBitmap` only when decoded-image authority was attached, and requires an exact descriptor-only root-global sweep after publication and sealing but before user execution in either Apple bootstrap order; any mismatch revokes the wrapper and fails the runtime closed, while target advertisements, public grant issuance, and platform-support claims remain absent)
 **Revised:** 2026-07-19 (adds the source-derived construction-private WebGPU CapSec authority session: native-random bounded session identities, exact V2 Requested/Commit/Repeat and retire callbacks, full realm/account/device/object/handle and actor/effect-owner/scheduler/generation binding, typed `gpu:operation` positive decisions over generated private edge/cell mappings, structural authority-reducing decisions without positive grants, fail-closed service-admission enforcement, and teardown purge; `navigator.gpu`, embedded executable codecs, public grant issuance, target advertisement, and platform support claims remain absent)
 **Revised:** 2026-07-19 (composes GPUBuffer mapping with true engine aliases: first aliasing promotes an internal mapped-at-creation source to shared external ownership in place, all aliases are tracked from native mint through one matching-key detach attempt, operation-result bytes have one wrapper carrier while the success receipt resolves undefined, and either compile-time or live-cast engine-capability absence fails finalization closed with rollback; no public issuer, global installation, positive platform edge, or support claim is added)
@@ -815,6 +816,51 @@ module loader rejects package-deep and filesystem paths into `src/webgpu/`.
 The production-private WebGPU factory imports this same bundled slot and binds
 the wrapper revoker to the native bridge revoker rather than acquiring a
 second bridge or extending bridge lifetime.
+
+The later per-app-bundle Canvas integration is nested inside the additive
+`ex_hermes_begin_app_bundle_evaluation_v1` /
+`ex_hermes_finish_app_bundle_evaluation_v1` owner-thread transaction. Outer
+begin closes debugger admission, atomically cancels and settles commands that
+won admission before the close, temporarily detaches an attached Hermes
+debugger, and enters the permanent user-execution fence before marking the
+outer transaction open. A late interrupt owns only heap cancellation state and
+checks cancellation before touching the runtime. Debug-event publication and
+`next_event` consumption are serialized with the transition and withheld until
+outer finish.
+
+The retained legacy raw-bundle path has no outer transaction, so standalone
+`ex_hermes_begin_gpu_canvas_app_bundle_v1` closes debugger admission and enters
+the same permanent user-execution fence before its controller may expose the
+temporary Canvas capture root. It cannot leave construction mutation open
+while immediate project code executes.
+
+The host then uses either
+`ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1` for one concatenated source
+artifact or
+`ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1` for an optional
+trusted source context prelude followed by one source/HBC artifact. Both discard
+raw results and perform no job drain, debugger publication, thenable inspection,
+result coercion, mutable uncaught-handler call, or post-evaluation hook. The HBC
+form completes native bytecode sanity before running its prelude; status 2 is
+therefore the sole pre-instruction result and the sole same-transaction source
+fallback signal. Every other evaluation failure quarantines before return.
+
+Generated startup publishes one exact frozen prepared carrier while only the
+outer gate is open. Native pristine reflection validates and caches its two
+functions before nested `ex_hermes_begin_gpu_canvas_app_bundle_v1` can expose
+the temporary capture root. `ex_hermes_stage_prepared_native_startup_v1`
+deletes and re-proves the carrier absent, then calls only the cached tiny
+consume function. After `ex_hermes_finish_gpu_canvas_app_bundle_v1` closes and
+proves the capture root absent, `ex_hermes_run_prepared_app_v1` may enter the
+cached arbitrary runApp function. Outer finish performs the final carrier
+absence proof and restores debugger attachment before reopening admission.
+UNUSED_VALID may stage and run through this same path when WebGPU is compiled
+out and nested Canvas begin reports unavailable. Any partial execution,
+missing/malformed carrier, owner-thread sequence violation, root-cleanup or
+debugger-restoration ambiguity irreversibly quarantines the generation:
+ordinary eval, poll, dispatch, callback, worklet, and debugger ingress all
+refuse while owner-thread cleanup and destruction remain possible. Debugger-off
+builds retain their established null/zero stubs.
 
 The private factory implements only the reviewed construction-private wrapper shape
 and consumes a generated route plan. Installation is a separate fail-closed

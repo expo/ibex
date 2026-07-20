@@ -2572,6 +2572,7 @@ std::mutex g_runtimeRegistryMutex;
 
 enum class RuntimeLifecycleState : uint8_t {
   Running,
+  Quarantined,
   Closing,
 };
 
@@ -2693,6 +2694,18 @@ extern "C" uint64_t ex_hermes_runtime_nonce(ExactHermesRuntime* runtime) {
   return it->second.nonce;
 }
 
+extern "C" uint32_t ex_hermes_runtime_is_quarantined_v1(
+    const ExactHermesRuntime* runtime) {
+  if (runtime == nullptr) return 0;
+  std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
+  auto it = g_activeRuntimes.find(
+      const_cast<ExactHermesRuntime*>(runtime));
+  return it != g_activeRuntimes.end() &&
+          it->second.state == RuntimeLifecycleState::Quarantined
+      ? 1
+      : 0;
+}
+
 void registerRuntime(ExactHermesRuntime* runtime) {
   if (!runtime || runtime->runtime_nonce == 0) return;
   std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
@@ -2702,20 +2715,34 @@ void registerRuntime(ExactHermesRuntime* runtime) {
 }
 
 ExactRuntimeDriveGuard::ExactRuntimeDriveGuard(
-    ExactHermesRuntime* runtime, uint64_t expectedNonce)
+    ExactHermesRuntime* runtime,
+    uint64_t expectedNonce,
+    bool allowQuarantined,
+    bool allowAppBundleEvaluation)
     : runtime_(runtime) {
   if (runtime == nullptr) return;
   {
     std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
     auto it = g_activeRuntimes.find(runtime);
     if (it == g_activeRuntimes.end() ||
-        it->second.state != RuntimeLifecycleState::Running ||
+        (it->second.state != RuntimeLifecycleState::Running &&
+         !(allowQuarantined &&
+           it->second.state == RuntimeLifecycleState::Quarantined)) ||
         (expectedNonce != 0 && it->second.nonce != expectedNonce)) {
-      status_ = EXACT_RUNTIME_DRIVE_STALE;
+      status_ = it != g_activeRuntimes.end() &&
+              it->second.state == RuntimeLifecycleState::Quarantined
+          ? EXACT_RUNTIME_DRIVE_QUARANTINED
+          : EXACT_RUNTIME_DRIVE_STALE;
       return;
     }
     if (it->second.owner != std::this_thread::get_id()) {
       status_ = EXACT_RUNTIME_DRIVE_OFF_OWNER;
+      return;
+    }
+    if (runtime->app_bundle_evaluation_open.load(
+            std::memory_order_acquire) &&
+        !allowAppBundleEvaluation) {
+      status_ = EXACT_RUNTIME_DRIVE_APP_BUNDLE_OPEN;
       return;
     }
     if (it->second.drive_active) {
@@ -2765,6 +2792,36 @@ ExactRuntimeDriveGuard::ExactRuntimeDriveGuard(
   g_vm_runtime = runtime->attribution_runtime;
 #endif
   dynamic_scope_active_ = true;
+}
+
+bool exactRuntimeQuarantine(ExactHermesRuntime* runtime) noexcept {
+  if (runtime == nullptr) return false;
+  {
+    std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
+    auto it = g_activeRuntimes.find(runtime);
+    if (it == g_activeRuntimes.end() ||
+        it->second.nonce != runtime->runtime_nonce ||
+        (it->second.state != RuntimeLifecycleState::Running &&
+         it->second.state != RuntimeLifecycleState::Quarantined) ||
+        it->second.owner != std::this_thread::get_id() ||
+        !it->second.drive_active) {
+      return false;
+    }
+    runtime->runtime_quarantined.store(true, std::memory_order_release);
+    it->second.state = RuntimeLifecycleState::Quarantined;
+  }
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
+  exactRuntimeCancelPendingDebuggerCommands(runtime);
+#endif
+  return true;
+}
+
+extern "C" int32_t ex_hermes_quarantine_runtime_v1(
+    ExactHermesRuntime* runtime) {
+  ExactRuntimeDriveGuard drive(runtime, 0, true, true);
+  if (!drive) return drive.status();
+  return exactRuntimeQuarantine(runtime) ? EXACT_RUNTIME_DRIVE_OK
+                                         : EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
 }
 
 ExactRuntimeDriveGuard::~ExactRuntimeDriveGuard() {
@@ -2963,7 +3020,8 @@ static int32_t beginRuntimeTeardown(
   std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
   auto it = g_activeRuntimes.find(runtime);
   if (it == g_activeRuntimes.end() ||
-      it->second.state != RuntimeLifecycleState::Running ||
+      (it->second.state != RuntimeLifecycleState::Running &&
+       it->second.state != RuntimeLifecycleState::Quarantined) ||
       (expectedNonce != 0 && it->second.nonce != expectedNonce)) {
     return EXACT_RUNTIME_DRIVE_STALE;
   }
@@ -6138,6 +6196,9 @@ void runNextTickQueue(ExactHermesRuntime* runtime) {
 #if EXACT_HAS_HERMES_ASYNC_DEBUGGER
 void emitNewScripts(ExactHermesRuntime* runtime,
                     facebook::hermes::debugger::Debugger& debugger) {
+  if (!exactRuntimeDebuggerIngressAllowed(runtime)) {
+    return;
+  }
   emitNewScriptsImpl(runtime, debugger);
 }
 #endif
@@ -6411,6 +6472,9 @@ static bool captureRootGlobalDispositionIntrinsics(
     handle->root_global_get_prototype_of =
         std::make_unique<facebook::jsi::Function>(
             object.getPropertyAsFunction(rt, "getPrototypeOf"));
+    handle->root_global_object_is_frozen =
+        std::make_unique<facebook::jsi::Function>(
+            object.getPropertyAsFunction(rt, "isFrozen"));
     handle->root_global_reflect_delete_property =
         std::make_unique<facebook::jsi::Function>(
             reflect.getPropertyAsFunction(rt, "deleteProperty"));
@@ -6431,6 +6495,7 @@ static bool captureRootGlobalDispositionIntrinsics(
     handle->root_global_get_own_property_symbols.reset();
     handle->root_global_get_own_property_descriptor.reset();
     handle->root_global_get_prototype_of.reset();
+    handle->root_global_object_is_frozen.reset();
     handle->root_global_reflect_delete_property.reset();
     handle->root_global_baseline_keys.clear();
     return false;
@@ -6685,6 +6750,525 @@ static bool deleteRootGlobalOwnProperty(
   auto deleted = handle->root_global_reflect_delete_property->call(
       rt, object, facebook::jsi::String::createFromUtf8(rt, key));
   return deleted.isBool() && deleted.getBool();
+}
+
+constexpr char kPreparedNativeStartupGlobalV1[] =
+    "__exactPreparedNativeStartupV1";
+
+static facebook::jsi::Value preparedNativeStartupOwnDataValueV1(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::Object& object,
+    const char* name) {
+  auto& rt = *runtime->runtime;
+  auto descriptor = rootGlobalOwnDescriptor(
+      runtime,
+      object,
+      facebook::jsi::String::createFromAscii(rt, name));
+  if (!descriptor.isObject()) {
+    throw std::runtime_error(
+        std::string("prepared startup field missing: ") + name);
+  }
+  auto descriptorObject = descriptor.asObject(rt);
+  auto getter = rootGlobalDescriptorField(runtime, descriptorObject, "get");
+  auto setter = rootGlobalDescriptorField(runtime, descriptorObject, "set");
+  if (!getter.isUndefined() || !setter.isUndefined()) {
+    throw std::runtime_error(
+        std::string("prepared startup accessor refused: ") + name);
+  }
+  return rootGlobalDescriptorField(runtime, descriptorObject, "value");
+}
+
+static bool preparedNativeStartupObjectHasExactKeysV1(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::Object& object) {
+  auto& rt = *runtime->runtime;
+  auto namesValue = runtime->root_global_get_own_property_names->call(
+      rt, object);
+  auto symbolsValue = runtime->root_global_get_own_property_symbols->call(
+      rt, object);
+  if (!namesValue.isObject() || !namesValue.asObject(rt).isArray(rt) ||
+      !symbolsValue.isObject() || !symbolsValue.asObject(rt).isArray(rt)) {
+    return false;
+  }
+  auto symbols = symbolsValue.asObject(rt).asArray(rt);
+  if (symbols.size(rt) != 0) return false;
+
+  auto names = namesValue.asObject(rt).asArray(rt);
+  std::vector<std::string> observed;
+  observed.reserve(names.size(rt));
+  for (size_t index = 0; index < names.size(rt); ++index) {
+    auto name = names.getValueAtIndex(rt, index);
+    if (!name.isString()) return false;
+    observed.push_back(name.asString(rt).utf8(rt));
+  }
+  std::sort(observed.begin(), observed.end());
+  static const std::vector<std::string> expected{
+      "consumeGpuRuntimeIntegration",
+      "disposition",
+      "preparedStartupVersion",
+      "runApp",
+  };
+  return observed == expected;
+}
+
+static bool preparedNativeStartupMatchesV1(
+    ExactHermesRuntime* runtime,
+    uint32_t expectedDisposition) {
+  if (!runtime->root_global_get_own_property_names ||
+      !runtime->root_global_get_own_property_symbols ||
+      !runtime->root_global_get_own_property_descriptor ||
+      !runtime->root_global_object_is_frozen) {
+    return false;
+  }
+  auto& rt = *runtime->runtime;
+  auto descriptor = rootGlobalOwnDescriptor(
+      runtime,
+      rt.global(),
+      facebook::jsi::String::createFromAscii(
+          rt, kPreparedNativeStartupGlobalV1));
+  if (!descriptor.isObject()) return false;
+  auto descriptorObject = descriptor.asObject(rt);
+  auto value = rootGlobalDescriptorField(runtime, descriptorObject, "value");
+  auto writable =
+      rootGlobalDescriptorField(runtime, descriptorObject, "writable");
+  auto enumerable =
+      rootGlobalDescriptorField(runtime, descriptorObject, "enumerable");
+  auto configurable =
+      rootGlobalDescriptorField(runtime, descriptorObject, "configurable");
+  auto getter = rootGlobalDescriptorField(runtime, descriptorObject, "get");
+  auto setter = rootGlobalDescriptorField(runtime, descriptorObject, "set");
+  if (!value.isObject() || !writable.isBool() || writable.getBool() ||
+      !enumerable.isBool() || enumerable.getBool() ||
+      !configurable.isBool() || !configurable.getBool() ||
+      !getter.isUndefined() || !setter.isUndefined()) {
+    return false;
+  }
+
+  auto prepared = value.asObject(rt);
+  auto frozen = runtime->root_global_object_is_frozen->call(rt, prepared);
+  if (!frozen.isBool() || !frozen.getBool() ||
+      !preparedNativeStartupObjectHasExactKeysV1(runtime, prepared)) {
+    return false;
+  }
+
+  auto version = preparedNativeStartupOwnDataValueV1(
+      runtime, prepared, "preparedStartupVersion");
+  auto disposition = preparedNativeStartupOwnDataValueV1(
+      runtime, prepared, "disposition");
+  auto consume = preparedNativeStartupOwnDataValueV1(
+      runtime, prepared, "consumeGpuRuntimeIntegration");
+  auto runApp = preparedNativeStartupOwnDataValueV1(
+      runtime, prepared, "runApp");
+  const char* expectedDispositionText =
+      expectedDisposition ==
+              EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1
+          ? "consume-required"
+          : "unused-valid";
+  return version.isNumber() && version.getNumber() == 1 &&
+      disposition.isString() &&
+      disposition.asString(rt).utf8(rt) == expectedDispositionText &&
+      consume.isObject() && consume.asObject(rt).isFunction(rt) &&
+      runApp.isObject() && runApp.asObject(rt).isFunction(rt);
+}
+
+static int32_t verifyPreparedNativeStartupAbsentUncheckedV1(
+    ExactHermesRuntime* runtime) noexcept {
+  try {
+    auto& rt = *runtime->runtime;
+    auto descriptor = rootGlobalOwnDescriptor(
+        runtime,
+        rt.global(),
+        facebook::jsi::String::createFromAscii(
+            rt, kPreparedNativeStartupGlobalV1));
+    if (descriptor.isUndefined()) {
+      return EXACT_PREPARED_NATIVE_STARTUP_OK_V1;
+    }
+    const bool removed = deleteRootGlobalOwnProperty(
+        runtime, rt.global(), kPreparedNativeStartupGlobalV1);
+    const bool absent = rootGlobalOwnDescriptor(
+                            runtime,
+                            rt.global(),
+                            facebook::jsi::String::createFromAscii(
+                                rt, kPreparedNativeStartupGlobalV1))
+                            .isUndefined();
+    (void)exactRuntimeQuarantine(runtime);
+    return removed && absent
+        ? EXACT_PREPARED_NATIVE_STARTUP_REMOVED_AND_QUARANTINED_V1
+        : EXACT_PREPARED_NATIVE_STARTUP_CLEANUP_FAILED_V1;
+  } catch (...) {
+    (void)exactRuntimeQuarantine(runtime);
+    return EXACT_PREPARED_NATIVE_STARTUP_CLEANUP_FAILED_V1;
+  }
+}
+
+extern "C" int32_t ex_hermes_begin_app_bundle_evaluation_v1(
+    ExactHermesRuntime* runtime,
+    uint32_t expected_prepared_disposition) {
+  if (runtime == nullptr ||
+      (expected_prepared_disposition !=
+           EXACT_PREPARED_NATIVE_STARTUP_NONE_V1 &&
+       expected_prepared_disposition !=
+           EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1 &&
+       expected_prepared_disposition !=
+           EXACT_PREPARED_NATIVE_STARTUP_UNUSED_VALID_V1)) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return drive.status();
+  if (runtime->app_bundle_evaluation_open.load(std::memory_order_acquire) ||
+      runtime->gpu_canvas_app_bundle_transaction_open.load(
+          std::memory_order_acquire)) {
+    return EXACT_RUNTIME_DRIVE_APP_BUNDLE_OPEN;
+  }
+  // The debugger is detached before any generated preparation can publish its
+  // carrier. The outer-open bit then makes every ordinary eval/poll/dispatch
+  // drive refuse until native finish has re-proved the carrier absent.
+  if (!exactRuntimeBeginGpuCanvasDebuggerExclusion(runtime)) {
+    (void)exactRuntimeQuarantine(runtime);
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  // This is the app's first possible instruction boundary. With debugger
+  // ingress already excluded but before outer-open changes drive semantics,
+  // close the construction-only runtime-js capture and permanently fence later
+  // native capability publication. Armed runtimes must also have completed
+  // their trusted bootstrap: exactRuntimeEnterUserExecution intentionally does
+  // not mark execution while that phase remains open.
+  if (!exactRuntimeEnterUserExecution(runtime) ||
+      !runtime->user_execution_started) {
+    (void)exactRuntimeQuarantine(runtime);
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  runtime->app_bundle_evaluation_open.store(
+      true, std::memory_order_release);
+  runtime->app_bundle_expected_prepared_disposition =
+      expected_prepared_disposition;
+  runtime->app_bundle_immediate_evaluation_completed = false;
+  runtime->app_bundle_immediate_source_fallback_allowed = false;
+  runtime->app_bundle_prepared_classified = false;
+  runtime->app_bundle_prepared_staged = false;
+  runtime->app_bundle_prepared_invoked = false;
+  runtime->app_bundle_prepared_consume_gpu_integration.reset();
+  runtime->app_bundle_prepared_run_app.reset();
+
+  const int32_t absence = verifyPreparedNativeStartupAbsentUncheckedV1(runtime);
+  if (absence == EXACT_PREPARED_NATIVE_STARTUP_OK_V1) {
+    return EXACT_RUNTIME_DRIVE_OK;
+  }
+
+  runtime->app_bundle_evaluation_open.store(
+      false, std::memory_order_release);
+  runtime->app_bundle_expected_prepared_disposition = 0;
+  if (!exactRuntimeFinishGpuCanvasDebuggerExclusion(runtime)) {
+    (void)exactRuntimeQuarantine(runtime);
+    return EXACT_PREPARED_NATIVE_STARTUP_CLEANUP_FAILED_V1;
+  }
+  return absence;
+}
+
+extern "C" int32_t ex_hermes_finish_app_bundle_evaluation_v1(
+    ExactHermesRuntime* runtime,
+    uint32_t evaluation_succeeded) {
+  if (runtime == nullptr || evaluation_succeeded > 1) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  ExactRuntimeDriveGuard drive(runtime, 0, true, true);
+  if (!drive) return drive.status();
+  if (!runtime->app_bundle_evaluation_open.load(std::memory_order_acquire) ||
+      runtime->gpu_canvas_app_bundle_transaction_open.load(
+          std::memory_order_acquire)) {
+    return EXACT_RUNTIME_DRIVE_APP_BUNDLE_OPEN;
+  }
+
+  if (evaluation_succeeded == 0) {
+    (void)exactRuntimeQuarantine(runtime);
+  } else if (!runtime->app_bundle_immediate_evaluation_completed) {
+    (void)exactRuntimeQuarantine(runtime);
+  } else if (runtime->app_bundle_expected_prepared_disposition != 0 &&
+             (!runtime->app_bundle_prepared_staged ||
+              !runtime->app_bundle_prepared_invoked)) {
+    (void)exactRuntimeQuarantine(runtime);
+  }
+  const int32_t absence = verifyPreparedNativeStartupAbsentUncheckedV1(runtime);
+  runtime->app_bundle_prepared_consume_gpu_integration.reset();
+  runtime->app_bundle_prepared_run_app.reset();
+  runtime->app_bundle_immediate_evaluation_completed = false;
+  runtime->app_bundle_immediate_source_fallback_allowed = false;
+  runtime->app_bundle_prepared_classified = false;
+  runtime->app_bundle_prepared_staged = false;
+  runtime->app_bundle_prepared_invoked = false;
+  runtime->app_bundle_expected_prepared_disposition = 0;
+  runtime->app_bundle_evaluation_open.store(
+      false, std::memory_order_release);
+  if (!exactRuntimeFinishGpuCanvasDebuggerExclusion(runtime)) {
+    (void)exactRuntimeQuarantine(runtime);
+    return EXACT_PREPARED_NATIVE_STARTUP_CLEANUP_FAILED_V1;
+  }
+  if (absence != EXACT_PREPARED_NATIVE_STARTUP_OK_V1) {
+    return absence;
+  }
+  return runtime->runtime_quarantined.load(std::memory_order_acquire)
+      ? EXACT_RUNTIME_DRIVE_QUARANTINED
+      : EXACT_RUNTIME_DRIVE_OK;
+}
+
+extern "C" int32_t ex_hermes_classify_prepared_native_startup_v1(
+    ExactHermesRuntime* runtime,
+    uint32_t expected_disposition) {
+  if (expected_disposition !=
+          EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1 &&
+      expected_disposition !=
+          EXACT_PREPARED_NATIVE_STARTUP_UNUSED_VALID_V1) {
+    ExactRuntimeDriveGuard drive(runtime, 0, false, true);
+    if (drive && runtime->app_bundle_evaluation_open.load(
+                     std::memory_order_acquire)) {
+      (void)exactRuntimeQuarantine(runtime);
+    }
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  ExactRuntimeDriveGuard drive(runtime, 0, false, true);
+  if (!drive) return drive.status();
+  if (!runtime->app_bundle_evaluation_open.load(std::memory_order_acquire) ||
+      runtime->gpu_canvas_app_bundle_transaction_open.load(
+          std::memory_order_acquire) ||
+      runtime->app_bundle_expected_prepared_disposition == 0 ||
+      runtime->app_bundle_expected_prepared_disposition !=
+          expected_disposition ||
+      !runtime->app_bundle_immediate_evaluation_completed ||
+      runtime->app_bundle_prepared_classified) {
+    if (runtime->app_bundle_evaluation_open.load(
+            std::memory_order_acquire)) {
+      (void)exactRuntimeQuarantine(runtime);
+    }
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  try {
+    auto& rt = *runtime->runtime;
+    auto descriptor = rootGlobalOwnDescriptor(
+        runtime,
+        rt.global(),
+        facebook::jsi::String::createFromAscii(
+            rt, kPreparedNativeStartupGlobalV1));
+    if (descriptor.isUndefined()) {
+      (void)exactRuntimeQuarantine(runtime);
+      return EXACT_PREPARED_NATIVE_STARTUP_MISSING_V1;
+    }
+    if (!preparedNativeStartupMatchesV1(runtime, expected_disposition)) {
+      (void)exactRuntimeQuarantine(runtime);
+      return EXACT_PREPARED_NATIVE_STARTUP_INVALID_SHAPE_V1;
+    }
+    auto prepared = rootGlobalDescriptorField(
+                        runtime, descriptor.asObject(rt), "value")
+                        .asObject(rt);
+    auto consume = preparedNativeStartupOwnDataValueV1(
+        runtime, prepared, "consumeGpuRuntimeIntegration");
+    auto runApp = preparedNativeStartupOwnDataValueV1(
+        runtime, prepared, "runApp");
+    runtime->app_bundle_prepared_consume_gpu_integration =
+        std::make_unique<facebook::jsi::Function>(
+            consume.asObject(rt).asFunction(rt));
+    runtime->app_bundle_prepared_run_app =
+        std::make_unique<facebook::jsi::Function>(
+            runApp.asObject(rt).asFunction(rt));
+    runtime->app_bundle_prepared_classified = true;
+    return EXACT_PREPARED_NATIVE_STARTUP_OK_V1;
+  } catch (...) {
+    (void)exactRuntimeQuarantine(runtime);
+    return EXACT_PREPARED_NATIVE_STARTUP_INVALID_SHAPE_V1;
+  }
+}
+
+static bool removeExpectedPreparedNativeStartupUncheckedV1(
+    ExactHermesRuntime* runtime) noexcept {
+  try {
+    auto& rt = *runtime->runtime;
+    auto descriptor = rootGlobalOwnDescriptor(
+        runtime,
+        rt.global(),
+        facebook::jsi::String::createFromAscii(
+            rt, kPreparedNativeStartupGlobalV1));
+    if (!descriptor.isObject()) return false;
+    return deleteRootGlobalOwnProperty(
+               runtime, rt.global(), kPreparedNativeStartupGlobalV1) &&
+        rootGlobalOwnDescriptor(
+            runtime,
+            rt.global(),
+            facebook::jsi::String::createFromAscii(
+                rt, kPreparedNativeStartupGlobalV1))
+            .isUndefined();
+  } catch (...) {
+    return false;
+  }
+}
+
+static void writePreparedNativeStartupErrorV1(
+    char** outError,
+    const std::string& message) noexcept {
+  if (outError == nullptr) return;
+  *outError = nullptr;
+  auto* copy = static_cast<char*>(malloc(message.size() + 1));
+  if (copy == nullptr) return;
+  memcpy(copy, message.data(), message.size());
+  copy[message.size()] = '\0';
+  *outError = copy;
+}
+
+// @abi-output ex_hermes_stage_prepared_native_startup_v1 out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+extern "C" int32_t ex_hermes_stage_prepared_native_startup_v1(
+    ExactHermesRuntime* runtime,
+    char** out_error) {
+  if (out_error != nullptr) *out_error = nullptr;
+  ExactRuntimeDriveGuard drive(runtime, 0, false, true);
+  if (!drive) {
+    writePreparedNativeStartupErrorV1(
+        out_error, "Prepared startup staging refused by runtime drive gate");
+    return drive.status();
+  }
+  const uint32_t disposition =
+      runtime->app_bundle_expected_prepared_disposition;
+  const bool canvasOpen =
+      runtime->gpu_canvas_app_bundle_transaction_open.load(
+          std::memory_order_acquire);
+  if (!runtime->app_bundle_evaluation_open.load(std::memory_order_acquire) ||
+      (disposition == EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1 &&
+       !canvasOpen) ||
+      (disposition != EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1 &&
+       disposition != EXACT_PREPARED_NATIVE_STARTUP_UNUSED_VALID_V1) ||
+      !runtime->app_bundle_prepared_classified ||
+      runtime->app_bundle_prepared_staged ||
+      runtime->app_bundle_prepared_invoked ||
+      !runtime->app_bundle_prepared_consume_gpu_integration ||
+      !runtime->app_bundle_prepared_run_app) {
+    if (runtime->app_bundle_evaluation_open.load(
+            std::memory_order_acquire)) {
+      (void)exactRuntimeQuarantine(runtime);
+    }
+    writePreparedNativeStartupErrorV1(
+        out_error, "Prepared startup staging is out of sequence");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+
+  auto consume = std::move(
+      runtime->app_bundle_prepared_consume_gpu_integration);
+  if (!removeExpectedPreparedNativeStartupUncheckedV1(runtime)) {
+    (void)exactRuntimeQuarantine(runtime);
+    writePreparedNativeStartupErrorV1(
+        out_error, "Prepared startup root cleanup failed");
+    return EXACT_PREPARED_NATIVE_STARTUP_CLEANUP_FAILED_V1;
+  }
+
+  try {
+    auto& rt = *runtime->runtime;
+    if (disposition ==
+        EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1) {
+      // The function was captured from the frozen, host-authenticated
+      // generated carrier before Canvas begin. No mutable Object/Reflect lookup
+      // occurs while the one-shot capture root is exposed.
+      (void)consume->call(rt);
+    }
+    // The cached consume is generated code, but re-prove that it did not
+    // republish the carrier before the outer transaction can enter arbitrary
+    // project code through runApp.
+    const int32_t absence =
+        verifyPreparedNativeStartupAbsentUncheckedV1(runtime);
+    if (absence != EXACT_PREPARED_NATIVE_STARTUP_OK_V1) {
+      writePreparedNativeStartupErrorV1(
+          out_error, "Prepared startup root was republished during staging");
+      return absence;
+    }
+    runtime->app_bundle_prepared_staged = true;
+    return EXACT_PREPARED_NATIVE_STARTUP_OK_V1;
+  } catch (const facebook::jsi::JSError& err) {
+    (void)exactRuntimeQuarantine(runtime);
+    try {
+      const auto message = err.getMessage();
+      const auto stack = err.getStack();
+      writePreparedNativeStartupErrorV1(
+          out_error, stack.empty() ? message : message + "\n" + stack);
+    } catch (...) {
+      writePreparedNativeStartupErrorV1(
+          out_error, "Prepared startup consume invocation failed");
+    }
+    return 1;
+  } catch (const std::exception& err) {
+    (void)exactRuntimeQuarantine(runtime);
+    writePreparedNativeStartupErrorV1(out_error, err.what());
+    return 1;
+  } catch (...) {
+    (void)exactRuntimeQuarantine(runtime);
+    writePreparedNativeStartupErrorV1(
+        out_error, "Prepared startup native staging failed");
+    return 1;
+  }
+}
+
+// @abi-output ex_hermes_run_prepared_app_v1 out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+extern "C" int32_t ex_hermes_run_prepared_app_v1(
+    ExactHermesRuntime* runtime,
+    char** out_error) {
+  if (out_error != nullptr) *out_error = nullptr;
+  ExactRuntimeDriveGuard drive(runtime, 0, false, true);
+  if (!drive) {
+    writePreparedNativeStartupErrorV1(
+        out_error, "Prepared runApp refused by runtime drive gate");
+    return drive.status();
+  }
+  if (!runtime->app_bundle_evaluation_open.load(std::memory_order_acquire) ||
+      runtime->gpu_canvas_app_bundle_transaction_open.load(
+          std::memory_order_acquire) ||
+      !runtime->app_bundle_prepared_classified ||
+      !runtime->app_bundle_prepared_staged ||
+      runtime->app_bundle_prepared_invoked ||
+      runtime->app_bundle_prepared_consume_gpu_integration ||
+      !runtime->app_bundle_prepared_run_app) {
+    if (runtime->app_bundle_evaluation_open.load(
+            std::memory_order_acquire)) {
+      (void)exactRuntimeQuarantine(runtime);
+    }
+    writePreparedNativeStartupErrorV1(
+        out_error, "Prepared runApp is out of sequence");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+
+  const int32_t absence = verifyPreparedNativeStartupAbsentUncheckedV1(runtime);
+  if (absence != EXACT_PREPARED_NATIVE_STARTUP_OK_V1) {
+    writePreparedNativeStartupErrorV1(
+        out_error, "Prepared startup root is present before runApp");
+    return absence;
+  }
+  auto runApp = std::move(runtime->app_bundle_prepared_run_app);
+  try {
+    (void)runApp->call(*runtime->runtime);
+    runtime->app_bundle_prepared_invoked = true;
+    return EXACT_PREPARED_NATIVE_STARTUP_OK_V1;
+  } catch (const facebook::jsi::JSError& err) {
+    (void)exactRuntimeQuarantine(runtime);
+    try {
+      const auto message = err.getMessage();
+      const auto stack = err.getStack();
+      writePreparedNativeStartupErrorV1(
+          out_error, stack.empty() ? message : message + "\n" + stack);
+    } catch (...) {
+      writePreparedNativeStartupErrorV1(
+          out_error, "Prepared runApp JavaScript invocation failed");
+    }
+    return 1;
+  } catch (const std::exception& err) {
+    (void)exactRuntimeQuarantine(runtime);
+    writePreparedNativeStartupErrorV1(out_error, err.what());
+    return 1;
+  } catch (...) {
+    (void)exactRuntimeQuarantine(runtime);
+    writePreparedNativeStartupErrorV1(
+        out_error, "Prepared runApp native invocation failed");
+    return 1;
+  }
+}
+
+extern "C" int32_t ex_hermes_verify_prepared_native_startup_absent_v1(
+    ExactHermesRuntime* runtime) {
+  ExactRuntimeDriveGuard drive(runtime, 0, true, true);
+  if (!drive) return drive.status();
+  return verifyPreparedNativeStartupAbsentUncheckedV1(runtime);
 }
 
 static bool capturePrivateBridgeConsumers(ExactHermesRuntime* handle) {
@@ -7401,10 +7985,14 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
     cleanupPartiallyConstructedRuntime(handle);
     return nullptr;
   }
-  if (armed && !captureRootGlobalDispositionIntrinsics(handle)) {
+  // App-bundle transactions are available to both armed production runtimes
+  // and the legacy/diagnostic startup path. Capture reflection before either
+  // kind can run project code; lazy capture at bundle time would trust mutable
+  // Object/Reflect globals.
+  if (!captureRootGlobalDispositionIntrinsics(handle)) {
     ex_host_console_log(
         1,
-        "Armed startup refused: could not capture pristine root-global reflection intrinsics");
+        "Runtime startup refused: could not capture pristine root-global reflection intrinsics");
     cleanupPartiallyConstructedRuntime(handle);
     return nullptr;
   }
@@ -12473,6 +13061,132 @@ int exactHermesBootstrapEval(
   }
   return evalRuntimeUnchecked(
       runtime, data, len, sourceUrl, isBytecode, outValue);
+}
+
+int exactHermesEvalImmediateNoJobs(
+    ExactHermesRuntime* runtime,
+    const uint8_t* data,
+    size_t len,
+    const char* sourceUrl,
+    int isBytecode,
+    char** outError,
+    const uint8_t* preludeData,
+    size_t preludeLen,
+    const char* preludeSourceUrl) {
+  if (outError != nullptr) *outError = nullptr;
+  auto writeError = [&](const std::string& text) noexcept {
+    if (outError == nullptr) return;
+    auto* copy = static_cast<char*>(malloc(text.size() + 1));
+    if (copy == nullptr) return;
+    memcpy(copy, text.data(), text.size());
+    copy[text.size()] = '\0';
+    *outError = copy;
+  };
+
+  if (runtime == nullptr || runtime->runtime == nullptr || data == nullptr ||
+      len == 0 || (isBytecode != 0 && isBytecode != 1) ||
+      ((preludeData == nullptr) != (preludeLen == 0))) {
+    writeError("Hermes immediate eval received invalid input");
+    return 1;
+  }
+  if (runtime->runtime_thread != std::this_thread::get_id()) {
+    writeError("Hermes immediate eval refused a non-owner thread");
+    return 1;
+  }
+
+  ScopedRuntimeSecurityContext securityContext(runtime);
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  ScopedActiveAttributionRuntime activeAttributionRuntime(
+      runtime->attribution_runtime);
+#endif
+
+  try {
+    const std::string source = sourceUrl != nullptr
+        ? sourceUrl
+        : (isBytecode != 0 ? "<immediate-bytecode>" : "<immediate-eval>");
+    std::shared_ptr<facebook::jsi::Buffer> sourceBuffer;
+    if (isBytecode != 0) {
+      sourceBuffer = std::make_shared<AlignedBytecodeBuffer>(data, len);
+      const auto* alignedData = sourceBuffer->data();
+#if defined(EXACT_HAVE_HERMES_RUNTIME_BYTECODE_SANITY_CHECK)
+      std::string reason;
+      if (!facebook::hermes::HermesRuntime::hermesBytecodeSanityCheck(
+              alignedData, len, &reason)) {
+        writeError("Bytecode sanity check failed: " + reason);
+        // This is the sole immediate-eval status that proves no program
+        // instruction ran, and therefore the sole source-fallback eligibility
+        // signal for a still-open transaction.
+        // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+        return 2;
+      }
+#elif defined(EXACT_HAVE_HERMES_ROOT_BYTECODE_SANITY_CHECK)
+      std::string reason;
+      auto* root = facebook::jsi::castInterface<facebook::hermes::IHermesRootAPI>(
+          facebook::hermes::makeHermesRootAPI());
+      if (root == nullptr ||
+          !root->hermesBytecodeSanityCheck(alignedData, len, &reason)) {
+        writeError(
+            "Bytecode sanity check failed: " +
+            (root == nullptr ? std::string("Hermes root API unavailable")
+                             : reason));
+        return 2;
+      }
+#else
+      (void)alignedData;
+      // Never hand an unvalidated buffer to Hermes from this security boundary.
+      // Older engine profiles without either native sanity API fail closed to
+      // the same pre-instruction/source-fallback result.
+      writeError(
+          "Bytecode sanity check failed: Hermes bytecode sanity API unavailable");
+      return 2;
+#endif
+    } else {
+      sourceBuffer = std::make_shared<MemoryBuffer>(data, len);
+    }
+
+    std::shared_ptr<facebook::jsi::Buffer> preludeBuffer;
+    if (preludeData != nullptr) {
+      preludeBuffer =
+          std::make_shared<MemoryBuffer>(preludeData, preludeLen);
+    }
+
+    // HBC sanity above is deliberately complete before the prelude runs, so a
+    // status-2 fallback never follows partial prelude mutation. Deliberately
+    // discard both raw JSI values. Even converting one to a string or asking
+    // whether it is thenable can invoke arbitrary project code. No queue
+    // drain, debugger emission, Promise unwrap/poll, or post-eval hook runs
+    // between or after these calls.
+    if (preludeBuffer) {
+      const std::string preludeSource = preludeSourceUrl != nullptr
+          ? preludeSourceUrl
+          : "<immediate-prelude>";
+      (void)runtime->runtime->evaluateJavaScript(
+          preludeBuffer, preludeSource);
+    }
+    (void)runtime->runtime->evaluateJavaScript(sourceBuffer, source);
+    return 0;
+  } catch (const facebook::jsi::JSError& err) {
+    // Do not consult __exactUncaughtExceptionHandler. It is mutable project
+    // state and calling it would be another untrusted ingress before finish.
+    try {
+      const auto message = err.getMessage();
+      const auto stack = err.getStack();
+      writeError(stack.empty() ? message : message + "\n" + stack);
+    } catch (...) {
+      writeError("Hermes immediate eval threw a JavaScript exception");
+    }
+    return 1;
+  } catch (const std::exception& err) {
+    try {
+      writeError(err.what());
+    } catch (...) {
+      writeError("Hermes immediate eval failed");
+    }
+    return 1;
+  } catch (...) {
+    writeError("Unknown non-std exception during Hermes immediate eval");
+    return 1;
+  }
 }
 
 static int evalRuntimeUnchecked(

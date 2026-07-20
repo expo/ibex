@@ -79,6 +79,20 @@ struct NextTickEntry {
   std::vector<facebook::jsi::Value> args;
 };
 
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
+// Heap-owned state for one debugger command admitted from a non-runtime
+// thread. App-bundle begin cancels every registered command while closing the
+// debugger gate, waking its caller even when Hermes never services the queued
+// interrupt. A late interrupt checks `cancelled` before touching the runtime.
+struct ExactPendingDebuggerCommand {
+  std::mutex mutex;
+  std::condition_variable cv;
+  bool cancelled{false};
+  bool settled{false};
+  std::string result;
+};
+#endif
+
 struct FetchCallbackEntry {
   std::shared_ptr<facebook::jsi::Function> resolve;
   std::shared_ptr<facebook::jsi::Function> reject;
@@ -497,6 +511,7 @@ struct ExactHermesRuntime {
   std::unique_ptr<facebook::jsi::Function>
       root_global_get_own_property_descriptor;
   std::unique_ptr<facebook::jsi::Function> root_global_get_prototype_of;
+  std::unique_ptr<facebook::jsi::Function> root_global_object_is_frozen;
   std::unique_ptr<facebook::jsi::Function> root_global_reflect_delete_property;
   std::vector<std::string> root_global_baseline_keys;
   // Armed user execution opens only after the descriptor-only sweep has run
@@ -579,6 +594,46 @@ struct ExactHermesRuntime {
   bool debugger_callback_set{false};
   std::atomic<bool> debugger_attached{false};
   std::atomic<bool> debugger_available{true};
+  // A successful GPU Canvas app-bundle begin excludes every debugger ingress
+  // until finish has proved the temporary capture root closed. The atomic is
+  // checked both before an off-thread interrupt is queued and again when that
+  // interrupt reaches the runtime thread; debug_mutex linearizes the gate with
+  // event publication/consumption and debugger snapshots.
+  // @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
+  std::atomic<bool> gpu_canvas_app_bundle_debugger_blocked{false};
+  // Owner-thread-only companion state. An attached debugger is temporarily
+  // detached at begin so a pre-existing breakpoint cannot pause trusted
+  // capture source, then restored before the gate opens after finish.
+  bool gpu_canvas_app_bundle_debugger_was_attached{false};
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
+  std::unordered_set<std::shared_ptr<ExactPendingDebuggerCommand>>
+      pending_debugger_commands;
+#endif
+#ifdef IBEX_GPU_BRIDGE_TEST_HOOKS
+  std::atomic<bool> test_pause_debugger_after_interrupt_enqueue{false};
+  std::atomic<bool> test_debugger_interrupt_enqueue_paused{false};
+#endif
+  // An owner-thread protocol failure can quarantine a live runtime before its
+  // embedder is able to schedule physical destruction. Quarantine is
+  // irreversible and closes every later drive/callback/debugger ingress while
+  // still permitting transaction cleanup and owner-thread destruction.
+  // @ref LLP 0002#runtime-driving-thread-contract
+  std::atomic<bool> runtime_quarantined{false};
+  // The additive outer app-bundle transaction closes every ordinary runtime
+  // drive before generated preparation publishes its carrier and remains
+  // closed through Canvas capture, runApp, and native absence verification.
+  std::atomic<bool> app_bundle_evaluation_open{false};
+  uint32_t app_bundle_expected_prepared_disposition{0};
+  bool app_bundle_immediate_evaluation_completed{false};
+  bool app_bundle_immediate_source_fallback_allowed{false};
+  bool app_bundle_prepared_classified{false};
+  bool app_bundle_prepared_staged{false};
+  bool app_bundle_prepared_invoked{false};
+  std::unique_ptr<facebook::jsi::Function>
+      app_bundle_prepared_consume_gpu_integration;
+  std::unique_ptr<facebook::jsi::Function> app_bundle_prepared_run_app;
+  std::atomic<bool> gpu_canvas_app_bundle_transaction_open{false};
+  bool gpu_canvas_app_bundle_owns_debugger_exclusion{false};
   std::mutex debug_mutex;
   std::deque<std::string> debug_events;
   std::unordered_set<uint32_t> known_scripts;
@@ -758,7 +813,11 @@ const std::vector<uint64_t>* exactSwapTypedPrincipalStackForRuntimeDrive(
 /// @ref LLP 0013#mechanism-3
 class ExactRuntimeDriveGuard {
  public:
-  ExactRuntimeDriveGuard(ExactHermesRuntime* runtime, uint64_t expectedNonce = 0);
+  ExactRuntimeDriveGuard(
+      ExactHermesRuntime* runtime,
+      uint64_t expectedNonce = 0,
+      bool allowQuarantined = false,
+      bool allowAppBundleEvaluation = false);
   ~ExactRuntimeDriveGuard();
   ExactRuntimeDriveGuard(const ExactRuntimeDriveGuard&) = delete;
   ExactRuntimeDriveGuard& operator=(const ExactRuntimeDriveGuard&) = delete;
@@ -782,12 +841,23 @@ class ExactRuntimeDriveGuard {
   int32_t status_{EXACT_RUNTIME_DRIVE_INVALID};
 };
 
+/// Irreversibly close all ordinary runtime drive and producer ingress while
+/// retaining only cleanup/query/destruction access to the exact generation.
+/// The caller must hold a successful owner-thread ExactRuntimeDriveGuard.
+bool exactRuntimeQuarantine(ExactHermesRuntime* runtime) noexcept;
+
 bool exactGpuCloseConstructionCapture(ExactHermesRuntime* runtime);
 bool exactGpuRetainConstructionCaptureForBootstrapSeal(
     ExactHermesRuntime* runtime);
 
 inline bool exactRuntimeEnterUserExecution(ExactHermesRuntime* runtime) {
   if (!runtime || !runtime->runtime) {
+    return false;
+  }
+  if (runtime->runtime_quarantined.load(std::memory_order_acquire)) {
+    return false;
+  }
+  if (runtime->app_bundle_evaluation_open.load(std::memory_order_acquire)) {
     return false;
   }
   if (runtime->trusted_bootstrap_in_progress) {
@@ -834,6 +904,24 @@ int exactHermesBootstrapEval(
     const char* sourceUrl,
     int isBytecode,
     char** outValue);
+
+/// Perform one owner-thread Hermes source/bytecode evaluation, optionally
+/// preceded by one trusted source prelude, and discard both results. Bytecode
+/// sanity is proven before the optional prelude executes. This internal
+/// primitive intentionally performs no nextTick or microtask drain, debugger
+/// script publication, thenable inspection/poll, result coercion, or mutable
+/// uncaught-exception hook between or after evaluations. The public GPU Canvas
+/// transaction wrappers are its only embedder ingress.
+int exactHermesEvalImmediateNoJobs(
+    ExactHermesRuntime* runtime,
+    const uint8_t* data,
+    size_t len,
+    const char* sourceUrl,
+    int isBytecode,
+    char** outError,
+    const uint8_t* preludeData = nullptr,
+    size_t preludeLen = 0,
+    const char* preludeSourceUrl = nullptr);
 
 struct NativeWebSocketCallbackContext {
   RuntimeCallbackTarget target;
@@ -1923,10 +2011,34 @@ facebook::jsi::Object makeHeapInfoObject(
 std::string stringifyHeapInfo(
     const std::unordered_map<std::string, int64_t>& heapInfo);
 char* copyMallocString(const std::string& value);
+bool exactRuntimeDebuggerIngressAllowed(
+    const ExactHermesRuntime* runtime) noexcept;
+bool exactRuntimeBeginGpuCanvasDebuggerExclusion(
+    ExactHermesRuntime* runtime) noexcept;
+bool exactRuntimeFinishGpuCanvasDebuggerExclusion(
+    ExactHermesRuntime* runtime) noexcept;
 void pushDebugEvent(ExactHermesRuntime* runtime, const std::string& event);
 #if EXACT_HAS_HERMES_ASYNC_DEBUGGER
 std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> snapshotDebugger(
     ExactHermesRuntime* runtime);
+std::shared_ptr<ExactPendingDebuggerCommand> exactRuntimeAdmitDebuggerCommand(
+    ExactHermesRuntime* runtime,
+    std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI>* debugger);
+void exactRuntimeCancelPendingDebuggerCommands(
+    ExactHermesRuntime* runtime) noexcept;
+bool exactRuntimeDebuggerCommandCancelled(
+    const std::shared_ptr<ExactPendingDebuggerCommand>& command) noexcept;
+void exactRuntimeSettleDebuggerCommand(
+    ExactHermesRuntime* runtime,
+    const std::shared_ptr<ExactPendingDebuggerCommand>& command,
+    std::string result = {}) noexcept;
+std::string exactRuntimeWaitDebuggerCommand(
+    ExactHermesRuntime* runtime,
+    const std::shared_ptr<ExactPendingDebuggerCommand>& command,
+    bool* cancelled = nullptr) noexcept;
+void exactRuntimeDebuggerInterruptQueuedTestPause(
+    ExactHermesRuntime* runtime,
+    const std::shared_ptr<ExactPendingDebuggerCommand>& command) noexcept;
 #endif
 void clearDebugger(ExactHermesRuntime* runtime);
 void disableDebugger(ExactHermesRuntime* runtime);

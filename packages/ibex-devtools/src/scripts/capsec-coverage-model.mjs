@@ -219,6 +219,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactPermissionRequest",
   "__exactPermissionRevoke",
   "__exactPermissionStatus",
+  "__exactPreparedNativeStartupV1",
   "__exactTypedHandleMint",
   "__exactTypedHandleRevoke",
   "__exactTypedPermissionRequest",
@@ -350,6 +351,11 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__ibexCompartmentBaselineFinalized",
   "__ibexCompartmentRegistryReady",
   "__ibexEndowRaw",
+  "__ibexImmediateHandlerCalled",
+  "__ibexImmediateMicrotaskRan",
+  "__ibexImmediateNextTickRan",
+  "__ibexImmediateResultCoerced",
+  "__ibexImmediateThenInspected",
   "__ibexLockedDown",
   "__ibexNativeLockdown",
   "__ibexRefreshCompartmentBaseline",
@@ -2870,11 +2876,17 @@ const REVIEWED_NON_GLOBAL_NATIVE_OPERATION_NAMES = new Set([
   "__exactModuleEvent",
   "__exactMotionRatedPublish",
   "__exactNativeFreeze",
+  "__exactPreparedNativeStartupV1",
   "__exactRunOnJS",
   "__exactScheduleOnAppRuntime",
   "__exactSetCompartmentFor",
   "__ibex",
   "__ibexCapsecContextObserver_",
+  "__ibexImmediateHandlerCalled",
+  "__ibexImmediateMicrotaskRan",
+  "__ibexImmediateNextTickRan",
+  "__ibexImmediateResultCoerced",
+  "__ibexImmediateThenInspected",
   "__ibexLockedDown",
   "__ibexTamed",
   "construction-private:gpuNativeBridge.cancel",
@@ -5128,11 +5140,13 @@ function reviewedNameSet(names, label) {
 const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
   [
     "ex_android_initialize",
+    "ex_hermes_begin_app_bundle_evaluation_v1",
     "ex_hermes_begin_embedder_capabilities_v1",
     "ex_hermes_begin_gpu_canvas_app_bundle_v1",
     "ex_hermes_bytecode_version",
     "ex_hermes_callback_backlog",
     "ex_hermes_cancel_structured_work_target",
+    "ex_hermes_classify_prepared_native_startup_v1",
     "ex_hermes_commonjs_create_record",
     "ex_hermes_commonjs_record_create_esm_adapter",
     "ex_hermes_commonjs_record_declare_export",
@@ -5166,12 +5180,15 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_engine_binary_path",
     "ex_hermes_engine_mapped_object",
     "ex_hermes_eval",
+    "ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1",
+    "ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1",
     "ex_hermes_eval_lowered_session",
     "ex_hermes_eval_structured_diagnostic",
     "ex_hermes_eval_structured_session",
     "ex_hermes_evaluation_result_dispose",
     "ex_hermes_evaluation_result_init",
     "ex_hermes_finalize_embedder_capabilities_v1",
+    "ex_hermes_finish_app_bundle_evaluation_v1",
     "ex_hermes_finish_bootstrap",
     "ex_hermes_finish_gpu_canvas_app_bundle_v1",
     "ex_hermes_free_string",
@@ -5208,9 +5225,12 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_now_ms",
     "ex_hermes_poll",
     "ex_hermes_poll_with_external_keep_alive",
+    "ex_hermes_quarantine_runtime_v1",
     "ex_hermes_resolve_exact_host_call",
     "ex_hermes_resolve_host_call",
     "ex_hermes_resume_structured_session",
+    "ex_hermes_run_prepared_app_v1",
+    "ex_hermes_runtime_is_quarantined_v1",
     "ex_hermes_runtime_nonce",
     "ex_hermes_schedule_watchdog_heartbeat",
     "ex_hermes_schedule_watchdog_heartbeat_for_generation",
@@ -5228,6 +5248,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_set_kernel_handle",
     "ex_hermes_set_module_dispatch_callback",
     "ex_hermes_set_module_sync_callback",
+    "ex_hermes_stage_prepared_native_startup_v1",
     "ex_hermes_structured_active_work_target",
     "ex_hermes_structured_module_graph_begin",
     "ex_hermes_structured_module_graph_finish",
@@ -5244,6 +5265,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_value_release",
     "ex_hermes_value_safe_throw_metadata",
     "ex_hermes_value_stage1_text",
+    "ex_hermes_verify_prepared_native_startup_absent_v1",
     "ex_host_armed_bootstrap_compatibility_flags",
     "ex_host_armed_endowments",
     "ex_host_authorize_embedder_capability_set",
@@ -6871,6 +6893,9 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "script:freeze-seal",
     "script:fs-handle",
     "script:ibex-cancellation-consistency",
+    "script:immediate-bytecode",
+    "script:immediate-eval",
+    "script:immediate-prelude",
     "script:ipc-listener",
     "script:lazy-getters",
     "script:lockdown",
@@ -11122,6 +11147,19 @@ function startupClassification(surface) {
   }
 
   if (name.startsWith("script:")) {
+    if (
+      new Set([
+        "script:immediate-bytecode",
+        "script:immediate-eval",
+        "script:immediate-prelude",
+      ]).has(name)
+    ) {
+      return closedSpec(
+        "vm:evaluate",
+        "WP7",
+        "Immediate app-bundle artifact and prelude evaluation are closed authenticated embedder ingress.",
+      );
+    }
     if (name === "script:ibex-cancellation-consistency") {
       return nonCapabilitySpec("terminal-session-control", "WP7");
     }
@@ -12756,13 +12794,18 @@ function embedderAbiClassification(name) {
     if (
       new Set([
         "exhermesbeginembeddercapabilitiesv1",
+        "exhermesbeginappbundleevaluationv1",
         "exhermesbegingpucanvasappbundlev1",
+        "exhermesclassifypreparednativestartupv1",
         "exhermesfinalizeembeddercapabilitiesv1",
         "exhermesfinishgpucanvasappbundlev1",
+        "exhermesfinishappbundleevaluationv1",
+        "exhermesquarantineruntimev1",
         "exhermessetexacthostcallasync",
         "exhermessetgpudecodedimageproviderv1",
         "exhermessetgpuproviderv1",
         "exhermessetgpuproviderv2",
+        "exhermesverifypreparednativestartupabsentv1",
       ]).has(name)
     ) {
       return nonCapabilitySpec("authority-control-plane", "WP4");
@@ -12821,6 +12864,21 @@ function embedderAbiClassification(name) {
     }
     if (name === "exhermesnowms") {
       return nonCapabilitySpec("ordinary-time", "WP1");
+    }
+    if (name === "exhermesruntimeisquarantinedv1") {
+      return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
+    }
+    if (
+      new Set([
+        "exhermesrunpreparedappv1",
+        "exhermesstagepreparednativestartupv1",
+      ]).has(name)
+    ) {
+      return closedSpec(
+        "vm:evaluate",
+        "WP7",
+        "Prepared startup staging and runApp invocation are authenticated outer-transaction embedder operations and are not exposed to project code.",
+      );
     }
     if (new Set(["exhermesdestroy", "exhermesfreestring"]).has(name)) {
       return nonCapabilitySpec("authority-release", "WP8");
@@ -13745,6 +13803,24 @@ function classifyConcreteSurface(surface) {
     }
     if (surface.name === "__ibexCaptureGpuCanvasRuntimeIntegration") {
       return nonCapabilitySpec("authority-control-plane", "WP4");
+    }
+    if (surface.name === "__exactPreparedNativeStartupV1") {
+      return closedSpec(
+        "vm:evaluate",
+        "WP7",
+        "The exact-shape prepared startup carrier is temporary authenticated app-bundle code ingress and remains closed outside its native outer-transaction protocol.",
+      );
+    }
+    if (
+      new Set([
+        "__ibexImmediateHandlerCalled",
+        "__ibexImmediateMicrotaskRan",
+        "__ibexImmediateNextTickRan",
+        "__ibexImmediateResultCoerced",
+        "__ibexImmediateThenInspected",
+      ]).has(surface.name)
+    ) {
+      return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
     }
     if (surface.name === "__exactFsMutationGuard") {
       return nonCapabilitySpec("authority-control-plane", "WP5");

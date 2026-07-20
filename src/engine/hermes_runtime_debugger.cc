@@ -4,7 +4,6 @@
 // Provides enable/disable, breakpoints, pause/resume, eval, and event polling.
 
 #include <cstring>
-#include <future>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -35,11 +34,13 @@ extern "C" int ex_hermes_debugger_enable(ExactHermesRuntime* runtime) {
     return 1;
   }
 
-  runtime->debugger_attached.store(true);
-  auto result = runOnRuntimeThread(runtime, [debugger](ExactHermesRuntime* handle) {
+  bool ingressBlocked = false;
+  auto result = runOnRuntimeThread(runtime, [](ExactHermesRuntime* handle) {
     if (!handle || !handle->runtime) {
       return std::string();
     }
+    auto debugger = snapshotDebugger(handle);
+    if (!debugger) return std::string();
     auto& runtime_debugger = handle->runtime->getDebugger();
     runtime_debugger.setIsDebuggerAttached(true);
     auto target = exactRuntimeCallbackTarget(handle);
@@ -52,7 +53,8 @@ extern "C" int ex_hermes_debugger_enable(ExactHermesRuntime* runtime) {
           // deref so ex_hermes_destroy cannot free the runtime in the old
           // check-then-deref gap.
           withRuntimePinned(target, [&]() {
-            if (!handle->debugger_attached.load()) {
+            if (!handle->debugger_attached.load() ||
+                !exactRuntimeDebuggerIngressAllowed(handle)) {
               return;
             }
             auto event = buildPausedEvent(rt.getDebugger());
@@ -62,12 +64,17 @@ extern "C" int ex_hermes_debugger_enable(ExactHermesRuntime* runtime) {
           });
         });
     handle->debugger_callback_set = true;
+    handle->debugger_attached.store(true, std::memory_order_release);
 
     emitNewScripts(handle, runtime_debugger);
     return std::string("1");
-  });
+  }, &ingressBlocked);
 
   if (result != "1") {
+    runtime->debugger_attached.store(false, std::memory_order_release);
+    if (ingressBlocked) {
+      return 0;
+    }
     disableDebugger(runtime);
     return 0;
   }
@@ -259,8 +266,7 @@ extern "C" void ex_hermes_debugger_resume(ExactHermesRuntime* runtime, int comma
   (void)command;
   return;
 #else
-  auto debugger = snapshotDebugger(runtime);
-  if (!runtime || !debugger) {
+  if (!runtime) {
     return;
   }
   auto cmd = facebook::hermes::debugger::AsyncDebugCommand::Continue;
@@ -279,21 +285,36 @@ extern "C" void ex_hermes_debugger_resume(ExactHermesRuntime* runtime, int comma
       break;
   }
 
+  std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> debugger;
+  auto pending = exactRuntimeAdmitDebuggerCommand(runtime, &debugger);
+  if (!pending || !debugger) return;
   try {
     auto target = exactRuntimeCallbackTarget(runtime);
-    debugger->triggerInterrupt_TS([runtime, target, debugger, cmd](facebook::hermes::HermesRuntime&) {
+    std::weak_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> debuggerWeak =
+        debugger;
+    debugger->triggerInterrupt_TS([runtime, target, debuggerWeak, pending, cmd](facebook::hermes::HermesRuntime&) {
+      if (exactRuntimeDebuggerCommandCancelled(pending)) return;
       // @ref LLP 0003#the-platform-shims-map — see the event callback above.
       withRuntimePinned(target, [&]() {
+        if (!exactRuntimeDebuggerIngressAllowed(runtime)) {
+          return;
+        }
+        auto debugger = debuggerWeak.lock();
+        if (!debugger) return;
         if (debugger->resumeFromPaused(cmd)) {
           pushDebugEvent(runtime, "{\"method\":\"Debugger.resumed\",\"params\":{}}");
         }
       });
+      exactRuntimeSettleDebuggerCommand(runtime, pending);
     });
   } catch (const facebook::jsi::JSError& err) {
+    exactRuntimeSettleDebuggerCommand(runtime, pending);
     ex_host_console_log(1, err.getMessage().c_str());
   } catch (const std::exception& err) {
+    exactRuntimeSettleDebuggerCommand(runtime, pending);
     ex_host_console_log(1, err.what());
   } catch (...) {
+    exactRuntimeSettleDebuggerCommand(runtime, pending);
     ex_host_console_log(1, "Unknown native error");
   }
 #endif
@@ -308,6 +329,9 @@ extern "C" char* ex_hermes_debugger_next_event(ExactHermesRuntime* runtime) {
     return nullptr;
   }
   std::lock_guard<std::mutex> lock(runtime->debug_mutex);
+  if (!exactRuntimeDebuggerIngressAllowed(runtime)) {
+    return nullptr;
+  }
   if (runtime->debug_events.empty()) {
     return nullptr;
   }
@@ -342,40 +366,55 @@ extern "C" char* ex_hermes_debugger_eval(
   }
   auto expr = std::string(expression);
 
-  auto result_holder = std::make_shared<std::string>();
-  auto result_mutex = std::make_shared<std::mutex>();
-  auto result_cv = std::make_shared<std::condition_variable>();
-  auto result_ready = std::make_shared<bool>(false);
-
   if (runtime->debugger_attached.load()) {
-    debugger->triggerInterrupt_TS(
-        [runtime, debugger, expr, frame_index, result_holder, result_mutex, result_cv, result_ready](
+    std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI>
+        admittedDebugger;
+    auto pending =
+        exactRuntimeAdmitDebuggerCommand(runtime, &admittedDebugger);
+    if (!pending || !admittedDebugger) return nullptr;
+    std::weak_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> debuggerWeak =
+        admittedDebugger;
+    try {
+      admittedDebugger->triggerInterrupt_TS(
+        [runtime, debuggerWeak, pending, expr, frame_index](
             facebook::hermes::HermesRuntime& rt) {
+          if (exactRuntimeDebuggerCommandCancelled(pending)) return;
+          if (!exactRuntimeDebuggerIngressAllowed(runtime)) {
+            exactRuntimeSettleDebuggerCommand(
+                runtime,
+                pending,
+                "{\"exceptionDetails\":{\"text\":\"Debugger ingress is excluded during GPU Canvas app-bundle evaluation\"}}");
+            return;
+          }
           if (!exactRuntimeEnterUserExecution(runtime)) {
-            std::lock_guard<std::mutex> lock(*result_mutex);
-            *result_holder =
-                "{\"exceptionDetails\":{\"text\":\"Hermes embedder capability transaction is not finalized\"}}";
-            *result_ready = true;
-            result_cv->notify_one();
+            exactRuntimeSettleDebuggerCommand(
+                runtime,
+                pending,
+                "{\"exceptionDetails\":{\"text\":\"Hermes embedder capability transaction is not finalized\"}}");
+            return;
+          }
+          auto debugger = debuggerWeak.lock();
+          if (!debugger) {
+            exactRuntimeSettleDebuggerCommand(runtime, pending);
             return;
           }
           auto ok = debugger->evalWhilePaused(
               expr,
               frame_index,
-              [&rt, result_holder, result_mutex, result_cv, result_ready](
-                  facebook::hermes::HermesRuntime&,
+              [runtime, pending](
+                  facebook::hermes::HermesRuntime& callbackRuntime,
                   const facebook::hermes::debugger::EvalResult& result) {
+                if (exactRuntimeDebuggerCommandCancelled(pending)) return;
                 std::ostringstream out;
                 if (result.isException) {
                   out << "{\"exceptionDetails\":{\"text\":"
                       << jsonString(result.exceptionDetails.text) << "}}";
                 } else {
-                  out << "{\"result\":" << makeRemoteObject(rt, result.value) << "}";
+                  out << "{\"result\":"
+                      << makeRemoteObject(callbackRuntime, result.value) << "}";
                 }
-                std::lock_guard<std::mutex> lock(*result_mutex);
-                *result_holder = out.str();
-                *result_ready = true;
-                result_cv->notify_one();
+                exactRuntimeSettleDebuggerCommand(
+                    runtime, pending, out.str());
               });
 
           if (!ok) {
@@ -384,38 +423,40 @@ extern "C" char* ex_hermes_debugger_eval(
               auto result = rt.evaluateJavaScript(buffer, "<cdp>");
               std::ostringstream out;
               out << "{\"result\":" << makeRemoteObject(rt, result) << "}";
-              std::lock_guard<std::mutex> lock(*result_mutex);
-              *result_holder = out.str();
-              *result_ready = true;
-              result_cv->notify_one();
+              exactRuntimeSettleDebuggerCommand(
+                  runtime, pending, out.str());
             } catch (const facebook::jsi::JSError& err) {
               std::ostringstream out;
               out << "{\"exceptionDetails\":{\"text\":" << jsonString(err.getMessage()) << "}}";
-              std::lock_guard<std::mutex> lock(*result_mutex);
-              *result_holder = out.str();
-              *result_ready = true;
-              result_cv->notify_one();
+              exactRuntimeSettleDebuggerCommand(
+                  runtime, pending, out.str());
             } catch (const std::exception& err) {
               std::ostringstream out;
               out << "{\"exceptionDetails\":{\"text\":" << jsonString(err.what()) << "}}";
-              std::lock_guard<std::mutex> lock(*result_mutex);
-              *result_holder = out.str();
-              *result_ready = true;
-              result_cv->notify_one();
+              exactRuntimeSettleDebuggerCommand(
+                  runtime, pending, out.str());
             }
           }
         });
-
-    std::unique_lock<std::mutex> lock(*result_mutex);
-    if (result_cv->wait_for(lock, std::chrono::seconds(10), [&result_ready] { return *result_ready; })) {
-      if (!result_holder->empty()) {
-        char* heap = static_cast<char*>(malloc(result_holder->size() + 1));
+      exactRuntimeDebuggerInterruptQueuedTestPause(runtime, pending);
+      auto result = exactRuntimeWaitDebuggerCommand(runtime, pending);
+      if (!result.empty()) {
+        char* heap = static_cast<char*>(malloc(result.size() + 1));
         if (heap) {
-          memcpy(heap, result_holder->data(), result_holder->size());
-          heap[result_holder->size()] = '\0';
+          memcpy(heap, result.data(), result.size());
+          heap[result.size()] = '\0';
           return heap;
         }
       }
+    } catch (const facebook::jsi::JSError& err) {
+      exactRuntimeSettleDebuggerCommand(runtime, pending);
+      ex_host_console_log(1, err.getMessage().c_str());
+    } catch (const std::exception& err) {
+      exactRuntimeSettleDebuggerCommand(runtime, pending);
+      ex_host_console_log(1, err.what());
+    } catch (...) {
+      exactRuntimeSettleDebuggerCommand(runtime, pending);
+      ex_host_console_log(1, "Unknown native error");
     }
   }
 

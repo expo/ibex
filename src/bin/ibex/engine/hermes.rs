@@ -1074,18 +1074,90 @@ extern "C" {
         runtime: *mut HermesRuntimeOpaque,
         receipt: *const ExactGpuCanvasAttachmentReceiptV1,
     ) -> i32;
-    #[cfg(all(test, feature = "webgpu-binding"))]
+    #[cfg(test)]
     fn ex_hermes_begin_gpu_canvas_app_bundle_v1(
         runtime: *mut HermesRuntimeOpaque,
         expectation: u32,
     ) -> i32;
-    #[cfg(all(test, feature = "webgpu-binding"))]
+    #[cfg(test)]
+    fn ex_hermes_begin_app_bundle_evaluation_v1(
+        runtime: *mut HermesRuntimeOpaque,
+        expected_prepared_disposition: u32,
+    ) -> i32;
+    #[cfg(test)]
     fn ex_hermes_finish_gpu_canvas_app_bundle_v1(
         runtime: *mut HermesRuntimeOpaque,
         evaluation_succeeded: u32,
     ) -> i32;
+    #[cfg(test)]
+    fn ex_hermes_finish_app_bundle_evaluation_v1(
+        runtime: *mut HermesRuntimeOpaque,
+        evaluation_succeeded: u32,
+    ) -> i32;
+    #[cfg(test)]
+    fn ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1(
+        runtime: *mut HermesRuntimeOpaque,
+        data: *const u8,
+        len: usize,
+        source_url: *const std::os::raw::c_char,
+        is_bytecode: i32,
+        out_error: *mut *mut std::os::raw::c_char,
+    ) -> i32;
+    #[cfg(test)]
+    fn ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1(
+        runtime: *mut HermesRuntimeOpaque,
+        prelude_data: *const u8,
+        prelude_len: usize,
+        prelude_source_url: *const std::os::raw::c_char,
+        artifact_data: *const u8,
+        artifact_len: usize,
+        artifact_source_url: *const std::os::raw::c_char,
+        artifact_is_bytecode: i32,
+        out_error: *mut *mut std::os::raw::c_char,
+    ) -> i32;
+    #[cfg(test)]
+    fn ex_hermes_classify_prepared_native_startup_v1(
+        runtime: *mut HermesRuntimeOpaque,
+        expected_disposition: u32,
+    ) -> i32;
+    #[cfg(test)]
+    fn ex_hermes_stage_prepared_native_startup_v1(
+        runtime: *mut HermesRuntimeOpaque,
+        out_error: *mut *mut std::os::raw::c_char,
+    ) -> i32;
+    #[cfg(test)]
+    fn ex_hermes_run_prepared_app_v1(
+        runtime: *mut HermesRuntimeOpaque,
+        out_error: *mut *mut std::os::raw::c_char,
+    ) -> i32;
+    #[cfg(test)]
+    fn ex_hermes_verify_prepared_native_startup_absent_v1(runtime: *mut HermesRuntimeOpaque)
+        -> i32;
+    #[cfg(test)]
+    fn ex_hermes_quarantine_runtime_v1(runtime: *mut HermesRuntimeOpaque) -> i32;
+    #[cfg(test)]
+    fn ex_hermes_runtime_is_quarantined_v1(runtime: *const HermesRuntimeOpaque) -> u32;
     #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     fn ibex_test_gpu_v2_reset_observer();
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_v2_immediate_eval_markers(runtime: *mut HermesRuntimeOpaque) -> u32;
+    #[cfg(all(
+        test,
+        hermes_debugger,
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks"
+    ))]
+    fn ibex_test_gpu_v2_pause_next_debugger_interrupt_after_enqueue(
+        runtime: *mut HermesRuntimeOpaque,
+    );
+    #[cfg(all(
+        test,
+        hermes_debugger,
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks"
+    ))]
+    fn ibex_test_gpu_v2_debugger_interrupt_enqueue_paused(runtime: *mut HermesRuntimeOpaque)
+        -> u32;
     #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     fn ibex_test_gpu_v2_validate_event(event: *const ExactGpuServiceEventV2) -> i32;
     #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
@@ -1151,6 +1223,8 @@ extern "C" {
     ) -> i32;
     #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     fn ibex_test_gpu_v2_canvas_receipt_observer_calls() -> u64;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_v2_queue_debugger_event(runtime: *mut HermesRuntimeOpaque);
     #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     fn ibex_test_gpu_v2_consume_canvas_app_bundle_integration(
         runtime: *mut HermesRuntimeOpaque,
@@ -1367,6 +1441,12 @@ extern "C" {
     ) -> i32;
     fn ex_hermes_free_string(value: *mut std::os::raw::c_char);
     fn ex_hermes_poll(runtime: *mut HermesRuntimeOpaque, now_ms: u64) -> i32;
+    #[cfg(test)]
+    fn ex_hermes_dispatch_event(
+        runtime: *mut HermesRuntimeOpaque,
+        handler_id: u32,
+        payload_json: *const std::os::raw::c_char,
+    ) -> i32;
     #[cfg(test)]
     fn ex_hermes_callback_backlog(runtime: *mut HermesRuntimeOpaque) -> u32;
     #[cfg(test)]
@@ -8448,7 +8528,9 @@ module.exports = JSON.stringify({
     const EXACT_GPU_CANVAS_ATTACHMENT_REJECTED_V1: u32 = 2;
     const EXACT_GPU_CANVAS_ATTACHMENT_STALE_GENERATION_V1: u32 = 1;
     const EXACT_GPU_CANVAS_RECEIPT_SINK_UNAVAILABLE_V1: i32 = -6;
+    const EXACT_GPU_CANVAS_APP_BUNDLE_OK_V1: i32 = 0;
     const EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_V1: i32 = 1;
+    const EXACT_GPU_CANVAS_APP_BUNDLE_UNAVAILABLE_V1: i32 = -6;
     const EXACT_GPU_CANVAS_APP_BUNDLE_INVALID_STATE_V1: i32 = -7;
     const EXACT_GPU_CANVAS_APP_BUNDLE_REQUIRED_NOT_CONSUMED_V1: i32 = -10;
     const EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1: u32 = 1;
@@ -8456,6 +8538,13 @@ module.exports = JSON.stringify({
     const EXACT_RUNTIME_DRIVE_INVALID: i32 = -1;
     const EXACT_RUNTIME_DRIVE_STALE: i32 = -2;
     const EXACT_RUNTIME_DRIVE_OFF_OWNER: i32 = -3;
+    const EXACT_RUNTIME_DRIVE_QUARANTINED: i32 = -6;
+    const EXACT_RUNTIME_DRIVE_APP_BUNDLE_OPEN: i32 = -7;
+    const EXACT_PREPARED_NATIVE_STARTUP_OK_V1: i32 = 0;
+    const EXACT_PREPARED_NATIVE_STARTUP_REMOVED_AND_QUARANTINED_V1: i32 = 1;
+    const EXACT_PREPARED_NATIVE_STARTUP_NONE_V1: u32 = 0;
+    const EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1: u32 = 1;
+    const EXACT_PREPARED_NATIVE_STARTUP_UNUSED_VALID_V1: u32 = 2;
     const EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION: i32 = -8;
     const EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE: i32 = -3;
     const EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED: i32 = -4;
@@ -10103,11 +10192,17 @@ module.exports = JSON.stringify({
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
         let runtime = engine.ensure_runtime().await.unwrap();
         runtime
+            .with_runtime(|raw| finalize_fake_gpu_v2_runtime(raw, 0))
+            .unwrap();
+        engine.load_runtime().await.unwrap();
+        runtime
             .with_runtime(|raw| unsafe {
-                finalize_fake_gpu_v2_runtime(raw, 0);
                 let capture_path = ["__ibexCaptureGpuCanvasRuntimeIntegration"];
                 let receipt = gpu_canvas_attached_receipt(ex_hermes_runtime_nonce(raw));
+                let source_url = CString::new("ibex:legacy-gpu-canvas-immediate").unwrap();
+                let mut out = std::ptr::null_mut();
 
+                assert_eq!(ibex_test_gpu_user_execution_started(raw), 0);
                 assert_eq!(ex_hermes_begin_gpu_canvas_app_bundle_v1(raw, 0), -1);
                 let raw_address = raw as usize;
                 assert_eq!(
@@ -10131,6 +10226,23 @@ module.exports = JSON.stringify({
                     ),
                     0
                 );
+                assert_eq!(ibex_test_gpu_user_execution_started(raw), 1);
+                assert_eq!(
+                    ex_hermes_begin_embedder_capabilities_v1(raw),
+                    EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE
+                );
+                assert_eq!(
+                    ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1(
+                        raw,
+                        b"1".as_ptr(),
+                        1,
+                        source_url.as_ptr(),
+                        0,
+                        &mut out,
+                    ),
+                    0
+                );
+                assert!(out.is_null());
                 assert_root_global_paths_absent(raw, &capture_path, 1);
                 assert_eq!(
                     ex_hermes_begin_gpu_canvas_app_bundle_v1(
@@ -10149,8 +10261,8 @@ module.exports = JSON.stringify({
                     EXACT_GPU_CANVAS_APP_BUNDLE_INVALID_STATE_V1
                 );
 
-                // A required prelude gets one exact root. Leaving it
-                // untouched closes the root but refuses the successful eval.
+                // A required prelude gets one exact root and a successful
+                // consume commits exactly one receipt-delivery generation.
                 assert_eq!(
                     ex_hermes_begin_gpu_canvas_app_bundle_v1(
                         raw,
@@ -10164,43 +10276,14 @@ module.exports = JSON.stringify({
                     EXACT_GPU_CANVAS_RECEIPT_SINK_UNAVAILABLE_V1
                 );
                 assert_eq!(
+                    ibex_test_gpu_v2_consume_canvas_app_bundle_integration(raw),
+                    1
+                );
+                assert_root_global_paths_absent(raw, &capture_path, 1);
+                assert_eq!(
                     ex_hermes_finish_gpu_canvas_app_bundle_v1(raw, 1),
-                    EXACT_GPU_CANVAS_APP_BUNDLE_REQUIRED_NOT_CONSUMED_V1
+                    EXACT_GPU_CANVAS_APP_BUNDLE_OK_V1
                 );
-                assert_root_global_paths_absent(raw, &capture_path, 1);
-
-                // Failed eval cleanup revokes a consumed candidate and leaves
-                // delivery closed, while the next generation can rearm.
-                assert_eq!(
-                    ex_hermes_begin_gpu_canvas_app_bundle_v1(
-                        raw,
-                        EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1
-                    ),
-                    0
-                );
-                assert_eq!(
-                    ibex_test_gpu_v2_consume_canvas_app_bundle_integration(raw),
-                    1
-                );
-                assert_root_global_paths_absent(raw, &capture_path, 1);
-                assert_eq!(ex_hermes_finish_gpu_canvas_app_bundle_v1(raw, 0), 0);
-                assert_eq!(
-                    ex_hermes_deliver_gpu_canvas_attachment_receipt_v1(raw, &receipt),
-                    EXACT_GPU_CANVAS_RECEIPT_SINK_UNAVAILABLE_V1
-                );
-
-                assert_eq!(
-                    ex_hermes_begin_gpu_canvas_app_bundle_v1(
-                        raw,
-                        EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1
-                    ),
-                    0
-                );
-                assert_eq!(
-                    ibex_test_gpu_v2_consume_canvas_app_bundle_integration(raw),
-                    1
-                );
-                assert_eq!(ex_hermes_finish_gpu_canvas_app_bundle_v1(raw, 1), 0);
                 assert_eq!(
                     ex_hermes_deliver_gpu_canvas_attachment_receipt_v1(raw, &receipt),
                     0
@@ -10223,6 +10306,847 @@ module.exports = JSON.stringify({
                     ex_hermes_finish_gpu_canvas_app_bundle_v1(raw, 1),
                     EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_V1
                 );
+
+                // Any terminal transaction protocol failure quarantines
+                // before returning. The temporary root is still closed, but
+                // this generation can now only be physically retired.
+                assert_eq!(
+                    ex_hermes_begin_gpu_canvas_app_bundle_v1(
+                        raw,
+                        EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1
+                    ),
+                    EXACT_GPU_CANVAS_APP_BUNDLE_OK_V1
+                );
+                assert_eq!(
+                    ex_hermes_finish_gpu_canvas_app_bundle_v1(raw, 1),
+                    EXACT_GPU_CANVAS_APP_BUNDLE_REQUIRED_NOT_CONSUMED_V1
+                );
+                assert_root_global_paths_absent(raw, &capture_path, 1);
+                assert_eq!(ex_hermes_runtime_is_quarantined_v1(raw), 1);
+                assert_eq!(
+                    ex_hermes_poll(raw, ex_hermes_now_ms()),
+                    EXACT_RUNTIME_DRIVE_QUARANTINED
+                );
+            })
+            .unwrap();
+        drop(runtime);
+        drop(engine);
+        release_fake_gpu_v2_client();
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_canvas_immediate_eval_has_no_post_eval_ingress_and_quarantines_failures() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_gpu_v2_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| finalize_fake_gpu_v2_runtime(raw, 0))
+            .unwrap();
+        engine.load_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                let source_url = CString::new("ibex:gpu-canvas-immediate-test").unwrap();
+                let mut out = std::ptr::null_mut();
+
+                assert_eq!(
+                    ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1(
+                        raw,
+                        b"1".as_ptr(),
+                        1,
+                        source_url.as_ptr(),
+                        0,
+                        &mut out,
+                    ),
+                    EXACT_GPU_CANVAS_APP_BUNDLE_INVALID_STATE_V1
+                );
+                assert!(!out.is_null());
+                ex_hermes_free_string(out);
+                out = std::ptr::null_mut();
+
+                assert_eq!(
+                    ex_hermes_begin_app_bundle_evaluation_v1(
+                        raw,
+                        EXACT_PREPARED_NATIVE_STARTUP_NONE_V1,
+                    ),
+                    0
+                );
+                assert_eq!(
+                    ex_hermes_poll(raw, ex_hermes_now_ms()),
+                    EXACT_RUNTIME_DRIVE_APP_BUNDLE_OPEN
+                );
+                assert_eq!(
+                    ex_hermes_begin_gpu_canvas_app_bundle_v1(
+                        raw,
+                        EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_VALID_V1,
+                    ),
+                    EXACT_GPU_CANVAS_APP_BUNDLE_OK_V1
+                );
+
+                // Status 2 is the sole pre-instruction rejection. It leaves
+                // this exact transaction live so the host may retry source.
+                let invalid_hbc = [0u8, 1, 2, 3, 4, 5, 6, 7];
+                assert_eq!(
+                    ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1(
+                        raw,
+                        invalid_hbc.as_ptr(),
+                        invalid_hbc.len(),
+                        source_url.as_ptr(),
+                        1,
+                        &mut out,
+                    ),
+                    2
+                );
+                assert!(!out.is_null());
+                assert!(CStr::from_ptr(out)
+                    .to_string_lossy()
+                    .starts_with("Bytecode sanity check failed:"));
+                ex_hermes_free_string(out);
+                out = std::ptr::null_mut();
+                assert_eq!(ex_hermes_runtime_is_quarantined_v1(raw), 0);
+
+                let source = br#"
+                    globalThis.__ibexImmediateNextTickRan = false;
+                    globalThis.__ibexImmediateMicrotaskRan = false;
+                    globalThis.__ibexImmediateThenInspected = false;
+                    globalThis.__ibexImmediateResultCoerced = false;
+                    process.nextTick(function () {
+                      globalThis.__ibexImmediateNextTickRan = true;
+                    });
+                    Promise.resolve().then(function () {
+                      globalThis.__ibexImmediateMicrotaskRan = true;
+                    });
+                    ({
+                      get then() {
+                        globalThis.__ibexImmediateThenInspected = true;
+                        return function () {};
+                      },
+                      toString: function () {
+                        globalThis.__ibexImmediateResultCoerced = true;
+                        return "coerced";
+                      }
+                    });
+                "#;
+                assert_eq!(
+                    ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1(
+                        raw,
+                        source.as_ptr(),
+                        source.len(),
+                        source_url.as_ptr(),
+                        0,
+                        &mut out,
+                    ),
+                    0
+                );
+                assert!(out.is_null());
+                assert_eq!(ibex_test_gpu_v2_immediate_eval_markers(raw), 0);
+                assert_eq!(
+                    ex_hermes_verify_prepared_native_startup_absent_v1(raw),
+                    EXACT_PREPARED_NATIVE_STARTUP_OK_V1
+                );
+                assert_eq!(
+                    ex_hermes_finish_gpu_canvas_app_bundle_v1(raw, 1),
+                    EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_V1
+                );
+                assert_eq!(ex_hermes_finish_app_bundle_evaluation_v1(raw, 1), 0);
+                assert_eq!(ex_hermes_runtime_is_quarantined_v1(raw), 0);
+                assert_eq!(
+                    ex_hermes_begin_embedder_capabilities_v1(raw),
+                    EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE
+                );
+
+                assert!(ex_hermes_poll(raw, ex_hermes_now_ms()) >= 0);
+                assert_eq!(ibex_test_gpu_v2_immediate_eval_markers(raw), 0b00011);
+
+                assert_eq!(
+                    ex_hermes_begin_app_bundle_evaluation_v1(
+                        raw,
+                        EXACT_PREPARED_NATIVE_STARTUP_NONE_V1,
+                    ),
+                    0
+                );
+                assert_eq!(
+                    ex_hermes_begin_gpu_canvas_app_bundle_v1(
+                        raw,
+                        EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_VALID_V1,
+                    ),
+                    EXACT_GPU_CANVAS_APP_BUNDLE_OK_V1
+                );
+                let thrown = br#"
+                    globalThis.__ibexImmediateHandlerCalled = false;
+                    globalThis.__exactUncaughtExceptionHandler = function () {
+                      globalThis.__ibexImmediateHandlerCalled = true;
+                      return true;
+                    };
+                    throw new Error("immediate-eval-must-not-call-handler");
+                "#;
+                assert_eq!(
+                    ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1(
+                        raw,
+                        thrown.as_ptr(),
+                        thrown.len(),
+                        source_url.as_ptr(),
+                        0,
+                        &mut out,
+                    ),
+                    1
+                );
+                assert!(!out.is_null());
+                assert!(CStr::from_ptr(out)
+                    .to_string_lossy()
+                    .contains("immediate-eval-must-not-call-handler"));
+                ex_hermes_free_string(out);
+                out = std::ptr::null_mut();
+
+                // Quarantine is observable before finish and the mutable
+                // handler was not an implicit second JavaScript ingress.
+                assert_eq!(ex_hermes_runtime_is_quarantined_v1(raw), 1);
+                assert_eq!(ibex_test_gpu_v2_immediate_eval_markers(raw), 0b00011);
+                assert_eq!(
+                    ex_hermes_poll(raw, ex_hermes_now_ms()),
+                    EXACT_RUNTIME_DRIVE_QUARANTINED
+                );
+                assert_eq!(
+                    ex_hermes_eval(
+                        raw,
+                        b"globalThis.__ibexQuarantineBypass = true".as_ptr(),
+                        b"globalThis.__ibexQuarantineBypass = true".len(),
+                        source_url.as_ptr(),
+                        0,
+                        &mut out,
+                    ),
+                    EXACT_RUNTIME_DRIVE_QUARANTINED
+                );
+                if !out.is_null() {
+                    ex_hermes_free_string(out);
+                }
+                assert_eq!(ex_hermes_dispatch_event(raw, 1, std::ptr::null()), -1);
+
+                // Quarantined generations retain only cleanup/destruction
+                // entry. Finish closes the transaction but never reopens it.
+                assert_eq!(
+                    ex_hermes_finish_gpu_canvas_app_bundle_v1(raw, 0),
+                    EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_V1
+                );
+                assert_eq!(
+                    ex_hermes_finish_app_bundle_evaluation_v1(raw, 0),
+                    EXACT_RUNTIME_DRIVE_QUARANTINED
+                );
+                assert_eq!(ex_hermes_runtime_is_quarantined_v1(raw), 1);
+            })
+            .unwrap();
+        drop(runtime);
+        drop(engine);
+        release_fake_gpu_v2_client();
+    }
+
+    #[cfg(not(feature = "webgpu-binding"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn prepared_unused_startup_runs_without_webgpu_binding() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                let source_url = CString::new("ibex:prepared-startup-no-webgpu").unwrap();
+                let prelude_url = CString::new("ibex:runtime-context-prelude").unwrap();
+                let prelude = b"globalThis.__ibexNoWebGpuPreludeRan = true;";
+                let source = br#"
+                    if (globalThis.__ibexNoWebGpuPreludeRan === true) {
+                      throw new Error("status-2 fallback ran its prelude");
+                    }
+                    Object.defineProperty(
+                      globalThis,
+                      "__exactPreparedNativeStartupV1",
+                      {
+                        value: Object.freeze({
+                          preparedStartupVersion: 1,
+                          disposition: "unused-valid",
+                          consumeGpuRuntimeIntegration: function () {},
+                          runApp: function () {
+                            globalThis.__ibexPreparedNoWebGpuRan = true;
+                          }
+                        }),
+                        writable: false,
+                        enumerable: false,
+                        configurable: true
+                      }
+                    );
+                "#;
+                let mut out = std::ptr::null_mut();
+                assert_eq!(
+                    ex_hermes_begin_app_bundle_evaluation_v1(
+                        raw,
+                        EXACT_PREPARED_NATIVE_STARTUP_UNUSED_VALID_V1,
+                    ),
+                    0
+                );
+                // Outer begin itself enters user execution and seals every
+                // construction-only capability setter. This assertion occurs
+                // before eval, polling, or any platform hook installation.
+                assert_eq!(
+                    ex_hermes_begin_embedder_capabilities_v1(raw),
+                    EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE
+                );
+                let invalid_hbc = [0u8, 1, 2, 3, 4, 5, 6, 7];
+                assert_eq!(
+                    ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1(
+                        raw,
+                        prelude.as_ptr(),
+                        prelude.len(),
+                        prelude_url.as_ptr(),
+                        invalid_hbc.as_ptr(),
+                        invalid_hbc.len(),
+                        source_url.as_ptr(),
+                        1,
+                        &mut out,
+                    ),
+                    2
+                );
+                assert!(!out.is_null());
+                ex_hermes_free_string(out);
+                out = std::ptr::null_mut();
+                assert_eq!(ex_hermes_runtime_is_quarantined_v1(raw), 0);
+                assert_eq!(
+                    ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1(
+                        raw,
+                        source.as_ptr(),
+                        source.len(),
+                        source_url.as_ptr(),
+                        0,
+                        &mut out,
+                    ),
+                    0
+                );
+                assert!(out.is_null());
+                assert_eq!(
+                    ex_hermes_classify_prepared_native_startup_v1(
+                        raw,
+                        EXACT_PREPARED_NATIVE_STARTUP_UNUSED_VALID_V1,
+                    ),
+                    EXACT_PREPARED_NATIVE_STARTUP_OK_V1
+                );
+                assert_eq!(
+                    ex_hermes_begin_gpu_canvas_app_bundle_v1(
+                        raw,
+                        EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_VALID_V1,
+                    ),
+                    EXACT_GPU_CANVAS_APP_BUNDLE_UNAVAILABLE_V1
+                );
+                assert_eq!(
+                    ex_hermes_stage_prepared_native_startup_v1(raw, &mut out),
+                    EXACT_PREPARED_NATIVE_STARTUP_OK_V1
+                );
+                assert!(out.is_null());
+                assert_eq!(
+                    ex_hermes_run_prepared_app_v1(raw, &mut out),
+                    EXACT_PREPARED_NATIVE_STARTUP_OK_V1
+                );
+                assert!(out.is_null());
+                assert_eq!(ex_hermes_finish_app_bundle_evaluation_v1(raw, 1), 0);
+                assert_eq!(ex_hermes_runtime_is_quarantined_v1(raw), 0);
+                assert_eq!(
+                    ex_hermes_begin_embedder_capabilities_v1(raw),
+                    EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE
+                );
+            })
+            .unwrap();
+        drop(runtime);
+        drop(engine);
+
+        // A status-2 sanity rejection is not a successful app evaluation.
+        // Finishing it as success quarantines before the outer gate reopens.
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                let source_url = CString::new("ibex:unfinished-hbc-no-webgpu").unwrap();
+                let prelude_url = CString::new("ibex:unfinished-prelude").unwrap();
+                let prelude = b"globalThis.__ibexUnfinishedPreludeRan = true;";
+                let invalid_hbc = [7u8, 6, 5, 4, 3, 2, 1, 0];
+                let mut out = std::ptr::null_mut();
+                assert_eq!(
+                    ex_hermes_begin_app_bundle_evaluation_v1(
+                        raw,
+                        EXACT_PREPARED_NATIVE_STARTUP_NONE_V1,
+                    ),
+                    0
+                );
+                assert_eq!(
+                    ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1(
+                        raw,
+                        prelude.as_ptr(),
+                        prelude.len(),
+                        prelude_url.as_ptr(),
+                        invalid_hbc.as_ptr(),
+                        invalid_hbc.len(),
+                        source_url.as_ptr(),
+                        1,
+                        &mut out,
+                    ),
+                    2
+                );
+                assert!(!out.is_null());
+                ex_hermes_free_string(out);
+                assert_eq!(
+                    ex_hermes_finish_app_bundle_evaluation_v1(raw, 1),
+                    EXACT_RUNTIME_DRIVE_QUARANTINED
+                );
+                assert_eq!(ex_hermes_runtime_is_quarantined_v1(raw), 1);
+            })
+            .unwrap();
+        drop(runtime);
+        drop(engine);
+    }
+
+    #[cfg(not(feature = "webgpu-binding"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn prepared_sequence_failures_quarantine_without_webgpu_binding() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        for classify_before_failure in [false, true] {
+            let engine = HermesEngine::new().unwrap();
+            let runtime = engine.ensure_runtime().await.unwrap();
+            runtime
+                .with_runtime(|raw| unsafe {
+                    let source_url = CString::new("ibex:prepared-sequence-failure").unwrap();
+                    let source = br#"
+                        Object.defineProperty(
+                          globalThis,
+                          "__exactPreparedNativeStartupV1",
+                          {
+                            value: Object.freeze({
+                              preparedStartupVersion: 1,
+                              disposition: "unused-valid",
+                              consumeGpuRuntimeIntegration: function () {},
+                              runApp: function () {}
+                            }),
+                            writable: false,
+                            enumerable: false,
+                            configurable: true
+                          }
+                        );
+                    "#;
+                    let mut out = std::ptr::null_mut();
+                    assert_eq!(
+                        ex_hermes_begin_app_bundle_evaluation_v1(
+                            raw,
+                            EXACT_PREPARED_NATIVE_STARTUP_UNUSED_VALID_V1,
+                        ),
+                        0
+                    );
+                    assert_eq!(
+                        ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1(
+                            raw,
+                            source.as_ptr(),
+                            source.len(),
+                            source_url.as_ptr(),
+                            0,
+                            &mut out,
+                        ),
+                        0
+                    );
+                    if classify_before_failure {
+                        assert_eq!(
+                            ex_hermes_classify_prepared_native_startup_v1(
+                                raw,
+                                EXACT_PREPARED_NATIVE_STARTUP_UNUSED_VALID_V1,
+                            ),
+                            EXACT_PREPARED_NATIVE_STARTUP_OK_V1
+                        );
+                        assert_eq!(
+                            ex_hermes_run_prepared_app_v1(raw, &mut out),
+                            EXACT_RUNTIME_DRIVE_INVALID
+                        );
+                    } else {
+                        assert_eq!(
+                            ex_hermes_stage_prepared_native_startup_v1(raw, &mut out),
+                            EXACT_RUNTIME_DRIVE_INVALID
+                        );
+                    }
+                    assert!(!out.is_null());
+                    ex_hermes_free_string(out);
+                    assert_eq!(ex_hermes_runtime_is_quarantined_v1(raw), 1);
+                    assert_eq!(
+                        ex_hermes_finish_app_bundle_evaluation_v1(raw, 0),
+                        EXACT_PREPARED_NATIVE_STARTUP_REMOVED_AND_QUARANTINED_V1
+                    );
+                })
+                .unwrap();
+            drop(runtime);
+            drop(engine);
+        }
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn prepared_startup_shape_and_absence_use_pristine_native_reflection() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_gpu_v2_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| finalize_fake_gpu_v2_runtime(raw, 0))
+            .unwrap();
+        engine.load_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                let source_url = CString::new("ibex:prepared-startup-test").unwrap();
+                let mut out = std::ptr::null_mut();
+                assert_eq!(
+                    ex_hermes_begin_app_bundle_evaluation_v1(
+                        raw,
+                        EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1,
+                    ),
+                    0
+                );
+
+                let valid = br#"
+                    Object.defineProperty(
+                      globalThis,
+                      "__exactPreparedNativeStartupV1",
+                      {
+                        value: Object.freeze({
+                          preparedStartupVersion: 1,
+                          disposition: "consume-required",
+                          consumeGpuRuntimeIntegration: function () {
+                            const capture = globalThis.__ibexCaptureGpuCanvasRuntimeIntegration;
+                            capture(Object.freeze({
+                              installCanvasContextMinter: function () { return function () {}; },
+                              deliverCanvasAttachmentReceipt: function () {}
+                            }));
+                          },
+                          runApp: function () {
+                            globalThis.__ibexPreparedRunAppRan = true;
+                          }
+                        }),
+                        writable: false,
+                        enumerable: false,
+                        configurable: true
+                      }
+                    );
+                    Object.getOwnPropertyDescriptor = function () {
+                      throw new Error("poisoned Object.getOwnPropertyDescriptor");
+                    };
+                    Object.getOwnPropertyNames = function () {
+                      throw new Error("poisoned Object.getOwnPropertyNames");
+                    };
+                    Object.getOwnPropertySymbols = function () {
+                      throw new Error("poisoned Object.getOwnPropertySymbols");
+                    };
+                    Object.isFrozen = function () {
+                      throw new Error("poisoned Object.isFrozen");
+                    };
+                    Reflect.deleteProperty = function () {
+                      throw new Error("poisoned Reflect.deleteProperty");
+                    };
+                "#;
+                assert_eq!(
+                    ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1(
+                        raw,
+                        valid.as_ptr(),
+                        valid.len(),
+                        source_url.as_ptr(),
+                        0,
+                        &mut out,
+                    ),
+                    0
+                );
+                assert!(out.is_null());
+                assert_eq!(
+                    ex_hermes_classify_prepared_native_startup_v1(
+                        raw,
+                        EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1,
+                    ),
+                    EXACT_PREPARED_NATIVE_STARTUP_OK_V1
+                );
+                assert_eq!(
+                    ex_hermes_begin_gpu_canvas_app_bundle_v1(
+                        raw,
+                        EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1,
+                    ),
+                    EXACT_GPU_CANVAS_APP_BUNDLE_OK_V1
+                );
+                assert_eq!(
+                    ex_hermes_stage_prepared_native_startup_v1(
+                        raw,
+                        &mut out,
+                    ),
+                    0
+                );
+                assert!(out.is_null());
+                assert_eq!(
+                    ex_hermes_verify_prepared_native_startup_absent_v1(raw),
+                    EXACT_PREPARED_NATIVE_STARTUP_OK_V1
+                );
+                assert_eq!(
+                    ex_hermes_finish_gpu_canvas_app_bundle_v1(raw, 1),
+                    EXACT_GPU_CANVAS_APP_BUNDLE_OK_V1
+                );
+                assert_eq!(
+                    ex_hermes_run_prepared_app_v1(raw, &mut out),
+                    EXACT_PREPARED_NATIVE_STARTUP_OK_V1
+                );
+                assert!(out.is_null());
+                assert_eq!(ex_hermes_finish_app_bundle_evaluation_v1(raw, 1), 0);
+
+                // Presence at a pre/post absence proof is contamination even
+                // if pristine Reflect.deleteProperty can remove it.
+                assert_eq!(
+                    ex_hermes_begin_app_bundle_evaluation_v1(
+                        raw,
+                        EXACT_PREPARED_NATIVE_STARTUP_UNUSED_VALID_V1,
+                    ),
+                    0
+                );
+                let stale = b"Object.defineProperty(globalThis, '__exactPreparedNativeStartupV1', { value: {}, configurable: true })";
+                assert_eq!(
+                    ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1(
+                        raw,
+                        stale.as_ptr(),
+                        stale.len(),
+                        source_url.as_ptr(),
+                        0,
+                        &mut out,
+                    ),
+                    0
+                );
+                assert_eq!(
+                    ex_hermes_verify_prepared_native_startup_absent_v1(raw),
+                    EXACT_PREPARED_NATIVE_STARTUP_REMOVED_AND_QUARANTINED_V1
+                );
+                assert_eq!(ex_hermes_runtime_is_quarantined_v1(raw), 1);
+                assert_eq!(ex_hermes_quarantine_runtime_v1(raw), 0);
+                assert_eq!(
+                    ex_hermes_finish_app_bundle_evaluation_v1(raw, 0),
+                    EXACT_RUNTIME_DRIVE_QUARANTINED
+                );
+            })
+            .unwrap();
+        drop(runtime);
+        drop(engine);
+        release_fake_gpu_v2_client();
+    }
+
+    #[cfg(all(
+        hermes_debugger,
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_canvas_app_bundle_excludes_debugger_ingress_until_finish() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_gpu_v2_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| finalize_fake_gpu_v2_runtime(raw, 0))
+            .unwrap();
+        engine.load_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                // Prove this is the debugger-enabled profile before testing
+                // the temporary exclusion. The default-off build retains its
+                // established null/zero stubs and does not compile this test.
+                let scripts = HermesCdpBackend::take_c_string(
+                    ex_hermes_debugger_get_scripts(raw),
+                )
+                .expect("debugger-enabled Hermes must expose script metadata");
+                assert!(serde_json::from_str::<Value>(&scripts).unwrap().is_array());
+
+                // A queued pre-transaction event must be withheld, not popped,
+                // for the complete outer transaction.
+                ibex_test_gpu_v2_queue_debugger_event(raw);
+
+                // Deterministically stop one off-thread metadata command after
+                // triggerInterrupt_TS accepted it but before its waiter can be
+                // serviced. Outer begin must cancel and settle that command
+                // before declaring the carrier-publication window safe.
+                ibex_test_gpu_v2_pause_next_debugger_interrupt_after_enqueue(raw);
+                let raw_address = raw as usize;
+                let overlapped = std::thread::spawn(move || {
+                    let result = ex_hermes_debugger_get_scripts(
+                        raw_address as *mut HermesRuntimeOpaque,
+                    );
+                    if !result.is_null() {
+                        ex_hermes_free_string(result);
+                        return false;
+                    }
+                    true
+                });
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                while ibex_test_gpu_v2_debugger_interrupt_enqueue_paused(raw) == 0
+                    && std::time::Instant::now() < deadline
+                {
+                    std::thread::yield_now();
+                }
+                assert_eq!(ibex_test_gpu_v2_debugger_interrupt_enqueue_paused(raw), 1);
+                assert_eq!(
+                    ex_hermes_begin_app_bundle_evaluation_v1(
+                        raw,
+                        EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1,
+                    ),
+                    0
+                );
+                assert!(overlapped.join().unwrap());
+                assert!(ex_hermes_debugger_next_event(raw).is_null());
+
+                let prepared = br#"
+                    Object.defineProperty(
+                      globalThis,
+                      "__exactPreparedNativeStartupV1",
+                      {
+                        value: Object.freeze({
+                          preparedStartupVersion: 1,
+                          disposition: "consume-required",
+                          consumeGpuRuntimeIntegration: function () {
+                            const capture = globalThis.__ibexCaptureGpuCanvasRuntimeIntegration;
+                            capture(Object.freeze({
+                              installCanvasContextMinter: function () { return function () {}; },
+                              deliverCanvasAttachmentReceipt: function () {}
+                            }));
+                          },
+                          runApp: function () {
+                            globalThis.__ibexPreparedRunAppRan = true;
+                          }
+                        }),
+                        writable: false,
+                        enumerable: false,
+                        configurable: true
+                      }
+                    );
+                "#;
+                let trusted_url = CString::new("ibex:debugger-gated-prepare").unwrap();
+                let mut trusted_error = std::ptr::null_mut();
+                assert_eq!(
+                    ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1(
+                        raw,
+                        prepared.as_ptr(),
+                        prepared.len(),
+                        trusted_url.as_ptr(),
+                        0,
+                        &mut trusted_error,
+                    ),
+                    0
+                );
+                assert!(trusted_error.is_null());
+                assert_eq!(
+                    ex_hermes_classify_prepared_native_startup_v1(
+                        raw,
+                        EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1,
+                    ),
+                    EXACT_PREPARED_NATIVE_STARTUP_OK_V1
+                );
+
+                let attack = CString::new(
+                    "(() => { globalThis.__ibexDebuggerCaptureAttemptRan = true; globalThis.__exactPreparedNativeStartupV1.runApp(); const capture = globalThis.__ibexCaptureGpuCanvasRuntimeIntegration; if (typeof capture === 'function') capture(Object.freeze({ installCanvasContextMinter: function() { return function() {}; }, deliverCanvasAttachmentReceipt: function() {} })); return true; })()",
+                )
+                .unwrap();
+
+                // Every debugger surface refuses in the publication-to-Canvas
+                // gap. The void commands are included so a later accidental
+                // bypass cannot hide behind CDP's lack of a return status.
+                assert_eq!(ex_hermes_debugger_enable(raw), 0);
+                assert!(ex_hermes_debugger_get_scripts(raw).is_null());
+                assert!(ex_hermes_debugger_get_script_source(raw, 0).is_null());
+                assert!(ex_hermes_debugger_set_breakpoint(
+                    raw,
+                    0,
+                    0,
+                    0,
+                    std::ptr::null(),
+                )
+                .is_null());
+                ex_hermes_debugger_remove_breakpoint(raw, 0);
+                ex_hermes_debugger_pause(raw);
+                ex_hermes_debugger_resume(raw, 0);
+                assert!(ex_hermes_debugger_eval(raw, attack.as_ptr(), 0).is_null());
+
+                // Exercise the cross-thread path used by CDP. It must refuse
+                // before triggerInterrupt_TS is queued, so joining cannot wait
+                // on owner-thread progress while the transaction is open.
+                let raw_address = raw as usize;
+                let off_thread_attack = attack.clone();
+                let off_thread_refused = std::thread::spawn(move || {
+                    let result = ex_hermes_debugger_eval(
+                        raw_address as *mut HermesRuntimeOpaque,
+                        off_thread_attack.as_ptr(),
+                        0,
+                    );
+                    if !result.is_null() {
+                        ex_hermes_free_string(result);
+                        return false;
+                    }
+                    true
+                })
+                .join()
+                .unwrap();
+                assert!(off_thread_refused);
+
+                // Native staging, not another evaluator, gets the tiny cached
+                // consume function. Arbitrary runApp remains impossible until
+                // Canvas finish has removed the capture root.
+                assert_eq!(
+                    ex_hermes_begin_gpu_canvas_app_bundle_v1(
+                        raw,
+                        EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1,
+                    ),
+                    EXACT_GPU_CANVAS_APP_BUNDLE_OK_V1
+                );
+                assert_eq!(
+                    ex_hermes_stage_prepared_native_startup_v1(
+                        raw,
+                        &mut trusted_error,
+                    ),
+                    EXACT_PREPARED_NATIVE_STARTUP_OK_V1
+                );
+                assert!(trusted_error.is_null());
+                assert_eq!(
+                    ex_hermes_finish_gpu_canvas_app_bundle_v1(raw, 1),
+                    EXACT_GPU_CANVAS_APP_BUNDLE_OK_V1
+                );
+                assert_eq!(
+                    ex_hermes_run_prepared_app_v1(raw, &mut trusted_error),
+                    EXACT_PREPARED_NATIVE_STARTUP_OK_V1
+                );
+                assert!(trusted_error.is_null());
+
+                // Nested finish does not reopen debugger ingress. Only the
+                // final pristine absence proof and outer finish may do so.
+                assert!(ex_hermes_debugger_next_event(raw).is_null());
+                assert_eq!(ex_hermes_finish_app_bundle_evaluation_v1(raw, 1), 0);
+
+                let queued_event = HermesCdpBackend::take_c_string(
+                    ex_hermes_debugger_next_event(raw),
+                )
+                .expect("outer finish must release the withheld debugger event");
+                assert!(queued_event.contains("Ibex.testDebuggerGate"));
+
+                // Debugger evaluation and attachment resume only after outer
+                // finish; neither attack entered project code.
+                let probe = CString::new(
+                    "typeof globalThis.__ibexDebuggerCaptureAttemptRan",
+                )
+                .unwrap();
+                let resumed = HermesCdpBackend::take_c_string(
+                    ex_hermes_debugger_eval(raw, probe.as_ptr(), 0),
+                )
+                .expect("debugger evaluation must resume after finish");
+                let resumed: Value = serde_json::from_str(&resumed).unwrap();
+                assert_eq!(
+                    resumed.pointer("/result/value").and_then(Value::as_str),
+                    Some("undefined")
+                );
+                assert_eq!(ex_hermes_debugger_enable(raw), 1);
             })
             .unwrap();
         drop(runtime);
@@ -10242,8 +11166,11 @@ module.exports = JSON.stringify({
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
         let runtime = engine.ensure_runtime().await.unwrap();
         runtime
+            .with_runtime(|raw| finalize_fake_gpu_v2_runtime(raw, 0))
+            .unwrap();
+        engine.load_runtime().await.unwrap();
+        runtime
             .with_runtime(|raw| unsafe {
-                finalize_fake_gpu_v2_runtime(raw, 0);
                 ibex_test_gpu_v2_reset_observer();
                 let attached = gpu_canvas_attached_receipt(ex_hermes_runtime_nonce(raw));
 
