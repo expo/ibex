@@ -531,8 +531,87 @@ void install(Runtime& rt) {
     });
     expect(route.sites.map((site) => site.role)).toEqual([
       "value-producer",
+      "value-producer",
       "publication",
     ]);
+  });
+
+  test("composes an inherited global member with its lazy publication", () => {
+    const route = buildRestrictedExactBranchSourceRoute({
+      branchId: "surface.native.op.global.broadcastchannel.addeventlistener.all",
+      observedKey: "native-op:global:BroadcastChannel.addEventListener",
+      targetVariant: "all",
+    }, [
+      "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:BroadcastChannel",
+      "packages/ibex-runtime-js/src/events/EventTarget.ts#EventTarget.prototype.addEventListener",
+    ]);
+    expect(route.status).toBe("executable");
+    expect(route.sites.map((site) => site.role)).toEqual([
+      "value-producer",
+      "lazy-trigger",
+    ]);
+  });
+
+  test("composes a root global from its exact lazy factory publication", () => {
+    const route = buildRestrictedExactBranchSourceRoute({
+      branchId: "surface.native.op.global.broadcastchannel.all",
+      observedKey: "native-op:global:BroadcastChannel",
+      targetVariant: "all",
+    }, [
+      "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:BroadcastChannel",
+    ]);
+    expect(route.status).toBe("executable");
+    expect(route.producerPaths).toHaveLength(1);
+  });
+
+  test("retains a direct JSI global route while composing the global family", () => {
+    const route = buildRestrictedExactBranchSourceRoute({
+      branchId: "surface.native.op.global.console.debug.default",
+      observedKey: "native-op:global:console.debug",
+      targetVariant: "default",
+    }, ["src/engine/hermes_runtime_console.cc#jsi-global:console.debug"]);
+    expect(route.status).toBe("executable");
+    expect(route.sites.map((site) => site.role)).toEqual([
+      "value-producer",
+      "publication",
+      "publication",
+    ]);
+  });
+
+  test("binds a TypeScript installer to the exact global value and publication", () => {
+    const branch = {
+      branchId: "surface.native.op.accessibility.changed.all",
+      observedKey: "native-op:__exactAccessibilityChanged",
+      targetVariant: "all",
+    };
+    const sourceRef = "packages/ibex-runtime-js/src/core/accessibility.ts#installExactAccessibilityGlobal:globals:__exactAccessibilityChanged";
+    const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+    expect(binding.locatorKind).toBe("typescript-global-installer-route");
+    expect(binding.sites.map((site) => site.role)).toEqual([
+      "value-producer",
+      "publication",
+    ]);
+    expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status).toBe("executable");
+  });
+
+  test("does not let a root installer route stand in for a nested global member", () => {
+    const route = buildRestrictedExactBranchSourceRoute({
+      branchId: "surface.native.op.global.intl.locale.all",
+      observedKey: "native-op:global:Intl.Locale",
+      targetVariant: "all",
+    }, ["packages/ibex-runtime-js/src/polyfills/intl.ts#installIntlPolyfills:globals:Intl"]);
+    expect(route.status).toBe("incomplete");
+  });
+
+  test("binds a public accessor pair without confusing a private homonym", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding({
+      branchId: "surface.native.op.global.url.hash.all",
+      observedKey: "native-op:global:URL.hash",
+      targetVariant: "all",
+    }, "packages/ibex-runtime-js/src/url/URL.ts#URL.prototype.hash");
+    expect(binding.locatorKind).toBe("typescript-class-member");
+    expect(binding.sites).toHaveLength(2);
+    expect(binding.sites.every((site) => site.role === "value-producer")).toBe(true);
   });
 
   test("composes runtime-bundle and legacy-bootstrap lazy alternatives", () => {
