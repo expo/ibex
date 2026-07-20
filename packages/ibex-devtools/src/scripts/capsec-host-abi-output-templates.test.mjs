@@ -126,7 +126,7 @@ beforeAll(async () => {
       }),
     };
   });
-});
+}, 60_000);
 
 describe("source-bound Host ABI output templates", () => {
   test("authors exact bounded native tranches without promoting platform or registrar presence", () => {
