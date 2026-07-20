@@ -1,0 +1,45 @@
+{
+  "kind": "ibex-llp-0033-independent-security-review",
+  "independent": true,
+  "reviewedCommit": "041fbd55c26f67be7af3623539163d44ea6b2920",
+  "reviewedReportDigest": "sha256-l0RdI-eqaXnGHTdQvRvOWGtqxFiUWvx8vjxtA4BXvqI",
+  "reviewedReportRawContentDigest": "sha256-aHChs-QpMulU1_CvjFkKWoky67PZmcsRgfPB-TlY0t0",
+  "reviewedEvidenceRawContentDigests": {
+    "absence-aarch64-apple-darwin-04a08eeb.json": "sha256-hPGQ_up6ccZR9dO-sSrHqqf_ATT8gDshN9jPVt7Yewk",
+    "control-aarch64-apple-darwin-04a08eeb.json": "sha256-XE7Ya5Shfa7x6CVldO0oDUudfiV-GCZtNcPS9XCwB_U",
+    "global-corpora-aarch64-apple-darwin-04a08eeb.json": "sha256-2QlM7TFtGY4Ux0rUxLluYu1QQB7wlCFuIHxt3A6-7jo",
+    "reachable-aarch64-apple-darwin-04a08eeb.json": "sha256-GsjCS1ta1eEoa4_2yESACQ4-zGDvYqQSxr423OQ1Kg0"
+  },
+  "verdict": "fail",
+  "summary": "The report must not receive independent-review clearance. Its absence pipeline manufactures per-edge passing executions from one categorical barrier test, including 4,692 live-reachability obligations with no edge-specific descriptor probe. The teardown corpus also does not prove the fixture plan's post-destruction callback, completion, event, Host-context, timer, and native-handle requirements.",
+  "findings": [
+    {
+      "severity": "critical",
+      "status": "unresolved",
+      "title": "Absence evidence synthesizes 14,304 per-edge passes without per-edge source and live probes",
+      "evidence": [
+        "src/host/embedder_artifacts.rs:3100-3344 runs one runtime and one shared barrier, then unconditionally emits passed source-install and live-reachability observations for all 7,152 structurally absent edges.",
+        "Only 2,460 edges receive descriptor-path probes. The committed absence artifact contains 4,692 passed live-reachability observations whose proof.descriptorPrefixes is empty, including builtin:assert, builtin:fs, builtin:crypto, loaders, CLI surfaces, callbacks, startup paths, and Host ABI edges.",
+        "The source-install proof merely copies implementationBranches from the generated implementation manifest; it performs no per-edge install-route or call-graph closure analysis.",
+        "packages/ibex-devtools/src/scripts/restricted-exact-absence-evidence.mjs:247-283 accepts empty descriptorPrefixes whenever the root-global manifest has no entry and checks copied metadata rather than an executed source-closure result.",
+        "packages/ibex-devtools/src/scripts/restricted-exact-absence-evidence.mjs:307-322 expands every observation from the single command into a distinct fixture and execution. This contradicts its target-report invariant that broad command success never synthesizes per-edge passes and violates LLP 0033's fixture-specific absence requirements."
+      ],
+      "recommendation": "Invalidate all affected structurally-absent rows. Generate an explicit probe plan for every edge covering installers, aliases, lazy resolution, imports, callbacks, retained closures, and attacker-reachable roots. Source-install rows must carry independently checked closure results, and live rows with no executable probe plan must remain missing or failed. Do not expand a shared command into per-edge executions unless its output contains independently verified, edge-specific observations."
+    },
+    {
+      "severity": "high",
+      "status": "unresolved",
+      "title": "The teardown corpus is credited without testing the required post-destruction lifecycle boundaries",
+      "evidence": [
+        "capsec/registry/restricted-exact-fixture-plan.json requires proof that no callback, completion, event binding, Host context, timer, or native handle remains callable or reusable after destruction.",
+        "packages/ibex-devtools/src/scripts/run-restricted-exact-global-corpora.mjs:43-48 maps teardown to three tests whose success is recognized only through generic cargo markers.",
+        "The control-plane test checks only that ibex_test_runtime_registered changes from 1 to 0 around ex_hermes_destroy. Its recorded refusal text claims Host-context teardown without probing context reuse or outstanding producers.",
+        "The two checkpoint-failure tests perform poison/refusal checks before destruction and then call ex_hermes_destroy; they make no post-destruction observation.",
+        "The implementation contains queue draining and native-worker pin logic, but the committed evidence does not exercise an in-flight teardown race or establish suppression/refusal for callbacks, completions, events, timers, Host contexts, or native handles."
+      ],
+      "recommendation": "Keep the teardown corpus incomplete. Add synchronized race fixtures that hold each producer class in flight while teardown enters Closing, verify admitted work drains without user-code delivery, verify late generation-scoped callbacks and completions are rejected, verify event/timer/native handles cannot be reused, and verify the released Host context cannot be re-entered or confused with a later runtime generation."
+    }
+  ],
+  "unresolvedCritical": 1,
+  "unresolvedHigh": 1
+}
