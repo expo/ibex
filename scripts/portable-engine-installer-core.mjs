@@ -305,13 +305,40 @@ function defaultHasExtendedAcl(filePath) {
   return firstToken.endsWith("+") || /^\s+\d+:/mu.test(result.stdout);
 }
 
+function defaultHasWriteEnablingExtendedAcl(filePath) {
+  assert(process.platform === "darwin", "production portable macOS installation requires Darwin ACL inspection");
+  const result = spawnSync("/bin/ls", ["-lde", filePath], {
+    encoding: "utf8",
+    maxBuffer: 1024 * 1024,
+    env: { PATH: "/usr/bin:/bin", LC_ALL: "C", LANG: "C" },
+  });
+  assert(result.status === 0, `${filePath}: cannot inspect macOS ACL state`);
+  const mutationPermissions = /\b(?:write|append|add_file|add_subdirectory|delete|delete_child|writeattr|writeextattr|writesecurity|chown)\b/u;
+  return result.stdout
+    .split("\n")
+    .some((line) => /^\s+\d+:/u.test(line) && /\ballow\b/u.test(line) && mutationPermissions.test(line));
+}
+
 function createRuntime(contract, dependencies) {
   return {
     contract,
     dependencies,
     effectiveUid: dependencies.effectiveUid ?? defaultEffectiveUid(),
     hasExtendedAcl: dependencies.hasExtendedAcl ?? defaultHasExtendedAcl,
+    hasWriteEnablingExtendedAcl: dependencies.hasWriteEnablingExtendedAcl ?? defaultHasWriteEnablingExtendedAcl,
   };
+}
+
+async function assertTrustedNodePermissions(filePath, status, runtime, label, { exactMode, rejectGroupWorldWrite = true, rejectAnyAcl = true } = {}) {
+  const mode = Number(status.mode & 0o7777n);
+  assert((mode & 0o7000) === 0, `${label}: setuid, setgid, and sticky mode bits are forbidden`);
+  if (exactMode !== undefined) assert(mode === exactMode, `${label}: expected mode ${exactMode.toString(8)}, got ${mode.toString(8)}`);
+  if (rejectGroupWorldWrite && !status.isSymbolicLink()) assert((mode & 0o022) === 0, `${label}: group/world-writable mode is forbidden`);
+  if (rejectAnyAcl) {
+    assert(!(await runtime.hasExtendedAcl(filePath)), `${label}: macOS extended ACLs are forbidden on trusted installer nodes`);
+  } else {
+    assert(!(await runtime.hasWriteEnablingExtendedAcl(filePath)), `${label}: write-enabling macOS extended ACLs are forbidden in trusted checkout ancestry`);
+  }
 }
 
 // @ref LLP 0035#threat-model-and-trust-roots — ACL-free effective-UID
@@ -319,10 +346,7 @@ function createRuntime(contract, dependencies) {
 // from a malicious process already running as that UID.
 async function assertOwnedTrustedNode(filePath, status, runtime, label, { exactMode, rejectGroupWorldWrite = true } = {}) {
   assert(status.uid === BigInt(runtime.effectiveUid), `${label}: expected effective-UID ownership`);
-  const mode = Number(status.mode & 0o777n);
-  if (exactMode !== undefined) assert(mode === exactMode, `${label}: expected mode ${exactMode.toString(8)}, got ${mode.toString(8)}`);
-  if (rejectGroupWorldWrite && !status.isSymbolicLink()) assert((mode & 0o022) === 0, `${label}: group/world-writable mode is forbidden`);
-  assert(!(await runtime.hasExtendedAcl(filePath)), `${label}: macOS extended ACLs are forbidden on trusted installer nodes`);
+  await assertTrustedNodePermissions(filePath, status, runtime, label, { exactMode, rejectGroupWorldWrite });
 }
 
 function assertCurrentCheckoutRevision(repoRoot, expected, dependencies) {
@@ -688,11 +712,12 @@ function parseTarHeader(header) {
 }
 
 class StreamingUstarExtractor {
-  constructor({ candidateRoot, context, expectedSourceRevision, onArchiveMember }) {
+  constructor({ candidateRoot, context, expectedSourceRevision, onArchiveMember, syncExtractedFile }) {
     this.candidateRoot = candidateRoot;
     this.context = context;
     this.expectedSourceRevision = expectedSourceRevision;
     this.onArchiveMember = onArchiveMember;
+    this.syncExtractedFile = syncExtractedFile ?? ((handle) => handle.sync());
     this.pending = Buffer.alloc(0);
     this.state = "header";
     this.zeroBlocks = 0;
@@ -830,21 +855,35 @@ class StreamingUstarExtractor {
   }
 
   async finishBody() {
-    const handle = this.current.handle;
+    const current = this.current;
+    const handle = current.handle;
     assert(handle, "internal extractor error: output handle is absent");
-    this.current.handle = null;
-    await handle.sync();
-    await handle.close();
-    const digest = `sha256-${this.current.hash.digest("hex")}`;
-    assert(this.current.seen === this.current.member.size, `${this.current.member.path}: extracted size drift`);
-    if (this.current.member.path === MANIFEST_PATH) {
-      this.manifestBytes = Buffer.concat(this.current.chunks);
+    let syncError;
+    let closeError;
+    try {
+      await this.syncExtractedFile(handle, current.member.path);
+    } catch (error) {
+      syncError = error;
+    } finally {
+      try {
+        await handle.close();
+      } catch (error) {
+        closeError = error;
+      }
+      if (current.handle === handle) current.handle = null;
+    }
+    if (syncError) throw syncError;
+    if (closeError) throw closeError;
+    const digest = `sha256-${current.hash.digest("hex")}`;
+    assert(current.seen === current.member.size, `${current.member.path}: extracted size drift`);
+    if (current.member.path === MANIFEST_PATH) {
+      this.manifestBytes = Buffer.concat(current.chunks);
       this.manifest = validateManifestShape(this.manifestBytes, this.context, this.expectedSourceRevision);
     } else {
-      assert(digest === this.current.expected.digest, `${this.current.member.path}: extracted digest differs from manifest`);
+      assert(digest === current.expected.digest, `${current.member.path}: extracted digest differs from manifest`);
     }
-    this.state = this.current.padding === 0 ? "header" : "padding";
-    if (this.current.padding === 0) this.current = null;
+    this.state = current.padding === 0 ? "header" : "padding";
+    if (current.padding === 0) this.current = null;
   }
 
   async abort() {
@@ -873,6 +912,7 @@ async function extractAuthenticatedArchive(archivePath, candidateRoot, context, 
     context,
     expectedSourceRevision,
     onArchiveMember: hooks.onArchiveMember,
+    syncExtractedFile: hooks.syncExtractedFile,
   });
   const handle = await fsp.open(archivePath, OPEN_READ_NOFOLLOW);
   const gunzip = createGunzip();
@@ -1579,15 +1619,58 @@ async function verifyPortableEngineStoreCore(options, runtime, checkedContext = 
   return { artifactRoot, manifest, context, transport };
 }
 
+function canonicalAncestorPaths(absolutePath) {
+  const parsed = path.parse(absolutePath);
+  assert(parsed.root.length > 0, "checkout root canonicalization did not produce an absolute path");
+  const ancestors = [parsed.root];
+  let current = parsed.root;
+  for (const segment of absolutePath.slice(parsed.root.length).split(path.sep).filter(Boolean)) {
+    current = path.join(current, segment);
+    ancestors.push(current);
+  }
+  return ancestors;
+}
+
+function trustedNodeIdentityEqual(left, right) {
+  return left.dev === right.dev && left.ino === right.ino && left.uid === right.uid && left.mode === right.mode;
+}
+
+// @ref LLP 0035#content-addressed-installation — a canonical root-to-checkout
+// chain without alternate-principal mutation authority makes later traversal
+// defensible without claiming same-UID adversary resistance.
 async function requireCheckoutRoot(input, runtime) {
   const resolved = path.resolve(input ?? process.cwd());
   const real = await fsp.realpath(resolved);
-  // macOS exposes /var through /private/var. Canonicalize pre-existing host
-  // ancestors, then enforce no-follow semantics on every store component we
-  // create below; an ambient alias to the checkout is not an artifact selector.
-  const status = await fsp.lstat(real, { bigint: true });
-  assert(status.isDirectory() && !status.isSymbolicLink(), "checkout root is not one no-follow directory");
-  await assertOwnedTrustedNode(real, status, runtime, "checkout root");
+  // macOS exposes /var through /private/var. Canonicalize that ambient alias,
+  // then prove every canonical ancestor from the filesystem root is controlled
+  // by root or this effective UID and does not grant an alternate principal
+  // rename/substitution authority. Restrictive inherited ACLs (for example the
+  // standard macOS home-directory delete denial) remain admissible.
+  const ancestors = canonicalAncestorPaths(real);
+  const snapshots = [];
+  for (const [index, ancestor] of ancestors.entries()) {
+    const label = index === ancestors.length - 1 ? "checkout root" : `checkout ancestor ${ancestor}`;
+    const status = await fsp.lstat(ancestor, { bigint: true });
+    assert(status.isDirectory() && !status.isSymbolicLink(), `${label}: expected one no-follow directory`);
+    if (index === ancestors.length - 1) {
+      await assertOwnedTrustedNode(ancestor, status, runtime, label);
+    } else {
+      assert(status.uid === 0n || status.uid === BigInt(runtime.effectiveUid), `${label}: expected root or effective-UID ownership`);
+      await assertTrustedNodePermissions(ancestor, status, runtime, label, { rejectAnyAcl: false });
+    }
+    snapshots.push(status);
+  }
+  await runtime.dependencies.onCheckoutAncestryValidated?.({ repoRoot: real, ancestors: [...ancestors] });
+  for (const [index, ancestor] of ancestors.entries()) {
+    let status;
+    try {
+      status = await fsp.lstat(ancestor, { bigint: true });
+    } catch (error) {
+      if (error.code === "ENOENT") fail("checkout ancestry changed during validation");
+      throw error;
+    }
+    assert(status.isDirectory() && !status.isSymbolicLink() && trustedNodeIdentityEqual(status, snapshots[index]), "checkout ancestry changed during validation");
+  }
   return real;
 }
 
@@ -1653,9 +1736,104 @@ async function requirePrivateControlDirectory(directory, runtime, label) {
   await fsyncDirectory(path.dirname(directory));
 }
 
+async function readValidatedLockOwner(lockPath, runtime, label) {
+  const status = await fsp.lstat(lockPath, { bigint: true });
+  assert(status.isDirectory() && !status.isSymbolicLink(), `${label}: redirected or not a directory`);
+  await assertOwnedTrustedNode(lockPath, status, runtime, label, { exactMode: 0o700 });
+  const ownerName = "OWNER";
+  assertSame((await fsp.readdir(lockPath)).sort(compareUtf8), [ownerName], `${label} membership`);
+  const ownerPath = path.join(lockPath, ownerName);
+  const ownerStatus = await fsp.lstat(ownerPath, { bigint: true });
+  requireRegularStat(ownerStatus, `${label} owner`, 64 * 1024);
+  await assertOwnedTrustedNode(ownerPath, ownerStatus, runtime, `${label} owner`, { exactMode: 0o600 });
+  assert(ownerStatus.nlink === 1n, `${label} owner is hard-linked`);
+  const bytes = await readBoundedRegular(ownerPath, `${label} owner`, 64 * 1024);
+  const owner = parseBoundedJson(bytes, `${label} owner`);
+  assertCanonicalJsonBytes(bytes, owner, `${label} owner`);
+  assertExactKeys(owner, ["schema", "pid", "token"], `${label} owner`);
+  assert(owner.schema === runtime.contract.lockSchema && Number.isSafeInteger(owner.pid) && owner.pid > 0 && /^[0-9a-f]{32}$/u.test(owner.token), `${label} metadata is invalid`);
+  return { owner, ownerName };
+}
+
+async function cleanupArtifactLockTombstone(tombstonePath, locksRoot, runtime, { expectedOwner, afterOwnerUnlinkFailpoint } = {}) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const status = await lstatMaybe(tombstonePath);
+    if (!status) return;
+    assert(status.isDirectory() && !status.isSymbolicLink(), "portable engine lock tombstone is redirected or not a directory");
+    try {
+      await assertOwnedTrustedNode(tombstonePath, status, runtime, "portable engine lock tombstone", { exactMode: 0o700 });
+    } catch (error) {
+      if (!(await lstatMaybe(tombstonePath))) return;
+      throw error;
+    }
+    let members;
+    try {
+      members = (await fsp.readdir(tombstonePath)).sort(compareUtf8);
+    } catch (error) {
+      if (error.code === "ENOENT") return;
+      throw error;
+    }
+    if (members.length === 0) {
+      try {
+        await fsp.rmdir(tombstonePath);
+      } catch (error) {
+        if (error.code === "ENOENT") return;
+        if (error.code === "ENOTEMPTY") continue;
+        throw error;
+      }
+      await fsyncDirectory(locksRoot);
+      return;
+    }
+    assertSame(members, ["OWNER"], "portable engine lock tombstone membership");
+    let observed;
+    try {
+      ({ owner: observed } = await readValidatedLockOwner(tombstonePath, runtime, "portable engine lock tombstone"));
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      const racedStatus = await lstatMaybe(tombstonePath);
+      if (!racedStatus) return;
+      let racedMembers;
+      try {
+        racedMembers = (await fsp.readdir(tombstonePath)).sort(compareUtf8);
+      } catch (readError) {
+        if (readError.code === "ENOENT") return;
+        throw readError;
+      }
+      if (racedMembers.length === 0) continue;
+      throw error;
+    }
+    if (expectedOwner) assertSame(observed, expectedOwner, "owned portable engine lock tombstone token");
+    try {
+      await fsp.unlink(path.join(tombstonePath, "OWNER"));
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      throw error;
+    }
+    try {
+      await fsyncDirectory(tombstonePath);
+    } catch (error) {
+      if (error.code === "ENOENT") return;
+      throw error;
+    }
+    if (afterOwnerUnlinkFailpoint) await invokeFailpoint(runtime, afterOwnerUnlinkFailpoint, { tombstonePath });
+  }
+  fail("portable engine lock tombstone changed repeatedly during cleanup");
+}
+
+async function recoverArtifactLockTombstones(locksRoot, artifactId, runtime) {
+  const prefixes = [`.released-${artifactId}.`, `.stale-${artifactId}.`];
+  for (const name of (await fsp.readdir(locksRoot)).sort(compareUtf8)) {
+    const prefix = prefixes.find((candidate) => name.startsWith(candidate));
+    if (!prefix) continue;
+    assert(/^[0-9a-f]{32}$/u.test(name.slice(prefix.length)), `${name}: malformed portable engine lock tombstone name`);
+    await cleanupArtifactLockTombstone(path.join(locksRoot, name), locksRoot, runtime);
+  }
+}
+
 async function acquireArtifactLock(storeRoot, artifactId, runtime) {
   const locksRoot = path.join(storeRoot, ".locks");
   await requirePrivateControlDirectory(locksRoot, runtime, "portable engine lock directory");
+  await recoverArtifactLockTombstones(locksRoot, artifactId, runtime);
   const lockPath = path.join(locksRoot, `${artifactId}.lock`);
   const token = nextNonce(runtime);
   const owner = {
@@ -1677,31 +1855,32 @@ async function acquireArtifactLock(storeRoot, artifactId, runtime) {
         await fsp.rename(claimPath, lockPath);
         claimed = true;
         await fsyncDirectory(locksRoot);
-        return { lockPath, locksRoot, owner, ownerName };
+        return { artifactId, lockPath, locksRoot, owner, ownerName };
       } catch (error) {
         const existingStatus = await lstatMaybe(lockPath);
-        if (!existingStatus || !["EACCES", "EEXIST", "ENOTEMPTY"].includes(error.code)) throw error;
-        assert(existingStatus.isDirectory() && !existingStatus.isSymbolicLink(), "existing portable engine install lock is redirected or not a directory");
-        await assertOwnedTrustedNode(lockPath, existingStatus, runtime, "existing portable engine install lock", { exactMode: 0o700 });
-        assertSame((await fsp.readdir(lockPath)).sort(compareUtf8), [ownerName], "existing portable engine install lock membership");
-        const ownerPath = path.join(lockPath, ownerName);
-        const ownerStatus = await fsp.lstat(ownerPath, { bigint: true });
-        requireRegularStat(ownerStatus, "existing portable engine install lock owner", 64 * 1024);
-        await assertOwnedTrustedNode(ownerPath, ownerStatus, runtime, "existing portable engine install lock owner", { exactMode: 0o600 });
-        assert(ownerStatus.nlink === 1n, "existing portable engine install lock owner is hard-linked");
-        const bytes = await readBoundedRegular(ownerPath, "existing portable engine install lock owner", 64 * 1024);
-        const observed = parseBoundedJson(bytes, "existing portable engine install lock owner");
-        assertCanonicalJsonBytes(bytes, observed, "existing portable engine install lock owner");
-        assertExactKeys(observed, ["schema", "pid", "token"], "existing portable engine install lock owner");
-        assert(observed.schema === runtime.contract.lockSchema && Number.isSafeInteger(observed.pid) && observed.pid > 0 && /^[0-9a-f]{32}$/u.test(observed.token), "existing portable engine install lock metadata is invalid");
+        if (!["EACCES", "EEXIST", "ENOTEMPTY"].includes(error.code)) throw error;
+        if (!existingStatus) continue;
+        let observed;
+        try {
+          ({ owner: observed } = await readValidatedLockOwner(lockPath, runtime, "existing portable engine install lock"));
+        } catch (readError) {
+          if (readError.code === "ENOENT") continue;
+          const currentStatus = await lstatMaybe(lockPath);
+          if (!currentStatus || currentStatus.dev !== existingStatus.dev || currentStatus.ino !== existingStatus.ino) continue;
+          throw readError;
+        }
         const alive = await Promise.resolve((runtime.dependencies.isProcessAlive ?? defaultProcessAlive)(observed.pid));
         if (!alive) {
           const stalePath = path.join(locksRoot, `.stale-${artifactId}.${nextNonce(runtime)}`);
-          await fsp.rename(lockPath, stalePath);
+          try {
+            await fsp.rename(lockPath, stalePath);
+          } catch (renameError) {
+            if (renameError.code === "ENOENT") continue;
+            throw renameError;
+          }
           await fsyncDirectory(locksRoot);
-          await fsp.unlink(path.join(stalePath, ownerName));
-          await fsp.rmdir(stalePath);
-          await fsyncDirectory(locksRoot);
+          await invokeFailpoint(runtime, "after-stale-lock-tombstone-fsync", { artifactId, tombstonePath: stalePath });
+          await cleanupArtifactLockTombstone(stalePath, locksRoot, runtime, { expectedOwner: observed });
           continue;
         }
         await (runtime.dependencies.sleep ?? pause)(25);
@@ -1717,14 +1896,20 @@ async function acquireArtifactLock(storeRoot, artifactId, runtime) {
   }
 }
 
+// @ref LLP 0035#content-addressed-installation — release makes the canonical
+// lock disappear as one directory rename before any owned metadata is removed;
+// non-canonical cleanup is restartable from complete or empty tombstones.
 async function releaseArtifactLock(lock, runtime) {
-  const ownerPath = path.join(lock.lockPath, lock.ownerName);
-  const bytes = await readBoundedRegular(ownerPath, "owned portable engine install lock", 64 * 1024);
-  const observed = parseBoundedJson(bytes, "owned portable engine install lock");
+  const { owner: observed } = await readValidatedLockOwner(lock.lockPath, runtime, "owned portable engine install lock");
   assertSame(observed, lock.owner, "owned portable engine install lock token");
-  await fsp.unlink(ownerPath);
-  await fsp.rmdir(lock.lockPath);
+  const tombstonePath = path.join(lock.locksRoot, `.released-${lock.artifactId}.${nextNonce(runtime)}`);
+  await fsp.rename(lock.lockPath, tombstonePath);
   await fsyncDirectory(lock.locksRoot);
+  await invokeFailpoint(runtime, "after-lock-release-tombstone-fsync", { artifactId: lock.artifactId, tombstonePath });
+  await cleanupArtifactLockTombstone(tombstonePath, lock.locksRoot, runtime, {
+    expectedOwner: lock.owner,
+    afterOwnerUnlinkFailpoint: "after-lock-release-tombstone-owner-unlink",
+  });
 }
 
 async function withArtifactLock(storeRoot, artifactId, runtime, action) {
@@ -1982,6 +2167,7 @@ function testRuntime(dependencies = {}) {
   return createRuntime(TEST_STORE_CONTRACT, {
     effectiveUid: typeof process.geteuid === "function" ? process.geteuid() : 0,
     hasExtendedAcl: async () => false,
+    hasWriteEnablingExtendedAcl: async () => false,
     ...dependencies,
   });
 }

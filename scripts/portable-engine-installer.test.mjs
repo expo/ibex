@@ -693,18 +693,34 @@ describe("portable engine installer core", () => {
     }, dependencies()), /exactly one production options object/u);
   });
 
-  test("source-level caller guard confines the injectable core to the test-only harness", async () => {
+  test("source-level caller guard confines the injectable core to the production wrapper and test-only harness", async () => {
     const scriptsRoot = path.join(sourceRepo, "scripts");
-    const modules = (await fsp.readdir(scriptsRoot)).filter((name) => name.endsWith(".mjs") && !name.endsWith(".test.mjs"));
-    const coreImporters = [];
-    const harnessCallers = [];
-    for (const name of modules) {
-      const source = await fsp.readFile(path.join(scriptsRoot, name), "utf8");
-      if (source.includes('"./portable-engine-installer-core.mjs"')) coreImporters.push(name);
-      if (name !== "portable-engine-installer-test-harness.mjs" && source.includes("portable-engine-installer-test-harness")) harnessCallers.push(name);
+    const coreBasename = "portable-engine-installer-core.mjs";
+    const harnessBasename = "portable-engine-installer-test-harness.mjs";
+    const classifyCallers = (sources) => {
+      const productionSources = sources.filter(([name]) => /\.(?:[cm]?[jt]s|[jt]sx|rs|sh)$/u.test(name) && !/(?:^|\/)tests?(?:\/|$)|\.test\.[^.]+$/u.test(name));
+      return {
+        core: productionSources.filter(([name, source]) => name !== `scripts/${coreBasename}` && source.includes(coreBasename)).map(([name]) => name).sort(compareUtf8),
+        harness: productionSources.filter(([name, source]) => name !== `scripts/${harnessBasename}` && source.includes(harnessBasename)).map(([name]) => name).sort(compareUtf8),
+      };
+    };
+    const repositorySources = [];
+    const repositoryFiles = gitBytes(["ls-files", "-co", "--exclude-standard", "-z"]).toString("utf8").split("\0").filter(Boolean);
+    for (const name of repositoryFiles) {
+      if (!/\.(?:[cm]?[jt]s|[jt]sx|rs|sh)$/u.test(name)) continue;
+      repositorySources.push([name, await fsp.readFile(path.join(sourceRepo, name), "utf8")]);
     }
-    assert.deepEqual(coreImporters.sort(), ["portable-engine-installer-test-harness.mjs", "portable-engine-installer.mjs"]);
-    assert.deepEqual(harnessCallers, []);
+    assert.deepEqual(classifyCallers(repositorySources), {
+      core: ["scripts/portable-engine-installer-test-harness.mjs", "scripts/portable-engine-installer.mjs"],
+      harness: [],
+    });
+    assert.deepEqual(classifyCallers([
+      ["src/nested/rogue.mjs", "await import('../../scripts/portable-engine-installer-core.mjs');"],
+      ["src/nested/rogue-single-quotes.mjs", "import '../../scripts/portable-engine-installer-test-harness.mjs';"],
+    ]), {
+      core: ["src/nested/rogue.mjs"],
+      harness: ["src/nested/rogue-single-quotes.mjs"],
+    });
     const cli = await fsp.readFile(path.join(scriptsRoot, "install-portable-hermes.mjs"), "utf8");
     assert.match(cli, /from "\.\/portable-engine-installer\.mjs"/u);
     assert.doesNotMatch(cli, /portable-engine-installer-(?:core|test-harness)/u);
@@ -727,11 +743,49 @@ describe("portable engine installer core", () => {
       await fsp.chmod(testCase.repoRoot, 0o770);
       await expectRejected(testCase, /group\/world-writable/u);
     });
+    await t.test("checkout parent does not grant alternate-principal rename authority", async () => {
+      const testCase = await createCase();
+      await fsp.chmod(testCase.root, 0o777);
+      await expectRejected(testCase, /checkout ancestor .*group\/world-writable/u);
+    });
+    await t.test("write-enabling ancestor ACLs are rejected", async () => {
+      const testCase = await createCase();
+      const unsafeAncestor = await fsp.realpath(testCase.root);
+      await expectRejected(testCase, /write-enabling macOS extended ACLs/u, {
+        hasWriteEnablingExtendedAcl: async (filePath) => filePath === unsafeAncestor,
+      });
+    });
+    await t.test("checkout ancestry rename and substitution is detected", async () => {
+      const testCase = await createCase();
+      let substituted = false;
+      await expectRejected(testCase, /checkout ancestry changed during validation/u, {
+        onCheckoutAncestryValidated: async () => {
+          assert.equal(substituted, false);
+          substituted = true;
+          await fsp.rename(testCase.repoRoot, `${testCase.repoRoot}.original`);
+          await fsp.mkdir(testCase.repoRoot, { mode: 0o700 });
+        },
+      });
+      assert.equal(substituted, true);
+    });
+    await t.test("checkout special mode bits are rejected", async () => {
+      const testCase = await createCase();
+      await fsp.chmod(testCase.repoRoot, 0o1700);
+      await expectRejected(testCase, /setuid, setgid, and sticky mode bits/u);
+    });
     await t.test("target ancestry is not world writable", async () => {
       const testCase = await createCase();
       await fsp.mkdir(path.join(testCase.repoRoot, "target"), { mode: 0o700 });
       await fsp.chmod(path.join(testCase.repoRoot, "target"), 0o707);
       await expectRejected(testCase, /group\/world-writable/u);
+    });
+    await t.test("private store mode 0700 excludes special mode bits", async () => {
+      const testCase = await createCase();
+      const storeRoot = path.join(testCase.repoRoot, "target", "hermes-artifacts-test-only");
+      await fsp.mkdir(storeRoot, { recursive: true, mode: 0o700 });
+      await fsp.chmod(path.join(testCase.repoRoot, "target"), 0o700);
+      await fsp.chmod(storeRoot, 0o1700);
+      await expectRejected(testCase, /setuid, setgid, and sticky mode bits/u);
     });
     await t.test("store root remains private mode 0700", async () => {
       const testCase = await createCase();
@@ -931,6 +985,23 @@ describe("portable engine installer core", () => {
     assert(after <= before + 2, `file descriptors grew from ${before} to ${after}`);
   });
 
+  test("repeated extracted-file sync failures close the output handle and both streams", async () => {
+    const descriptorDirectory = process.platform === "linux" ? "/proc/self/fd" : "/dev/fd";
+    const before = (await fsp.readdir(descriptorDirectory)).length;
+    let syncAttempts = 0;
+    for (let attempt = 0; attempt < 24; attempt += 1) {
+      await expectRejected(await createCase(), /fixture extracted-file sync failure/u, {
+        syncExtractedFile: async () => {
+          syncAttempts += 1;
+          throw new Error("fixture extracted-file sync failure");
+        },
+      });
+    }
+    const after = (await fsp.readdir(descriptorDirectory)).length;
+    assert.equal(syncAttempts, 24);
+    assert(after <= before + 2, `file descriptors grew from ${before} to ${after}`);
+  });
+
   test("rejects partial and mutated existing stores instead of trusting artifactId names", async (t) => {
     await t.test("missing completion marker", async () => {
       const testCase = await createCase();
@@ -1072,6 +1143,36 @@ describe("portable engine installer core", () => {
       assert.equal(installed.installed, true);
       await assert.rejects(() => fsp.lstat(lockPath), { code: "ENOENT" });
     });
+
+    for (const [name, failpointName, expectedMembers] of [
+      ["restart recovers a complete release tombstone", "after-lock-release-tombstone-fsync", ["OWNER"]],
+      ["restart recovers an empty release tombstone", "after-lock-release-tombstone-owner-unlink", []],
+    ]) {
+      await t.test(name, async () => {
+        const testCase = await createCase();
+        const artifactId = testCase.fixture.manifest.artifactId;
+        const storeRoot = path.join(testCase.repoRoot, "target", "hermes-artifacts-test-only");
+        const locksRoot = path.join(storeRoot, ".locks");
+        let fired = false;
+        let tombstonePath;
+        await assert.rejects(() => installCase(testCase, {
+          failpoint: async (observedName, details) => {
+            if (fired || observedName !== failpointName) return;
+            fired = true;
+            tombstonePath = details.tombstonePath;
+            throw new Error(`fixture crash at ${failpointName}`);
+          },
+        }), new RegExp(`fixture crash at ${failpointName}`, "u"));
+        assert.equal(fired, true);
+        assert.match(path.basename(tombstonePath), new RegExp(`^\\.released-${artifactId}\\.[0-9a-f]{32}$`, "u"));
+        assert.deepEqual((await fsp.readdir(tombstonePath)).sort(compareUtf8), expectedMembers);
+        await assert.rejects(() => fsp.lstat(path.join(locksRoot, `${artifactId}.lock`)), { code: "ENOENT" });
+        const restarted = await installCase(testCase);
+        assert.equal(restarted.installed, false);
+        await assert.rejects(() => fsp.lstat(tombstonePath), { code: "ENOENT" });
+        assert.equal((await fsp.readdir(locksRoot)).some((entry) => entry.startsWith(`.released-${artifactId}.`)), false);
+      });
+    }
 
     await t.test("invalid partial store is retained in quarantine and replaced", async () => {
       const testCase = await createCase();

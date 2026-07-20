@@ -7,10 +7,12 @@
 **Date:** 2026-07-19
 **Revised:** 2026-07-20 (native package production and credentialed publishing
 are isolated by immutable raw-artifact handoffs; the checkout-local installer
-uses a policy-bound, byte-pinned offline verifier; and the closed build and
-post-link contracts bind complete payload and executable replay. Acceptance,
-runtime consumption, and advertisements remain off pending a real private
-Ibex corpus and the remaining build/runtime evidence gates.)
+uses a policy-bound, byte-pinned offline verifier and reconstructive transport
+verification; installer publication uses validated checkout ancestry and
+atomically released, restart-recoverable serialization records; and the closed
+build and post-link contracts bind complete payload and executable replay.
+Acceptance, runtime consumption, and advertisements remain off pending a real
+private Ibex corpus and the remaining build/runtime evidence gates.)
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021; LLP 0032
 
 ## Summary
@@ -678,14 +680,19 @@ it cannot emit a production store record. A source-level caller guard keeps
 the CLI on the production wrapper and confines direct core imports to that
 wrapper and the named test harness.
 
-The checkout root and its `target` ancestry are owned by the effective UID,
-are not group/world writable, and carry no macOS extended ACL. The store root
-is an effective-UID-owned mode-0700 directory. Every expected installed node
-is likewise owned and ACL-free; published payload and record modes are then
-narrowed separately. Rejecting extended ACLs avoids claiming that POSIX mode
-bits describe all principals on macOS. These checks remove ambient alternate-
-principal mutation paths but do not turn mode bits into protection against the
-malicious same-user process excluded by the v1 threat model.
+The checkout's canonical ancestor chain is validated from the filesystem root:
+each directory is root- or effective-UID-owned, has no group/world write or
+special mode bits, and has no ACL that grants mutation authority. Object
+identities are rechecked after validation so a concurrent parent rename or
+substitution is detected. The checkout itself and its `target` ancestry are
+effective-UID-owned and ACL-free; the store root is an effective-UID-owned
+exact mode-0700 directory, including absence of setuid, setgid, and sticky
+bits. Restrictive ancestor ACLs, such as the standard macOS home-directory
+delete denial, remain admissible. Every expected installed node is likewise
+owned and ACL-free; published payload and record modes are then narrowed
+separately. These checks remove ambient alternate-principal mutation paths but
+do not turn filesystem permissions into protection against the malicious
+same-user process excluded by the v1 threat model.
 
 The store is not part of an evaluated application's virtual namespace. Armed
 Host construction installs an unconditional lexical and retained-object fence
@@ -705,16 +712,21 @@ published atomically without changing portable identity. Partial, writable,
 redirected, identity-colliding, or provenance-confused stores are rejected and
 rebuilt in a new location.
 
-Publication is serialized per artifact ID. All final regular-file contents
-and metadata are synchronized before directories are synchronized bottom-up;
-the candidate rename, final root narrowing, and source/destination parent
-directories are then synchronized in order. An invalid exact destination is
-atomically renamed, without following or recursively deleting it, into a
-private quarantine and both changed parents are synchronized before a verified
-candidate is published. Quarantines are retained and reported. A dead-owner
-serialization record and every injected interruption boundary have a defined
-restart path: the next invocation either fully revalidates the completed store
-or quarantines the incomplete exact entry before republishing.
+Publication is serialized per artifact ID. Releasing that serialization never
+deletes the owner record inside the canonical lock directory: it atomically
+renames the whole owned directory to a nonce-qualified tombstone, synchronizes
+the lock parent, and only then removes the tombstone. Restart recovery accepts
+and finishes both complete and already-emptied owned tombstones; dead-owner
+locks use the same rename-before-cleanup state model. All final regular-file
+contents and metadata are synchronized before directories are synchronized
+bottom-up; the candidate rename, final root narrowing, and source/destination
+parent directories are then synchronized in order. An invalid exact
+destination is atomically renamed, without following or recursively deleting
+it, into a private quarantine and both changed parents are synchronized before
+a verified candidate is published. Quarantines are retained and reported.
+Every injected interruption boundary has a defined restart path: the next
+invocation either fully revalidates the completed store or quarantines the
+incomplete exact entry before republishing.
 
 Authoritative build consumption occurs only in the fresh runner and job-owned
 store described by the threat model. `build.rs` records the digests of every
@@ -1291,35 +1303,38 @@ The checkout-local installer foundation pins the archive and detached bundle
 into a private same-filesystem workspace, requires a canonical offline-
 verification result before creating a gzip reader, and streams bounded gzip /
 ustar input through an exact-member extractor without a generic archive tool
-or whole-archive buffer. It rejects the cross-platform path-equivalence,
-special-member, symlink, limit, digest, mode, authority-document, partial-store,
-mutation, truncation/resource-lifecycle, ownership, ACL, and crash-restart
-cases in the acceptance corpus. It reconstructs publisher expectations from
-checked policy plus the externally selected current checkout revision,
-validates the manifest plus every declared authority-document preimage and its
-payload join, writes canonical transport/completion records last, atomically
-publishes the artifact-ID store, and fully reverifies an existing store and
-selected transport. That reverification re-extracts the freshly authenticated
-retained archive into a new private candidate, rehashes archive and bundle
-around extraction, and compares its canonical manifest and full validated
-graph to the store. A second authenticated transport encoding can be added
-atomically without changing portable identity. Per-artifact serialization,
-bottom-up synchronization, and no-follow retained quarantine make incomplete
-or invalid exact destinations restartable without deletion.
-
-The production wrapper accepts no injection; the separately named harness
-injects a verifier into a test-only store contract so it can exercise valid
-and adversarial transports without fabricating an Ibex signature or writing
-production local records. Effective-UID ownership, non-shared checkout/target
-modes, a mode-0700 store root, and rejection of macOS extended ACLs make the
-filesystem premise explicit. Production copies the exact policy-digested
-verifier into a private workspace, writes canonical stable v2 expectations,
-invokes it without a shell or network-dependent inputs, bounds its output and
-time, and rehashes the verifier and expectations around execution. A missing,
-redirected, writable-by-another-principal, or byte-different verifier fails
-closed. A real private Ibex archive/bundle corpus is still required before this
-path can furnish promotion evidence. The store still has no `build.rs`,
-post-link, runtime, REPL, or conformance consumer; target advertisements and
+or whole-archive buffer. Output handles remain owned through synchronization
+and close on both success and synchronization failure. It rejects the cross-
+platform path-equivalence, special-member, symlink, limit, digest, mode,
+authority-document, partial-store, mutation, truncation/resource-lifecycle,
+ownership, ancestor-substitution, ACL, special-bit, lock-tombstone, and crash-
+restart cases in the acceptance corpus. It reconstructs publisher
+expectations from checked policy plus the externally selected current checkout
+revision, validates the manifest plus every declared authority-document
+preimage and its payload join, writes canonical transport/completion records
+last, atomically publishes the artifact-ID store, and fully reverifies an
+existing store and selected transport. That
+reverification re-extracts the freshly authenticated retained archive into a
+new private candidate, rehashes archive and bundle around extraction, and
+compares its canonical manifest and full validated graph to the store. A second
+authenticated transport encoding can be added atomically without changing
+portable identity. Per-artifact serialization uses atomic whole-directory
+release plus durable, recoverable tombstones; bottom-up synchronization and
+no-follow retained quarantine make incomplete or invalid exact destinations
+restartable without deletion. The production wrapper accepts no injection;
+the separately named harness injects a verifier into a test-only store contract
+so it can exercise valid and adversarial transports without fabricating an
+Ibex signature or writing production local records. Effective-UID ownership,
+non-shared checkout/target modes, a mode-0700 store root, and rejection of
+macOS extended ACLs make the filesystem premise explicit. Production
+copies the exact policy-digested verifier into a private workspace, writes
+canonical stable v2 expectations, invokes it without a shell or network-
+dependent inputs, bounds its output and time, and rehashes the verifier and
+expectations around execution. A missing, redirected, writable-by-another-
+principal, or byte-different verifier fails closed. A real private Ibex
+archive/bundle corpus is still required before this path can furnish promotion
+evidence. The store still has no `build.rs`, post-link, runtime, REPL, or
+conformance consumer; target advertisements and
 `portableArtifactAcceptanceEnabled` remain unchanged and closed.
 
 Exit: a clean checkout can install and run the reviewed Release engine without
