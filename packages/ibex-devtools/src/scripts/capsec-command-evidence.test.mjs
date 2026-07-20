@@ -115,6 +115,24 @@ test(
   30_000,
 );
 
+test("command evidence preserves a nonzero child exit code", async () => {
+  const { root, supervisor } = fixture();
+  let error;
+  try {
+    await runObservedCommand({
+      supervisor,
+      id: "capsec-registry-drift",
+      command: process.execPath,
+      args: ["-e", "process.exit(23)"],
+      cwd: root,
+    });
+  } catch (caught) {
+    error = caught;
+  }
+  expect(error?.commandEvidence?.classification).toBe("failure");
+  expect(error?.commandEvidence?.exitCode).toBe(23);
+});
+
 test("command evidence refuses reused logs and symlink directories", async () => {
   const { root, evidenceDirectory, supervisor } = fixture();
   const victim = path.join(root, "victim");

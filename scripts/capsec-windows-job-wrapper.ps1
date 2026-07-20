@@ -114,6 +114,7 @@ $workingDirectory = Decode-Utf8 $WorkingDirectoryBase64
 $arguments = @((ConvertFrom-Json -InputObject $argumentsJson))
 
 [IbexCapsecJobObject]::Initialize()
+$childExitCode = 1
 try {
   $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
   $startInfo.FileName = $command
@@ -127,10 +128,10 @@ try {
     throw "failed to start command"
   }
   $child.WaitForExit()
-  $exitCode = $child.ExitCode
+  $childExitCode = $child.ExitCode
   $child.Dispose()
-  exit $exitCode
 }
 finally {
   [IbexCapsecJobObject]::Close()
 }
+exit $childExitCode
