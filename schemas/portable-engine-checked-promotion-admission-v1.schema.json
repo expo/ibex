@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-checked-promotion-admission-v1.schema.json",
+  "title": "Ibex checked portable-engine promotion admission v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "authorized",
+    "currentRevision",
+    "sourceRevision",
+    "promotionTopicRevision",
+    "sourceTreeObjectId",
+    "targetTriple",
+    "portableArtifactId",
+    "admissionDigest",
+    "verificationDigest"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ibex/portable-engine-checked-promotion-admission/1"
+    },
+    "authorized": {
+      "type": "boolean"
+    },
+    "currentRevision": {
+      "$ref": "#/$defs/sha1ObjectId"
+    },
+    "sourceRevision": {
+      "$ref": "#/$defs/sha1ObjectId"
+    },
+    "promotionTopicRevision": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/sha1ObjectId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sourceTreeObjectId": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/sha1ObjectId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "targetTriple": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+)+$",
+      "minLength": 3,
+      "maxLength": 128
+    },
+    "portableArtifactId": {
+      "$ref": "#/$defs/semanticDigest"
+    },
+    "admissionDigest": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/semanticDigest"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "verificationDigest": {
+      "$ref": "#/$defs/semanticDigest"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "authorized": {
+            "const": false
+          }
+        },
+        "required": [
+          "authorized"
+        ]
+      },
+      "then": {
+        "properties": {
+          "promotionTopicRevision": {
+            "type": "null"
+          },
+          "sourceTreeObjectId": {
+            "type": "null"
+          },
+          "admissionDigest": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "promotionTopicRevision": {
+            "$ref": "#/$defs/sha1ObjectId"
+          },
+          "sourceTreeObjectId": {
+            "$ref": "#/$defs/sha1ObjectId"
+          },
+          "admissionDigest": {
+            "$ref": "#/$defs/semanticDigest"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha1ObjectId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "semanticDigest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]{43}$"
+    }
+  }
+}

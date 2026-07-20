@@ -1,0 +1,50 @@
+{
+  "disabledCatalog": {
+    "admissionPath": "schemas/portable-engine-promotion-admission-catalog-v1.json",
+    "admissions": [],
+    "enabled": false,
+    "schema": "ibex/portable-engine-promotion-admission-catalog/1"
+  },
+  "activeCatalog": {
+    "admissionPath": "schemas/portable-engine-promotion-admission-catalog-v1.json",
+    "admissions": [
+      {
+        "schema": "ibex/portable-engine-promotion-admission/1",
+        "sourceRevision": "1111111111111111111111111111111111111111",
+        "sourceTreeObjectId": "2222222222222222222222222222222222222222",
+        "topology": "github-pull-request-merge/direct-single-commit-topic/1",
+        "targetTriple": "aarch64-apple-darwin",
+        "portableArtifactId": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "artifacts": [
+          {
+            "role": "conformance-evidence",
+            "path": "capsec/conformance/portable-promotions/1111111111111111111111111111111111111111/aarch64-apple-darwin/sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/conformance-report.json",
+            "mode": "100644",
+            "blobObjectId": "3333333333333333333333333333333333333333",
+            "size": 17,
+            "digest": "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "role": "target-attestation",
+            "path": "capsec/conformance/target-attestations.json",
+            "mode": "100644",
+            "blobObjectId": "4444444444444444444444444444444444444444",
+            "size": 17,
+            "digest": "sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          {
+            "role": "target-advertisement",
+            "path": "capsec/generated/target-advertisements.json",
+            "mode": "100644",
+            "blobObjectId": "5555555555555555555555555555555555555555",
+            "size": 17,
+            "digest": "sha256-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          }
+        ],
+        "admissionDigest": "sha256-9HrwMHIer7PYkqwbH5tsKWxAiN7jUHsYWzzv4_X_mYA"
+      }
+    ],
+    "enabled": true,
+    "schema": "ibex/portable-engine-promotion-admission-catalog/1"
+  }
+}

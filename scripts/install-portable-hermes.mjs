@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
-// Phase-1 checkout-local installer entry point. The installed package remains
-// diagnostic-only until the physical promotion gates pass; this command never
-// turns portableArtifactAcceptanceEnabled on.
+// Checkout-local installer entry point. Source-A packages remain diagnostic;
+// an exact promotion merge receives the separately checked admission returned
+// by the production API. This command never turns the legacy
+// portableArtifactAcceptanceEnabled field on.
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,7 +17,8 @@ const usage = `usage: node scripts/install-portable-hermes.mjs \\
   --archive PATH --bundle PATH --expected-source-revision 40_HEX [--repo-root PATH]
 
 Pins and authenticates one detached portable-Hermes transport before parsing,
-then safely materializes a diagnostic-only checkout-local content store.
+then safely materializes a checkout-local content store and rejoins its exact
+current-checkout promotion admission.
 The selected revision must be supplied by the caller's checkout authority; it
 is never inferred from the archive, bundle, filename, cache, or environment.`;
 

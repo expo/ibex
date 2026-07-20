@@ -44,6 +44,7 @@
     "test:portable-hermes-installer": "node --test scripts/portable-engine-installer.test.mjs",
     "test:portable-hermes-post-link": "bun test scripts/portable-engine-post-link.test.mjs",
     "test:portable-hermes-rustc-wrapper": "node --test scripts/portable-engine-rustc-wrapper.test.mjs",
+    "test:portable-hermes-promotion-lineage": "node --test scripts/portable-engine-promotion-lineage.test.mjs",
     "test:hermes-publisher-isolation": "node --test scripts/hermes-artifacts-workflow-security.test.mjs",
     "check:capsec-contract": "bun packages/ibex-devtools/src/scripts/capsec-contract.mjs --check",
     "check:capsec-registry": "bun packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs --check",

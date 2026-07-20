@@ -26,6 +26,7 @@ import {
   buildFixedVerifierExpectations,
   detectMacOsExtendedAcl,
   installPortableEngine,
+  installPortableEngineWithPromotionLineage,
   listCheckedRevisionFiles,
   readCheckedRevisionFile,
   resolveGitControlPaths,
@@ -742,6 +743,38 @@ describe("portable engine installer core", () => {
     }, dependencies()), /is not current checkout HEAD/u);
   });
 
+  test("an admitted artifact mismatch fails before any final store publication", async () => {
+    const testCase = await createCase();
+    const promotionLineage = {
+      schema: "ibex/portable-engine-promotion-lineage-verification/1",
+      authorized: true,
+      currentRevision: "c".repeat(40),
+      promotionTopicRevision: "b".repeat(40),
+      sourceRevision: testCase.fixture.revision,
+      sourceTreeObjectId: "d".repeat(40),
+      targetTriple: "aarch64-apple-darwin",
+      portableArtifactId: semanticDigest("ibex.test.wrong-promoted-artifact.v1", {}),
+      admissionDigest: semanticDigest("ibex.test.promotion-admission.v1", {}),
+    };
+    await assert.rejects(() => installPortableEngineWithPromotionLineage({
+      repoRoot: testCase.repoRoot,
+      archivePath: testCase.archivePath,
+      bundlePath: testCase.bundlePath,
+      expectedSourceRevision: testCase.fixture.revision,
+    }, promotionLineage, dependencies({
+      resolveCheckoutRevision: () => promotionLineage.currentRevision,
+    })), /promoted artifact ID differs/u);
+    await assert.rejects(
+      () => fsp.lstat(path.join(
+        testCase.repoRoot,
+        "target",
+        "hermes-artifacts-test-only",
+        testCase.fixture.manifest.artifactId,
+      )),
+      { code: "ENOENT" },
+    );
+  });
+
   test("refuses an unauthenticated transport before any gzip, tar, or member parsing", async () => {
     const testCase = await createCase({ ...buildFixture(), archive: Buffer.from("attacker-controlled archive bytes") });
     let parsingStarted = false;
@@ -762,11 +795,18 @@ describe("portable engine installer core", () => {
     };
     await assert.rejects(() => installPortableEngineProduction(installOptions, dependencies()), /exactly one production options object/u);
     await assert.rejects(() => installPortableEngineProduction({ ...installOptions, context: {} }), /unknown option context/u);
+    await assert.rejects(() => installPortableEngineProduction({ ...installOptions, promotionVerifier: () => ({ authorized: true }) }), /unknown option promotionVerifier/u);
     await assert.rejects(() => verifyPortableEngineStoreProduction({
       repoRoot: testCase.repoRoot,
       expectedSourceRevision: testCase.fixture.revision,
       artifactId: testCase.fixture.manifest.artifactId,
     }, dependencies()), /exactly one production options object/u);
+    await assert.rejects(() => verifyPortableEngineStoreProduction({
+      repoRoot: testCase.repoRoot,
+      expectedSourceRevision: testCase.fixture.revision,
+      artifactId: testCase.fixture.manifest.artifactId,
+      promotionVerifier: () => ({ authorized: true }),
+    }), /unknown option promotionVerifier/u);
   });
 
   test("production build runner refuses a synthetic store before resolving Cargo", async () => {
@@ -786,7 +826,7 @@ describe("portable engine installer core", () => {
         artifactId: installed.manifest.artifactId,
         archiveDigest: rawDigest(testCase.fixture.archive),
         cargoArgs: ["build"],
-      }), /ENOENT|portable artifact store entry|test-only|receipt|schema/u);
+      }), /ENOENT|portable artifact store entry|test-only|receipt|schema|checked Git|not a git repository/u);
     } finally {
       if (priorPath === undefined) delete process.env.PATH;
       else process.env.PATH = priorPath;

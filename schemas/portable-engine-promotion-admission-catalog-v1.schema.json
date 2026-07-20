@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-promotion-admission-catalog-v1.schema.json",
+  "title": "Ibex portable engine promotion admission catalog v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "enabled",
+    "admissionPath",
+    "admissions"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ibex/portable-engine-promotion-admission-catalog/1"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "admissionPath": {
+      "const": "schemas/portable-engine-promotion-admission-catalog-v1.json"
+    },
+    "admissions": {
+      "type": "array",
+      "maxItems": 1,
+      "items": {
+        "$ref": "#/$defs/admission"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "enabled": {
+            "const": false
+          }
+        },
+        "required": [
+          "enabled"
+        ]
+      },
+      "then": {
+        "properties": {
+          "admissions": {
+            "type": "array",
+            "maxItems": 0
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "admissions": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha1ObjectId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "rawDigest": {
+      "type": "string",
+      "pattern": "^sha256-[0-9a-f]{64}$"
+    },
+    "semanticDigest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]{43}$"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "path",
+        "mode",
+        "blobObjectId",
+        "size",
+        "digest"
+      ],
+      "properties": {
+        "role": {
+          "enum": [
+            "conformance-evidence",
+            "target-attestation",
+            "target-advertisement"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^[!-~]+$"
+        },
+        "mode": {
+          "const": "100644"
+        },
+        "blobObjectId": {
+          "$ref": "#/$defs/sha1ObjectId"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 67108864
+        },
+        "digest": {
+          "$ref": "#/$defs/rawDigest"
+        }
+      }
+    },
+    "admission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "sourceRevision",
+        "sourceTreeObjectId",
+        "topology",
+        "targetTriple",
+        "portableArtifactId",
+        "artifacts",
+        "admissionDigest"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ibex/portable-engine-promotion-admission/1"
+        },
+        "sourceRevision": {
+          "$ref": "#/$defs/sha1ObjectId"
+        },
+        "sourceTreeObjectId": {
+          "$ref": "#/$defs/sha1ObjectId"
+        },
+        "topology": {
+          "const": "github-pull-request-merge/direct-single-commit-topic/1"
+        },
+        "targetTriple": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+)+$",
+          "minLength": 3,
+          "maxLength": 128
+        },
+        "portableArtifactId": {
+          "$ref": "#/$defs/semanticDigest"
+        },
+        "artifacts": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 10000,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/artifact"
+          }
+        },
+        "admissionDigest": {
+          "$ref": "#/$defs/semanticDigest"
+        }
+      }
+    }
+  }
+}
