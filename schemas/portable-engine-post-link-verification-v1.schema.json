@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-post-link-verification-v1.schema.json",
+  "title": "Ibex final portable engine executable post-link verification result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "portable",
+    "buildConsumptionDigest",
+    "manifestDigest",
+    "installationReceiptDigest",
+    "verificationPolicyDigest",
+    "target",
+    "ibexFeatures",
+    "executable",
+    "payloadRevalidation",
+    "audit",
+    "outcome",
+    "verificationDigest"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/portable-engine-post-link-verification/1" },
+    "portable": { "$ref": "portable-engine-artifact-identity-v1.schema.json" },
+    "buildConsumptionDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+    },
+    "manifestDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+    },
+    "installationReceiptDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+    },
+    "verificationPolicyDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+    },
+    "target": { "$ref": "portable-engine-common-v1.schema.json#/$defs/target" },
+    "ibexFeatures": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "portable-engine-common-v1.schema.json#/$defs/stableId" }
+    },
+    "executable": { "$ref": "#/$defs/executable" },
+    "payloadRevalidation": { "$ref": "#/$defs/payloadRevalidation" },
+    "audit": { "$ref": "#/$defs/machOAudit" },
+    "outcome": { "const": "verified" },
+    "verificationDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest",
+      "$comment": "SHA-256 over JCS(post-link result without verificationDigest), domain ibex.portable-engine-post-link-verification.v1 followed by one NUL byte."
+    }
+  },
+  "$defs": {
+    "executable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["logicalName", "targetKind", "digest", "size"],
+      "properties": {
+        "logicalName": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/stableId",
+          "$comment": "A Cargo artifact identity such as bin/ibex; never a local output path."
+        },
+        "targetKind": { "enum": ["bin", "test", "example", "bench"] },
+        "digest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "size": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/positiveSafeInteger"
+        }
+      }
+    },
+    "payloadRevalidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactId",
+        "buildConsumptionDigest",
+        "manifestDigest",
+        "installationReceiptDigest",
+        "verificationPolicyDigest",
+        "revalidatedInputCount"
+      ],
+      "properties": {
+        "artifactId": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+        },
+        "buildConsumptionDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+        },
+        "manifestDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+        },
+        "installationReceiptDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+        },
+        "verificationPolicyDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+        },
+        "revalidatedInputCount": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/positiveSafeInteger"
+        }
+      }
+    },
+    "loaderRelativeRpath": {
+      "type": "string",
+      "pattern": "^@(?:executable_path|loader_path)(?:/(?!/)[A-Za-z0-9._+ -]+)*$"
+    },
+    "portableInstallName": {
+      "type": "string",
+      "pattern": "^@rpath/(?!/)(?!.*//)[A-Za-z0-9._+ -]+(?:/[A-Za-z0-9._+ -]+)*$"
+    },
+    "loadCommand": {
+      "enum": [
+        "LC_LOAD_DYLIB",
+        "LC_LOAD_WEAK_DYLIB",
+        "LC_REEXPORT_DYLIB",
+        "LC_LOAD_UPWARD_DYLIB",
+        "LC_LAZY_LOAD_DYLIB"
+      ]
+    },
+    "portableDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "installName", "resolution"],
+      "properties": {
+        "command": { "$ref": "#/$defs/loadCommand" },
+        "installName": { "$ref": "#/$defs/portableInstallName" },
+        "resolution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["class", "path", "digest"],
+          "properties": {
+            "class": { "const": "portable-component" },
+            "path": {
+              "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath"
+            },
+            "digest": {
+              "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+            }
+          }
+        }
+      }
+    },
+    "systemDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "installName", "resolution"],
+      "properties": {
+        "command": { "$ref": "#/$defs/loadCommand" },
+        "installName": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/systemDependencyName"
+        },
+        "resolution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["class", "name"],
+          "properties": {
+            "class": { "const": "platform-system" },
+            "name": {
+              "$ref": "portable-engine-common-v1.schema.json#/$defs/systemDependencyName"
+            }
+          }
+        }
+      }
+    },
+    "machOAudit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "format",
+        "architecture",
+        "cpuSubtype",
+        "fileType",
+        "dynamicLinker",
+        "rpaths",
+        "dependencies"
+      ],
+      "properties": {
+        "class": { "const": "macos-macho-final-engine-executable" },
+        "format": { "const": "mach-o" },
+        "architecture": { "const": "arm64" },
+        "cpuSubtype": { "const": "all" },
+        "fileType": { "const": "execute" },
+        "dynamicLinker": { "const": "/usr/lib/dyld" },
+        "rpaths": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/loaderRelativeRpath" }
+        },
+        "dependencies": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "oneOf": [
+              { "$ref": "#/$defs/portableDependency" },
+              { "$ref": "#/$defs/systemDependency" }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

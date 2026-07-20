@@ -5,10 +5,10 @@
 **Systems:** Security, Engine, Build, Distribution, CI, Runtime, Host ABI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (native compilation/package production is now isolated
-from the credentialed publisher by immutable raw-artifact handoffs; the
-portable macOS package is emitted for every `main` revision, while acceptance,
-installation, selection, runtime consumption, and advertisements remain off)
+**Revised:** 2026-07-20 (native package production and credentialed publishing
+are isolated by immutable raw-artifact handoffs; the closed build-consumption
+and macOS post-link contracts bind the portable input set and final executable;
+acceptance, build/runtime consumption, and advertisements remain off)
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021; LLP 0032
 
 ## Summary
@@ -675,6 +675,86 @@ still exists. This is a build-integrity check inside the trusted same-user job,
 not a claim that Cargo can retain file handles across arbitrary compilers and
 linkers in the presence of a malicious sibling process.
 
+### Build-consumption and post-link contracts
+
+`ibex/portable-engine-build-consumption/1` is the canonical exact-field record
+an authoritative native build must emit. Its top-level fields are exactly
+`schema, portable, manifestDigest, installationReceiptDigest,
+verificationPolicyDigest, target, ibexFeatures, headers, runtimeComponent,
+linkInputs, hostTools, nonSystemLoadableDependencies, consumptionDigest`.
+`portable` is the complete portable identity. The three authority digests bind
+the complete canonical manifest, complete canonical installation receipt, and
+checked verification policy respectively; the installation-receipt digest
+therefore also commits to the selected archive and retained provenance bundle.
+`target` is the exact portable target and `ibexFeatures` is a strictly sorted,
+unique set of the Cargo features active for that build.
+
+`headers` has exact fields `headerSetDigest, includeRoots, files` and must equal
+the complete declared header-set document, not only headers observed in one
+compiler trace. `runtimeComponent` has exact `path, digest, size` fields.
+`linkInputs` contains exact `role, path, digest, size` rows for the runtime and
+every declared link-input regular file. `hostTools` contains exact
+`role, path, digest, size, compatibilityDigest` rows.
+`nonSystemLoadableDependencies` contains exact `role, path, digest, size` rows
+for every non-runtime, non-system loadable component. Every path in these
+collections is a normalized payload-relative path and every collection is
+strictly sorted and unique: feature/include-root sets and file rows sort by
+UTF-8 bytes, while role-bearing rows sort by `(role, path)`. Store roots,
+checkout paths, Cargo target directories, device/file IDs, and invocation
+timestamps are forbidden. The
+record digest is:
+
+```text
+"sha256-" || base64url(
+  SHA-256("ibex.portable-engine-build-consumption.v1\0" ||
+          JCS(record without consumptionDigest))
+)
+```
+
+`ibex/portable-engine-post-link-verification/1` is the closed result for one
+final macOS arm64 engine-using executable. Its top-level fields are exactly
+`schema, portable, buildConsumptionDigest, manifestDigest,
+installationReceiptDigest, verificationPolicyDigest, target, ibexFeatures,
+executable, payloadRevalidation, audit, outcome, verificationDigest`. The
+portable identity, authority digests, target, and feature set must equal the
+bound build-consumption record. `executable` has exact fields `logicalName,
+targetKind, digest, size`: `logicalName` is a Cargo artifact identity such as
+`bin/ibex`, never a local output path.
+
+`payloadRevalidation` has exact fields `artifactId, buildConsumptionDigest,
+manifestDigest, installationReceiptDigest, verificationPolicyDigest,
+revalidatedInputCount`. The count is the number of unique payload paths whose
+bytes the verifier rehashed; it is a consistency check, not a replacement for
+validating every record row. `outcome` is exactly `verified`, and the verifier
+emits no result on a failed check.
+
+The v1 `audit` is deliberately the closed macOS Mach-O variant with exact
+fields `class, format, architecture, cpuSubtype, fileType, dynamicLinker,
+rpaths, dependencies`. It requires an arm64 `MH_EXECUTE` image using
+`/usr/lib/dyld`. Rpaths are a complete, strictly sorted set of loader-relative
+`@executable_path` or `@loader_path` values; absolute build/store rpaths are
+unrepresentable. `dependencies` is the complete strictly sorted inventory of
+the final executable's `LC_LOAD_DYLIB`, `LC_LOAD_WEAK_DYLIB`,
+`LC_REEXPORT_DYLIB`, `LC_LOAD_UPWARD_DYLIB`, and `LC_LAZY_LOAD_DYLIB`
+commands, sorted by `(command, installName)`, not a selected engine-only subset.
+Exactly one row resolves to the portable runtime in the current runtime-only
+topology, with its payload path and digest equal to `runtimeComponent`; a
+future admitted non-system component must likewise have exactly one matching
+row. Every other row must name and resolve to a target-policy-admitted Apple
+system dependency. Missing, duplicate, undeclared, or path-resolved local
+dylibs fail. Windows final-PE evidence requires its separately frozen
+loader/import-graph contract and may not be represented as this Mach-O v1
+result.
+
+The result digest is:
+
+```text
+"sha256-" || base64url(
+  SHA-256("ibex.portable-engine-post-link-verification.v1\0" ||
+          JCS(result without verificationDigest))
+)
+```
+
 For an authoritative Cargo build, `build.rs` accepts an artifact ID or a
 validated store root, selects the exact declared runtime/link/header
 components, revalidates them, and embeds the canonical manifest plus
@@ -959,8 +1039,17 @@ by both the pinned Release
 runtime and its bundled `hermesc`; the producer must rejoin those observations
 rather than treating the checked policy value as evidence.
 The policy also fixes finite archive and detached-bundle limits, the versioned
-payload-path equivalence policy, symlink containment rules, and the empirically
-observed macOS Release runtime's Apple system dependency set.
+payload-path equivalence policy, symlink containment rules, and the exact
+reviewed Apple platform-system allowlist needed by the Release runtime,
+`hermesc`, and authoritative Ibex executables. That allowlist is permission for
+an observed dependency, not a claim that every image uses every member; each
+manifest, host-tool closure, and post-link result still carries its complete
+actual subset. The final-executable additions are CoreServices, Security,
+`libiconv`, `libresolv`, and `libz`, observed in the current macOS arm64 Ibex
+binary alongside the previously reviewed runtime/tool dependencies. Because
+the checked trust policy is itself a physical package build-authority input,
+this policy revision changes newly produced portable artifact identities even
+though portable acceptance remains false.
 
 The inner vectors now verify Git commit-to-tree object identity, derive the
 reviewed profile projection and producer-shaped source/cache identity from
@@ -984,7 +1073,10 @@ The golden vectors freeze these semantic digest purposes and projections:
 | Portable artifact ID | `ibex.portable-engine-manifest.v1` | manifest without `artifactId` |
 | Complete manifest digest | `ibex.portable-engine-manifest-digest.v1` | complete manifest |
 | Trust-policy digest | `ibex.portable-engine-provenance-trust-policy.v1` | complete checked policy |
+| Installation-receipt digest | `ibex.portable-engine-installation-receipt.v1` | complete installation receipt |
 | Interface-contract digest | `ibex.portable-engine-interface.v1` | complete manifest `interface` object |
+| Build-consumption digest | `ibex.portable-engine-build-consumption.v1` | build-consumption record without `consumptionDigest` |
+| Post-link verification digest | `ibex.portable-engine-post-link-verification.v1` | post-link result without `verificationDigest` |
 | Mapped observation digest | `ibex.mapped-engine-instance-identity.v1` | mapped identity without `observationDigest` |
 | Suite-descriptor digest | `ibex.portable-engine-suite-lineage.v1` | complete suite descriptor |
 | Shard-assignment digest | `ibex.portable-engine-shard-assignment.v1` | complete assignment descriptor |
@@ -1012,6 +1104,23 @@ that output closure. This does not admit the physical package: offline
 distribution-provenance verification, safe installation, authoritative build
 consumption, and the accepted RFC switch remain absent. Reports and
 advertisements therefore stay unchanged and empty.
+
+The checked schema checkpoint additionally freezes the authoritative
+build-consumption record and macOS arm64 final-executable post-link result.
+Their golden DAG joins the complete installation receipt, manifest, policy,
+portable identity, header set, runtime/link/tool/dependency inputs, final
+executable byte digest and size, loader-relative rpaths, and complete direct
+Mach-O dependency inventory. This is a contract and adversarial vector
+checkpoint only:
+`build.rs` does not yet emit the record and no post-link verifier consumes it.
+The checked diagnostic parser observation records the current arm64
+executable's machine, file type, dynamic linker, and complete dependency-name
+subset used to review the Apple allowlist. It grants no physical authority.
+The current executable also carries an absolute checkout-local `LC_RPATH`, so
+it deliberately cannot satisfy the new result schema. Phase 1 must emit a
+loader-relative layout and extend the byte parser to retain each load-command
+kind plus complete `LC_RPATH` values; the existing package parser's collapsed
+dependency-name list is only the input fixture, not the final verifier.
 
 Exit: two paths containing the same validated payload derive the same portable
 ID, every local/provenance field mutation is classified correctly, and no new

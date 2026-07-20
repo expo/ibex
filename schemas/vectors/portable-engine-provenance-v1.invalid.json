@@ -548,6 +548,220 @@
       "expected": "semantic-invalid"
     },
     {
+      "id": "build-consumption-rejects-local-store-path",
+      "documentPath": "buildConsumption",
+      "schema": "portable-engine-build-consumption-v1.schema.json",
+      "mutation": {
+        "op": "add",
+        "path": "/storePath",
+        "value": "/tmp/ibex/target/hermes-artifacts/example"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "build-consumption-rejects-absolute-header-path",
+      "documentPath": "buildConsumption",
+      "schema": "portable-engine-build-consumption-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/headers/files/0/path",
+        "value": "/tmp/include/jsi/jsi.h"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "build-consumption-rejects-missing-header",
+      "documentPath": "buildConsumption",
+      "schema": "portable-engine-build-consumption-v1.schema.json",
+      "mutation": {
+        "op": "remove",
+        "path": "/headers/files/0"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "build-consumption-rejects-receipt-substitution",
+      "documentPath": "buildConsumption",
+      "schema": "portable-engine-build-consumption-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/installationReceiptDigest",
+        "value": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "build-consumption-rejects-unsorted-feature-set",
+      "documentPath": "buildConsumption",
+      "schema": "portable-engine-build-consumption-v1.schema.json",
+      "mutation": {
+        "op": "swap",
+        "path": "/ibexFeatures",
+        "indices": [0, 1]
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "build-consumption-rejects-host-tool-substitution",
+      "documentPath": "buildConsumption",
+      "schema": "portable-engine-build-consumption-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/hostTools/0/digest",
+        "value": "sha256-4343434343434343434343434343434343434343434343434343434343434343"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "build-consumption-rejects-target-substitution",
+      "documentPath": "buildConsumption",
+      "schema": "portable-engine-build-consumption-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/target/triple",
+        "value": "x86_64-apple-darwin"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "build-consumption-rejects-link-input-substitution",
+      "documentPath": "buildConsumption",
+      "schema": "portable-engine-build-consumption-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/linkInputs/0/digest",
+        "value": "sha256-5656565656565656565656565656565656565656565656565656565656565656"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "build-consumption-rejects-consumption-digest-mismatch",
+      "documentPath": "buildConsumption",
+      "schema": "portable-engine-build-consumption-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/consumptionDigest",
+        "value": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "post-link-rejects-local-executable-path",
+      "documentPath": "postLinkVerification",
+      "schema": "portable-engine-post-link-verification-v1.schema.json",
+      "mutation": {
+        "op": "add",
+        "path": "/executable/localPath",
+        "value": "/tmp/ibex/target/debug/ibex"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "post-link-rejects-absolute-build-rpath",
+      "documentPath": "postLinkVerification",
+      "schema": "portable-engine-post-link-verification-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/audit/rpaths/0",
+        "value": "/tmp/ibex/target/hermes-artifacts/example/payload/lib"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "post-link-rejects-runtime-resolution-substitution",
+      "documentPath": "postLinkVerification",
+      "schema": "portable-engine-post-link-verification-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/audit/dependencies/10/resolution/digest",
+        "value": "sha256-5656565656565656565656565656565656565656565656565656565656565656"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "post-link-rejects-omitted-runtime-load-command",
+      "documentPath": "postLinkVerification",
+      "schema": "portable-engine-post-link-verification-v1.schema.json",
+      "mutation": {
+        "op": "remove",
+        "path": "/audit/dependencies/10"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "post-link-rejects-duplicate-runtime-resolution",
+      "documentPath": "postLinkVerification",
+      "schema": "portable-engine-post-link-verification-v1.schema.json",
+      "mutation": {
+        "op": "add",
+        "path": "/audit/dependencies/11",
+        "value": {
+          "command": "LC_LOAD_DYLIB",
+          "installName": "@rpath/zz-hermesvm.framework/Versions/1/hermesvm",
+          "resolution": {
+            "class": "portable-component",
+            "path": "lib/libhermes.dylib",
+            "digest": "sha256-5555555555555555555555555555555555555555555555555555555555555555"
+          }
+        }
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "post-link-rejects-unadmitted-system-dependency",
+      "documentPath": "postLinkVerification",
+      "schema": "portable-engine-post-link-verification-v1.schema.json",
+      "mutation": {
+        "op": "sequence",
+        "mutations": [
+          {
+            "op": "replace",
+            "path": "/audit/dependencies/0/installName",
+            "value": "kernel32.dll"
+          },
+          {
+            "op": "replace",
+            "path": "/audit/dependencies/0/resolution/name",
+            "value": "kernel32.dll"
+          }
+        ]
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "post-link-rejects-policy-substitution",
+      "documentPath": "postLinkVerification",
+      "schema": "portable-engine-post-link-verification-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/verificationPolicyDigest",
+        "value": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "post-link-rejects-revalidation-count-substitution",
+      "documentPath": "postLinkVerification",
+      "schema": "portable-engine-post-link-verification-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/payloadRevalidation/revalidatedInputCount",
+        "value": 4
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "post-link-rejects-verification-digest-mismatch",
+      "documentPath": "postLinkVerification",
+      "schema": "portable-engine-post-link-verification-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/verificationDigest",
+        "value": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
       "id": "mapped-instance-rejects-open-platform-observation",
       "documentPath": "mappedInstance",
       "schema": "mapped-engine-instance-identity-v1.schema.json",

@@ -21,7 +21,30 @@
           "X2V4X2hlcm1lc192bV9jdXJyZW50X3BhY2thZ2VfaWQ="
         ]
       }
-    ]
+    ],
+    "finalExecutableParserObservation": {
+      "schema": "ibex/portable-engine-mach-o-parser-observation/1",
+      "evidenceClass": "diagnostic-physical-observation",
+      "parser": "scripts/portable-engine-contract.mjs#parseMachO",
+      "format": "mach-o",
+      "architecture": "arm64",
+      "cpuSubtype": 0,
+      "fileType": 2,
+      "dylinker": "/usr/lib/dyld",
+      "dependencies": [
+        "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+        "/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices",
+        "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+        "/System/Library/Frameworks/Security.framework/Versions/A/Security",
+        "/usr/lib/libSystem.B.dylib",
+        "/usr/lib/libc++.1.dylib",
+        "/usr/lib/libiconv.2.dylib",
+        "/usr/lib/libobjc.A.dylib",
+        "/usr/lib/libresolv.9.dylib",
+        "/usr/lib/libz.1.dylib",
+        "@rpath/hermesvm.framework/Versions/1/hermesvm"
+      ]
+    }
   },
   "documents": {
     "sourceTreeIdentity": {
@@ -579,7 +602,7 @@
       "manifestDigest": "sha256-R2FtpDYsLxAQ-BpnHLNS8eUijYVZLwWYQVdWeToGptY",
       "archiveDigest": "sha256-7777777777777777777777777777777777777777777777777777777777777777",
       "provenanceBundleDigest": "sha256-29b353204eebcc86637cb251e5e515b9033d4bbdd24ee181b3ed2d8b935c30e4",
-      "verificationPolicyDigest": "sha256-D_QuS-OQBzpcLffZaESGGuCga3oKp0KUC0tDmXbWUU4",
+      "verificationPolicyDigest": "sha256-uvzjA54HCJrdOGUuPixR_NfQB2a9uv2jBRnUEvNQyNg",
       "repository": "ccheever/ibex",
       "publisherWorkflow": ".github/workflows/hermes-artifacts.yml",
       "sourceRef": "refs/heads/main",
@@ -607,6 +630,242 @@
       "runtimeComponentDigest": "sha256-5555555555555555555555555555555555555555555555555555555555555555",
       "reviewedProfileIdentityDigest": "sha256-u5dQA6qdaF5TB9N52neD2EJyN2HPt3KGNbSI1HUkb-Q",
       "interfaceContractDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
+    },
+    "buildConsumption": {
+      "schema": "ibex/portable-engine-build-consumption/1",
+      "portable": {
+        "schema": "ibex/portable-engine-artifact-identity/1",
+        "artifactId": "sha256-1Zn4fxnACSTUiCG0_DpVyy0jXAajBFjYV9st5X9i0Pw",
+        "artifactKind": "hermes",
+        "target": {
+          "triple": "aarch64-apple-darwin",
+          "structuralFeatures": [
+            "dynamic-library",
+            "framework"
+          ]
+        },
+        "profile": {
+          "id": "source-patched",
+          "targetVariant": "default",
+          "configuration": "Release",
+          "debugger": false,
+          "hermesBytecodeVersion": 99
+        },
+        "runtimeComponentDigest": "sha256-5555555555555555555555555555555555555555555555555555555555555555",
+        "reviewedProfileIdentityDigest": "sha256-u5dQA6qdaF5TB9N52neD2EJyN2HPt3KGNbSI1HUkb-Q",
+        "interfaceContractDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
+      },
+      "manifestDigest": "sha256-R2FtpDYsLxAQ-BpnHLNS8eUijYVZLwWYQVdWeToGptY",
+      "installationReceiptDigest": "sha256-cCseFiII81Da3Leil0SPLP8G7P5hmvIJigturd4RNgE",
+      "verificationPolicyDigest": "sha256-uvzjA54HCJrdOGUuPixR_NfQB2a9uv2jBRnUEvNQyNg",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "structuralFeatures": [
+          "dynamic-library",
+          "framework"
+        ]
+      },
+      "ibexFeatures": [
+        "capsec-conformance-observer",
+        "cli-notify",
+        "host-http-server"
+      ],
+      "headers": {
+        "headerSetDigest": "sha256-GksPjeIK6XReCSpoDtVon44CwuwDDk7AAx2kEbs4u54",
+        "includeRoots": [
+          "include"
+        ],
+        "files": [
+          {
+            "path": "include/jsi/jsi.h",
+            "digest": "sha256-9999999999999999999999999999999999999999999999999999999999999999",
+            "size": 4096
+          }
+        ]
+      },
+      "runtimeComponent": {
+        "path": "lib/libhermes.dylib",
+        "digest": "sha256-5555555555555555555555555555555555555555555555555555555555555555",
+        "size": 1048576
+      },
+      "linkInputs": [
+        {
+          "role": "runtime",
+          "path": "lib/libhermes.dylib",
+          "digest": "sha256-5555555555555555555555555555555555555555555555555555555555555555",
+          "size": 1048576
+        }
+      ],
+      "hostTools": [
+        {
+          "role": "host-tool",
+          "path": "bin/hermesc",
+          "digest": "sha256-4444444444444444444444444444444444444444444444444444444444444444",
+          "size": 8192,
+          "compatibilityDigest": "sha256-XvKRec7BASABYkkX9ZM7wUrbU4ol7Qmefb_XPXHuJcI"
+        }
+      ],
+      "nonSystemLoadableDependencies": [],
+      "consumptionDigest": "sha256-_EkNABw23FsL9P3YI0pICzQ33HGVK7fdMO8XJnBzcM4"
+    },
+    "postLinkVerification": {
+      "schema": "ibex/portable-engine-post-link-verification/1",
+      "portable": {
+        "schema": "ibex/portable-engine-artifact-identity/1",
+        "artifactId": "sha256-1Zn4fxnACSTUiCG0_DpVyy0jXAajBFjYV9st5X9i0Pw",
+        "artifactKind": "hermes",
+        "target": {
+          "triple": "aarch64-apple-darwin",
+          "structuralFeatures": [
+            "dynamic-library",
+            "framework"
+          ]
+        },
+        "profile": {
+          "id": "source-patched",
+          "targetVariant": "default",
+          "configuration": "Release",
+          "debugger": false,
+          "hermesBytecodeVersion": 99
+        },
+        "runtimeComponentDigest": "sha256-5555555555555555555555555555555555555555555555555555555555555555",
+        "reviewedProfileIdentityDigest": "sha256-u5dQA6qdaF5TB9N52neD2EJyN2HPt3KGNbSI1HUkb-Q",
+        "interfaceContractDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
+      },
+      "buildConsumptionDigest": "sha256-_EkNABw23FsL9P3YI0pICzQ33HGVK7fdMO8XJnBzcM4",
+      "manifestDigest": "sha256-R2FtpDYsLxAQ-BpnHLNS8eUijYVZLwWYQVdWeToGptY",
+      "installationReceiptDigest": "sha256-cCseFiII81Da3Leil0SPLP8G7P5hmvIJigturd4RNgE",
+      "verificationPolicyDigest": "sha256-uvzjA54HCJrdOGUuPixR_NfQB2a9uv2jBRnUEvNQyNg",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "structuralFeatures": [
+          "dynamic-library",
+          "framework"
+        ]
+      },
+      "ibexFeatures": [
+        "capsec-conformance-observer",
+        "cli-notify",
+        "host-http-server"
+      ],
+      "executable": {
+        "logicalName": "bin/ibex",
+        "targetKind": "bin",
+        "digest": "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "size": 2097152
+      },
+      "payloadRevalidation": {
+        "artifactId": "sha256-1Zn4fxnACSTUiCG0_DpVyy0jXAajBFjYV9st5X9i0Pw",
+        "buildConsumptionDigest": "sha256-_EkNABw23FsL9P3YI0pICzQ33HGVK7fdMO8XJnBzcM4",
+        "manifestDigest": "sha256-R2FtpDYsLxAQ-BpnHLNS8eUijYVZLwWYQVdWeToGptY",
+        "installationReceiptDigest": "sha256-cCseFiII81Da3Leil0SPLP8G7P5hmvIJigturd4RNgE",
+        "verificationPolicyDigest": "sha256-uvzjA54HCJrdOGUuPixR_NfQB2a9uv2jBRnUEvNQyNg",
+        "revalidatedInputCount": 3
+      },
+      "audit": {
+        "class": "macos-macho-final-engine-executable",
+        "format": "mach-o",
+        "architecture": "arm64",
+        "cpuSubtype": "all",
+        "fileType": "execute",
+        "dynamicLinker": "/usr/lib/dyld",
+        "rpaths": [
+          "@executable_path/../Frameworks"
+        ],
+        "dependencies": [
+          {
+            "command": "LC_LOAD_DYLIB",
+            "installName": "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+            "resolution": {
+              "class": "platform-system",
+              "name": "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation"
+            }
+          },
+          {
+            "command": "LC_LOAD_DYLIB",
+            "installName": "/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices",
+            "resolution": {
+              "class": "platform-system",
+              "name": "/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices"
+            }
+          },
+          {
+            "command": "LC_LOAD_DYLIB",
+            "installName": "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+            "resolution": {
+              "class": "platform-system",
+              "name": "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation"
+            }
+          },
+          {
+            "command": "LC_LOAD_DYLIB",
+            "installName": "/System/Library/Frameworks/Security.framework/Versions/A/Security",
+            "resolution": {
+              "class": "platform-system",
+              "name": "/System/Library/Frameworks/Security.framework/Versions/A/Security"
+            }
+          },
+          {
+            "command": "LC_LOAD_DYLIB",
+            "installName": "/usr/lib/libSystem.B.dylib",
+            "resolution": {
+              "class": "platform-system",
+              "name": "/usr/lib/libSystem.B.dylib"
+            }
+          },
+          {
+            "command": "LC_LOAD_DYLIB",
+            "installName": "/usr/lib/libc++.1.dylib",
+            "resolution": {
+              "class": "platform-system",
+              "name": "/usr/lib/libc++.1.dylib"
+            }
+          },
+          {
+            "command": "LC_LOAD_DYLIB",
+            "installName": "/usr/lib/libiconv.2.dylib",
+            "resolution": {
+              "class": "platform-system",
+              "name": "/usr/lib/libiconv.2.dylib"
+            }
+          },
+          {
+            "command": "LC_LOAD_DYLIB",
+            "installName": "/usr/lib/libobjc.A.dylib",
+            "resolution": {
+              "class": "platform-system",
+              "name": "/usr/lib/libobjc.A.dylib"
+            }
+          },
+          {
+            "command": "LC_LOAD_DYLIB",
+            "installName": "/usr/lib/libresolv.9.dylib",
+            "resolution": {
+              "class": "platform-system",
+              "name": "/usr/lib/libresolv.9.dylib"
+            }
+          },
+          {
+            "command": "LC_LOAD_DYLIB",
+            "installName": "/usr/lib/libz.1.dylib",
+            "resolution": {
+              "class": "platform-system",
+              "name": "/usr/lib/libz.1.dylib"
+            }
+          },
+          {
+            "command": "LC_LOAD_DYLIB",
+            "installName": "@rpath/hermesvm.framework/Versions/1/hermesvm",
+            "resolution": {
+              "class": "portable-component",
+              "path": "lib/libhermes.dylib",
+              "digest": "sha256-5555555555555555555555555555555555555555555555555555555555555555"
+            }
+          }
+        ]
+      },
+      "outcome": "verified",
+      "verificationDigest": "sha256-na41eimQwTBxnInTY7xZCtjeYfmMgqfptg2eeH0FIN8"
     },
     "mappedInstance": {
       "schema": "ibex/mapped-engine-instance-identity/1",
@@ -1460,10 +1719,15 @@
       "platformSystemDependencies": {
         "apple": [
           "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+          "/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices",
           "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+          "/System/Library/Frameworks/Security.framework/Versions/A/Security",
           "/usr/lib/libSystem.B.dylib",
           "/usr/lib/libc++.1.dylib",
-          "/usr/lib/libobjc.A.dylib"
+          "/usr/lib/libiconv.2.dylib",
+          "/usr/lib/libobjc.A.dylib",
+          "/usr/lib/libresolv.9.dylib",
+          "/usr/lib/libz.1.dylib"
         ],
         "linux": [
           "libc.so.6",
@@ -1559,7 +1823,14 @@
       "documentPath": "trustPolicy",
       "domain": "ibex.portable-engine-provenance-trust-policy.v1",
       "omitFields": [],
-      "expectedDigest": "sha256-D_QuS-OQBzpcLffZaESGGuCga3oKp0KUC0tDmXbWUU4"
+      "expectedDigest": "sha256-uvzjA54HCJrdOGUuPixR_NfQB2a9uv2jBRnUEvNQyNg"
+    },
+    {
+      "id": "installation-receipt-digest",
+      "documentPath": "installationReceipt",
+      "domain": "ibex.portable-engine-installation-receipt.v1",
+      "omitFields": [],
+      "expectedDigest": "sha256-cCseFiII81Da3Leil0SPLP8G7P5hmvIJigturd4RNgE"
     },
     {
       "id": "interface-contract-digest",
@@ -1567,6 +1838,24 @@
       "domain": "ibex.portable-engine-interface.v1",
       "omitFields": [],
       "expectedDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
+    },
+    {
+      "id": "build-consumption-digest",
+      "documentPath": "buildConsumption",
+      "domain": "ibex.portable-engine-build-consumption.v1",
+      "omitFields": [
+        "consumptionDigest"
+      ],
+      "expectedDigest": "sha256-_EkNABw23FsL9P3YI0pICzQ33HGVK7fdMO8XJnBzcM4"
+    },
+    {
+      "id": "post-link-verification-digest",
+      "documentPath": "postLinkVerification",
+      "domain": "ibex.portable-engine-post-link-verification.v1",
+      "omitFields": [
+        "verificationDigest"
+      ],
+      "expectedDigest": "sha256-na41eimQwTBxnInTY7xZCtjeYfmMgqfptg2eeH0FIN8"
     },
     {
       "id": "mapped-observation-digest",
