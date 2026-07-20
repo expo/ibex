@@ -24,8 +24,13 @@ scripts/check-generated-drift.sh text eol=lf
 src/engine/hermes_runtime.cc text eol=lf
 
 # The vendored-runtime fingerprint hashes these source bytes directly. Keep
-# every authority byte-identical across checkouts so the hermetic build's
-# content check is genuinely portable to Windows.
+# every runtime, registry, embedding, and build authority byte-identical across
+# checkouts so the hermetic build and source-review checks are portable to
+# Windows.
+build.rs text eol=lf
+include/** text eol=lf
+platform/android/** text eol=lf
+src/** text eol=lf
 src/builtins/** text eol=lf
 src/engine/bootstrap/** text eol=lf
 packages/ibex-runtime-js/src/** text eol=lf
