@@ -532,6 +532,43 @@ void install(Runtime& rt) {
     });
   });
 
+  test("binds script and patch identities to exact authority ranges", () => {
+    const script = resolveRestrictedExactSourceBinding(
+      "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
+    );
+    expect(script.locatorKind).toBe("script-identity-authority");
+    expect(script.sites).toHaveLength(1);
+    const patch = resolveRestrictedExactSourceBinding(
+      "patches/hermes/0001-domain-package-principal.patch#patch-content",
+    );
+    expect(patch.locatorKind).toBe("patch-payload-identity");
+    expect(patch.sites).toHaveLength(1);
+  });
+
+  test("keeps legacy JavaScript symbols as exact supporting provenance", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding({
+      branchId: "surface.native.op.dirname.default",
+      observedKey: "native-op:__dirname",
+      targetVariant: "default",
+    }, "src/engine/bootstrap/module-loader.js#__dirname");
+    expect(binding.locatorKind).toBe("javascript-symbol-provenance");
+    expect(binding.sites.length).toBeGreaterThan(0);
+    expect(binding.sites.every((site) => site.role === "symbol-provenance")).toBe(true);
+  });
+
+  test("models guarded legacy global assignments as distinct executable paths", () => {
+    const branch = {
+      branchId: "surface.native.op.global.badly.default",
+      observedKey: "native-op:global:badly",
+      targetVariant: "default",
+    };
+    const sourceRef = "src/engine/bootstrap/compat-polyfills.js#badly";
+    const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+    expect(binding.locatorKind).toBe("javascript-global-assignment-route");
+    expect(binding.producerPaths).toHaveLength(2);
+    expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status).toBe("executable");
+  });
+
   test("binds a TypeScript member without crediting the entire class", () => {
     const sourceRef = "packages/ibex-runtime-js/src/node/Buffer.ts#Buffer.prototype.copy";
     const binding = resolveRestrictedExactBranchSourceBinding(

@@ -575,6 +575,70 @@ function moduleGlobalRange(text, locator) {
   return declarationRange(text, logicalPath[1]);
 }
 
+function sourceIdentityRange(sourcePath, locator, text) {
+  if (sourcePath.endsWith(".patch") && locator === "patch-content") {
+    const startByte = text.indexOf("diff --git ");
+    if (startByte < 0) return null;
+    return { startByte, endByte: text.length };
+  }
+  if (!/\.(?:sh|ps1)$/u.test(sourcePath)) return null;
+  if (locator.startsWith("evaluator-identity:")) return null;
+  const lines = [];
+  let startByte = 0;
+  for (const line of text.split(/(?<=\n)/u)) {
+    const content = line.endsWith("\n") ? line.slice(0, -1) : line;
+    const identifier = /^[A-Za-z_][A-Za-z0-9_]*$/u.test(locator);
+    const assignment = identifier
+      && new RegExp(`^\\s*(?:export\\s+)?(?:\\$)?${escapeRegExp(locator)}\\s*=`, "u").test(content);
+    if (assignment || (!identifier && content.includes(locator))) {
+      lines.push({ startByte, endByte: startByte + content.length });
+    }
+    startByte += line.length;
+  }
+  return lines.length === 1 ? lines[0] : null;
+}
+
+function sourceIdentityBinding({ sourceRef, sourcePath, locator, text, bytes }) {
+  if (!/\.(?:sh|ps1|patch)$/u.test(sourcePath) || locator.startsWith("evaluator-identity:")) {
+    return null;
+  }
+  if (sourcePath.endsWith(".patch") && locator !== "patch-content") return null;
+  const ranges = [];
+  if (sourcePath.endsWith(".patch")) {
+    const range = sourceIdentityRange(sourcePath, locator, text);
+    if (range) ranges.push(range);
+  } else {
+    const identifier = /^[A-Za-z_][A-Za-z0-9_]*$/u.test(locator);
+    let startByte = 0;
+    for (const line of text.split(/(?<=\n)/u)) {
+      const content = line.endsWith("\n") ? line.slice(0, -1) : line;
+      const assignment = identifier
+        && new RegExp(`^(?:export\\s+)?(?:\\$)?${escapeRegExp(locator)}\\s*=`, "u").test(content);
+      if (assignment || (!identifier && content.includes(locator))) {
+        ranges.push({ startByte, endByte: startByte + content.length });
+      }
+      startByte += line.length;
+    }
+  }
+  if (ranges.length === 0) return null;
+  const sites = ranges.map((range, indexValue) => sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "identity-authority",
+    siteKey: `identity.${indexValue}`,
+    range,
+    text,
+    bytes,
+  }));
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: sourcePath.endsWith(".patch") ? "patch-payload-identity" : "script-identity-authority",
+    resolutionPolicy: "provenance-only",
+    sites,
+    producerPaths: [],
+  });
+}
+
 function namedObjectEntryRange(text, containerRange, name) {
   const escaped = escapeRegExp(name);
   const pattern = new RegExp(`^  ${escaped}:`, "gmu");
@@ -609,6 +673,8 @@ function resolveRange(sourcePath, locator, text, absolute) {
   if (sourcePath === "build.rs" && locator.startsWith("backend-selection:")) {
     return buildSelectionRange(text, locator);
   }
+  const identity = sourceIdentityRange(sourcePath, locator, text);
+  if (identity) return identity;
   if (locator.startsWith("<module>:globals:")) {
     range = moduleGlobalRange(text, locator);
   } else if (locator === "<module>" || locator.startsWith("<module>.")) {
@@ -1436,6 +1502,139 @@ function typescriptClassMemberBinding({ sourceRef, sourcePath, locator, absolute
     resolutionPolicy: "provenance-only",
     sites,
     producerPaths: [],
+  });
+}
+
+function javascriptSymbolProvenanceBinding({ sourceRef, sourcePath, locator, text, bytes }) {
+  if (!sourcePath.endsWith(".js")
+    || locator.includes(":")
+    || locator.includes("[[")
+    || locator.startsWith("<")) return null;
+  const logicalPath = locator.split(".");
+  if (logicalPath.some((part) => !/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(part))) return null;
+  const candidates = [];
+  const ast = parse(text, { sourceType: "script", allowReturnOutsideFunction: true });
+  walkJavaScript(ast.program, (node, parent) => {
+    const segments = memberSegments(node);
+    if (segments && JSON.stringify(segments) === JSON.stringify(logicalPath)) {
+      const parentSegments = memberSegments(parent);
+      if (!parentSegments || parentSegments.length <= segments.length) candidates.push(node);
+      return;
+    }
+    if (logicalPath.length === 1 && node.type === "Identifier" && node.name === logicalPath[0]) {
+      candidates.push(node);
+    }
+    if (logicalPath.length === 1 && node.type === "MemberExpression") {
+      const member = memberSegments(node);
+      if (member?.at(-1) === logicalPath[0]) candidates.push(node);
+    }
+  });
+  if (candidates.length === 0 && logicalPath.length > 1) {
+    walkJavaScript(ast.program, (node) => {
+      const segments = memberSegments(node);
+      if (segments?.at(-1) === logicalPath[0]) candidates.push(node);
+    });
+  }
+  const unique = [...new Map(candidates.map((node) => [
+    `${node.start}:${node.end}`,
+    node,
+  ])).values()];
+  if (unique.length === 0) return null;
+  const sites = unique.map((node, indexValue) => sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "symbol-provenance",
+    siteKey: `${logicalPath.join(".")}.${indexValue}`,
+    range: { startByte: node.start, endByte: node.end },
+    text,
+    bytes,
+  }));
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "javascript-symbol-provenance",
+    resolutionPolicy: "provenance-only",
+    sites,
+    producerPaths: [],
+  });
+}
+
+function legacyJavascriptGlobalRouteBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (!branch?.observedKey?.startsWith("native-op:global:")
+    || !sourcePath.startsWith("src/engine/bootstrap/")
+    || !sourcePath.endsWith(".js")
+    || locator.includes(":")
+    || locator.includes("[[")
+    || locator.startsWith("<")) return null;
+  const logicalPath = locator.split(".");
+  if (branch.observedKey.slice("native-op:global:".length) !== locator) return null;
+  const candidates = [];
+  const ast = parse(text, { sourceType: "script", allowReturnOutsideFunction: true });
+  const normalize = (segments) => {
+    if (!segments) return null;
+    return ["globalThis", "__global", "g", "self", "window"].includes(segments[0])
+      ? segments.slice(1)
+      : segments;
+  };
+  walkJavaScript(ast.program, (node, parent) => {
+    if (node.type === "AssignmentExpression"
+      && JSON.stringify(normalize(memberSegments(node.left))) === JSON.stringify(logicalPath)) {
+      candidates.push({
+        producer: node.right,
+        publication: parent?.type === "ExpressionStatement" ? parent : node,
+      });
+    }
+    if (node.type === "CallExpression"
+      && JSON.stringify(memberSegments(node.callee)) === JSON.stringify(["Object", "defineProperty"])) {
+      const target = normalize(memberSegments(node.arguments[0]));
+      const property = propertyName(node.arguments[1]);
+      if (property !== null
+        && JSON.stringify([...(target ?? []), property]) === JSON.stringify(logicalPath)) {
+        candidates.push({
+          producer: node.arguments[2] ?? node,
+          publication: parent?.type === "ExpressionStatement" ? parent : node,
+        });
+      }
+    }
+  });
+  const unique = [...new Map(candidates.map((candidate) => [
+    `${candidate.publication.start}:${candidate.publication.end}`,
+    candidate,
+  ])).values()];
+  if (unique.length === 0) return null;
+  const sites = [];
+  const producerPaths = [];
+  for (const [indexValue, candidate] of unique.entries()) {
+    const producer = sourceSite({
+      sourceRef,
+      path: sourcePath,
+      role: "value-producer",
+      siteKey: `${locator}.producer.${indexValue}`,
+      range: { startByte: candidate.producer.start, endByte: candidate.producer.end },
+      text,
+      bytes,
+    });
+    const publication = sourceSite({
+      sourceRef,
+      path: sourcePath,
+      role: "publication",
+      siteKey: `${locator}.publication.${indexValue}`,
+      range: { startByte: candidate.publication.start, endByte: candidate.publication.end },
+      text,
+      bytes,
+    });
+    sites.push(producer, publication);
+    producerPaths.push({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0legacy-global\0${indexValue}`),
+      conditionId: `legacy-bootstrap:${sourcePath}:${candidate.publication.start}`,
+      requiredSiteIds: [producer.siteId, publication.siteId],
+    });
+  }
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "javascript-global-assignment-route",
+    resolutionPolicy: producerPaths.length > 1 ? "conditioned-alternatives" : "composite-path",
+    sites,
+    producerPaths,
   });
 }
 
@@ -4238,7 +4437,8 @@ function loadSourceRef(sourceRef, root) {
 
 export function resolveRestrictedExactSourceBinding(sourceRef, root = repoRoot) {
   const { sourcePath, locator, absolute, bytes, text } = loadSourceRef(sourceRef, root);
-  const specialized = errnoExportBinding({ sourceRef, sourcePath, locator, text, bytes })
+  const specialized = sourceIdentityBinding({ sourceRef, sourcePath, locator, text, bytes })
+    ?? errnoExportBinding({ sourceRef, sourcePath, locator, text, bytes })
     ?? processCwdBinding({ sourceRef, sourcePath, locator, text, bytes });
   if (specialized) return validateRestrictedExactSourceBinding(specialized);
   const range = resolveRange(sourcePath, locator, text, absolute);
@@ -4305,7 +4505,9 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? typescriptGlobalInstallerBinding({ branch, sourceRef, ...loaded })
     ?? bootstrapGlobalBinding({ branch, sourceRef, ...loaded })
     ?? legacyBootstrapGlobalBinding({ branch, sourceRef, ...loaded })
-    ?? typescriptClassMemberBinding({ branch, sourceRef, ...loaded });
+    ?? typescriptClassMemberBinding({ branch, sourceRef, ...loaded })
+    ?? legacyJavascriptGlobalRouteBinding({ branch, sourceRef, ...loaded })
+    ?? javascriptSymbolProvenanceBinding({ branch, sourceRef, ...loaded });
   return contextual ?? resolveRestrictedExactSourceBinding(sourceRef, root);
 }
 
@@ -4328,7 +4530,9 @@ function selectGlobalProducerEntry(observedPath, entries) {
   if (!member) return null;
   const inherited = producers.filter(({ sourceRef }) => {
     const locator = locatorOf(sourceRef);
-    return locator.endsWith(`.prototype.${member}`) || locator.endsWith(`.${member}`);
+    return locator === member
+      || locator.endsWith(`.prototype.${member}`)
+      || locator.endsWith(`.${member}`);
   });
   return inherited.length === 1 ? inherited[0] : null;
 }
@@ -4337,6 +4541,7 @@ function entryTargetsGlobalPath(entry, observedPath) {
   const locator = locatorOf(entry.sourceRef);
   if (locator.startsWith("jsi-global:")) return locator.slice("jsi-global:".length) === observedPath;
   if (entry.binding.locatorKind === "jsi-root-global-route") return locator === observedPath;
+  if (entry.binding.locatorKind === "javascript-global-assignment-route") return locator === observedPath;
   const marker = ":globals:";
   const markerIndex = locator.indexOf(marker);
   return markerIndex >= 0 && locator.slice(markerIndex + marker.length) === observedPath;
