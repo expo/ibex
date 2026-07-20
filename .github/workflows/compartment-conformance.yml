@@ -216,6 +216,12 @@ jobs:
             throw "Hermes DLL exports debugger symbols"
           }
 
+      - name: Bind exact Hermes compatibility engine
+        shell: pwsh
+        run: |
+          $hermes = (Resolve-Path -LiteralPath "tools\hermes\windows-x64\bin\hermes.exe").Path
+          "IBEX_HERMES_BIN=$hermes" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Run the complete CapSec matrix and bind evidence
         shell: pwsh
         run: >-
