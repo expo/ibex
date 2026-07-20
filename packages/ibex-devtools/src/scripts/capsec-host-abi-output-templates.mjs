@@ -269,6 +269,7 @@ const HOST_AUTHENTICATED_STATEFUL_FUNCTIONS = new Set([
   "ex_host_build_exact_armed_embedder_artifacts",
   "ex_host_env_get",
   "ex_host_install_armed",
+  "ex_host_install_armed_experimental_webgpu_pre1a",
   "ex_host_matches_armed_snapshot_digest",
   "ex_host_prepare_armed_embedder_artifacts",
   "ex_host_prepare_exact_armed_embedder_artifacts",

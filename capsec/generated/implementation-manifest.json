@@ -120788,6 +120788,40 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.host.build.exact.experimental.webgpu.pre1a.armed.embedder.artifacts.1rzd21y",
+      "observedKey": "host-abi:ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts",
+      "branchId": "surface.host.abi.ex.host.build.exact.experimental.webgpu.pre1a.armed.embedder.artifacts.1rzd21y.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.build.exact.experimental.webgpu.pre1a.armed.embedder.artifacts.1rzd21y.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.build.exact.experimental.webgpu.pre1a.armed.embedder.artifacts.1rzd21y.default.cannot-widen-authority",
+        "surface.host.abi.ex.host.build.exact.experimental.webgpu.pre1a.armed.embedder.artifacts.1rzd21y.default.non-capability",
+        "surface.host.abi.ex.host.build.exact.experimental.webgpu.pre1a.armed.embedder.artifacts.1rzd21y.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.build.exact.gpu.armed.embedder.artifacts.0pk4s1p",
       "observedKey": "host-abi:ex_host_build_exact_gpu_armed_embedder_artifacts",
       "branchId": "surface.host.abi.ex.host.build.exact.gpu.armed.embedder.artifacts.0pk4s1p.default",
@@ -123811,6 +123845,40 @@
         "surface.host.abi.ex.host.install.armed.0zuu8pe.default.cannot-widen-authority",
         "surface.host.abi.ex.host.install.armed.0zuu8pe.default.non-capability",
         "surface.host.abi.ex.host.install.armed.0zuu8pe.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.install.armed.experimental.webgpu.pre1a.1vyupem",
+      "observedKey": "host-abi:ex_host_install_armed_experimental_webgpu_pre1a",
+      "branchId": "surface.host.abi.ex.host.install.armed.experimental.webgpu.pre1a.1vyupem.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.install.armed.experimental.webgpu.pre1a.1vyupem.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_install_armed_experimental_webgpu_pre1a"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_install_armed_experimental_webgpu_pre1a"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_install_armed_experimental_webgpu_pre1a"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_install_armed_experimental_webgpu_pre1a"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_install_armed_experimental_webgpu_pre1a"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.install.armed.experimental.webgpu.pre1a.1vyupem.default.cannot-widen-authority",
+        "surface.host.abi.ex.host.install.armed.experimental.webgpu.pre1a.1vyupem.default.non-capability",
+        "surface.host.abi.ex.host.install.armed.experimental.webgpu.pre1a.1vyupem.default.post-lockdown-invariant"
       ]
     },
     {
@@ -276227,59 +276295,59 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-qW1OUcyvn7XksPHivciXV4b_AVIvwyuL9xd2WKe4e48"
+      "rawContentDigest": "sha256-UCRuMxb9v1YiQWv51thYoiZgnZG3-ggOUV2pH0MAgmU"
     },
     {
       "kind": "output-disposition-dataset",
       "path": "capsec/generated/output-dispositions.json",
-      "rawContentDigest": "sha256-Anx8xltckXL3Kp9qePQx5HL1vFglOfT-ME_FYIsWfPY"
+      "rawContentDigest": "sha256-FsgMTdwi2rOwaNBiXbXQj_84U8jNYLTG8-KWEkTRKKQ"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/output-dispositions.md",
-      "rawContentDigest": "sha256-NimJTg413hnRnowMwArBdUBXMH8DB-2TTVoJPCGMtQw"
+      "rawContentDigest": "sha256-bAmXdIwjjEmx2eA_cmXnsvagqhw0kl3xkOEuJbhiiKE"
     },
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-fBAMShavGGJSDvrBVHZYFBEJjGik1fdrpWKEhO8UcH8"
+      "rawContentDigest": "sha256-DXlAQQ6bE1zCgptmCPrkQnyXF7gUMOzP5eQONb9PMwE"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-_LPbAdx6x1uZWjEkCBObRLcZcjwFMzaPnu9lynksy_w"
+      "rawContentDigest": "sha256-M-8I5yD45kB7M2eTuqkzzPvaSoWAL3231Vs9gZJBww0"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-V6a_-0voHLvzvSP6oMFD37hOCRNBc8_vlSfMlhqplPk"
+      "rawContentDigest": "sha256-4_y9rv9A08TvRBwOUSRQoZFHHrFlqTkMQnCp7T-m7Ys"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-inPOvdgiyT6BJKNTJ4roCHDGPVUwHzQtu7Tq70-xb9s"
+      "rawContentDigest": "sha256-rN-X6SuPcxsiUyA5gpqtHHeDVcBY4-Lct5zLhjo8hYM"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-pL1GDdk1fUOQe5ArHfAvS1XXYbGxPtJScEWhGON9esI"
+      "rawContentDigest": "sha256-dY-N4cX0Fuo0kB7ByY6JTaFnIffKuieFNn8wQWakjQs"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-jXSHjfi-mo7KCoVbCBOPx2y-5nXmtvmCWqBcmxMpjac"
+      "rawContentDigest": "sha256-YQ8SCMIgv2793qCbscn9DsBnCUuSapxpxVBFA1jKB3A"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-kyTu9SawTP90dnU-egnkIJFZ5g-BPHaKxHxyiUvA9vo"
+      "rawContentDigest": "sha256-TiaPNhGJhYuSI4WAFubO2c-lwLh2GDachx4MgmoOYK4"
     }
   ],
   "counts": {
-    "observedReferences": 13012,
-    "logicalSurfaces": 7435,
-    "enforcementBranches": 7654,
-    "coverageEdges": 7435,
-    "targetCells": 14870
+    "observedReferences": 13014,
+    "logicalSurfaces": 7437,
+    "enforcementBranches": 7656,
+    "coverageEdges": 7437,
+    "targetCells": 14874
   }
 }

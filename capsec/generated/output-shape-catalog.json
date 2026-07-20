@@ -38907,6 +38907,17 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.host.build.exact.experimental.webgpu.pre1a.armed.embedder.artifacts.1rzd21y",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.host.build.exact.gpu.armed.embedder.artifacts.0pk4s1p",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -39835,6 +39846,17 @@
       "reasonCode": "source-derived-host-abi-output",
       "sourceRefs": [
         "src/host/abi.rs#ex_host_install_armed"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.install.armed.experimental.webgpu.pre1a.1vyupem",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_install_armed_experimental_webgpu_pre1a"
       ],
       "outputKinds": [
         "[[return]]"
@@ -84550,15 +84572,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-OHFKaSmJ-OsdlhK6ppekT-Mf3OQE6xi6l3EZqNiuUjU",
+  "catalogKeyDigest": "sha256--N0cWpa0KGQpf8l3sDWgsAbxv1S2VPJMm75pUPwfq_4",
   "counts": {
-    "coverageSurfaces": 7435,
-    "outputBearingSurfaces": 5797,
+    "coverageSurfaces": 7437,
+    "outputBearingSurfaces": 5799,
     "structuralOnlySurfaces": 1559,
     "unresolvedSurfaces": 79,
-    "catalogRows": 6472,
+    "catalogRows": 6474,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6065,
+    "sourceInventoryRows": 6067,
     "structuredRows": 407
   },
   "rows": [
@@ -153436,6 +153458,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.host.build.exact.experimental.webgpu.pre1a.armed.embedder.artifacts.1rzd21y",
+        "output": "[[return]]",
+        "alias": "ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.host.build.exact.gpu.armed.embedder.artifacts.0pk4s1p",
         "output": "[[return]]",
         "alias": "ex_host_build_exact_gpu_armed_embedder_artifacts",
@@ -155251,6 +155294,27 @@
         ],
         "sourceRefs": [
           "src/host/abi.rs#ex_host_install_armed"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.install.armed.experimental.webgpu.pre1a.1vyupem",
+        "output": "[[return]]",
+        "alias": "ex_host_install_armed_experimental_webgpu_pre1a",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_install_armed_experimental_webgpu_pre1a"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_install_armed_experimental_webgpu_pre1a"
         ]
       },
       "requiredValueProof": "live-value-observation"

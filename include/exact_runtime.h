@@ -2573,6 +2573,18 @@ int ex_host_install_armed(const uint8_t* snapshot,
                           const uint8_t* expected_identity,
                           size_t expected_identity_len);
 
+/// Authenticate and install the named Exact WebGPU Pre-1A private-cell
+/// profile. This is an explicit experimental construction mode, not a target
+/// advertisement. It accepts no selector/cell input, and must be called on the
+/// same creating thread as the subsequent `ex_hermes_create_armed` call.
+/// Returns 0 on success and non-zero on refusal. Builds without
+/// `webgpu-binding` always refuse.
+int ex_host_install_armed_experimental_webgpu_pre1a(
+    const uint8_t* snapshot,
+    size_t snapshot_len,
+    const uint8_t* expected_identity,
+    size_t expected_identity_len);
+
 /// Authenticate a paired snapshot template/expected identity against the
 /// loaded engine and checked registry, validate protected artifacts/package
 /// roots, replace the template nonce with OS randomness, and recompute the
@@ -2626,6 +2638,22 @@ char* ex_host_build_exact_armed_embedder_artifacts(
 /// This does not advertise a target; `ex_host_install_armed` retains the
 /// report-derived gate.
 char* ex_host_build_exact_gpu_armed_embedder_artifacts(
+    const uint8_t* project_root_utf8,
+    size_t project_root_utf8_len,
+    const uint8_t* operation_manifest,
+    size_t operation_manifest_len,
+    const uint8_t* gpu_provider_binding,
+    size_t gpu_provider_binding_len,
+    const uint8_t* webgpu_profile,
+    size_t webgpu_profile_len);
+
+/// Build the target-local artifact pair for Exact's named WebGPU Pre-1A
+/// experiment. The authenticated root floor is derived solely from the pinned
+/// construction-private operation registry; callers cannot provide selectors,
+/// cell IDs, operation names, or wildcards. The returned envelope is released
+/// with `ex_host_free_string`. This does not change canonical target
+/// advertisements and is consumed only by the matching experimental installer.
+char* ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts(
     const uint8_t* project_root_utf8,
     size_t project_root_utf8_len,
     const uint8_t* operation_manifest,

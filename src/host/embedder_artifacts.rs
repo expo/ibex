@@ -587,7 +587,13 @@ pub fn build_exact_embedder_artifacts(
     project_root: &Path,
     operation_manifest_bytes: &[u8],
 ) -> Result<PreparedEmbedderArtifacts> {
-    build_exact_embedder_artifacts_with_gpu(project_root, operation_manifest_bytes, None, None)
+    build_exact_embedder_artifacts_with_gpu(
+        project_root,
+        operation_manifest_bytes,
+        None,
+        None,
+        false,
+    )
 }
 
 /// Build the target-local Exact artifact pair with the optional GPU service
@@ -610,6 +616,28 @@ pub fn build_exact_gpu_embedder_artifacts(
         operation_manifest_bytes,
         Some(gpu_provider_binding_bytes),
         Some(webgpu_profile_bytes),
+        false,
+    )
+}
+
+/// Build the named Exact WebGPU Pre-1A artifact pair. Unlike the ordinary GPU
+/// builder, this path writes the checked private registry's exact positive
+/// selectors into the authenticated root floor. The companion experimental
+/// installer re-proves that exact set and installs the 58 private cells while
+/// keeping every ordinary target cell closed.
+/// @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
+pub fn build_exact_experimental_webgpu_pre1a_embedder_artifacts(
+    project_root: &Path,
+    operation_manifest_bytes: &[u8],
+    gpu_provider_binding_bytes: &[u8],
+    webgpu_profile_bytes: &[u8],
+) -> Result<PreparedEmbedderArtifacts> {
+    build_exact_embedder_artifacts_with_gpu(
+        project_root,
+        operation_manifest_bytes,
+        Some(gpu_provider_binding_bytes),
+        Some(webgpu_profile_bytes),
+        true,
     )
 }
 
@@ -618,6 +646,7 @@ fn build_exact_embedder_artifacts_with_gpu(
     operation_manifest_bytes: &[u8],
     gpu_provider_binding_bytes: Option<&[u8]>,
     webgpu_profile_bytes: Option<&[u8]>,
+    experimental_webgpu_pre1a: bool,
 ) -> Result<PreparedEmbedderArtifacts> {
     anyhow::ensure!(
         gpu_provider_binding_bytes.is_some() == webgpu_profile_bytes.is_some(),
@@ -695,6 +724,22 @@ fn build_exact_embedder_artifacts_with_gpu(
             "Exact WebGPU profile bytes do not match the provider profile digest"
         );
     }
+    let experimental_private_arming = if experimental_webgpu_pre1a {
+        let binding = gpu_binding.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "experimental WebGPU Pre-1A construction requires a GPU provider binding"
+            )
+        })?;
+        Some(
+            super::gpu_authority::experimental_webgpu_pre1a_arming(binding).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "experimental WebGPU Pre-1A provider or checked private registry is unavailable"
+                )
+            })?,
+        )
+    } else {
+        None
+    };
     let mut root_builtins = crate::module_loader::RUNTIME_GATED_NODE_BUILTINS
         .iter()
         .map(|name| format!("node:{name}"))
@@ -715,7 +760,10 @@ fn build_exact_embedder_artifacts_with_gpu(
     });
     document["principals"] = serde_json::json!([{
         "principal": {"kind": "root", "identity": "project-root"},
-        "floor": [],
+        "floor": experimental_private_arming
+            .as_ref()
+            .map(|arming| arming.positive_selectors.clone())
+            .unwrap_or_default(),
         "denials": [],
         "escalationCeiling": [],
         "imports": {"builtins": root_builtins, "packages": []},
@@ -1552,6 +1600,11 @@ mod tests {
         assert_eq!(
             artifacts["snapshot"]["exactGpuProvider"]["profileDigest"],
             serde_json::to_value(content_digest(&exact_webgpu_profile())).unwrap()
+        );
+        assert_eq!(
+            artifacts["snapshot"]["principals"][0]["floor"],
+            serde_json::json!([]),
+            "the canonical GPU builder must not opt into private WebGPU selectors"
         );
         assert!(artifacts["snapshot"]["protectedObjects"]
             .as_array()

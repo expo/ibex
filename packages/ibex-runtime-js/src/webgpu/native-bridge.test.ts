@@ -21,6 +21,17 @@ describe('construction-private GPU bridge capture', () => {
     resetNativeGpuBridgeCaptureForTests();
   });
 
+  test('does not publish WebGPU before an authenticated bridge capture', () => {
+    const constructionGlobal = { navigator: {} } as unknown as typeof globalThis;
+
+    installRuntimeNativeGpuBridgeCapture(constructionGlobal);
+
+    expect('__ibexCaptureGpuNativeBridge' in constructionGlobal).toBe(true);
+    expect('gpu' in constructionGlobal.navigator).toBe(false);
+    expect('GPUDevice' in constructionGlobal).toBe(false);
+    expect('createImageBitmap' in constructionGlobal).toBe(false);
+  });
+
   test('the embedded entry authenticates codecs and publishes one revocable app surface', async () => {
     const occupiedGlobal = {
       __ibexCaptureGpuNativeBridge: () => undefined,

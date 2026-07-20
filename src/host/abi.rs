@@ -1327,6 +1327,37 @@ pub fn install_armed_host(snapshot: &[u8], expected_json: &[u8]) -> Result<(), S
     Ok(())
 }
 
+/// Install the named, closed-world Exact WebGPU Pre-1A host profile. This is
+/// not a target advertisement and cannot be selected through the canonical
+/// `ex_host_install_armed` path.
+/// @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
+pub fn install_exact_experimental_webgpu_pre1a_armed_host(
+    snapshot: &[u8],
+    expected_json: &[u8],
+) -> Result<(), String> {
+    use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
+    super::reject_closed_startup_environment().map_err(|error| error.to_string())?;
+    let expected_text = std::str::from_utf8(expected_json)
+        .map_err(|error| format!("expected arming identity is not UTF-8: {error}"))?;
+    let expected_value = capsec_semantics::strict_json::parse_strict(expected_text)
+        .map_err(|error| error.to_string())?;
+    let expected: ExpectedArmingIdentity = serde_json::from_value(expected_value)
+        .map_err(|error| format!("invalid expected arming identity: {error}"))?;
+    let armed = ArmedSnapshot::load(snapshot, &expected).map_err(|error| error.to_string())?;
+    let host = Host::new_exact_experimental_webgpu_pre1a(
+        super::HostConfig {
+            mode: super::SecurityMode::Enforce,
+            ..Default::default()
+        },
+        Arc::new(armed),
+    )
+    .map_err(|error| error.to_string())?;
+    if install_host(host) == 0 {
+        return Err("failed to allocate an armed Host context token".into());
+    }
+    Ok(())
+}
+
 /// Prepare one construction-fresh authenticated artifact pair for a native
 /// embedder. The returned strict JSON envelope is owned by Rust and must be
 /// released with `ex_host_free_string`.
@@ -1512,6 +1543,63 @@ pub unsafe extern "C" fn ex_host_build_exact_gpu_armed_embedder_artifacts(
         let profile = unsafe { std::slice::from_raw_parts(webgpu_profile, webgpu_profile_len) };
         root.and_then(|root| {
             super::embedder_artifacts::build_exact_gpu_embedder_artifacts(
+                root, manifest, binding, profile,
+            )
+        })
+    };
+    let envelope = match result {
+        Ok(artifacts) => serde_json::json!({"ok": true, "artifacts": artifacts}),
+        Err(error) => serde_json::json!({"ok": false, "error": error.to_string()}),
+    };
+    CString::new(envelope.to_string())
+        .map(CString::into_raw)
+        .unwrap_or(std::ptr::null_mut())
+}
+
+/// Build the target-local artifacts for the named Exact WebGPU Pre-1A
+/// experiment. The checked registry supplies the selector set; callers cannot
+/// pass operation names, selectors, target cells, or wildcards.
+///
+/// # Safety
+///
+/// Each non-null pointer must reference its declared byte length for this call.
+/// All inputs are consumed synchronously and are not retained.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts(
+    project_root_utf8: *const u8,
+    project_root_utf8_len: usize,
+    operation_manifest: *const u8,
+    operation_manifest_len: usize,
+    gpu_provider_binding: *const u8,
+    gpu_provider_binding_len: usize,
+    webgpu_profile: *const u8,
+    webgpu_profile_len: usize,
+) -> *mut c_char {
+    let result = if project_root_utf8.is_null()
+        || project_root_utf8_len == 0
+        || operation_manifest.is_null()
+        || operation_manifest_len == 0
+        || gpu_provider_binding.is_null()
+        || gpu_provider_binding_len == 0
+        || webgpu_profile.is_null()
+        || webgpu_profile_len == 0
+    {
+        Err(anyhow::anyhow!(
+            "Exact project root, operation manifest, GPU provider binding, and WebGPU profile are required"
+        ))
+    } else {
+        let root_bytes =
+            unsafe { std::slice::from_raw_parts(project_root_utf8, project_root_utf8_len) };
+        let root = std::str::from_utf8(root_bytes)
+            .map(std::path::Path::new)
+            .map_err(|error| anyhow::anyhow!("Exact project root is not UTF-8: {error}"));
+        let manifest =
+            unsafe { std::slice::from_raw_parts(operation_manifest, operation_manifest_len) };
+        let binding =
+            unsafe { std::slice::from_raw_parts(gpu_provider_binding, gpu_provider_binding_len) };
+        let profile = unsafe { std::slice::from_raw_parts(webgpu_profile, webgpu_profile_len) };
+        root.and_then(|root| {
+            super::embedder_artifacts::build_exact_experimental_webgpu_pre1a_embedder_artifacts(
                 root, manifest, binding, profile,
             )
         })
@@ -3657,6 +3745,35 @@ pub unsafe extern "C" fn ex_host_install_armed(
         Ok(()) => 0,
         Err(error) => {
             eprintln!("error: refusing host arming: {error}");
+            -1
+        }
+    }
+}
+
+/// Opt into the named Exact WebGPU Pre-1A private-cell profile. This call is
+/// synchronous, must run on the same creating thread as the subsequent armed
+/// Hermes constructor, and accepts no selector or target-cell input.
+///
+/// # Safety
+///
+/// Each pointer must reference its declared byte length for this call. Inputs
+/// are copied before return.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_install_armed_experimental_webgpu_pre1a(
+    snapshot: *const u8,
+    snapshot_len: usize,
+    expected_identity: *const u8,
+    expected_identity_len: usize,
+) -> i32 {
+    if snapshot.is_null() || expected_identity.is_null() {
+        return -1;
+    }
+    let snapshot = unsafe { std::slice::from_raw_parts(snapshot, snapshot_len) };
+    let expected = unsafe { std::slice::from_raw_parts(expected_identity, expected_identity_len) };
+    match install_exact_experimental_webgpu_pre1a_armed_host(snapshot, expected) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("error: refusing experimental WebGPU Pre-1A host arming: {error}");
             -1
         }
     }

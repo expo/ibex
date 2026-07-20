@@ -5,6 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-20 (adds the explicit Exact-owned `EXACT_EXPERIMENTAL_WEBGPU_PRE1A` construction mode through separate Ibex artifact-builder and armed-host installer symbols: it raw-pins and derives exactly 58 private WebGPU target cells and 20 typed-positive `gpu:operation` selectors from the checked private registry, admits no app selector/cell/wildcard input, closes every ordinary target cell, leaves canonical arming and target advertisements unchanged, and still publishes the runtime wrapper only after authenticated V2 construction capture)
 **Revised:** 2026-07-20 (adds the owner-thread outer app-bundle evaluation and irreversible quarantine ABI around the nested GPU Canvas handoff: debugger admission closes and pre-admitted queued commands are cancelled/settled before construction fencing and generated preparation; immediate source or prelude+HBC evaluation has no pump/coercion/mutable-handler hooks, with HBC sanity before prelude and status 2 as the sole source-fallback signal; native pristine-reflection classification caches an exact frozen carrier before Canvas root publication, staging deletes it and invokes only consume, runApp is admitted only after Canvas finish, final absence is re-proved before the outer gate opens, and every execution/cleanup/sequence ambiguity quarantines the generation for destruction; feature-off UNUSED startup retains the same outer/immediate/native-staging path)
 **Revised:** 2026-07-19 (publishes the source-derived WebGPU provider root set only from an authenticated V2 construction capture, publishes `createImageBitmap` only when decoded-image authority was attached, and requires an exact descriptor-only root-global sweep after publication and sealing but before user execution in either Apple bootstrap order; any mismatch revokes the wrapper and fails the runtime closed, while target advertisements, public grant issuance, and platform-support claims remain absent)
 **Revised:** 2026-07-19 (adds the source-derived construction-private WebGPU CapSec authority session: native-random bounded session identities, exact V2 Requested/Commit/Repeat and retire callbacks, full realm/account/device/object/handle and actor/effect-owner/scheduler/generation binding, typed `gpu:operation` positive decisions over generated private edge/cell mappings, structural authority-reducing decisions without positive grants, fail-closed service-admission enforcement, and teardown purge; `navigator.gpu`, embedded executable codecs, public grant issuance, target advertisement, and platform support claims remain absent)
@@ -782,6 +783,32 @@ issuer nor a support advertisement. The
 source-classified `GPUDevice.pushErrorScope` semantic-service control route
 uses that same structural, non-capability session discipline without being
 misclassified as either positive authority or authority reduction.
+
+Exact may explicitly opt a construction into this still-private surface with
+its `EXACT_EXPERIMENTAL_WEBGPU_PRE1A` product switch. Ibex does not read that
+environment variable: Exact maps it to the paired
+`ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts` and
+`ex_host_install_armed_experimental_webgpu_pre1a` C ABI calls. The builder
+accepts the same authenticated manifest/provider/profile inputs as the ordinary
+GPU builder but no selector, operation-name, cell, application, or wildcard
+input. It raw-pins the checked private registry and derives exactly 58 private
+operation cells plus the exact 20 typed-positive `gpu:operation` selectors for
+the root floor. The installer re-authenticates the provider binding, exact
+duplicate-free root floor, and private projection; installs all ordinary target
+cells as `Closed`; and supplies the private cells only to the GPU authority
+session gate. A registry byte change, count/set change, malformed row, provider
+mismatch, absent feature, extra principal/authority, or widened selector
+refuses construction.
+
+This mode does not alter `Host::new_armed`, `ex_host_install_armed`,
+`ex_host_build_exact_gpu_armed_embedder_artifacts`, the canonical target-cell
+report, or any advertisement. Those paths retain zero private GPU cells and
+therefore cannot authorize the construction-private operation set. The
+experimental installer is synchronous and must run on the runtime-creating
+thread before `ex_hermes_create_armed`, just like the canonical installer. Even
+after successful private arming, the app-visible wrapper is installed only by
+the authenticated V2 construction capture and is revoked on capture or final
+projection failure.
 
 The service owns no Hermes or JSI value. `open_realm` receives a ref-counted
 plain-native client sink. It may call `retain_client`/`release_client` while

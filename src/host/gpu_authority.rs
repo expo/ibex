@@ -13,9 +13,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 use base64::Engine as _;
 use capsec_semantics::decision::{DecisionOutcome, EffectGate, TargetCellDisposition};
 use capsec_semantics::model::{
-    canonicalize_principal_set, ActionId, DecisionContext, DecisionSet, DecisionSetSchema, Digest,
-    Effect, EffectCombination, EffectOccurrence, NonEmptyString, OccurrenceResource, Principal,
-    SelectorResource, StableId, Stage,
+    canonicalize_principal_set, ActionId, AuthoritySelector, DecisionContext, DecisionSet,
+    DecisionSetSchema, Digest, Effect, EffectCombination, EffectOccurrence, NonEmptyString,
+    OccurrenceResource, Principal, SelectorResource, StableId, Stage,
 };
 use serde::Deserialize;
 use sha2::{Digest as _, Sha256};
@@ -26,6 +26,10 @@ const GPU_SERVICE_ABI_V2: u32 = 0x0002_0000;
 const GPU_TOPOLOGY_ISOLATED_PER_LOGICAL_V2: u32 = 1;
 const MAX_GPU_AUTHORITY_SESSIONS: usize = 1024;
 const MAX_GPU_PRESENTED_HANDLES: usize = 256;
+const EXPERIMENTAL_WEBGPU_PRE1A_OPERATION_COUNT: usize = 58;
+const EXPERIMENTAL_WEBGPU_PRE1A_POSITIVE_SELECTOR_COUNT: usize = 20;
+const EXPERIMENTAL_WEBGPU_PRE1A_REGISTRY_RAW_SHA256: &str =
+    "71b805e576763e3ed8ac61f68afb2d3a0a0578ed2acbfeb61db7c702c14a6cb2";
 
 pub(crate) const GPU_AUTHORITY_ALLOWED: i32 = 1;
 pub(crate) const GPU_AUTHORITY_DENIED: i32 = 0;
@@ -226,6 +230,20 @@ struct RuntimeOperation {
 struct RuntimeRegistry {
     provider: ProviderIdentity,
     operations: BTreeMap<u32, RuntimeOperation>,
+    operation_count: usize,
+    positive_operation_names: Vec<String>,
+    private_target_cells: BTreeMap<String, TargetCellDisposition>,
+    raw_sha256: [u8; 32],
+}
+
+/// The complete private authority projection admitted only by Exact's named
+/// experimental product constructor. The public target-cell and advertisement
+/// registries remain separate and unchanged.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ExperimentalWebGpuPre1AArming {
+    pub operation_count: usize,
+    pub positive_selectors: Vec<AuthoritySelector>,
+    pub private_target_cells: BTreeMap<String, TargetCellDisposition>,
 }
 
 #[derive(Clone, Debug)]
@@ -450,11 +468,9 @@ fn non_session_operation_matches_registry_semantics(
     }
 }
 
-fn load_runtime_registry() -> Option<RuntimeRegistry> {
-    let value = capsec_semantics::strict_json::parse_strict(
-        crate::capsec_registry_generated::CAPSEC_WEBGPU_PRIVATE_OPERATION_REGISTRY_JSON,
-    )
-    .ok()?;
+fn load_runtime_registry_from_json(source: &str) -> Option<RuntimeRegistry> {
+    let raw_sha256: [u8; 32] = Sha256::digest(source.as_bytes()).into();
+    let value = capsec_semantics::strict_json::parse_strict(source).ok()?;
     let document: RegistryDocument = serde_json::from_value(value).ok()?;
     if document.webgpu_operation_registry_schema != "ibex/webgpu-private-capsec-operations/1"
         || document.profile != "ibex/capsec/1"
@@ -533,10 +549,12 @@ fn load_runtime_registry() -> Option<RuntimeRegistry> {
     {
         return None;
     }
+    let operation_count = document.operation_count;
     let mut operations = BTreeMap::new();
     let mut operation_edges = BTreeSet::new();
     let mut all_wire_ids = Vec::new();
     let mut ordered_names = Vec::new();
+    let mut positive_operation_names = Vec::new();
     for operation in document.operations {
         ordered_names.push(operation.operation_id.clone());
         all_wire_ids.push(operation.wire_id);
@@ -584,6 +602,7 @@ fn load_runtime_registry() -> Option<RuntimeRegistry> {
                         "semantic-call-promise-completion" | "semantic-call-device-timeline"
                     ) =>
             {
+                positive_operation_names.push(operation.operation_id.clone());
                 OperationAuthorityKind::TypedPositive
             }
             "structural-authority-reducing"
@@ -671,10 +690,31 @@ fn load_runtime_registry() -> Option<RuntimeRegistry> {
     {
         return None;
     }
+    let private_target_cells = cells
+        .into_iter()
+        .map(|(edge_id, cell)| {
+            let disposition = match cell.capsec_disposition.as_str() {
+                "complete" | "non-capability" => TargetCellDisposition::Complete,
+                "closed" => TargetCellDisposition::Closed,
+                _ => return None,
+            };
+            Some((edge_id, disposition))
+        })
+        .collect::<Option<BTreeMap<_, _>>>()?;
     Some(RuntimeRegistry {
         provider,
         operations,
+        operation_count,
+        positive_operation_names,
+        private_target_cells,
+        raw_sha256,
     })
+}
+
+fn load_runtime_registry() -> Option<RuntimeRegistry> {
+    load_runtime_registry_from_json(
+        crate::capsec_registry_generated::CAPSEC_WEBGPU_PRIVATE_OPERATION_REGISTRY_JSON,
+    )
 }
 
 fn runtime_registry() -> Option<&'static RuntimeRegistry> {
@@ -704,6 +744,54 @@ pub(crate) fn provider_binding_matches_source_registry(
             .and_then(digest_bytes)
             == Some(registry.provider.runtime_routing_digest)
         && binding.operation_ids == registry.provider.sorted_operation_ids
+}
+
+/// Derive the exact private cells and positive selectors for the named Exact
+/// Pre-1A product mode. No caller supplies operation names, selectors, or
+/// cells. The raw checked-registry pin makes a future source-set change an
+/// explicit code-review event instead of silently widening this experiment.
+pub(crate) fn experimental_webgpu_pre1a_arming(
+    binding: &capsec_semantics::arming::ExactGpuProviderBinding,
+) -> Option<ExperimentalWebGpuPre1AArming> {
+    if !cfg!(feature = "webgpu-binding") || !provider_binding_matches_source_registry(binding) {
+        return None;
+    }
+    let registry = runtime_registry()?;
+    if registry.operation_count != EXPERIMENTAL_WEBGPU_PRE1A_OPERATION_COUNT
+        || registry.positive_operation_names.len()
+            != EXPERIMENTAL_WEBGPU_PRE1A_POSITIVE_SELECTOR_COUNT
+        || registry.private_target_cells.len() != EXPERIMENTAL_WEBGPU_PRE1A_OPERATION_COUNT
+        || parse_hex_digest(EXPERIMENTAL_WEBGPU_PRE1A_REGISTRY_RAW_SHA256)? != registry.raw_sha256
+    {
+        return None;
+    }
+    let runtime_routing_digest = binding.runtime_routing_digest.clone()?;
+    let positive_selectors = registry
+        .positive_operation_names
+        .iter()
+        .map(|operation_id| {
+            Some(AuthoritySelector {
+                action: ActionId::new("gpu:operation").ok()?,
+                resource: SelectorResource::GpuOperation {
+                    profile_id: NonEmptyString::new(binding.profile_id.clone()).ok()?,
+                    profile_digest: binding.profile_digest.clone(),
+                    webgpu_c_vocabulary_digest: binding.webgpu_c_vocabulary_digest.clone(),
+                    operation_set_digest: binding.operation_set_digest.clone(),
+                    semantic_program_digest: binding.semantic_program_digest.clone(),
+                    runtime_routing_digest: runtime_routing_digest.clone(),
+                    operation_id: NonEmptyString::new(operation_id.clone()).ok()?,
+                },
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    if !is_sorted_unique(&positive_selectors) {
+        return None;
+    }
+    Some(ExperimentalWebGpuPre1AArming {
+        operation_count: registry.operation_count,
+        positive_selectors,
+        private_target_cells: registry.private_target_cells.clone(),
+    })
 }
 
 fn digest_is_nonzero(value: &[u8; 32]) -> bool {
@@ -836,7 +924,8 @@ pub(crate) fn capture_session(
     }
     let registry = runtime_registry()?;
     let operation = registry.operations.get(&facts.operation_id)?.clone();
-    if !carrier_matches_operation(&facts, &operation)
+    if host.private_gpu_target_cell(&operation.edge_id) != TargetCellDisposition::Complete
+        || !carrier_matches_operation(&facts, &operation)
         || facts.realm.runtime.runtime_nonce == 0
         || attribution.constrained_principals.is_empty()
         || !attribution
@@ -1268,7 +1357,9 @@ fn evaluate_session(
                     Ok(value) => value,
                     Err(_) => return GPU_AUTHORITY_INVALID,
                 },
-                target_cell: TargetCellDisposition::Complete,
+                target_cell: session
+                    .host
+                    .private_gpu_target_cell(&session.operation.edge_id),
                 definition_and_edge_predicates_satisfied: true,
             };
             matches!(
@@ -1372,4 +1463,166 @@ pub(crate) fn live_session_count_for_test() -> usize {
         .lock()
         .map(|store| store.sessions.len())
         .unwrap_or(MAX_GPU_AUTHORITY_SESSIONS)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn digest_from_raw(raw: [u8; 32]) -> Digest {
+        Digest::new(format!(
+            "sha256-{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw)
+        ))
+        .unwrap()
+    }
+
+    fn source_binding() -> capsec_semantics::arming::ExactGpuProviderBinding {
+        let registry = runtime_registry().unwrap();
+        capsec_semantics::arming::ExactGpuProviderBinding {
+            schema: "exact/webgpu-provider/1".into(),
+            abi_version: GPU_SERVICE_ABI_V2,
+            profile_id: registry.provider.profile_id.clone(),
+            profile_digest: digest_from_raw(registry.provider.profile_digest),
+            webgpu_c_vocabulary_digest: digest_from_raw(
+                registry.provider.webgpu_c_vocabulary_digest,
+            ),
+            operation_set_digest: digest_from_raw(registry.provider.operation_set_digest),
+            semantic_program_digest: digest_from_raw(registry.provider.semantic_program_digest),
+            runtime_routing_digest: Some(digest_from_raw(registry.provider.runtime_routing_digest)),
+            operation_ids: registry.provider.sorted_operation_ids.clone(),
+            topology: "isolated-per-logical-v1".into(),
+        }
+    }
+
+    #[test]
+    fn private_registry_parser_rejects_malformed_duplicate_unknown_and_wildcard_rows() {
+        assert!(load_runtime_registry_from_json("{").is_none());
+        let source =
+            crate::capsec_registry_generated::CAPSEC_WEBGPU_PRIVATE_OPERATION_REGISTRY_JSON;
+        let value: serde_json::Value = serde_json::from_str(source).unwrap();
+
+        let mut duplicate = value.clone();
+        let first = duplicate["operations"][0].clone();
+        duplicate["operations"].as_array_mut().unwrap().push(first);
+        duplicate["operationCount"] = serde_json::json!(59);
+        assert!(load_runtime_registry_from_json(&duplicate.to_string()).is_none());
+
+        let mut unknown_edge = value.clone();
+        unknown_edge["operations"][0]["edgeId"] = serde_json::json!("surface.unknown");
+        assert!(load_runtime_registry_from_json(&unknown_edge.to_string()).is_none());
+
+        let mut wildcard = value;
+        let positive = wildcard["operations"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|operation| {
+                operation
+                    .pointer("/authoritySession/decisionKind")
+                    .and_then(serde_json::Value::as_str)
+                    == Some("typed-positive")
+            })
+            .unwrap();
+        positive["authoritySession"]["action"] = serde_json::json!("gpu:*");
+        assert!(load_runtime_registry_from_json(&wildcard.to_string()).is_none());
+    }
+
+    #[cfg(feature = "webgpu-binding")]
+    #[test]
+    fn experimental_projection_is_the_exact_pinned_private_set() {
+        let binding = source_binding();
+        let arming = experimental_webgpu_pre1a_arming(&binding).unwrap();
+        assert_eq!(arming.operation_count, 58);
+        assert_eq!(arming.private_target_cells.len(), 58);
+        assert_eq!(arming.positive_selectors.len(), 20);
+        assert!(arming
+            .positive_selectors
+            .windows(2)
+            .all(|pair| pair[0] < pair[1]));
+        assert!(arming.positive_selectors.iter().all(|selector| {
+            selector.action.as_str() == "gpu:operation"
+                && matches!(&selector.resource, SelectorResource::GpuOperation { .. })
+        }));
+        let registry = serde_json::from_str::<serde_json::Value>(
+            crate::capsec_registry_generated::CAPSEC_WEBGPU_PRIVATE_OPERATION_REGISTRY_JSON,
+        )
+        .unwrap();
+        let expected_edges = registry["operations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|operation| operation["edgeId"].as_str().unwrap().to_owned())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            arming
+                .private_target_cells
+                .keys()
+                .cloned()
+                .collect::<BTreeSet<_>>(),
+            expected_edges
+        );
+        let expected_positive_operations = registry["operations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|operation| {
+                operation
+                    .pointer("/authoritySession/decisionKind")
+                    .and_then(serde_json::Value::as_str)
+                    == Some("typed-positive")
+            })
+            .map(|operation| operation["operationId"].as_str().unwrap().to_owned())
+            .collect::<BTreeSet<_>>();
+        let actual_positive_operations = arming
+            .positive_selectors
+            .iter()
+            .map(|selector| match &selector.resource {
+                SelectorResource::GpuOperation {
+                    profile_id,
+                    profile_digest,
+                    webgpu_c_vocabulary_digest,
+                    operation_set_digest,
+                    semantic_program_digest,
+                    runtime_routing_digest,
+                    operation_id,
+                } => {
+                    assert_eq!(profile_id.as_str(), binding.profile_id);
+                    assert_eq!(profile_digest, &binding.profile_digest);
+                    assert_eq!(
+                        webgpu_c_vocabulary_digest,
+                        &binding.webgpu_c_vocabulary_digest
+                    );
+                    assert_eq!(operation_set_digest, &binding.operation_set_digest);
+                    assert_eq!(semantic_program_digest, &binding.semantic_program_digest);
+                    assert_eq!(
+                        Some(runtime_routing_digest),
+                        binding.runtime_routing_digest.as_ref()
+                    );
+                    assert!(!operation_id.as_str().contains('*'));
+                    operation_id.as_str().to_owned()
+                }
+                other => panic!("unexpected private selector resource: {other:?}"),
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(actual_positive_operations, expected_positive_operations);
+        assert_eq!(
+            arming
+                .private_target_cells
+                .values()
+                .filter(|cell| **cell == TargetCellDisposition::Closed)
+                .count(),
+            1
+        );
+
+        let mut widened = binding;
+        widened.operation_ids.push(u32::MAX);
+        assert!(experimental_webgpu_pre1a_arming(&widened).is_none());
+    }
+
+    #[cfg(not(feature = "webgpu-binding"))]
+    #[test]
+    fn experimental_projection_is_unavailable_when_feature_is_off() {
+        assert!(experimental_webgpu_pre1a_arming(&source_binding()).is_none());
+    }
 }

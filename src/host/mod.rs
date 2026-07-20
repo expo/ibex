@@ -261,6 +261,11 @@ pub struct Host {
     /// Exact authenticated disposition for every coverage edge on the armed
     /// target. Call sites never manufacture `Complete` locally.
     target_cells: Arc<BTreeMap<String, capsec_semantics::decision::TargetCellDisposition>>,
+    /// Exact construction-private WebGPU cells admitted only by the named
+    /// Exact Pre-1A constructor. Canonical public arming and every unarmed
+    /// host keep this map empty.
+    private_gpu_target_cells:
+        Arc<BTreeMap<String, capsec_semantics::decision::TargetCellDisposition>>,
     unarmed_closed: bool,
 }
 
@@ -517,6 +522,58 @@ fn merge_authenticated_manifest_capture(
     Ok(changed)
 }
 
+fn validate_exact_experimental_webgpu_pre1a_floor(
+    snapshot: &capsec_semantics::arming::ArmedSnapshot,
+    expected_selectors: &[capsec_semantics::model::AuthoritySelector],
+) -> capsec_semantics::Result<()> {
+    let authority = snapshot.authority_state()?;
+    validate_exact_experimental_webgpu_pre1a_authority(&authority, expected_selectors)
+}
+
+fn validate_exact_experimental_webgpu_pre1a_authority(
+    authority: &capsec_semantics::decision::DecisionAuthorityState,
+    expected_selectors: &[capsec_semantics::model::AuthoritySelector],
+) -> capsec_semantics::Result<()> {
+    if authority.principal_policies.len() != 1 {
+        return Err(capsec_semantics::Error::ArmRefused(
+            "experimental WebGPU Pre-1A requires exactly one root principal".into(),
+        ));
+    }
+    let Some((principal, policy)) = authority.principal_policies.iter().next() else {
+        return Err(capsec_semantics::Error::ArmRefused(
+            "experimental WebGPU Pre-1A root principal is absent".into(),
+        ));
+    };
+    if !matches!(principal, capsec_semantics::model::Principal::Root { .. })
+        || !policy.denials.is_empty()
+        || !policy.implicit_package_self.is_empty()
+        || !matches!(
+            &policy.escalation_ceiling,
+            capsec_semantics::decision::AuthorityCeiling::Bounded(rows) if rows.is_empty()
+        )
+    {
+        return Err(capsec_semantics::Error::ArmRefused(
+            "experimental WebGPU Pre-1A authority is not the exact closed root profile".into(),
+        ));
+    }
+    let actual = policy
+        .static_floor
+        .iter()
+        .map(|authority| authority.selector.clone())
+        .collect::<BTreeSet<_>>();
+    let expected = expected_selectors.iter().cloned().collect::<BTreeSet<_>>();
+    if actual.len() != policy.static_floor.len()
+        || expected.len() != expected_selectors.len()
+        || actual != expected
+    {
+        return Err(capsec_semantics::Error::ArmRefused(
+            "experimental WebGPU Pre-1A selector floor differs from the checked private registry"
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
 impl Host {
     /// Create a new host with the given configuration
     pub fn new(config: HostConfig) -> Self {
@@ -582,6 +639,7 @@ impl Host {
             private_resolver_sequence: Arc::new(AtomicU64::new(1)),
             session_lifecycle,
             target_cells: Arc::new(BTreeMap::new()),
+            private_gpu_target_cells: Arc::new(BTreeMap::new()),
             unarmed_closed: false,
         }
     }
@@ -601,6 +659,58 @@ impl Host {
             armed_snapshot,
             target_cells,
             authenticated_package_sources,
+            capsec_semantics::decision::TargetArmState::CompleteAdvertised,
+            BTreeMap::new(),
+        )
+    }
+
+    /// Construct the closed-world Exact WebGPU Pre-1A product profile. This
+    /// is deliberately separate from canonical public arming: the checked
+    /// private registry supplies every admitted selector/cell, all other
+    /// product cells remain closed, and no advertisement is synthesized.
+    /// @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
+    pub fn new_exact_experimental_webgpu_pre1a(
+        config: HostConfig,
+        armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
+    ) -> capsec_semantics::Result<Self> {
+        validate_loaded_engine_identity(&armed_snapshot)?;
+        validate_snapshot_protected_artifacts(&armed_snapshot)?;
+        let authenticated_package_sources = validate_snapshot_root_bindings(&armed_snapshot)?;
+        let binding = armed_snapshot
+            .exact_gpu_provider_binding()?
+            .ok_or_else(|| {
+                capsec_semantics::Error::ArmRefused(
+                    "experimental WebGPU Pre-1A arming requires an authenticated Exact GPU provider binding"
+                        .into(),
+                )
+            })?;
+        let private_arming =
+            gpu_authority::experimental_webgpu_pre1a_arming(&binding).ok_or_else(|| {
+                capsec_semantics::Error::ArmRefused(
+                    "experimental WebGPU Pre-1A registry or provider identity is unavailable"
+                        .into(),
+                )
+            })?;
+        validate_exact_experimental_webgpu_pre1a_floor(
+            &armed_snapshot,
+            &private_arming.positive_selectors,
+        )?;
+        let target_cells = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
+            .iter()
+            .map(|edge| {
+                (
+                    (*edge).to_owned(),
+                    capsec_semantics::decision::TargetCellDisposition::Closed,
+                )
+            })
+            .collect();
+        Self::new_armed_with_target_cells(
+            config,
+            armed_snapshot,
+            target_cells,
+            authenticated_package_sources,
+            capsec_semantics::decision::TargetArmState::CompleteExperimentalPrivate,
+            private_arming.private_target_cells,
         )
     }
 
@@ -609,6 +719,11 @@ impl Host {
         armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
         target_cells: BTreeMap<String, capsec_semantics::decision::TargetCellDisposition>,
         authenticated_package_sources: AuthenticatedPackageSourceState,
+        target_arm_state: capsec_semantics::decision::TargetArmState,
+        private_gpu_target_cells: BTreeMap<
+            String,
+            capsec_semantics::decision::TargetCellDisposition,
+        >,
     ) -> capsec_semantics::Result<Self> {
         validate_armed_alias_volume_topology(&armed_snapshot)?;
         if config.mode != SecurityMode::Enforce {
@@ -645,7 +760,7 @@ impl Host {
         // engine+feature target is complete. The test-only constructor supplies
         // the same exhaustive cell map explicitly; every partial map refuses.
         // @ref LLP 0021#default-and-target-claim
-        let target_arm_state = if target_cells.len()
+        let target_cells_are_exhaustive = target_cells.len()
             == crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS.len()
             && crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
                 .iter()
@@ -657,11 +772,18 @@ impl Host {
                                 | capsec_semantics::decision::TargetCellDisposition::Closed
                         )
                     )
-                }) {
-            capsec_semantics::decision::TargetArmState::CompleteAdvertised
-        } else {
-            capsec_semantics::decision::TargetArmState::Incomplete
-        };
+                });
+        if !target_cells_are_exhaustive
+            || !matches!(
+                target_arm_state,
+                capsec_semantics::decision::TargetArmState::CompleteAdvertised
+                    | capsec_semantics::decision::TargetArmState::CompleteExperimentalPrivate
+            )
+        {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "armed target cells are incomplete".into(),
+            ));
+        }
         let decision_context = Arc::new(RwLock::new(
             armed_snapshot.decision_context_with_package_objects(
                 profile.definitions,
@@ -688,6 +810,7 @@ impl Host {
         host.authenticated_package_sources = Arc::new(authenticated_package_sources);
         host.typed_imports = typed_imports;
         host.target_cells = Arc::new(target_cells);
+        host.private_gpu_target_cells = Arc::new(private_gpu_target_cells);
         Ok(host)
     }
 
@@ -705,6 +828,8 @@ impl Host {
             armed_snapshot,
             complete_test_target_cells(),
             AuthenticatedPackageSourceState::default(),
+            capsec_semantics::decision::TargetArmState::CompleteAdvertised,
+            BTreeMap::new(),
         )
     }
 
@@ -724,6 +849,8 @@ impl Host {
             armed_snapshot,
             complete_test_target_cells(),
             authenticated_package_sources,
+            capsec_semantics::decision::TargetArmState::CompleteAdvertised,
+            BTreeMap::new(),
         )
     }
 
@@ -732,6 +859,21 @@ impl Host {
             .get(edge)
             .copied()
             .unwrap_or(capsec_semantics::decision::TargetCellDisposition::Incomplete)
+    }
+
+    pub(crate) fn private_gpu_target_cell(
+        &self,
+        edge: &str,
+    ) -> capsec_semantics::decision::TargetCellDisposition {
+        self.private_gpu_target_cells
+            .get(edge)
+            .copied()
+            .unwrap_or(capsec_semantics::decision::TargetCellDisposition::Incomplete)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn private_gpu_target_cell_count_for_test(&self) -> usize {
+        self.private_gpu_target_cells.len()
     }
 
     pub fn armed_snapshot(&self) -> Option<&Arc<capsec_semantics::arming::ArmedSnapshot>> {
@@ -7193,6 +7335,8 @@ mod tests {
             snapshot,
             complete_test_target_cells(),
             package_sources,
+            capsec_semantics::decision::TargetArmState::CompleteAdvertised,
+            BTreeMap::new(),
         )
         .unwrap();
         let root = host.typed_principal_for_module("0").unwrap();
@@ -8579,6 +8723,71 @@ mod tests {
             .expect_err("unarmed hosts cannot mint session tokens")
             .to_string();
         assert!(error.contains("authenticated armed snapshot"), "{error}");
+    }
+
+    #[test]
+    fn canonical_hosts_have_no_experimental_private_gpu_cells() {
+        assert_eq!(
+            Host::new(HostConfig::default()).private_gpu_target_cell_count_for_test(),
+            0
+        );
+        assert_eq!(
+            example_armed_host().private_gpu_target_cell_count_for_test(),
+            0
+        );
+    }
+
+    #[test]
+    fn experimental_webgpu_floor_validation_requires_one_exact_duplicate_free_root_policy() {
+        use capsec_semantics::decision::AuthorityCeiling;
+
+        let snapshot = example_armed_snapshot_with(|_| {});
+        let mut authority = snapshot.authority_state().unwrap();
+        let (root, mut policy) = authority
+            .principal_policies
+            .iter()
+            .find(|(principal, _)| {
+                matches!(principal, capsec_semantics::model::Principal::Root { .. })
+            })
+            .map(|(principal, policy)| (principal.clone(), policy.clone()))
+            .unwrap();
+        let retained = policy.static_floor[0].clone();
+        let selector = retained.selector.clone();
+        let widened_selector = authority
+            .principal_policies
+            .values()
+            .flat_map(|policy| policy.static_floor.iter())
+            .map(|authority| authority.selector.clone())
+            .find(|candidate| candidate != &selector)
+            .unwrap();
+        policy.static_floor = vec![retained.clone()];
+        policy.denials.clear();
+        policy.implicit_package_self.clear();
+        policy.escalation_ceiling = AuthorityCeiling::Bounded(Vec::new());
+        authority.principal_policies = BTreeMap::from([(root.clone(), policy)]).into();
+
+        validate_exact_experimental_webgpu_pre1a_authority(
+            &authority,
+            std::slice::from_ref(&selector),
+        )
+        .unwrap();
+        assert!(validate_exact_experimental_webgpu_pre1a_authority(
+            &authority,
+            &[selector.clone(), widened_selector],
+        )
+        .is_err());
+
+        authority
+            .principal_policies
+            .get_mut(&root)
+            .unwrap()
+            .static_floor
+            .push(retained);
+        assert!(validate_exact_experimental_webgpu_pre1a_authority(
+            &authority,
+            std::slice::from_ref(&selector),
+        )
+        .is_err());
     }
 
     #[test]

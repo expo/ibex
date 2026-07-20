@@ -1,7 +1,7 @@
 {
   "outputDispositionDatasetSchema": "ibex/capsec-output-dispositions/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256-OHFKaSmJ-OsdlhK6ppekT-Mf3OQE6xi6l3EZqNiuUjU",
+  "catalogKeyDigest": "sha256--N0cWpa0KGQpf8l3sDWgsAbxv1S2VPJMm75pUPwfq_4",
   "evidence": {
     "status": "unpromotable",
     "reason": "The output corpus remains unpromotable: one native module-marker surface account and three inherited-intrinsic alias surface accounts are unresolved; the construction-private WebGPU program contributes 54 additional unresolved accounts (two callback ingresses, seven private bridge methods, and 45 operation routes) while public installation and platform support remain absent; and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes these account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations."
@@ -55833,6 +55833,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.host.build.exact.experimental.webgpu.pre1a.armed.embedder.artifacts.1rzd21y",
+        "output": "[[return]]",
+        "alias": "ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.host.build.exact.gpu.armed.embedder.artifacts.0pk4s1p",
         "output": "[[return]]",
         "alias": "ex_host_build_exact_gpu_armed_embedder_artifacts",
@@ -57298,6 +57315,23 @@
         "surfaceId": "surface.host.abi.ex.host.install.armed.0zuu8pe",
         "output": "[[return]]",
         "alias": "ex_host_install_armed",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.install.armed.experimental.webgpu.pre1a.1vyupem",
+        "output": "[[return]]",
+        "alias": "ex_host_install_armed_experimental_webgpu_pre1a",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -110046,12 +110080,12 @@
     }
   ],
   "counts": {
-    "catalogRows": 6472,
-    "dispositionRows": 6472,
+    "catalogRows": 6474,
+    "dispositionRows": 6474,
     "byDisposition": {
       "absent": 152,
       "closed": 28,
-      "non-path": 6144,
+      "non-path": 6146,
       "private-native-path": 5,
       "refused": 12,
       "reserved-constant": 1,
