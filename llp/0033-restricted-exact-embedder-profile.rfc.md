@@ -5,7 +5,9 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-19 (r15 — records the second failed independent review,
+**Revised:** 2026-07-19 (r16 — specifies the source-bound dominance graph and
+target-consuming live traversal required to repair categorical absence fan-out;
+r15 — records the second failed independent review,
 invalidates the target-insensitive absence fan-out, retains the cleared
 teardown and freeze-hatch fixes, and restores 7,147 absence rows to incomplete;
 r14 — the first executed native-op probe found that
@@ -456,6 +458,35 @@ or shadows both hatches with an immutable `undefined` binding and fails closed
 if either remains callable; the absence fixture executes inside the Contract
 bundle and rejects either spelling. No evidence predating this correction is
 eligible for a target report.
+
+#### Absence-proof repair after the second independent review
+
+The next absence artifact must be derived from a separate, generated route-
+graph authority rather than assigning unique names to surface-kind predicates.
+For every implementation branch, that authority must bind exact implementation
+and enforcement IDs, source references plus source-content identities, aliases,
+lazy registrations, callback producers and retained references, applicability,
+instrumented cut-sets, attacker roots, and the terminal target. Generation
+fails for alternate paths that bypass the cut-set, cycles or orphan nodes,
+unclassified dynamic tables, duplicate routes, a branch without a route, or a
+terminal without attacker-root analysis. One cut-set observation may support
+multiple branches only when the graph mechanically proves that it dominates
+every path to each exact terminal.
+
+Source-install evidence and live-reachability evidence remain independent.
+The source executor reports exact selected/not-selected branch and cut-set
+identities, distinguishing platform exclusion, compiled-but-disabled code, and
+an installer which ran but omitted a particular registration. The live executor
+traverses every source-derived route using the exact target and records the last
+reached node, failed segment, cut-set observation, runtime generation, and
+target identity. It covers prototype and symbol paths, accessors, computed
+tables, returned closures, constructor/export/specifier aliases, and temporal
+routes after lazy work, microtask drains, timers, events, completions, and poll
+turns. A swapped or unknown target, wrong alias or failed segment, retained
+closure, selected branch, cut-set bypass, missing observation, or executor which
+ignores its target must fail a semantic mutation test. Conformance
+instrumentation is observational only and may not change descriptors,
+selection, retention, or timing.
 
 ### Phase 1 — Apple vertical slice
 
