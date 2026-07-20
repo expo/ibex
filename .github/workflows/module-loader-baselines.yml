@@ -103,14 +103,29 @@ jobs:
           "C:\Strawberry\perl\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Check module-runner build feature matrix
+        if: runner.os != 'Windows'
         shell: bash
         run: |
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            export PATH="/c/Strawberry/perl/bin:$PATH"
-            perl -MLocale::Maketext::Simple -e 1
-          fi
           cargo check --all-targets
           cargo check --all-targets --no-default-features
+
+      # Git Bash prepends its own /usr/bin/link.exe ahead of the MSVC linker.
+      # Keep Windows Rust invocations in the developer-command environment
+      # established above so rustc resolves the intended Visual Studio tool.
+      - name: Check module-runner build feature matrix (Windows MSVC)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $linker = (Get-Command link.exe -CommandType Application -ErrorAction Stop).Source
+          if (-not $linker.StartsWith($env:VCToolsInstallDir, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Rust linker is outside the activated MSVC toolchain: $linker"
+          }
+          perl -MLocale::Maketext::Simple -e 1
+          if ($LASTEXITCODE -ne 0) { throw "Strawberry Perl compatibility probe failed" }
+          cargo check --all-targets
+          if ($LASTEXITCODE -ne 0) { throw "default-feature Cargo check failed" }
+          cargo check --all-targets --no-default-features
+          if ($LASTEXITCODE -ne 0) { throw "no-default-feature Cargo check failed" }
 
       - name: Run advertised native ESM and CommonJS record corpus
         if: runner.os != 'Windows'
@@ -130,13 +145,12 @@ jobs:
 
       - name: Verify Windows remains an explicit unadvertised native target
         if: runner.os == 'Windows'
-        shell: bash
+        shell: pwsh
         run: |
-          scripts/run-tests.sh --scope lib --features module-runner \
-            module_loader::graph::tests
-          cargo test --bin ibex --features module-runner \
-            runtime::tests::native_module_runner_has_a_nonempty_exact_target_advertisement \
-            -- --exact
+          cargo test --lib --features module-runner module_loader::graph::tests
+          if ($LASTEXITCODE -ne 0) { throw "Windows module graph tests failed" }
+          cargo test --bin ibex --features module-runner runtime::tests::native_module_runner_has_a_nonempty_exact_target_advertisement -- --exact
+          if ($LASTEXITCODE -ne 0) { throw "Windows unadvertised-target test failed" }
 
       - name: Run canonical and Test262 producer corpus on Hermes
         if: runner.os == 'macOS'
