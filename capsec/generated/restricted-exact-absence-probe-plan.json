@@ -1,14 +1,14 @@
 {
   "probePlanSchema": "ibex/restricted-profile-absence-probe-plan/1",
   "profile": "ibex/exact-embedder-contract/1",
-  "projectionRawContentDigest": "sha256-O0cevoPUptW6ULG1RYfcYnuktbNU-KSFyYDDY-FFVtM",
+  "projectionRawContentDigest": "sha256-6pGkSUuwhw9li8GpToW86ja2A-aHwTTcAGLA1SIFwP4",
   "coverageRawContentDigest": "sha256-RxLDC47t7W7kLtzuZCBiC9nG06BNALnrbAYgGabuiYU",
   "implementationManifestRawContentDigest": "sha256-0sPWphv10cbLXGnfgWURmSrnuzcT5-qkCv1V-WRjcJY",
   "rootGlobalManifestRawContentDigest": "sha256-h2HfD6tz8JI4aywueYwnjPrjgf-VpBHiU5p-dNN7vR4",
   "counts": {
-    "edges": 7152,
-    "sourceInstallProbes": 7366,
-    "liveReachabilityProbes": 9754
+    "edges": 7147,
+    "sourceInstallProbes": 7361,
+    "liveReachabilityProbes": 9749
   },
   "edges": [
     {
@@ -84173,64 +84173,6 @@
       ]
     },
     {
-      "edgeId": "surface.callback.microtask.drain.0u9pqfm",
-      "surfaceKind": "callback",
-      "surfaceName": "microtask-drain",
-      "observedIdentity": "callback:microtask-drain",
-      "sourceInstall": [
-        {
-          "probeId": "source.surface.callback.microtask.drain.0u9pqfm.0",
-          "branchId": "surface.callback.microtask.drain.0u9pqfm.main",
-          "enforcementBranchId": "surface.callback.microtask.drain.0u9pqfm.main",
-          "enforcementRouteKind": "surface-branch",
-          "sourceRefs": [
-            "src/engine/hermes_runtime.cc#drainMicrotasks"
-          ],
-          "proofPaths": [
-            "callback:microtask-drain"
-          ],
-          "expected": "not-selected-or-retained"
-        }
-      ],
-      "liveReachability": [
-        {
-          "probeId": "live.surface.callback.microtask.drain.0u9pqfm.route.0",
-          "routeKind": "restricted-callback-route",
-          "target": "callback:microtask-drain",
-          "expected": "unreachable"
-        }
-      ]
-    },
-    {
-      "edgeId": "surface.callback.native.principal.restore.0qxvk73",
-      "surfaceKind": "callback",
-      "surfaceName": "native-principal-restore",
-      "observedIdentity": "callback:native-principal-restore",
-      "sourceInstall": [
-        {
-          "probeId": "source.surface.callback.native.principal.restore.0qxvk73.0",
-          "branchId": "surface.callback.native.principal.restore.0qxvk73.main",
-          "enforcementBranchId": "surface.callback.native.principal.restore.0qxvk73.main",
-          "enforcementRouteKind": "surface-branch",
-          "sourceRefs": [
-            "src/engine/hermes_runtime_internal.h#ScopedNativePrincipal"
-          ],
-          "proofPaths": [
-            "callback:native-principal-restore"
-          ],
-          "expected": "not-selected-or-retained"
-        }
-      ],
-      "liveReachability": [
-        {
-          "probeId": "live.surface.callback.native.principal.restore.0qxvk73.route.0",
-          "routeKind": "restricted-callback-route",
-          "target": "callback:native-principal-restore",
-          "expected": "unreachable"
-        }
-      ]
-    },
-    {
       "edgeId": "surface.callback.next.tick.drain.07wikj6",
       "surfaceKind": "callback",
       "surfaceName": "next-tick-drain",
@@ -84608,64 +84550,6 @@
       ]
     },
     {
-      "edgeId": "surface.callback.queue.drain.0hyao68",
-      "surfaceKind": "callback",
-      "surfaceName": "queue-drain",
-      "observedIdentity": "callback:queue-drain",
-      "sourceInstall": [
-        {
-          "probeId": "source.surface.callback.queue.drain.0hyao68.0",
-          "branchId": "surface.callback.queue.drain.0hyao68.main",
-          "enforcementBranchId": "surface.callback.queue.drain.0hyao68.main",
-          "enforcementRouteKind": "surface-branch",
-          "sourceRefs": [
-            "src/engine/hermes_runtime.cc#drainCallbackQueue"
-          ],
-          "proofPaths": [
-            "callback:queue-drain"
-          ],
-          "expected": "not-selected-or-retained"
-        }
-      ],
-      "liveReachability": [
-        {
-          "probeId": "live.surface.callback.queue.drain.0hyao68.route.0",
-          "routeKind": "restricted-callback-route",
-          "target": "callback:queue-drain",
-          "expected": "unreachable"
-        }
-      ]
-    },
-    {
-      "edgeId": "surface.callback.queue.enqueue.0uj36yk",
-      "surfaceKind": "callback",
-      "surfaceName": "queue-enqueue",
-      "observedIdentity": "callback:queue-enqueue",
-      "sourceInstall": [
-        {
-          "probeId": "source.surface.callback.queue.enqueue.0uj36yk.0",
-          "branchId": "surface.callback.queue.enqueue.0uj36yk.main",
-          "enforcementBranchId": "surface.callback.queue.enqueue.0uj36yk.main",
-          "enforcementRouteKind": "surface-branch",
-          "sourceRefs": [
-            "src/engine/hermes_runtime.cc#pushRuntimeCallback"
-          ],
-          "proofPaths": [
-            "callback:queue-enqueue"
-          ],
-          "expected": "not-selected-or-retained"
-        }
-      ],
-      "liveReachability": [
-        {
-          "probeId": "live.surface.callback.queue.enqueue.0uj36yk.route.0",
-          "routeKind": "restricted-callback-route",
-          "target": "callback:queue-enqueue",
-          "expected": "unreachable"
-        }
-      ]
-    },
-    {
       "edgeId": "surface.callback.signal.delivery.0rrtfw7",
       "surfaceKind": "callback",
       "surfaceName": "signal-delivery",
@@ -84691,35 +84575,6 @@
           "probeId": "live.surface.callback.signal.delivery.0rrtfw7.route.0",
           "routeKind": "restricted-callback-route",
           "target": "callback:signal-delivery",
-          "expected": "unreachable"
-        }
-      ]
-    },
-    {
-      "edgeId": "surface.callback.timer.invoke.1qq42bc",
-      "surfaceKind": "callback",
-      "surfaceName": "timer-invoke",
-      "observedIdentity": "callback:timer-invoke",
-      "sourceInstall": [
-        {
-          "probeId": "source.surface.callback.timer.invoke.1qq42bc.0",
-          "branchId": "surface.callback.timer.invoke.1qq42bc.main",
-          "enforcementBranchId": "surface.callback.timer.invoke.1qq42bc.main",
-          "enforcementRouteKind": "surface-branch",
-          "sourceRefs": [
-            "src/engine/hermes_runtime.cc#ex_hermes_poll"
-          ],
-          "proofPaths": [
-            "callback:timer-invoke"
-          ],
-          "expected": "not-selected-or-retained"
-        }
-      ],
-      "liveReachability": [
-        {
-          "probeId": "live.surface.callback.timer.invoke.1qq42bc.route.0",
-          "routeKind": "restricted-callback-route",
-          "target": "callback:timer-invoke",
           "expected": "unreachable"
         }
       ]

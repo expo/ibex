@@ -223,6 +223,13 @@ function validateObservations(artifact, authorities) {
         }
       }
     }
+    if (
+      "observedCount" in observation.proof
+      && (!Number.isSafeInteger(observation.proof.observedCount)
+        || observation.proof.observedCount < 1)
+    ) {
+      throw new Error(`reachable callback observation count mismatch for ${observation.edgeId}`);
+    }
   }
   const startup = artifact.observations.filter((row) => "bit" in row.proof);
   if (

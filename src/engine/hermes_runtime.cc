@@ -275,6 +275,9 @@ std::unordered_map<uint64_t, uint64_t>
 std::atomic<uint64_t> g_exact_host_completion_targets_consumed{0};
 std::atomic<uint64_t> g_exact_host_completion_callbacks_queued{0};
 std::atomic<uint64_t> g_exact_host_completion_callbacks_delivered{0};
+std::atomic<uint64_t> g_restricted_microtask_drain_observations{0};
+std::atomic<uint64_t> g_restricted_native_principal_restore_observations{0};
+std::atomic<uint64_t> g_restricted_timer_invoke_observations{0};
 std::mutex g_exact_host_completion_pause_mutex;
 std::condition_variable g_exact_host_completion_pause_cv;
 bool g_exact_host_completion_pause_armed{false};
@@ -336,6 +339,27 @@ extern "C" void ibex_test_reset_exact_host_completion_observer() {
   g_exact_host_completion_targets_consumed.store(0, std::memory_order_seq_cst);
   g_exact_host_completion_callbacks_queued.store(0, std::memory_order_seq_cst);
   g_exact_host_completion_callbacks_delivered.store(0, std::memory_order_seq_cst);
+  g_restricted_microtask_drain_observations.store(0, std::memory_order_seq_cst);
+  g_restricted_native_principal_restore_observations.store(0, std::memory_order_seq_cst);
+  g_restricted_timer_invoke_observations.store(0, std::memory_order_seq_cst);
+}
+
+extern "C" int ibex_test_restricted_callback_observation(
+    uint64_t* microtask_drains,
+    uint64_t* native_principal_restores,
+    uint64_t* timer_invocations) {
+  if (microtask_drains == nullptr || native_principal_restores == nullptr ||
+      timer_invocations == nullptr) {
+    return 0;
+  }
+  *microtask_drains =
+      g_restricted_microtask_drain_observations.load(std::memory_order_seq_cst);
+  *native_principal_restores =
+      g_restricted_native_principal_restore_observations.load(
+          std::memory_order_seq_cst);
+  *timer_invocations =
+      g_restricted_timer_invoke_observations.load(std::memory_order_seq_cst);
+  return 1;
 }
 
 extern "C" int ibex_test_exact_host_completion_observation(
@@ -2463,6 +2487,12 @@ void drainMicrotasksGuarded(ExactHermesRuntime* runtime) {
             workUnit.targetId(),
             exactCurrentAsyncEvaluationAssociation(runtime)});
     try {
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+      if (runtime->restricted_exact) {
+        g_restricted_microtask_drain_observations.fetch_add(
+            1, std::memory_order_seq_cst);
+      }
+#endif
       drainMicrotasks(*runtime->runtime);
       workUnit.finish();
       return;
@@ -3281,8 +3311,16 @@ int drainCallbackQueue(ExactHermesRuntime* runtime) {
         ScopedRawThrowCapture rawThrowCapture(
             runtime->runtime.get(), rawCapture);
         try {
-            ScopedNativePrincipal nativePrincipal(kNoNativePrincipalOverride);
-            entry.callback(*runtime->runtime);
+            {
+              ScopedNativePrincipal nativePrincipal(kNoNativePrincipalOverride);
+              entry.callback(*runtime->runtime);
+            }
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+            if (runtime->restricted_exact) {
+              g_restricted_native_principal_restore_observations.fetch_add(
+                  1, std::memory_order_seq_cst);
+            }
+#endif
             workUnit.finish();
             if (runtime->structured_session_terminated) return count;
             count++;
@@ -4230,6 +4268,22 @@ void installRestrictedExactGlobals(struct ExactHermesRuntime* handle) {
         '__exactEnsureChildProcess', '__exactEnsureNet', 'print'
       ]) {
         try { delete g[name]; } catch (_) {}
+      }
+      for (const name of ['__exactDeepFreeze', '__exactNativeFreeze']) {
+        if (!Reflect.deleteProperty(g, name)) {
+          throw new TypeError(`native freeze hatch could not be sealed: ${name}`);
+        }
+        if (typeof g[name] !== 'undefined') {
+          Object.defineProperty(g, name, {
+            value: undefined,
+            writable: false,
+            enumerable: false,
+            configurable: false
+          });
+        }
+        if (typeof g[name] !== 'undefined') {
+          throw new TypeError(`native freeze hatch remained reachable: ${name}`);
+        }
       }
       for (const value of [
         Object.prototype, Array.prototype, Promise.prototype,
@@ -6144,7 +6198,25 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   var g = globalThis;
   var freezeHatches = ['__exactDeepFreeze', '__exactNativeFreeze'];
   for (var i = 0; i < freezeHatches.length; i++) {
-    try { delete g[freezeHatches[i]]; } catch (e) { throw e; }
+    var name = freezeHatches[i];
+    if (!Reflect.deleteProperty(g, name)) {
+      throw new Error('native freeze hatch remained reachable: ' + freezeHatches[i]);
+    }
+    // A native-compartment global can inherit the VM bootstrap native from
+    // its private root even after its own property is deleted. Seal an own
+    // undefined value so authenticated project code cannot walk through that
+    // prototype fallback.
+    if (typeof g[name] !== 'undefined') {
+      Object.defineProperty(g, name, {
+        value: undefined,
+        writable: false,
+        enumerable: false,
+        configurable: false
+      });
+    }
+    if (typeof g[name] !== 'undefined') {
+      throw new Error('native freeze hatch remained reachable: ' + name);
+    }
   }
 })();
 )JS";
@@ -6753,6 +6825,31 @@ static bool rootGlobalLogicalPathAbsent(
   return false;
 }
 
+static bool rootGlobalLogicalPathUnreachable(
+    ExactHermesRuntime* handle,
+    const std::string& path) {
+  auto& rt = *handle->runtime;
+  const auto segments = splitRootGlobalLogicalPath(path);
+  if (segments.empty()) return false;
+  auto current = facebook::jsi::Value(rt, rt.global()).asObject(rt);
+  for (size_t index = 0; index < segments.size(); ++index) {
+    if (segments[index].empty() || segments[index].rfind("[[", 0) == 0) {
+      return false;
+    }
+    auto descriptor =
+        findRootGlobalDescriptorWithoutGet(handle, current, segments[index]);
+    if (descriptor.isUndefined()) return true;
+    auto descriptorObject = descriptor.asObject(rt);
+    auto value = rootGlobalDescriptorField(handle, descriptorObject, "value");
+    if (index + 1 == segments.size()) {
+      return value.isUndefined();
+    }
+    if (!value.isObject()) return false;
+    current = value.asObject(rt);
+  }
+  return false;
+}
+
 #ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
 extern "C" uint32_t ibex_test_root_global_logical_path_absent(
     ExactHermesRuntime* handle,
@@ -6764,6 +6861,21 @@ extern "C" uint32_t ibex_test_root_global_logical_path_absent(
   }
   try {
     return rootGlobalLogicalPathAbsent(handle, path) ? 1 : 0;
+  } catch (...) {
+    return 0;
+  }
+}
+
+extern "C" uint32_t ibex_test_root_global_logical_path_unreachable(
+    ExactHermesRuntime* handle,
+    const char* path) {
+  if (handle == nullptr || !handle->runtime || path == nullptr ||
+      !handle->root_global_get_own_property_descriptor ||
+      !handle->root_global_get_prototype_of) {
+    return 0;
+  }
+  try {
+    return rootGlobalLogicalPathUnreachable(handle, path) ? 1 : 0;
   } catch (...) {
     return 0;
   }
@@ -14137,6 +14249,12 @@ static int pollRuntime(
               it->second.args.size());
         }
       }
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+      if (runtime->restricted_exact) {
+        g_restricted_timer_invoke_observations.fetch_add(
+            1, std::memory_order_seq_cst);
+      }
+#endif
       workUnit.finish();
       if (runtime->structured_session_terminated) {
         retireTimer();

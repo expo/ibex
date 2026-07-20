@@ -14,6 +14,7 @@ import {
 import {
   loadRestrictedReportAuthorities,
   taggedDigest,
+  validateRestrictedFixturePlan,
 } from "./restricted-exact-target-report.mjs";
 
 const EVIDENCE_SCHEMA = "ibex/restricted-profile-absence-evidence/1";
@@ -192,21 +193,20 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
     .filter((row) => row[1] === "structurally-absent")
     .map((row) => row[0]);
   const absentSet = new Set(absentIds);
+  const probePlan = validateRestrictedFixturePlan(reportAuthorities.fixturePlan);
+  const plannedByEdge = new Map(probePlan.edges.map((row) => [row.edgeId, row]));
+  if (
+    canonicalJson(probePlan.edges.map((row) => row.edgeId))
+      !== canonicalJson(absentIds)
+  ) {
+    throw new Error("absence evidence probe plan does not equal the projection obligations");
+  }
+  const probePlanRawContentDigest = reportAuthorities.fixturePlan
+    .absenceProbePlan.rawContentDigest;
   const rootManifest = parseJsonStrict(rootManifestBytes, rootManifestRelativePath);
   const descriptorPrefixes = expectedDescriptorPrefixes(rootManifest, absentSet);
   if (barrier.descriptorProbedEdges !== descriptorPrefixes.size) {
     throw new Error("absence descriptor-probe count differs from root authority");
-  }
-  const implementations = new Map();
-  for (const surface of reportAuthorities.implementationManifest.surfaces) {
-    const rows = implementations.get(surface.edgeId) ?? [];
-    rows.push({
-      branchId: surface.branchId,
-      enforcementBranchId: surface.enforcementBranchId,
-      sourceRefs: surface.sourceRefs,
-      targetApplicability: surface.targetApplicability,
-    });
-    implementations.set(surface.edgeId, rows);
   }
   const coverageById = new Map(
     reportAuthorities.coverage.edges.map((edge) => [edge.id, edge]),
@@ -252,20 +252,29 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
           "surfaceKind",
           "barrier",
           "barrierAttestationDigest",
-          "implementationBranches",
+          "probePlanRawContentDigest",
+          "probeResults",
         ],
         `source-install proof ${observation.edgeId}`,
       );
       if (
-        observation.proof.observer !== "source-install-closure"
-        || canonicalJson(observation.proof.implementationBranches)
-          !== canonicalJson(implementations.get(observation.edgeId))
+        observation.proof.observer !== "executed-edge-source-install-closure"
+        || observation.proof.probePlanRawContentDigest !== probePlanRawContentDigest
       ) {
         throw new Error(`source-install proof drift for ${observation.edgeId}`);
       }
-      throw new Error(
-        `source-install proof ${observation.edgeId} lacks an executed edge-specific closure probe`,
-      );
+      const expectedResults = plannedByEdge.get(observation.edgeId).sourceInstall.map((probe) => ({
+        probeId: probe.probeId,
+        branchId: probe.branchId,
+        enforcementBranchId: probe.enforcementBranchId,
+        outcome: "not-selected-or-retained",
+      }));
+      if (
+        canonicalJson(observation.proof.probeResults) !== canonicalJson(expectedResults)
+        || observation.proof.probeResults.length === 0
+      ) {
+        throw new Error(`source-install proof ${observation.edgeId} was not executed per probe`);
+      }
     } else {
       assertExactKeys(
         observation.proof,
@@ -274,21 +283,28 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
           "surfaceKind",
           "barrier",
           "barrierAttestationDigest",
-          "descriptorPrefixes",
+          "probePlanRawContentDigest",
+          "probeResults",
         ],
         `live-reachability proof ${observation.edgeId}`,
       );
       if (
-        observation.proof.observer !== "exact-engine-reachability"
-        || canonicalJson(observation.proof.descriptorPrefixes)
-          !== canonicalJson(descriptorPrefixes.get(observation.edgeId) ?? [])
+        observation.proof.observer !== "executed-exact-engine-edge-routes"
+        || observation.proof.probePlanRawContentDigest !== probePlanRawContentDigest
       ) {
         throw new Error(`live-reachability proof drift for ${observation.edgeId}`);
       }
-      if (observation.proof.descriptorPrefixes.length === 0) {
-        throw new Error(
-          `live-reachability proof ${observation.edgeId} lacks an executed edge-specific probe`,
-        );
+      const expectedResults = plannedByEdge.get(observation.edgeId).liveReachability.map((probe) => ({
+        probeId: probe.probeId,
+        routeKind: probe.routeKind,
+        target: probe.target,
+        outcome: "unreachable",
+      }));
+      if (
+        canonicalJson(observation.proof.probeResults) !== canonicalJson(expectedResults)
+        || observation.proof.probeResults.length === 0
+      ) {
+        throw new Error(`live-reachability proof ${observation.edgeId} was not executed per probe`);
       }
     }
   }

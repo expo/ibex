@@ -28,9 +28,9 @@ describe("LLP 0033 restricted Exact absence probe plan", () => {
   test("assigns source and live probes to every absent edge", () => {
     const plan = buildRestrictedExactAbsenceProbePlan(inputs());
     expect(plan.counts).toEqual({
-      edges: 7152,
-      sourceInstallProbes: 7366,
-      liveReachabilityProbes: 9754,
+      edges: 7147,
+      sourceInstallProbes: 7361,
+      liveReachabilityProbes: 9749,
     });
     expect(plan.edges.every((row) => row.sourceInstall.length > 0)).toBe(true);
     expect(plan.edges.every((row) => row.liveReachability.length > 0)).toBe(true);

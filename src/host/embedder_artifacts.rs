@@ -1455,11 +1455,20 @@ mod tests {
             runtime: *mut HermesRuntimeOpaque,
             path: *const std::ffi::c_char,
         ) -> u32;
+        fn ibex_test_root_global_logical_path_unreachable(
+            runtime: *mut HermesRuntimeOpaque,
+            path: *const std::ffi::c_char,
+        ) -> u32;
         fn ibex_test_reset_exact_host_completion_observer();
         fn ibex_test_exact_host_completion_observation(
             targets_consumed: *mut u64,
             callbacks_queued: *mut u64,
             callbacks_delivered: *mut u64,
+        ) -> i32;
+        fn ibex_test_restricted_callback_observation(
+            microtask_drains: *mut u64,
+            native_principal_restores: *mut u64,
+            timer_invocations: *mut u64,
         ) -> i32;
         fn ibex_test_restricted_exact_conformance_trace(runtime: *mut HermesRuntimeOpaque) -> u64;
         fn ibex_test_runtime_registered(runtime: *mut HermesRuntimeOpaque) -> i32;
@@ -3299,6 +3308,10 @@ mod tests {
         }
 
         let bundle = br#"(() => {
+          if (typeof globalThis.__exactDeepFreeze !== 'undefined' ||
+              typeof globalThis.__exactNativeFreeze !== 'undefined') {
+            throw new Error('a native freeze hatch reached the Contract bundle');
+          }
           exact.takeCheckpointBytes();
           exact.publishCheckpoint(new Uint8Array([0]));
         })();"#;
@@ -3309,7 +3322,15 @@ mod tests {
             let mut error = std::ptr::null_mut();
             assert_eq!(
                 ex_hermes_run_restricted_exact_bundle(runtime, &mut error),
-                0
+                0,
+                "{}",
+                if error.is_null() {
+                    String::new()
+                } else {
+                    std::ffi::CStr::from_ptr(error)
+                        .to_string_lossy()
+                        .into_owned()
+                }
             );
             assert!(error.is_null());
         }
@@ -3329,7 +3350,7 @@ mod tests {
                     .then(|| row[0].as_str().unwrap().to_owned())
             })
             .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(absent_ids.len(), 7152);
+        assert_eq!(absent_ids.len(), 7_147);
         let coverage: serde_json::Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/capsec/registry/coverage-edges.json"
@@ -3341,25 +3362,6 @@ mod tests {
             .iter()
             .map(|edge| (edge["id"].as_str().unwrap().to_owned(), edge.clone()))
             .collect::<std::collections::BTreeMap<_, _>>();
-        let implementation: serde_json::Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/capsec/generated/implementation-manifest.json"
-        )))
-        .unwrap();
-        let mut implementations =
-            std::collections::BTreeMap::<String, Vec<serde_json::Value>>::new();
-        for surface in implementation["surfaces"].as_array().unwrap() {
-            implementations
-                .entry(surface["edgeId"].as_str().unwrap().to_owned())
-                .or_default()
-                .push(serde_json::json!({
-                    "branchId": surface["branchId"],
-                    "enforcementBranchId": surface["enforcementBranchId"],
-                    "sourceRefs": surface["sourceRefs"],
-                    "targetApplicability": surface["targetApplicability"],
-                }));
-        }
-
         let root_manifest: serde_json::Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/capsec/generated/root-global-disposition-manifest.json"
@@ -3457,7 +3459,106 @@ mod tests {
             (targets_consumed, callbacks_queued, callbacks_delivered),
             (0, 0, 0)
         );
-        unsafe { ex_hermes_destroy(runtime) };
+
+        let probe_plan_bytes = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/generated/restricted-exact-absence-probe-plan.json"
+        ));
+        let probe_plan: serde_json::Value = serde_json::from_slice(probe_plan_bytes).unwrap();
+        let planned_edges = probe_plan["edges"].as_array().unwrap();
+        assert_eq!(planned_edges.len(), absent_ids.len());
+        assert_eq!(probe_plan["counts"]["edges"].as_u64(), Some(7_147));
+        let probe_plan_digest = format!(
+            "sha256-{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(Sha256::digest(probe_plan_bytes))
+        );
+        let fixture_plan: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/registry/restricted-exact-fixture-plan.json"
+        )))
+        .unwrap();
+        assert_eq!(
+            fixture_plan["absenceProbePlan"]["rawContentDigest"].as_str(),
+            Some(probe_plan_digest.as_str())
+        );
+
+        let logical_path_absent = |path: &str| {
+            let path_c = std::ffi::CString::new(path).unwrap();
+            unsafe { ibex_test_root_global_logical_path_absent(runtime, path_c.as_ptr()) == 1 }
+        };
+        let logical_path_unreachable = |path: &str| {
+            let path_c = std::ffi::CString::new(path).unwrap();
+            unsafe { ibex_test_root_global_logical_path_unreachable(runtime, path_c.as_ptr()) == 1 }
+        };
+        let roots_absent = |roots: &[&str]| roots.iter().all(|root| logical_path_absent(root));
+        let selected_startup_identities = [
+            "startup:runtime-create",
+            "startup:install-route:ex_hermes_create_impl->installRestrictedExactGlobals",
+            "startup:installer:installRestrictedExactGlobals",
+            "startup:install-route:installRestrictedExactGlobals->installTimerGlobals",
+            "startup:installer:installTimerGlobals",
+            "startup:script:<restricted-exact-lockdown>",
+            "startup:evaluation:installRestrictedExactGlobals:<restricted-exact-lockdown>",
+            "startup:script:<authenticated-restricted-exact-bundle>",
+            "startup:evaluation:ex_hermes_run_restricted_exact_bundle:<authenticated-restricted-exact-bundle>",
+        ];
+        let route_absent = |route_kind: &str, target: &str| -> bool {
+            if target.is_empty() {
+                return false;
+            }
+            match route_kind {
+                "descriptor-prefix" => logical_path_absent(target),
+                "restricted-module-resolution" | "restricted-loader-entry" => roots_absent(&[
+                    "require",
+                    "__exactResolveModule",
+                    "__exactResolveManifestBuiltinInternal",
+                    "__exactRegisterPackage",
+                ]),
+                "restricted-cli-entry" => {
+                    roots_absent(&["process", "Bun", "Deno", "Ibex", "require"])
+                }
+                "restricted-js-native-abi" => {
+                    roots_absent(&["__hostCall", "__hostCallAsync", "process", "require", "Bun"])
+                }
+                "restricted-callback-route" => {
+                    roots_absent(&[
+                        "__hostCall",
+                        "__hostCallAsync",
+                        "fetch",
+                        "WebSocket",
+                        "process",
+                    ]) && targets_consumed == 0
+                        && callbacks_queued == 0
+                        && callbacks_delivered == 0
+                }
+                "restricted-startup-route" => {
+                    (unsafe { ibex_test_restricted_exact_conformance_trace(runtime) == 0x1ff })
+                        && !selected_startup_identities.contains(&target)
+                }
+                "restricted-native-installer-route" => {
+                    let name = target.strip_prefix("native-op:").unwrap_or(target);
+                    let logical = name.strip_prefix("global:").unwrap_or(name);
+                    if logical == "[[dynamic-table:native-global-name]]" {
+                        return (unsafe {
+                            ibex_test_restricted_exact_conformance_trace(runtime) == 0x1ff
+                        }) && roots_absent(&[
+                            "__hostCall",
+                            "__hostCallAsync",
+                            "__exactResolveModule",
+                            "process",
+                        ]);
+                    }
+                    let direct_probe = logical.starts_with("__")
+                        || logical
+                            .as_bytes()
+                            .first()
+                            .is_some_and(u8::is_ascii_alphabetic);
+                    direct_probe && logical_path_unreachable(logical)
+                }
+                _ => false,
+            }
+        };
 
         let barrier_for = |kind: &str| match kind {
             "builtin" | "loader" | "cli" => "no-general-loader-or-cli-root",
@@ -3492,24 +3593,79 @@ mod tests {
         );
 
         let mut observations = Vec::<serde_json::Value>::with_capacity(absent_ids.len() * 2);
-        for edge_id in &absent_ids {
+        for planned in planned_edges {
+            let edge_id = planned["edgeId"].as_str().unwrap();
+            assert!(absent_ids.contains(edge_id));
             let edge = &edges[edge_id];
             let kind = edge["surface"]["kind"].as_str().unwrap();
             let identity = format!("{}:{}", kind, edge["surface"]["name"].as_str().unwrap());
-            let branches = implementations
-                .get(edge_id)
-                .unwrap_or_else(|| panic!("missing implementation rows for {edge_id}"));
+            assert_eq!(
+                planned["observedIdentity"].as_str(),
+                Some(identity.as_str())
+            );
+            let source_route_kind = match kind {
+                "builtin" => "restricted-module-resolution",
+                "callback" => "restricted-callback-route",
+                "cli" => "restricted-cli-entry",
+                "host-abi" => "restricted-js-native-abi",
+                "loader" => "restricted-loader-entry",
+                "native-op" => "restricted-native-installer-route",
+                "startup" => "restricted-startup-route",
+                _ => panic!("unexpected absent surface kind {kind}"),
+            };
+            let source_probe_results = planned["sourceInstall"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|probe| {
+                    assert!(
+                        route_absent(source_route_kind, &identity)
+                            && probe["proofPaths"].as_array().unwrap().iter().all(|path| {
+                                route_absent(source_route_kind, path.as_str().unwrap())
+                            }),
+                        "source-install route remained selected or retained: {}",
+                        probe["probeId"]
+                    );
+                    serde_json::json!({
+                        "probeId": probe["probeId"],
+                        "branchId": probe["branchId"],
+                        "enforcementBranchId": probe["enforcementBranchId"],
+                        "outcome": "not-selected-or-retained",
+                    })
+                })
+                .collect::<Vec<_>>();
+            let live_probe_results = planned["liveReachability"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|probe| {
+                    let route_kind = probe["routeKind"].as_str().unwrap();
+                    let target = probe["target"].as_str().unwrap();
+                    assert!(
+                        route_absent(route_kind, target),
+                        "live attacker route remained reachable: {} ({route_kind} {target})",
+                        probe["probeId"]
+                    );
+                    serde_json::json!({
+                        "probeId": probe["probeId"],
+                        "routeKind": route_kind,
+                        "target": target,
+                        "outcome": "unreachable",
+                    })
+                })
+                .collect::<Vec<_>>();
             observations.push(serde_json::json!({
                 "edgeId": edge_id,
                 "kind": "source-install",
                 "outcome": "passed",
                 "observedIdentity": identity,
                 "proof": {
-                    "observer": "source-install-closure",
+                    "observer": "executed-edge-source-install-closure",
                     "surfaceKind": kind,
                     "barrier": barrier_for(kind),
                     "barrierAttestationDigest": barrier_digest,
-                    "implementationBranches": branches,
+                    "probePlanRawContentDigest": probe_plan_digest,
+                    "probeResults": source_probe_results,
                 },
             }));
             observations.push(serde_json::json!({
@@ -3518,19 +3674,21 @@ mod tests {
                 "outcome": "passed",
                 "observedIdentity": identity,
                 "proof": {
-                    "observer": "exact-engine-reachability",
+                    "observer": "executed-exact-engine-edge-routes",
                     "surfaceKind": kind,
                     "barrier": barrier_for(kind),
                     "barrierAttestationDigest": barrier_digest,
-                    "descriptorPrefixes": descriptor_prefixes.get(edge_id).cloned().unwrap_or_default(),
+                    "probePlanRawContentDigest": probe_plan_digest,
+                    "probeResults": live_probe_results,
                 },
             }));
         }
+        unsafe { ex_hermes_destroy(runtime) };
         observations.sort_by(|left, right| {
             (left["edgeId"].as_str(), left["kind"].as_str())
                 .cmp(&(right["edgeId"].as_str(), right["kind"].as_str()))
         });
-        assert_eq!(observations.len(), 14_304);
+        assert_eq!(observations.len(), 14_294);
 
         if let Ok(output_path) = std::env::var("IBEX_RESTRICTED_ABSENCE_EVIDENCE_OUTPUT") {
             assert!(
@@ -3704,7 +3862,12 @@ mod tests {
             callback_ids,
             [
                 "surface.callback.exact.host.call.async.resolve.0f9z2o3",
+                "surface.callback.microtask.drain.0u9pqfm",
+                "surface.callback.native.principal.restore.0qxvk73",
                 "surface.callback.producer.src.engine.hermes.runtime.cc.ex.hermes.resolve.exact.host.call.0n49v9x",
+                "surface.callback.queue.drain.0hyao68",
+                "surface.callback.queue.enqueue.0uj36yk",
+                "surface.callback.timer.invoke.1qq42bc",
             ]
             .into_iter()
             .map(str::to_owned)
@@ -3836,7 +3999,8 @@ mod tests {
             if (path === 'exact.dispatch') args = [new Uint8Array([9])];
             else if (path === 'atob' || path === 'btoa') args = [''];
             else if (path === 'clearInterval' || path === 'clearTimeout') args = [0];
-            else if (path === 'setInterval' || path === 'setTimeout' || path === 'queueMicrotask') args = [null, 0];
+            else if (path === 'setTimeout') args = [() => {}, 0];
+            else if (path === 'setInterval' || path === 'queueMicrotask') args = [null, 0];
             else if (path === 'Intl.getCanonicalLocales') args = [[]];
             else if (path.endsWith('.supportedLocalesOf')) args = [[]];
             else if (path === 'Promise.reject') {
@@ -3961,7 +4125,9 @@ mod tests {
                 serde_json::to_string_pretty(&unresolved).unwrap()
             );
 
-            assert!(ex_hermes_poll(runtime, 1234) >= 1);
+            let next_timer_ms = ex_hermes_next_timer(runtime);
+            assert!(next_timer_ms >= 0, "reachable timer edge did not arm");
+            assert!(ex_hermes_poll(runtime, next_timer_ms as u64) >= 1);
             let mut targets_consumed = 0;
             let mut callbacks_queued = 0;
             let mut callbacks_delivered = 0;
@@ -3977,6 +4143,20 @@ mod tests {
                 (targets_consumed, callbacks_queued, callbacks_delivered),
                 (1, 1, 1)
             );
+            let mut microtask_drains = 0;
+            let mut native_principal_restores = 0;
+            let mut timer_invocations = 0;
+            assert_eq!(
+                ibex_test_restricted_callback_observation(
+                    &mut microtask_drains,
+                    &mut native_principal_restores,
+                    &mut timer_invocations,
+                ),
+                1
+            );
+            assert!(microtask_drains > 0);
+            assert!(native_principal_restores > 0);
+            assert!(timer_invocations > 0);
 
             if let Ok(output_path) = std::env::var("IBEX_RESTRICTED_REACHABLE_EVIDENCE_OUTPUT") {
                 assert!(
@@ -4076,6 +4256,44 @@ mod tests {
                         },
                     }));
                 }
+                for (edge_id, observer, observed_count) in [
+                    (
+                        "surface.callback.microtask.drain.0u9pqfm",
+                        "restricted-microtask-drain",
+                        microtask_drains,
+                    ),
+                    (
+                        "surface.callback.native.principal.restore.0qxvk73",
+                        "restricted-native-principal-restored",
+                        native_principal_restores,
+                    ),
+                    (
+                        "surface.callback.queue.drain.0hyao68",
+                        "restricted-callback-queue-drained",
+                        callbacks_delivered,
+                    ),
+                    (
+                        "surface.callback.queue.enqueue.0uj36yk",
+                        "restricted-callback-queue-enqueued",
+                        callbacks_queued,
+                    ),
+                    (
+                        "surface.callback.timer.invoke.1qq42bc",
+                        "restricted-timer-invoked",
+                        timer_invocations,
+                    ),
+                ] {
+                    observations.push(serde_json::json!({
+                        "edgeId": edge_id,
+                        "kind": "live-invocation",
+                        "outcome": "passed",
+                        "observedIdentity": observed_identities[edge_id],
+                        "proof": {
+                            "observer": observer,
+                            "observedCount": observed_count,
+                        },
+                    }));
+                }
                 observations
                     .sort_by(|left, right| left["edgeId"].as_str().cmp(&right["edgeId"].as_str()));
                 assert_eq!(observations.len(), reachable_ids.len());
@@ -4144,9 +4362,9 @@ mod tests {
         }
 
         // The real engine observations above cover every reachable projection
-        // class: 115 JS/native identities, nine startup edges, and the two
-        // native completion callback edges.
-        assert_eq!(native_ids.len() + 9 + 2, reachable_ids.len());
+        // class: 115 JS/native identities, nine startup edges, and seven
+        // lifecycle callback edges.
+        assert_eq!(native_ids.len() + 9 + 7, reachable_ids.len());
     }
 
     #[test]

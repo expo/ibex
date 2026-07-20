@@ -33,10 +33,40 @@
       "reason": "single-use binary Exact completion is observable by the endowed Contract runtime"
     },
     {
+      "edgeId": "surface.callback.microtask.drain.0u9pqfm",
+      "surfaceKind": "callback",
+      "surfaceName": "microtask-drain",
+      "reason": "the admitted Promise and queueMicrotask subset drains Hermes microtasks during bounded polling"
+    },
+    {
+      "edgeId": "surface.callback.native.principal.restore.0qxvk73",
+      "surfaceKind": "callback",
+      "surfaceName": "native-principal-restore",
+      "reason": "generation-scoped callback delivery enters and restores the native principal scope even when the restricted root principal is zero"
+    },
+    {
       "edgeId": "surface.callback.producer.src.engine.hermes.runtime.cc.ex.hermes.resolve.exact.host.call.0n49v9x",
       "surfaceKind": "callback",
       "surfaceName": "producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_exact_host_call:pushRuntimeCallback",
       "reason": "runtime-generation-scoped completion delivery is part of the endowed Contract path"
+    },
+    {
+      "edgeId": "surface.callback.queue.drain.0hyao68",
+      "surfaceKind": "callback",
+      "surfaceName": "queue-drain",
+      "reason": "bounded polling drains admitted Exact completion callbacks from the runtime-owned queue"
+    },
+    {
+      "edgeId": "surface.callback.queue.enqueue.0uj36yk",
+      "surfaceKind": "callback",
+      "surfaceName": "queue-enqueue",
+      "reason": "the admitted Exact completion producer enqueues one generation-scoped callback capture"
+    },
+    {
+      "edgeId": "surface.callback.timer.invoke.1qq42bc",
+      "surfaceKind": "callback",
+      "surfaceName": "timer-invoke",
+      "reason": "the hibernation-safe Contract task subset invokes activation-owned timer callbacks during bounded polling"
     },
     {
       "edgeId": "surface.native.op.global.arraybuffer.0h54i6m",

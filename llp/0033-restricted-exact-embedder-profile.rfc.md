@@ -5,13 +5,16 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-19 (r13 — invalidates the reviewed categorical absence
-evidence and adds a generated, fixture-plan-bound authority with 7,366
-source-install probes and 9,754 live-route probes for all 7,152 absent edges;
+**Revised:** 2026-07-19 (r14 — the first executed native-op probe found that
+the restricted lockdown inherited the two Hermes native freeze hatches; seals
+both in the authenticated Contract realm and adds a direct regression; r13 — invalidates the reviewed categorical absence
+evidence, corrects five admitted callback edges to reachable, and adds a
+generated, fixture-plan-bound authority with 7,361 source-install probes and
+9,749 live-route probes for all 7,147 absent edges;
 none count as evidence until individually executed; r12 — adds an exact-engine descriptor reachability
 gate, reclassifies baseline Hermes intrinsic/root paths that the first
 Ibex-only projection incorrectly called absent, and removes the native `gc`
-and `print` authority channels, yielding 126 reachable and 7,152 candidate
+and `print` authority channels, yielding 131 reachable and 7,147 candidate
 structural absences; r11 — removes two temporary bootstrap globals by
 passing deterministic clock/RNG functions directly into the lockdown factory,
 leaving a 7,300-edge projection with 7,250 structural absences; r10 — refreshes the implementation-status inventory
@@ -343,8 +346,8 @@ empty.
 Implementation status (2026-07-19): the additive definition, projection, and
 advertisement schemas and their non-writing drift gate are implemented. The
 authored definition pins the exact 7,300-edge full-registry set and binds each
-of 126 candidate reachable and 22 trusted-control-plane rows to its
-source-derived kind and name; the remaining 7,152 rows are candidate
+of 131 candidate reachable and 22 trusted-control-plane rows to its
+source-derived kind and name; the remaining 7,147 rows are candidate
 structural absences whose source-install and live-reachability evidence is
 explicitly pending. The projection also binds the raw definition, coverage,
 implementation-manifest, and three profile-schema byte digests. Six mutation
@@ -421,11 +424,23 @@ expanded one categorical barrier into 14,304 nominal per-edge passes, including
 4,692 live rows with no descriptor probe. Those rows and every evidence family
 bound to the superseded fixture-plan bytes are invalid. The generated
 `restricted-exact-absence-probe-plan.json` now assigns every absent edge at
-least one exact source-branch probe and one live attacker-route probe (7,366
-source probes and 9,754 live probes total, including 2,602 descriptor-prefix
+least one exact source-branch probe and one live attacker-route probe (7,361
+source probes and 9,749 live probes total, including 2,602 descriptor-prefix
 probes across 2,460 edges). The plan is an obligation authority only. A new
 native run must publish independently checkable results for every planned
 probe before the target report may credit either absence evidence kind.
+The same audit corrected microtask drain, native-principal restoration,
+callback-queue enqueue/drain, and timer invocation from candidate absence to
+reachable: all five are exercised by the admitted Contract lifecycle and may
+not be hidden behind the smaller endowment vocabulary.
+The first execution of that plan then found a real boundary defect rather than
+an evidence-only mismatch: the restricted lockdown omitted
+`__exactDeepFreeze` and `__exactNativeFreeze`, so authenticated Contract code
+could inherit both VM bootstrap natives. The restricted lockdown now deletes
+or shadows both hatches with an immutable `undefined` binding and fails closed
+if either remains callable; the absence fixture executes inside the Contract
+bundle and rejects either spelling. No evidence predating this correction is
+eligible for a target report.
 
 ### Phase 1 — Apple vertical slice
 
