@@ -255101,6 +255101,39 @@
       ]
     },
     {
+      "edgeId": "surface.startup.env.ibex.legacy.hermes.block.scoping.0sb3swi",
+      "observedKey": "startup:env:IBEX_LEGACY_HERMES_BLOCK_SCOPING",
+      "branchId": "surface.startup.env.ibex.legacy.hermes.block.scoping.0sb3swi.main",
+      "enforcementBranchId": "surface.startup.env.ibex.legacy.hermes.block.scoping.0sb3swi.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:env:IBEX_LEGACY_HERMES_BLOCK_SCOPING"
+        ],
+        "proofSourceRefs": [
+          "src/bin/ibex/main.rs#env_flag_enabled:IBEX_LEGACY_HERMES_BLOCK_SCOPING:read"
+        ],
+        "sourceRefs": [
+          "src/bin/ibex/main.rs#env_flag_enabled:IBEX_LEGACY_HERMES_BLOCK_SCOPING:read"
+        ],
+        "terminalObservedKey": "startup:env:IBEX_LEGACY_HERMES_BLOCK_SCOPING"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/bin/ibex/main.rs#env_flag_enabled:IBEX_LEGACY_HERMES_BLOCK_SCOPING:read"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.startup.env.ibex.legacy.hermes.block.scoping.0sb3swi.main.cannot-widen-authority",
+        "surface.startup.env.ibex.legacy.hermes.block.scoping.0sb3swi.main.non-capability",
+        "surface.startup.env.ibex.legacy.hermes.block.scoping.0sb3swi.main.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.startup.env.ibex.lockdown.1o2femx",
       "observedKey": "startup:env:IBEX_LOCKDOWN",
       "branchId": "surface.startup.env.ibex.lockdown.1o2femx.main",
@@ -264659,44 +264692,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-s11Y8wjwVZy3s8UeDzFnVLYCcQk0WafFDZl7Km16ArA"
+      "rawContentDigest": "sha256-b3c9M_15gr_-V3LGVzCcMFmjqb7WIVAg8KpHRpd_jIE"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-YUYGugCkbzQQ9tYsVsFHWDHHZwxK94BB3ACVLWal8YE"
+      "rawContentDigest": "sha256-VWcJkYoW7oN-VgUCsVROU4r625-qvZSaDlKcxyfJvk8"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-Jfz4mFal0__6ObCLKxvfVBKGqY6fY9pxMxuOUnre8xA"
+      "rawContentDigest": "sha256-Od8wfLxp5GjTuNX7lGJzrRbl3b8Pe-0Lo1Xv18fRsYc"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-VNt0850u0GTfP84JgROOec6SggXi8YqgDeIQ0zY_-F0"
+      "rawContentDigest": "sha256-dcGlWusM232UKO_dzyvX8k_EMMmZajeASCvjl9_ijiM"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-MZ_rzyKTI6mQjNRSHoIfaXAVJhTkO9D_-ugNTMMo_9w"
+      "rawContentDigest": "sha256--5lleaND97-QW2LwkMxjfLmsxWnOvx7s3FyNqI3_l6w"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-QMKQalRu3jsEEKyIbNd72jewIxVL51D1yAP9OfXHscI"
+      "rawContentDigest": "sha256-2peZBYTjKS95r0we89sIrDCSh_VEFlUPXqa8DsMYXZM"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-U_Ucq4p7AcbJT5XUmmeTKAYIiypJe3F3llfXkVwh1PE"
+      "rawContentDigest": "sha256-nJXUwdUeujfiuRDfLipw1QA2VyFsrcPuN0NSPlE3jeY"
     }
   ],
   "counts": {
-    "observedReferences": 12769,
-    "logicalSurfaces": 7110,
-    "enforcementBranches": 7309,
-    "coverageEdges": 7110,
-    "targetCells": 7110
+    "observedReferences": 12770,
+    "logicalSurfaces": 7111,
+    "enforcementBranches": 7310,
+    "coverageEdges": 7111,
+    "targetCells": 7111
   }
 }

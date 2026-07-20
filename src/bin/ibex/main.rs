@@ -84,6 +84,13 @@ pub(crate) fn env_flag_enabled(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// @ref LLP 0026#decision — the compiler, cache identities, and embedded
+/// runtimes resolve one semantic mode. The legacy flag is deliberately an
+/// opt-out so ordinary Ibex execution gets correct per-iteration bindings.
+pub(crate) fn hermes_es6_block_scoping_enabled() -> bool {
+    !env_flag_enabled("IBEX_LEGACY_HERMES_BLOCK_SCOPING")
+}
+
 fn trace_startup() -> bool {
     runtime_env("IBEX_STARTUP_TRACE", "EX_STARTUP_TRACE")
         .map(|v| v.starts_with('1') || v.starts_with('y') || v.starts_with('Y'))

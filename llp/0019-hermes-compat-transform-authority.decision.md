@@ -5,7 +5,8 @@
 **Systems:** Module Loader, Build, Runtime
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-06
-**Related:** LLP 0004 (module loading); LLP 0005 (build pipeline); LLP 0007 (transform convergence RFC); LLP 0009 (runtime transform scope); LLP 0018 (fail-loud tooling)
+**Revised:** 2026-07-19 (LLP 0026 makes the engine premise mode-aware while both transform tiers remain in place for the adoption checkpoint)
+**Related:** LLP 0004 (module loading); LLP 0005 (build pipeline); LLP 0007 (transform convergence RFC); LLP 0009 (runtime transform scope); LLP 0018 (fail-loud tooling); LLP 0026 (ES6 block scoping)
 
 ## Decision
 
@@ -57,9 +58,11 @@ There were three implementations, and they demonstrably drifted:
 - an ibex-devtools byte-identical clone of the exact AST version.
 
 The pre-ENG-22569 AST shape also passed textual-shape assertions while
-closures captured `undefined` on shipping Hermes (ES6BlockScoping=false) —
-proof that shape-based tests prove nothing and only engine-honest behavioral
-fixtures gate this transform. The consolidation sequence:
+closures captured `undefined` in Hermes's legacy
+`ES6BlockScoping=false` mode — proof that shape-based tests prove nothing and
+only engine-honest behavioral fixtures gate this transform. LLP 0026 makes
+ES6 block scoping the Ibex default while retaining that old mode as an
+explicit temporary rollback. The consolidation sequence:
 
 - **ENG-22987** extracted the canonical transforms into `hermes-compat.mjs`,
   made `transforms.mjs` a re-export, and promoted the inline fixtures into the
@@ -90,8 +93,9 @@ One corpus, one oracle, two systems under test:
   through the **real built `ibex` binary**'s in-process module pipeline (not
   a unit-test copy of the scanner), compared against the same oracle, with
   per-fixture expectations (`loaderExpectations`) that pin documented
-  divergences to their exact output. Stale entries, missing entries, and an
-  engine-premise canary (raw for-of must still capture-last) all fail loudly.
+  divergences to their exact output. Stale entries, missing entries, and a
+  mode canary all fail loudly: raw for-of must match the oracle by default and
+  reproduce capture-last under the explicit legacy rollback.
 - `tests/hermes_compat_conformance.rs` — wires both runners into
   `cargo test` / `scripts/run-tests.sh`, parsing non-empty pass counts so the
   gate cannot silently run nothing (LLP 0018).
@@ -113,10 +117,11 @@ require a state-machine rewrite of the body.
 ## Accepted divergences between the tiers
 
 The tiers agree on emitted shape and on oracle-observable behavior except
-where the scanner's line-based analysis is inherently coarser. Divergences
-are acceptable only in the **safe direction** — the scanner may *bail* (leave
-a loop raw, costing the known capture-last pitfall on non-block-scoping
-Hermes) where the AST authority rewrites, never the reverse:
+where the scanner's line-based analysis is inherently coarser. Rewrite-set
+divergences remain acceptable only in the **safe direction** — the scanner may
+*bail* where the AST authority rewrites, never the reverse. Under LLP 0026's
+default engine mode those raw loops retain correct per-iteration bindings;
+under the temporary legacy rollback the old capture-last cost remains:
 
 - the scanner only rewrites single-line `for (const|let ... of ...) {`
   headers whose loop closes on a bare `}` line; the authority rewrites any
@@ -127,9 +132,10 @@ Hermes) where the AST authority rewrites, never the reverse:
   simple-binding `let`/`const` redeclaration) test raw body lines, so a
   keyword inside a nested closure bails the whole loop; the authority walks
   the AST and stops at function/class boundaries;
-- both tiers share one documented behavioral hole, pinned by the corpus: a
-  hazard-bailed loop's escaping closures keep raw capture-last behavior on
-  shipping Hermes (`hazard-bailed-var-in-body`).
+- both tiers retain one legacy-mode behavioral hole, pinned by the corpus: a
+  hazard-bailed loop's escaping closures keep raw capture-last behavior only
+  when `IBEX_LEGACY_HERMES_BLOCK_SCOPING=1`
+  (`hazard-bailed-var-in-body`).
 
 Every behavioral divergence visible through the corpus MUST appear as an
 explicit `loaderExpectations` entry with its exact output and reason; the
@@ -147,3 +153,7 @@ change).
 - The bundle cache hashes `hermes-compat.mjs` (see
   `bundler_cache_input_paths` in `src/bin/ibex/runtime.rs`) so semantic edits
   invalidate cached bundles.
+- Both transform tiers remain production-active for the LLP 0026 adoption
+  checkpoint. Their joint retirement is a separate cleanup change after
+  default and rollback evidence is established; until then this two-tier
+  decision remains the transform authority.

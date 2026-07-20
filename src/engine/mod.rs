@@ -1403,6 +1403,71 @@ mod tests {
         (status, value)
     }
 
+    fn legacy_hermes_block_scoping_requested() -> bool {
+        std::env::var("IBEX_LEGACY_HERMES_BLOCK_SCOPING")
+            .ok()
+            .is_some_and(|value| {
+                matches!(
+                    value.to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+    }
+
+    /// @ref LLP 0026#verification-gates — app-runtime source evaluation uses
+    /// the default per-iteration lexical semantics. Structural lockdown tames
+    /// both eval and the Function constructor separately, so neither is a
+    /// production compilation surface to gate.
+    #[test]
+    fn main_runtime_enables_es6_block_scoping_for_source_compilation() {
+        if legacy_hermes_block_scoping_requested() {
+            return;
+        }
+        unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            let collect = r#"
+function collect() {
+  const callbacks = [];
+  for (const item of ["a", "b"]) callbacks.push(() => item);
+  return callbacks.map(callback => callback());
+}
+"#;
+            let source = format!("{collect} JSON.stringify(collect())");
+            let (status, value) = eval(runtime, &source);
+            assert_eq!(status, 0, "runtime evaluation failed: {value:?}");
+            assert_eq!(value.as_deref(), Some(r#"["a","b"]"#));
+            ex_hermes_destroy(runtime);
+        }
+    }
+
+    /// @ref LLP 0026#verification-gates — the persistent UI worklet runtime
+    /// compiles installed source with the same lexical mode as the app runtime.
+    #[test]
+    fn worklet_runtime_enables_es6_block_scoping_for_source_compilation() {
+        if legacy_hermes_block_scoping_requested() {
+            return;
+        }
+        unsafe {
+            let runtime = ex_worklet_create();
+            assert!(!runtime.is_null());
+            ex_worklet_set_generation(runtime, 1);
+            let id = CString::new("block-scoping").expect("worklet id");
+            install_worklet(
+                runtime,
+                &id,
+                r#"(function () {
+  const callbacks = [];
+  for (const item of ["a", "b"]) callbacks.push(() => item);
+  return function () { return callbacks.map(callback => callback()).join(","); };
+})()"#,
+                1,
+            );
+            assert_eq!(invoke_worklet(runtime, &id), r#""a,b""#);
+            ex_worklet_destroy(runtime);
+        }
+    }
+
     /// Restricted worklets must cross the SharedValue boundary with the full
     /// typed identity. Stale identities are host-rejected no-ops, and values
     /// that cannot be represented as finite f32 never reach the host callback.

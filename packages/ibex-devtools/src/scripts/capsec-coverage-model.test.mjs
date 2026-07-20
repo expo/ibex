@@ -3042,6 +3042,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     for (const environmentName of [
       "IBEX_RUNTIME_TRANSFORM",
       "EXACT_RUNTIME_TRANSFORM",
+      "IBEX_LEGACY_HERMES_BLOCK_SCOPING",
       "EXACT_CLUSTER_WORKER",
       "NODE_UNIQUE_ID",
       "EXACT_CLUSTER_ID",

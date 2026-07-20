@@ -255482,6 +255482,16 @@
       }
     },
     {
+      "id": "surface.startup.env.ibex.legacy.hermes.block.scoping.0sb3swi",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "env:IBEX_LEGACY_HERMES_BLOCK_SCOPING"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.startup.env.ibex.lockdown.1o2femx",
       "classification": "closed",
       "surface": {

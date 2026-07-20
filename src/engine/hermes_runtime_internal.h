@@ -1014,6 +1014,12 @@ inline std::vector<uint8_t> extractBytes(
 
 bool startup_trace_enabled();
 bool env_flag_enabled(const char* env_name);
+inline bool ibexHermesES6BlockScopingEnabled() {
+  // @ref LLP 0026#decision — Ibex enables Hermes's existing correct lexical
+  // scope implementation by default. This opt-out is a migration control and
+  // must be resolved identically by the compiler and both runtime kinds.
+  return !env_flag_enabled("IBEX_LEGACY_HERMES_BLOCK_SCOPING");
+}
 void requireArmedStartupStage(ExactHermesRuntime* handle, const char* stage);
 void reportStartupFailure(ExactHermesRuntime* handle,
                           const char* stage,
