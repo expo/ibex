@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { gzipSync } from "node:zlib";
+import { deflateSync, gzipSync } from "node:zlib";
 import { afterEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -26,6 +26,10 @@ import {
   buildFixedVerifierExpectations,
   detectMacOsExtendedAcl,
   installPortableEngine,
+  listCheckedRevisionFiles,
+  readCheckedRevisionFile,
+  resolveGitControlPaths,
+  validateGitControlPlane,
   verifyPortableEngineStore,
 } from "./portable-engine-installer-test-harness.mjs";
 import {
@@ -63,6 +67,41 @@ afterEach(async () => {
 
 function gitBytes(args) {
   return Buffer.from(execFileSync("git", args, { cwd: sourceRepo, encoding: "buffer", maxBuffer: 64 * 1024 * 1024 }));
+}
+
+function systemGitBytes(repoRoot, args) {
+  return Buffer.from(execFileSync("/usr/bin/git", args, {
+    cwd: repoRoot,
+    encoding: "buffer",
+    env: { PATH: "/usr/bin:/bin", LC_ALL: "C", LANG: "C" },
+    maxBuffer: 64 * 1024 * 1024,
+  }));
+}
+
+async function writeLooseObjectAtId(repoRoot, objectId, type, bytes) {
+  const body = Buffer.from(bytes);
+  const encoded = deflateSync(Buffer.concat([Buffer.from(`${type} ${body.length}\0`, "ascii"), body]));
+  const objectPath = path.join(repoRoot, ".git", "objects", objectId.slice(0, 2), objectId.slice(2));
+  await fsp.mkdir(path.dirname(objectPath), { recursive: true });
+  await fsp.unlink(objectPath).catch((error) => {
+    if (error.code !== "ENOENT") throw error;
+  });
+  await fsp.writeFile(objectPath, encoded, { mode: 0o444 });
+}
+
+async function createLooseObjectRepository() {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "ibex-portable-git-authority-"));
+  temporaryRoots.add(root);
+  const repoRoot = path.join(root, "checkout");
+  await fsp.mkdir(path.join(repoRoot, "authority"), { recursive: true });
+  systemGitBytes(root, ["init", "--quiet", repoRoot]);
+  systemGitBytes(repoRoot, ["config", "user.name", "Ibex test"]);
+  systemGitBytes(repoRoot, ["config", "user.email", "ibex@example.invalid"]);
+  await fsp.writeFile(path.join(repoRoot, "authority", "policy.json"), "{\"trusted\":true}\n");
+  systemGitBytes(repoRoot, ["add", "authority/policy.json"]);
+  systemGitBytes(repoRoot, ["commit", "--quiet", "-m", "fixture"]);
+  const revision = systemGitBytes(repoRoot, ["rev-parse", "HEAD"]).toString("ascii").trim();
+  return { root, repoRoot, revision };
 }
 
 function revisionFile(_repoRoot, revision, relativePath) {
@@ -734,6 +773,105 @@ describe("portable engine installer core", () => {
     assert.match(core, /GIT_NO_REPLACE_OBJECTS: "1"/u);
     const packageDocument = JSON.parse(await fsp.readFile(path.join(sourceRepo, "package.json"), "utf8"));
     assert.equal(packageDocument.scripts["install:portable-hermes"], "node scripts/install-portable-hermes.mjs");
+  });
+
+  test("checked revision reads independently traverse and hash the selected commit graph", async () => {
+    const revision = systemGitBytes(sourceRepo, ["rev-parse", "HEAD"]).toString("ascii").trim();
+    assert.deepEqual(
+      readCheckedRevisionFile(sourceRepo, revision, "schemas/portable-engine-provenance-trust-policy-v1.json"),
+      systemGitBytes(sourceRepo, ["show", `${revision}:schemas/portable-engine-provenance-trust-policy-v1.json`]),
+    );
+    const patches = listCheckedRevisionFiles(sourceRepo, revision, "patches/hermes");
+    assert(patches.length > 0);
+    assert(patches.every((pathname, index) => pathname.startsWith("patches/hermes/") && (index === 0 || patches[index - 1] < pathname)));
+    const control = resolveGitControlPaths(sourceRepo);
+    assert.deepEqual(Object.keys(control).sort(), ["commonDir", "gitDir", "objectDir"]);
+    assert(path.isAbsolute(control.gitDir) && path.isAbsolute(control.commonDir) && path.isAbsolute(control.objectDir));
+    await validateGitControlPlane(sourceRepo);
+  });
+
+  test("checked revision reads reject a different blob stored under the selected object ID", async () => {
+    const fixture = await createLooseObjectRepository();
+    const blobId = systemGitBytes(fixture.repoRoot, ["rev-parse", `${fixture.revision}:authority/policy.json`]).toString("ascii").trim();
+    await writeLooseObjectAtId(fixture.repoRoot, blobId, "blob", Buffer.from("{\"trusted\":false}\n"));
+    assert.throws(
+      () => readCheckedRevisionFile(fixture.repoRoot, fixture.revision, "authority/policy.json"),
+      /failed independent content hashing|cannot read checked Git blob/u,
+    );
+  });
+
+  test("checked revision reads reject a different commit stored under the selected object ID", async () => {
+    const fixture = await createLooseObjectRepository();
+    const commitBytes = systemGitBytes(fixture.repoRoot, ["cat-file", "commit", fixture.revision]);
+    await writeLooseObjectAtId(fixture.repoRoot, fixture.revision, "commit", Buffer.concat([commitBytes, Buffer.from("substituted\n")]));
+    assert.throws(
+      () => readCheckedRevisionFile(fixture.repoRoot, fixture.revision, "authority/policy.json"),
+      /failed independent content hashing|cannot read checked Git commit/u,
+    );
+  });
+
+  test("checked revision reads reject a substituted nested tree object", async () => {
+    const fixture = await createLooseObjectRepository();
+    const treeId = systemGitBytes(fixture.repoRoot, ["rev-parse", `${fixture.revision}:authority`]).toString("ascii").trim();
+    const attackerBytes = Buffer.from("{\"trusted\":false}\n");
+    const attackerBlobId = gitObjectId("sha1", "blob", attackerBytes);
+    await writeLooseObjectAtId(fixture.repoRoot, attackerBlobId, "blob", attackerBytes);
+    const substitutedTree = Buffer.concat([
+      Buffer.from("100644 policy.json\0", "ascii"),
+      Buffer.from(attackerBlobId, "hex"),
+    ]);
+    await writeLooseObjectAtId(fixture.repoRoot, treeId, "tree", substitutedTree);
+    assert.throws(
+      () => readCheckedRevisionFile(fixture.repoRoot, fixture.revision, "authority/policy.json"),
+      /failed independent content hashing|cannot read checked Git tree/u,
+    );
+  });
+
+  test("external Git control paths must satisfy the checkout ownership premise", async (t) => {
+    async function gitControlCase() {
+      const testCase = await createCase();
+      const commonDir = path.join(testCase.root, "git-common");
+      const objectDir = path.join(commonDir, "objects");
+      await fsp.mkdir(objectDir, { recursive: true, mode: 0o700 });
+      await fsp.writeFile(path.join(testCase.repoRoot, ".git"), "gitdir: external\n", { mode: 0o600 });
+      return {
+        testCase,
+        commonDir,
+        objectDir,
+        resolveGitControlPaths: () => ({ gitDir: commonDir, commonDir, objectDir }),
+      };
+    }
+
+    await t.test("writable external object directory", async () => {
+      const fixture = await gitControlCase();
+      await fsp.chmod(fixture.objectDir, 0o777);
+      await expectRejected(fixture.testCase, /Git object directory.*group\/world-writable/u, {
+        resolveGitControlPaths: fixture.resolveGitControlPaths,
+      });
+    });
+
+    await t.test("HTTP object alternate", async () => {
+      const fixture = await gitControlCase();
+      const infoDir = path.join(fixture.objectDir, "info");
+      await fsp.mkdir(infoDir, { mode: 0o700 });
+      await fsp.writeFile(path.join(infoDir, "http-alternates"), "https://example.invalid/objects\n", { mode: 0o600 });
+      await expectRejected(fixture.testCase, /Git HTTP object alternates are forbidden/u, {
+        resolveGitControlPaths: fixture.resolveGitControlPaths,
+      });
+    });
+
+    await t.test("writable local object alternate", async () => {
+      const fixture = await gitControlCase();
+      const infoDir = path.join(fixture.objectDir, "info");
+      const alternate = path.join(fixture.testCase.root, "alternate-objects");
+      await fsp.mkdir(infoDir, { mode: 0o700 });
+      await fsp.mkdir(alternate, { mode: 0o777 });
+      await fsp.chmod(alternate, 0o777);
+      await fsp.writeFile(path.join(infoDir, "alternates"), `${alternate}\n`, { mode: 0o600 });
+      await expectRejected(fixture.testCase, /Git object directory.*group\/world-writable/u, {
+        resolveGitControlPaths: fixture.resolveGitControlPaths,
+      });
+    });
   });
 
   test("requires owned, non-shared, ACL-free checkout and store control nodes", async (t) => {

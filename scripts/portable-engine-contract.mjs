@@ -300,7 +300,7 @@ export function semanticDigest(domain, value, omitFields = []) {
 
 export function gitObjectId(format, type, bytes) {
   if (format !== "sha1" && format !== "sha256") throw new Error(`unsupported Git object format: ${format}`);
-  if (type !== "commit" && type !== "tree") throw new Error(`unsupported Git object type: ${type}`);
+  if (type !== "blob" && type !== "commit" && type !== "tree") throw new Error(`unsupported Git object type: ${type}`);
   return createHash(format)
     .update(Buffer.from(`${type} ${bytes.length}\0`, "ascii"))
     .update(bytes)

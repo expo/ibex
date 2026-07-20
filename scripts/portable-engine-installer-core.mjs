@@ -265,34 +265,114 @@ function runCheckedGit(repoRoot, args, options) {
   });
 }
 
-function defaultReadRevisionFile(repoRoot, revision, relativePath) {
+function assertSha1ObjectId(value, label) {
+  assert(typeof value === "string" && /^[0-9a-f]{40}$/u.test(value), `${label}: expected one lowercase SHA-1 object ID`);
+  return value;
+}
+
+function parseGitTreeEntries(bytes, label) {
+  const input = Buffer.from(bytes);
+  const entries = [];
+  const names = new Set();
+  let offset = 0;
+  while (offset < input.length) {
+    assert(entries.length < 100_000, `${label}: Git tree entry limit exceeded`);
+    const space = input.indexOf(0x20, offset);
+    const nul = space < 0 ? -1 : input.indexOf(0x00, space + 1);
+    assert(space > offset && nul > space + 1 && nul + 21 <= input.length, `${label}: malformed raw Git tree entry`);
+    const mode = input.subarray(offset, space).toString("ascii");
+    assert(["40000", "100644", "100755", "120000", "160000"].includes(mode), `${label}: unsupported Git tree mode ${mode}`);
+    const name = fatalUtf8.decode(input.subarray(space + 1, nul));
+    assert(name.length > 0 && name !== "." && name !== ".." && !name.includes("/") && !name.includes("\0"), `${label}: unsafe Git tree entry name`);
+    assert(!names.has(name), `${label}: duplicate Git tree entry name ${name}`);
+    names.add(name);
+    const objectId = input.subarray(nul + 1, nul + 21).toString("hex");
+    entries.push({
+      mode,
+      name,
+      objectId,
+      kind: mode === "40000" ? "tree" : mode === "160000" ? "commit" : "blob",
+    });
+    offset = nul + 21;
+  }
+  return entries;
+}
+
+function resolveCheckedRevisionEntry(repoRoot, revision, relativePath) {
+  assertSha1ObjectId(revision, "checked revision");
   assertPortablePath(relativePath, `revision path ${relativePath}`);
-  const result = runCheckedGit(repoRoot, ["show", `${revision}:${relativePath}`], {
-    encoding: null,
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  assert(result.status === 0, `checked authority is not a regular tracked blob at ${revision}:${relativePath}`);
-  return Buffer.from(result.stdout);
+  const commitBytes = defaultReadGitObject(repoRoot, "commit", revision);
+  let treeId = parseCommitTree(commitBytes);
+  const segments = relativePath.split("/");
+  let selected = null;
+  for (const [index, segment] of segments.entries()) {
+    const treeBytes = defaultReadGitObject(repoRoot, "tree", treeId);
+    const matches = parseGitTreeEntries(treeBytes, `Git tree ${treeId}`).filter((entry) => entry.name === segment);
+    assert(matches.length === 1, `${relativePath}: checked Git path does not resolve exactly once`);
+    selected = matches[0];
+    if (index < segments.length - 1) {
+      assert(selected.kind === "tree", `${relativePath}: checked Git path crosses a non-directory entry`);
+      treeId = selected.objectId;
+    }
+  }
+  return selected;
+}
+
+function defaultReadRevisionFile(repoRoot, revision, relativePath) {
+  const entry = resolveCheckedRevisionEntry(repoRoot, revision, relativePath);
+  assert(entry?.kind === "blob" && ["100644", "100755"].includes(entry.mode), `checked authority is not a regular tracked blob at ${revision}:${relativePath}`);
+  return defaultReadGitObject(repoRoot, "blob", entry.objectId);
 }
 
 function defaultListRevisionFiles(repoRoot, revision, relativeDirectory) {
-  assertPortablePath(relativeDirectory, "revision directory");
-  const result = runCheckedGit(repoRoot, ["ls-tree", "-r", "-z", "--name-only", revision, "--", relativeDirectory], {
-    encoding: null,
-    maxBuffer: 16 * 1024 * 1024,
-  });
-  assert(result.status === 0, `cannot enumerate checked files at ${revision}:${relativeDirectory}`);
-  return result.stdout.toString("utf8").split("\0").filter(Boolean);
+  const root = resolveCheckedRevisionEntry(repoRoot, revision, relativeDirectory);
+  assert(root?.kind === "tree", `cannot enumerate non-directory checked path ${revision}:${relativeDirectory}`);
+  const output = [];
+  const walk = (treeId, prefix, depth) => {
+    assert(depth <= 64, `${relativeDirectory}: checked Git tree depth limit exceeded`);
+    const entries = parseGitTreeEntries(defaultReadGitObject(repoRoot, "tree", treeId), `Git tree ${treeId}`);
+    for (const entry of entries) {
+      const pathname = `${prefix}/${entry.name}`;
+      assertPortablePath(pathname, "enumerated revision path");
+      if (entry.kind === "tree") walk(entry.objectId, pathname, depth + 1);
+      else {
+        assert(entry.kind === "blob", `${pathname}: Git submodules are not checked authority files`);
+        output.push(pathname);
+        assert(output.length <= 100_000, `${relativeDirectory}: checked file-count limit exceeded`);
+      }
+    }
+  };
+  walk(root.objectId, relativeDirectory, 0);
+  return output.sort(compareUtf8);
 }
 
 function defaultReadGitObject(repoRoot, type, objectId) {
-  assert(type === "commit" || type === "tree", `unsupported Git object type ${type}`);
+  assert(type === "blob" || type === "commit" || type === "tree", `unsupported Git object type ${type}`);
+  assertSha1ObjectId(objectId, `Git ${type} object ID`);
   const result = runCheckedGit(repoRoot, ["cat-file", type, objectId], {
     encoding: null,
     maxBuffer: 64 * 1024 * 1024,
   });
   assert(result.status === 0, `cannot read checked Git ${type} object ${objectId}`);
-  return Buffer.from(result.stdout);
+  const bytes = Buffer.from(result.stdout);
+  assert(gitObjectId("sha1", type, bytes) === objectId, `checked Git ${type} object ${objectId} failed independent content hashing`);
+  return bytes;
+}
+
+function checkedGitPath(repoRoot, args, label) {
+  const result = runCheckedGit(repoRoot, args, { encoding: "utf8", maxBuffer: 1024 * 1024 });
+  assert(result.status === 0, `cannot resolve ${label}`);
+  const value = result.stdout.endsWith("\n") ? result.stdout.slice(0, -1) : result.stdout;
+  assert(value.length > 0 && !value.includes("\n") && !value.includes("\0"), `${label}: expected one path`);
+  return path.resolve(repoRoot, value);
+}
+
+function defaultResolveGitControlPaths(repoRoot) {
+  return {
+    gitDir: checkedGitPath(repoRoot, ["rev-parse", "--absolute-git-dir"], "Git worktree directory"),
+    commonDir: checkedGitPath(repoRoot, ["rev-parse", "--path-format=absolute", "--git-common-dir"], "Git common directory"),
+    objectDir: checkedGitPath(repoRoot, ["rev-parse", "--path-format=absolute", "--git-path", "objects"], "Git object directory"),
+  };
 }
 
 function defaultResolveCheckoutRevision(repoRoot) {
@@ -1092,7 +1172,9 @@ async function productionOfflineVerifier({ archivePath, bundlePath, expectations
 
 function parseCommitTree(commitBytes) {
   const text = fatalUtf8.decode(commitBytes);
-  const lines = text.split("\n").filter((line) => line.startsWith("tree "));
+  const headerEnd = text.indexOf("\n\n");
+  assert(headerEnd > 0, "source commit object has no canonical header/message separator");
+  const lines = text.slice(0, headerEnd).split("\n").filter((line) => line.startsWith("tree "));
   assert(lines.length === 1 && /^tree [0-9a-f]{40}$/u.test(lines[0]), "source commit object does not carry one canonical SHA-1 tree header");
   return lines[0].slice(5);
 }
@@ -1659,6 +1741,94 @@ function trustedNodeIdentityEqual(left, right) {
   return left.dev === right.dev && left.ino === right.ino && left.uid === right.uid && left.mode === right.mode;
 }
 
+async function requireTrustedDirectoryAncestry(input, runtime, label) {
+  const real = await fsp.realpath(input);
+  const ancestors = canonicalAncestorPaths(real);
+  const snapshots = [];
+  for (const [index, ancestor] of ancestors.entries()) {
+    const nodeLabel = index === ancestors.length - 1 ? label : `${label} ancestor ${ancestor}`;
+    const status = await fsp.lstat(ancestor, { bigint: true });
+    assert(status.isDirectory() && !status.isSymbolicLink(), `${nodeLabel}: expected one no-follow directory`);
+    if (index === ancestors.length - 1) {
+      await assertOwnedTrustedNode(ancestor, status, runtime, nodeLabel);
+    } else {
+      assert(status.uid === 0n || status.uid === BigInt(runtime.effectiveUid), `${nodeLabel}: expected root or effective-UID ownership`);
+      await assertTrustedNodePermissions(ancestor, status, runtime, nodeLabel, { rejectAnyAcl: false });
+    }
+    snapshots.push(status);
+  }
+  for (const [index, ancestor] of ancestors.entries()) {
+    const status = await fsp.lstat(ancestor, { bigint: true });
+    assert(status.isDirectory() && !status.isSymbolicLink() && trustedNodeIdentityEqual(status, snapshots[index]), `${label}: trusted ancestry changed during validation`);
+  }
+  return real;
+}
+
+async function requireTrustedGitObjectDatabase(input, runtime, seen, depth = 0) {
+  assert(depth <= 16 && seen.size <= 32, "Git alternate object-database limit exceeded");
+  const objectDir = await requireTrustedDirectoryAncestry(input, runtime, "Git object directory");
+  if (seen.has(objectDir)) return;
+  seen.add(objectDir);
+  const infoDir = path.join(objectDir, "info");
+  const infoStatus = await lstatMaybe(infoDir);
+  if (!infoStatus) return;
+  assert(infoStatus.isDirectory() && !infoStatus.isSymbolicLink(), "Git object info path is redirected or not a directory");
+  await requireTrustedDirectoryAncestry(infoDir, runtime, "Git object info directory");
+  const httpAlternates = path.join(infoDir, "http-alternates");
+  assert(!(await lstatMaybe(httpAlternates)), "Git HTTP object alternates are forbidden");
+  const alternatesPath = path.join(infoDir, "alternates");
+  const alternatesStatus = await lstatMaybe(alternatesPath);
+  if (alternatesStatus) {
+    assert(alternatesStatus.isFile() && !alternatesStatus.isSymbolicLink(), "Git alternates control is redirected or not a regular file");
+    await assertOwnedTrustedNode(alternatesPath, alternatesStatus, runtime, "Git alternates control");
+    const bytes = await readBoundedRegular(alternatesPath, "Git alternates control", 64 * 1024);
+    const text = fatalUtf8.decode(bytes);
+    const rows = text.split("\n").filter((row) => row.length > 0);
+    assert(rows.length > 0 && rows.length <= 16, "Git alternates control has invalid cardinality");
+    for (const row of rows) {
+      assert(row.length <= 4096 && !/[\x00-\x1f\x7f]/u.test(row), "Git alternates control contains an unsafe path");
+      const alternate = path.isAbsolute(row) ? row : path.resolve(objectDir, row);
+      await requireTrustedGitObjectDatabase(alternate, runtime, seen, depth + 1);
+    }
+    const afterAlternates = await fsp.lstat(alternatesPath, { bigint: true });
+    assert(afterAlternates.isFile() && !afterAlternates.isSymbolicLink() && trustedNodeIdentityEqual(afterAlternates, alternatesStatus) && afterAlternates.size === alternatesStatus.size, "Git alternates control changed during validation");
+  }
+  assert(!(await lstatMaybe(httpAlternates)), "Git HTTP object alternates appeared during validation");
+  await requireTrustedDirectoryAncestry(objectDir, runtime, "Git object directory");
+}
+
+// @ref LLP 0035#content-addressed-installation — linked worktrees may place
+// refs and objects outside the selected checkout. Prove that whole control
+// plane and every local alternate under the same filesystem premise before
+// using Git as a checked-revision object reader.
+async function requireTrustedGitControlPlane(repoRoot, runtime) {
+  const dotGit = path.join(repoRoot, ".git");
+  const dotGitStatus = await fsp.lstat(dotGit, { bigint: true });
+  assert(!dotGitStatus.isSymbolicLink() && (dotGitStatus.isDirectory() || dotGitStatus.isFile()), "checkout .git control is redirected or has the wrong type");
+  await assertOwnedTrustedNode(dotGit, dotGitStatus, runtime, "checkout .git control");
+  if (dotGitStatus.isFile()) await readBoundedRegular(dotGit, "checkout .git control", 64 * 1024);
+
+  const resolveControlPaths = runtime.dependencies.resolveGitControlPaths ?? defaultResolveGitControlPaths;
+  const control = await Promise.resolve(resolveControlPaths(repoRoot));
+  assert(control && typeof control === "object" && !Array.isArray(control), "Git control-path resolver returned no object");
+  assertSame(Object.keys(control).sort(compareUtf8), ["commonDir", "gitDir", "objectDir"], "Git control-path fields");
+  const gitDir = await requireTrustedDirectoryAncestry(control.gitDir, runtime, "Git worktree directory");
+  const commonDir = await requireTrustedDirectoryAncestry(control.commonDir, runtime, "Git common directory");
+  const objectDir = await requireTrustedDirectoryAncestry(control.objectDir, runtime, "Git object directory");
+  assert(gitDir.length > 0 && commonDir.length > 0 && objectDir.length > 0, "Git control paths are empty");
+  await requireTrustedGitObjectDatabase(objectDir, runtime, new Set());
+  const recheckedControl = await Promise.resolve(resolveControlPaths(repoRoot));
+  assert(recheckedControl && typeof recheckedControl === "object" && !Array.isArray(recheckedControl), "Git control-path recheck returned no object");
+  assertSame(Object.keys(recheckedControl).sort(compareUtf8), ["commonDir", "gitDir", "objectDir"], "Git control-path recheck fields");
+  assertSame({
+    gitDir: await fsp.realpath(recheckedControl.gitDir),
+    commonDir: await fsp.realpath(recheckedControl.commonDir),
+    objectDir: await fsp.realpath(recheckedControl.objectDir),
+  }, { gitDir, commonDir, objectDir }, "Git control paths changed during validation");
+  const afterDotGit = await fsp.lstat(dotGit, { bigint: true });
+  assert(!afterDotGit.isSymbolicLink() && trustedNodeIdentityEqual(afterDotGit, dotGitStatus) && afterDotGit.size === dotGitStatus.size, "checkout .git control changed during validation");
+}
+
 // @ref LLP 0035#content-addressed-installation — a canonical root-to-checkout
 // chain without alternate-principal mutation authority makes later traversal
 // defensible without claiming same-UID adversary resistance.
@@ -1694,6 +1864,9 @@ async function requireCheckoutRoot(input, runtime) {
       throw error;
     }
     assert(status.isDirectory() && !status.isSymbolicLink() && trustedNodeIdentityEqual(status, snapshots[index]), "checkout ancestry changed during validation");
+  }
+  if (runtime.contract.kind === "production" || runtime.dependencies.resolveGitControlPaths) {
+    await requireTrustedGitControlPlane(real, runtime);
   }
   return real;
 }
@@ -2206,3 +2379,9 @@ export async function verifyPortableEngineStoreTestOnly(options, dependencies = 
 
 export const buildFixedVerifierExpectationsTestOnly = buildFixedVerifierExpectations;
 export const detectMacOsExtendedAclTestOnly = defaultHasExtendedAcl;
+export const listCheckedRevisionFilesTestOnly = defaultListRevisionFiles;
+export const readCheckedRevisionFileTestOnly = defaultReadRevisionFile;
+export const resolveGitControlPathsTestOnly = defaultResolveGitControlPaths;
+export async function validateGitControlPlaneTestOnly(repoRoot, dependencies = {}) {
+  await requireTrustedGitControlPlane(repoRoot, testRuntime(dependencies));
+}
