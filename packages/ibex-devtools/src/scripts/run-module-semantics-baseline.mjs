@@ -28,6 +28,10 @@ const baselinePath = path.join(
   repoRoot,
   'tests/fixtures/module-semantics/current-loader-baseline.json',
 );
+const windowsOverlayPath = path.join(
+  repoRoot,
+  'tests/fixtures/module-semantics/current-loader-baseline.windows-overlay.json',
+);
 
 function parseArgs(argv) {
   const options = { ibex: '', writeBaseline: false };
@@ -102,7 +106,20 @@ function describeObservation(result) {
 }
 
 function readBaseline() {
-  return JSON.parse(readFileSync(baselinePath, 'utf8'));
+  const baseline = JSON.parse(readFileSync(baselinePath, 'utf8'));
+  if (process.platform !== 'win32') return baseline;
+  const overlay = JSON.parse(readFileSync(windowsOverlayPath, 'utf8'));
+  if (overlay.schema !== 'ibex/module-semantics-current-loader-platform-overlay/1' ||
+      overlay.platform !== 'win32') {
+    throw new Error('invalid Windows module-semantics baseline overlay');
+  }
+  for (const [fixtureId, observation] of Object.entries(overlay.observations)) {
+    if (!baseline.observations[fixtureId]) {
+      throw new Error(`Windows baseline overlay names unknown fixture ${fixtureId}`);
+    }
+    baseline.observations[fixtureId].ibex = observation.ibex;
+  }
+  return baseline;
 }
 
 function main() {
@@ -145,13 +162,18 @@ function main() {
       if (ibex.status === null) {
         failures.push(`Ibex terminated by ${ibex.signal || 'unknown signal'}: ${ibex.stderr.trim()}`);
       }
-      const currentIbex = fixture.currentIbex || { outcome: 'marker' };
+      const currentIbex = fixture.currentIbexByPlatform?.[process.platform] ||
+        fixture.currentIbex || { outcome: 'marker' };
       if (currentIbex.outcome === 'error') {
         if (ibex.status === 0) {
           failures.push(`Ibex unexpectedly succeeded with ${describeObservation(ibex)}; expected named current-path error containing ${JSON.stringify(currentIbex.stderrIncludes)}`);
         }
         if (!ibex.stderr.includes(currentIbex.stderrIncludes)) {
           failures.push(`Ibex error did not contain ${JSON.stringify(currentIbex.stderrIncludes)}; observation ${describeObservation(ibex)}; stderr: ${ibex.stderr.trim()}`);
+        }
+      } else if (currentIbex.outcome === 'silent') {
+        if (ibex.status !== 0 || ibex.lines.length !== 0) {
+          failures.push(`Ibex current-path silence drifted: ${describeObservation(ibex)}`);
         }
       } else {
         if (ibex.status !== 0) {

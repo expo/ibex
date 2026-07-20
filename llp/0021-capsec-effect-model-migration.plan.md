@@ -2246,6 +2246,16 @@ was incidental, not the failure cause. A focused module-semantics workflow
 scope now retains the exact Windows status and marker observations so any
 platform-specific baseline can be evidence-derived rather than invented. No
 target cell or advertisement is promoted.
+Focused physical run
+[`29744927492`](https://github.com/ccheever/ibex/actions/runs/29744927492)
+retained the complete 12-fixture Windows observation document. Mechanical
+comparison with the canonical baseline found exactly two differences: the
+dependency-TLA and conditional-package-import fixtures exit 0 without a marker
+on Windows instead of exiting 1 with the macOS compatibility loader's named
+error. All other observations match, including dynamic-import settlement. A
+checked provenance-bound Windows overlay now records only those two current-
+path divergences; the canonical baseline remains unchanged. This baseline is
+descriptive evidence, not target promotion or acceptance of silent behavior.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked

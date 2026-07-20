@@ -120,6 +120,12 @@ export { trace };
       stderrIncludes: "';' expected",
       note: 'The current file-at-a-time fallback rejects this dependency TLA before producing an entry observation.',
     },
+    currentIbexByPlatform: {
+      win32: {
+        outcome: 'silent',
+        note: 'The Windows compatibility entry path exits zero without a semantic marker.',
+      },
+    },
   },
   {
     id: 'dynamic-import-settlement',
@@ -260,6 +266,12 @@ console.log(${JSON.stringify(marker)} + value);
       outcome: 'error',
       stderrIncludes: 'Failed to resolve package import #branch',
       note: 'The shipped private-import resolver cannot consume this Node conditional-import map on the loader path.',
+    },
+    currentIbexByPlatform: {
+      win32: {
+        outcome: 'silent',
+        note: 'The Windows compatibility entry path exits zero without a semantic marker.',
+      },
     },
   },
 ]);

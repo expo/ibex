@@ -1,0 +1,23 @@
+{
+  "schema": "ibex/module-semantics-current-loader-platform-overlay/1",
+  "platform": "win32",
+  "architecture": "x86_64",
+  "sourceRevision": "56427b226dd73053b5fa58970305d78b891abbab",
+  "evidenceRun": "https://github.com/ccheever/ibex/actions/runs/29744927492",
+  "observations": {
+    "dependency-top-level-await-order": {
+      "ibex": {
+        "status": 0,
+        "signal": null,
+        "lines": []
+      }
+    },
+    "package-imports-key-order": {
+      "ibex": {
+        "status": 0,
+        "signal": null,
+        "lines": []
+      }
+    }
+  }
+}
