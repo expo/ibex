@@ -39,16 +39,16 @@ describe("construction-private WebGPU CapSec operation registry", () => {
   test("derives one reviewed edge source from every authenticated active route", () => {
     const authenticated = loadAuthenticatedWebGpuProductionPlan(repoRoot);
     const surfaces = buildWebGpuOperationSurfaces(authenticated);
-    expect(authenticated.routes).toHaveLength(57);
-    expect(surfaces).toHaveLength(57);
+    expect(authenticated.routes).toHaveLength(58);
+    expect(surfaces).toHaveLength(58);
     expect(new Set(surfaces.map((surface) => surface.observedKey)).size).toBe(
-      57,
+      58,
     );
     expect(
       authenticated.routes.filter(
         (route) => webGpuOperationSemantics(route).classification === "closed",
       ),
-    ).toHaveLength(20);
+    ).toHaveLength(21);
     expect(
       authenticated.routes.filter(
         (route) =>
@@ -57,7 +57,7 @@ describe("construction-private WebGPU CapSec operation registry", () => {
     ).toHaveLength(37);
   });
 
-  test("rejects removed, mutated, and staged-only route identities", () => {
+  test("rejects removed, mutated, and forged route identities", () => {
     const { plan, authority } = readInputs();
 
     const removed = structuredClone(plan);
@@ -75,8 +75,7 @@ describe("construction-private WebGPU CapSec operation registry", () => {
     const forged = structuredClone(plan);
     forged.routes.push({
       ...forged.routes[0],
-      operationId:
-        forged.stagedWorkloadClosure.additionalOperations[0].operationId,
+      operationId: "GPUQueue.copyExternalImageToTexture.forged",
     });
     expect(() =>
       authenticateWebGpuProductionPlan({ plan: forged, authority }),
@@ -95,11 +94,11 @@ describe("construction-private WebGPU CapSec operation registry", () => {
           ).pathname,
         ),
       );
-      expect(generated.operationCount).toBe(57);
-      expect(generated.privateTargetCellCount).toBe(57);
+      expect(generated.operationCount).toBe(58);
+      expect(generated.privateTargetCellCount).toBe(58);
       expect(
         generated.operations.filter((operation) => operation.authoritySession),
-      ).toHaveLength(25);
+      ).toHaveLength(26);
       expect(generated.providerIdentity).toMatchObject({
         abiVersion: 0x0002_0000,
         topologyId: 1,
@@ -107,15 +106,15 @@ describe("construction-private WebGPU CapSec operation registry", () => {
         profileDigest:
           "eeda83784ff4297760619cb7df54f0e2f227a70562561909c47ecc9dc3232d95",
       });
-      expect(generated.providerIdentity.sortedOperationIds).toHaveLength(57);
+      expect(generated.providerIdentity.sortedOperationIds).toHaveLength(58);
       expect(
         new Set(generated.operations.map((operation) => operation.edgeId)).size,
-      ).toBe(57);
+      ).toBe(58);
       expect(
         new Set(
           generated.privateTargetCells.map((cell) => cell.id),
         ).size,
-      ).toBe(57);
+      ).toBe(58);
       expect(
         generated.privateTargetCells.every(
           (cell) =>
@@ -160,6 +159,17 @@ describe("construction-private WebGPU CapSec operation registry", () => {
         wp1TargetAdvertisements: "empty",
         platformSupportClaim: "none",
       });
+      expect(generated.operations).toContainEqual(expect.objectContaining({
+        operationId: "GPUQueue.copyExternalImageToTexture",
+        wireId: 2194495720,
+        edgeClassification: "closed",
+        authoritySession: {
+          decisionKind: "typed-positive",
+          action: "gpu:operation",
+          stages: ["requested", "commit", "repeat"],
+          targetCellDisposition: "complete",
+        },
+      }));
       expect(rendered.targetAdvertisements.advertisements).toEqual([]);
       const operationEdgeIds = new Set(
         generated.operations.map((operation) => operation.edgeId),

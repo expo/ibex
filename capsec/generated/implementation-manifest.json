@@ -156513,6 +156513,40 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpuqueue.copyexternalimagetotexture.0iassmh",
+      "observedKey": "native-op:construction-private:webgpu:GPUQueue.copyExternalImageToTexture",
+      "branchId": "surface.native.op.construction.private.webgpu.gpuqueue.copyexternalimagetotexture.0iassmh.authenticated.production.route.0fggva8",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpuqueue.copyexternalimagetotexture.0iassmh.authenticated.production.route.0fggva8",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUQueue.copyExternalImageToTexture"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUQueue.copyExternalImageToTexture:2194495720",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUQueue.copyExternalImageToTexture:2194495720"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUQueue.copyExternalImageToTexture:2194495720",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUQueue.copyExternalImageToTexture:2194495720"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUQueue.copyExternalImageToTexture"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUQueue.copyExternalImageToTexture:2194495720",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUQueue.copyExternalImageToTexture:2194495720"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpuqueue.copyexternalimagetotexture.0iassmh.authenticated.production.route.0fggva8.closed"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.construction.private.webgpu.gpuqueue.submit.0sm1jlg",
       "observedKey": "native-op:construction-private:webgpu:GPUQueue.submit",
       "branchId": "surface.native.op.construction.private.webgpu.gpuqueue.submit.0sm1jlg.authenticated.production.route.19m1phk",
@@ -271503,6 +271537,7 @@
         "surface.native.op.construction.private.webgpu.gpudevice.createshadermodule.1tnit2w",
         "surface.native.op.construction.private.webgpu.gpudevice.createtexture.1vc5dzg",
         "surface.native.op.construction.private.webgpu.gpudevice.poperrorscope.01d29wy",
+        "surface.native.op.construction.private.webgpu.gpuqueue.copyexternalimagetotexture.0iassmh",
         "surface.native.op.construction.private.webgpu.gpuqueue.submit.0sm1jlg",
         "surface.native.op.construction.private.webgpu.gpuqueue.writebuffer.09drr9l",
         "surface.native.op.construction.private.webgpu.gpuqueue.writetexture.0je9zc2",
@@ -271665,7 +271700,7 @@
         "surface.startup.installer.installipclistenerpatch.1a0b3bh",
         "surface.startup.script.ipc.listener.183xoza"
       ],
-      "rationale": "Closed by 255 observed surface edges."
+      "rationale": "Closed by 256 observed surface edges."
     },
     {
       "definitionId": "lifecycle:exit",
@@ -274179,7 +274214,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-IXnFzXYQzc27zXq304mz2YP2uvGgMuEevHiCpdEkq90"
+      "rawContentDigest": "sha256-29OL3Da_WNyxUbNZqxbdzKmcrRhThkd6SYQnxbPkkd8"
     },
     {
       "kind": "output-disposition-dataset",
@@ -274194,44 +274229,44 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-Zu1gce-nzcrDQdjRmCIGuZSRiTdmr9kcHKM7gXC4mIA"
+      "rawContentDigest": "sha256-XGuVpLoYOZBtghHB3CZIDPMRIGdguFyuuyh--ra5MC4"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-FqFJepn-tM4Uxpsx8kGBc_C38emxhnwdCsjPwgR9zao"
+      "rawContentDigest": "sha256-gXEFgjpNXfC8l4yIayVnABpTQzuEn8zB6zT1d_YK5Ho"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-Zg542jXCWcu5jgm06ez1JuWt34MPZ16LzISZ6yxBZwg"
+      "rawContentDigest": "sha256-tPiUOuOTFSwUAq-bJMPvDK_Yeidr77MkkBhkCEyKWSY"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-fjkHGTfuIXFC7vQkfzReJCACt2LG8wns13jh2dsd4aw"
+      "rawContentDigest": "sha256-R-EPqLV7MTZgITfJIy8aMUfxoxiBhBKih5lbwZgk044"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-bLObEsZ636Un6ywFw8QUzQ2AqFZigv3VRnlN_QTu7Ns"
+      "rawContentDigest": "sha256-6AwJwe2iBRr2rUt6Gnjj2LjBJvTkchkrFrPATaZFP88"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-sKXYABMXzQJMH9qz2MghtRYyqb3HsqRBhZDfBvaFpg8"
+      "rawContentDigest": "sha256-tHoyYW0UDtwQ6J2jMzw7yymvxP8MMWPU13L6zf7_Mc4"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-gcZfasDMzB9-IbKvrVRK-0WEGa9Z50q-fL1ryoQCEsY"
+      "rawContentDigest": "sha256-l8wZI08NZlo14v6YPmjwrZ3kWcnC7ubYckYO0j61ylY"
     }
   ],
   "counts": {
-    "observedReferences": 12948,
-    "logicalSurfaces": 7373,
-    "enforcementBranches": 7592,
-    "coverageEdges": 7373,
-    "targetCells": 14746
+    "observedReferences": 12950,
+    "logicalSurfaces": 7374,
+    "enforcementBranches": 7593,
+    "coverageEdges": 7374,
+    "targetCells": 14748
   }
 }

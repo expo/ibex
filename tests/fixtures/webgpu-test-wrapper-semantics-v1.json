@@ -134,7 +134,7 @@
   },
   "authentication": {
     "canonicalization": "utf8-domain-line-plus-lexicographic-object-keys-arrays-preserved-v1",
-    "semanticProjectionSha256": "117a4491b93f8aa26d6c5f013dc09bd1ef96ef8bfeea04a336ffafc5c382205d",
+    "semanticProjectionSha256": "8372a1fe6c77b1c3402ef75ed1e7a04696cb2947c86672763af46e515ddc8844",
     "fakeClientDataSha256": "d4b76e9a5a4c9b3097cae44d666eff71c10d4c71f638016898627fbfbc58643e"
   },
   "semanticProjection": {
@@ -4973,6 +4973,124 @@
               "service-provider"
             ],
             "terminalOutcome": "enqueue one ordered immutable texture upload",
+            "errorTiming": "none",
+            "resultDisposition": "return-undefined",
+            "providerTokenCount": 1,
+            "physicalSequenceCount": 1,
+            "errorSource": {
+              "kind": "none"
+            }
+          }
+        ],
+        "factBindings": [
+          {
+            "fact": "webidlValid",
+            "kind": "branch-predicates",
+            "branchId": "webidl",
+            "passWhen": true
+          },
+          {
+            "fact": "contentValidationPassed",
+            "kind": "branch-predicates",
+            "branchId": "content-snapshot",
+            "passWhen": true
+          },
+          {
+            "fact": "providerPredicatesValid",
+            "kind": "branch-predicates",
+            "branchId": "service-provider",
+            "passWhen": true
+          }
+        ]
+      },
+      {
+        "operationId": "GPUQueue.copyExternalImageToTexture",
+        "facts": [
+          "webidlValid",
+          "contentValidationPassed",
+          "providerPredicatesValid"
+        ],
+        "precedence": [
+          "webidlValid",
+          "contentValidationPassed",
+          "providerPredicatesValid"
+        ],
+        "exhaustive": true,
+        "disjoint": true,
+        "terminals": [
+          {
+            "terminalId": "webidl-rejection",
+            "conditions": {
+              "webidlValid": false
+            },
+            "branchPath": [
+              "webidl"
+            ],
+            "terminalOutcome": "throw during complete synchronous Web IDL conversion",
+            "errorTiming": "synchronous-webidl",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "resultDisposition": "throw",
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "webidl"
+            }
+          },
+          {
+            "terminalId": "content-rejection",
+            "conditions": {
+              "webidlValid": true,
+              "contentValidationPassed": false
+            },
+            "branchPath": [
+              "webidl",
+              "content-snapshot"
+            ],
+            "terminalOutcome": "throw the first applicable content-timeline result in normative order: TypeError for invalid converted shapes, SecurityError for a non-origin-clean source, OperationError for source bounds or depth, a propagated InvalidStateError from the subsequent image-usability check, or snapshot-allocation failure; a returned bad usability verdict is not a content rejection",
+            "errorTiming": "content-timeline",
+            "resultDisposition": "throw",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "content-snapshot"
+            }
+          },
+          {
+            "terminalId": "later-predicate-rejection",
+            "conditions": {
+              "webidlValid": true,
+              "contentValidationPassed": true,
+              "providerPredicatesValid": false
+            },
+            "branchPath": [
+              "webidl",
+              "content-snapshot",
+              "service-provider"
+            ],
+            "terminalOutcome": "return undefined and report the device-timeline validation error before provider admission, including a returned bad call-time usability verdict",
+            "errorTiming": "device-timeline",
+            "resultDisposition": "return-undefined-and-report-error",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "service-provider"
+            }
+          },
+          {
+            "terminalId": "operation-success",
+            "conditions": {
+              "webidlValid": true,
+              "contentValidationPassed": true,
+              "providerPredicatesValid": true
+            },
+            "branchPath": [
+              "webidl",
+              "content-snapshot",
+              "service-provider"
+            ],
+            "terminalOutcome": "enqueue one origin-clean immutable decoded-pixel upload",
             "errorTiming": "none",
             "resultDisposition": "return-undefined",
             "providerTokenCount": 1,

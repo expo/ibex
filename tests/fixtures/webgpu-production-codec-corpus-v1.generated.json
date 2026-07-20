@@ -1,20 +1,20 @@
 {
   "schema": "ibex/webgpu-production-codec-corpus/2",
-  "disposition": "generated-language-neutral-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
+  "disposition": "generated-language-neutral-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
   "supportClaim": "none",
   "carrierProjectionScope": "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
   "source": {
     "manifestPath": "tests/fixtures/webgpu-production-codec-manifest-v1.generated.json",
-    "manifestSha256": "4ff9046125fe7c61a58eb337e3e0086345a20e750e4e54129bba39cb58ea731c"
+    "manifestSha256": "2820499a213a52b9cfc66f167409019bbd10777aedcf669935902edb07ac7f78"
   },
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-plus-typegpu-graduates-plus-product-extensions-v1",
   "digests": {
-    "operationSet": "41b52e49656266936aba84237cf5cbdea1003b2c9620e6fa2f8566f30b2f8a2e",
-    "semanticProgramSet": "af41da4035644008c340abd9f62d0e17320ee908f8d0337ce5989e2bb9adbd25",
-    "runtimeRouting": "1a8467941a397d8722e1121d87d4d68e416858f29953feb6f197f0a173e7e61b",
-    "webgpuCVocabulary": "4bf8bed436a8e91c8013fb9ecc9d9efd18c87c6da03c4690e51901439d8ff7c9",
-    "projection": "bd7285fbfe1ae29921ec38ad8f08edd51810823a04486ed6807403d082a509fb"
+    "operationSet": "797ba84772ab1636bd2a8ed2e29a41c425a4b57365a0ff0e386420ab77192954",
+    "semanticProgramSet": "6cd57b6a10b071db4e14802c18b0d04a92b23f1196667f32b7920f0cfffa9586",
+    "runtimeRouting": "07e106327f6f4222d4f0ef65ad53b71bd6fbe99cd7c34b2a8c01fca9d81f90eb",
+    "webgpuCVocabulary": "7d7779ae0bf3717d046419cc6ca988b251bfb61588f70142733729e4be688cd2",
+    "projection": "95e5e39d7aa45748c31e434fb689452b9affa57e4aee84ddf35f901c22b895b1"
   },
   "operation": {
     "operationId": "GPU.requestAdapter",
@@ -1672,6 +1672,80 @@
       },
       "bodySchema": "queueWriteTextureRequestBodyV1",
       "completionBodySchema": "empty"
+    },
+    {
+      "operationId": "GPUQueue.copyExternalImageToTexture",
+      "wireId": 2194495720,
+      "nativeCodecProgramSchema": "ibex/webgpu-native-codec-programs/2",
+      "requestCodec": "gpu-queue-copy-external-image-to-texture-service-request-v1",
+      "requestCodecTag": 27,
+      "completionCodec": "terminal-receipt-service-completion-v1",
+      "completionCodecTag": 2,
+      "productionExecutableFromCurrentAuthenticatedInputs": true,
+      "semanticTerminalMapping": {
+        "authorityPath": "semanticProjection.providerRoutingPrograms[operationId=GPUQueue.copyExternalImageToTexture]",
+        "terminals": [
+          {
+            "terminalId": "webidl-rejection",
+            "errorTiming": "synchronous-webidl",
+            "resultDisposition": "throw",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "event": {
+              "kind": "no-service-call",
+              "completionPayloadEncoderEligibility": "excluded-before-service-ingress"
+            }
+          },
+          {
+            "terminalId": "content-rejection",
+            "errorTiming": "content-timeline",
+            "resultDisposition": "throw",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "event": {
+              "kind": "no-service-call",
+              "completionPayloadEncoderEligibility": "excluded-before-owned-snapshot-service-ingress"
+            }
+          },
+          {
+            "terminalId": "later-predicate-rejection",
+            "errorTiming": "device-timeline",
+            "resultDisposition": "return-undefined-and-report-error",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "event": {
+              "kind": "operation-result",
+              "kindValue": 1,
+              "kindSymbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+              "resultKind": 0,
+              "resultKindSymbol": "EXACT_GPU_RESULT_NONE_V2",
+              "status": 0,
+              "completionVariant": "later-predicate-rejection",
+              "publicExposure": "none-wrapper-already-returned-device-error-delivered-separately"
+            }
+          },
+          {
+            "terminalId": "operation-success",
+            "errorTiming": "none",
+            "resultDisposition": "return-undefined",
+            "providerTokenCount": 1,
+            "physicalSequenceCount": 1,
+            "event": {
+              "kind": "operation-result",
+              "kindValue": 1,
+              "kindSymbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+              "resultKind": 0,
+              "resultKindSymbol": "EXACT_GPU_RESULT_NONE_V2",
+              "status": 0,
+              "completionVariant": "operation-success",
+              "publicExposure": "none-wrapper-already-returned"
+            }
+          }
+        ]
+      },
+      "bodySchema": "queueCopyExternalImageToTextureRequestBodyV1",
+      "completionBodySchema": "empty",
+      "authoritySource": "construction-private-authenticated-decoded-image-snapshot"
     },
     {
       "operationId": "GPUQueue.submit",
@@ -32692,6 +32766,663 @@
       "direction": "request",
       "mutation": "owned-byte-length-exact-bound-plus-one",
       "bytesHex": "4942475101001a005ee79db904c900000000000000050000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000000300000000000000050000000000000006cb00000000000000070000000000000037000000000000000100000000000000090000000000000000000000000000000000000000000000000000000000000000000000000001000100000101000000010000000100000001000000000000000041ffff0000000000000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+      "expected": {
+        "rejection": "fail-closed-before-provider-or-wrapper-exposure"
+      }
+    },
+    {
+      "id": "queue-copy-external-image-default-request",
+      "operationId": "GPUQueue.copyExternalImageToTexture",
+      "kind": "request",
+      "carrierProjection": {
+        "operation_id": 2194495720,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "64",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "3",
+        "queue_ingress_ordinal": "6",
+        "receiver": {
+          "kind": 4,
+          "flags": 0,
+          "object_id": "201",
+          "object_generation": "5"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "trust": "source-affine-queue-plus-full-destination-provenance-and-one-authenticated-owned-decoded-image-snapshot-never-authority",
+      "semanticOwner": "native-copy-external-image-semantic-service-before-provider-admission",
+      "bytesHex": "4942475101001b00e858cd8204c900000000000000050000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000000300000000000000060000000000000006cb0000000000000007000000000000003700000000000000010000000000000009000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000100000001000000000000000049000000000000005b00000000000000010000000000000001000000000000000200000001000000080000000100000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb040000000000000089504e470800000000000000ff0000ff00ff00ff",
+      "expected": {
+        "operationId": "GPUQueue.copyExternalImageToTexture",
+        "codec": "gpu-queue-copy-external-image-to-texture-service-request-v1",
+        "receiver": {
+          "kind": "GPUQueue",
+          "objectId": "201",
+          "objectGeneration": "5",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": null,
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "6",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "source": {
+            "origin": {
+              "x": 0,
+              "y": 0,
+              "iterableLength": null
+            },
+            "snapshot": {
+              "runtimeAddress": "73",
+              "runtimeNonce": "91",
+              "sourceId": "1",
+              "sourceGeneration": "1",
+              "width": 2,
+              "height": 1,
+              "bytesPerRow": 8,
+              "originClean": true,
+              "usability": "good",
+              "colorSpace": "srgb",
+              "alphaMode": "premultiplied",
+              "orientation": "top-left",
+              "encodedContentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "decodedContentSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "encodedBytes": [
+                137,
+                80,
+                78,
+                71
+              ],
+              "decodedPremultipliedRgba8": [
+                255,
+                0,
+                0,
+                255,
+                0,
+                255,
+                0,
+                255
+              ]
+            },
+            "flipY": false
+          },
+          "destination": {
+            "texture": {
+              "kind": "GPUTexture",
+              "objectId": "203",
+              "objectGeneration": "7",
+              "logicalDeviceId": "55",
+              "logicalDeviceGeneration": "1",
+              "providerGeneration": "9"
+            },
+            "mipLevel": 0,
+            "origin": {
+              "x": 0,
+              "y": 0,
+              "z": 0,
+              "iterableLength": null
+            },
+            "aspect": "all",
+            "colorSpace": "srgb",
+            "premultipliedAlpha": false
+          },
+          "copySize": {
+            "width": 2,
+            "height": 1,
+            "depthOrArrayLayers": 1,
+            "iterableLength": null
+          }
+        }
+      }
+    },
+    {
+      "id": "queue-copy-external-image-iterable-shape-request",
+      "operationId": "GPUQueue.copyExternalImageToTexture",
+      "kind": "request",
+      "carrierProjection": {
+        "operation_id": 2194495720,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "64",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "3",
+        "queue_ingress_ordinal": "6",
+        "receiver": {
+          "kind": 4,
+          "flags": 0,
+          "object_id": "201",
+          "object_generation": "5"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "trust": "source-affine-queue-plus-full-destination-provenance-and-one-authenticated-owned-decoded-image-snapshot-never-authority",
+      "semanticOwner": "native-copy-external-image-semantic-service-before-provider-admission",
+      "bytesHex": "4942475101001b00e858cd8204c900000000000000050000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000000300000000000000060000000000000006cb0000000000000007000000000000003700000000000000010000000000000009000000000000000200000002000000030000000000000001030000000001000000000000000102000000010000000100000001000000010300000049000000000000005b00000000000000010000000000000001000000000000000200000001000000080000000100000000010101aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb040000000000000089504e470800000000000000ff0000ff00ff00ff",
+      "expected": {
+        "operationId": "GPUQueue.copyExternalImageToTexture",
+        "codec": "gpu-queue-copy-external-image-to-texture-service-request-v1",
+        "receiver": {
+          "kind": "GPUQueue",
+          "objectId": "201",
+          "objectGeneration": "5",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": null,
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "6",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "source": {
+            "origin": {
+              "x": 1,
+              "y": 0,
+              "iterableLength": 2
+            },
+            "snapshot": {
+              "runtimeAddress": "73",
+              "runtimeNonce": "91",
+              "sourceId": "1",
+              "sourceGeneration": "1",
+              "width": 2,
+              "height": 1,
+              "bytesPerRow": 8,
+              "originClean": true,
+              "usability": "good",
+              "colorSpace": "srgb",
+              "alphaMode": "premultiplied",
+              "orientation": "top-left",
+              "encodedContentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "decodedContentSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "encodedBytes": [
+                137,
+                80,
+                78,
+                71
+              ],
+              "decodedPremultipliedRgba8": [
+                255,
+                0,
+                0,
+                255,
+                0,
+                255,
+                0,
+                255
+              ]
+            },
+            "flipY": true
+          },
+          "destination": {
+            "texture": {
+              "kind": "GPUTexture",
+              "objectId": "203",
+              "objectGeneration": "7",
+              "logicalDeviceId": "55",
+              "logicalDeviceGeneration": "1",
+              "providerGeneration": "9"
+            },
+            "mipLevel": 2,
+            "origin": {
+              "x": 2,
+              "y": 3,
+              "z": 0,
+              "iterableLength": 3
+            },
+            "aspect": "all",
+            "colorSpace": "display-p3",
+            "premultipliedAlpha": true
+          },
+          "copySize": {
+            "width": 1,
+            "height": 1,
+            "depthOrArrayLayers": 1,
+            "iterableLength": 3
+          }
+        }
+      }
+    },
+    {
+      "id": "queue-copy-external-image-request-cross-device-rejected",
+      "operationId": "GPUQueue.copyExternalImageToTexture",
+      "kind": "semantic-rejection",
+      "direction": "request",
+      "mutation": "destination-logical-device-id-differs",
+      "carrierProjection": {
+        "operation_id": 2194495720,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "64",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "3",
+        "queue_ingress_ordinal": "6",
+        "receiver": {
+          "kind": 4,
+          "flags": 0,
+          "object_id": "201",
+          "object_generation": "5"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "semanticTerminalId": "later-predicate-rejection",
+      "firstFailingPredicate": "queue.copy-external-image-to-texture.destination",
+      "bytesHex": "4942475101001b00e858cd8204c900000000000000050000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000000300000000000000060000000000000006cb0000000000000007000000000000003800000000000000010000000000000009000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000100000001000000000000000049000000000000005b00000000000000010000000000000001000000000000000200000001000000080000000100000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb040000000000000089504e470800000000000000ff0000ff00ff00ff",
+      "expected": {
+        "convertedArguments": {
+          "source": {
+            "origin": {
+              "x": 0,
+              "y": 0,
+              "iterableLength": null
+            },
+            "snapshot": {
+              "runtimeAddress": "73",
+              "runtimeNonce": "91",
+              "sourceId": "1",
+              "sourceGeneration": "1",
+              "width": 2,
+              "height": 1,
+              "bytesPerRow": 8,
+              "originClean": true,
+              "usability": "good",
+              "colorSpace": "srgb",
+              "alphaMode": "premultiplied",
+              "orientation": "top-left",
+              "encodedContentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "decodedContentSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "encodedBytes": [
+                137,
+                80,
+                78,
+                71
+              ],
+              "decodedPremultipliedRgba8": [
+                255,
+                0,
+                0,
+                255,
+                0,
+                255,
+                0,
+                255
+              ]
+            },
+            "flipY": false
+          },
+          "destination": {
+            "texture": {
+              "kind": "GPUTexture",
+              "objectId": "203",
+              "objectGeneration": "7",
+              "logicalDeviceId": "56",
+              "logicalDeviceGeneration": "1",
+              "providerGeneration": "9"
+            },
+            "mipLevel": 0,
+            "origin": {
+              "x": 0,
+              "y": 0,
+              "z": 0,
+              "iterableLength": null
+            },
+            "aspect": "all",
+            "colorSpace": "srgb",
+            "premultipliedAlpha": false
+          },
+          "copySize": {
+            "width": 2,
+            "height": 1,
+            "depthOrArrayLayers": 1,
+            "iterableLength": null
+          }
+        },
+        "rejection": "device-timeline-validation-before-provider-admission",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "queue-copy-external-image-request-cross-provider-rejected",
+      "operationId": "GPUQueue.copyExternalImageToTexture",
+      "kind": "semantic-rejection",
+      "direction": "request",
+      "mutation": "destination-provider-generation-differs",
+      "carrierProjection": {
+        "operation_id": 2194495720,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "64",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "3",
+        "queue_ingress_ordinal": "6",
+        "receiver": {
+          "kind": 4,
+          "flags": 0,
+          "object_id": "201",
+          "object_generation": "5"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "semanticTerminalId": "later-predicate-rejection",
+      "firstFailingPredicate": "queue.copy-external-image-to-texture.destination",
+      "bytesHex": "4942475101001b00e858cd8204c900000000000000050000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000000300000000000000060000000000000006cb000000000000000700000000000000370000000000000001000000000000000a000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000100000001000000000000000049000000000000005b00000000000000010000000000000001000000000000000200000001000000080000000100000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb040000000000000089504e470800000000000000ff0000ff00ff00ff",
+      "expected": {
+        "convertedArguments": {
+          "source": {
+            "origin": {
+              "x": 0,
+              "y": 0,
+              "iterableLength": null
+            },
+            "snapshot": {
+              "runtimeAddress": "73",
+              "runtimeNonce": "91",
+              "sourceId": "1",
+              "sourceGeneration": "1",
+              "width": 2,
+              "height": 1,
+              "bytesPerRow": 8,
+              "originClean": true,
+              "usability": "good",
+              "colorSpace": "srgb",
+              "alphaMode": "premultiplied",
+              "orientation": "top-left",
+              "encodedContentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "decodedContentSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "encodedBytes": [
+                137,
+                80,
+                78,
+                71
+              ],
+              "decodedPremultipliedRgba8": [
+                255,
+                0,
+                0,
+                255,
+                0,
+                255,
+                0,
+                255
+              ]
+            },
+            "flipY": false
+          },
+          "destination": {
+            "texture": {
+              "kind": "GPUTexture",
+              "objectId": "203",
+              "objectGeneration": "7",
+              "logicalDeviceId": "55",
+              "logicalDeviceGeneration": "1",
+              "providerGeneration": "10"
+            },
+            "mipLevel": 0,
+            "origin": {
+              "x": 0,
+              "y": 0,
+              "z": 0,
+              "iterableLength": null
+            },
+            "aspect": "all",
+            "colorSpace": "srgb",
+            "premultipliedAlpha": false
+          },
+          "copySize": {
+            "width": 2,
+            "height": 1,
+            "depthOrArrayLayers": 1,
+            "iterableLength": null
+          }
+        },
+        "rejection": "device-timeline-validation-before-provider-admission",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "queue-copy-external-image-later-predicate-rejection-result",
+      "operationId": "GPUQueue.copyExternalImageToTexture",
+      "kind": "result",
+      "semanticTerminalId": "later-predicate-rejection",
+      "carrierProjection": {
+        "kind": 1,
+        "record": {
+          "operation_result": {
+            "result_kind": 0,
+            "status": 0,
+            "operation": {
+              "operation_id": 2194495720,
+              "operation_instance_id": "64",
+              "promise_id": "0",
+              "provider_admission": 0,
+              "physical_sequence": "0",
+              "captured_scope_id": "2",
+              "adapter_ordinal": "0",
+              "device_ingress_ordinal": "3",
+              "queue_ingress_ordinal": "6",
+              "device_transition": 0,
+              "ingress_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "result_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "provider_generation": "9",
+              "receiver": {
+                "kind": 4,
+                "flags": 0,
+                "object_id": "201",
+                "object_generation": "5"
+              },
+              "target": {
+                "kind": 0,
+                "flags": 0,
+                "object_id": "0",
+                "object_generation": "0"
+              }
+            }
+          }
+        }
+      },
+      "bytesHex": "",
+      "expected": {
+        "kind": "terminal-receipt",
+        "value": "undefined"
+      }
+    },
+    {
+      "id": "queue-copy-external-image-operation-success-result",
+      "operationId": "GPUQueue.copyExternalImageToTexture",
+      "kind": "result",
+      "semanticTerminalId": "operation-success",
+      "carrierProjection": {
+        "kind": 1,
+        "record": {
+          "operation_result": {
+            "result_kind": 0,
+            "status": 0,
+            "operation": {
+              "operation_id": 2194495720,
+              "operation_instance_id": "64",
+              "promise_id": "0",
+              "provider_admission": 1,
+              "physical_sequence": "73",
+              "captured_scope_id": "2",
+              "adapter_ordinal": "0",
+              "device_ingress_ordinal": "3",
+              "queue_ingress_ordinal": "6",
+              "device_transition": 0,
+              "ingress_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "result_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "provider_generation": "9",
+              "receiver": {
+                "kind": 4,
+                "flags": 0,
+                "object_id": "201",
+                "object_generation": "5"
+              },
+              "target": {
+                "kind": 0,
+                "flags": 0,
+                "object_id": "0",
+                "object_generation": "0"
+              }
+            }
+          }
+        }
+      },
+      "bytesHex": "",
+      "expected": {
+        "kind": "terminal-receipt",
+        "value": "undefined"
+      }
+    },
+    {
+      "id": "queue-copy-external-image-request-truncated-rejected",
+      "operationId": "GPUQueue.copyExternalImageToTexture",
+      "kind": "binary-rejection",
+      "direction": "request",
+      "mutation": "truncate-final-decoded-byte",
+      "bytesHex": "4942475101001b00e858cd8204c900000000000000050000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000000300000000000000060000000000000006cb0000000000000007000000000000003700000000000000010000000000000009000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000100000001000000000000000049000000000000005b00000000000000010000000000000001000000000000000200000001000000080000000100000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb040000000000000089504e470800000000000000ff0000ff00ff00",
+      "expected": {
+        "rejection": "fail-closed-before-provider-or-wrapper-exposure"
+      }
+    },
+    {
+      "id": "queue-copy-external-image-request-trailing-byte-rejected",
+      "operationId": "GPUQueue.copyExternalImageToTexture",
+      "kind": "binary-rejection",
+      "direction": "request",
+      "mutation": "append-trailing-byte",
+      "bytesHex": "4942475101001b00e858cd8204c900000000000000050000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000000300000000000000060000000000000006cb0000000000000007000000000000003700000000000000010000000000000009000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000100000001000000000000000049000000000000005b00000000000000010000000000000001000000000000000200000001000000080000000100000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb040000000000000089504e470800000000000000ff0000ff00ff00ffa5",
+      "expected": {
+        "rejection": "fail-closed-before-provider-or-wrapper-exposure"
+      }
+    },
+    {
+      "id": "queue-copy-external-image-request-destination-kind-rejected",
+      "operationId": "GPUQueue.copyExternalImageToTexture",
+      "kind": "binary-rejection",
+      "direction": "request",
+      "mutation": "destination-kind-GPUDevice",
+      "bytesHex": "4942475101001b00e858cd8204c900000000000000050000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000000300000000000000060000000000000003cb0000000000000007000000000000003700000000000000010000000000000009000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000100000001000000000000000049000000000000005b00000000000000010000000000000001000000000000000200000001000000080000000100000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb040000000000000089504e470800000000000000ff0000ff00ff00ff",
+      "expected": {
+        "rejection": "fail-closed-before-provider-or-wrapper-exposure"
+      }
+    },
+    {
+      "id": "queue-copy-external-image-request-source-origin-shape-rejected",
+      "operationId": "GPUQueue.copyExternalImageToTexture",
+      "kind": "binary-rejection",
+      "direction": "request",
+      "mutation": "source-origin-shape-tag-two",
+      "bytesHex": "4942475101001b00e858cd8204c900000000000000050000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000000300000000000000060000000000000006cb0000000000000007000000000000003700000000000000010000000000000009000000000000000000000000000000000000000000000000000000000000000000000000000200000000020000000100000001000000000000000049000000000000005b00000000000000010000000000000001000000000000000200000001000000080000000100000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb040000000000000089504e470800000000000000ff0000ff00ff00ff",
+      "expected": {
+        "rejection": "fail-closed-before-provider-or-wrapper-exposure"
+      }
+    },
+    {
+      "id": "queue-copy-external-image-request-origin-clean-rejected",
+      "operationId": "GPUQueue.copyExternalImageToTexture",
+      "kind": "binary-rejection",
+      "direction": "request",
+      "mutation": "origin-clean-zero",
+      "bytesHex": "4942475101001b00e858cd8204c900000000000000050000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000000300000000000000060000000000000006cb0000000000000007000000000000003700000000000000010000000000000009000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000100000001000000000000000049000000000000005b00000000000000010000000000000001000000000000000200000001000000080000000000000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb040000000000000089504e470800000000000000ff0000ff00ff00ff",
+      "expected": {
+        "rejection": "fail-closed-before-provider-or-wrapper-exposure"
+      }
+    },
+    {
+      "id": "queue-copy-external-image-request-decoded-profile-rejected",
+      "operationId": "GPUQueue.copyExternalImageToTexture",
+      "kind": "binary-rejection",
+      "direction": "request",
+      "mutation": "decoded-color-space-tag-one",
+      "bytesHex": "4942475101001b00e858cd8204c900000000000000050000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000000300000000000000060000000000000006cb0000000000000007000000000000003700000000000000010000000000000009000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000100000001000000000000000049000000000000005b00000000000000010000000000000001000000000000000200000001000000080000000100010000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb040000000000000089504e470800000000000000ff0000ff00ff00ff",
+      "expected": {
+        "rejection": "fail-closed-before-provider-or-wrapper-exposure"
+      }
+    },
+    {
+      "id": "queue-copy-external-image-request-owned-byte-bound-rejected",
+      "operationId": "GPUQueue.copyExternalImageToTexture",
+      "kind": "binary-rejection",
+      "direction": "request",
+      "mutation": "encoded-byte-length-exact-bound-plus-one",
+      "bytesHex": "4942475101001b00e858cd8204c900000000000000050000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000000300000000000000060000000000000006cb0000000000000007000000000000003700000000000000010000000000000009000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000100000001000000000000000049000000000000005b00000000000000010000000000000001000000000000000200000001000000080000000100000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbcafeff000000000089504e470800000000000000ff0000ff00ff00ff",
       "expected": {
         "rejection": "fail-closed-before-provider-or-wrapper-exposure"
       }

@@ -1837,6 +1837,12 @@ export function createProductionWebGpuPrivateBinding(
     return codecs.convertPublicArguments(operationId, args, {
       reference,
       referenceIfBranded,
+      ...(privateImageBitmaps
+        ? {
+            snapshotExternalImageForCopy:
+              privateImageBitmaps.snapshotForExternalCopy,
+          }
+        : {}),
     });
   };
 
@@ -1868,6 +1874,12 @@ export function createProductionWebGpuPrivateBinding(
         statesByReference.set(referenceKey(projected), state);
         return projected;
       },
+      ...(privateImageBitmaps
+        ? {
+            snapshotExternalImageForCopy:
+              privateImageBitmaps.snapshotForExternalCopy,
+          }
+        : {}),
     });
     return Object.freeze({ converted, statesByReference });
   };
@@ -4879,6 +4891,31 @@ export function createProductionWebGpuPrivateBinding(
       false,
     );
   });
+
+  defineMethod(
+    mutablePrototypes.GPUQueue,
+    'copyExternalImageToTexture',
+    function (
+      this: object,
+      source: unknown,
+      destination: unknown,
+      copySize: unknown,
+    ) {
+      const queue = requireState(this, 'GPUQueue');
+      const converted = convert('GPUQueue.copyExternalImageToTexture', [
+        source,
+        destination,
+        copySize,
+      ]);
+      submitService(
+        'GPUQueue.copyExternalImageToTexture',
+        queue,
+        undefined,
+        converted,
+        false,
+      );
+    },
+  );
 
   defineMethod(mutablePrototypes.GPUQueue, 'submit', function (
     this: object,

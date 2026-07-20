@@ -349,6 +349,7 @@ function createFakeCodecs(
         operationId === 'GPUBuffer.unmap' ||
         operationId === 'GPUQueue.writeBuffer' ||
         operationId === 'GPUQueue.writeTexture' ||
+        operationId === 'GPUQueue.copyExternalImageToTexture' ||
         operationId === 'GPUTexture.createView' ||
         operationId === 'GPUTexture.destroy' ||
         operationId === 'GPUCanvasContext.configure' ||
@@ -400,7 +401,8 @@ function createFakeCodecs(
         input.operationId === 'GPUBuffer.unmap' ||
         input.operationId === 'GPUQueue.writeBuffer' ||
         input.operationId === 'GPUTexture.createView' ||
-        input.operationId === 'GPUQueue.writeTexture'
+        input.operationId === 'GPUQueue.writeTexture' ||
+        input.operationId === 'GPUQueue.copyExternalImageToTexture'
       ) {
         return WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
           .encodeServiceRequest(input);
@@ -826,7 +828,7 @@ describe('production-private WebGPU wrapper gate', () => {
 
   test('keeps generated codecs injection-only while the native decoder is not installed', () => {
     expect(WEBGPU_PRODUCTION_PLAN.codecReadiness).toBe(
-      'generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-native-codec-not-installed',
+      'generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-native-codec-not-installed',
     );
   });
   test('fails closed without a V2 provider and executable codec authority', () => {
@@ -1663,6 +1665,124 @@ describe('production-private WebGPU wrapper factory', () => {
         },
       },
     });
+    binding.revoke();
+  });
+
+  test('routes copyExternalImageToTexture with one authenticated decoded-plane snapshot', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs([], { distinctLiveDevices: true }),
+      {},
+      {
+        decodedImageAuthority: Object.freeze({
+          async decodePng(request) {
+            return Object.freeze({
+              runtimeAddress: request.runtimeAddress,
+              runtimeNonce: request.runtimeNonce,
+              sourceId: request.sourceId,
+              sourceGeneration: request.sourceGeneration,
+              width: 1,
+              height: 1,
+              bytesPerRow: 4,
+              encodedBytes: request.encodedBytes,
+              decodedPremultipliedRgba8: new Uint8Array([1, 2, 3, 4]),
+              encodedContentSha256: 'ab'.repeat(32),
+              decodedContentSha256: 'cd'.repeat(32),
+              originClean: true as const,
+              colorSpace: 'srgb' as const,
+              alphaMode: 'premultiplied' as const,
+              orientation: 'top-left' as const,
+            });
+          },
+        }),
+      },
+    );
+    const device = await requestTestRecordingDevice(binding) as TestGpuDevice & {
+      queue: TestGpuDevice['queue'] & {
+        copyExternalImageToTexture(
+          source: unknown,
+          destination: unknown,
+          size: unknown,
+        ): void;
+      };
+    };
+    const texture = device.createTexture({
+      format: 'rgba8unorm',
+      size: { width: 1, height: 1, depthOrArrayLayers: 1 },
+      usage: 18,
+    });
+    const bitmap = await binding.createImageBitmap!(
+      new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' }),
+    );
+    device.queue.copyExternalImageToTexture(
+      { source: bitmap, origin: [0, 0], flipY: true },
+      {
+        texture,
+        origin: [0, 0, 0],
+        colorSpace: 'srgb',
+        premultipliedAlpha: false,
+      },
+      [1, 1, 1],
+    );
+    const wireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (route) => route.operationId === 'GPUQueue.copyExternalImageToTexture',
+    )?.wireId;
+    const submission = bridge.submissions.findLast(
+      (candidate) => candidate.operationId === wireId,
+    );
+    expect(submission).toBeDefined();
+    expect(submission?.wantsPromise).toBe(false);
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      submission!.payload,
+    )).toMatchObject({
+      operationId: 'GPUQueue.copyExternalImageToTexture',
+      convertedArguments: {
+        source: {
+          origin: { x: 0, y: 0, iterableLength: 2 },
+          flipY: true,
+          snapshot: {
+            runtimeAddress: bridge.runtimeAddress,
+            runtimeNonce: bridge.runtimeNonce,
+            sourceId: '1',
+            sourceGeneration: '1',
+            width: 1,
+            height: 1,
+            bytesPerRow: 4,
+            encodedBytes: [137, 80, 78, 71],
+            decodedPremultipliedRgba8: [1, 2, 3, 4],
+            originClean: true,
+            usability: 'good',
+          },
+        },
+        destination: {
+          texture: { kind: 'GPUTexture' },
+          origin: { x: 0, y: 0, z: 0, iterableLength: 3 },
+          colorSpace: 'srgb',
+          premultipliedAlpha: false,
+        },
+        copySize: {
+          width: 1,
+          height: 1,
+          depthOrArrayLayers: 1,
+          iterableLength: 3,
+        },
+      },
+    });
+
+    (bitmap as { close(): void }).close();
+    const submissionCount = bridge.submissions.length;
+    expect(() => device.queue.copyExternalImageToTexture(
+      { source: bitmap, origin: [1, 0] },
+      { texture },
+      [1, 1, 1],
+    )).toThrowError(expect.objectContaining({ name: 'OperationError' }));
+    expect(() => device.queue.copyExternalImageToTexture(
+      { source: bitmap },
+      { texture },
+      [1, 1, 1],
+    )).toThrowError(expect.objectContaining({ name: 'InvalidStateError' }));
+    expect(bridge.submissions).toHaveLength(submissionCount);
     binding.revoke();
   });
 

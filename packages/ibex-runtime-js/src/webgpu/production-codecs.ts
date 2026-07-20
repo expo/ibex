@@ -3,6 +3,7 @@
 // plan alone is intentionally insufficient to publish navigator.gpu.
 
 import type { NativeGpuEventV2 } from './native-bridge';
+import type { ProductionGpuExternalImageSnapshotV1 } from './private-image-bitmap';
 import { WEBGPU_PRODUCTION_PLAN } from './production-plan.generated';
 
 export type ProductionGpuWrapperKind =
@@ -95,6 +96,16 @@ export interface ProductionGpuCodecWrapperAccess {
     value: unknown,
     expectedKind?: ProductionGpuWrapperKind,
   ) => Readonly<ProductionGpuFullObjectReference>;
+  /** Construction-private authenticated ImageBitmap content snapshot. */
+  readonly snapshotExternalImageForCopy?: (
+    value: unknown,
+    sourceOrigin: Readonly<{ x: number; y: number }>,
+    copySize: Readonly<{
+      width: number;
+      height: number;
+      depthOrArrayLayers: number;
+    }>,
+  ) => ProductionGpuExternalImageSnapshotV1;
 }
 
 export type ProductionGpuBufferLifecycleEncoding =

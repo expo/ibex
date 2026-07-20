@@ -97,6 +97,7 @@ export interface ProductionGpuExternalImageSnapshotV1 extends ProductionGpuDecod
   readonly encodedContentSha256: string;
   readonly decodedContentSha256: string;
   readonly originClean: true;
+  readonly usability: 'good';
   readonly colorSpace: 'srgb';
   readonly alphaMode: 'premultiplied';
   readonly orientation: 'top-left';
@@ -106,6 +107,15 @@ export interface ProductionGpuPrivateImageBitmapFactoryV1 {
   readonly createImageBitmap: (source: Blob) => Promise<object>;
   readonly snapshotForCopy: (
     bitmap: unknown,
+  ) => ProductionGpuExternalImageSnapshotV1;
+  readonly snapshotForExternalCopy: (
+    bitmap: unknown,
+    sourceOrigin: Readonly<{ x: number; y: number }>,
+    copySize: Readonly<{
+      width: number;
+      height: number;
+      depthOrArrayLayers: number;
+    }>,
   ) => ProductionGpuExternalImageSnapshotV1;
   readonly revoke: () => void;
 }
@@ -515,6 +525,7 @@ export function createProductionGpuPrivateImageBitmapFactoryV1(
       encodedContentSha256: plane.encodedContentSha256,
       decodedContentSha256: plane.decodedContentSha256,
       originClean: true,
+      usability: 'good',
       colorSpace: 'srgb',
       alphaMode: 'premultiplied',
       orientation: 'top-left',
@@ -527,6 +538,27 @@ export function createProductionGpuPrivateImageBitmapFactoryV1(
     return Object.preventExtensions(bitmap);
   };
 
+  const snapshotState = (
+    state: BitmapState,
+  ): ProductionGpuExternalImageSnapshotV1 => Object.freeze({
+    runtimeAddress: state.runtimeAddress,
+    runtimeNonce: state.runtimeNonce,
+    sourceId: state.sourceId,
+    sourceGeneration: state.sourceGeneration,
+    width: state.width,
+    height: state.height,
+    bytesPerRow: state.bytesPerRow,
+    encodedBytes: state.encodedBytes.slice(),
+    decodedPremultipliedRgba8: state.decodedPremultipliedRgba8.slice(),
+    encodedContentSha256: state.encodedContentSha256,
+    decodedContentSha256: state.decodedContentSha256,
+    originClean: true,
+    usability: 'good',
+    colorSpace: 'srgb',
+    alphaMode: 'premultiplied',
+    orientation: 'top-left',
+  });
+
   return Object.freeze({
     createImageBitmap,
     snapshotForCopy(bitmap: unknown): ProductionGpuExternalImageSnapshotV1 {
@@ -537,23 +569,41 @@ export function createProductionGpuPrivateImageBitmapFactoryV1(
         throw namedError('InvalidStateError', 'ImageBitmap is closed');
       // Queue content processing owns a fresh immutable plane. Later close(),
       // host mutation, or another upload cannot change the selected bytes.
-      return Object.freeze({
-        runtimeAddress: state.runtimeAddress,
-        runtimeNonce: state.runtimeNonce,
-        sourceId: state.sourceId,
-        sourceGeneration: state.sourceGeneration,
-        width: state.width,
-        height: state.height,
-        bytesPerRow: state.bytesPerRow,
-        encodedBytes: state.encodedBytes.slice(),
-        decodedPremultipliedRgba8: state.decodedPremultipliedRgba8.slice(),
-        encodedContentSha256: state.encodedContentSha256,
-        decodedContentSha256: state.decodedContentSha256,
-        originClean: true,
-        colorSpace: 'srgb',
-        alphaMode: 'premultiplied',
-        orientation: 'top-left',
-      });
+      return snapshotState(state);
+    },
+    snapshotForExternalCopy(
+      bitmap: unknown,
+      sourceOrigin: Readonly<{ x: number; y: number }>,
+      copySize: Readonly<{
+        width: number;
+        height: number;
+        depthOrArrayLayers: number;
+      }>,
+    ): ProductionGpuExternalImageSnapshotV1 {
+      if (!active)
+        throw namedError('SecurityError', 'Decoded-image realm is revoked');
+      const state = requireState(bitmap);
+      // This checkpoint factory only mints origin-clean sources. Keep the
+      // security predicate explicit and before every range/usability check so
+      // expanding the private source profile cannot silently reorder it.
+      if (state.originClean !== true) {
+        throw namedError('SecurityError', 'ImageBitmap is not origin-clean');
+      }
+      if (
+        sourceOrigin.x > state.width ||
+        copySize.width > state.width - sourceOrigin.x ||
+        sourceOrigin.y > state.height ||
+        copySize.height > state.height - sourceOrigin.y ||
+        copySize.depthOrArrayLayers > 1
+      ) {
+        throw namedError(
+          'OperationError',
+          'ImageBitmap copy source range is out of bounds',
+        );
+      }
+      if (state.closed)
+        throw namedError('InvalidStateError', 'ImageBitmap is closed');
+      return snapshotState(state);
     },
     revoke(): void {
       if (!active) return;

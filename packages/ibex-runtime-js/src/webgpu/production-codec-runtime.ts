@@ -67,6 +67,7 @@ interface NativeCodecField {
     'bufferMapAsyncCompletionBodyV1' |
     'queueWriteBufferRequestBodyV1' |
     'queueWriteTextureRequestBodyV1' |
+    'queueCopyExternalImageToTextureRequestBodyV1' |
     'queueSubmitRequestBodyV1' |
     'canvasConfigureRequestBodyV1' |
     'canvasViewFormatSequenceV1' |
@@ -93,7 +94,7 @@ interface NativeCodecField {
   readonly constants?: Readonly<{
     magic: 'IBGQ' | 'IBGR';
     version: 1;
-    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26;
+    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27;
     operationWireId:
       | 1660448199
       | 194635792
@@ -117,6 +118,7 @@ interface NativeCodecField {
       | 2933046788
       | 404589710
       | 3114133342
+      | 2194495720
       | 308839175;
   }>;
   readonly constant?: 1;
@@ -239,10 +241,12 @@ interface NativeCodecCatalogReference {
     | 'gpu-canvas-unconfigure-service-request-v1'
     | 'gpu-texture-cleanup-service-request-v1'
     | 'gpu-queue-write-buffer-service-request-v1'
+    | 'gpu-queue-write-texture-service-request-v1'
+    | 'gpu-queue-copy-external-image-to-texture-service-request-v1'
     | 'gpu-sealed-command-program-sequence-service-request-v1'
     | 'gpu-buffer-map-async-service-completion-v1'
     | 'terminal-receipt-service-completion-v1';
-  readonly wireTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25;
+  readonly wireTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27;
 }
 
 interface NativeCodecCompletionVariant {
@@ -572,6 +576,13 @@ interface NativeCodecQueueWriteTextureRoute {
   readonly completion: NativeCodecBufferLifecycleRoute['completion'];
 }
 
+interface NativeCodecQueueCopyExternalImageToTextureRoute {
+  readonly operationId: 'GPUQueue.copyExternalImageToTexture';
+  readonly wireId: 2194495720;
+  readonly request: NativeCodecBufferLifecycleRoute['request'];
+  readonly completion: NativeCodecBufferLifecycleRoute['completion'];
+}
+
 interface NativeCodecQueueSubmitRoute {
   readonly operationId: 'GPUQueue.submit';
   readonly wireId: 308839175;
@@ -606,7 +617,7 @@ interface NativeCodecCanvasServiceRoute {
 export interface NativeCodecProgramsV2 {
   readonly schema: 'ibex/webgpu-native-codec-programs/2';
   readonly disposition:
-    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-native-codec-not-installed-no-support-claim';
+    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-native-codec-not-installed-no-support-claim';
   readonly dispatch: Readonly<{
     carrierPath: 'ExactGpuSemanticCallV2.operation_id';
     payloadOperationWireIdRole:
@@ -701,6 +712,7 @@ export interface NativeCodecProgramsV2 {
     textureDestroyRequestBodyV1: Readonly<Record<string, unknown>>;
     queueWriteBufferRequestBodyV1: Readonly<Record<string, unknown>>;
     queueWriteTextureRequestBodyV1: Readonly<Record<string, unknown>>;
+    queueCopyExternalImageToTextureRequestBodyV1: Readonly<Record<string, unknown>>;
     commandRecordV1: Readonly<Record<string, unknown>>;
     queueSubmitRequestBodyV1: Readonly<Record<string, unknown>>;
     commandEncoderDescriptorV1: Readonly<Record<string, unknown>>;
@@ -731,6 +743,7 @@ export interface NativeCodecProgramsV2 {
     | NativeCodecCanvasServiceRoute
     | NativeCodecQueueWriteBufferRoute
     | NativeCodecQueueWriteTextureRoute
+    | NativeCodecQueueCopyExternalImageToTextureRoute
     | NativeCodecQueueSubmitRoute
   )[];
 }
@@ -1024,6 +1037,14 @@ const QUEUE_WRITE_TEXTURE_REQUEST_CODEC =
 const QUEUE_WRITE_TEXTURE_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
 const QUEUE_WRITE_TEXTURE_FIXED_PAYLOAD_BYTES = 192;
+const QUEUE_COPY_EXTERNAL_IMAGE_OPERATION_ID =
+  'GPUQueue.copyExternalImageToTexture';
+const QUEUE_COPY_EXTERNAL_IMAGE_WIRE_ID = 2194495720;
+const QUEUE_COPY_EXTERNAL_IMAGE_REQUEST_CODEC =
+  'gpu-queue-copy-external-image-to-texture-service-request-v1';
+const QUEUE_COPY_EXTERNAL_IMAGE_COMPLETION_CODEC =
+  'terminal-receipt-service-completion-v1';
+const QUEUE_COPY_EXTERNAL_IMAGE_FIXED_PAYLOAD_BYTES = 311;
 const QUEUE_SUBMIT_OPERATION_ID = 'GPUQueue.submit';
 const QUEUE_SUBMIT_WIRE_ID = 308839175;
 const QUEUE_SUBMIT_REQUEST_CODEC =
@@ -1058,6 +1079,8 @@ const EXPECTED_QUEUE_WRITE_BUFFER_NATIVE_CODEC_SHA256 =
   'a04a12cd84364bc18fd85f4aa9d786aa89d1a06abb4110c7b794b2d9404cc104';
 const EXPECTED_QUEUE_WRITE_TEXTURE_NATIVE_CODEC_SHA256 =
   '6f351b9a6fb152bc15e0c34cc1b5e4fc21bfbb51e1e08e3589f53bca91fe59ba';
+const EXPECTED_QUEUE_COPY_EXTERNAL_IMAGE_NATIVE_CODEC_SHA256 =
+  '0549e8c873541fee19da573b8c0fa5197475ec000c414f79011b6452c1b4bada';
 const EXPECTED_QUEUE_SUBMIT_NATIVE_CODEC_SHA256 =
   '7384eadbb32ba1bdbf6986661155b6fc5ce91804d78c90c85b491c05e5ce1bf6';
 const EXPECTED_CANVAS_NATIVE_CODEC_SHA256 =
@@ -1080,7 +1103,8 @@ type NativeCodecProgramsWithoutQueueSubmitTypes = Omit<
     'sha256DigestV1' | 'canvasConfigureRequestBodyV1' |
     'canvasViewFormatSequenceV1' |
     'canvasUnconfigureRequestBodyV1' | 'canvasCurrentTextureOriginV1' |
-    'textureDestroyRequestBodyV1' | 'queueWriteTextureRequestBodyV1'
+    'textureDestroyRequestBodyV1' | 'queueWriteTextureRequestBodyV1' |
+    'queueCopyExternalImageToTextureRequestBodyV1'
   >;
 };
 
@@ -1135,7 +1159,7 @@ const BIND_GROUP_LAYOUT_VIEW_DIMENSIONS = Object.freeze([
 const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
   schema: 'ibex/webgpu-native-codec-programs/2',
   disposition:
-    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-native-codec-not-installed-no-support-claim',
+    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-native-codec-not-installed-no-support-claim',
   dispatch: {
     carrierPath: 'ExactGpuSemanticCallV2.operation_id',
     payloadOperationWireIdRole:
@@ -3337,6 +3361,7 @@ interface ValidatedNativeCodecProgram {
   readonly textureDestroyRoute: NativeCodecCanvasServiceRoute;
   readonly queueWriteBufferRoute: NativeCodecQueueWriteBufferRoute;
   readonly queueWriteTextureRoute: NativeCodecQueueWriteTextureRoute;
+  readonly queueCopyExternalImageRoute: NativeCodecQueueCopyExternalImageToTextureRoute;
   readonly queueSubmitRoute: NativeCodecQueueSubmitRoute;
   readonly noneResultKind: 0;
   readonly nullResultKind: 2;
@@ -3555,6 +3580,7 @@ function validateNativeCodecProgram(
     canvasCurrentTextureOriginV1,
     textureDestroyRequestBodyV1,
     queueWriteTextureRequestBodyV1,
+    queueCopyExternalImageToTextureRequestBodyV1,
     ...nativeTypesWithoutQueueSubmit
   } = manifest.nativeCodecPrograms.types;
   void commandRecordV1;
@@ -3566,6 +3592,7 @@ function validateNativeCodecProgram(
   void canvasCurrentTextureOriginV1;
   void textureDestroyRequestBodyV1;
   void queueWriteTextureRequestBodyV1;
+  void queueCopyExternalImageToTextureRequestBodyV1;
   if (
     sha256HexUtf8(canonicalManifestJson(computePipelineDescriptorV1)) !==
       EXPECTED_CREATE_COMPUTE_PIPELINE_DESCRIPTOR_SHA256
@@ -3602,6 +3629,7 @@ function validateNativeCodecProgram(
         candidate.operationId !== TEXTURE_DESTROY_OPERATION_ID &&
         candidate.operationId !== QUEUE_WRITE_BUFFER_OPERATION_ID &&
         candidate.operationId !== QUEUE_WRITE_TEXTURE_OPERATION_ID &&
+        candidate.operationId !== QUEUE_COPY_EXTERNAL_IMAGE_OPERATION_ID &&
         candidate.operationId !== QUEUE_SUBMIT_OPERATION_ID,
     ),
   };
@@ -3671,6 +3699,30 @@ function validateNativeCodecProgram(
   ) {
     throw new Error(
       `Invalid authenticated GPUQueue.writeTexture codec program: ${queueWriteTextureProgramSha256}`,
+    );
+  }
+  const queueCopyExternalImageProgram = {
+    types: {
+      sha256DigestV1: manifest.nativeCodecPrograms.types.sha256DigestV1,
+      ownedBytesV1: manifest.nativeCodecPrograms.types.ownedBytesV1,
+      queueCopyExternalImageToTextureRequestBodyV1:
+        manifest.nativeCodecPrograms.types
+          .queueCopyExternalImageToTextureRequestBodyV1,
+    },
+    routes: manifest.nativeCodecPrograms.routes.filter(
+      (candidate) =>
+        candidate.operationId === QUEUE_COPY_EXTERNAL_IMAGE_OPERATION_ID,
+    ),
+  };
+  const queueCopyExternalImageProgramSha256 = sha256HexUtf8(
+    canonicalManifestJson(queueCopyExternalImageProgram),
+  );
+  if (
+    queueCopyExternalImageProgramSha256 !==
+      EXPECTED_QUEUE_COPY_EXTERNAL_IMAGE_NATIVE_CODEC_SHA256
+  ) {
+    throw new Error(
+      `Invalid authenticated GPUQueue.copyExternalImageToTexture codec program: ${queueCopyExternalImageProgramSha256}`,
     );
   }
   const queueSubmitProgram = {
@@ -3804,6 +3856,10 @@ function validateNativeCodecProgram(
   const queueWriteTextureRoute = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecQueueWriteTextureRoute =>
       candidate.operationId === QUEUE_WRITE_TEXTURE_OPERATION_ID,
+  );
+  const queueCopyExternalImageRoute = manifest.nativeCodecPrograms.routes.find(
+    (candidate): candidate is NativeCodecQueueCopyExternalImageToTextureRoute =>
+      candidate.operationId === QUEUE_COPY_EXTERNAL_IMAGE_OPERATION_ID,
   );
   const queueSubmitRoute = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecQueueSubmitRoute =>
@@ -3977,6 +4033,18 @@ function validateNativeCodecProgram(
   const queueWriteTextureCompletionCodec = manifest.serviceCompletions.find(
     (candidate) => candidate.tag === QUEUE_WRITE_TEXTURE_COMPLETION_CODEC,
   );
+  const queueCopyExternalImagePlanRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) =>
+      candidate.operationId === QUEUE_COPY_EXTERNAL_IMAGE_OPERATION_ID,
+  );
+  const queueCopyExternalImageRequestCodec = manifest.serviceArguments.find(
+    (candidate) => candidate.tag === QUEUE_COPY_EXTERNAL_IMAGE_REQUEST_CODEC,
+  );
+  const queueCopyExternalImageCompletionCodec =
+    manifest.serviceCompletions.find(
+      (candidate) =>
+        candidate.tag === QUEUE_COPY_EXTERNAL_IMAGE_COMPLETION_CODEC,
+    );
   const queueSubmitRequestCodec = manifest.serviceArguments.find(
     (candidate) =>
       candidate.tag === QUEUE_SUBMIT_REQUEST_CODEC,
@@ -4670,10 +4738,10 @@ function validateNativeCodecProgram(
     )
     .replace(`,${contentRejectionTerminalCanonical}`, '');
   if (
-    manifest.nativeCodecPrograms.routes.length !== 23 ||
+    manifest.nativeCodecPrograms.routes.length !== 24 ||
     new Set(
       manifest.nativeCodecPrograms.routes.map((candidate) => candidate.operationId),
-    ).size !== 23 ||
+    ).size !== 24 ||
     !route ||
     !requestDeviceRoute ||
     !createBindGroupRoute ||
@@ -4696,6 +4764,7 @@ function validateNativeCodecProgram(
     !textureDestroyRoute ||
     !queueWriteBufferRoute ||
     !queueWriteTextureRoute ||
+    !queueCopyExternalImageRoute ||
     !queueSubmitRoute ||
     canonicalManifestJson(createCommandEncoderRoute) !==
       canonicalManifestJson(expectedCreateCommandEncoderRoute) ||
@@ -4946,6 +5015,22 @@ function validateNativeCodecProgram(
     queueWriteTextureRequestCodec.unavailableSemanticFields.length !== 0 ||
     queueWriteTextureCompletionCodec?.wireTag !==
       queueWriteTextureRoute.completion.catalog.wireTag ||
+    !queueCopyExternalImagePlanRoute ||
+    queueCopyExternalImagePlanRoute.wireId !==
+      QUEUE_COPY_EXTERNAL_IMAGE_WIRE_ID ||
+    queueCopyExternalImagePlanRoute.serviceArgumentCodec !==
+      QUEUE_COPY_EXTERNAL_IMAGE_REQUEST_CODEC ||
+    queueCopyExternalImagePlanRoute.serviceCompletionCodec !==
+      QUEUE_COPY_EXTERNAL_IMAGE_COMPLETION_CODEC ||
+    queueCopyExternalImageRequestCodec?.wireTag !==
+      queueCopyExternalImageRoute.request.catalog.wireTag ||
+    queueCopyExternalImageRequestCodec?.nativeProgramPrerequisitesRepresented !==
+      true ||
+    queueCopyExternalImageRequestCodec?.executableFromCurrentAuthenticatedInputs !==
+      true ||
+    queueCopyExternalImageRequestCodec.unavailableSemanticFields.length !== 0 ||
+    queueCopyExternalImageCompletionCodec?.wireTag !==
+      queueCopyExternalImageRoute.completion.catalog.wireTag ||
     !queueSubmitPlanRoute ||
     queueSubmitPlanRoute.wireId !== QUEUE_SUBMIT_WIRE_ID ||
     queueSubmitPlanRoute.serviceArgumentCodec !== QUEUE_SUBMIT_REQUEST_CODEC ||
@@ -5033,6 +5118,8 @@ function validateNativeCodecProgram(
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     queueWriteTextureRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
+    queueCopyExternalImageRoute.completion.commonCarrierConstraints.at(-1)?.value !==
+      manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     queueSubmitRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2
   ) {
@@ -5080,6 +5167,7 @@ function validateNativeCodecProgram(
     textureDestroyRoute,
     queueWriteBufferRoute,
     queueWriteTextureRoute,
+    queueCopyExternalImageRoute,
     queueSubmitRoute,
     noneResultKind: manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2,
     nullResultKind: manifest.carrierConstants.EXACT_GPU_RESULT_NULL_V2,
@@ -6598,6 +6686,326 @@ function convertQueueWriteTextureArguments(
   });
 }
 
+function convertCopyExternalOrigin2D(
+  value: unknown,
+  sequenceMaximum: number,
+): Readonly<{ x: number; y: number; iterableLength: number | null }> {
+  if (!isObjectLike(value)) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture source.origin must be an iterable or dictionary',
+    );
+  }
+  const iteratorMethod = value[Symbol.iterator];
+  if (iteratorMethod !== undefined && iteratorMethod !== null) {
+    if (typeof iteratorMethod !== 'function') {
+      throw new TypeError(
+        'GPUQueue.copyExternalImageToTexture source.origin @@iterator must be callable',
+      );
+    }
+    const sourceIterator = Reflect.apply(iteratorMethod, value, []);
+    if (!isIteratorObjectForNativeForOf(sourceIterator)) {
+      throw new TypeError(
+        'GPUQueue.copyExternalImageToTexture source.origin iterator must be an object',
+      );
+    }
+    const converted: number[] = [];
+    const iterable = { [Symbol.iterator]() { return sourceIterator; } };
+    for (const member of iterable) {
+      if (converted.length >= sequenceMaximum) {
+        throw new TypeError(
+          'GPUQueue.copyExternalImageToTexture source.origin sequence exceeds the structural transport bound',
+        );
+      }
+      converted.push(u32(
+        member,
+        `GPUQueue.copyExternalImageToTexture source.origin[${converted.length}]`,
+      ));
+    }
+    return frozenRecord({
+      x: converted[0] ?? 0,
+      y: converted[1] ?? 0,
+      iterableLength: converted.length,
+    });
+  }
+  // Web IDL dictionary conversion observes members lexicographically.
+  const x = u32(
+    value.x,
+    'GPUQueue.copyExternalImageToTexture source.origin.x',
+    0,
+  );
+  const y = u32(
+    value.y,
+    'GPUQueue.copyExternalImageToTexture source.origin.y',
+    0,
+  );
+  return frozenRecord({ x, y, iterableLength: null });
+}
+
+function convertCopyExternalDestinationOrigin(
+  value: unknown,
+  sequenceMaximum: number,
+): Readonly<{
+  x: number;
+  y: number;
+  z: number;
+  iterableLength: number | null;
+}> {
+  if (!isObjectLike(value)) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture destination.origin must be an iterable or dictionary',
+    );
+  }
+  const iteratorMethod = value[Symbol.iterator];
+  if (iteratorMethod !== undefined && iteratorMethod !== null) {
+    if (typeof iteratorMethod !== 'function') {
+      throw new TypeError(
+        'GPUQueue.copyExternalImageToTexture destination.origin @@iterator must be callable',
+      );
+    }
+    const sourceIterator = Reflect.apply(iteratorMethod, value, []);
+    if (!isIteratorObjectForNativeForOf(sourceIterator)) {
+      throw new TypeError(
+        'GPUQueue.copyExternalImageToTexture destination.origin iterator must be an object',
+      );
+    }
+    const converted: number[] = [];
+    const iterable = { [Symbol.iterator]() { return sourceIterator; } };
+    for (const member of iterable) {
+      if (converted.length >= sequenceMaximum) {
+        throw new TypeError(
+          'GPUQueue.copyExternalImageToTexture destination.origin sequence exceeds the structural transport bound',
+        );
+      }
+      converted.push(u32(
+        member,
+        `GPUQueue.copyExternalImageToTexture destination.origin[${converted.length}]`,
+      ));
+    }
+    return frozenRecord({
+      x: converted[0] ?? 0,
+      y: converted[1] ?? 0,
+      z: converted[2] ?? 0,
+      iterableLength: converted.length,
+    });
+  }
+  const x = u32(
+    value.x,
+    'GPUQueue.copyExternalImageToTexture destination.origin.x',
+    0,
+  );
+  const y = u32(
+    value.y,
+    'GPUQueue.copyExternalImageToTexture destination.origin.y',
+    0,
+  );
+  const z = u32(
+    value.z,
+    'GPUQueue.copyExternalImageToTexture destination.origin.z',
+    0,
+  );
+  return frozenRecord({ x, y, z, iterableLength: null });
+}
+
+function convertCopyExternalExtent(
+  value: unknown,
+  sequenceMaximum: number,
+): Readonly<{
+  width: number;
+  height: number;
+  depthOrArrayLayers: number;
+  iterableLength: number | null;
+}> {
+  if (!isObjectLike(value)) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture copySize must be an iterable or dictionary',
+    );
+  }
+  const iteratorMethod = value[Symbol.iterator];
+  if (iteratorMethod !== undefined && iteratorMethod !== null) {
+    if (typeof iteratorMethod !== 'function') {
+      throw new TypeError(
+        'GPUQueue.copyExternalImageToTexture copySize @@iterator must be callable',
+      );
+    }
+    const sourceIterator = Reflect.apply(iteratorMethod, value, []);
+    if (!isIteratorObjectForNativeForOf(sourceIterator)) {
+      throw new TypeError(
+        'GPUQueue.copyExternalImageToTexture copySize iterator must be an object',
+      );
+    }
+    const converted: number[] = [];
+    const iterable = { [Symbol.iterator]() { return sourceIterator; } };
+    for (const member of iterable) {
+      if (converted.length >= sequenceMaximum) {
+        throw new TypeError(
+          'GPUQueue.copyExternalImageToTexture copySize sequence exceeds the structural transport bound',
+        );
+      }
+      converted.push(u32(
+        member,
+        `GPUQueue.copyExternalImageToTexture copySize[${converted.length}]`,
+      ));
+    }
+    return frozenRecord({
+      width: converted[0] ?? 0,
+      height: converted[1] ?? 1,
+      depthOrArrayLayers: converted[2] ?? 1,
+      iterableLength: converted.length,
+    });
+  }
+  const depthOrArrayLayers = u32(
+    value.depthOrArrayLayers,
+    'GPUQueue.copyExternalImageToTexture copySize.depthOrArrayLayers',
+    1,
+  );
+  const height = u32(
+    value.height,
+    'GPUQueue.copyExternalImageToTexture copySize.height',
+    1,
+  );
+  const widthValue = value.width;
+  if (widthValue === undefined) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture copySize.width is required',
+    );
+  }
+  const width = u32(
+    widthValue,
+    'GPUQueue.copyExternalImageToTexture copySize.width',
+  );
+  return frozenRecord({ width, height, depthOrArrayLayers, iterableLength: null });
+}
+
+function convertQueueCopyExternalImageArguments(
+  args: readonly unknown[],
+  wrappers: ProductionGpuCodecWrapperAccess,
+  sequenceMaximum: number,
+  payloadMaximum: number,
+): Readonly<Record<string, unknown>> {
+  const sourceDictionary = dictionary(
+    args[0],
+    'GPUQueue.copyExternalImageToTexture source',
+  );
+  const flipY = Boolean(sourceDictionary.flipY);
+  const sourceOriginValue = sourceDictionary.origin;
+  const sourceOrigin = convertCopyExternalOrigin2D(
+    sourceOriginValue === undefined ? Object.create(null) : sourceOriginValue,
+    sequenceMaximum,
+  );
+  const sourceImage = sourceDictionary.source;
+  if (sourceImage === undefined) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture source.source is required',
+    );
+  }
+
+  const destinationDictionary = dictionary(
+    args[1],
+    'GPUQueue.copyExternalImageToTexture destination',
+  );
+  const aspectValue = destinationDictionary.aspect;
+  const aspect = aspectValue === undefined
+    ? 'all'
+    : enumValue(
+        aspectValue,
+        ['all', 'stencil-only', 'depth-only'],
+        'GPUQueue.copyExternalImageToTexture destination.aspect',
+      );
+  const colorSpaceValue = destinationDictionary.colorSpace;
+  const colorSpace = colorSpaceValue === undefined
+    ? 'srgb'
+    : enumValue(
+        colorSpaceValue,
+        ['srgb', 'display-p3'],
+        'GPUQueue.copyExternalImageToTexture destination.colorSpace',
+      );
+  const mipLevel = u32(
+    destinationDictionary.mipLevel,
+    'GPUQueue.copyExternalImageToTexture destination.mipLevel',
+    0,
+  );
+  const destinationOriginValue = destinationDictionary.origin;
+  const destinationOrigin = convertCopyExternalDestinationOrigin(
+    destinationOriginValue === undefined
+      ? Object.create(null)
+      : destinationOriginValue,
+    sequenceMaximum,
+  );
+  const premultipliedAlpha = Boolean(destinationDictionary.premultipliedAlpha);
+  const textureValue = destinationDictionary.texture;
+  if (textureValue === undefined) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture destination.texture is required',
+    );
+  }
+  const texture = wrappers.reference(textureValue, 'GPUTexture');
+
+  const copySize = convertCopyExternalExtent(args[2], sequenceMaximum);
+
+  // All public dictionaries and sequence members have now converted. Shape
+  // validation precedes the first authenticated source-content inspection.
+  if (
+    sourceOrigin.iterableLength !== null &&
+    sourceOrigin.iterableLength > 2
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture source.origin sequence must contain at most two members',
+    );
+  }
+  if (
+    destinationOrigin.iterableLength !== null &&
+    destinationOrigin.iterableLength > 3
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture destination.origin sequence must contain at most three members',
+    );
+  }
+  if (
+    copySize.iterableLength !== null &&
+    (copySize.iterableLength < 1 || copySize.iterableLength > 3)
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture copySize sequence must contain one to three members',
+    );
+  }
+  const snapshotExternalImageForCopy =
+    wrappers.snapshotExternalImageForCopy;
+  if (snapshotExternalImageForCopy === undefined) {
+    throw new WebGpuDOMException(
+      'Private decoded-image authority is unavailable',
+      'SecurityError',
+    );
+  }
+  const snapshot = snapshotExternalImageForCopy(
+    sourceImage,
+    sourceOrigin,
+    copySize,
+  );
+  const available = payloadMaximum - QUEUE_COPY_EXTERNAL_IMAGE_FIXED_PAYLOAD_BYTES;
+  if (
+    available < 0 ||
+    snapshot.encodedBytes.byteLength > available ||
+    snapshot.decodedPremultipliedRgba8.byteLength >
+      available - snapshot.encodedBytes.byteLength
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture source snapshot violates its exact payload bound',
+    );
+  }
+  return frozenRecord({
+    source: frozenRecord({ origin: sourceOrigin, snapshot, flipY }),
+    destination: frozenRecord({
+      texture,
+      mipLevel,
+      origin: destinationOrigin,
+      aspect,
+      colorSpace,
+      premultipliedAlpha,
+    }),
+    copySize,
+  });
+}
+
 function convertSamplerDescriptor(
   value: unknown,
   vocabulary: ExecutableWebGpuCodecManifest['webIdlVocabulary'],
@@ -7822,6 +8230,50 @@ type QueueWriteTextureBody = Readonly<{
     iterableLength: number | null;
   }>;
   bytes: Uint8Array;
+}>;
+
+type QueueCopyExternalImageBody = Readonly<{
+  destination: ProductionGpuServiceEncodingInput['receiver'];
+  mipLevel: number;
+  destinationOrigin: Readonly<{
+    x: number;
+    y: number;
+    z: number;
+    iterableLength: number | null;
+  }>;
+  aspect: 'all' | 'stencil-only' | 'depth-only';
+  sourceOrigin: Readonly<{
+    x: number;
+    y: number;
+    iterableLength: number | null;
+  }>;
+  copySize: Readonly<{
+    width: number;
+    height: number;
+    depthOrArrayLayers: number;
+    iterableLength: number | null;
+  }>;
+  snapshot: Readonly<{
+    runtimeAddress: string;
+    runtimeNonce: string;
+    sourceId: string;
+    sourceGeneration: string;
+    width: number;
+    height: number;
+    bytesPerRow: number;
+    originClean: true;
+    usability: 'good';
+    colorSpace: 'srgb';
+    alphaMode: 'premultiplied';
+    orientation: 'top-left';
+    encodedContentSha256: string;
+    decodedContentSha256: string;
+    encodedBytes: Uint8Array;
+    decodedPremultipliedRgba8: Uint8Array;
+  }>;
+  flipY: boolean;
+  uploadColorSpace: 'srgb' | 'display-p3';
+  premultipliedAlpha: boolean;
 }>;
 
 function arrayBufferViewBytes(value: ArrayBufferView, label: string): Uint8Array {
@@ -9084,6 +9536,584 @@ function readQueueWriteTextureBody(
       iterableLength: extentShape === 0 ? null : extentIterableLength,
     }),
     bytes,
+  });
+}
+
+function validateQueueCopyExternalImageRequestFields(
+  input: ProductionGpuServiceEncodingInput,
+  maximum: number,
+): QueueCopyExternalImageBody {
+  if (
+    input.receiver.kind !== 'GPUQueue' ||
+    input.target !== undefined ||
+    input.adapterOrdinal !== '0' ||
+    !Array.isArray(input.sealedLocalTimeline) ||
+    input.sealedLocalTimeline.length !== 0 ||
+    input.bufferLifecycle !== undefined ||
+    input.canvasService !== undefined
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture request violates its carrier projection',
+    );
+  }
+  positiveIdentity(input.receiver.objectId, 'GPUQueue.objectId');
+  positiveIdentity(input.receiver.objectGeneration, 'GPUQueue.objectGeneration');
+  positiveIdentity(input.receiver.logicalDeviceId, 'GPUQueue.logicalDeviceId');
+  positiveIdentity(
+    input.receiver.logicalDeviceGeneration,
+    'GPUQueue.logicalDeviceGeneration',
+  );
+  positiveIdentity(input.receiver.providerGeneration, 'GPUQueue.providerGeneration');
+  parseU64Decimal(input.capturedScopeId);
+  positiveIdentity(input.deviceIngressOrdinal, 'GPUQueue.deviceIngressOrdinal');
+  positiveIdentity(input.queueIngressOrdinal, 'GPUQueue.queueIngressOrdinal');
+  if (
+    typeof input.convertedArguments !== 'object' ||
+    input.convertedArguments === null ||
+    Array.isArray(input.convertedArguments)
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture converted arguments are missing',
+    );
+  }
+  const converted = input.convertedArguments as Readonly<Record<string, unknown>>;
+  exactLifecycleKeys(
+    converted,
+    ['source', 'destination', 'copySize'],
+    'GPUQueue.copyExternalImageToTexture converted arguments',
+  );
+  if (
+    typeof converted.source !== 'object' ||
+    converted.source === null ||
+    Array.isArray(converted.source)
+  ) {
+    throw new TypeError('GPUQueue.copyExternalImageToTexture source is missing');
+  }
+  const source = converted.source as Readonly<Record<string, unknown>>;
+  exactLifecycleKeys(
+    source,
+    ['origin', 'snapshot', 'flipY'],
+    'GPUQueue.copyExternalImageToTexture source',
+  );
+  if (
+    typeof source.origin !== 'object' ||
+    source.origin === null ||
+    Array.isArray(source.origin)
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture source origin is missing',
+    );
+  }
+  const sourceOrigin = source.origin as Readonly<Record<string, unknown>>;
+  exactLifecycleKeys(
+    sourceOrigin,
+    ['x', 'y', 'iterableLength'],
+    'GPUQueue.copyExternalImageToTexture source origin',
+  );
+  if (
+    !isConvertedU32(sourceOrigin.x) ||
+    !isConvertedU32(sourceOrigin.y) ||
+    (sourceOrigin.iterableLength !== null &&
+      (!isConvertedU32(sourceOrigin.iterableLength) ||
+        sourceOrigin.iterableLength > 2))
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture source origin has an invalid closed shape',
+    );
+  }
+  if (
+    typeof source.snapshot !== 'object' ||
+    source.snapshot === null ||
+    Array.isArray(source.snapshot)
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture authenticated source snapshot is missing',
+    );
+  }
+  const snapshot = source.snapshot as Readonly<Record<string, unknown>>;
+  exactLifecycleKeys(
+    snapshot,
+    [
+      'runtimeAddress',
+      'runtimeNonce',
+      'sourceId',
+      'sourceGeneration',
+      'width',
+      'height',
+      'bytesPerRow',
+      'encodedBytes',
+      'decodedPremultipliedRgba8',
+      'encodedContentSha256',
+      'decodedContentSha256',
+      'originClean',
+      'usability',
+      'colorSpace',
+      'alphaMode',
+      'orientation',
+    ],
+    'GPUQueue.copyExternalImageToTexture authenticated source snapshot',
+  );
+  if (
+    typeof snapshot.runtimeAddress !== 'string' ||
+    typeof snapshot.runtimeNonce !== 'string' ||
+    typeof snapshot.sourceId !== 'string' ||
+    typeof snapshot.sourceGeneration !== 'string'
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture source identity is invalid',
+    );
+  }
+  positiveIdentity(snapshot.runtimeAddress, 'decoded source runtimeAddress');
+  positiveIdentity(snapshot.runtimeNonce, 'decoded source runtimeNonce');
+  positiveIdentity(snapshot.sourceId, 'decoded source sourceId');
+  positiveIdentity(snapshot.sourceGeneration, 'decoded source sourceGeneration');
+  if (
+    !isConvertedU32(snapshot.width) ||
+    !isConvertedU32(snapshot.height) ||
+    !isConvertedU32(snapshot.bytesPerRow) ||
+    snapshot.width === 0 ||
+    snapshot.height === 0 ||
+    snapshot.bytesPerRow !== snapshot.width * 4 ||
+    snapshot.originClean !== true ||
+    snapshot.usability !== 'good' ||
+    snapshot.colorSpace !== 'srgb' ||
+    snapshot.alphaMode !== 'premultiplied' ||
+    snapshot.orientation !== 'top-left' ||
+    typeof snapshot.encodedContentSha256 !== 'string' ||
+    !/^[0-9a-f]{64}$/u.test(snapshot.encodedContentSha256) ||
+    typeof snapshot.decodedContentSha256 !== 'string' ||
+    !/^[0-9a-f]{64}$/u.test(snapshot.decodedContentSha256) ||
+    !(snapshot.encodedBytes instanceof Uint8Array) ||
+    !(snapshot.decodedPremultipliedRgba8 instanceof Uint8Array) ||
+    snapshot.decodedPremultipliedRgba8.byteLength !==
+      snapshot.bytesPerRow * snapshot.height
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture source snapshot is not canonical',
+    );
+  }
+  if (typeof source.flipY !== 'boolean') {
+    throw new TypeError('GPUQueue.copyExternalImageToTexture flipY is invalid');
+  }
+
+  if (
+    typeof converted.destination !== 'object' ||
+    converted.destination === null ||
+    Array.isArray(converted.destination)
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture destination is missing',
+    );
+  }
+  const destinationDictionary = converted.destination as Readonly<Record<string, unknown>>;
+  exactLifecycleKeys(
+    destinationDictionary,
+    [
+      'texture',
+      'mipLevel',
+      'origin',
+      'aspect',
+      'colorSpace',
+      'premultipliedAlpha',
+    ],
+    'GPUQueue.copyExternalImageToTexture destination',
+  );
+  if (
+    typeof destinationDictionary.texture !== 'object' ||
+    destinationDictionary.texture === null ||
+    Array.isArray(destinationDictionary.texture)
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture destination texture is missing',
+    );
+  }
+  const destination = destinationDictionary.texture as Readonly<Record<string, unknown>>;
+  exactLifecycleKeys(
+    destination,
+    [
+      'kind',
+      'objectId',
+      'objectGeneration',
+      'logicalDeviceId',
+      'logicalDeviceGeneration',
+      'providerGeneration',
+    ],
+    'GPUQueue.copyExternalImageToTexture texture reference',
+  );
+  if (
+    destination.kind !== 'GPUTexture' ||
+    typeof destination.objectId !== 'string' ||
+    typeof destination.objectGeneration !== 'string' ||
+    typeof destination.logicalDeviceId !== 'string' ||
+    typeof destination.logicalDeviceGeneration !== 'string' ||
+    typeof destination.providerGeneration !== 'string'
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture destination is not a full GPUTexture reference',
+    );
+  }
+  positiveIdentity(destination.objectId, 'GPUTexture.objectId');
+  positiveIdentity(destination.objectGeneration, 'GPUTexture.objectGeneration');
+  positiveIdentity(destination.logicalDeviceId, 'GPUTexture.logicalDeviceId');
+  positiveIdentity(
+    destination.logicalDeviceGeneration,
+    'GPUTexture.logicalDeviceGeneration',
+  );
+  positiveIdentity(destination.providerGeneration, 'GPUTexture.providerGeneration');
+  if (!isConvertedU32(destinationDictionary.mipLevel)) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture mipLevel is invalid',
+    );
+  }
+  if (
+    typeof destinationDictionary.origin !== 'object' ||
+    destinationDictionary.origin === null ||
+    Array.isArray(destinationDictionary.origin)
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture destination origin is missing',
+    );
+  }
+  const destinationOrigin = destinationDictionary.origin as Readonly<Record<string, unknown>>;
+  exactLifecycleKeys(
+    destinationOrigin,
+    ['x', 'y', 'z', 'iterableLength'],
+    'GPUQueue.copyExternalImageToTexture destination origin',
+  );
+  if (
+    !isConvertedU32(destinationOrigin.x) ||
+    !isConvertedU32(destinationOrigin.y) ||
+    !isConvertedU32(destinationOrigin.z) ||
+    (destinationOrigin.iterableLength !== null &&
+      (!isConvertedU32(destinationOrigin.iterableLength) ||
+        destinationOrigin.iterableLength > 3))
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture destination origin has an invalid closed shape',
+    );
+  }
+  if (
+    destinationDictionary.aspect !== 'all' &&
+    destinationDictionary.aspect !== 'stencil-only' &&
+    destinationDictionary.aspect !== 'depth-only'
+  ) {
+    throw new TypeError('GPUQueue.copyExternalImageToTexture aspect is invalid');
+  }
+  if (
+    destinationDictionary.colorSpace !== 'srgb' &&
+    destinationDictionary.colorSpace !== 'display-p3'
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture upload color space is invalid',
+    );
+  }
+  if (typeof destinationDictionary.premultipliedAlpha !== 'boolean') {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture premultipliedAlpha is invalid',
+    );
+  }
+
+  if (
+    typeof converted.copySize !== 'object' ||
+    converted.copySize === null ||
+    Array.isArray(converted.copySize)
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture copySize is missing',
+    );
+  }
+  const copySize = converted.copySize as Readonly<Record<string, unknown>>;
+  exactLifecycleKeys(
+    copySize,
+    ['width', 'height', 'depthOrArrayLayers', 'iterableLength'],
+    'GPUQueue.copyExternalImageToTexture copySize',
+  );
+  if (
+    !isConvertedU32(copySize.width) ||
+    !isConvertedU32(copySize.height) ||
+    !isConvertedU32(copySize.depthOrArrayLayers) ||
+    (copySize.iterableLength !== null &&
+      (!isConvertedU32(copySize.iterableLength) ||
+        copySize.iterableLength < 1 ||
+        copySize.iterableLength > 3))
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture copySize has an invalid closed shape',
+    );
+  }
+  const encodedBytes = snapshot.encodedBytes as Uint8Array;
+  const decodedBytes = snapshot.decodedPremultipliedRgba8 as Uint8Array;
+  const available = maximum - QUEUE_COPY_EXTERNAL_IMAGE_FIXED_PAYLOAD_BYTES;
+  if (
+    available < 0 ||
+    encodedBytes.byteLength > available ||
+    decodedBytes.byteLength > available - encodedBytes.byteLength
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture source snapshot violates its exact payload bound',
+    );
+  }
+  return Object.freeze({
+    destination: destination as QueueCopyExternalImageBody['destination'],
+    mipLevel: destinationDictionary.mipLevel as number,
+    destinationOrigin: Object.freeze({
+      x: destinationOrigin.x as number,
+      y: destinationOrigin.y as number,
+      z: destinationOrigin.z as number,
+      iterableLength: destinationOrigin.iterableLength as number | null,
+    }),
+    aspect: destinationDictionary.aspect,
+    sourceOrigin: Object.freeze({
+      x: sourceOrigin.x as number,
+      y: sourceOrigin.y as number,
+      iterableLength: sourceOrigin.iterableLength as number | null,
+    }),
+    copySize: Object.freeze({
+      width: copySize.width as number,
+      height: copySize.height as number,
+      depthOrArrayLayers: copySize.depthOrArrayLayers as number,
+      iterableLength: copySize.iterableLength as number | null,
+    }),
+    snapshot: snapshot as QueueCopyExternalImageBody['snapshot'],
+    flipY: source.flipY,
+    uploadColorSpace: destinationDictionary.colorSpace,
+    premultipliedAlpha: destinationDictionary.premultipliedAlpha,
+  });
+}
+
+function writeQueueCopyExternalImageBody(
+  writer: Writer,
+  body: QueueCopyExternalImageBody,
+  maximum: number,
+  objectKinds: Readonly<Record<ProductionGpuWrapperKind, number>>,
+): void {
+  writeReference(writer, body.destination, objectKinds);
+  writer.u32(body.mipLevel);
+  writer.u32(body.destinationOrigin.x);
+  writer.u32(body.destinationOrigin.y);
+  writer.u32(body.destinationOrigin.z);
+  writer.u8(body.destinationOrigin.iterableLength === null ? 0 : 1);
+  writer.u32(body.destinationOrigin.iterableLength ?? 0);
+  writer.u8({ all: 0, 'stencil-only': 1, 'depth-only': 2 }[body.aspect]);
+  writer.u32(body.sourceOrigin.x);
+  writer.u32(body.sourceOrigin.y);
+  writer.u8(body.sourceOrigin.iterableLength === null ? 0 : 1);
+  writer.u32(body.sourceOrigin.iterableLength ?? 0);
+  writer.u32(body.copySize.width);
+  writer.u32(body.copySize.height);
+  writer.u32(body.copySize.depthOrArrayLayers);
+  writer.u8(body.copySize.iterableLength === null ? 0 : 1);
+  writer.u32(body.copySize.iterableLength ?? 0);
+  writer.u64(body.snapshot.runtimeAddress);
+  writer.u64(body.snapshot.runtimeNonce);
+  writer.u64(body.snapshot.sourceId);
+  writer.u64(body.snapshot.sourceGeneration);
+  writer.u32(body.snapshot.width);
+  writer.u32(body.snapshot.height);
+  writer.u32(body.snapshot.bytesPerRow);
+  writer.u8(1);
+  writer.u8(0);
+  writer.u8(0);
+  writer.u8(0);
+  writer.u8(0);
+  writer.u8(body.flipY ? 1 : 0);
+  writer.u8(body.uploadColorSpace === 'srgb' ? 0 : 1);
+  writer.u8(body.premultipliedAlpha ? 1 : 0);
+  writer.raw(digestBytes(
+    body.snapshot.encodedContentSha256,
+    'GPUQueue.copyExternalImageToTexture encoded content digest',
+  ));
+  writer.raw(digestBytes(
+    body.snapshot.decodedContentSha256,
+    'GPUQueue.copyExternalImageToTexture decoded content digest',
+  ));
+  const available = maximum - QUEUE_COPY_EXTERNAL_IMAGE_FIXED_PAYLOAD_BYTES;
+  writeOwnedBytes(
+    writer,
+    body.snapshot.encodedBytes,
+    available,
+    'GPUQueue.copyExternalImageToTexture encoded source snapshot',
+  );
+  writeOwnedBytes(
+    writer,
+    body.snapshot.decodedPremultipliedRgba8,
+    available - body.snapshot.encodedBytes.byteLength,
+    'GPUQueue.copyExternalImageToTexture decoded source snapshot',
+  );
+}
+
+function readQueueCopyExternalImageBody(
+  reader: Reader,
+  maximum: number,
+  objectKindsByTag: ReadonlyMap<number, ProductionGpuWrapperKind>,
+): QueueCopyExternalImageBody {
+  const destination = readReference(reader, objectKindsByTag);
+  if (destination.kind !== 'GPUTexture') {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture destination kind is not GPUTexture',
+    );
+  }
+  positiveIdentity(destination.objectId, 'GPUTexture.objectId');
+  positiveIdentity(destination.objectGeneration, 'GPUTexture.objectGeneration');
+  positiveIdentity(destination.logicalDeviceId, 'GPUTexture.logicalDeviceId');
+  positiveIdentity(
+    destination.logicalDeviceGeneration,
+    'GPUTexture.logicalDeviceGeneration',
+  );
+  positiveIdentity(destination.providerGeneration, 'GPUTexture.providerGeneration');
+  const mipLevel = reader.u32();
+  const destinationOriginX = reader.u32();
+  const destinationOriginY = reader.u32();
+  const destinationOriginZ = reader.u32();
+  const destinationOriginShape = reader.u8();
+  const destinationOriginIterableLength = reader.u32();
+  if (
+    (destinationOriginShape === 0 && destinationOriginIterableLength !== 0) ||
+    (destinationOriginShape === 1 && destinationOriginIterableLength > 3) ||
+    (destinationOriginShape !== 0 && destinationOriginShape !== 1)
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture destination origin shape is invalid',
+    );
+  }
+  const aspectTag = reader.u8();
+  const aspect = (['all', 'stencil-only', 'depth-only'] as const)[aspectTag];
+  if (aspect === undefined) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture aspect tag is invalid',
+    );
+  }
+  const sourceOriginX = reader.u32();
+  const sourceOriginY = reader.u32();
+  const sourceOriginShape = reader.u8();
+  const sourceOriginIterableLength = reader.u32();
+  if (
+    (sourceOriginShape === 0 && sourceOriginIterableLength !== 0) ||
+    (sourceOriginShape === 1 && sourceOriginIterableLength > 2) ||
+    (sourceOriginShape !== 0 && sourceOriginShape !== 1)
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture source origin shape is invalid',
+    );
+  }
+  const width = reader.u32();
+  const height = reader.u32();
+  const depthOrArrayLayers = reader.u32();
+  const extentShape = reader.u8();
+  const extentIterableLength = reader.u32();
+  if (
+    (extentShape === 0 && extentIterableLength !== 0) ||
+    (extentShape === 1 &&
+      (extentIterableLength < 1 || extentIterableLength > 3)) ||
+    (extentShape !== 0 && extentShape !== 1)
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture extent shape is invalid',
+    );
+  }
+  const runtimeAddress = reader.u64();
+  const runtimeNonce = reader.u64();
+  const sourceId = reader.u64();
+  const sourceGeneration = reader.u64();
+  positiveIdentity(runtimeAddress, 'decoded source runtimeAddress');
+  positiveIdentity(runtimeNonce, 'decoded source runtimeNonce');
+  positiveIdentity(sourceId, 'decoded source sourceId');
+  positiveIdentity(sourceGeneration, 'decoded source sourceGeneration');
+  const sourceWidth = reader.u32();
+  const sourceHeight = reader.u32();
+  const sourceBytesPerRow = reader.u32();
+  const originClean = reader.u8();
+  const usability = reader.u8();
+  const decodedColorSpace = reader.u8();
+  const decodedAlphaMode = reader.u8();
+  const orientation = reader.u8();
+  const flipY = reader.u8();
+  const uploadColorSpace = reader.u8();
+  const premultipliedAlpha = reader.u8();
+  if (
+    sourceWidth === 0 ||
+    sourceHeight === 0 ||
+    sourceBytesPerRow !== sourceWidth * 4 ||
+    originClean !== 1 ||
+    usability !== 0 ||
+    decodedColorSpace !== 0 ||
+    decodedAlphaMode !== 0 ||
+    orientation !== 0 ||
+    (flipY !== 0 && flipY !== 1) ||
+    (uploadColorSpace !== 0 && uploadColorSpace !== 1) ||
+    (premultipliedAlpha !== 0 && premultipliedAlpha !== 1)
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture decoded source metadata is invalid',
+    );
+  }
+  const encodedContentSha256 = readDigest(reader);
+  const decodedContentSha256 = readDigest(reader);
+  const available = maximum - QUEUE_COPY_EXTERNAL_IMAGE_FIXED_PAYLOAD_BYTES;
+  const encodedBytes = readOwnedBytes(
+    reader,
+    available,
+    'GPUQueue.copyExternalImageToTexture encoded source snapshot',
+  );
+  const decodedPremultipliedRgba8 = readOwnedBytes(
+    reader,
+    available - encodedBytes.byteLength,
+    'GPUQueue.copyExternalImageToTexture decoded source snapshot',
+  );
+  if (
+    decodedPremultipliedRgba8.byteLength !==
+      sourceBytesPerRow * sourceHeight
+  ) {
+    throw new TypeError(
+      'GPUQueue.copyExternalImageToTexture decoded source byte length is invalid',
+    );
+  }
+  return Object.freeze({
+    destination,
+    mipLevel,
+    destinationOrigin: Object.freeze({
+      x: destinationOriginX,
+      y: destinationOriginY,
+      z: destinationOriginZ,
+      iterableLength: destinationOriginShape === 0
+        ? null
+        : destinationOriginIterableLength,
+    }),
+    aspect,
+    sourceOrigin: Object.freeze({
+      x: sourceOriginX,
+      y: sourceOriginY,
+      iterableLength: sourceOriginShape === 0
+        ? null
+        : sourceOriginIterableLength,
+    }),
+    copySize: Object.freeze({
+      width,
+      height,
+      depthOrArrayLayers,
+      iterableLength: extentShape === 0 ? null : extentIterableLength,
+    }),
+    snapshot: Object.freeze({
+      runtimeAddress,
+      runtimeNonce,
+      sourceId,
+      sourceGeneration,
+      width: sourceWidth,
+      height: sourceHeight,
+      bytesPerRow: sourceBytesPerRow,
+      originClean: true,
+      usability: 'good',
+      colorSpace: 'srgb',
+      alphaMode: 'premultiplied',
+      orientation: 'top-left',
+      encodedContentSha256,
+      decodedContentSha256,
+      encodedBytes,
+      decodedPremultipliedRgba8,
+    }),
+    flipY: flipY === 1,
+    uploadColorSpace: uploadColorSpace === 0 ? 'srgb' : 'display-p3',
+    premultipliedAlpha: premultipliedAlpha === 1,
   });
 }
 
@@ -12891,6 +13921,11 @@ export interface WebGpuCodecTestQueueWriteTextureResult {
   readonly terminal: 'later-predicate-rejection' | 'operation-success';
 }
 
+export interface WebGpuCodecTestQueueCopyExternalImageResult {
+  readonly kind: 'queue-copy-external-image';
+  readonly terminal: 'later-predicate-rejection' | 'operation-success';
+}
+
 export type WebGpuCodecTestServiceResult =
   | Readonly<{ kind: 'none' }>
   | Readonly<{ kind: 'null' }>
@@ -12901,7 +13936,8 @@ export type WebGpuCodecTestServiceResult =
   | WebGpuCodecTestBufferMapResult
   | WebGpuCodecTestCanvasTerminalResult
   | WebGpuCodecTestQueueWriteBufferResult
-  | WebGpuCodecTestQueueWriteTextureResult;
+  | WebGpuCodecTestQueueWriteTextureResult
+  | WebGpuCodecTestQueueCopyExternalImageResult;
 
 export function createExecutableWebGpuCodecs(
   manifest: ExecutableWebGpuCodecManifest,
@@ -12932,7 +13968,7 @@ export function createExecutableWebGpuCodecs(
   if (
     manifest.schema !== 'ibex/webgpu-executable-codec-manifest/2' ||
     manifest.disposition !==
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-native-codec-not-installed-no-support-claim' ||
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-native-codec-not-installed-no-support-claim' ||
     manifest.operationCount !== WEBGPU_PRODUCTION_PLAN.routes.length ||
     manifest.byteOrder !== 'little-endian' ||
     manifest.digests.operationSet !==
@@ -13092,6 +14128,7 @@ export function createExecutableWebGpuCodecs(
   );
   const consumedQueueWriteBufferSnapshots = new WeakSet<Uint8Array>();
   const consumedQueueWriteTextureSnapshots = new WeakSet<Uint8Array>();
+  const consumedQueueCopyExternalImageSnapshots = new WeakSet<Uint8Array>();
   if (
     routes.size !== WEBGPU_PRODUCTION_PLAN.routes.length ||
     manifest.authenticatedPromotions.length !==
@@ -13188,6 +14225,13 @@ export function createExecutableWebGpuCodecs(
           manifest.layout.sequenceMaxCount,
           manifest.maxPayloadBytes,
         );
+      case 'gpu-queue-copy-external-image-to-texture-arguments-v1':
+        return convertQueueCopyExternalImageArguments(
+          args,
+          wrappers,
+          manifest.layout.sequenceMaxCount,
+          manifest.maxPayloadBytes,
+        );
       case 'gpu-sampler-descriptor-v1':
         return convertSamplerDescriptor(args[0], manifest.webIdlVocabulary);
       case 'gpu-texture-descriptor-v1':
@@ -13278,6 +14322,7 @@ export function createExecutableWebGpuCodecs(
     let canvasServiceBody: CanvasServiceBody | undefined;
     let queueWriteBufferBody: QueueWriteBufferBody | undefined;
     let queueWriteTextureBody: QueueWriteTextureBody | undefined;
+    let queueCopyExternalImageBody: QueueCopyExternalImageBody | undefined;
     let queueSubmitBody: QueueSubmitEncodedBody | undefined;
     if (route.operationId === requestAdapterNativeProgram.route.operationId) {
       validateRequestAdapterRequestFields(
@@ -13524,6 +14569,24 @@ export function createExecutableWebGpuCodecs(
       }
     } else if (
       route.operationId ===
+        requestAdapterNativeProgram.queueCopyExternalImageRoute.operationId
+    ) {
+      queueCopyExternalImageBody =
+        validateQueueCopyExternalImageRequestFields(
+          input,
+          manifest.maxPayloadBytes,
+        );
+      if (
+        consumedQueueCopyExternalImageSnapshots.has(
+          queueCopyExternalImageBody.snapshot.decodedPremultipliedRgba8,
+        )
+      ) {
+        throw new TypeError(
+          'GPUQueue.copyExternalImageToTexture source snapshot was already consumed',
+        );
+      }
+    } else if (
+      route.operationId ===
         requestAdapterNativeProgram.queueSubmitRoute.operationId
     ) {
       queueSubmitBody = validateQueueSubmitRequestFields(
@@ -13591,6 +14654,19 @@ export function createExecutableWebGpuCodecs(
       );
       const payload = writer.finish();
       consumedQueueWriteTextureSnapshots.add(queueWriteTextureBody.bytes);
+      return payload;
+    }
+    if (queueCopyExternalImageBody) {
+      writeQueueCopyExternalImageBody(
+        writer,
+        queueCopyExternalImageBody,
+        manifest.maxPayloadBytes,
+        objectKinds,
+      );
+      const payload = writer.finish();
+      consumedQueueCopyExternalImageSnapshots.add(
+        queueCopyExternalImageBody.snapshot.decodedPremultipliedRgba8,
+      );
       return payload;
     }
     if (queueSubmitBody) {
@@ -13681,6 +14757,8 @@ export function createExecutableWebGpuCodecs(
         requestAdapterNativeProgram.textureDestroyRoute.operationId &&
       input.operationId !==
         requestAdapterNativeProgram.queueWriteTextureRoute.operationId &&
+      input.operationId !==
+        requestAdapterNativeProgram.queueCopyExternalImageRoute.operationId &&
       input.operationId !==
         requestAdapterNativeProgram.queueSubmitRoute.operationId
     ) {
@@ -14036,6 +15114,8 @@ export function createExecutableWebGpuCodecs(
       route.operationId === QUEUE_WRITE_BUFFER_OPERATION_ID;
     const queueWriteTextureRoute =
       route.operationId === QUEUE_WRITE_TEXTURE_OPERATION_ID;
+    const queueCopyExternalImageRoute =
+      route.operationId === QUEUE_COPY_EXTERNAL_IMAGE_OPERATION_ID;
     const queueSubmitRoute = route.operationId === QUEUE_SUBMIT_OPERATION_ID;
     const canvasServiceRoute =
       route.operationId === CANVAS_CONFIGURE_OPERATION_ID ||
@@ -14062,6 +15142,13 @@ export function createExecutableWebGpuCodecs(
           objectKindsByTag,
         )
       : undefined;
+    const queueCopyExternalImage = queueCopyExternalImageRoute
+      ? readQueueCopyExternalImageBody(
+          reader,
+          manifest.maxPayloadBytes,
+          objectKindsByTag,
+        )
+      : undefined;
     const queueSubmit = queueSubmitRoute
       ? readQueueSubmitBody(
           reader,
@@ -14077,7 +15164,8 @@ export function createExecutableWebGpuCodecs(
     const closedBodyTimeline: readonly unknown[] = Object.freeze([]);
     const sealedLocalTimeline = queueSubmit
       ? queueSubmit.pendingTimeline
-      : bufferLifecycleRoute || queueWriteBufferRoute || queueWriteTextureRoute
+      : bufferLifecycleRoute || queueWriteBufferRoute || queueWriteTextureRoute ||
+          queueCopyExternalImageRoute
       ? closedBodyTimeline
       : reader.value(manifest.layout);
     const canvasService = canvasServiceRoute
@@ -14125,6 +15213,24 @@ export function createExecutableWebGpuCodecs(
           dataLayout: queueWriteTexture.dataLayout,
           size: queueWriteTexture.size,
           bytes: queueWriteTexture.bytes,
+        })
+      : queueCopyExternalImage
+      ? Object.freeze({
+          source: Object.freeze({
+            origin: queueCopyExternalImage.sourceOrigin,
+            snapshot: queueCopyExternalImage.snapshot,
+            flipY: queueCopyExternalImage.flipY,
+          }),
+          destination: Object.freeze({
+            texture: queueCopyExternalImage.destination,
+            mipLevel: queueCopyExternalImage.mipLevel,
+            origin: queueCopyExternalImage.destinationOrigin,
+            aspect: queueCopyExternalImage.aspect,
+            colorSpace: queueCopyExternalImage.uploadColorSpace,
+            premultipliedAlpha:
+              queueCopyExternalImage.premultipliedAlpha,
+          }),
+          copySize: queueCopyExternalImage.copySize,
         })
       : queueSubmit
       ? Object.freeze({
@@ -14386,6 +15492,19 @@ export function createExecutableWebGpuCodecs(
         sealedLocalTimeline: closedBodyTimeline,
         convertedArguments,
       }, manifest.maxPayloadBytes);
+    } else if (queueCopyExternalImage) {
+      validateQueueCopyExternalImageRequestFields({
+        operationId: route.operationId,
+        wireId: route.wireId,
+        receiver,
+        target: target ?? undefined,
+        capturedScopeId,
+        adapterOrdinal,
+        deviceIngressOrdinal,
+        queueIngressOrdinal,
+        sealedLocalTimeline: closedBodyTimeline,
+        convertedArguments,
+      }, manifest.maxPayloadBytes);
     } else if (queueSubmit) {
       submitReference(receiver, 'GPUQueue.submit receiver', 'GPUQueue');
       if (
@@ -14450,6 +15569,32 @@ export function createExecutableWebGpuCodecs(
           dataLayout: queueWriteTexture.dataLayout,
           size: queueWriteTexture.size,
           bytes: Object.freeze(Array.from(queueWriteTexture.bytes)),
+        })
+      : queueCopyExternalImage
+      ? Object.freeze({
+          source: Object.freeze({
+            origin: queueCopyExternalImage.sourceOrigin,
+            snapshot: Object.freeze({
+              ...queueCopyExternalImage.snapshot,
+              encodedBytes: Object.freeze(Array.from(
+                queueCopyExternalImage.snapshot.encodedBytes,
+              )),
+              decodedPremultipliedRgba8: Object.freeze(Array.from(
+                queueCopyExternalImage.snapshot.decodedPremultipliedRgba8,
+              )),
+            }),
+            flipY: queueCopyExternalImage.flipY,
+          }),
+          destination: Object.freeze({
+            texture: queueCopyExternalImage.destination,
+            mipLevel: queueCopyExternalImage.mipLevel,
+            origin: queueCopyExternalImage.destinationOrigin,
+            aspect: queueCopyExternalImage.aspect,
+            colorSpace: queueCopyExternalImage.uploadColorSpace,
+            premultipliedAlpha:
+              queueCopyExternalImage.premultipliedAlpha,
+          }),
+          copySize: queueCopyExternalImage.copySize,
         })
       : convertedArguments;
     const result = frozenRecord({
@@ -14579,6 +15724,27 @@ export function createExecutableWebGpuCodecs(
       ) {
         throw new TypeError(
           'GPUQueue.writeTexture completion terminal is invalid',
+        );
+      }
+      return new Uint8Array(0);
+    }
+    if (route.operationId === QUEUE_COPY_EXTERNAL_IMAGE_OPERATION_ID) {
+      if (result.kind !== 'queue-copy-external-image') {
+        throw new TypeError(
+          'GPUQueue.copyExternalImageToTexture completion test value has the wrong shape',
+        );
+      }
+      exactLifecycleKeys(
+        result,
+        ['kind', 'terminal'],
+        'GPUQueue.copyExternalImageToTexture completion',
+      );
+      if (
+        result.terminal !== 'later-predicate-rejection' &&
+        result.terminal !== 'operation-success'
+      ) {
+        throw new TypeError(
+          'GPUQueue.copyExternalImageToTexture completion terminal is invalid',
         );
       }
       return new Uint8Array(0);

@@ -138,11 +138,11 @@
   },
   "authentication": {
     "canonicalization": "utf8-domain-line-plus-lexicographic-object-keys-arrays-preserved-v1",
-    "operationSetSha256": "41b52e49656266936aba84237cf5cbdea1003b2c9620e6fa2f8566f30b2f8a2e",
-    "semanticProgramSetSha256": "af41da4035644008c340abd9f62d0e17320ee908f8d0337ce5989e2bb9adbd25",
-    "runtimeRoutingSha256": "1a8467941a397d8722e1121d87d4d68e416858f29953feb6f197f0a173e7e61b",
-    "webgpuCVocabularySha256": "4bf8bed436a8e91c8013fb9ecc9d9efd18c87c6da03c4690e51901439d8ff7c9",
-    "projectionPayloadSha256": "bd7285fbfe1ae29921ec38ad8f08edd51810823a04486ed6807403d082a509fb"
+    "operationSetSha256": "797ba84772ab1636bd2a8ed2e29a41c425a4b57365a0ff0e386420ab77192954",
+    "semanticProgramSetSha256": "6cd57b6a10b071db4e14802c18b0d04a92b23f1196667f32b7920f0cfffa9586",
+    "runtimeRoutingSha256": "07e106327f6f4222d4f0ef65ad53b71bd6fbe99cd7c34b2a8c01fca9d81f90eb",
+    "webgpuCVocabularySha256": "7d7779ae0bf3717d046419cc6ca988b251bfb61588f70142733729e4be688cd2",
+    "projectionPayloadSha256": "95e5e39d7aa45748c31e434fb689452b9affa57e4aee84ddf35f901c22b895b1"
   },
   "payload": {
     "profileId": "exact-webgpu-v1-draft",
@@ -154,7 +154,7 @@
       "publicGlobalStatus": "not-installed",
       "nativeBindingStatus": "not-installed",
       "wrapperCodeStatus": "private-generated-not-publicly-installed",
-      "wireCodecStatus": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-native-codec-not-installed",
+      "wireCodecStatus": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-native-codec-not-installed",
       "webIdlConversionStatus": "generated-injection-only-not-installed",
       "nativeServiceDecoderStatus": "not-installed",
       "semanticServiceStatus": "not-installed",
@@ -162,7 +162,7 @@
     },
     "installInventory": {
       "actualInstalledOperationCount": 0,
-      "intendedInstallOperationCount": 57,
+      "intendedInstallOperationCount": 58,
       "intendedInstallSet": "native-triangle-plus-explicit-typegpu-graduates-plus-product-selected-private-extensions",
       "activation": "selected-build-capability-plus-authenticated-provider-plus-armed-capsec-snapshot",
       "mainRuntimeGlobal": "navigator.gpu",
@@ -338,8 +338,8 @@
     "wireEnvelope": {
       "serviceCall": "ExactGpuSemanticCallV2",
       "serviceEvent": "ExactGpuServiceEventV2",
-      "payloadEncoding": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-operation-selected-tagged-binary-v1",
-      "layoutStatus": "authenticated-abi-v2-carrier-with-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-native-codec-not-installed",
+      "payloadEncoding": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-operation-selected-tagged-binary-v1",
+      "layoutStatus": "authenticated-abi-v2-carrier-with-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-native-codec-not-installed",
       "currentAbiReadiness": "abi-v2-carrier-installed-runtime-install-still-blocked",
       "graduationTarget": "native-decoder-semantic-service-embedded-codec-arming-capsec-and-global-install-required",
       "carrierStatus": {
@@ -614,7 +614,7 @@
       "unknownRule": "unknown-operation-codec-tag-enum-or-trailing-byte-fails-closed-before-provider-call",
       "nativeCodecPrograms": {
         "schema": "ibex/webgpu-native-codec-programs/2",
-        "disposition": "request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-native-codec-not-installed-no-support-claim",
+        "disposition": "request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-native-codec-not-installed-no-support-claim",
         "dispatch": {
           "carrierPath": "ExactGpuSemanticCallV2.operation_id",
           "payloadOperationWireIdRole": "constant-and-equality-check-only-never-dispatch",
@@ -3533,6 +3533,169 @@
               "bytes-are-the-complete-synchronously-copied-whole-BufferSource-snapshot",
               "bytes-are-affine-owned-by-one-operation-instance-until-terminal-settlement",
               "maximum-bytes-subtract-the-exact-fixed-envelope-and-body-overhead-from-maxPayloadBytes"
+            ]
+          },
+          "queueCopyExternalImageToTextureRequestBodyV1": {
+            "kind": "struct",
+            "fields": [
+              {
+                "name": "destination",
+                "type": "objectReferenceV1"
+              },
+              {
+                "name": "mipLevel",
+                "type": "u32le"
+              },
+              {
+                "name": "destinationOriginX",
+                "type": "u32le"
+              },
+              {
+                "name": "destinationOriginY",
+                "type": "u32le"
+              },
+              {
+                "name": "destinationOriginZ",
+                "type": "u32le"
+              },
+              {
+                "name": "destinationOriginShape",
+                "type": "u8"
+              },
+              {
+                "name": "destinationOriginIterableLength",
+                "type": "u32le"
+              },
+              {
+                "name": "aspect",
+                "type": "u8"
+              },
+              {
+                "name": "sourceOriginX",
+                "type": "u32le"
+              },
+              {
+                "name": "sourceOriginY",
+                "type": "u32le"
+              },
+              {
+                "name": "sourceOriginShape",
+                "type": "u8"
+              },
+              {
+                "name": "sourceOriginIterableLength",
+                "type": "u32le"
+              },
+              {
+                "name": "width",
+                "type": "u32le"
+              },
+              {
+                "name": "height",
+                "type": "u32le"
+              },
+              {
+                "name": "depthOrArrayLayers",
+                "type": "u32le"
+              },
+              {
+                "name": "extentShape",
+                "type": "u8"
+              },
+              {
+                "name": "extentIterableLength",
+                "type": "u32le"
+              },
+              {
+                "name": "runtimeIdentity",
+                "type": "u64le"
+              },
+              {
+                "name": "runtimeGeneration",
+                "type": "u64le"
+              },
+              {
+                "name": "sourceId",
+                "type": "u64le"
+              },
+              {
+                "name": "sourceGeneration",
+                "type": "u64le"
+              },
+              {
+                "name": "sourceWidth",
+                "type": "u32le"
+              },
+              {
+                "name": "sourceHeight",
+                "type": "u32le"
+              },
+              {
+                "name": "sourceBytesPerRow",
+                "type": "u32le"
+              },
+              {
+                "name": "originClean",
+                "type": "u8"
+              },
+              {
+                "name": "usability",
+                "type": "u8"
+              },
+              {
+                "name": "decodedColorSpace",
+                "type": "u8"
+              },
+              {
+                "name": "decodedAlphaMode",
+                "type": "u8"
+              },
+              {
+                "name": "orientation",
+                "type": "u8"
+              },
+              {
+                "name": "flipY",
+                "type": "u8"
+              },
+              {
+                "name": "uploadColorSpace",
+                "type": "u8"
+              },
+              {
+                "name": "premultipliedAlpha",
+                "type": "u8"
+              },
+              {
+                "name": "encodedContentSha256",
+                "type": "sha256DigestV1"
+              },
+              {
+                "name": "decodedContentSha256",
+                "type": "sha256DigestV1"
+              },
+              {
+                "name": "encodedBytes",
+                "type": "ownedBytesV1"
+              },
+              {
+                "name": "decodedBytes",
+                "type": "ownedBytesV1"
+              }
+            ],
+            "invariants": [
+              "destination-is-the-exact-post-WebIDL-GPUTexture-full-reference",
+              "destination-full-reference-preserves-device-and-provider-generations-for-device-timeline-validation",
+              "destinationOriginShape-zero-is-dictionary-and-one-is-iterable-with-length-at-most-three",
+              "sourceOriginShape-zero-is-dictionary-and-one-is-iterable-with-length-at-most-two",
+              "aspect-zero-one-two-encode-all-stencil-only-depth-only-respectively",
+              "extentShape-zero-is-dictionary-and-one-is-iterable-with-length-one-through-three",
+              "runtime-and-source-identities-are-positive-generation-qualified-u64-values",
+              "originClean-one-usability-zero-colorSpace-zero-alphaMode-zero-orientation-zero-encode-the-closed-private-ImageBitmap-profile",
+              "flipY-uploadColorSpace-and-premultipliedAlpha-preserve-complete-post-WebIDL-upload-metadata",
+              "encoded-and-decoded-hashes-are-comparison-inputs-and-native-service-rehashes-both-owned-byte-blocks",
+              "encodedBytes-and-decodedBytes-are-affine-owned-by-one-operation-instance-until-terminal-settlement",
+              "maximum-byte-blocks-subtract-the-exact-fixed-envelope-and-body-overhead-from-maxPayloadBytes"
             ]
           }
         },
@@ -13031,6 +13194,439 @@
             }
           },
           {
+            "operationId": "GPUQueue.copyExternalImageToTexture",
+            "wireId": 2194495720,
+            "request": {
+              "payloadRole": "service-request-payload-decoder-plus-operation-specific-call-joins",
+              "catalog": {
+                "name": "serviceArguments",
+                "tag": "gpu-queue-copy-external-image-to-texture-service-request-v1",
+                "wireTag": 27
+              },
+              "payload": {
+                "kind": "struct",
+                "fields": [
+                  {
+                    "name": "header",
+                    "type": "headerV1",
+                    "constants": {
+                      "magic": "IBGQ",
+                      "version": 1,
+                      "codecTag": 27,
+                      "operationWireId": 2194495720
+                    }
+                  },
+                  {
+                    "name": "receiver",
+                    "type": "objectReferenceV1"
+                  },
+                  {
+                    "name": "target",
+                    "type": "optionalReferenceV1"
+                  },
+                  {
+                    "name": "capturedScopeId",
+                    "type": "u64le"
+                  },
+                  {
+                    "name": "adapterOrdinal",
+                    "type": "u64le"
+                  },
+                  {
+                    "name": "deviceIngressOrdinal",
+                    "type": "u64le"
+                  },
+                  {
+                    "name": "queueIngressOrdinal",
+                    "type": "u64le"
+                  },
+                  {
+                    "name": "body",
+                    "type": "queueCopyExternalImageToTextureRequestBodyV1"
+                  }
+                ]
+              },
+              "carrierJoins": [
+                {
+                  "payloadPath": "header.operationWireId",
+                  "carrierPath": "operation_id",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "receiver.kind",
+                  "carrierPath": "receiver.kind",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "receiver.objectId",
+                  "carrierPath": "receiver.object_id",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "receiver.objectGeneration",
+                  "carrierPath": "receiver.object_generation",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "receiver.logicalDeviceId",
+                  "carrierPath": "ingress_device.logical_device_id",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "receiver.logicalDeviceGeneration",
+                  "carrierPath": "ingress_device.logical_device_generation",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "receiver.providerGeneration",
+                  "carrierPath": "ingress_device.provider_generation",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "receiver.providerGeneration",
+                  "carrierPath": "provider_generation",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "target",
+                  "carrierPath": "target",
+                  "operator": "absent-iff-all-zero-reference"
+                },
+                {
+                  "payloadPath": "capturedScopeId",
+                  "carrierPath": "captured_scope_id",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "adapterOrdinal",
+                  "carrierPath": "adapter_ordinal",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "deviceIngressOrdinal",
+                  "carrierPath": "device_ingress_ordinal",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "queueIngressOrdinal",
+                  "carrierPath": "queue_ingress_ordinal",
+                  "operator": "equal"
+                }
+              ],
+              "carrierConstraints": [
+                {
+                  "carrierPath": "operation_id",
+                  "operator": "equal",
+                  "value": 2194495720
+                },
+                {
+                  "carrierPath": "flags",
+                  "operator": "equal",
+                  "value": 0
+                },
+                {
+                  "carrierPath": "topology_id",
+                  "operator": "equal",
+                  "valueFrom": "constants.providerTopologyId"
+                },
+                {
+                  "carrierPath": "ingress_device",
+                  "operator": "positive"
+                },
+                {
+                  "carrierPath": "provider_generation",
+                  "operator": "positive"
+                },
+                {
+                  "carrierPath": "operation_instance_id",
+                  "operator": "positive"
+                },
+                {
+                  "carrierPath": "promise_id",
+                  "operator": "equal",
+                  "value": "0"
+                },
+                {
+                  "carrierPath": "receiver.kind",
+                  "operator": "equal",
+                  "valueFrom": "objectKindTags.GPUQueue"
+                },
+                {
+                  "carrierPath": "receiver.flags",
+                  "operator": "equal",
+                  "value": 0
+                },
+                {
+                  "carrierPath": "receiver.object_id",
+                  "operator": "positive"
+                },
+                {
+                  "carrierPath": "receiver.object_generation",
+                  "operator": "positive"
+                },
+                {
+                  "carrierPath": "target",
+                  "operator": "all-zero"
+                },
+                {
+                  "carrierPath": "adapter_ordinal",
+                  "operator": "equal",
+                  "value": "0"
+                },
+                {
+                  "carrierPath": "device_ingress_ordinal",
+                  "operator": "positive"
+                },
+                {
+                  "carrierPath": "queue_ingress_ordinal",
+                  "operator": "positive"
+                }
+              ],
+              "valueConstraints": [
+                {
+                  "payloadPath": "body",
+                  "operator": "conforms-to-type",
+                  "type": "queueCopyExternalImageToTextureRequestBodyV1"
+                },
+                {
+                  "payloadPath": "body.destination",
+                  "operator": "exact-GPUTexture-full-reference-preserving-device-and-provider-generations-for-device-timeline-validation"
+                },
+                {
+                  "payloadPath": "body.sourceOrigin-and-destinationOrigin-and-copySize-and-uploadMetadata",
+                  "operator": "preserve-complete-post-WebIDL-copyExternalImageToTexture-comparison-inputs-without-device-validation"
+                },
+                {
+                  "payloadPath": "body.runtimeIdentity-and-runtimeGeneration-and-sourceId-and-sourceGeneration",
+                  "operator": "generation-qualified-private-ImageBitmap-identity-equal-to-authenticated-runtime-generation"
+                },
+                {
+                  "payloadPath": "body.encodedBytes-and-decodedBytes-and-encodedContentSha256-and-decodedContentSha256",
+                  "operator": "complete-affine-owned-private-ImageBitmap-plane-rehashed-by-native-service-before-admission"
+                }
+              ],
+              "semanticServiceBoundary": {
+                "stateAuthority": "authenticated-queue-texture-decoded-image-source-account-ledger-format-and-provider-tables",
+                "payloadRole": "source-affine-destination-content-metadata-and-owned-decoded-plane-comparison-input-only-never-authority",
+                "requiredAfterDecode": [
+                  "authenticate-source-affine-queue-receiver-and-reconstruct-device-account-and-authority",
+                  "validate-current-live-queue-device-and-provider-generations",
+                  "validate-operation-coverage",
+                  "rehash-and-authenticate-the-runtime-generation-qualified-origin-clean-decoded-image-plane",
+                  "preserve-content-timeline-origin-clean-source-range-usability-and-immutable-snapshot-order",
+                  "authenticate-current-same-device-destination-texture-full-reference-and-creation-key",
+                  "validate-destination-live-copy-dst-render-attachment-two-d-one-sample-profile-format-mip-aspect-and-range",
+                  "validate-queue-fixed-live-account-and-aggregate-envelope",
+                  "reserve-the-complete-owned-decoded-snapshot-in-both-ledgers-before-provider-admission",
+                  "reserve-provider-request-terminal-completion-and-realm-physical-sequence"
+                ],
+                "completionEncodingRequires": [
+                  "authenticated-retained-call",
+                  "service-owned-queue-write-terminal"
+                ]
+              },
+              "executablePrerequisites": [],
+              "noTrailingBytes": true
+            },
+            "completion": {
+              "payloadRole": "service-completion-payload-codec-plus-operation-specific-event-joins",
+              "catalog": {
+                "name": "serviceCompletions",
+                "tag": "terminal-receipt-service-completion-v1",
+                "wireTag": 2
+              },
+              "commonCarrierConstraints": [
+                {
+                  "carrierPath": "kind",
+                  "operator": "equal",
+                  "value": 1,
+                  "symbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2"
+                },
+                {
+                  "carrierPath": "record.operation_result.status",
+                  "operator": "equal",
+                  "value": 0
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.operation_id",
+                  "operator": "equal",
+                  "value": 2194495720
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.device_transition",
+                  "operator": "equal",
+                  "value": 0,
+                  "symbol": "EXACT_GPU_DEVICE_UNCHANGED_V2"
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.ingress_device",
+                  "operator": "positive"
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.result_device",
+                  "operator": "positive"
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.provider_generation",
+                  "operator": "positive"
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.promise_id",
+                  "operator": "equal",
+                  "value": "0"
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.receiver.kind",
+                  "operator": "equal",
+                  "valueFrom": "objectKindTags.GPUQueue"
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.target",
+                  "operator": "all-zero"
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.adapter_ordinal",
+                  "operator": "equal",
+                  "value": "0"
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.device_ingress_ordinal",
+                  "operator": "positive"
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.queue_ingress_ordinal",
+                  "operator": "positive"
+                },
+                {
+                  "carrierPath": "record.operation_result.result_kind",
+                  "operator": "equal",
+                  "value": 0,
+                  "symbol": "EXACT_GPU_RESULT_NONE_V2"
+                }
+              ],
+              "payload": {
+                "kind": "empty",
+                "exactLengthBytes": 0
+              },
+              "semanticTerminalMapping": {
+                "authorityPath": "semanticProjection.providerRoutingPrograms[operationId=GPUQueue.copyExternalImageToTexture]",
+                "terminals": [
+                  {
+                    "terminalId": "webidl-rejection",
+                    "errorTiming": "synchronous-webidl",
+                    "resultDisposition": "throw",
+                    "providerTokenCount": 0,
+                    "physicalSequenceCount": 0,
+                    "event": {
+                      "kind": "no-service-call",
+                      "completionPayloadEncoderEligibility": "excluded-before-service-ingress"
+                    }
+                  },
+                  {
+                    "terminalId": "content-rejection",
+                    "errorTiming": "content-timeline",
+                    "resultDisposition": "throw",
+                    "providerTokenCount": 0,
+                    "physicalSequenceCount": 0,
+                    "event": {
+                      "kind": "no-service-call",
+                      "completionPayloadEncoderEligibility": "excluded-before-owned-snapshot-service-ingress"
+                    }
+                  },
+                  {
+                    "terminalId": "later-predicate-rejection",
+                    "errorTiming": "device-timeline",
+                    "resultDisposition": "return-undefined-and-report-error",
+                    "providerTokenCount": 0,
+                    "physicalSequenceCount": 0,
+                    "event": {
+                      "kind": "operation-result",
+                      "kindValue": 1,
+                      "kindSymbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+                      "resultKind": 0,
+                      "resultKindSymbol": "EXACT_GPU_RESULT_NONE_V2",
+                      "status": 0,
+                      "completionVariant": "later-predicate-rejection",
+                      "publicExposure": "none-wrapper-already-returned-device-error-delivered-separately"
+                    }
+                  },
+                  {
+                    "terminalId": "operation-success",
+                    "errorTiming": "none",
+                    "resultDisposition": "return-undefined",
+                    "providerTokenCount": 1,
+                    "physicalSequenceCount": 1,
+                    "event": {
+                      "kind": "operation-result",
+                      "kindValue": 1,
+                      "kindSymbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+                      "resultKind": 0,
+                      "resultKindSymbol": "EXACT_GPU_RESULT_NONE_V2",
+                      "status": 0,
+                      "completionVariant": "operation-success",
+                      "publicExposure": "none-wrapper-already-returned"
+                    }
+                  }
+                ]
+              },
+              "variants": [
+                {
+                  "name": "later-predicate-rejection",
+                  "carrierConstraints": [
+                    {
+                      "carrierPath": "record.operation_result.operation.provider_admission",
+                      "operator": "equal",
+                      "value": 0,
+                      "symbol": "EXACT_GPU_PROVIDER_NOT_ADMITTED_V2"
+                    },
+                    {
+                      "carrierPath": "record.operation_result.operation.physical_sequence",
+                      "operator": "equal",
+                      "value": "0"
+                    }
+                  ],
+                  "serviceResultConstraints": [
+                    {
+                      "serviceResultPath": "queueWriteTerminal",
+                      "operator": "equal",
+                      "value": "later-predicate-rejection"
+                    }
+                  ]
+                },
+                {
+                  "name": "operation-success",
+                  "carrierConstraints": [
+                    {
+                      "carrierPath": "record.operation_result.operation.provider_admission",
+                      "operator": "equal",
+                      "value": 1,
+                      "symbol": "EXACT_GPU_PROVIDER_ADMITTED_V2"
+                    },
+                    {
+                      "carrierPath": "record.operation_result.operation.physical_sequence",
+                      "operator": "positive"
+                    }
+                  ],
+                  "serviceResultConstraints": [
+                    {
+                      "serviceResultPath": "queueWriteTerminal",
+                      "operator": "equal",
+                      "value": "operation-success"
+                    }
+                  ]
+                }
+              ],
+              "noTrailingBytes": true,
+              "serviceResultJoins": [
+                {
+                  "payloadPath": "empty-payload-selected-variant",
+                  "serviceResultPath": "queueWriteTerminal",
+                  "operator": "selects-exact-completion-variant"
+                }
+              ]
+            }
+          },
+          {
             "operationId": "GPUQueue.submit",
             "wireId": 308839175,
             "request": {
@@ -13572,6 +14168,11 @@
           "ownership": "owned-copy-with-full-texture-reference-plus-one-owned-whole-source-snapshot"
         },
         {
+          "tag": "gpu-queue-copy-external-image-to-texture-arguments-v1",
+          "wireShape": "complete GPUCopyExternalImageSourceInfo and GPUCopyExternalImageDestInfo plus strict GPUExtent3D after observable Web IDL conversion; the private ImageBitmap authority synchronously checks origin cleanliness, source bounds, and usability before returning one immutable authenticated decoded-plane snapshot",
+          "ownership": "owned-copy-with-full-texture-reference-plus-one-owned-decoded-plane-snapshot"
+        },
+        {
           "tag": "gpu-bind-group-descriptor-v1",
           "wireShape": "complete pinned GPUBindGroupDescriptor structural vocabulary after Web IDL conversion: owned label, bounded entry sequence, full generation-fenced layout reference, and complete GPUBindingResource union with buffer offset plus optional-size presence; the exact 18-call TypeGPU join is a later private service predicate",
           "ownership": "owned-copy-with-full-generation-fenced-handle-references"
@@ -13841,6 +14442,11 @@
           "tag": "gpu-queue-write-texture-service-request-v1",
           "wireShape": "source-affine GPUQueue reference, exact generation-fenced destination GPUTexture reference, converted mip/aspect/origin, converted linear texture-data layout with explicit optional-field presence, normalized strict copy extent, and the complete immutable whole-source snapshot; all layout, copy-range, usage, and sufficient-byte checks remain on the device timeline",
           "ownership": "one-owned-snapshot-with-one-ordered-texture-upload-transport"
+        },
+        {
+          "tag": "gpu-queue-copy-external-image-to-texture-service-request-v1",
+          "wireShape": "source-affine GPUQueue reference, exact generation-fenced destination GPUTexture reference, converted source and destination origins, normalized strict copy extent, runtime-generation-qualified decoded-image identity, immutable encoded and decoded byte owners, authenticated SHA-256 comparison inputs, and closed color/alpha/orientation/upload metadata; service admission re-authenticates the pinned decoded plane and preserves queue/device FIFO",
+          "ownership": "one-owned-authenticated-decoded-plane-with-one-ordered-texture-upload-transport"
         }
       ],
       "publicResults": [
@@ -14196,6 +14802,12 @@
           "publicType": "OperationError"
         },
         {
+          "tag": "operation-error-content-timeline-v1",
+          "failureClass": "operation-error",
+          "failureTiming": "content-timeline",
+          "publicType": "OperationError"
+        },
+        {
           "tag": "abort-error-promise-rejection-v1",
           "failureClass": "abort-error",
           "failureTiming": "promise-rejection",
@@ -14226,6 +14838,12 @@
           "publicType": "SecurityError"
         },
         {
+          "tag": "security-error-content-timeline-v1",
+          "failureClass": "security-error",
+          "failureTiming": "content-timeline",
+          "publicType": "SecurityError"
+        },
+        {
           "tag": "security-error-device-timeline-v1",
           "failureClass": "security-error",
           "failureTiming": "device-timeline",
@@ -14235,6 +14853,12 @@
           "tag": "invalid-state-synchronous-operation-v1",
           "failureClass": "invalid-state",
           "failureTiming": "synchronous-operation-state",
+          "publicType": "InvalidStateError"
+        },
+        {
+          "tag": "invalid-state-content-timeline-v1",
+          "failureClass": "invalid-state",
+          "failureTiming": "content-timeline",
           "publicType": "InvalidStateError"
         },
         {
@@ -15589,6 +16213,45 @@
         "providerSubmission": "semantic-call-device-timeline"
       },
       {
+        "operationId": "GPUQueue.copyExternalImageToTexture",
+        "wireId": 2194495720,
+        "semanticSha256": "a293eb9fe6d1139f14dcc6ed490996cad53638c3e123d57a3d5ed02ff75b750c",
+        "memberKind": "method",
+        "dispatchClass": "service-submit",
+        "logicalExecutionKind": "service-enqueue",
+        "publicArgumentCodec": "gpu-queue-copy-external-image-to-texture-arguments-v1",
+        "serviceArgumentCodec": "gpu-queue-copy-external-image-to-texture-service-request-v1",
+        "publicResultCodec": "undefined-v1",
+        "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
+        "resultTiming": "synchronous-source-snapshot-service-enqueued",
+        "errors": [
+          "internal-error-device-timeline-v1",
+          "invalid-state-content-timeline-v1",
+          "invalid-state-device-timeline-v1",
+          "operation-error-content-timeline-v1",
+          "out-of-memory-content-timeline-v1",
+          "out-of-memory-device-timeline-v1",
+          "security-error-content-timeline-v1",
+          "security-error-device-timeline-v1",
+          "type-error-content-timeline-v1",
+          "type-error-synchronous-webidl-v1",
+          "validation-error-device-timeline-v1"
+        ],
+        "receiverHandleKind": "GPUQueue",
+        "serviceReceiverProjection": {
+          "source": "wrapper-full-reference",
+          "kind": "GPUQueue",
+          "flags": 0,
+          "objectIdSource": "wrapperReceiver.logicalHandle",
+          "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+        },
+        "resultHandleKind": null,
+        "wrapperAllocatedTargetHandleKind": null,
+        "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
+        "promiseIdentity": "zero-non-applicable",
+        "providerSubmission": "semantic-call-device-timeline"
+      },
+      {
         "operationId": "GPUQueue.submit",
         "wireId": 308839175,
         "semanticSha256": "e0cfb9442892144f0f6f4232465c2cef4d9e66896f346e209e6db9cbc2c830ed",
@@ -16150,10 +16813,10 @@
         "wedgedProviderDisposition": "force-loss-and-quarantine-generation",
         "redactedDiagnostic": "gpu-provider-shutdown-deadline-exceeded-v1"
       },
-      "webgpuCVocabularyDigest": "4bf8bed436a8e91c8013fb9ecc9d9efd18c87c6da03c4690e51901439d8ff7c9",
-      "operationSetDigest": "41b52e49656266936aba84237cf5cbdea1003b2c9620e6fa2f8566f30b2f8a2e",
-      "semanticProgramDigest": "af41da4035644008c340abd9f62d0e17320ee908f8d0337ce5989e2bb9adbd25",
-      "runtimeRoutingDigest": "1a8467941a397d8722e1121d87d4d68e416858f29953feb6f197f0a173e7e61b",
+      "webgpuCVocabularyDigest": "7d7779ae0bf3717d046419cc6ca988b251bfb61588f70142733729e4be688cd2",
+      "operationSetDigest": "797ba84772ab1636bd2a8ed2e29a41c425a4b57365a0ff0e386420ab77192954",
+      "semanticProgramDigest": "6cd57b6a10b071db4e14802c18b0d04a92b23f1196667f32b7920f0cfffa9586",
+      "runtimeRoutingDigest": "07e106327f6f4222d4f0ef65ad53b71bd6fbe99cd7c34b2a8c01fca9d81f90eb",
       "sortedOperationIds": [
         31670442,
         56177326,
@@ -16186,6 +16849,7 @@
         1945140237,
         1949537636,
         2040228619,
+        2194495720,
         2239053141,
         2288750516,
         2342501516,

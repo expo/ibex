@@ -200169,6 +200169,16 @@
       "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
     },
     {
+      "id": "surface.native.op.construction.private.webgpu.gpuqueue.copyexternalimagetotexture.0iassmh",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUQueue.copyExternalImageToTexture"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
       "id": "surface.native.op.construction.private.webgpu.gpuqueue.submit.0sm1jlg",
       "classification": "closed",
       "surface": {

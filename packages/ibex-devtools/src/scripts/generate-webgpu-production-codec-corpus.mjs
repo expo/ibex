@@ -62,6 +62,8 @@ const canvasUnconfigureOperationId = "GPUCanvasContext.unconfigure";
 const textureDestroyOperationId = "GPUTexture.destroy";
 const queueWriteBufferOperationId = "GPUQueue.writeBuffer";
 const queueWriteTextureOperationId = "GPUQueue.writeTexture";
+const queueCopyExternalImageOperationId =
+  "GPUQueue.copyExternalImageToTexture";
 const queueSubmitOperationId = "GPUQueue.submit";
 
 function fail(message) {
@@ -6472,6 +6474,24 @@ function buildCorpus() {
       (candidate) =>
         candidate.tag === queueWriteTextureRoute?.serviceCompletionCodec,
     );
+  const queueCopyExternalImageRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === queueCopyExternalImageOperationId,
+  );
+  const queueCopyExternalImageNativeRoute =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
+      (candidate) =>
+        candidate.operationId === queueCopyExternalImageOperationId,
+    );
+  const queueCopyExternalImageRequestCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+      (candidate) =>
+        candidate.tag === queueCopyExternalImageRoute?.serviceArgumentCodec,
+    );
+  const queueCopyExternalImageCompletionCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceCompletions.find(
+      (candidate) =>
+        candidate.tag === queueCopyExternalImageRoute?.serviceCompletionCodec,
+    );
   const queueSubmitCodec = WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
     (candidate) =>
       candidate.tag ===
@@ -6510,6 +6530,16 @@ function buildCorpus() {
     queueWriteTextureNativeRoute.request.catalog.wireTag !== 26 ||
     queueWriteTextureNativeRoute.completion.catalog.wireTag !==
       queueWriteTextureCompletionCodec.wireTag ||
+    !queueCopyExternalImageRoute ||
+    !queueCopyExternalImageNativeRoute ||
+    !queueCopyExternalImageRequestCodec?.nativeProgramPrerequisitesRepresented ||
+    !queueCopyExternalImageRequestCodec.executableFromCurrentAuthenticatedInputs ||
+    queueCopyExternalImageRequestCodec.unavailableSemanticFields.length !== 0 ||
+    !queueCopyExternalImageCompletionCodec ||
+    queueCopyExternalImageRequestCodec.wireTag !== 27 ||
+    queueCopyExternalImageNativeRoute.request.catalog.wireTag !== 27 ||
+    queueCopyExternalImageNativeRoute.completion.catalog.wireTag !==
+      queueCopyExternalImageCompletionCodec.wireTag ||
     !queueSubmitRoute ||
     !queueSubmitNativeRoute ||
     !queueSubmitCodec?.nativeProgramPrerequisitesRepresented ||
@@ -6521,7 +6551,7 @@ function buildCorpus() {
     queueSubmitNativeRoute.completion.catalog.wireTag !==
       queueSubmitCompletionCodec.wireTag
   ) {
-    fail("GPUQueue writeBuffer/writeTexture/submit native codec boundary drifted");
+    fail("GPUQueue upload/submit native codec boundary drifted");
   }
   const queueReceiver = Object.freeze({
     kind: "GPUQueue",
@@ -6549,6 +6579,27 @@ function buildCorpus() {
     providerGeneration: "9",
   });
   const queueTextureDestinationBrand = Object.freeze({ corpusBrand: "GPUTexture" });
+  const queueExternalImageBrand = Object.freeze({ corpusBrand: "ImageBitmap" });
+  const queueExternalImageSnapshot = () => Object.freeze({
+    runtimeAddress: "73",
+    runtimeNonce: "91",
+    sourceId: "1",
+    sourceGeneration: "1",
+    width: 2,
+    height: 1,
+    bytesPerRow: 8,
+    encodedBytes: Uint8Array.from([137, 80, 78, 71]),
+    decodedPremultipliedRgba8: Uint8Array.from([
+      255, 0, 0, 255, 0, 255, 0, 255,
+    ]),
+    encodedContentSha256: "a".repeat(64),
+    decodedContentSha256: "b".repeat(64),
+    originClean: true,
+    usability: "good",
+    colorSpace: "srgb",
+    alphaMode: "premultiplied",
+    orientation: "top-left",
+  });
   const queueWrapperAccess = Object.freeze({
     referenceIfBranded(value, expectedKind) {
       if (value === queueDestinationBrand && expectedKind === "GPUBuffer") {
@@ -6571,6 +6622,21 @@ function buildCorpus() {
         return queueTextureDestination;
       }
       throw new TypeError("unbranded queue upload destination");
+    },
+    snapshotExternalImageForCopy(value, sourceOrigin, copySize) {
+      if (value !== queueExternalImageBrand) {
+        throw new TypeError("unbranded external image source");
+      }
+      if (
+        sourceOrigin.x + copySize.width > 2 ||
+        sourceOrigin.y + copySize.height > 1 ||
+        copySize.depthOrArrayLayers > 1
+      ) {
+        const error = new Error("external image source range is out of bounds");
+        error.name = "OperationError";
+        throw error;
+      }
+      return queueExternalImageSnapshot();
     },
   });
   const convertQueueWriteBuffer = (
@@ -7022,6 +7088,220 @@ function buildCorpus() {
     },
   ]);
   for (const rejection of queueWriteTextureBinaryRejections) {
+    let rejected = false;
+    try {
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(rejection.bytes);
+    } catch {
+      rejected = true;
+    }
+    if (!rejected) fail(`${rejection.id} did not fail closed`);
+  }
+
+  const convertQueueCopyExternalImage = ({
+    sourceOrigin = { x: 0, y: 0 },
+    destinationOrigin = { x: 0, y: 0, z: 0 },
+    copySize = { width: 2, height: 1, depthOrArrayLayers: 1 },
+    aspect = "all",
+    colorSpace = "srgb",
+    flipY = false,
+    mipLevel = 0,
+    premultipliedAlpha = false,
+  } = {}) => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+    queueCopyExternalImageOperationId,
+    [
+      { flipY, origin: sourceOrigin, source: queueExternalImageBrand },
+      {
+        aspect,
+        colorSpace,
+        mipLevel,
+        origin: destinationOrigin,
+        premultipliedAlpha,
+        texture: queueTextureDestinationBrand,
+      },
+      copySize,
+    ],
+    queueWrapperAccess,
+  );
+  const queueCopyExternalImageInput = (convertedArguments) => Object.freeze({
+    operationId: queueCopyExternalImageOperationId,
+    wireId: queueCopyExternalImageRoute.wireId,
+    convertedArguments,
+    receiver: queueReceiver,
+    capturedScopeId: "2",
+    adapterOrdinal: "0",
+    deviceIngressOrdinal: "3",
+    queueIngressOrdinal: "6",
+    sealedLocalTimeline: Object.freeze([]),
+  });
+  const queueCopyExternalImageRequest = (id, options) => {
+    const codegenConverted = convertQueueCopyExternalImage(options);
+    const codegenBytes = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(
+        queueCopyExternalImageInput(codegenConverted),
+      );
+    const productionConverted = convertQueueCopyExternalImage(options);
+    const productionBytes = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .encodeServiceRequest(
+        queueCopyExternalImageInput(productionConverted),
+      );
+    if (toHex(codegenBytes) !== toHex(productionBytes)) {
+      fail(`${id} production and codegen request bytes differ`);
+    }
+    return Object.freeze({
+      id,
+      bytes: codegenBytes,
+      inspected: WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+        .inspectServiceRequest(codegenBytes),
+    });
+  };
+  const queueCopyExternalImageRequests = Object.freeze([
+    queueCopyExternalImageRequest(
+      "queue-copy-external-image-default-request",
+      {},
+    ),
+    queueCopyExternalImageRequest(
+      "queue-copy-external-image-iterable-shape-request",
+      {
+        sourceOrigin: [1, 0],
+        destinationOrigin: [2, 3, 0],
+        copySize: [1, 1, 1],
+        colorSpace: "display-p3",
+        flipY: true,
+        mipLevel: 2,
+        premultipliedAlpha: true,
+      },
+    ),
+  ]);
+  const queueCopyExternalImagePositive =
+    queueCopyExternalImageRequests[0].bytes;
+  const queueCopyExternalImageCarrier = Object.freeze({
+    ...queueWriteTextureCarrier,
+    operation_id: queueCopyExternalImageRoute.wireId,
+    operation_instance_id: "64",
+    queue_ingress_ordinal: "6",
+  });
+  const queueCopyExternalImageCompletionCarrier = (
+    providerAdmission,
+    physicalSequence,
+  ) => Object.freeze({
+    kind: 1,
+    record: Object.freeze({
+      operation_result: Object.freeze({
+        result_kind: 0,
+        status: 0,
+        operation: Object.freeze({
+          operation_id: queueCopyExternalImageCarrier.operation_id,
+          operation_instance_id:
+            queueCopyExternalImageCarrier.operation_instance_id,
+          promise_id: "0",
+          provider_admission: providerAdmission,
+          physical_sequence: physicalSequence,
+          captured_scope_id: queueCopyExternalImageCarrier.captured_scope_id,
+          adapter_ordinal: "0",
+          device_ingress_ordinal:
+            queueCopyExternalImageCarrier.device_ingress_ordinal,
+          queue_ingress_ordinal:
+            queueCopyExternalImageCarrier.queue_ingress_ordinal,
+          device_transition: 0,
+          ingress_device: queueCopyExternalImageCarrier.ingress_device,
+          result_device: queueCopyExternalImageCarrier.ingress_device,
+          provider_generation: "9",
+          receiver: queueCopyExternalImageCarrier.receiver,
+          target: queueCopyExternalImageCarrier.target,
+        }),
+      }),
+    }),
+  });
+  const queueCopyExternalImageCompletionBytes = new Map(
+    ["later-predicate-rejection", "operation-success"].map((terminal) => [
+      terminal,
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+        queueCopyExternalImageOperationId,
+        { kind: "queue-copy-external-image", terminal },
+      ),
+    ]),
+  );
+  if (
+    [...queueCopyExternalImageCompletionBytes.values()].some(
+      (bytes) => bytes.byteLength !== 0,
+    )
+  ) {
+    fail(
+      "GPUQueue.copyExternalImageToTexture terminals must encode empty receipt payloads",
+    );
+  }
+  const queueCopyExternalImageSemanticRejections = Object.freeze([
+    {
+      id: "queue-copy-external-image-request-cross-device-rejected",
+      mutation: "destination-logical-device-id-differs",
+      bytes: mutatedBytes(
+        queueCopyExternalImagePositive,
+        (_bytes, view) => view.setUint32(103, 56, true),
+      ),
+    },
+    {
+      id: "queue-copy-external-image-request-cross-provider-rejected",
+      mutation: "destination-provider-generation-differs",
+      bytes: mutatedBytes(
+        queueCopyExternalImagePositive,
+        (_bytes, view) => view.setUint32(119, 10, true),
+      ),
+    },
+  ].map((entry) => Object.freeze({
+    ...entry,
+    inspected: WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      entry.bytes,
+    ),
+  })));
+  const queueCopyExternalImageBinaryRejections = Object.freeze([
+    {
+      id: "queue-copy-external-image-request-truncated-rejected",
+      mutation: "truncate-final-decoded-byte",
+      bytes: queueCopyExternalImagePositive.slice(0, -1),
+    },
+    {
+      id: "queue-copy-external-image-request-trailing-byte-rejected",
+      mutation: "append-trailing-byte",
+      bytes: withTrailingByte(queueCopyExternalImagePositive),
+    },
+    {
+      id: "queue-copy-external-image-request-destination-kind-rejected",
+      mutation: "destination-kind-GPUDevice",
+      bytes: mutatedBytes(queueCopyExternalImagePositive, (bytes) => {
+        bytes[86] = WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUDevice;
+      }),
+    },
+    {
+      id: "queue-copy-external-image-request-source-origin-shape-rejected",
+      mutation: "source-origin-shape-tag-two",
+      bytes: mutatedBytes(queueCopyExternalImagePositive, (bytes) => {
+        bytes[157] = 2;
+      }),
+    },
+    {
+      id: "queue-copy-external-image-request-origin-clean-rejected",
+      mutation: "origin-clean-zero",
+      bytes: mutatedBytes(queueCopyExternalImagePositive, (bytes) => {
+        bytes[223] = 0;
+      }),
+    },
+    {
+      id: "queue-copy-external-image-request-decoded-profile-rejected",
+      mutation: "decoded-color-space-tag-one",
+      bytes: mutatedBytes(queueCopyExternalImagePositive, (bytes) => {
+        bytes[225] = 1;
+      }),
+    },
+    {
+      id: "queue-copy-external-image-request-owned-byte-bound-rejected",
+      mutation: "encoded-byte-length-exact-bound-plus-one",
+      bytes: mutatedBytes(
+        queueCopyExternalImagePositive,
+        (_bytes, view) => view.setUint32(295, 16_776_906, true),
+      ),
+    },
+  ]);
+  for (const rejection of queueCopyExternalImageBinaryRejections) {
     let rejected = false;
     try {
       WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(rejection.bytes);
@@ -7920,7 +8200,7 @@ function buildCorpus() {
   return {
     schema: "ibex/webgpu-production-codec-corpus/2",
     disposition:
-      "generated-language-neutral-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
+      "generated-language-neutral-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
     supportClaim: "none",
     carrierProjectionScope:
       "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
@@ -8299,6 +8579,24 @@ function buildCorpus() {
         bodySchema:
           queueWriteTextureNativeRoute.request.payload.fields.at(-1).type,
         completionBodySchema: "empty",
+      },
+      {
+        operationId: queueCopyExternalImageOperationId,
+        wireId: queueCopyExternalImageRoute.wireId,
+        nativeCodecProgramSchema:
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.schema,
+        requestCodec: queueCopyExternalImageRequestCodec.tag,
+        requestCodecTag: queueCopyExternalImageRequestCodec.wireTag,
+        completionCodec: queueCopyExternalImageCompletionCodec.tag,
+        completionCodecTag: queueCopyExternalImageCompletionCodec.wireTag,
+        productionExecutableFromCurrentAuthenticatedInputs: true,
+        semanticTerminalMapping:
+          queueCopyExternalImageNativeRoute.completion.semanticTerminalMapping,
+        bodySchema:
+          queueCopyExternalImageNativeRoute.request.payload.fields.at(-1).type,
+        completionBodySchema: "empty",
+        authoritySource:
+          "construction-private-authenticated-decoded-image-snapshot",
       },
       {
         operationId: queueSubmitOperationId,
@@ -9158,6 +9456,62 @@ function buildCorpus() {
       ...queueWriteTextureBinaryRejections.map((rejection) => ({
         id: rejection.id,
         operationId: queueWriteTextureOperationId,
+        kind: "binary-rejection",
+        direction: "request",
+        mutation: rejection.mutation,
+        bytesHex: toHex(rejection.bytes),
+        expected: {
+          rejection: "fail-closed-before-provider-or-wrapper-exposure",
+        },
+      })),
+      ...queueCopyExternalImageRequests.map((entry) => ({
+        id: entry.id,
+        operationId: queueCopyExternalImageOperationId,
+        kind: "request",
+        carrierProjection: queueCopyExternalImageCarrier,
+        trust:
+          "source-affine-queue-plus-full-destination-provenance-and-one-authenticated-owned-decoded-image-snapshot-never-authority",
+        semanticOwner:
+          "native-copy-external-image-semantic-service-before-provider-admission",
+        bytesHex: toHex(entry.bytes),
+        expected: entry.inspected,
+      })),
+      ...queueCopyExternalImageSemanticRejections.map((entry) => ({
+        id: entry.id,
+        operationId: queueCopyExternalImageOperationId,
+        kind: "semantic-rejection",
+        direction: "request",
+        mutation: entry.mutation,
+        carrierProjection: queueCopyExternalImageCarrier,
+        semanticTerminalId: "later-predicate-rejection",
+        firstFailingPredicate:
+          "queue.copy-external-image-to-texture.destination",
+        bytesHex: toHex(entry.bytes),
+        expected: {
+          convertedArguments: entry.inspected.convertedArguments,
+          rejection: "device-timeline-validation-before-provider-admission",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        },
+      })),
+      ...[
+        ["later-predicate-rejection", 0, "0"],
+        ["operation-success", 1, "73"],
+      ].map(([terminal, providerAdmission, physicalSequence]) => ({
+        id: `queue-copy-external-image-${terminal}-result`,
+        operationId: queueCopyExternalImageOperationId,
+        kind: "result",
+        semanticTerminalId: terminal,
+        carrierProjection: queueCopyExternalImageCompletionCarrier(
+          providerAdmission,
+          physicalSequence,
+        ),
+        bytesHex: toHex(queueCopyExternalImageCompletionBytes.get(terminal)),
+        expected: { kind: "terminal-receipt", value: "undefined" },
+      })),
+      ...queueCopyExternalImageBinaryRejections.map((rejection) => ({
+        id: rejection.id,
+        operationId: queueCopyExternalImageOperationId,
         kind: "binary-rejection",
         direction: "request",
         mutation: rejection.mutation,

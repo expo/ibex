@@ -6,13 +6,13 @@ export const WEBGPU_PRODUCTION_PLAN = {
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-plus-typegpu-graduates-plus-product-extensions-v1",
   "maxPayloadBytes": 16777216,
-  "codecReadiness": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-native-codec-not-installed",
+  "codecReadiness": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-native-codec-not-installed",
   "digests": {
-    "operationSet": "41b52e49656266936aba84237cf5cbdea1003b2c9620e6fa2f8566f30b2f8a2e",
-    "semanticProgramSet": "af41da4035644008c340abd9f62d0e17320ee908f8d0337ce5989e2bb9adbd25",
-    "runtimeRouting": "1a8467941a397d8722e1121d87d4d68e416858f29953feb6f197f0a173e7e61b",
-    "webgpuCVocabulary": "4bf8bed436a8e91c8013fb9ecc9d9efd18c87c6da03c4690e51901439d8ff7c9",
-    "projection": "bd7285fbfe1ae29921ec38ad8f08edd51810823a04486ed6807403d082a509fb"
+    "operationSet": "797ba84772ab1636bd2a8ed2e29a41c425a4b57365a0ff0e386420ab77192954",
+    "semanticProgramSet": "6cd57b6a10b071db4e14802c18b0d04a92b23f1196667f32b7920f0cfffa9586",
+    "runtimeRouting": "07e106327f6f4222d4f0ef65ad53b71bd6fbe99cd7c34b2a8c01fca9d81f90eb",
+    "webgpuCVocabulary": "7d7779ae0bf3717d046419cc6ca988b251bfb61588f70142733729e4be688cd2",
+    "projection": "95e5e39d7aa45748c31e434fb689452b9affa57e4aee84ddf35f901c22b895b1"
   },
   "webIdlVocabulary": {
     "bindingPackage": "@webgpu/types",
@@ -290,7 +290,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
   },
   "activeRouteSubset": {
     "scopeId": "native-triangle-plus-typegpu-graduates-plus-product-extensions-v1",
-    "operationCount": 57,
+    "operationCount": 58,
     "operationIds": [
       "GPU.getPreferredCanvasFormat",
       "GPU.requestAdapter",
@@ -331,6 +331,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "GPUDevice.queue",
       "GPUQueue.writeBuffer",
       "GPUQueue.writeTexture",
+      "GPUQueue.copyExternalImageToTexture",
       "GPUQueue.submit",
       "GPUComputePassEncoder.dispatchWorkgroups",
       "GPUComputePassEncoder.end",
@@ -359,20 +360,14 @@ export const WEBGPU_PRODUCTION_PLAN = {
     "nativeExecutionEvidence": "none-recording-provider-is-inventory-only",
     "source": {
       "path": "tests/gpu/typegpu-workload-closure-v1.json",
-      "normalizedProjectionSha256": "e999b634b139abb7da16cd4ce739df9f97e55a210dd6a60b2e69f8f5f2aaa2a7",
+      "normalizedProjectionSha256": "b947c252ce6e11dd3c77f7b546c8f18d6c213b1aedd8fa11458ed3119c9ce352",
       "fullArtifactSha256Disposition": "provenance-only-excluded-to-avoid-outer-submodule-recursion"
     },
     "typegpuVersion": "0.11.9",
     "operationCount": 51,
-    "sourceAdditionalOperationCount": 12,
-    "additionalOperationCount": 1,
-    "additionalOperations": [
-      {
-        "operationId": "GPUQueue.copyExternalImageToTexture",
-        "memberKind": "method",
-        "disposition": "staged-unroutable-no-prototype-member"
-      }
-    ],
+    "sourceAdditionalOperationCount": 11,
+    "additionalOperationCount": 0,
+    "additionalOperations": [],
     "authenticatedPromotions": [
       {
         "operationId": "GPUDevice.createComputePipeline",
@@ -1695,6 +1690,33 @@ export const WEBGPU_PRODUCTION_PLAN = {
       },
       "publicArgumentCodec": "gpu-queue-write-texture-arguments-v1",
       "serviceArgumentCodec": "gpu-queue-write-texture-service-request-v1",
+      "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
+      "publicResultCodec": "undefined-v1",
+      "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
+      "promiseIdentity": "zero-non-applicable"
+    },
+    {
+      "operationId": "GPUQueue.copyExternalImageToTexture",
+      "wireId": 2194495720,
+      "interfaceName": "GPUQueue",
+      "memberName": "copyExternalImageToTexture",
+      "memberKind": "method",
+      "dispatchClass": "service-submit",
+      "logicalExecutionKind": "service-enqueue",
+      "resultTiming": "synchronous-source-snapshot-service-enqueued",
+      "providerSubmission": "semantic-call-device-timeline",
+      "receiverHandleKind": "GPUQueue",
+      "wrapperAllocatedTargetHandleKind": null,
+      "resultHandleKind": null,
+      "serviceReceiverProjection": {
+        "source": "wrapper-full-reference",
+        "kind": "GPUQueue",
+        "flags": 0,
+        "objectIdSource": "wrapperReceiver.logicalHandle",
+        "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+      },
+      "publicArgumentCodec": "gpu-queue-copy-external-image-to-texture-arguments-v1",
+      "serviceArgumentCodec": "gpu-queue-copy-external-image-to-texture-service-request-v1",
       "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
       "publicResultCodec": "undefined-v1",
       "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",

@@ -82,6 +82,28 @@ const shaderModule = wrapper('GPUShaderModule');
 const texture = wrapper('GPUTexture');
 const textureView = wrapper('GPUTextureView');
 const externalTexture = wrapper('GPUExternalTexture');
+const externalImage = Object.freeze({ marker: 'ImageBitmap' });
+
+function externalImageSnapshot() {
+  return Object.freeze({
+    runtimeAddress: '73',
+    runtimeNonce: '91',
+    sourceId: '1',
+    sourceGeneration: '1',
+    width: 1,
+    height: 1,
+    bytesPerRow: 4,
+    encodedBytes: new Uint8Array([137, 80, 78, 71]),
+    decodedPremultipliedRgba8: new Uint8Array([1, 2, 3, 4]),
+    encodedContentSha256: 'a'.repeat(64),
+    decodedContentSha256: 'b'.repeat(64),
+    originClean: true as const,
+    usability: 'good' as const,
+    colorSpace: 'srgb' as const,
+    alphaMode: 'premultiplied' as const,
+    orientation: 'top-left' as const,
+  });
+}
 
 interface RenderPipelineFixtureBlendComponent {
   readonly dstFactor: string;
@@ -263,6 +285,17 @@ const wrappers: ProductionGpuCodecWrapperAccess = {
       providerGeneration: '7',
     });
   },
+  snapshotExternalImageForCopy(value, sourceOrigin, copySize) {
+    if (value !== externalImage) throw new TypeError('unbranded ImageBitmap');
+    if (
+      sourceOrigin.x + copySize.width > 1 ||
+      sourceOrigin.y + copySize.height > 1 ||
+      copySize.depthOrArrayLayers > 1
+    ) {
+      throw new DOMException('source range', 'OperationError');
+    }
+    return externalImageSnapshot();
+  },
 };
 
 function conversionArguments(operationId: string): readonly unknown[] {
@@ -349,6 +382,12 @@ function conversionArguments(operationId: string): readonly unknown[] {
         { texture },
         new Uint8Array([1, 2, 3, 4]),
         { bytesPerRow: 256 },
+        { width: 1, height: 1, depthOrArrayLayers: 1 },
+      ];
+    case 'GPUQueue.copyExternalImageToTexture':
+      return [
+        { source: externalImage },
+        { texture },
         { width: 1, height: 1, depthOrArrayLayers: 1 },
       ];
     case 'GPURenderPassEncoder.draw':
@@ -640,6 +679,28 @@ function serviceInput(
       }),
       bytes: new Uint8Array([1, 2, 3, 4]),
     })
+    : operationId === 'GPUQueue.copyExternalImageToTexture'
+    ? Object.freeze({
+      source: Object.freeze({
+        origin: Object.freeze({ x: 0, y: 0, iterableLength: null }),
+        snapshot: externalImageSnapshot(),
+        flipY: false,
+      }),
+      destination: Object.freeze({
+        texture: reference('GPUTexture'),
+        mipLevel: 0,
+        origin: Object.freeze({ x: 0, y: 0, z: 0, iterableLength: null }),
+        aspect: 'all',
+        colorSpace: 'srgb',
+        premultipliedAlpha: false,
+      }),
+      copySize: Object.freeze({
+        width: 1,
+        height: 1,
+        depthOrArrayLayers: 1,
+        iterableLength: null,
+      }),
+    })
     : operationId === 'GPUQueue.submit'
     ? Object.freeze({ commandBuffers: Object.freeze([]) })
     : Object.freeze({ sample: true }),
@@ -680,6 +741,7 @@ function serviceInput(
         canvasService !== undefined ||
         operationId === 'GPUQueue.writeBuffer' ||
         operationId === 'GPUQueue.writeTexture' ||
+        operationId === 'GPUQueue.copyExternalImageToTexture' ||
         operationId === 'GPUQueue.submit'
       ? Object.freeze([])
       : deviceDestroy
@@ -917,7 +979,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'ibex/webgpu-executable-codec-manifest/2',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.disposition).toBe(
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-native-codec-not-installed-no-support-claim',
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-native-codec-not-installed-no-support-claim',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms).toMatchObject({
       schema: 'ibex/webgpu-native-codec-programs/2',
@@ -954,11 +1016,15 @@ describe('generated injection-only WebGPU executable codecs', () => {
         { operationId: 'GPUTexture.destroy', wireId: 2933046788 },
         { operationId: 'GPUQueue.writeBuffer', wireId: 404589710 },
         { operationId: 'GPUQueue.writeTexture', wireId: 3114133342 },
+        {
+          operationId: 'GPUQueue.copyExternalImageToTexture',
+          wireId: 2194495720,
+        },
         { operationId: 'GPUQueue.submit', wireId: 308839175 },
       ],
     });
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes)
-      .toHaveLength(23);
+      .toHaveLength(24);
     const destroyProgram = WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
       (route) => route.operationId === 'GPUDevice.destroy',
     )!;
@@ -2837,6 +2903,103 @@ describe('generated injection-only WebGPU executable codecs', () => {
     ]);
   });
 
+  test('authenticates copyExternalImageToTexture only after complete Web IDL and shape conversion', () => {
+    const reads: string[] = [];
+    const source = Object.create(null);
+    for (const [name, value] of [
+      ['flipY', true],
+      ['origin', [0, 0]],
+      ['source', externalImage],
+    ] as const) {
+      Object.defineProperty(source, name, {
+        get() { reads.push(`source.${name}`); return value; },
+      });
+    }
+    const destination = Object.create(null);
+    for (const [name, value] of [
+      ['aspect', 'all'],
+      ['colorSpace', 'display-p3'],
+      ['mipLevel', 1],
+      ['origin', [2, 3, 0]],
+      ['premultipliedAlpha', true],
+      ['texture', texture],
+    ] as const) {
+      Object.defineProperty(destination, name, {
+        get() { reads.push(`destination.${name}`); return value; },
+      });
+    }
+    const copySize = {
+      get depthOrArrayLayers() { reads.push('size.depth'); return 1; },
+      get height() { reads.push('size.height'); return 1; },
+      get width() { reads.push('size.width'); return 1; },
+    };
+    const authenticatedWrappers: ProductionGpuCodecWrapperAccess = {
+      reference: wrappers.reference,
+      referenceIfBranded: wrappers.referenceIfBranded,
+      snapshotExternalImageForCopy(value, origin, size) {
+        reads.push('content.snapshot');
+        expect(value).toBe(externalImage);
+        expect(origin).toMatchObject({ x: 0, y: 0 });
+        expect(size).toMatchObject({ width: 1, height: 1, depthOrArrayLayers: 1 });
+        return externalImageSnapshot();
+      },
+    };
+    const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(
+        'GPUQueue.copyExternalImageToTexture',
+        [source, destination, copySize],
+        authenticatedWrappers,
+      ) as Readonly<Record<string, unknown>>;
+    expect(reads).toEqual([
+      'source.flipY',
+      'source.origin',
+      'source.source',
+      'destination.aspect',
+      'destination.colorSpace',
+      'destination.mipLevel',
+      'destination.origin',
+      'destination.premultipliedAlpha',
+      'destination.texture',
+      'size.depth',
+      'size.height',
+      'size.width',
+      'content.snapshot',
+    ]);
+    expect(converted).toMatchObject({
+      source: {
+        origin: { x: 0, y: 0, iterableLength: 2 },
+        flipY: true,
+        snapshot: { usability: 'good', decodedContentSha256: 'b'.repeat(64) },
+      },
+      destination: {
+        texture: { kind: 'GPUTexture' },
+        mipLevel: 1,
+        origin: { x: 2, y: 3, z: 0, iterableLength: 3 },
+        colorSpace: 'display-p3',
+        premultipliedAlpha: true,
+      },
+      copySize: { width: 1, height: 1, depthOrArrayLayers: 1 },
+    });
+
+    let contentChecks = 0;
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUQueue.copyExternalImageToTexture',
+      [
+        { source: externalImage, origin: [0, 0, 0] },
+        { texture },
+        [1, 1, 1],
+      ],
+      {
+        ...authenticatedWrappers,
+        snapshotExternalImageForCopy() {
+          contentChecks += 1;
+          return externalImageSnapshot();
+        },
+      },
+    )).toThrow('at most two');
+    expect(contentChecks).toBe(0);
+  });
+
   test('converts createView in inherited lexicographic order exactly once', () => {
     const reads: string[] = [];
     const descriptor = Object.create(Object.defineProperty({}, 'label', {
@@ -3046,6 +3209,45 @@ describe('generated injection-only WebGPU executable codecs', () => {
                 iterableLength: null,
               },
               bytes: [1, 2, 3, 4],
+            }
+            : route.operationId === 'GPUQueue.copyExternalImageToTexture'
+            ? {
+              source: {
+                origin: { x: 0, y: 0, iterableLength: null },
+                snapshot: {
+                  runtimeAddress: '73',
+                  runtimeNonce: '91',
+                  sourceId: '1',
+                  sourceGeneration: '1',
+                  width: 1,
+                  height: 1,
+                  bytesPerRow: 4,
+                  encodedBytes: [137, 80, 78, 71],
+                  decodedPremultipliedRgba8: [1, 2, 3, 4],
+                  encodedContentSha256: 'a'.repeat(64),
+                  decodedContentSha256: 'b'.repeat(64),
+                  originClean: true,
+                  usability: 'good',
+                  colorSpace: 'srgb',
+                  alphaMode: 'premultiplied',
+                  orientation: 'top-left',
+                },
+                flipY: false,
+              },
+              destination: {
+                texture: reference('GPUTexture'),
+                mipLevel: 0,
+                origin: { x: 0, y: 0, z: 0, iterableLength: null },
+                aspect: 'all',
+                colorSpace: 'srgb',
+                premultipliedAlpha: false,
+              },
+              copySize: {
+                width: 1,
+                height: 1,
+                depthOrArrayLayers: 1,
+                iterableLength: null,
+              },
             }
             : route.operationId === 'GPUQueue.submit'
             ? { commandBuffers: [], wrapperValidationError: undefined }

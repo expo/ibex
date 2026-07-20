@@ -6,15 +6,15 @@
   "status": "construction-private-source-derived-no-public-install",
   "source": {
     "productionPlanPath": "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts",
-    "productionPlanRawContentSha256": "966a7242a7fbfebfd4e81761514768574840394324a56c7662d7d5d90eb7f493",
+    "productionPlanRawContentSha256": "19f32dfeee0fa4f4457d2b26ae7fea6a5518e4e9350aadf122d968539c86cc69",
     "wrapperAuthorityPath": "tests/fixtures/webgpu-test-wrapper-authority-v1.json",
-    "wrapperAuthorityRawContentSha256": "803c1e43243bf6276be93255407f4e03b14544d36a1bbc63124511ec60a1f001",
+    "wrapperAuthorityRawContentSha256": "1cdf2ad2d5424aa7cdb386d461ff442f57b693199b72706d24e75686a86c547c",
     "authenticatedDigests": {
-      "operationSet": "41b52e49656266936aba84237cf5cbdea1003b2c9620e6fa2f8566f30b2f8a2e",
-      "semanticProgramSet": "af41da4035644008c340abd9f62d0e17320ee908f8d0337ce5989e2bb9adbd25",
-      "runtimeRouting": "1a8467941a397d8722e1121d87d4d68e416858f29953feb6f197f0a173e7e61b",
-      "webgpuCVocabulary": "4bf8bed436a8e91c8013fb9ecc9d9efd18c87c6da03c4690e51901439d8ff7c9",
-      "projection": "bd7285fbfe1ae29921ec38ad8f08edd51810823a04486ed6807403d082a509fb"
+      "operationSet": "797ba84772ab1636bd2a8ed2e29a41c425a4b57365a0ff0e386420ab77192954",
+      "semanticProgramSet": "6cd57b6a10b071db4e14802c18b0d04a92b23f1196667f32b7920f0cfffa9586",
+      "runtimeRouting": "07e106327f6f4222d4f0ef65ad53b71bd6fbe99cd7c34b2a8c01fca9d81f90eb",
+      "webgpuCVocabulary": "7d7779ae0bf3717d046419cc6ca988b251bfb61588f70142733729e4be688cd2",
+      "projection": "95e5e39d7aa45748c31e434fb689452b9affa57e4aee84ddf35f901c22b895b1"
     }
   },
   "providerIdentity": {
@@ -22,10 +22,10 @@
     "topologyId": 1,
     "profileId": "exact-webgpu-v1-draft",
     "profileDigest": "eeda83784ff4297760619cb7df54f0e2f227a70562561909c47ecc9dc3232d95",
-    "webgpuCVocabularyDigest": "4bf8bed436a8e91c8013fb9ecc9d9efd18c87c6da03c4690e51901439d8ff7c9",
-    "operationSetDigest": "41b52e49656266936aba84237cf5cbdea1003b2c9620e6fa2f8566f30b2f8a2e",
-    "semanticProgramDigest": "af41da4035644008c340abd9f62d0e17320ee908f8d0337ce5989e2bb9adbd25",
-    "runtimeRoutingDigest": "1a8467941a397d8722e1121d87d4d68e416858f29953feb6f197f0a173e7e61b",
+    "webgpuCVocabularyDigest": "7d7779ae0bf3717d046419cc6ca988b251bfb61588f70142733729e4be688cd2",
+    "operationSetDigest": "797ba84772ab1636bd2a8ed2e29a41c425a4b57365a0ff0e386420ab77192954",
+    "semanticProgramDigest": "6cd57b6a10b071db4e14802c18b0d04a92b23f1196667f32b7920f0cfffa9586",
+    "runtimeRoutingDigest": "07e106327f6f4222d4f0ef65ad53b71bd6fbe99cd7c34b2a8c01fca9d81f90eb",
     "sortedOperationIds": [
       31670442,
       56177326,
@@ -58,6 +58,7 @@
       1945140237,
       1949537636,
       2040228619,
+      2194495720,
       2239053141,
       2288750516,
       2342501516,
@@ -102,7 +103,7 @@
     "setEventSink": "surface.native.op.construction.private.gpunativebridgev2.seteventsink.05cdr72",
     "submit": "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99"
   },
-  "operationCount": 57,
+  "operationCount": 58,
   "operations": [
     {
       "operationId": "GPU.getPreferredCanvasFormat",
@@ -910,6 +911,30 @@
       "authoritySession": null
     },
     {
+      "operationId": "GPUQueue.copyExternalImageToTexture",
+      "wireId": 2194495720,
+      "edgeId": "surface.native.op.construction.private.webgpu.gpuqueue.copyexternalimagetotexture.0iassmh",
+      "edgeClassification": "closed",
+      "dispatchClass": "service-submit",
+      "logicalExecutionKind": "service-enqueue",
+      "providerSubmission": "semantic-call-device-timeline",
+      "receiverHandleKind": "GPUQueue",
+      "wrapperAllocatedTargetHandleKind": null,
+      "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
+      "promiseIdentity": "zero-non-applicable",
+      "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpuqueue.copyexternalimagetotexture.0iassmh.exact-construction-private-webgpu-v1",
+      "authoritySession": {
+        "decisionKind": "typed-positive",
+        "action": "gpu:operation",
+        "stages": [
+          "requested",
+          "commit",
+          "repeat"
+        ],
+        "targetCellDisposition": "complete"
+      }
+    },
+    {
       "operationId": "GPUQueue.submit",
       "wireId": 308839175,
       "edgeId": "surface.native.op.construction.private.webgpu.gpuqueue.submit.0sm1jlg",
@@ -1179,7 +1204,7 @@
       "authoritySession": null
     }
   ],
-  "privateTargetCellCount": 57,
+  "privateTargetCellCount": 58,
   "privateTargetCells": [
     {
       "id": "surface.native.op.construction.private.webgpu.gpu.getpreferredcanvasformat.1c3jcst.exact-construction-private-webgpu-v1",
@@ -2109,6 +2134,33 @@
       "providerBridgeEdgeId": null,
       "positiveAuthority": "not-applicable-wrapper-local",
       "authoritySession": null,
+      "publicInstallDisposition": "absent",
+      "platformSupportClaim": "none"
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpuqueue.copyexternalimagetotexture.0iassmh.exact-construction-private-webgpu-v1",
+      "edgeId": "surface.native.op.construction.private.webgpu.gpuqueue.copyexternalimagetotexture.0iassmh",
+      "target": {
+        "kind": "construction-private-runtime-route",
+        "id": "exact-construction-private-webgpu-v1"
+      },
+      "supportDisposition": "supported-construction-private-only",
+      "capsecDisposition": "complete",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.webgpu.gpuqueue.copyexternalimagetotexture.0iassmh.authenticated.production.route.0fggva8"
+      ],
+      "providerBridgeEdgeId": "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99",
+      "positiveAuthority": "typed-gpu-operation-no-public-grant-issuer",
+      "authoritySession": {
+        "decisionKind": "typed-positive",
+        "action": "gpu:operation",
+        "stages": [
+          "requested",
+          "commit",
+          "repeat"
+        ],
+        "targetCellDisposition": "complete"
+      },
       "publicInstallDisposition": "absent",
       "platformSupportClaim": "none"
     },

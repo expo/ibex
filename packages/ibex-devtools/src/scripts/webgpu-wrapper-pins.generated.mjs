@@ -2,14 +2,14 @@
 // Do not edit in Ibex; the normalized Exact authorities own these identities.
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  "projection": "bd7285fbfe1ae29921ec38ad8f08edd51810823a04486ed6807403d082a509fb",
-  "operationSet": "41b52e49656266936aba84237cf5cbdea1003b2c9620e6fa2f8566f30b2f8a2e",
-  "semanticProgramSet": "af41da4035644008c340abd9f62d0e17320ee908f8d0337ce5989e2bb9adbd25",
-  "runtimeRouting": "1a8467941a397d8722e1121d87d4d68e416858f29953feb6f197f0a173e7e61b",
-  "webgpuCVocabulary": "4bf8bed436a8e91c8013fb9ecc9d9efd18c87c6da03c4690e51901439d8ff7c9"
+  "projection": "95e5e39d7aa45748c31e434fb689452b9affa57e4aee84ddf35f901c22b895b1",
+  "operationSet": "797ba84772ab1636bd2a8ed2e29a41c425a4b57365a0ff0e386420ab77192954",
+  "semanticProgramSet": "6cd57b6a10b071db4e14802c18b0d04a92b23f1196667f32b7920f0cfffa9586",
+  "runtimeRouting": "07e106327f6f4222d4f0ef65ad53b71bd6fbe99cd7c34b2a8c01fca9d81f90eb",
+  "webgpuCVocabulary": "7d7779ae0bf3717d046419cc6ca988b251bfb61588f70142733729e4be688cd2"
 });
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({
-  "semanticProjection": "117a4491b93f8aa26d6c5f013dc09bd1ef96ef8bfeea04a336ffafc5c382205d",
+  "semanticProjection": "8372a1fe6c77b1c3402ef75ed1e7a04696cb2947c86672763af46e515ddc8844",
   "fakeClientData": "d4b76e9a5a4c9b3097cae44d666eff71c10d4c71f638016898627fbfbc58643e"
 });
 export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
@@ -248,6 +248,12 @@ export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
     "method"
   ],
   [
+    "GPUQueue.copyExternalImageToTexture",
+    "GPUQueue",
+    "copyExternalImageToTexture",
+    "method"
+  ],
+  [
     "GPUQueue.submit",
     "GPUQueue",
     "submit",
@@ -379,6 +385,7 @@ export const NATIVE_CODEC_ROUTE_IDS = Object.freeze([
   "GPUTexture.destroy",
   "GPUQueue.writeBuffer",
   "GPUQueue.writeTexture",
+  "GPUQueue.copyExternalImageToTexture",
   "GPUQueue.submit"
 ]);
 export const CONDITIONAL_PROVIDER_OPERATION_IDS = Object.freeze([
@@ -404,6 +411,7 @@ export const CONDITIONAL_PROVIDER_OPERATION_IDS = Object.freeze([
   "GPUQueue.submit",
   "GPUQueue.writeBuffer",
   "GPUQueue.writeTexture",
+  "GPUQueue.copyExternalImageToTexture",
   "GPUTexture.createView",
   "GPUTexture.destroy"
 ]);
@@ -511,5 +519,5 @@ export const TEXTURE_FORMAT_REQUIRED_FEATURES = Object.freeze({
   "astc-12x12-unorm-srgb": "texture-compression-astc"
 });
 export const TEXTURE_FORMAT_CAPABILITY_ROWS_SHA256 = "15c3a739357af9380618651982d07bb725db3e507e5b944a4b9c6ea34d7c7c04";
-export const WRAPPER_ROUTE_COUNT = 57;
-export const CONDITIONAL_PROVIDER_ROUTE_COUNT = 24;
+export const WRAPPER_ROUTE_COUNT = 58;
+export const CONDITIONAL_PROVIDER_ROUTE_COUNT = 25;

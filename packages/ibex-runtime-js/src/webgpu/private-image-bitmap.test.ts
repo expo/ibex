@@ -169,6 +169,29 @@ describe('construction-private ImageBitmap carrier', () => {
     expect(() => firstFactory.snapshotForCopy(first)).toThrow(/closed/u);
   });
 
+  test('checks external-copy range before usability and snapshots only after both pass', async () => {
+    const images = factory();
+    const bitmap = await images.createImageBitmap(new Blob([ENCODED]));
+    const snapshot = images.snapshotForExternalCopy(
+      bitmap,
+      { x: 0, y: 0 },
+      { width: 2, height: 1, depthOrArrayLayers: 1 },
+    );
+    expect(snapshot).toMatchObject({ width: 2, height: 1, usability: 'good' });
+
+    (bitmap as { close(): void }).close();
+    expect(() => images.snapshotForExternalCopy(
+      bitmap,
+      { x: 2, y: 0 },
+      { width: 1, height: 1, depthOrArrayLayers: 1 },
+    )).toThrowError(expect.objectContaining({ name: 'OperationError' }));
+    expect(() => images.snapshotForExternalCopy(
+      bitmap,
+      { x: 0, y: 0 },
+      { width: 1, height: 1, depthOrArrayLayers: 1 },
+    )).toThrowError(expect.objectContaining({ name: 'InvalidStateError' }));
+  });
+
   test('fails closed on crossed runtime identity and non-source-derived bytes', async () => {
     const crossed = factory(
       authority((plane) =>
