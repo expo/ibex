@@ -712,7 +712,7 @@ async fn prime_sync_work_is_bounded_and_dsa_p1363_fails_loudly() {
 /// every coordinate width supported by the compatibility layer. This catches
 /// the easy-to-miss P-521 case (66-byte coordinates, not a power-of-two byte
 /// width) as well as P-256/P-384.
-#[cfg(any(target_os = "macos", feature = "openssl-crypto"))]
+#[cfg(any(target_os = "macos", all(not(windows), feature = "openssl-crypto")))]
 #[tokio::test]
 async fn ec_p1363_interoperates_with_node_for_p256_p384_and_p521() {
     let oracle = r#"
