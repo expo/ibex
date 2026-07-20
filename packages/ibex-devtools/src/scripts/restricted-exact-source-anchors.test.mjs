@@ -598,6 +598,44 @@ void install(Runtime& rt) {
     }
   });
 
+  test("composes an aliased producer leaf with the published global root", () => {
+    const branch = {
+      branchId: "surface.native.op.global.bun.accessibility.colorScheme.all",
+      observedKey: "native-op:global:Bun.accessibility.colorScheme",
+      targetVariant: "all",
+    };
+    const route = buildRestrictedExactBranchSourceRoute(branch, [
+      "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:Bun",
+      "packages/ibex-runtime-js/src/core/accessibility.ts#createAccessibilityNamespace.colorScheme",
+      "packages/ibex-runtime-js/src/core/accessibility.ts#installExactAccessibilityGlobal:globals:Exact.accessibility",
+    ]);
+    expect(route.status).toBe("executable");
+  });
+
+  test("binds evaluated C++ JavaScript through member, publication, and dispatch", () => {
+    const fixtures = [
+      ["fetch", "src/engine/hermes_runtime_fetch.cc#embedded:windowsFetchShim:fetch", "windows"],
+      ["WebSocket.send", "src/engine/hermes_runtime_websocket.cc#embedded:windowsWebSocketShim:WebSocket.send", "windows"],
+      ["process.__exactStreamStabilityPatched", "src/engine/hermes_runtime_process_setup.cc#embedded:streamStabilityPatchJS:process.__exactStreamStabilityPatched", "default"],
+      ["worklet", "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet", "worklet"],
+    ];
+    for (const [key, sourceRef, targetVariant] of fixtures) {
+      const branch = {
+        branchId: `surface.native.op.global.${key}.${targetVariant}`,
+        observedKey: `native-op:global:${key}`,
+        targetVariant,
+      };
+      const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+      expect(binding.locatorKind).toBe("evaluated-cpp-global-route");
+      expect(binding.sites.map((site) => site.role)).toEqual([
+        "value-producer",
+        "publication",
+        "dispatch",
+      ]);
+      expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status).toBe("executable");
+    }
+  });
+
   test("binds a TypeScript member without crediting the entire class", () => {
     const sourceRef = "packages/ibex-runtime-js/src/node/Buffer.ts#Buffer.prototype.copy";
     const binding = resolveRestrictedExactBranchSourceBinding(

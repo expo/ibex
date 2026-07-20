@@ -1505,8 +1505,9 @@ function typescriptClassMemberBinding({ sourceRef, sourcePath, locator, absolute
   });
 }
 
-function typescriptObjectMemberBinding({ sourceRef, sourcePath, locator, text, bytes }) {
-  if (!sourcePath.startsWith("packages/ibex-runtime-js/src/")
+function typescriptObjectMemberBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (!branch?.observedKey?.startsWith("native-op:global:")
+    || !sourcePath.startsWith("packages/ibex-runtime-js/src/")
     || !/\.tsx?$/u.test(sourcePath)
     || locator.includes(":")
     || locator.includes("[[")
@@ -1794,6 +1795,135 @@ function exactGlobalAliasBinding({ branch, sourceRef, sourcePath, locator, absol
       conditionId: publishedRoot === "Bun"
         ? "runtime-compat:bun"
         : `target-branch:${branch.targetVariant}`,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function evaluatedCppGlobalBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (!branch?.observedKey?.startsWith("native-op:global:")
+    || !/\.(?:cc|mm)$/u.test(sourcePath)
+    || !locator.startsWith("embedded:")) return null;
+  const match = /^embedded:([^:]+):(.+)$/u.exec(locator);
+  if (!match) return null;
+  const [, variable, logicalName] = match;
+  if (branch.observedKey.slice("native-op:global:".length) !== logicalName) return null;
+  const declarationPattern = new RegExp(`\\b${escapeRegExp(variable)}\\b\\s*=\\s*R\"([A-Za-z0-9_]*)\\(`, "gu");
+  const declarations = [...text.matchAll(declarationPattern)];
+  if (declarations.length !== 1) return null;
+  const declaration = declarations[0];
+  const delimiter = declaration[1];
+  const scriptStart = declaration.index + declaration[0].length;
+  const scriptEnd = text.indexOf(`)${delimiter}\"`, scriptStart);
+  if (scriptEnd < scriptStart) return null;
+  const script = text.slice(scriptStart, scriptEnd);
+  const bufferPattern = new RegExp(`StringBuffer>\\(${escapeRegExp(variable)}\\)`, "gu");
+  const buffers = [...text.matchAll(bufferPattern)].filter((row) => row.index > scriptEnd);
+  if (buffers.length !== 1) return null;
+  const dispatchSearchEnd = Math.min(text.length, buffers[0].index + 1_000);
+  let dispatchOffset = text.indexOf("evaluateJavaScript(buffer", buffers[0].index);
+  if (dispatchOffset < 0 || dispatchOffset >= dispatchSearchEnd) {
+    const direct = text.lastIndexOf("evaluateJavaScript(", buffers[0].index);
+    dispatchOffset = direct >= 0 && buffers[0].index - direct < 300 ? direct : -1;
+  }
+  if (dispatchOffset < 0) return null;
+  const dispatchStart = text.lastIndexOf("\n", Math.min(dispatchOffset, buffers[0].index)) + 1;
+  const dispatchSemicolon = text.indexOf(";", Math.max(dispatchOffset, buffers[0].index));
+  const dispatchRange = {
+    startByte: dispatchStart,
+    endByte: dispatchSemicolon >= 0 && dispatchSemicolon < dispatchSearchEnd
+      ? dispatchSemicolon + 1
+      : lineRange(text, Math.max(dispatchOffset, buffers[0].index)).endByte,
+  };
+  const logicalPath = logicalName.split(".");
+  const ast = parse(script, { sourceType: "script", allowReturnOutsideFunction: true });
+  const aliases = new Map();
+  walkJavaScript(ast.program, (node) => {
+    if (node.type !== "VariableDeclarator" || node.id?.type !== "Identifier") return;
+    const segments = memberSegments(node.init);
+    if (segments?.length === 2 && ["globalThis", "g", "self", "window"].includes(segments[0])) {
+      aliases.set(node.id.name, segments[1]);
+    }
+  });
+  const normalize = (segments) => {
+    if (!segments) return null;
+    const normalized = ["globalThis", "g", "self", "window"].includes(segments[0])
+      ? segments.slice(1)
+      : segments;
+    return aliases.has(normalized[0])
+      ? [aliases.get(normalized[0]), ...normalized.slice(1)]
+      : normalized;
+  };
+  const rootAssignments = [];
+  const exactAssignments = [];
+  const leafCandidates = [];
+  walkJavaScript(ast.program, (node, parent) => {
+    if (node.type === "AssignmentExpression") {
+      const segments = normalize(memberSegments(node.left));
+      const publicSegments = segments?.filter((part) => part !== "prototype");
+      const row = { node, parent: parent?.type === "ExpressionStatement" ? parent : node, value: node.right };
+      if (JSON.stringify(segments) === JSON.stringify([logicalPath[0]])) rootAssignments.push(row);
+      if (JSON.stringify(segments) === JSON.stringify(logicalPath)
+        || JSON.stringify(publicSegments) === JSON.stringify(logicalPath)) exactAssignments.push(row);
+    }
+    if (node.type === "CallExpression"
+      && JSON.stringify(memberSegments(node.callee)) === JSON.stringify(["Object", "defineProperty"])) {
+      const property = propertyName(node.arguments[1]);
+      const segments = property === null
+        ? null
+        : [...(normalize(memberSegments(node.arguments[0])) ?? []), property];
+      const publicSegments = segments?.filter((part) => part !== "prototype");
+      const row = {
+        node,
+        parent: parent?.type === "ExpressionStatement" ? parent : node,
+        value: node.arguments[2] ?? node,
+      };
+      if (JSON.stringify(segments) === JSON.stringify([logicalPath[0]])) rootAssignments.push(row);
+      if (JSON.stringify(segments) === JSON.stringify(logicalPath)
+        || JSON.stringify(publicSegments) === JSON.stringify(logicalPath)) exactAssignments.push(row);
+    }
+    if (["ObjectMethod", "ObjectProperty", "ClassMethod", "ClassProperty"].includes(node.type)
+      && propertyName(node.key) === logicalPath.at(-1)) leafCandidates.push(node);
+  });
+  let producer;
+  let publication;
+  if (exactAssignments.length === 1) {
+    producer = exactAssignments[0].value;
+    publication = exactAssignments[0].parent;
+  } else if (rootAssignments.length === 1 && logicalPath.length > 1) {
+    let current = rootAssignments[0].value;
+    let property;
+    for (const part of logicalPath.slice(1)) {
+      property = objectProperty(current, part);
+      if (!property) break;
+      current = property.type === "ObjectProperty" ? property.value : property;
+    }
+    if (property) {
+      producer = property;
+      publication = rootAssignments[0].parent;
+    } else if (leafCandidates.length === 1) {
+      producer = leafCandidates[0];
+      publication = rootAssignments[0].parent;
+    }
+  }
+  if (!producer || !publication) return null;
+  const embeddedRange = (node) => ({
+    startByte: scriptStart + node.start,
+    endByte: scriptStart + node.end,
+  });
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${logicalName}.embedded-producer`, range: embeddedRange(producer), text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${logicalName}.embedded-publication`, range: embeddedRange(publication), text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: `${variable}.evaluate`, range: dispatchRange, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "evaluated-cpp-global-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0evaluated-cpp`),
+      conditionId: `target-branch:${branch.targetVariant}:embedded:${variable}`,
       requiredSiteIds: sites.map((site) => site.siteId),
     }],
   });
@@ -4669,6 +4799,7 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? typescriptClassMemberBinding({ branch, sourceRef, ...loaded })
     ?? typescriptObjectMemberBinding({ branch, sourceRef, ...loaded })
     ?? exactGlobalAliasBinding({ branch, sourceRef, ...loaded })
+    ?? evaluatedCppGlobalBinding({ branch, sourceRef, ...loaded })
     ?? legacyJavascriptGlobalRouteBinding({ branch, sourceRef, ...loaded })
     ?? javascriptSymbolProvenanceBinding({ branch, sourceRef, ...loaded });
   return contextual ?? resolveRestrictedExactSourceBinding(sourceRef, root);
@@ -4701,7 +4832,15 @@ function selectGlobalProducerEntry(observedPath, entries) {
       || locator.endsWith(`.prototype.${member}`)
       || locator.endsWith(`.${member}`);
   });
-  return inherited.length === 1 ? inherited[0] : null;
+  if (inherited.length === 1) return inherited[0];
+  const leaf = memberParts.at(-1);
+  const aliasedLeaf = producers.filter(({ sourceRef }) => {
+    const locator = locatorOf(sourceRef);
+    return locator === leaf
+      || locator.endsWith(`.${leaf}`)
+      || locator.endsWith(`.prototype.${leaf}`);
+  });
+  return aliasedLeaf.length === 1 ? aliasedLeaf[0] : null;
 }
 
 function entryTargetsGlobalPath(entry, observedPath) {
@@ -4710,6 +4849,9 @@ function entryTargetsGlobalPath(entry, observedPath) {
   if (entry.binding.locatorKind === "jsi-root-global-route") return locator === observedPath;
   if (entry.binding.locatorKind === "javascript-global-assignment-route") return locator === observedPath;
   if (entry.binding.locatorKind === "exact-global-alias-route") return locator === observedPath;
+  if (entry.binding.locatorKind === "evaluated-cpp-global-route") {
+    return locator.endsWith(`:${observedPath}`);
+  }
   const marker = ":globals:";
   const markerIndex = locator.indexOf(marker);
   return markerIndex >= 0 && locator.slice(markerIndex + marker.length) === observedPath;
