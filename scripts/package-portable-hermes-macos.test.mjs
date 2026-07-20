@@ -47,6 +47,8 @@ function makeThinMachO({
   dylibId = fileType === 6 ? "@rpath/hermesvm.framework/Versions/1/hermesvm" : null,
   dylinker = fileType === 2 ? "/usr/lib/dyld" : null,
   dependencies = [],
+  dyldEnvironment = [],
+  rpaths = [],
   symbols = ["_symbol"],
 } = {}) {
   const cpu = architecture === "arm64" ? 0x0100000c : 0x01000007;
@@ -59,33 +61,56 @@ function makeThinMachO({
     name.copy(command, nameOffset);
     return command;
   };
-  const dependencyCommands = dependencies.map((dependency) =>
-    makeStringCommand(0x0c, 24, dependency),
-  );
+  const dependencyCommandIds = new Map([
+    ["LC_LOAD_DYLIB", 0x0c],
+    ["LC_LOAD_WEAK_DYLIB", 0x80000018],
+    ["LC_REEXPORT_DYLIB", 0x8000001f],
+    ["LC_LAZY_LOAD_DYLIB", 0x20],
+    ["LC_LOAD_UPWARD_DYLIB", 0x80000023],
+  ]);
+  const dependencyCommands = dependencies.map((dependency) => {
+    const row =
+      typeof dependency === "string"
+        ? { command: "LC_LOAD_DYLIB", installName: dependency }
+        : dependency;
+    const commandId = dependencyCommandIds.get(row.command);
+    if (commandId === undefined) throw new Error(`unknown fixture load command: ${row.command}`);
+    return makeStringCommand(commandId, 24, row.installName);
+  });
   const roleCommands = [];
   if (dylibId !== null) roleCommands.push(makeStringCommand(0x0d, 24, dylibId));
   if (dylinker !== null) roleCommands.push(makeStringCommand(0x0e, 12, dylinker));
-  const symtabCommand = Buffer.alloc(24);
-  const commands = [...dependencyCommands, ...roleCommands, symtabCommand];
+  roleCommands.push(...rpaths.map((rpath) => makeStringCommand(0x8000001c, 12, rpath)));
+  roleCommands.push(
+    ...dyldEnvironment.map((value) => makeStringCommand(0x27, 12, value)),
+  );
+  const symtabCommand = symbols === null ? null : Buffer.alloc(24);
+  const commands = [
+    ...dependencyCommands,
+    ...roleCommands,
+    ...(symtabCommand === null ? [] : [symtabCommand]),
+  ];
   const commandBytes = commands.reduce((sum, command) => sum + command.length, 0);
   const symbolOffset = 32 + commandBytes;
   const stringParts = [Buffer.from([0])];
   const stringIndexes = [];
   let stringSize = 1;
-  for (const symbol of symbols) {
+  for (const symbol of symbols ?? []) {
     const bytes = Buffer.from(`${symbol}\0`, "utf8");
     stringIndexes.push(stringSize);
     stringParts.push(bytes);
     stringSize += bytes.length;
   }
   const stringTable = Buffer.concat(stringParts);
-  const stringOffset = symbolOffset + symbols.length * 16;
-  symtabCommand.writeUInt32LE(0x02, 0);
-  symtabCommand.writeUInt32LE(24, 4);
-  symtabCommand.writeUInt32LE(symbolOffset, 8);
-  symtabCommand.writeUInt32LE(symbols.length, 12);
-  symtabCommand.writeUInt32LE(stringOffset, 16);
-  symtabCommand.writeUInt32LE(stringTable.length, 20);
+  const stringOffset = symbolOffset + (symbols?.length ?? 0) * 16;
+  if (symtabCommand !== null) {
+    symtabCommand.writeUInt32LE(0x02, 0);
+    symtabCommand.writeUInt32LE(24, 4);
+    symtabCommand.writeUInt32LE(symbolOffset, 8);
+    symtabCommand.writeUInt32LE(symbols.length, 12);
+    symtabCommand.writeUInt32LE(stringOffset, 16);
+    symtabCommand.writeUInt32LE(stringTable.length, 20);
+  }
   const output = Buffer.alloc(stringOffset + stringTable.length);
   output.writeUInt32LE(0xfeedfacf, 0);
   output.writeUInt32LE(cpu, 4);
@@ -98,7 +123,7 @@ function makeThinMachO({
     command.copy(output, cursor);
     cursor += command.length;
   }
-  for (let index = 0; index < symbols.length; index += 1) {
+  for (let index = 0; index < (symbols?.length ?? 0); index += 1) {
     const row = symbolOffset + index * 16;
     output.writeUInt32LE(stringIndexes[index], row);
     output[row + 4] = 0x0f; // N_EXT | N_SECT
@@ -319,7 +344,14 @@ describe("portable engine production contract", () => {
 
   test("Mach-O parsing selects arm64 and reads bytes, not rendered tool output", () => {
     const arm = makeThinMachO({
-      dependencies: ["/usr/lib/libSystem.B.dylib"],
+      dependencies: [
+        { command: "LC_LOAD_WEAK_DYLIB", installName: "/usr/lib/libSystem.B.dylib" },
+        { command: "LC_LOAD_DYLIB", installName: "@rpath/hermesvm.framework/Versions/1/hermesvm" },
+        { command: "LC_REEXPORT_DYLIB", installName: "/usr/lib/libReexport.dylib" },
+        { command: "LC_LAZY_LOAD_DYLIB", installName: "/usr/lib/libLazy.dylib" },
+        { command: "LC_LOAD_UPWARD_DYLIB", installName: "/usr/lib/libUpward.dylib" },
+      ],
+      rpaths: ["@loader_path/../Frameworks", "@executable_path/../Frameworks"],
       symbols: ["_makeHermesRuntime", "_ex_hermes_vm_current_package_id"],
     });
     const fat = makeFatMachO(makeThinMachO({ architecture: "x86_64" }), arm);
@@ -330,7 +362,42 @@ describe("portable engine production contract", () => {
     assert.equal(parsed.dylibId, "@rpath/hermesvm.framework/Versions/1/hermesvm");
     assert.equal(parsed.dylinker, null);
     assert.deepEqual(parsed.containerArchitectures, ["arm64", "x86_64"]);
-    assert.deepEqual(parsed.dependencies, ["/usr/lib/libSystem.B.dylib"]);
+    assert.deepEqual(parsed.dependencies, [
+      "/usr/lib/libLazy.dylib",
+      "/usr/lib/libReexport.dylib",
+      "/usr/lib/libSystem.B.dylib",
+      "/usr/lib/libUpward.dylib",
+      "@rpath/hermesvm.framework/Versions/1/hermesvm",
+    ]);
+    assert.deepEqual(parsed.dependencyCommands, [
+      {
+        command: "LC_LAZY_LOAD_DYLIB",
+        installName: "/usr/lib/libLazy.dylib",
+      },
+      {
+        command: "LC_LOAD_DYLIB",
+        installName: "@rpath/hermesvm.framework/Versions/1/hermesvm",
+      },
+      {
+        command: "LC_LOAD_UPWARD_DYLIB",
+        installName: "/usr/lib/libUpward.dylib",
+      },
+      {
+        command: "LC_LOAD_WEAK_DYLIB",
+        installName: "/usr/lib/libSystem.B.dylib",
+      },
+      {
+        command: "LC_REEXPORT_DYLIB",
+        installName: "/usr/lib/libReexport.dylib",
+      },
+    ]);
+    assert.deepEqual(parsed.rpaths, [
+      "@executable_path/../Frameworks",
+      "@loader_path/../Frameworks",
+    ]);
+    assert.deepEqual(parsed.dyldEnvironment, []);
+    assert.equal(parsed.executableDigest, rawDigest(fat));
+    assert.equal(parsed.executableSize, fat.length);
     assert.deepEqual(
       parsed.externalDefinedSymbolNames.map((value) => value.toString("utf8")),
       ["_ex_hermes_vm_current_package_id", "_makeHermesRuntime"],
@@ -354,6 +421,62 @@ describe("portable engine production contract", () => {
     const paddedDependency = makeThinMachO({ dependencies: ["/usr/lib/libSystem.B.dylib"] });
     paddedDependency[32 + 24 + Buffer.byteLength("/usr/lib/libSystem.B.dylib") + 1] = 1;
     assert.throws(() => parseMachO(paddedDependency), /non-zero string padding/u);
+
+    const strippedExecutable = makeThinMachO({
+      fileType: 2,
+      dependencies: ["/usr/lib/libSystem.B.dylib"],
+      rpaths: ["@executable_path/../Frameworks"],
+      symbols: null,
+    });
+    assert.throws(() => parseMachO(strippedExecutable), /LC_SYMTAB/u);
+    assert.deepEqual(
+      parseMachO(strippedExecutable, {
+        finalExecutableAudit: true,
+        requireExternalDefinedSymbols: false,
+      }).rpaths,
+      ["@executable_path/../Frameworks"],
+    );
+
+    const environmentRedirect = makeThinMachO({
+      fileType: 2,
+      dependencies: ["/usr/lib/libSystem.B.dylib"],
+      dyldEnvironment: ["DYLD_FRAMEWORK_PATH=/tmp/injected-frameworks"],
+      rpaths: ["@executable_path/../Frameworks"],
+      symbols: null,
+    });
+    assert.deepEqual(
+      parseMachO(environmentRedirect, {
+        requireExternalDefinedSymbols: false,
+      }).dyldEnvironment,
+      ["DYLD_FRAMEWORK_PATH=/tmp/injected-frameworks"],
+    );
+    assert.throws(
+      () =>
+        parseMachO(environmentRedirect, {
+          finalExecutableAudit: true,
+          requireExternalDefinedSymbols: false,
+        }),
+      /forbidden LC_DYLD_ENVIRONMENT/u,
+    );
+
+    for (const [commandId, commandName] of [
+      [0x06, "LC_LOADFVMLIB"],
+      [0x09, "LC_FVMFILE"],
+      [0x10, "LC_PREBOUND_DYLIB"],
+    ]) {
+      const obsoleteLoaderCommand = makeThinMachO({
+        fileType: 2,
+        dependencies: ["/tmp/injected-loader-input"],
+      });
+      obsoleteLoaderCommand.writeUInt32LE(commandId, 32);
+      assert.throws(
+        () =>
+          parseMachO(obsoleteLoaderCommand, {
+            finalExecutableAudit: true,
+          }),
+        new RegExp(`unaccounted load-bearing command: ${commandName}`, "u"),
+      );
+    }
   });
 
   test("Hermes bytecode binds magic, version, and declared file length", () => {

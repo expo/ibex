@@ -15,15 +15,22 @@ const MACHO_GENERIC_CPU_SUBTYPE = Object.freeze({ arm64: 0, x86_64: 3 });
 const MACHO_ARCHITECTURE_BY_CPU = new Map(
   Object.entries(MACHO_CPU).map(([architecture, cpu]) => [cpu, architecture]),
 );
-const MACHO_LOAD_DYLIB_COMMANDS = new Set([
-  0x0c, // LC_LOAD_DYLIB
-  0x80000018, // LC_LOAD_WEAK_DYLIB
-  0x8000001f, // LC_REEXPORT_DYLIB
-  0x20, // LC_LAZY_LOAD_DYLIB
-  0x80000023, // LC_LOAD_UPWARD_DYLIB
+const MACHO_LOAD_DYLIB_COMMANDS = new Map([
+  [0x0c, "LC_LOAD_DYLIB"],
+  [0x80000018, "LC_LOAD_WEAK_DYLIB"],
+  [0x8000001f, "LC_REEXPORT_DYLIB"],
+  [0x20, "LC_LAZY_LOAD_DYLIB"],
+  [0x80000023, "LC_LOAD_UPWARD_DYLIB"],
 ]);
 const MACHO_ID_DYLIB = 0x0d;
 const MACHO_LOAD_DYLINKER = 0x0e;
+const MACHO_RPATH = 0x8000001c;
+const MACHO_DYLD_ENVIRONMENT = 0x27;
+const MACHO_UNACCOUNTED_FINAL_LOADER_COMMANDS = new Map([
+  [0x06, "LC_LOADFVMLIB"],
+  [0x09, "LC_FVMFILE"],
+  [0x10, "LC_PREBOUND_DYLIB"],
+]);
 const HERMES_HBC_MAGIC = 0x1f1903c103bc1fc6n;
 
 export function compareUtf8(left, right) {
@@ -439,7 +446,17 @@ function selectMachOSlice(buffer, architecture) {
   };
 }
 
-export function parseMachO(bytes, { architecture = "arm64" } = {}) {
+// @ref LLP 0035#build-consumption-and-post-link-contracts — final-executable
+// evidence retains exact load-command kinds, RPATHs, DYLD environment entries,
+// and whole-file identity.
+export function parseMachO(
+  bytes,
+  {
+    architecture = "arm64",
+    finalExecutableAudit = false,
+    requireExternalDefinedSymbols = true,
+  } = {},
+) {
   const buffer = Buffer.from(bytes);
   const slice = selectMachOSlice(buffer, architecture);
   const base = slice.offset;
@@ -468,7 +485,10 @@ export function parseMachO(bytes, { architecture = "arm64" } = {}) {
   checkedRange(buffer, base + 32, commandBytes, "Mach-O load commands");
   let cursor = base + 32;
   const commandsEnd = cursor + commandBytes;
-  const dependencies = [];
+  const dependencyCommands = [];
+  const rpaths = [];
+  const dyldEnvironment = [];
+  const unaccountedFinalLoaderCommands = [];
   let dylibId = null;
   let dylinker = null;
   let symbolTable = null;
@@ -492,7 +512,10 @@ export function parseMachO(bytes, { architecture = "arm64" } = {}) {
       if (!buffer.subarray(decoded.end, cursor + commandSize).every((byte) => byte === 0)) {
         throw new Error(`Mach-O dependency ${index} has non-zero string padding`);
       }
-      dependencies.push(decoded.text);
+      dependencyCommands.push({
+        command: MACHO_LOAD_DYLIB_COMMANDS.get(command),
+        installName: decoded.text,
+      });
     }
     if (command === MACHO_ID_DYLIB) {
       if (dylibId !== null || commandSize < 24) {
@@ -518,6 +541,47 @@ export function parseMachO(bytes, { architecture = "arm64" } = {}) {
       }
       dylinker = decoded.text;
     }
+    if (command === MACHO_RPATH) {
+      if (commandSize < 12) throw new Error(`Mach-O LC_RPATH command ${index} is truncated`);
+      const pathOffset = buffer.readUInt32LE(cursor + 8);
+      if (pathOffset < 12 || pathOffset >= commandSize) {
+        throw new Error(`Mach-O LC_RPATH command ${index} has invalid path offset`);
+      }
+      const decoded = decodeCString(
+        buffer,
+        cursor + pathOffset,
+        cursor + commandSize,
+        `Mach-O LC_RPATH ${index}`,
+      );
+      if (!buffer.subarray(decoded.end, cursor + commandSize).every((byte) => byte === 0)) {
+        throw new Error(`Mach-O LC_RPATH command ${index} has non-zero string padding`);
+      }
+      rpaths.push(decoded.text);
+    }
+    if (command === MACHO_DYLD_ENVIRONMENT) {
+      if (commandSize < 12) {
+        throw new Error(`Mach-O LC_DYLD_ENVIRONMENT command ${index} is truncated`);
+      }
+      const valueOffset = buffer.readUInt32LE(cursor + 8);
+      if (valueOffset < 12 || valueOffset >= commandSize) {
+        throw new Error(`Mach-O LC_DYLD_ENVIRONMENT command ${index} has invalid value offset`);
+      }
+      const decoded = decodeCString(
+        buffer,
+        cursor + valueOffset,
+        cursor + commandSize,
+        `Mach-O LC_DYLD_ENVIRONMENT ${index}`,
+      );
+      if (!buffer.subarray(decoded.end, cursor + commandSize).every((byte) => byte === 0)) {
+        throw new Error(`Mach-O LC_DYLD_ENVIRONMENT command ${index} has non-zero string padding`);
+      }
+      dyldEnvironment.push(decoded.text);
+    }
+    const unaccountedLoaderCommand =
+      MACHO_UNACCOUNTED_FINAL_LOADER_COMMANDS.get(command);
+    if (unaccountedLoaderCommand !== undefined) {
+      unaccountedFinalLoaderCommands.push(unaccountedLoaderCommand);
+    }
     if (command === 0x02) {
       if (commandSize !== 24 || symbolTable) throw new Error("Mach-O must contain at most one canonical LC_SYMTAB command");
       symbolTable = {
@@ -530,41 +594,72 @@ export function parseMachO(bytes, { architecture = "arm64" } = {}) {
     cursor += commandSize;
   }
   if (cursor !== commandsEnd) throw new Error("Mach-O load-command bytes do not match declared count");
-  if (!symbolTable) throw new Error("Mach-O has no LC_SYMTAB for external-defined symbol extraction");
-  if (symbolTable.symbolCount > 10_000_000) throw new Error("Mach-O symbol count exceeds producer limit");
-  const symbolsStart = base + symbolTable.symbolOffset;
-  const stringsStart = base + symbolTable.stringOffset;
-  const symbolsSize = symbolTable.symbolCount * 16;
-  if (symbolTable.symbolOffset + symbolsSize > slice.size || symbolTable.stringOffset + symbolTable.stringSize > slice.size) {
-    throw new Error("Mach-O symbol or string table escapes the selected slice");
-  }
-  const loadRange = [base, base + 32 + commandBytes];
-  const symbolRange = [symbolsStart, symbolsStart + symbolsSize];
-  const stringRange = [stringsStart, stringsStart + symbolTable.stringSize];
-  const overlaps = ([leftStart, leftEnd], [rightStart, rightEnd]) => leftStart < rightEnd && rightStart < leftEnd;
-  if (overlaps(loadRange, symbolRange) || overlaps(loadRange, stringRange) || overlaps(symbolRange, stringRange)) {
-    throw new Error("Mach-O header/load commands, symbol table, and string table must not overlap");
-  }
-  checkedRange(buffer, symbolsStart, symbolsSize, "Mach-O nlist_64 table");
-  checkedRange(buffer, stringsStart, symbolTable.stringSize, "Mach-O string table");
-  const stringsEnd = stringsStart + symbolTable.stringSize;
   const names = new Map();
-  for (let index = 0; index < symbolTable.symbolCount; index += 1) {
-    const row = symbolsStart + index * 16;
-    const stringIndex = buffer.readUInt32LE(row);
-    const type = buffer[row + 4];
-    const isExternal = (type & 0x01) !== 0;
-    const isDebug = (type & 0xe0) !== 0;
-    const kind = type & 0x0e;
-    const isDefined = kind === 0x02 || kind === 0x0a || kind === 0x0e;
-    if (!isExternal || isDebug || !isDefined) continue;
-    if (stringIndex === 0 || stringIndex >= symbolTable.stringSize) throw new Error(`Mach-O symbol ${index} has invalid string index`);
-    const decoded = decodeCString(buffer, stringsStart + stringIndex, stringsEnd, `Mach-O symbol ${index}`);
-    names.set(decoded.bytes.toString("base64"), decoded.bytes);
+  if (symbolTable) {
+    if (symbolTable.symbolCount > 10_000_000) throw new Error("Mach-O symbol count exceeds producer limit");
+    const symbolsStart = base + symbolTable.symbolOffset;
+    const stringsStart = base + symbolTable.stringOffset;
+    const symbolsSize = symbolTable.symbolCount * 16;
+    if (symbolTable.symbolOffset + symbolsSize > slice.size || symbolTable.stringOffset + symbolTable.stringSize > slice.size) {
+      throw new Error("Mach-O symbol or string table escapes the selected slice");
+    }
+    const loadRange = [base, base + 32 + commandBytes];
+    const symbolRange = [symbolsStart, symbolsStart + symbolsSize];
+    const stringRange = [stringsStart, stringsStart + symbolTable.stringSize];
+    const overlaps = ([leftStart, leftEnd], [rightStart, rightEnd]) => leftStart < rightEnd && rightStart < leftEnd;
+    if (overlaps(loadRange, symbolRange) || overlaps(loadRange, stringRange) || overlaps(symbolRange, stringRange)) {
+      throw new Error("Mach-O header/load commands, symbol table, and string table must not overlap");
+    }
+    checkedRange(buffer, symbolsStart, symbolsSize, "Mach-O nlist_64 table");
+    checkedRange(buffer, stringsStart, symbolTable.stringSize, "Mach-O string table");
+    const stringsEnd = stringsStart + symbolTable.stringSize;
+    for (let index = 0; index < symbolTable.symbolCount; index += 1) {
+      const row = symbolsStart + index * 16;
+      const stringIndex = buffer.readUInt32LE(row);
+      const type = buffer[row + 4];
+      const isExternal = (type & 0x01) !== 0;
+      const isDebug = (type & 0xe0) !== 0;
+      const kind = type & 0x0e;
+      const isDefined = kind === 0x02 || kind === 0x0a || kind === 0x0e;
+      if (!isExternal || isDebug || !isDefined) continue;
+      if (stringIndex === 0 || stringIndex >= symbolTable.stringSize) throw new Error(`Mach-O symbol ${index} has invalid string index`);
+      const decoded = decodeCString(buffer, stringsStart + stringIndex, stringsEnd, `Mach-O symbol ${index}`);
+      names.set(decoded.bytes.toString("base64"), decoded.bytes);
+    }
   }
-  if (names.size === 0) throw new Error("Mach-O has no external-defined symbols");
+  if (requireExternalDefinedSymbols && !symbolTable) {
+    throw new Error("Mach-O has no LC_SYMTAB for external-defined symbol extraction");
+  }
+  if (requireExternalDefinedSymbols && names.size === 0) {
+    throw new Error("Mach-O has no external-defined symbols");
+  }
+  const dependencies = dependencyCommands.map(({ installName }) => installName);
   const dependencySet = [...new Set(dependencies)].sort(compareUtf8);
   if (dependencySet.length !== dependencies.length) throw new Error("Mach-O contains duplicate load-dylib dependency commands");
+  const sortedDependencyCommands = dependencyCommands.sort((left, right) =>
+    compareUtf8(`${left.command}\0${left.installName}`, `${right.command}\0${right.installName}`),
+  );
+  const rpathSet = [...new Set(rpaths)].sort(compareUtf8);
+  if (rpathSet.length !== rpaths.length) throw new Error("Mach-O contains duplicate LC_RPATH commands");
+  const dyldEnvironmentSet = [...new Set(dyldEnvironment)].sort(compareUtf8);
+  if (dyldEnvironmentSet.length !== dyldEnvironment.length) {
+    throw new Error("Mach-O contains duplicate LC_DYLD_ENVIRONMENT commands");
+  }
+  if (finalExecutableAudit && fileType !== 2) {
+    throw new Error("Mach-O final-executable audit requires an MH_EXECUTE image");
+  }
+  if (finalExecutableAudit && dyldEnvironmentSet.length !== 0) {
+    throw new Error(
+      `Mach-O final executable contains forbidden LC_DYLD_ENVIRONMENT: ${dyldEnvironmentSet.join(", ")}`,
+    );
+  }
+  if (finalExecutableAudit && unaccountedFinalLoaderCommands.length !== 0) {
+    throw new Error(
+      `Mach-O final executable contains unaccounted load-bearing command: ${[
+        ...new Set(unaccountedFinalLoaderCommands),
+      ].sort(compareUtf8).join(", ")}`,
+    );
+  }
   return {
     format: "mach-o",
     architecture,
@@ -573,6 +668,11 @@ export function parseMachO(bytes, { architecture = "arm64" } = {}) {
     dylibId,
     dylinker,
     dependencies: dependencySet,
+    dependencyCommands: sortedDependencyCommands,
+    rpaths: rpathSet,
+    dyldEnvironment: dyldEnvironmentSet,
+    executableDigest: rawDigest(buffer),
+    executableSize: buffer.length,
     externalDefinedSymbolNames: [...names.values()].sort(Buffer.compare),
     container: slice.container,
     containerArchitectures: slice.containerArchitectures,

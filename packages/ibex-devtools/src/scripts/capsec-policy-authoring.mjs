@@ -31,6 +31,10 @@ export function packageIntegrity(packageJsonText) {
   return digestBytes(Buffer.from(packageJsonText, 'utf8'));
 }
 
+export function canonicalPolicySourcePath(value) {
+  return String(value).replaceAll('\\', '/');
+}
+
 // V1 intentionally exposes the authenticated virtual resolution base to every
 // admitted package. Keep that choice in one generator-facing constructor so
 // the row is explicit, digest-bound, and removable by a later profile.

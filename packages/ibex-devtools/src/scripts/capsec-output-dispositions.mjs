@@ -2908,7 +2908,7 @@ export function buildOutputShapeCatalog({
     }
   }
   recipeSurfaceIds.add(contextObserverOutputBinding.account.surfaceId);
-  recipeRows.push(...contextObserverOutputBinding.rows);
+  for (const row of contextObserverOutputBinding.rows) recipeRows.push(row);
 
   const baselineRows = coverage.edges.flatMap((edge) => {
     const sourceSurface = sourcesByObservedKey.get(

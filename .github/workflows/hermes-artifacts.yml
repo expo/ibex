@@ -4,18 +4,19 @@
 # download-first on cold clones instead of paying the ~hour from-source build
 # (ENG-23147, the "best option" half of ENG-22565/ENG-23092).
 #
-# The release tag is hermes-<hermes-commit-12>-<patch-digest-12>. Darwin/Linux
-# asset names and local caches additionally key both platform builders, the
-# patch-application authority, and the shared receipt/identity authority;
-# those bundles carry that exact profile receipt. The Windows asset name binds
-# the patch-application and patch-identity authorities plus both the builder
-# and installer Git blobs; its manifest and receipt bind their full checked-out
-# content digests.
-# All published runtime bundles receive workflow-bound provenance attestations.
-# @ref LLP 0035#transport-and-distribution-provenance — retain exact raw bundles
-# without turning their presence into portable-artifact authority.
-# The action's exact, single-document Sigstore v0.3 output is copied byte-for-
-# byte to <archive>.sigstore.json, checksummed, and uploaded beside the archive.
+# The legacy cache release tag is hermes-<hermes-commit-12>-<patch-digest-12>.
+# Each revision-bound portable set uses its own prerelease tag so per-revision
+# growth cannot exhaust the shared legacy release's asset namespace. Darwin/Linux
+# legacy names and local caches additionally key both platform builders, the
+# patch-application authority, and the shared receipt/identity authority; the
+# Windows name binds both patch authorities plus its builder/installer blobs.
+# @ref LLP 0035#transport-and-distribution-provenance — native producers have
+# read-only repository access and hand one raw inert archive to a separate
+# checkout-free publisher. Only that publisher has release/OIDC authority; it
+# verifies current-run immutable metadata and bytes without executing or
+# extracting them, then attests the exact subject name/digest. The action's
+# exact single-document Sigstore v0.3 output is copied byte-for-byte to
+# <archive>.sigstore.json, checksummed, and uploaded beside the archive.
 # These retained bundles are diagnostic evidence only: portable artifact
 # acceptance remains disabled until the offline verifier and admission policy
 # described by LLP 0035 are complete.
@@ -33,144 +34,59 @@ on:
         default: false
   push:
     branches: [main]
-    paths:
-      - ".gitattributes"
-      - "scripts/hermes-version.sh"
-      - "patches/hermes/**"
-      - "scripts/build-hermes.sh"
-      - "scripts/build-hermes-linux.sh"
-      - "scripts/build-hermes-windows.ps1"
-      - "scripts/install-windows-hermes.ps1"
-      - "scripts/apply-hermes-patches.sh"
-      - "scripts/package-portable-hermes-macos.mjs"
-      - "scripts/portable-engine-contract.mjs"
-      - "scripts/package-portable-hermes-macos.test.mjs"
-      - "schemas/portable-engine-*.json"
-      - "tests/fixtures/portable-engine/**"
-      - ".github/workflows/hermes-artifacts.yml"
 
-# Serialize runs: two overlapping publishes for the same identity would race
-# on release creation/uploads.
+# The portable manifest binds the complete Ibex source revision, so every main
+# commit needs its own portable archive even when the Hermes source/profile
+# bytes are unchanged. Legacy release-cache assets remain name-keyed and are
+# rebuilt only when absent (or when an explicit force dispatch requests them).
+
+# Serialize duplicate attempts for one revision without allowing a newer main
+# commit to cancel an older pending portable build. Distinct revisions use
+# distinct portable names; release creation/upload steps are race-tolerant.
 concurrency:
-  group: hermes-artifacts
+  group: hermes-artifacts-${{ github.sha }}
   cancel-in-progress: false
 
-permissions:
-  attestations: write
-  contents: write
-  id-token: write
-
-env:
-  GH_TOKEN: ${{ github.token }}
-  IBEX_SIGSTORE_BUNDLE_VALIDATOR: |
-    import json
-    import math
-    import pathlib
-    import sys
-
-    expected_media_type = "application/vnd.dev.sigstore.bundle.v0.3+json"
-    maximum_bytes = 16 * 1024 * 1024
-    maximum_safe_integer = (1 << 53) - 1
-    path = pathlib.Path(sys.argv[1])
-    raw = path.read_bytes()
-    if not raw or len(raw) > maximum_bytes:
-        raise SystemExit(f"{path}: bundle must contain 1..{maximum_bytes} bytes")
-
-    def reject_duplicates(pairs):
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError(f"duplicate JSON member: {key!r}")
-            result[key] = value
-        return result
-
-    def reject_constant(value):
-        raise ValueError(f"non-I-JSON numeric constant: {value}")
-
-    def parse_integer(value):
-        parsed = int(value)
-        if abs(parsed) > maximum_safe_integer:
-            raise ValueError(f"integer is outside the I-JSON safe range: {value}")
-        return parsed
-
-    def parse_float(value):
-        parsed = float(value)
-        if not math.isfinite(parsed):
-            raise ValueError(f"non-finite JSON number: {value}")
-        if parsed.is_integer() and abs(parsed) > maximum_safe_integer:
-            raise ValueError(f"integer is outside the I-JSON safe range: {value}")
-        return parsed
-
-    def require_unicode_scalars(value, location="$"):
-        if isinstance(value, str):
-            try:
-                value.encode("utf-8", errors="strict")
-            except UnicodeEncodeError as error:
-                raise ValueError(
-                    f"{location}: JSON string contains a lone surrogate"
-                ) from error
-            return
-        if isinstance(value, list):
-            for index, item in enumerate(value):
-                require_unicode_scalars(item, f"{location}[{index}]")
-            return
-        if isinstance(value, dict):
-            for key, item in value.items():
-                require_unicode_scalars(key, f"{location} object key")
-                require_unicode_scalars(item, f"{location}.{key}")
-
-    try:
-        text = raw.decode("utf-8")
-        start = 0
-        while start < len(text) and text[start] in " \t\r\n":
-            start += 1
-        if start == len(text):
-            raise ValueError("empty JSON document")
-        decoder = json.JSONDecoder(
-            object_pairs_hook=reject_duplicates,
-            parse_constant=reject_constant,
-            parse_float=parse_float,
-            parse_int=parse_integer,
-        )
-        document, end = decoder.raw_decode(text, start)
-        if text[end:].strip(" \t\r\n"):
-            raise ValueError("trailing data or a second JSON document")
-        require_unicode_scalars(document)
-    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
-        raise SystemExit(f"{path}: invalid retained Sigstore bundle: {error}")
-
-    if not isinstance(document, dict):
-        raise SystemExit(f"{path}: Sigstore bundle must be one JSON object")
-    if document.get("mediaType") != expected_media_type:
-        raise SystemExit(
-            f"{path}: expected mediaType {expected_media_type!r}, "
-            f"got {document.get('mediaType')!r}"
-        )
-    print(f"Retained one exact Sigstore v0.3 bundle ({len(raw)} bytes): {path}")
+permissions: {}
 
 jobs:
   identity:
     name: Resolve artifact identity
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       identity: ${{ steps.compute.outputs.identity }}
       tag: ${{ steps.compute.outputs.tag }}
+      portable_tag: ${{ steps.compute.outputs.portable_tag }}
       macos_cache_key: ${{ steps.compute.outputs.macos_cache_key }}
       macos_release_cache_key: ${{ steps.compute.outputs.macos_release_cache_key }}
       linux_cache_key: ${{ steps.compute.outputs.linux_cache_key }}
       windows_asset_key: ${{ steps.compute.outputs.windows_asset_key }}
-      need_macos: ${{ steps.assets.outputs.need_macos }}
-      need_macos_release: ${{ steps.assets.outputs.need_macos_release }}
-      need_linux: ${{ steps.assets.outputs.need_linux }}
-      need_windows: ${{ steps.assets.outputs.need_windows }}
     steps:
       - name: Check out Ibex
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
 
+      - name: Assert read-only identity boundary
+        run: |
+          set -euo pipefail
+          test -z "${GH_TOKEN:-}"
+          test -z "${GITHUB_TOKEN:-}"
+          test -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"
+          test -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          if git config --local --get-regexp '^(http\..*\.extraheader|credential\.)' >/dev/null; then
+            echo "::error::checkout left a persisted Git credential"
+            exit 1
+          fi
+
       - name: Test diagnostic portable-package producer
         run: node --test scripts/package-portable-hermes-macos.test.mjs
+
+      - name: Test workflow privilege and inert-handoff boundary
+        run: node --test scripts/hermes-artifacts-workflow-security.test.mjs
 
       - name: Verify source-build lock and cache-key contract
         run: ./scripts/hermes-build-lock.test.sh
@@ -193,6 +109,7 @@ jobs:
           windows_asset_key="${identity}-a${patch_application_hex:0:12}-i${patch_identity_hex:0:12}-bw${windows_builder_blob:0:12}-iw${windows_installer_blob:0:12}"
           echo "identity=$identity" >> "$GITHUB_OUTPUT"
           echo "tag=hermes-$identity" >> "$GITHUB_OUTPUT"
+          echo "portable_tag=hermes-portable-$identity-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
           echo "macos_cache_key=$macos_cache_key" >> "$GITHUB_OUTPUT"
           echo "macos_release_cache_key=$macos_release_cache_key" >> "$GITHUB_OUTPUT"
           echo "linux_cache_key=$linux_cache_key" >> "$GITHUB_OUTPUT"
@@ -203,71 +120,201 @@ jobs:
           echo "Linux source cache key: $linux_cache_key"
           echo "Windows asset key: $windows_asset_key"
 
-      - name: Ensure artifact-cache release exists (idempotent)
-        run: |
-          set -euo pipefail
-          tag="${{ steps.compute.outputs.tag }}"
-          notes="Prebuilt PATCHED Hermes bundles (LLP 0013 patch stack applied) for the platform installers. Release identity = pinned Hermes commit (12) + patches/hermes digest (12); Darwin/Linux asset names additionally bind both builders plus the patch-application and receipt/identity authorities, while the Windows asset binds those patch authorities plus its source builder and installer. The Windows manifest and profile receipt retain the full digests. Each archive's exact actions/attest-build-provenance output is retained as <archive>.sigstore.json with a raw-byte checksum; these detached bundles are diagnostic evidence and portable artifact acceptance remains disabled pending the LLP 0035 offline verifier and admission policy. This is an artifact cache, not a product release. Published by the hermes-artifacts workflow (ENG-23147)."
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $tag already exists."
-            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes "$notes"
-          else
-            gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
-              --prerelease \
-              --title "Hermes artifact cache ${{ steps.compute.outputs.identity }}" \
-              --notes "$notes" \
-              --target "$GITHUB_SHA"
-          fi
+  release_state:
+    name: Resolve release-cache state
+    needs: identity
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      IBEX_RELEASE_ASSET_NEED_VALIDATOR: |
+        import json
+        import pathlib
+        import sys
 
+        MAX_ASSET_METADATA_SIZE = 16 * 1024 * 1024
+        MAX_RELEASE_ASSET_SIZE = 2 * 1024 * 1024 * 1024
+
+        def pairs(items):
+            result = {}
+            for key, value in items:
+                if key in result:
+                    raise ValueError(f"duplicate key {key!r}")
+                result[key] = value
+            return result
+
+        def reject_constant(value):
+            raise ValueError(f"non-finite value {value}")
+
+        if len(sys.argv) < 3 or len(set(sys.argv[2:])) != len(sys.argv[2:]):
+            raise SystemExit("release-state validator requires unique expected names")
+        path = pathlib.Path(sys.argv[1])
+        raw = path.read_bytes()
+        if not 0 < len(raw) <= MAX_ASSET_METADATA_SIZE:
+            raise SystemExit("release asset metadata has an unsafe size")
+        try:
+            pages = json.loads(
+                raw.decode("utf-8", errors="strict"),
+                object_pairs_hook=pairs,
+                parse_constant=reject_constant,
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+            raise SystemExit(f"malformed release asset metadata: {error}")
+        if not isinstance(pages, list) or not all(isinstance(page, list) for page in pages):
+            raise SystemExit("release asset metadata is not paginated JSON")
+        assets = [asset for page in pages for asset in page]
+        for expected in sys.argv[2:]:
+            matches = [
+                asset
+                for asset in assets
+                if isinstance(asset, dict) and asset.get("name") == expected
+            ]
+            if len(matches) != 1:
+                print("true")
+                raise SystemExit(0)
+            asset = matches[0]
+            asset_id = asset.get("id")
+            size = asset.get("size")
+            if (type(asset_id) is not int
+                    or asset_id <= 0
+                    or asset.get("state") != "uploaded"
+                    or type(size) is not int
+                    or not 0 < size <= MAX_RELEASE_ASSET_SIZE):
+                print("true")
+                raise SystemExit(0)
+        print("false")
+    outputs:
+      need_macos: ${{ steps.assets.outputs.need_macos }}
+      need_macos_release_legacy: ${{ steps.assets.outputs.need_macos_release_legacy }}
+      need_portable_macos_release: ${{ steps.assets.outputs.need_portable_macos_release }}
+      need_macos_release_builder: ${{ steps.assets.outputs.need_macos_release_builder }}
+      need_linux: ${{ steps.assets.outputs.need_linux }}
+      need_windows: ${{ steps.assets.outputs.need_windows }}
+      any_needed: ${{ steps.assets.outputs.any_needed }}
+    steps:
       - name: Check which platform assets are needed
         id: assets
+        env:
+          FORCE: ${{ inputs.force }}
+          GH_TOKEN: ${{ github.token }}
+          IDENTITY: ${{ needs.identity.outputs.identity }}
+          LINUX_CACHE_KEY: ${{ needs.identity.outputs.linux_cache_key }}
+          MACOS_CACHE_KEY: ${{ needs.identity.outputs.macos_cache_key }}
+          MACOS_RELEASE_CACHE_KEY: ${{ needs.identity.outputs.macos_release_cache_key }}
+          PORTABLE_TAG: ${{ needs.identity.outputs.portable_tag }}
+          TAG: ${{ needs.identity.outputs.tag }}
+          WINDOWS_ASSET_KEY: ${{ needs.identity.outputs.windows_asset_key }}
         run: |
           set -euo pipefail
-          tag="${{ steps.compute.outputs.tag }}"
-          identity="${{ steps.compute.outputs.identity }}"
-          force="${{ inputs.force }}"
-          existing="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name')"
+          [[ "$GITHUB_REPOSITORY" == "ccheever/ibex" ]]
+          [[ "$GITHUB_REF" == "refs/heads/main" ]]
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$IDENTITY" =~ ^[0-9a-f]{12}-[0-9a-f]{12}$ ]]
+          [[ "$TAG" == "hermes-$IDENTITY" ]]
+          [[ "$PORTABLE_TAG" == "hermes-portable-$IDENTITY-$GITHUB_SHA" ]]
+          [[ "$MACOS_CACHE_KEY" =~ ^[A-Za-z0-9._-]+$ ]]
+          [[ "$MACOS_RELEASE_CACHE_KEY" =~ ^[A-Za-z0-9._-]+$ ]]
+          [[ "$LINUX_CACHE_KEY" =~ ^[A-Za-z0-9._-]+$ ]]
+          [[ "$WINDOWS_ASSET_KEY" =~ ^[A-Za-z0-9._-]+$ ]]
+          force="${FORCE:-false}"
+          [[ "$force" == "true" || "$force" == "false" ]]
+          list_assets() {
+            local release_tag="$1"
+            local destination="$2"
+            local release_id
+            if release_id="$(gh api \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "repos/$GITHUB_REPOSITORY/releases/tags/$release_tag" --jq '.id' 2>/dev/null)"; then
+              [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
+              gh api --paginate --slurp \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" \
+                > "$destination"
+            else
+              printf '[]\n' > "$destination"
+            fi
+          }
+          legacy_assets="$RUNNER_TEMP/ibex-hermes-legacy-release-assets.json"
+          portable_assets="$RUNNER_TEMP/ibex-hermes-portable-release-assets.json"
+          list_assets "$TAG" "$legacy_assets"
+          list_assets "$PORTABLE_TAG" "$portable_assets"
           need() {
+            local metadata_path="$1"
+            shift
             if [ "$force" = "true" ]; then
               echo true
               return
             fi
-            for required in "$@"; do
-              if ! printf '%s\n' "$existing" | grep -Fqx "$required"; then
-                echo true
-                return
-              fi
-            done
-            echo false
+            python3 -c "$IBEX_RELEASE_ASSET_NEED_VALIDATOR" "$metadata_path" "$@"
           }
-          macos_asset="hermes-macos-arm64-${{ steps.compute.outputs.macos_cache_key }}.tar.gz"
-          macos_release_asset="hermes-macos-arm64-release-${{ steps.compute.outputs.macos_release_cache_key }}.tar.gz"
-          macos_portable_asset="hermes-portable-macos-arm64-release-${{ steps.compute.outputs.macos_release_cache_key }}-$GITHUB_SHA.tar.gz"
-          linux_asset="hermes-linux-x64-${{ steps.compute.outputs.linux_cache_key }}.tar.gz"
-          windows_asset="hermes-windows-x64-${{ steps.compute.outputs.windows_asset_key }}.zip"
+          macos_asset="hermes-macos-arm64-$MACOS_CACHE_KEY.tar.gz"
+          macos_release_asset="hermes-macos-arm64-release-$MACOS_RELEASE_CACHE_KEY.tar.gz"
+          macos_portable_asset="hermes-portable-macos-arm64-release-$MACOS_RELEASE_CACHE_KEY-$GITHUB_SHA.tar.gz"
+          linux_asset="hermes-linux-x64-$LINUX_CACHE_KEY.tar.gz"
+          windows_asset="hermes-windows-x64-$WINDOWS_ASSET_KEY.zip"
+          need_macos="$(need "$legacy_assets" "$macos_asset" "$macos_asset.sha256" "$macos_asset.sigstore.json" "$macos_asset.sigstore.json.sha256")"
+          need_macos_release_legacy="$(need "$legacy_assets" "$macos_release_asset" "$macos_release_asset.sha256" "$macos_release_asset.sigstore.json" "$macos_release_asset.sigstore.json.sha256")"
+          need_portable_macos_release="$(need "$portable_assets" "$macos_portable_asset" "$macos_portable_asset.sha256" "$macos_portable_asset.sigstore.json" "$macos_portable_asset.sigstore.json.sha256")"
+          need_linux="$(need "$legacy_assets" "$linux_asset" "$linux_asset.sha256" "$linux_asset.sigstore.json" "$linux_asset.sigstore.json.sha256")"
+          need_windows="$(need "$legacy_assets" "$windows_asset" "$windows_asset.sha256" "$windows_asset.sigstore.json" "$windows_asset.sigstore.json.sha256")"
+          if [[ "$need_macos_release_legacy" == "true" || "$need_portable_macos_release" == "true" ]]; then
+            need_macos_release_builder=true
+          else
+            need_macos_release_builder=false
+          fi
+          if [[ "$need_macos" == "true" || "$need_macos_release_builder" == "true" || "$need_linux" == "true" || "$need_windows" == "true" ]]; then
+            any_needed=true
+          else
+            any_needed=false
+          fi
           {
-            echo "need_macos=$(need "$macos_asset" "$macos_asset.sha256" "$macos_asset.sigstore.json" "$macos_asset.sigstore.json.sha256")"
-            echo "need_macos_release=$(need "$macos_release_asset" "$macos_release_asset.sha256" "$macos_release_asset.sigstore.json" "$macos_release_asset.sigstore.json.sha256" "$macos_portable_asset" "$macos_portable_asset.sha256" "$macos_portable_asset.sigstore.json" "$macos_portable_asset.sigstore.json.sha256")"
-            echo "need_linux=$(need "$linux_asset" "$linux_asset.sha256" "$linux_asset.sigstore.json" "$linux_asset.sigstore.json.sha256")"
-            echo "need_windows=$(need "$windows_asset" "$windows_asset.sha256" "$windows_asset.sigstore.json" "$windows_asset.sigstore.json.sha256")"
+            echo "need_macos=$need_macos"
+            echo "need_macos_release_legacy=$need_macos_release_legacy"
+            echo "need_portable_macos_release=$need_portable_macos_release"
+            echo "need_macos_release_builder=$need_macos_release_builder"
+            echo "need_linux=$need_linux"
+            echo "need_windows=$need_windows"
+            echo "any_needed=$any_needed"
           } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT" || true
 
   macos:
-    name: Build + publish macOS bundle (arm64)
-    needs: identity
-    if: needs.identity.outputs.need_macos == 'true'
+    name: Build macOS bundle (arm64, unprivileged)
+    needs: [identity, release_state]
+    if: needs.release_state.outputs.need_macos == 'true'
     runs-on: macos-14
     timeout-minutes: 180
+    permissions:
+      contents: read
+    outputs:
+      asset_name: ${{ steps.package.outputs.asset_name }}
+      asset_sha256: ${{ steps.package.outputs.asset_sha256 }}
+      asset_size: ${{ steps.package.outputs.asset_size }}
+      artifact_id: ${{ steps.handoff.outputs.artifact-id }}
+      artifact_digest: ${{ steps.handoff.outputs.artifact-digest }}
     env:
       IDENTITY: ${{ needs.identity.outputs.identity }}
-      TAG: ${{ needs.identity.outputs.tag }}
       SOURCE_CACHE_KEY: ${{ needs.identity.outputs.macos_cache_key }}
     steps:
       - name: Check out Ibex
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
+
+      - name: Assert unprivileged build boundary
+        run: |
+          set -euo pipefail
+          test -z "${GH_TOKEN:-}"
+          test -z "${GITHUB_TOKEN:-}"
+          test -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"
+          test -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          if git config --local --get-regexp '^(http\..*\.extraheader|credential\.)' >/dev/null; then
+            echo "::error::checkout left a persisted Git credential"
+            exit 1
+          fi
 
       # build-hermes.sh checks out the pin, applies patches/hermes/*, and
       # builds host hermesc/hermes + iOS/simulator/macOS frameworks. It never
@@ -297,55 +344,63 @@ jobs:
           "$cache/bin/hermes" --help >/dev/null
           echo "Bundle verified: patched export present, host tools run."
 
-      - name: Package + checksum
+      - name: Package inert handoff
+        id: package
         run: |
           set -euo pipefail
           asset="hermes-macos-arm64-$SOURCE_CACHE_KEY.tar.gz"
           tar -C "$cache" -czf "$asset" hermesvm.xcframework hermesvm.framework hermes-profile-provenance.json include bin
-          shasum -a 256 "$asset" > "$asset.sha256"
-          ls -lh "$asset"*
+          digest="$(shasum -a 256 "$asset" | awk '{print $1}')"
+          size="$(stat -f '%z' "$asset")"
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$size" =~ ^[1-9][0-9]*$ ]]
+          (( size <= 2 * 1024 * 1024 * 1024 ))
+          echo "asset_name=$asset" >> "$GITHUB_OUTPUT"
+          echo "asset_path=$PWD/$asset" >> "$GITHUB_OUTPUT"
+          echo "asset_sha256=$digest" >> "$GITHUB_OUTPUT"
+          echo "asset_size=$size" >> "$GITHUB_OUTPUT"
+          ls -lh "$asset"
 
-      - name: Attest bundle provenance
-        id: attest
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+      - name: Upload immutable direct handoff
+        id: handoff
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          subject-path: hermes-macos-arm64-${{ env.SOURCE_CACHE_KEY }}.tar.gz
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          path: ${{ steps.package.outputs.asset_path }}
+          retention-days: 7
 
-      - name: Retain exact provenance bundle (diagnostic only)
+      - name: Join handoff service digest to archive bytes
         env:
-          ATTESTATION_BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+          ARCHIVE_SHA256: ${{ steps.package.outputs.asset_sha256 }}
+          HANDOFF_DIGEST: ${{ steps.handoff.outputs.artifact-digest }}
+          HANDOFF_ID: ${{ steps.handoff.outputs.artifact-id }}
         run: |
           set -euo pipefail
-          asset="hermes-macos-arm64-$SOURCE_CACHE_KEY.tar.gz"
-          bundle="$asset.sigstore.json"
-          test -n "$ATTESTATION_BUNDLE_PATH"
-          test -f "$ATTESTATION_BUNDLE_PATH"
-          cp "$ATTESTATION_BUNDLE_PATH" "$bundle"
-          cmp "$ATTESTATION_BUNDLE_PATH" "$bundle"
-          python3 -c "$IBEX_SIGSTORE_BUNDLE_VALIDATOR" "$bundle"
-          shasum -a 256 "$bundle" > "$bundle.sha256"
-          ls -lh "$bundle" "$bundle.sha256"
-
-      - name: Upload to release (idempotent overwrite)
-        run: |
-          set -euo pipefail
-          asset="hermes-macos-arm64-$SOURCE_CACHE_KEY.tar.gz"
-          bundle="$asset.sigstore.json"
-          gh release upload "$TAG" "$asset" "$asset.sha256" "$bundle" "$bundle.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+          [[ "$HANDOFF_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$HANDOFF_DIGEST" == "$ARCHIVE_SHA256" ]]
 
   linux:
-    name: Build + publish Linux bundle (x64)
-    needs: identity
-    if: needs.identity.outputs.need_linux == 'true'
+    name: Build Linux bundle (x64, unprivileged)
+    needs: [identity, release_state]
+    if: needs.release_state.outputs.need_linux == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 150
+    permissions:
+      contents: read
+    outputs:
+      asset_name: ${{ steps.package.outputs.asset_name }}
+      asset_sha256: ${{ steps.package.outputs.asset_sha256 }}
+      asset_size: ${{ steps.package.outputs.asset_size }}
+      artifact_id: ${{ steps.handoff.outputs.artifact-id }}
+      artifact_digest: ${{ steps.handoff.outputs.artifact-digest }}
     env:
       IDENTITY: ${{ needs.identity.outputs.identity }}
-      TAG: ${{ needs.identity.outputs.tag }}
       SOURCE_CACHE_KEY: ${{ needs.identity.outputs.linux_cache_key }}
     steps:
       - name: Check out Ibex
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
 
@@ -353,6 +408,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build
+
+      - name: Assert unprivileged build boundary
+        run: |
+          set -euo pipefail
+          test -z "${GH_TOKEN:-}"
+          test -z "${GITHUB_TOKEN:-}"
+          test -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"
+          test -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          if git config --local --get-regexp '^(http\..*\.extraheader|credential\.)' >/dev/null; then
+            echo "::error::checkout left a persisted Git credential"
+            exit 1
+          fi
 
       - name: Build patched Hermes from source
         run: ./scripts/build-hermes-linux.sh
@@ -380,57 +448,83 @@ jobs:
           "$install/bin/hermesc" --help >/dev/null
           echo "Bundle verified: patched export present, hermesc runs."
 
-      - name: Package + checksum
+      - name: Package inert handoff
+        id: package
         run: |
           set -euo pipefail
           asset="hermes-linux-x64-$SOURCE_CACHE_KEY.tar.gz"
           tar -C "$install" -czf "$asset" include lib bin
-          shasum -a 256 "$asset" > "$asset.sha256"
-          ls -lh "$asset"*
+          digest="$(shasum -a 256 "$asset" | awk '{print $1}')"
+          size="$(stat -c '%s' "$asset")"
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$size" =~ ^[1-9][0-9]*$ ]]
+          (( size <= 2 * 1024 * 1024 * 1024 ))
+          echo "asset_name=$asset" >> "$GITHUB_OUTPUT"
+          echo "asset_path=$PWD/$asset" >> "$GITHUB_OUTPUT"
+          echo "asset_sha256=$digest" >> "$GITHUB_OUTPUT"
+          echo "asset_size=$size" >> "$GITHUB_OUTPUT"
+          ls -lh "$asset"
 
-      - name: Attest bundle provenance
-        id: attest
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+      - name: Upload immutable direct handoff
+        id: handoff
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          subject-path: hermes-linux-x64-${{ env.SOURCE_CACHE_KEY }}.tar.gz
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          path: ${{ steps.package.outputs.asset_path }}
+          retention-days: 7
 
-      - name: Retain exact provenance bundle (diagnostic only)
+      - name: Join handoff service digest to archive bytes
         env:
-          ATTESTATION_BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+          ARCHIVE_SHA256: ${{ steps.package.outputs.asset_sha256 }}
+          HANDOFF_DIGEST: ${{ steps.handoff.outputs.artifact-digest }}
+          HANDOFF_ID: ${{ steps.handoff.outputs.artifact-id }}
         run: |
           set -euo pipefail
-          asset="hermes-linux-x64-$SOURCE_CACHE_KEY.tar.gz"
-          bundle="$asset.sigstore.json"
-          test -n "$ATTESTATION_BUNDLE_PATH"
-          test -f "$ATTESTATION_BUNDLE_PATH"
-          cp "$ATTESTATION_BUNDLE_PATH" "$bundle"
-          cmp "$ATTESTATION_BUNDLE_PATH" "$bundle"
-          python3 -c "$IBEX_SIGSTORE_BUNDLE_VALIDATOR" "$bundle"
-          shasum -a 256 "$bundle" > "$bundle.sha256"
-          ls -lh "$bundle" "$bundle.sha256"
+          [[ "$HANDOFF_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$HANDOFF_DIGEST" == "$ARCHIVE_SHA256" ]]
 
-      - name: Upload to release (idempotent overwrite)
-        run: |
-          set -euo pipefail
-          asset="hermes-linux-x64-$SOURCE_CACHE_KEY.tar.gz"
-          bundle="$asset.sigstore.json"
-          gh release upload "$TAG" "$asset" "$asset.sha256" "$bundle" "$bundle.sha256" --repo "$GITHUB_REPOSITORY" --clobber
-
-  macos-release:
-    name: Build + publish macOS Release bundle (arm64, no debugger)
-    needs: identity
-    if: needs.identity.outputs.need_macos_release == 'true'
+  macos_release:
+    name: Build macOS Release bundles (arm64, unprivileged)
+    needs: [identity, release_state]
+    if: needs.release_state.outputs.need_macos_release_builder == 'true'
     runs-on: macos-14
     timeout-minutes: 180
+    permissions:
+      contents: read
+    outputs:
+      legacy_asset_name: ${{ steps.package_legacy.outputs.asset_name }}
+      legacy_asset_sha256: ${{ steps.package_legacy.outputs.asset_sha256 }}
+      legacy_asset_size: ${{ steps.package_legacy.outputs.asset_size }}
+      legacy_artifact_id: ${{ steps.handoff_legacy.outputs.artifact-id }}
+      legacy_artifact_digest: ${{ steps.handoff_legacy.outputs.artifact-digest }}
+      portable_asset_name: ${{ steps.package_portable.outputs.asset_name }}
+      portable_asset_sha256: ${{ steps.package_portable.outputs.asset_sha256 }}
+      portable_asset_size: ${{ steps.package_portable.outputs.asset_size }}
+      portable_artifact_id: ${{ steps.handoff_portable.outputs.artifact-id }}
+      portable_artifact_digest: ${{ steps.handoff_portable.outputs.artifact-digest }}
     env:
       IDENTITY: ${{ needs.identity.outputs.identity }}
-      TAG: ${{ needs.identity.outputs.tag }}
       SOURCE_CACHE_KEY: ${{ needs.identity.outputs.macos_release_cache_key }}
     steps:
       - name: Check out Ibex
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
+
+      - name: Assert unprivileged build boundary
+        run: |
+          set -euo pipefail
+          test -z "${GH_TOKEN:-}"
+          test -z "${GITHUB_TOKEN:-}"
+          test -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"
+          test -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          if git config --local --get-regexp '^(http\..*\.extraheader|credential\.)' >/dev/null; then
+            echo "::error::checkout left a persisted Git credential"
+            exit 1
+          fi
 
       - name: Build patched no-debugger Hermes from source
         run: ./scripts/build-hermes.sh --release
@@ -461,6 +555,8 @@ jobs:
           echo "Release bundle verified: patch present, debugger absent, host tools run."
 
       - name: Package diagnostic portable Release artifact
+        id: package_portable
+        if: needs.release_state.outputs.need_portable_macos_release == 'true'
         run: |
           set -euo pipefail
           portable_asset="hermes-portable-macos-arm64-release-$SOURCE_CACHE_KEY-$GITHUB_SHA.tar.gz"
@@ -469,91 +565,126 @@ jobs:
             --source-ref "$GITHUB_REF" \
             --expected-source-revision "$GITHUB_SHA" \
             --output "$portable_asset"
-          shasum -a 256 "$portable_asset" > "$portable_asset.sha256"
-          ls -lh "$portable_asset" "$portable_asset.sha256"
+          digest="$(shasum -a 256 "$portable_asset" | awk '{print $1}')"
+          size="$(stat -f '%z' "$portable_asset")"
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$size" =~ ^[1-9][0-9]*$ ]]
+          (( size <= 2 * 1024 * 1024 * 1024 ))
+          echo "asset_name=$portable_asset" >> "$GITHUB_OUTPUT"
+          echo "asset_path=$PWD/$portable_asset" >> "$GITHUB_OUTPUT"
+          echo "asset_sha256=$digest" >> "$GITHUB_OUTPUT"
+          echo "asset_size=$size" >> "$GITHUB_OUTPUT"
+          ls -lh "$portable_asset"
 
-      - name: Package + checksum
+      - name: Upload immutable portable direct handoff
+        id: handoff_portable
+        if: needs.release_state.outputs.need_portable_macos_release == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          path: ${{ steps.package_portable.outputs.asset_path }}
+          retention-days: 7
+
+      - name: Join portable handoff service digest to archive bytes
+        if: needs.release_state.outputs.need_portable_macos_release == 'true'
+        env:
+          ARCHIVE_SHA256: ${{ steps.package_portable.outputs.asset_sha256 }}
+          HANDOFF_DIGEST: ${{ steps.handoff_portable.outputs.artifact-digest }}
+          HANDOFF_ID: ${{ steps.handoff_portable.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          [[ "$HANDOFF_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$HANDOFF_DIGEST" == "$ARCHIVE_SHA256" ]]
+
+      - name: Package inert legacy Release handoff
+        id: package_legacy
+        if: needs.release_state.outputs.need_macos_release_legacy == 'true'
         run: |
           set -euo pipefail
           asset="hermes-macos-arm64-release-$SOURCE_CACHE_KEY.tar.gz"
           tar -C "$cache" -czf "$asset" hermesvm.xcframework hermesvm.framework hermes-profile-provenance.json include bin
-          shasum -a 256 "$asset" > "$asset.sha256"
-          ls -lh "$asset"*
+          digest="$(shasum -a 256 "$asset" | awk '{print $1}')"
+          size="$(stat -f '%z' "$asset")"
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$size" =~ ^[1-9][0-9]*$ ]]
+          (( size <= 2 * 1024 * 1024 * 1024 ))
+          echo "asset_name=$asset" >> "$GITHUB_OUTPUT"
+          echo "asset_path=$PWD/$asset" >> "$GITHUB_OUTPUT"
+          echo "asset_sha256=$digest" >> "$GITHUB_OUTPUT"
+          echo "asset_size=$size" >> "$GITHUB_OUTPUT"
+          ls -lh "$asset"
 
-      - name: Attest bundle provenance
-        id: attest
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+      - name: Upload immutable legacy Release direct handoff
+        id: handoff_legacy
+        if: needs.release_state.outputs.need_macos_release_legacy == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          subject-path: hermes-macos-arm64-release-${{ env.SOURCE_CACHE_KEY }}.tar.gz
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          path: ${{ steps.package_legacy.outputs.asset_path }}
+          retention-days: 7
 
-      - name: Retain exact provenance bundle (diagnostic only)
+      - name: Join legacy Release handoff service digest to archive bytes
+        if: needs.release_state.outputs.need_macos_release_legacy == 'true'
         env:
-          ATTESTATION_BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+          ARCHIVE_SHA256: ${{ steps.package_legacy.outputs.asset_sha256 }}
+          HANDOFF_DIGEST: ${{ steps.handoff_legacy.outputs.artifact-digest }}
+          HANDOFF_ID: ${{ steps.handoff_legacy.outputs.artifact-id }}
         run: |
           set -euo pipefail
-          asset="hermes-macos-arm64-release-$SOURCE_CACHE_KEY.tar.gz"
-          bundle="$asset.sigstore.json"
-          test -n "$ATTESTATION_BUNDLE_PATH"
-          test -f "$ATTESTATION_BUNDLE_PATH"
-          cp "$ATTESTATION_BUNDLE_PATH" "$bundle"
-          cmp "$ATTESTATION_BUNDLE_PATH" "$bundle"
-          python3 -c "$IBEX_SIGSTORE_BUNDLE_VALIDATOR" "$bundle"
-          shasum -a 256 "$bundle" > "$bundle.sha256"
-          ls -lh "$bundle" "$bundle.sha256"
-
-      - name: Upload to release (idempotent overwrite)
-        run: |
-          set -euo pipefail
-          asset="hermes-macos-arm64-release-$SOURCE_CACHE_KEY.tar.gz"
-          bundle="$asset.sigstore.json"
-          gh release upload "$TAG" "$asset" "$asset.sha256" "$bundle" "$bundle.sha256" --repo "$GITHUB_REPOSITORY" --clobber
-
-      - name: Attest diagnostic portable Release artifact
-        id: attest_portable
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
-        with:
-          subject-path: hermes-portable-macos-arm64-release-${{ env.SOURCE_CACHE_KEY }}-${{ github.sha }}.tar.gz
-
-      - name: Retain exact portable-artifact provenance bundle (diagnostic only)
-        env:
-          ATTESTATION_BUNDLE_PATH: ${{ steps.attest_portable.outputs.bundle-path }}
-        run: |
-          set -euo pipefail
-          asset="hermes-portable-macos-arm64-release-$SOURCE_CACHE_KEY-$GITHUB_SHA.tar.gz"
-          bundle="$asset.sigstore.json"
-          test -n "$ATTESTATION_BUNDLE_PATH"
-          test -f "$ATTESTATION_BUNDLE_PATH"
-          cp "$ATTESTATION_BUNDLE_PATH" "$bundle"
-          cmp "$ATTESTATION_BUNDLE_PATH" "$bundle"
-          python3 -c "$IBEX_SIGSTORE_BUNDLE_VALIDATOR" "$bundle"
-          shasum -a 256 "$bundle" > "$bundle.sha256"
-          ls -lh "$bundle" "$bundle.sha256"
-
-      - name: Upload diagnostic portable artifact (idempotent overwrite)
-        run: |
-          set -euo pipefail
-          asset="hermes-portable-macos-arm64-release-$SOURCE_CACHE_KEY-$GITHUB_SHA.tar.gz"
-          bundle="$asset.sigstore.json"
-          gh release upload "$TAG" "$asset" "$asset.sha256" "$bundle" "$bundle.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+          [[ "$HANDOFF_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$HANDOFF_DIGEST" == "$ARCHIVE_SHA256" ]]
 
   windows:
-    name: Build + publish Windows bundle (x64)
-    needs: identity
-    if: needs.identity.outputs.need_windows == 'true'
+    name: Build Windows bundle (x64, unprivileged)
+    needs: [identity, release_state]
+    if: needs.release_state.outputs.need_windows == 'true'
     runs-on: windows-2022
     timeout-minutes: 180
+    permissions:
+      contents: read
+    outputs:
+      asset_name: ${{ steps.package.outputs.asset_name }}
+      asset_sha256: ${{ steps.package.outputs.asset_sha256 }}
+      asset_size: ${{ steps.package.outputs.asset_size }}
+      artifact_id: ${{ steps.handoff.outputs.artifact-id }}
+      artifact_digest: ${{ steps.handoff.outputs.artifact-digest }}
     env:
       IDENTITY: ${{ needs.identity.outputs.identity }}
-      TAG: ${{ needs.identity.outputs.tag }}
       ASSET_KEY: ${{ needs.identity.outputs.windows_asset_key }}
     steps:
       - name: Check out Ibex
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
 
       - name: Configure MSVC developer environment
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+
+      - name: Assert unprivileged build boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          foreach ($name in @(
+            "GH_TOKEN",
+            "GITHUB_TOKEN",
+            "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+            "ACTIONS_ID_TOKEN_REQUEST_URL"
+          )) {
+            if (-not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($name))) {
+              throw "Unprivileged builder unexpectedly received $name"
+            }
+          }
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) {
+            throw "Checked-out revision does not equal GITHUB_SHA"
+          }
+          $credentials = git config --local --get-regexp '^(http\..*\.extraheader|credential\.)' 2>$null
+          if ($LASTEXITCODE -eq 0 -or $credentials) {
+            throw "checkout left a persisted Git credential"
+          }
 
       - name: Build patched Release Hermes from source
         shell: pwsh
@@ -643,59 +774,1501 @@ jobs:
           & (Join-Path $install "bin\hermesc.exe") --help | Out-Null
           Write-Host "Bundle verified: patched export present and Release host tools run."
 
-      - name: Package + checksum
+      - name: Package inert handoff
+        id: package
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $asset = "hermes-windows-x64-$env:ASSET_KEY.zip"
           Compress-Archive -Path (Join-Path $env:install "*") -DestinationPath $asset -CompressionLevel Optimal
           $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $asset).Hash.ToLowerInvariant()
-          [IO.File]::WriteAllText(
-            "$asset.sha256",
-            "$hash  $asset`n",
-            [Text.Encoding]::ASCII
-          )
-          Get-Item $asset, "$asset.sha256" | Format-Table Name, Length
+          $size = (Get-Item -LiteralPath $asset).Length
+          if ($hash -notmatch '^[0-9a-f]{64}$' -or $size -le 0 -or $size -gt 2GB) {
+            throw "Could not bind the Windows handoff to its raw bytes"
+          }
+          "asset_name=$asset" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "asset_path=$((Resolve-Path -LiteralPath $asset).Path)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "asset_sha256=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "asset_size=$size" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Get-Item -LiteralPath $asset | Format-Table Name, Length
 
-      - name: Attest bundle provenance
-        id: attest
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+      - name: Upload immutable direct handoff
+        id: handoff
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          subject-path: hermes-windows-x64-${{ env.ASSET_KEY }}.zip
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          path: ${{ steps.package.outputs.asset_path }}
+          retention-days: 7
 
-      - name: Retain exact provenance bundle (diagnostic only)
+      - name: Join handoff service digest to archive bytes
         shell: pwsh
         env:
-          ATTESTATION_BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+          ARCHIVE_SHA256: ${{ steps.package.outputs.asset_sha256 }}
+          HANDOFF_DIGEST: ${{ steps.handoff.outputs.artifact-digest }}
+          HANDOFF_ID: ${{ steps.handoff.outputs.artifact-id }}
         run: |
           $ErrorActionPreference = "Stop"
-          $asset = "hermes-windows-x64-$env:ASSET_KEY.zip"
-          $bundle = "$asset.sigstore.json"
-          if ([string]::IsNullOrWhiteSpace($env:ATTESTATION_BUNDLE_PATH) -or
-              -not (Test-Path -LiteralPath $env:ATTESTATION_BUNDLE_PATH -PathType Leaf)) {
-            throw "attest-build-provenance did not return an existing bundle-path"
-          }
-          Copy-Item -LiteralPath $env:ATTESTATION_BUNDLE_PATH -Destination $bundle -Force
-          $sourceHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $env:ATTESTATION_BUNDLE_PATH).Hash.ToLowerInvariant()
-          $bundleHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $bundle).Hash.ToLowerInvariant()
-          if ($sourceHash -ne $bundleHash) {
-            throw "retained Sigstore bundle differs from the exact action output"
-          }
-          python -c $env:IBEX_SIGSTORE_BUNDLE_VALIDATOR "$bundle"
-          if ($LASTEXITCODE -ne 0) {
-            throw "retained Sigstore bundle validation failed"
+          if ($env:HANDOFF_ID -notmatch '^[1-9][0-9]*$' -or
+              $env:HANDOFF_DIGEST -ne $env:ARCHIVE_SHA256) {
+            throw "Artifact-service handoff does not identify these exact archive bytes"
           }
 
-          [IO.File]::WriteAllText(
-            "$bundle.sha256",
-            "$bundleHash  $bundle`n",
-            [Text.Encoding]::ASCII
-          )
-          Get-Item $bundle, "$bundle.sha256" | Format-Table Name, Length
+  publish:
+    name: Attest + publish validated inert handoffs
+    needs: [identity, release_state, macos, linux, macos_release, windows]
+    if: >-
+      always() &&
+      !cancelled() &&
+      needs.identity.result == 'success' &&
+      needs.release_state.result == 'success' &&
+      needs.release_state.outputs.any_needed == 'true' &&
+      (needs.release_state.outputs.need_macos != 'true' || needs.macos.result == 'success') &&
+      (needs.release_state.outputs.need_linux != 'true' || needs.linux.result == 'success') &&
+      (needs.release_state.outputs.need_macos_release_builder != 'true' || needs.macos_release.result == 'success') &&
+      (needs.release_state.outputs.need_windows != 'true' || needs.windows.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      attestations: write
+      contents: write
+      id-token: write
+    env:
+      # This job deliberately has no checkout. The only producer-controlled
+      # input it opens is an inert archive as a bounded regular byte stream.
+      # The security test executes this exact validator against adversarial
+      # handoffs, rather than maintaining a test-only copy.
+      IBEX_ACTIONS_RUN_RESPONSE_VALIDATOR: |
+        import json
+        import os
+        import pathlib
+        import re
+        import sys
 
-      - name: Upload to release (idempotent overwrite)
-        shell: pwsh
+        MAX_RESPONSE_SIZE = 1024 * 1024
+
+        def pairs(items):
+            result = {}
+            for key, value in items:
+                if key in result:
+                    raise ValueError(f"duplicate key {key!r}")
+                result[key] = value
+            return result
+
+        def reject_constant(value):
+            raise ValueError(f"non-finite value {value}")
+
+        try:
+            api_exit = int(os.environ["GH_API_EXIT"])
+            raw = pathlib.Path(sys.argv[1]).read_bytes()
+            if not 0 < len(raw) <= MAX_RESPONSE_SIZE:
+                raise ValueError("unsafe response size")
+            if b"\r\n\r\n" in raw:
+                header_bytes, body = raw.split(b"\r\n\r\n", 1)
+                header_lines = header_bytes.split(b"\r\n")
+            else:
+                header_bytes, body = raw.split(b"\n\n", 1)
+                header_lines = header_bytes.split(b"\n")
+            status_line = header_lines[0].decode("ascii", errors="strict")
+            match = re.fullmatch(r"HTTP/[0-9]+(?:\.[0-9]+)? ([1-5][0-9]{2})(?: .*)?", status_line)
+            if match is None:
+                raise ValueError("malformed HTTP status")
+            http_status = int(match.group(1))
+        except (IndexError, KeyError, OSError, UnicodeDecodeError, ValueError):
+            raise SystemExit(1)
+
+        if http_status == 404 and api_exit != 0:
+            print("missing")
+            raise SystemExit(0)
+        if http_status != 200 or api_exit != 0:
+            raise SystemExit(1)
+
+        try:
+            document = json.loads(
+                body.decode("utf-8", errors="strict"),
+                object_pairs_hook=pairs,
+                parse_constant=reject_constant,
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            raise SystemExit(1)
+        if not isinstance(document, dict):
+            raise SystemExit(1)
+        status = document.get("status")
+        run_attempt = document.get("run_attempt")
+        head_sha = document.get("head_sha")
+        path = document.get("path")
+        if (not isinstance(status, str)
+                or not re.fullmatch(r"[a-z_]+", status)
+                or type(run_attempt) is not int
+                or not 0 < run_attempt <= 9007199254740991
+                or not isinstance(head_sha, str)
+                or not re.fullmatch(r"[0-9a-f]{40}", head_sha)
+                or not isinstance(path, str)
+                or not 0 < len(path) <= 255
+                or any(character in path for character in "\t\r\n")):
+            raise SystemExit(1)
+        print("found", status, run_attempt, head_sha, path, sep="\t")
+
+      IBEX_LEASE_ASSET_METADATA_VALIDATOR: |
+        import datetime
+        import json
+        import os
+        import pathlib
+        import re
+        import sys
+
+        CREATION_GRACE_SECONDS = 5 * 60
+        MAX_LOCK_SIZE = 4096
+
+        def pairs(items):
+            result = {}
+            for key, value in items:
+                if key in result:
+                    raise ValueError(f"duplicate key {key!r}")
+                result[key] = value
+            return result
+
+        def reject_constant(value):
+            raise ValueError(f"non-finite value {value}")
+
+        try:
+            pages = json.loads(
+                pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"),
+                object_pairs_hook=pairs,
+                parse_constant=reject_constant,
+            )
+        except (IndexError, OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            raise SystemExit(1)
+        if not isinstance(pages, list) or not all(isinstance(page, list) for page in pages):
+            raise SystemExit(1)
+        matches = [
+            asset
+            for page in pages
+            for asset in page
+            if isinstance(asset, dict) and asset.get("name") == os.environ["LOCK_NAME"]
+        ]
+        if len(matches) != 1:
+            raise SystemExit(1)
+        asset = matches[0]
+        asset_id = asset.get("id")
+        asset_size = asset.get("size")
+        asset_state = asset.get("state")
+        created_at = asset.get("created_at")
+        if (type(asset_id) is not int
+                or asset_id <= 0
+                or type(asset_size) is not int
+                or asset_size < 0
+                or not isinstance(asset_state, str)
+                or not asset_state
+                or any(character.isspace() for character in asset_state)
+                or not isinstance(created_at, str)
+                or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", created_at)):
+            raise SystemExit(1)
+        try:
+            created = datetime.datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%SZ").replace(
+                tzinfo=datetime.timezone.utc
+            )
+        except ValueError:
+            raise SystemExit(1)
+        age = (datetime.datetime.now(datetime.timezone.utc) - created).total_seconds()
+        if asset_state == "uploaded":
+            decision = "download" if 0 < asset_size <= MAX_LOCK_SIZE else "delete-invalid-uploaded"
+        elif asset_state == "starter":
+            decision = "delete-stale-starter" if age >= CREATION_GRACE_SECONDS else "wait-starter"
+        else:
+            decision = "wait-unknown-state"
+        print(asset_id, asset_size, asset_state, decision)
+
+      IBEX_PUBLISH_HANDOFF_VALIDATOR: |
+        import hashlib
+        import os
+        import pathlib
+        import re
+        import stat
+        import sys
+
+        MAX_ARCHIVE_SIZE = 2 * 1024 * 1024 * 1024
+        ROLES = {"macos", "linux", "macos-release", "portable", "windows"}
+
+        def refuse(message):
+            raise SystemExit(f"handoff refused: {message}")
+
+        root = pathlib.Path(os.environ["IBEX_PUBLISH_ROOT"])
+        directory = pathlib.Path(os.environ["HANDOFF_DIR"])
+        role = os.environ["EXPECTED_ROLE"]
+        name = os.environ["EXPECTED_NAME"]
+        digest = os.environ["EXPECTED_SHA256"]
+        size_text = os.environ["EXPECTED_SIZE"]
+
+        if role not in ROLES or directory != root / role:
+            refuse("unexpected role or handoff directory")
+        if (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,239}\.(?:tar\.gz|zip)", name)
+                or pathlib.PurePosixPath(name).name != name):
+            refuse("unsafe archive basename")
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            refuse("malformed SHA-256")
+        if not re.fullmatch(r"[1-9][0-9]*", size_text):
+            refuse("malformed size")
+        expected_size = int(size_text)
+        if expected_size > MAX_ARCHIVE_SIZE:
+            refuse("archive exceeds the bounded handoff size")
+
+        for checked, label in ((root, "publisher root"), (directory, "handoff directory")):
+            try:
+                mode = checked.lstat().st_mode
+            except FileNotFoundError:
+                refuse(f"missing {label}")
+            if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
+                refuse(f"unsafe {label}")
+
+        entries = list(directory.iterdir())
+        if len(entries) != 1 or entries[0].name != name:
+            refuse("download must contain exactly the named raw archive")
+        candidate = entries[0]
+        metadata = candidate.lstat()
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+            refuse("archive is not a regular non-symlink file")
+        if metadata.st_nlink != 1:
+            refuse("archive has unexpected hard links")
+        if metadata.st_size != expected_size:
+            refuse("archive size differs from the authenticated handoff")
+
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(candidate, flags)
+        try:
+            opened = os.fstat(fd)
+            if (opened.st_dev, opened.st_ino) != (metadata.st_dev, metadata.st_ino):
+                refuse("archive changed while opening")
+            hasher = hashlib.sha256()
+            observed = 0
+            while True:
+                chunk = os.read(fd, 1024 * 1024)
+                if not chunk:
+                    break
+                observed += len(chunk)
+                if observed > MAX_ARCHIVE_SIZE:
+                    refuse("archive exceeded the bounded handoff size while reading")
+                hasher.update(chunk)
+            if observed != expected_size or hasher.hexdigest() != digest:
+                refuse("archive bytes differ from the authenticated handoff")
+            after = os.fstat(fd)
+            if after.st_size != expected_size:
+                refuse("archive changed while hashing")
+        finally:
+            os.close(fd)
+
+        print(f"validated inert {role} handoff: {name} ({expected_size} bytes)")
+
+      IBEX_RETAIN_SIGSTORE_BUNDLE: |
+        import base64
+        import hashlib
+        import json
+        import math
+        import os
+        import pathlib
+        import re
+        import stat
+
+        MAX_BUNDLE_SIZE = 16 * 1024 * 1024
+        SAFE_INTEGER = 9007199254740991
+
+        def refuse(message):
+            raise SystemExit(f"attestation bundle refused: {message}")
+
+        def pairs(items):
+            result = {}
+            for key, value in items:
+                if key in result:
+                    refuse(f"duplicate JSON key {key!r}")
+                result[key] = value
+            return result
+
+        def parse_integer(text):
+            value = int(text)
+            if abs(value) > SAFE_INTEGER:
+                refuse("JSON integer exceeds the interoperable range")
+            return value
+
+        def parse_float(text):
+            value = float(text)
+            if not math.isfinite(value):
+                refuse("JSON number is not finite")
+            if value.is_integer() and abs(value) > SAFE_INTEGER:
+                refuse("JSON integer-valued number exceeds the interoperable range")
+            return value
+
+        def parse_json(raw, label):
+            try:
+                text = raw.decode("utf-8", errors="strict")
+                value = json.loads(
+                    text,
+                    object_pairs_hook=pairs,
+                    parse_int=parse_integer,
+                    parse_float=parse_float,
+                    parse_constant=lambda value: refuse(f"non-finite JSON value {value}"),
+                )
+            except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                refuse(f"malformed {label}: {error}")
+
+            def reject_surrogates(node):
+                if isinstance(node, str) and any(0xD800 <= ord(char) <= 0xDFFF for char in node):
+                    refuse(f"lone surrogate in {label}")
+                if isinstance(node, list):
+                    for item in node:
+                        reject_surrogates(item)
+                if isinstance(node, dict):
+                    for key, item in node.items():
+                        reject_surrogates(key)
+                        reject_surrogates(item)
+
+            reject_surrogates(value)
+            return value
+
+        directory = pathlib.Path(os.environ["HANDOFF_DIR"])
+        name = os.environ["EXPECTED_NAME"]
+        digest = os.environ["EXPECTED_SHA256"]
+        size = int(os.environ["EXPECTED_SIZE"])
+        subject = directory / name
+        source = pathlib.Path(os.environ["ATTESTATION_BUNDLE_PATH"])
+
+        source_metadata = source.lstat()
+        if (stat.S_ISLNK(source_metadata.st_mode) or not stat.S_ISREG(source_metadata.st_mode)
+                or source_metadata.st_nlink != 1):
+            refuse("action output is not a regular single-link file")
+        if source_metadata.st_size <= 0 or source_metadata.st_size > MAX_BUNDLE_SIZE:
+            refuse("action output has an unsafe size")
+        raw = source.read_bytes()
+        if len(raw) != source_metadata.st_size:
+            refuse("action output changed while reading")
+
+        bundle = parse_json(raw, "Sigstore bundle")
+        if not isinstance(bundle, dict) or bundle.get("mediaType") != "application/vnd.dev.sigstore.bundle.v0.3+json":
+            refuse("unexpected Sigstore bundle media type")
+        envelope = bundle.get("dsseEnvelope")
+        if not isinstance(envelope, dict) or envelope.get("payloadType") != "application/vnd.in-toto+json":
+            refuse("missing in-toto DSSE envelope")
+        payload_text = envelope.get("payload")
+        if not isinstance(payload_text, str):
+            refuse("missing DSSE payload")
+        try:
+            payload_raw = base64.b64decode(payload_text, validate=True)
+        except (ValueError, TypeError) as error:
+            refuse(f"malformed DSSE payload: {error}")
+        statement = parse_json(payload_raw, "in-toto statement")
+        expected_subject = [{"name": name, "digest": {"sha256": digest}}]
+        if (not isinstance(statement, dict)
+                or statement.get("_type") != "https://in-toto.io/Statement/v1"
+                or statement.get("predicateType") != "https://slsa.dev/provenance/v1"
+                or statement.get("subject") != expected_subject):
+            refuse("attestation statement does not bind the exact handoff subject")
+
+        def hash_subject():
+            metadata = subject.lstat()
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+                refuse("subject is no longer a regular non-symlink file")
+            if metadata.st_size != size:
+                refuse("subject size changed after attestation")
+            hasher = hashlib.sha256()
+            with subject.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    hasher.update(chunk)
+            if hasher.hexdigest() != digest:
+                refuse("subject bytes changed after attestation")
+
+        hash_subject()
+        destination = directory / f"{name}.sigstore.json"
+        descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(raw)
+        except BaseException:
+            raise
+        if destination.read_bytes() != raw:
+            refuse("retained bundle differs from the exact action output")
+        bundle_digest = hashlib.sha256(raw).hexdigest()
+        (directory / f"{name}.sha256").write_text(f"{digest}  {name}\n", encoding="ascii")
+        (directory / f"{name}.sigstore.json.sha256").write_text(
+            f"{bundle_digest}  {name}.sigstore.json\n", encoding="ascii"
+        )
+        hash_subject()
+        print(f"retained exact Sigstore bundle for {name}")
+
+      IBEX_RELEASE_SET_VALIDATOR: |
+        import hashlib
+        import os
+        import pathlib
+        import stat
+
+        def refuse(message):
+            raise SystemExit(f"release set refused: {message}")
+
+        directory = pathlib.Path(os.environ["HANDOFF_DIR"])
+        name = os.environ["EXPECTED_NAME"]
+        digest = os.environ["EXPECTED_SHA256"]
+        size = int(os.environ["EXPECTED_SIZE"])
+        expected = {
+            name,
+            f"{name}.sha256",
+            f"{name}.sigstore.json",
+            f"{name}.sigstore.json.sha256",
+        }
+        entries = list(directory.iterdir())
+        if {entry.name for entry in entries} != expected or len(entries) != len(expected):
+            refuse("handoff directory is not the exact four-file release set")
+        for entry in entries:
+            metadata = entry.lstat()
+            if (stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_nlink != 1):
+                refuse(f"unsafe release member {entry.name}")
+        subject = directory / name
+        if subject.stat().st_size != size:
+            refuse("archive size changed before release upload")
+        hasher = hashlib.sha256()
+        with subject.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                hasher.update(chunk)
+        if hasher.hexdigest() != digest:
+            refuse("archive digest changed before release upload")
+        archive_sidecar = (directory / f"{name}.sha256").read_bytes()
+        if archive_sidecar != f"{digest}  {name}\n".encode("ascii"):
+            refuse("archive checksum sidecar changed before release upload")
+        bundle = directory / f"{name}.sigstore.json"
+        bundle_bytes = bundle.read_bytes()
+        if not bundle_bytes or len(bundle_bytes) > 16 * 1024 * 1024:
+            refuse("retained bundle has an unsafe size")
+        bundle_digest = hashlib.sha256(bundle_bytes).hexdigest()
+        bundle_sidecar = (directory / f"{name}.sigstore.json.sha256").read_bytes()
+        if bundle_sidecar != f"{bundle_digest}  {name}.sigstore.json\n".encode("ascii"):
+            refuse("bundle checksum sidecar changed before release upload")
+        print(f"validated exact release set for {name}")
+
+    steps:
+      - name: Validate publisher context and selected handoff contract
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          IDENTITY: ${{ needs.identity.outputs.identity }}
+          LINUX_ARTIFACT_DIGEST: ${{ needs.linux.outputs.artifact_digest }}
+          LINUX_ARTIFACT_ID: ${{ needs.linux.outputs.artifact_id }}
+          LINUX_ASSET_NAME: ${{ needs.linux.outputs.asset_name }}
+          LINUX_ASSET_SHA256: ${{ needs.linux.outputs.asset_sha256 }}
+          LINUX_ASSET_SIZE: ${{ needs.linux.outputs.asset_size }}
+          LINUX_CACHE_KEY: ${{ needs.identity.outputs.linux_cache_key }}
+          MACOS_ARTIFACT_DIGEST: ${{ needs.macos.outputs.artifact_digest }}
+          MACOS_ARTIFACT_ID: ${{ needs.macos.outputs.artifact_id }}
+          MACOS_ASSET_NAME: ${{ needs.macos.outputs.asset_name }}
+          MACOS_ASSET_SHA256: ${{ needs.macos.outputs.asset_sha256 }}
+          MACOS_ASSET_SIZE: ${{ needs.macos.outputs.asset_size }}
+          MACOS_CACHE_KEY: ${{ needs.identity.outputs.macos_cache_key }}
+          MACOS_RELEASE_ARTIFACT_DIGEST: ${{ needs.macos_release.outputs.legacy_artifact_digest }}
+          MACOS_RELEASE_ARTIFACT_ID: ${{ needs.macos_release.outputs.legacy_artifact_id }}
+          MACOS_RELEASE_ASSET_NAME: ${{ needs.macos_release.outputs.legacy_asset_name }}
+          MACOS_RELEASE_ASSET_SHA256: ${{ needs.macos_release.outputs.legacy_asset_sha256 }}
+          MACOS_RELEASE_ASSET_SIZE: ${{ needs.macos_release.outputs.legacy_asset_size }}
+          MACOS_RELEASE_CACHE_KEY: ${{ needs.identity.outputs.macos_release_cache_key }}
+          NEED_LINUX: ${{ needs.release_state.outputs.need_linux }}
+          NEED_MACOS: ${{ needs.release_state.outputs.need_macos }}
+          NEED_MACOS_RELEASE: ${{ needs.release_state.outputs.need_macos_release_legacy }}
+          NEED_PORTABLE: ${{ needs.release_state.outputs.need_portable_macos_release }}
+          NEED_WINDOWS: ${{ needs.release_state.outputs.need_windows }}
+          PORTABLE_ARTIFACT_DIGEST: ${{ needs.macos_release.outputs.portable_artifact_digest }}
+          PORTABLE_ARTIFACT_ID: ${{ needs.macos_release.outputs.portable_artifact_id }}
+          PORTABLE_ASSET_NAME: ${{ needs.macos_release.outputs.portable_asset_name }}
+          PORTABLE_ASSET_SHA256: ${{ needs.macos_release.outputs.portable_asset_sha256 }}
+          PORTABLE_ASSET_SIZE: ${{ needs.macos_release.outputs.portable_asset_size }}
+          PORTABLE_TAG: ${{ needs.identity.outputs.portable_tag }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+          REPOSITORY_OWNER_ID: ${{ github.repository_owner_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_ID: ${{ github.run_id }}
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          SHA: ${{ github.sha }}
+          SOURCE_REF: ${{ github.ref }}
+          TAG: ${{ needs.identity.outputs.tag }}
+          WINDOWS_ARTIFACT_DIGEST: ${{ needs.windows.outputs.artifact_digest }}
+          WINDOWS_ARTIFACT_ID: ${{ needs.windows.outputs.artifact_id }}
+          WINDOWS_ASSET_KEY: ${{ needs.identity.outputs.windows_asset_key }}
+          WINDOWS_ASSET_NAME: ${{ needs.windows.outputs.asset_name }}
+          WINDOWS_ASSET_SHA256: ${{ needs.windows.outputs.asset_sha256 }}
+          WINDOWS_ASSET_SIZE: ${{ needs.windows.outputs.asset_size }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |
-          $asset = "hermes-windows-x64-$env:ASSET_KEY.zip"
-          $bundle = "$asset.sigstore.json"
-          gh release upload $env:TAG $asset "$asset.sha256" $bundle "$bundle.sha256" --repo $env:GITHUB_REPOSITORY --clobber
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+          import stat
+
+          def refuse(message):
+              raise SystemExit(f"publisher context refused: {message}")
+
+          exact = {
+              "REPOSITORY": "ccheever/ibex",
+              "REPOSITORY_ID": "1268046138",
+              "REPOSITORY_OWNER_ID": "56719",
+              "SOURCE_REF": "refs/heads/main",
+              "WORKFLOW_REF": "ccheever/ibex/.github/workflows/hermes-artifacts.yml@refs/heads/main",
+              "RUNNER_ENVIRONMENT": "github-hosted",
+          }
+          for key, expected in exact.items():
+              if os.environ.get(key) != expected:
+                  refuse(f"unexpected {key}")
+          sha = os.environ["SHA"]
+          if not re.fullmatch(r"[0-9a-f]{40}", sha) or os.environ["WORKFLOW_SHA"] != sha:
+              refuse("workflow revision is not the exact source revision")
+          if os.environ["EVENT_NAME"] not in {"push", "workflow_dispatch"}:
+              refuse("untrusted workflow event")
+          for key in ("RUN_ID", "RUN_ATTEMPT"):
+              if not re.fullmatch(r"[1-9][0-9]*", os.environ[key]):
+                  refuse(f"malformed {key}")
+
+          identity = os.environ["IDENTITY"]
+          if not re.fullmatch(r"[0-9a-f]{12}-[0-9a-f]{12}", identity):
+              refuse("malformed Hermes identity")
+          if os.environ["TAG"] != f"hermes-{identity}":
+              refuse("release tag does not match the Hermes identity")
+          if os.environ["PORTABLE_TAG"] != f"hermes-portable-{identity}-{sha}":
+              refuse("portable release tag does not match the Hermes identity and source revision")
+          for key in ("MACOS_CACHE_KEY", "MACOS_RELEASE_CACHE_KEY", "LINUX_CACHE_KEY", "WINDOWS_ASSET_KEY"):
+              if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,239}", os.environ[key]):
+                  refuse(f"unsafe {key}")
+
+          roles = {
+              "macos": (
+                  "NEED_MACOS",
+                  f"hermes-macos-arm64-{os.environ['MACOS_CACHE_KEY']}.tar.gz",
+                  "MACOS",
+              ),
+              "linux": (
+                  "NEED_LINUX",
+                  f"hermes-linux-x64-{os.environ['LINUX_CACHE_KEY']}.tar.gz",
+                  "LINUX",
+              ),
+              "macos-release": (
+                  "NEED_MACOS_RELEASE",
+                  f"hermes-macos-arm64-release-{os.environ['MACOS_RELEASE_CACHE_KEY']}.tar.gz",
+                  "MACOS_RELEASE",
+              ),
+              "portable": (
+                  "NEED_PORTABLE",
+                  f"hermes-portable-macos-arm64-release-{os.environ['MACOS_RELEASE_CACHE_KEY']}-{sha}.tar.gz",
+                  "PORTABLE",
+              ),
+              "windows": (
+                  "NEED_WINDOWS",
+                  f"hermes-windows-x64-{os.environ['WINDOWS_ASSET_KEY']}.zip",
+                  "WINDOWS",
+              ),
+          }
+          selected = []
+          artifact_ids = set()
+          asset_names = set()
+          for role, (flag_key, expected_name, prefix) in roles.items():
+              flag = os.environ[flag_key]
+              if flag not in {"true", "false"}:
+                  refuse(f"malformed selection flag for {role}")
+              values = {
+                  "name": os.environ[f"{prefix}_ASSET_NAME"],
+                  "sha": os.environ[f"{prefix}_ASSET_SHA256"],
+                  "size": os.environ[f"{prefix}_ASSET_SIZE"],
+                  "id": os.environ[f"{prefix}_ARTIFACT_ID"],
+                  "service_digest": os.environ[f"{prefix}_ARTIFACT_DIGEST"],
+              }
+              if flag == "false":
+                  if any(values.values()):
+                      refuse(f"unselected role {role} unexpectedly produced a handoff")
+                  continue
+              selected.append(role)
+              if values["name"] != expected_name:
+                  refuse(f"unexpected archive name for {role}")
+              if not re.fullmatch(r"[0-9a-f]{64}", values["sha"]):
+                  refuse(f"malformed digest for {role}")
+              if values["service_digest"] != values["sha"]:
+                  refuse(f"upload service digest mismatch for {role}")
+              if not re.fullmatch(r"[1-9][0-9]*", values["id"]):
+                  refuse(f"malformed artifact ID for {role}")
+              if not re.fullmatch(r"[1-9][0-9]*", values["size"]):
+                  refuse(f"malformed archive size for {role}")
+              if int(values["size"]) > 2 * 1024 * 1024 * 1024:
+                  refuse(f"oversize archive for {role}")
+              if values["id"] in artifact_ids or values["name"] in asset_names:
+                  refuse("duplicate artifact ID or release asset name")
+              artifact_ids.add(values["id"])
+              asset_names.add(values["name"])
+
+          if not selected:
+              refuse("publisher was invoked without a selected handoff")
+          root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "ibex-hermes-publish"
+          if root.exists() or root.is_symlink():
+              refuse("publisher handoff root already exists")
+          root.mkdir(mode=0o700)
+          if not stat.S_ISDIR(root.lstat().st_mode):
+              refuse("could not create a private handoff root")
+          print("selected inert handoffs: " + ", ".join(selected))
+          PY
+
+      - name: Validate current-run artifact-service metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LINUX_ARTIFACT_ID: ${{ needs.linux.outputs.artifact_id }}
+          LINUX_ASSET_NAME: ${{ needs.linux.outputs.asset_name }}
+          LINUX_ASSET_SHA256: ${{ needs.linux.outputs.asset_sha256 }}
+          LINUX_ASSET_SIZE: ${{ needs.linux.outputs.asset_size }}
+          MACOS_ARTIFACT_ID: ${{ needs.macos.outputs.artifact_id }}
+          MACOS_ASSET_NAME: ${{ needs.macos.outputs.asset_name }}
+          MACOS_ASSET_SHA256: ${{ needs.macos.outputs.asset_sha256 }}
+          MACOS_ASSET_SIZE: ${{ needs.macos.outputs.asset_size }}
+          MACOS_RELEASE_ARTIFACT_ID: ${{ needs.macos_release.outputs.legacy_artifact_id }}
+          MACOS_RELEASE_ASSET_NAME: ${{ needs.macos_release.outputs.legacy_asset_name }}
+          MACOS_RELEASE_ASSET_SHA256: ${{ needs.macos_release.outputs.legacy_asset_sha256 }}
+          MACOS_RELEASE_ASSET_SIZE: ${{ needs.macos_release.outputs.legacy_asset_size }}
+          NEED_LINUX: ${{ needs.release_state.outputs.need_linux }}
+          NEED_MACOS: ${{ needs.release_state.outputs.need_macos }}
+          NEED_MACOS_RELEASE: ${{ needs.release_state.outputs.need_macos_release_legacy }}
+          NEED_PORTABLE: ${{ needs.release_state.outputs.need_portable_macos_release }}
+          NEED_WINDOWS: ${{ needs.release_state.outputs.need_windows }}
+          PORTABLE_ARTIFACT_ID: ${{ needs.macos_release.outputs.portable_artifact_id }}
+          PORTABLE_ASSET_NAME: ${{ needs.macos_release.outputs.portable_asset_name }}
+          PORTABLE_ASSET_SHA256: ${{ needs.macos_release.outputs.portable_asset_sha256 }}
+          PORTABLE_ASSET_SIZE: ${{ needs.macos_release.outputs.portable_asset_size }}
+          RUN_ID: ${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          WINDOWS_ARTIFACT_ID: ${{ needs.windows.outputs.artifact_id }}
+          WINDOWS_ASSET_NAME: ${{ needs.windows.outputs.asset_name }}
+          WINDOWS_ASSET_SHA256: ${{ needs.windows.outputs.asset_sha256 }}
+          WINDOWS_ASSET_SIZE: ${{ needs.windows.outputs.asset_size }}
+        run: |
+          set -euo pipefail
+          check_artifact() {
+            local role="$1"
+            local artifact_id="$2"
+            local expected_name="$3"
+            local expected_sha256="$4"
+            local expected_size="$5"
+            local metadata="$RUNNER_TEMP/ibex-hermes-artifact-$role.json"
+            gh api \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id" > "$metadata"
+            ROLE="$role" \
+            EXPECTED_ID="$artifact_id" \
+            EXPECTED_NAME="$expected_name" \
+            EXPECTED_SHA256="$expected_sha256" \
+            EXPECTED_SIZE="$expected_size" \
+            python3 - "$metadata" <<'PY'
+          import json
+          import os
+          import pathlib
+          import sys
+
+          def refuse(message):
+              raise SystemExit(f"artifact metadata refused: {message}")
+
+          def pairs(items):
+              result = {}
+              for key, value in items:
+                  if key in result:
+                      refuse(f"duplicate JSON key {key!r}")
+                  result[key] = value
+              return result
+
+          raw = pathlib.Path(sys.argv[1]).read_bytes()
+          try:
+              artifact = json.loads(raw, object_pairs_hook=pairs)
+          except (UnicodeDecodeError, json.JSONDecodeError) as error:
+              refuse(f"malformed REST response: {error}")
+          expected_id = int(os.environ["EXPECTED_ID"])
+          expected_size = int(os.environ["EXPECTED_SIZE"])
+          expected_digest = f"sha256:{os.environ['EXPECTED_SHA256']}"
+          if not isinstance(artifact, dict):
+              refuse("REST response is not an object")
+          if artifact.get("id") != expected_id:
+              refuse("artifact ID mismatch")
+          if artifact.get("name") != os.environ["EXPECTED_NAME"]:
+              refuse("artifact name mismatch")
+          if artifact.get("size_in_bytes") != expected_size:
+              refuse("artifact size mismatch")
+          if artifact.get("digest") != expected_digest:
+              refuse("artifact digest mismatch")
+          if artifact.get("expired") is not False:
+              refuse("artifact is expired")
+          workflow_run = artifact.get("workflow_run")
+          if not isinstance(workflow_run, dict):
+              refuse("artifact lacks workflow-run identity")
+          expected_run_id = int(os.environ["RUN_ID"])
+          expected_repository_id = 1268046138
+          if (workflow_run.get("id") != expected_run_id
+                  or workflow_run.get("repository_id") != expected_repository_id
+                  or workflow_run.get("head_repository_id") != expected_repository_id
+                  or workflow_run.get("head_branch") != "main"
+                  or workflow_run.get("head_sha") != os.environ["SHA"]):
+              refuse("artifact is not from this repository, run, branch, and revision")
+          print(f"validated current-run artifact metadata for {os.environ['ROLE']}")
+          PY
+          }
+          if [ "$NEED_MACOS" = true ]; then
+            check_artifact macos "$MACOS_ARTIFACT_ID" "$MACOS_ASSET_NAME" "$MACOS_ASSET_SHA256" "$MACOS_ASSET_SIZE"
+          fi
+          if [ "$NEED_LINUX" = true ]; then
+            check_artifact linux "$LINUX_ARTIFACT_ID" "$LINUX_ASSET_NAME" "$LINUX_ASSET_SHA256" "$LINUX_ASSET_SIZE"
+          fi
+          if [ "$NEED_MACOS_RELEASE" = true ]; then
+            check_artifact macos-release "$MACOS_RELEASE_ARTIFACT_ID" "$MACOS_RELEASE_ASSET_NAME" "$MACOS_RELEASE_ASSET_SHA256" "$MACOS_RELEASE_ASSET_SIZE"
+          fi
+          if [ "$NEED_PORTABLE" = true ]; then
+            check_artifact portable "$PORTABLE_ARTIFACT_ID" "$PORTABLE_ASSET_NAME" "$PORTABLE_ASSET_SHA256" "$PORTABLE_ASSET_SIZE"
+          fi
+          if [ "$NEED_WINDOWS" = true ]; then
+            check_artifact windows "$WINDOWS_ARTIFACT_ID" "$WINDOWS_ASSET_NAME" "$WINDOWS_ASSET_SHA256" "$WINDOWS_ASSET_SIZE"
+          fi
+
+      - name: Download macOS direct handoff without decompression
+        if: needs.release_state.outputs.need_macos == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.macos.outputs.artifact_id }}
+          path: ${{ runner.temp }}/ibex-hermes-publish/macos
+          skip-decompress: true
+          digest-mismatch: error
+
+      - name: Validate macOS raw handoff bytes
+        if: needs.release_state.outputs.need_macos == 'true'
+        env:
+          EXPECTED_NAME: ${{ needs.macos.outputs.asset_name }}
+          EXPECTED_ROLE: macos
+          EXPECTED_SHA256: ${{ needs.macos.outputs.asset_sha256 }}
+          EXPECTED_SIZE: ${{ needs.macos.outputs.asset_size }}
+          HANDOFF_DIR: ${{ runner.temp }}/ibex-hermes-publish/macos
+          IBEX_PUBLISH_ROOT: ${{ runner.temp }}/ibex-hermes-publish
+        run: python3 -c "$IBEX_PUBLISH_HANDOFF_VALIDATOR"
+
+      - name: Download Linux direct handoff without decompression
+        if: needs.release_state.outputs.need_linux == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.linux.outputs.artifact_id }}
+          path: ${{ runner.temp }}/ibex-hermes-publish/linux
+          skip-decompress: true
+          digest-mismatch: error
+
+      - name: Validate Linux raw handoff bytes
+        if: needs.release_state.outputs.need_linux == 'true'
+        env:
+          EXPECTED_NAME: ${{ needs.linux.outputs.asset_name }}
+          EXPECTED_ROLE: linux
+          EXPECTED_SHA256: ${{ needs.linux.outputs.asset_sha256 }}
+          EXPECTED_SIZE: ${{ needs.linux.outputs.asset_size }}
+          HANDOFF_DIR: ${{ runner.temp }}/ibex-hermes-publish/linux
+          IBEX_PUBLISH_ROOT: ${{ runner.temp }}/ibex-hermes-publish
+        run: python3 -c "$IBEX_PUBLISH_HANDOFF_VALIDATOR"
+
+      - name: Download macOS Release direct handoff without decompression
+        if: needs.release_state.outputs.need_macos_release_legacy == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.macos_release.outputs.legacy_artifact_id }}
+          path: ${{ runner.temp }}/ibex-hermes-publish/macos-release
+          skip-decompress: true
+          digest-mismatch: error
+
+      - name: Validate macOS Release raw handoff bytes
+        if: needs.release_state.outputs.need_macos_release_legacy == 'true'
+        env:
+          EXPECTED_NAME: ${{ needs.macos_release.outputs.legacy_asset_name }}
+          EXPECTED_ROLE: macos-release
+          EXPECTED_SHA256: ${{ needs.macos_release.outputs.legacy_asset_sha256 }}
+          EXPECTED_SIZE: ${{ needs.macos_release.outputs.legacy_asset_size }}
+          HANDOFF_DIR: ${{ runner.temp }}/ibex-hermes-publish/macos-release
+          IBEX_PUBLISH_ROOT: ${{ runner.temp }}/ibex-hermes-publish
+        run: python3 -c "$IBEX_PUBLISH_HANDOFF_VALIDATOR"
+
+      - name: Download portable direct handoff without decompression
+        if: needs.release_state.outputs.need_portable_macos_release == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.macos_release.outputs.portable_artifact_id }}
+          path: ${{ runner.temp }}/ibex-hermes-publish/portable
+          skip-decompress: true
+          digest-mismatch: error
+
+      - name: Validate portable raw handoff bytes
+        if: needs.release_state.outputs.need_portable_macos_release == 'true'
+        env:
+          EXPECTED_NAME: ${{ needs.macos_release.outputs.portable_asset_name }}
+          EXPECTED_ROLE: portable
+          EXPECTED_SHA256: ${{ needs.macos_release.outputs.portable_asset_sha256 }}
+          EXPECTED_SIZE: ${{ needs.macos_release.outputs.portable_asset_size }}
+          HANDOFF_DIR: ${{ runner.temp }}/ibex-hermes-publish/portable
+          IBEX_PUBLISH_ROOT: ${{ runner.temp }}/ibex-hermes-publish
+        run: python3 -c "$IBEX_PUBLISH_HANDOFF_VALIDATOR"
+
+      - name: Download Windows direct handoff without decompression
+        if: needs.release_state.outputs.need_windows == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.windows.outputs.artifact_id }}
+          path: ${{ runner.temp }}/ibex-hermes-publish/windows
+          skip-decompress: true
+          digest-mismatch: error
+
+      - name: Validate Windows raw handoff bytes
+        if: needs.release_state.outputs.need_windows == 'true'
+        env:
+          EXPECTED_NAME: ${{ needs.windows.outputs.asset_name }}
+          EXPECTED_ROLE: windows
+          EXPECTED_SHA256: ${{ needs.windows.outputs.asset_sha256 }}
+          EXPECTED_SIZE: ${{ needs.windows.outputs.asset_size }}
+          HANDOFF_DIR: ${{ runner.temp }}/ibex-hermes-publish/windows
+          IBEX_PUBLISH_ROOT: ${{ runner.temp }}/ibex-hermes-publish
+        run: python3 -c "$IBEX_PUBLISH_HANDOFF_VALIDATOR"
+
+      - name: Attest macOS bundle provenance
+        id: attest_macos
+        if: needs.release_state.outputs.need_macos == 'true'
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ needs.macos.outputs.asset_name }}
+          subject-digest: sha256:${{ needs.macos.outputs.asset_sha256 }}
+
+      - name: Retain exact macOS provenance bundle
+        if: needs.release_state.outputs.need_macos == 'true'
+        env:
+          ATTESTATION_BUNDLE_PATH: ${{ steps.attest_macos.outputs.bundle-path }}
+          EXPECTED_NAME: ${{ needs.macos.outputs.asset_name }}
+          EXPECTED_ROLE: macos
+          EXPECTED_SHA256: ${{ needs.macos.outputs.asset_sha256 }}
+          EXPECTED_SIZE: ${{ needs.macos.outputs.asset_size }}
+          HANDOFF_DIR: ${{ runner.temp }}/ibex-hermes-publish/macos
+          IBEX_PUBLISH_ROOT: ${{ runner.temp }}/ibex-hermes-publish
+        run: |
+          python3 -c "$IBEX_PUBLISH_HANDOFF_VALIDATOR"
+          python3 -c "$IBEX_RETAIN_SIGSTORE_BUNDLE"
+
+      - name: Attest Linux bundle provenance
+        id: attest_linux
+        if: needs.release_state.outputs.need_linux == 'true'
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ needs.linux.outputs.asset_name }}
+          subject-digest: sha256:${{ needs.linux.outputs.asset_sha256 }}
+
+      - name: Retain exact Linux provenance bundle
+        if: needs.release_state.outputs.need_linux == 'true'
+        env:
+          ATTESTATION_BUNDLE_PATH: ${{ steps.attest_linux.outputs.bundle-path }}
+          EXPECTED_NAME: ${{ needs.linux.outputs.asset_name }}
+          EXPECTED_ROLE: linux
+          EXPECTED_SHA256: ${{ needs.linux.outputs.asset_sha256 }}
+          EXPECTED_SIZE: ${{ needs.linux.outputs.asset_size }}
+          HANDOFF_DIR: ${{ runner.temp }}/ibex-hermes-publish/linux
+          IBEX_PUBLISH_ROOT: ${{ runner.temp }}/ibex-hermes-publish
+        run: |
+          python3 -c "$IBEX_PUBLISH_HANDOFF_VALIDATOR"
+          python3 -c "$IBEX_RETAIN_SIGSTORE_BUNDLE"
+
+      - name: Attest macOS Release bundle provenance
+        id: attest_macos_release
+        if: needs.release_state.outputs.need_macos_release_legacy == 'true'
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ needs.macos_release.outputs.legacy_asset_name }}
+          subject-digest: sha256:${{ needs.macos_release.outputs.legacy_asset_sha256 }}
+
+      - name: Retain exact macOS Release provenance bundle
+        if: needs.release_state.outputs.need_macos_release_legacy == 'true'
+        env:
+          ATTESTATION_BUNDLE_PATH: ${{ steps.attest_macos_release.outputs.bundle-path }}
+          EXPECTED_NAME: ${{ needs.macos_release.outputs.legacy_asset_name }}
+          EXPECTED_ROLE: macos-release
+          EXPECTED_SHA256: ${{ needs.macos_release.outputs.legacy_asset_sha256 }}
+          EXPECTED_SIZE: ${{ needs.macos_release.outputs.legacy_asset_size }}
+          HANDOFF_DIR: ${{ runner.temp }}/ibex-hermes-publish/macos-release
+          IBEX_PUBLISH_ROOT: ${{ runner.temp }}/ibex-hermes-publish
+        run: |
+          python3 -c "$IBEX_PUBLISH_HANDOFF_VALIDATOR"
+          python3 -c "$IBEX_RETAIN_SIGSTORE_BUNDLE"
+
+      - name: Attest portable bundle provenance
+        id: attest_portable
+        if: needs.release_state.outputs.need_portable_macos_release == 'true'
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ needs.macos_release.outputs.portable_asset_name }}
+          subject-digest: sha256:${{ needs.macos_release.outputs.portable_asset_sha256 }}
+
+      - name: Retain exact portable provenance bundle
+        if: needs.release_state.outputs.need_portable_macos_release == 'true'
+        env:
+          ATTESTATION_BUNDLE_PATH: ${{ steps.attest_portable.outputs.bundle-path }}
+          EXPECTED_NAME: ${{ needs.macos_release.outputs.portable_asset_name }}
+          EXPECTED_ROLE: portable
+          EXPECTED_SHA256: ${{ needs.macos_release.outputs.portable_asset_sha256 }}
+          EXPECTED_SIZE: ${{ needs.macos_release.outputs.portable_asset_size }}
+          HANDOFF_DIR: ${{ runner.temp }}/ibex-hermes-publish/portable
+          IBEX_PUBLISH_ROOT: ${{ runner.temp }}/ibex-hermes-publish
+        run: |
+          python3 -c "$IBEX_PUBLISH_HANDOFF_VALIDATOR"
+          python3 -c "$IBEX_RETAIN_SIGSTORE_BUNDLE"
+
+      - name: Attest Windows bundle provenance
+        id: attest_windows
+        if: needs.release_state.outputs.need_windows == 'true'
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ needs.windows.outputs.asset_name }}
+          subject-digest: sha256:${{ needs.windows.outputs.asset_sha256 }}
+
+      - name: Retain exact Windows provenance bundle
+        if: needs.release_state.outputs.need_windows == 'true'
+        env:
+          ATTESTATION_BUNDLE_PATH: ${{ steps.attest_windows.outputs.bundle-path }}
+          EXPECTED_NAME: ${{ needs.windows.outputs.asset_name }}
+          EXPECTED_ROLE: windows
+          EXPECTED_SHA256: ${{ needs.windows.outputs.asset_sha256 }}
+          EXPECTED_SIZE: ${{ needs.windows.outputs.asset_size }}
+          HANDOFF_DIR: ${{ runner.temp }}/ibex-hermes-publish/windows
+          IBEX_PUBLISH_ROOT: ${{ runner.temp }}/ibex-hermes-publish
+        run: |
+          python3 -c "$IBEX_PUBLISH_HANDOFF_VALIDATOR"
+          python3 -c "$IBEX_RETAIN_SIGSTORE_BUNDLE"
+
+      - name: Ensure revision-scoped portable prerelease exists
+        if: needs.release_state.outputs.need_portable_macos_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IDENTITY: ${{ needs.identity.outputs.identity }}
+          SHA: ${{ github.sha }}
+          TAG: ${{ needs.identity.outputs.portable_tag }}
+        run: |
+          set -euo pipefail
+          [[ "$IDENTITY" =~ ^[0-9a-f]{12}-[0-9a-f]{12}$ ]]
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$TAG" == "hermes-portable-$IDENTITY-$SHA" ]]
+          title="Hermes portable artifact $SHA"
+          notes="One revision-bound diagnostic portable Hermes artifact set for Ibex source revision $SHA. Native compilation runs without release or OIDC credentials; a separate checkout-free publisher validates the current-run raw handoff before attesting its exact name and digest. Detached Sigstore evidence is not yet an admitted portable engine, and acceptance remains disabled pending the LLP 0035 offline verifier and policy. This is an artifact cache, not a product release."
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if ! gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease \
+              --target "$SHA" --title "$title" --notes "$notes"; then
+              # A retry of this revision may have created the release
+              # concurrently. Require that it exists before continuing.
+              gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+            fi
+          fi
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --title "$title" --notes "$notes"
+
+      # Portable names include GITHUB_SHA, so distinct main revisions cannot
+      # collide. Publish this set before waiting on the stable-name legacy
+      # lease so every revision remains independently deliverable.
+      - name: Upload portable provenance sidecars
+        if: needs.release_state.outputs.need_portable_macos_release == 'true'
+        env:
+          EXPECTED_NAME: ${{ needs.macos_release.outputs.portable_asset_name }}
+          EXPECTED_SHA256: ${{ needs.macos_release.outputs.portable_asset_sha256 }}
+          EXPECTED_SIZE: ${{ needs.macos_release.outputs.portable_asset_size }}
+          GH_TOKEN: ${{ github.token }}
+          HANDOFF_DIR: ${{ runner.temp }}/ibex-hermes-publish/portable
+          TAG: ${{ needs.identity.outputs.portable_tag }}
+        run: |
+          python3 -c "$IBEX_RELEASE_SET_VALIDATOR"
+          gh release upload "$TAG" \
+            "$HANDOFF_DIR/$EXPECTED_NAME.sha256" \
+            "$HANDOFF_DIR/$EXPECTED_NAME.sigstore.json" \
+            "$HANDOFF_DIR/$EXPECTED_NAME.sigstore.json.sha256" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Upload portable archive last
+        if: needs.release_state.outputs.need_portable_macos_release == 'true'
+        env:
+          EXPECTED_NAME: ${{ needs.macos_release.outputs.portable_asset_name }}
+          EXPECTED_SHA256: ${{ needs.macos_release.outputs.portable_asset_sha256 }}
+          EXPECTED_SIZE: ${{ needs.macos_release.outputs.portable_asset_size }}
+          GH_TOKEN: ${{ github.token }}
+          HANDOFF_DIR: ${{ runner.temp }}/ibex-hermes-publish/portable
+          TAG: ${{ needs.identity.outputs.portable_tag }}
+        run: |
+          python3 -c "$IBEX_RELEASE_SET_VALIDATOR"
+          gh release upload "$TAG" "$HANDOFF_DIR/$EXPECTED_NAME" --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Ensure legacy prerelease artifact cache exists
+        if: >-
+          needs.release_state.outputs.need_macos == 'true' ||
+          needs.release_state.outputs.need_linux == 'true' ||
+          needs.release_state.outputs.need_macos_release_legacy == 'true' ||
+          needs.release_state.outputs.need_windows == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IDENTITY: ${{ needs.identity.outputs.identity }}
+          SHA: ${{ github.sha }}
+          TAG: ${{ needs.identity.outputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$IDENTITY" =~ ^[0-9a-f]{12}-[0-9a-f]{12}$ ]]
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$TAG" == "hermes-$IDENTITY" ]]
+          title="Hermes artifact cache $IDENTITY"
+          notes="Prebuilt PATCHED Hermes bundles for platform installers. Native compilation runs without release or OIDC credentials; a separate checkout-free publisher validates each current-run raw handoff before attesting its exact name and digest. Detached Sigstore bundles remain diagnostic evidence only. Revision-bound portable sets use separate prereleases and do not consume this shared legacy asset namespace. This is an artifact cache, not a product release."
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if ! gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease \
+              --target "$SHA" --title "$title" --notes "$notes"; then
+              # Another revision may have created the shared cache release
+              # concurrently. Require that it exists before continuing.
+              gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+            fi
+          fi
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --title "$title" --notes "$notes"
+
+      - name: Acquire cross-revision legacy publish lease
+        id: legacy_publish_lock
+        if: >-
+          needs.release_state.outputs.need_macos == 'true' ||
+          needs.release_state.outputs.need_linux == 'true' ||
+          needs.release_state.outputs.need_macos_release_legacy == 'true' ||
+          needs.release_state.outputs.need_windows == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IDENTITY: ${{ needs.identity.outputs.identity }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_ID: ${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          TAG: ${{ needs.identity.outputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$IDENTITY" =~ ^[0-9a-f]{12}-[0-9a-f]{12}$ ]]
+          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$TAG" == "hermes-$IDENTITY" ]]
+          lock_name="ibex-hermes-legacy-publish-$IDENTITY.lock"
+          lock_path="$RUNNER_TEMP/$lock_name"
+          observed_path="$RUNNER_TEMP/ibex-hermes-observed-legacy-lock.json"
+          assets_path="$RUNNER_TEMP/ibex-hermes-release-assets-for-lock.json"
+          LOCK_PATH="$lock_path" python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+
+          run_id = os.environ["RUN_ID"]
+          run_attempt = os.environ["RUN_ATTEMPT"]
+          sha = os.environ["SHA"]
+          if (not re.fullmatch(r"[1-9][0-9]*", run_id)
+                  or not re.fullmatch(r"[1-9][0-9]*", run_attempt)
+                  or not re.fullmatch(r"[0-9a-f]{40}", sha)):
+              raise SystemExit("refusing malformed legacy lease identity")
+          document = {
+              "schema": "ibex/hermes-legacy-publish-lock/1",
+              "runId": int(run_id),
+              "runAttempt": int(run_attempt),
+              "sourceRevision": sha,
+          }
+          pathlib.Path(os.environ["LOCK_PATH"]).write_text(
+              json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="ascii",
+          )
+          PY
+
+          deadline=$((SECONDS + 1200))
+          while true; do
+            if (( SECONDS >= deadline )); then
+              echo "::error::timed out acquiring the legacy publish lease"
+              exit 1
+            fi
+            if gh release upload "$TAG" "$lock_path" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "acquired=true" >> "$GITHUB_OUTPUT"
+              echo "Acquired legacy publish lease $lock_name"
+              break
+            fi
+
+            release_id="$(gh api \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.id')"
+            [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
+            gh api --paginate --slurp \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" > "$assets_path"
+            if ! asset_record="$(LOCK_NAME="$lock_name" python3 -c "$IBEX_LEASE_ASSET_METADATA_VALIDATOR" "$assets_path")"; then
+              if (( SECONDS >= deadline )); then
+                echo "::error::could not observe or acquire the legacy publish lease"
+                exit 1
+              fi
+              sleep 3
+              continue
+            fi
+            read -r asset_id asset_size asset_state asset_decision <<< "$asset_record"
+            [[ "$asset_id" =~ ^[1-9][0-9]*$ ]]
+            [[ "$asset_size" =~ ^[0-9]+$ ]]
+            [[ "$asset_state" =~ ^[^[:space:]]+$ ]]
+            case "$asset_decision" in
+              download)
+                ;;
+              wait-starter|wait-unknown-state)
+                echo "Legacy lease asset $asset_id is still being created or has an unknown state; waiting."
+                sleep 3
+                continue
+                ;;
+              delete-stale-starter|delete-invalid-uploaded)
+                echo "::warning::deleting proven-stale or invalid legacy lease asset $asset_id"
+                gh api \
+                  --method DELETE \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "X-GitHub-Api-Version: 2022-11-28" \
+                  "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" >/dev/null 2>&1 || true
+                continue
+                ;;
+              *)
+                echo "::error::unexpected legacy lease asset decision"
+                exit 1
+                ;;
+            esac
+
+            if ! gh api \
+              -H "Accept: application/octet-stream" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" > "$observed_path"; then
+              rm -f "$observed_path"
+              echo "::warning::uploaded legacy lease asset $asset_id is temporarily unavailable; waiting"
+              sleep 3
+              continue
+            fi
+            if owner="$(python3 - "$observed_path" <<'PY'
+          import json
+          import pathlib
+          import re
+          import sys
+
+          def pairs(items):
+              result = {}
+              for key, value in items:
+                  if key in result:
+                      raise ValueError(f"duplicate key {key!r}")
+                  result[key] = value
+              return result
+
+          def reject_constant(value):
+              raise ValueError(f"non-finite value {value}")
+
+          try:
+              raw = pathlib.Path(sys.argv[1]).read_bytes()
+              if not 0 < len(raw) <= 4096:
+                  raise ValueError("unsafe lease size")
+              text = raw.decode("utf-8", errors="strict")
+              document = json.loads(
+                  text,
+                  object_pairs_hook=pairs,
+                  parse_constant=reject_constant,
+              )
+          except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+              raise SystemExit(1)
+          if (not isinstance(document, dict)
+                  or set(document) != {"schema", "runId", "runAttempt", "sourceRevision"}
+                  or document.get("schema") != "ibex/hermes-legacy-publish-lock/1"
+                  or type(document.get("runId")) is not int
+                  or not 0 < document["runId"] <= 9007199254740991
+                  or type(document.get("runAttempt")) is not int
+                  or not 0 < document["runAttempt"] <= 9007199254740991
+                  or not isinstance(document.get("sourceRevision"), str)
+                  or not re.fullmatch(r"[0-9a-f]{40}", document["sourceRevision"])):
+              raise SystemExit(1)
+          print(document["runId"], document["runAttempt"], document["sourceRevision"])
+          PY
+            )"; then
+              read -r owner_run owner_attempt owner_sha <<< "$owner"
+            else
+              owner_run=""
+              owner_attempt=""
+              owner_sha=""
+            fi
+
+            if [[ "$owner_run" == "$RUN_ID" && "$owner_attempt" == "$RUN_ATTEMPT" && "$owner_sha" == "$SHA" ]]; then
+              echo "acquired=true" >> "$GITHUB_OUTPUT"
+              echo "Recovered this attempt's already-created legacy publish lease"
+              break
+            fi
+
+            owner_status=""
+            observed_attempt=""
+            observed_sha=""
+            observed_workflow=""
+            owner_missing=false
+            owner_lookup_failed=false
+            if [[ "$owner_run" =~ ^[1-9][0-9]*$ && "$owner_run" != "$RUN_ID" ]]; then
+              owner_response_path="$RUNNER_TEMP/ibex-hermes-owner-run-response.txt"
+              set +e
+              gh api --include \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "repos/$GITHUB_REPOSITORY/actions/runs/$owner_run" \
+                > "$owner_response_path" 2>/dev/null
+              owner_api_exit=$?
+              set -e
+              if ! owner_observation="$(GH_API_EXIT="$owner_api_exit" python3 -c "$IBEX_ACTIONS_RUN_RESPONSE_VALIDATOR" "$owner_response_path")"; then
+                owner_lookup_failed=true
+              elif [[ "$owner_observation" == "missing" ]]; then
+                owner_missing=true
+                echo "Legacy publisher run $owner_run is definitively absent; its lease is stale."
+              else
+                IFS=$'\t' read -r owner_kind owner_status observed_attempt observed_sha observed_workflow <<< "$owner_observation"
+                if [[ "$owner_kind" != "found" ]]; then
+                  owner_lookup_failed=true
+                fi
+              fi
+            fi
+            owner_active=false
+            if [[ "$owner_lookup_failed" == "false" && "$owner_missing" == "false" && "$owner_status" != "" ]]; then
+              if [[ "$owner_status" != "completed" &&
+                    "$observed_attempt" == "$owner_attempt" &&
+                    "$observed_sha" == "$owner_sha" &&
+                    "$observed_workflow" == ".github/workflows/hermes-artifacts.yml" ]]; then
+                owner_active=true
+              fi
+            fi
+            if [[ "$owner_run" != "" && "$owner_run" != "$RUN_ID" && ( "$owner_lookup_failed" == "true" || "$owner_active" == "true" ) ]]; then
+              if (( SECONDS >= deadline )); then
+                echo "::error::timed out proving legacy publisher run $owner_run inactive"
+                exit 1
+              fi
+              echo "Legacy publisher run $owner_run is active or could not be proven inactive; waiting."
+              sleep 5
+              continue
+            fi
+
+            # Invalid, completed, or prior-attempt owners are stale.
+            # Delete only the immutable asset ID that was inspected; a racing
+            # replacement receives a different ID and cannot be removed here.
+            gh api \
+              --method DELETE \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" >/dev/null 2>&1 || true
+            if (( SECONDS >= deadline )); then
+              echo "::error::timed out recovering the legacy publish lease"
+              exit 1
+            fi
+          done
+
+      - name: Upload macOS provenance sidecars
+        if: needs.release_state.outputs.need_macos == 'true'
+        env:
+          EXPECTED_NAME: ${{ needs.macos.outputs.asset_name }}
+          EXPECTED_SHA256: ${{ needs.macos.outputs.asset_sha256 }}
+          EXPECTED_SIZE: ${{ needs.macos.outputs.asset_size }}
+          GH_TOKEN: ${{ github.token }}
+          HANDOFF_DIR: ${{ runner.temp }}/ibex-hermes-publish/macos
+          TAG: ${{ needs.identity.outputs.tag }}
+        run: |
+          python3 -c "$IBEX_RELEASE_SET_VALIDATOR"
+          gh release upload "$TAG" \
+            "$HANDOFF_DIR/$EXPECTED_NAME.sha256" \
+            "$HANDOFF_DIR/$EXPECTED_NAME.sigstore.json" \
+            "$HANDOFF_DIR/$EXPECTED_NAME.sigstore.json.sha256" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Upload macOS archive last
+        if: needs.release_state.outputs.need_macos == 'true'
+        env:
+          EXPECTED_NAME: ${{ needs.macos.outputs.asset_name }}
+          EXPECTED_SHA256: ${{ needs.macos.outputs.asset_sha256 }}
+          EXPECTED_SIZE: ${{ needs.macos.outputs.asset_size }}
+          GH_TOKEN: ${{ github.token }}
+          HANDOFF_DIR: ${{ runner.temp }}/ibex-hermes-publish/macos
+          TAG: ${{ needs.identity.outputs.tag }}
+        run: |
+          python3 -c "$IBEX_RELEASE_SET_VALIDATOR"
+          gh release upload "$TAG" "$HANDOFF_DIR/$EXPECTED_NAME" --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Upload Linux provenance sidecars
+        if: needs.release_state.outputs.need_linux == 'true'
+        env:
+          EXPECTED_NAME: ${{ needs.linux.outputs.asset_name }}
+          EXPECTED_SHA256: ${{ needs.linux.outputs.asset_sha256 }}
+          EXPECTED_SIZE: ${{ needs.linux.outputs.asset_size }}
+          GH_TOKEN: ${{ github.token }}
+          HANDOFF_DIR: ${{ runner.temp }}/ibex-hermes-publish/linux
+          TAG: ${{ needs.identity.outputs.tag }}
+        run: |
+          python3 -c "$IBEX_RELEASE_SET_VALIDATOR"
+          gh release upload "$TAG" \
+            "$HANDOFF_DIR/$EXPECTED_NAME.sha256" \
+            "$HANDOFF_DIR/$EXPECTED_NAME.sigstore.json" \
+            "$HANDOFF_DIR/$EXPECTED_NAME.sigstore.json.sha256" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Upload Linux archive last
+        if: needs.release_state.outputs.need_linux == 'true'
+        env:
+          EXPECTED_NAME: ${{ needs.linux.outputs.asset_name }}
+          EXPECTED_SHA256: ${{ needs.linux.outputs.asset_sha256 }}
+          EXPECTED_SIZE: ${{ needs.linux.outputs.asset_size }}
+          GH_TOKEN: ${{ github.token }}
+          HANDOFF_DIR: ${{ runner.temp }}/ibex-hermes-publish/linux
+          TAG: ${{ needs.identity.outputs.tag }}
+        run: |
+          python3 -c "$IBEX_RELEASE_SET_VALIDATOR"
+          gh release upload "$TAG" "$HANDOFF_DIR/$EXPECTED_NAME" --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Upload macOS Release provenance sidecars
+        if: needs.release_state.outputs.need_macos_release_legacy == 'true'
+        env:
+          EXPECTED_NAME: ${{ needs.macos_release.outputs.legacy_asset_name }}
+          EXPECTED_SHA256: ${{ needs.macos_release.outputs.legacy_asset_sha256 }}
+          EXPECTED_SIZE: ${{ needs.macos_release.outputs.legacy_asset_size }}
+          GH_TOKEN: ${{ github.token }}
+          HANDOFF_DIR: ${{ runner.temp }}/ibex-hermes-publish/macos-release
+          TAG: ${{ needs.identity.outputs.tag }}
+        run: |
+          python3 -c "$IBEX_RELEASE_SET_VALIDATOR"
+          gh release upload "$TAG" \
+            "$HANDOFF_DIR/$EXPECTED_NAME.sha256" \
+            "$HANDOFF_DIR/$EXPECTED_NAME.sigstore.json" \
+            "$HANDOFF_DIR/$EXPECTED_NAME.sigstore.json.sha256" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Upload macOS Release archive last
+        if: needs.release_state.outputs.need_macos_release_legacy == 'true'
+        env:
+          EXPECTED_NAME: ${{ needs.macos_release.outputs.legacy_asset_name }}
+          EXPECTED_SHA256: ${{ needs.macos_release.outputs.legacy_asset_sha256 }}
+          EXPECTED_SIZE: ${{ needs.macos_release.outputs.legacy_asset_size }}
+          GH_TOKEN: ${{ github.token }}
+          HANDOFF_DIR: ${{ runner.temp }}/ibex-hermes-publish/macos-release
+          TAG: ${{ needs.identity.outputs.tag }}
+        run: |
+          python3 -c "$IBEX_RELEASE_SET_VALIDATOR"
+          gh release upload "$TAG" "$HANDOFF_DIR/$EXPECTED_NAME" --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Upload Windows provenance sidecars
+        if: needs.release_state.outputs.need_windows == 'true'
+        env:
+          EXPECTED_NAME: ${{ needs.windows.outputs.asset_name }}
+          EXPECTED_SHA256: ${{ needs.windows.outputs.asset_sha256 }}
+          EXPECTED_SIZE: ${{ needs.windows.outputs.asset_size }}
+          GH_TOKEN: ${{ github.token }}
+          HANDOFF_DIR: ${{ runner.temp }}/ibex-hermes-publish/windows
+          TAG: ${{ needs.identity.outputs.tag }}
+        run: |
+          python3 -c "$IBEX_RELEASE_SET_VALIDATOR"
+          gh release upload "$TAG" \
+            "$HANDOFF_DIR/$EXPECTED_NAME.sha256" \
+            "$HANDOFF_DIR/$EXPECTED_NAME.sigstore.json" \
+            "$HANDOFF_DIR/$EXPECTED_NAME.sigstore.json.sha256" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Upload Windows archive last
+        if: needs.release_state.outputs.need_windows == 'true'
+        env:
+          EXPECTED_NAME: ${{ needs.windows.outputs.asset_name }}
+          EXPECTED_SHA256: ${{ needs.windows.outputs.asset_sha256 }}
+          EXPECTED_SIZE: ${{ needs.windows.outputs.asset_size }}
+          GH_TOKEN: ${{ github.token }}
+          HANDOFF_DIR: ${{ runner.temp }}/ibex-hermes-publish/windows
+          TAG: ${{ needs.identity.outputs.tag }}
+        run: |
+          python3 -c "$IBEX_RELEASE_SET_VALIDATOR"
+          gh release upload "$TAG" "$HANDOFF_DIR/$EXPECTED_NAME" --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Release cross-revision legacy publish lease
+        if: ${{ always() && steps.legacy_publish_lock.outputs.acquired == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IDENTITY: ${{ needs.identity.outputs.identity }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_ID: ${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          TAG: ${{ needs.identity.outputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$IDENTITY" =~ ^[0-9a-f]{12}-[0-9a-f]{12}$ ]]
+          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$TAG" == "hermes-$IDENTITY" ]]
+          lock_name="ibex-hermes-legacy-publish-$IDENTITY.lock"
+          assets_path="$RUNNER_TEMP/ibex-hermes-release-assets-for-lock-cleanup.json"
+          observed_path="$RUNNER_TEMP/ibex-hermes-observed-lock-cleanup.json"
+          release_id="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.id')"
+          [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
+          gh api --paginate --slurp \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" > "$assets_path"
+          if ! asset_record="$(LOCK_NAME="$lock_name" python3 -c "$IBEX_LEASE_ASSET_METADATA_VALIDATOR" "$assets_path")"; then
+            echo "Legacy publish lease is already absent."
+            exit 0
+          fi
+          read -r asset_id asset_size asset_state asset_decision <<< "$asset_record"
+          [[ "$asset_id" =~ ^[1-9][0-9]*$ ]]
+          [[ "$asset_size" =~ ^[0-9]+$ ]]
+          [[ "$asset_state" =~ ^[^[:space:]]+$ ]]
+          if [[ "$asset_decision" != "download" ]]; then
+            echo "::warning::legacy publish lease is not a bounded uploaded asset; refusing cleanup download"
+            exit 0
+          fi
+          if ! gh api \
+            -H "Accept: application/octet-stream" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" > "$observed_path"; then
+            echo "::warning::legacy publish lease could not be downloaded for owner verification"
+            exit 0
+          fi
+          if ! OWNER_RUN_ID="$RUN_ID" OWNER_RUN_ATTEMPT="$RUN_ATTEMPT" python3 - "$observed_path" <<'PY'
+          import json
+          import os
+          import pathlib
+          import sys
+
+          def pairs(items):
+              result = {}
+              for key, value in items:
+                  if key in result:
+                      raise ValueError(f"duplicate key {key!r}")
+                  result[key] = value
+              return result
+
+          def reject_constant(value):
+              raise ValueError(f"non-finite value {value}")
+
+          try:
+              raw = pathlib.Path(sys.argv[1]).read_bytes()
+              if not 0 < len(raw) <= 4096:
+                  raise ValueError("unsafe lease size")
+              text = raw.decode("utf-8", errors="strict")
+              document = json.loads(
+                  text,
+                  object_pairs_hook=pairs,
+                  parse_constant=reject_constant,
+              )
+          except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+              raise SystemExit(1)
+          if (not isinstance(document, dict)
+                  or set(document) != {"schema", "runId", "runAttempt", "sourceRevision"}
+                  or type(document.get("runId")) is not int
+                  or type(document.get("runAttempt")) is not int
+                  or not isinstance(document.get("sourceRevision"), str)):
+              raise SystemExit(1)
+          expected = {
+              "schema": "ibex/hermes-legacy-publish-lock/1",
+              "runId": int(os.environ["OWNER_RUN_ID"]),
+              "runAttempt": int(os.environ["OWNER_RUN_ATTEMPT"]),
+              "sourceRevision": os.environ["SHA"],
+          }
+          if document != expected:
+              raise SystemExit(1)
+          PY
+          then
+            echo "::warning::legacy publish lease changed owners; refusing to delete asset $asset_id"
+            exit 0
+          fi
+          gh api \
+            --method DELETE \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" >/dev/null
+          echo "Released legacy publish lease $lock_name"

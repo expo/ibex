@@ -3480,6 +3480,7 @@ impl PromptWitness {
         self.encoded.store(encoded, Ordering::Release);
     }
 
+    #[cfg(unix)]
     fn publish_prompt(
         &self,
         cycle: PromptCycle,
@@ -3502,6 +3503,7 @@ impl PromptWitness {
         broker.prompt(PROMPT_DEFAULT_TEXT, buffer)
     }
 
+    #[cfg(unix)]
     fn redraw(&self, broker: &ReplBrokerHandle) -> Result<(), String> {
         let snapshot = self
             .snapshot
@@ -3618,7 +3620,9 @@ pub async fn run_repl_execution_adapter(
     #[cfg(not(unix))]
     {
         let _closed_repl_state = (session, driver, history);
-        execution_adapter_status(plan).map_err(Into::into)
+        execution_adapter_status(plan)
+            .map(|()| 0)
+            .map_err(Into::into)
     }
 }
 

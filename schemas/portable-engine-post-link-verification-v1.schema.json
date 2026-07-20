@@ -1,0 +1,286 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-post-link-verification-v1.schema.json",
+  "title": "Ibex final portable engine executable post-link verification result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "portable",
+    "buildConsumptionDigest",
+    "manifestDigest",
+    "installationReceiptDigest",
+    "verificationPolicyDigest",
+    "target",
+    "ibexFeatures",
+    "executable",
+    "payloadRevalidation",
+    "audit",
+    "outcome",
+    "verificationDigest"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/portable-engine-post-link-verification/1" },
+    "portable": { "$ref": "portable-engine-artifact-identity-v1.schema.json" },
+    "buildConsumptionDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+    },
+    "manifestDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+    },
+    "installationReceiptDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+    },
+    "verificationPolicyDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+    },
+    "target": { "$ref": "portable-engine-common-v1.schema.json#/$defs/target" },
+    "ibexFeatures": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "portable-engine-common-v1.schema.json#/$defs/stableId" }
+    },
+    "executable": { "$ref": "#/$defs/executable" },
+    "payloadRevalidation": { "$ref": "#/$defs/payloadRevalidation" },
+    "audit": { "$ref": "#/$defs/machOAudit" },
+    "outcome": { "const": "verified" },
+    "verificationDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest",
+      "$comment": "SHA-256 over JCS(post-link result without verificationDigest), domain ibex.portable-engine-post-link-verification.v1 followed by one NUL byte."
+    }
+  },
+  "$defs": {
+    "executable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["logicalName", "targetKind", "digest", "size"],
+      "properties": {
+        "logicalName": {
+          "type": "string",
+          "maxLength": 136,
+          "$comment": "A closed ASCII Cargo target identity, never a local output path. Its prefix is joined to targetKind below."
+        },
+        "targetKind": { "enum": ["bin", "test", "example", "bench"] },
+        "digest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "size": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/positiveSafeInteger"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "targetKind": { "const": "bin" } },
+            "required": ["targetKind"]
+          },
+          "then": {
+            "properties": {
+              "logicalName": {
+                "type": "string",
+                "pattern": "^bin/[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "targetKind": { "const": "test" } },
+            "required": ["targetKind"]
+          },
+          "then": {
+            "properties": {
+              "logicalName": {
+                "type": "string",
+                "pattern": "^test/[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "targetKind": { "const": "example" } },
+            "required": ["targetKind"]
+          },
+          "then": {
+            "properties": {
+              "logicalName": {
+                "type": "string",
+                "pattern": "^example/[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "targetKind": { "const": "bench" } },
+            "required": ["targetKind"]
+          },
+          "then": {
+            "properties": {
+              "logicalName": {
+                "type": "string",
+                "pattern": "^bench/[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "payloadRevalidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "$comment": "The verifier rehashes every regular manifest entry, validates exact archive/manifest membership plus the full normalized path and link graph, and re-verifies transport provenance before emitting this result.",
+      "required": [
+        "artifactId",
+        "buildConsumptionDigest",
+        "manifestDigest",
+        "installationReceiptDigest",
+        "verificationPolicyDigest",
+        "manifestEntryCount",
+        "regularEntryCount",
+        "regularByteCount",
+        "manifestGraphValidation",
+        "transportProvenanceReverified"
+      ],
+      "properties": {
+        "artifactId": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+        },
+        "buildConsumptionDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+        },
+        "manifestDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+        },
+        "installationReceiptDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+        },
+        "verificationPolicyDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+        },
+        "manifestEntryCount": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/positiveSafeInteger"
+        },
+        "regularEntryCount": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/positiveSafeInteger"
+        },
+        "regularByteCount": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/positiveSafeInteger"
+        },
+        "manifestGraphValidation": {
+          "const": "complete-exact-membership-path-and-link-graph"
+        },
+        "transportProvenanceReverified": {
+          "const": true
+        }
+      }
+    },
+    "loaderRelativeRpath": {
+      "type": "string",
+      "pattern": "^@(?:executable_path|loader_path)(?:/(?!/)[A-Za-z0-9._+ -]+)*$"
+    },
+    "portableInstallName": {
+      "type": "string",
+      "pattern": "^@rpath/(?!/)(?!.*//)(?!\\.\\.?(?:/|$))(?!.*\\/\\.\\.?(?:/|$))[A-Za-z0-9._+ -]+(?:/[A-Za-z0-9._+ -]+)*$"
+    },
+    "loadCommand": {
+      "enum": [
+        "LC_LOAD_DYLIB",
+        "LC_LOAD_WEAK_DYLIB",
+        "LC_REEXPORT_DYLIB",
+        "LC_LOAD_UPWARD_DYLIB",
+        "LC_LAZY_LOAD_DYLIB"
+      ]
+    },
+    "portableDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "installName", "resolution"],
+      "properties": {
+        "command": { "const": "LC_LOAD_DYLIB" },
+        "installName": { "$ref": "#/$defs/portableInstallName" },
+        "resolution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["class", "path", "digest"],
+          "properties": {
+            "class": { "const": "portable-component" },
+            "path": {
+              "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath"
+            },
+            "digest": {
+              "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+            }
+          }
+        }
+      }
+    },
+    "systemDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "installName", "resolution"],
+      "properties": {
+        "command": { "$ref": "#/$defs/loadCommand" },
+        "installName": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/systemDependencyName"
+        },
+        "resolution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["class", "name"],
+          "properties": {
+            "class": { "const": "platform-system" },
+            "name": {
+              "$ref": "portable-engine-common-v1.schema.json#/$defs/systemDependencyName"
+            }
+          }
+        }
+      }
+    },
+    "machOAudit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "format",
+        "architecture",
+        "cpuSubtype",
+        "fileType",
+        "dynamicLinker",
+        "dyldEnvironment",
+        "rpaths",
+        "dependencies"
+      ],
+      "properties": {
+        "class": { "const": "macos-macho-final-engine-executable" },
+        "format": { "const": "mach-o" },
+        "architecture": { "const": "arm64" },
+        "cpuSubtype": { "const": "all" },
+        "fileType": { "const": "execute" },
+        "dynamicLinker": { "const": "/usr/lib/dyld" },
+        "dyldEnvironment": {
+          "const": [],
+          "$comment": "LC_DYLD_ENVIRONMENT can redirect library/framework resolution and is forbidden in an authoritative final executable."
+        },
+        "rpaths": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/loaderRelativeRpath" }
+        },
+        "dependencies": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "oneOf": [
+              { "$ref": "#/$defs/portableDependency" },
+              { "$ref": "#/$defs/systemDependency" }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

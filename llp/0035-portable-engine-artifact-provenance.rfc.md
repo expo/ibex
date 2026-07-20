@@ -5,11 +5,12 @@
 **Systems:** Security, Engine, Build, Distribution, CI, Runtime, Host ABI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (the checkout-local installer now has a policy-bound
-offline verifier expectation profile and exact Darwin arm64 verifier-binary
-identity in addition to reconstructive retained-transport verification;
-acceptance, runtime consumption, and advertisements remain off pending a real
-private Ibex corpus and the remaining build/runtime evidence gates)
+**Revised:** 2026-07-20 (native package production and credentialed publishing
+are isolated by immutable raw-artifact handoffs; the checkout-local installer
+uses a policy-bound, byte-pinned offline verifier; and the closed build and
+post-link contracts bind complete payload and executable replay. Acceptance,
+runtime consumption, and advertisements remain off pending a real private
+Ibex corpus and the remaining build/runtime evidence gates.)
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021; LLP 0032
 
 ## Summary
@@ -112,9 +113,9 @@ only one input to LLP 0032's exact-membership aggregate.
   component named by that portable identity.
 - Require every **consumer** to authenticate the complete package before any
   component is linked, loaded, executed, or admitted as conformance evidence.
-  The reviewed publisher may execute newly built tools while validating its
-  own output, but those executions create no consumer or conformance
-  authority.
+  A reviewed unprivileged producer job may execute newly built tools while
+  validating its own output, but those executions create no consumer or
+  conformance authority and occur outside the credentialed publisher job.
 - Make target reports and advertisements free of absolute paths and host-local
   file IDs while retaining those facts in per-run evidence.
 - Supply the portable identity needed by a future cross-runner design while
@@ -216,6 +217,18 @@ enforce file-handle sharing/locking semantics. Repository build and fixture
 code is trusted but may fail or hang; LLP 0032's supervisor contains those
 failures. JavaScript under evaluation is untrusted and receives no provenance
 or loader control.
+
+The workflow also treats newly built native bytes as adversarial with respect
+to release and OIDC credentials. Platform producer jobs have only read access
+to repository contents and upload one direct, inert archive apiece (two only
+when the shared macOS Release build owes both legacy and portable outputs).
+The separately credentialed publisher has no checkout and does not execute,
+load, parse as an archive, or extract any producer output. It may read each
+bounded archive only as a regular byte stream after joining its immutable
+artifact-service identity to the selected producer job and current workflow
+run. This separation limits a compromised compiler, linker, packaging tool,
+or generated native binary to inert output bytes rather than handing it a
+release token or OIDC-backed attestation capability.
 
 ## Portable package contract
 
@@ -472,6 +485,93 @@ installer MUST verify the bundle's signature, trusted workflow identity, and
 exact archive subject digest before parsing or extracting attacker-controlled
 archive members.
 
+Production and publication are separate hosted-runner jobs. Each native
+producer checks out the exact workflow revision with persisted credentials
+disabled, has only `contents: read`, validates and packages locally, hashes the
+closed archive, and uses the artifact service's direct-file mode to emit the
+raw archive without a wrapper archive. The upload action's returned immutable
+artifact ID and raw SHA-256 must join the producer's independently computed
+digest before the job succeeds. Producers have neither repository-write nor
+OIDC/attestation authority.
+
+The publisher starts on a fresh GitHub-hosted runner with no checkout. Before
+using either write or OIDC operations, it validates the fixed repository and
+numeric owner/repository identities, `refs/heads/main`, event class, exact
+workflow path/ref, and equality of workflow revision and source revision. For
+every selected role it reconstructs the only permitted release basename and
+requires a unique positive artifact ID, bounded positive size, and one
+lowercase SHA-256 agreed by the producer and upload service. It then exposes
+the repository token only to a step whose reviewed code performs the artifact
+metadata GET, and requires the exact current run ID, repository/head-repository
+IDs, branch, head revision, raw filename, size, digest, and unexpired state.
+Artifact metadata does not expose the producer job ID or run attempt; the
+workflow therefore does not claim those fields are REST-authenticated.
+Instead, the immutable ID comes through the exact selected `needs` edge, and
+each download deliberately omits a GitHub API token so the artifact action
+remains scoped to the current workflow attempt.
+
+Every download names exactly one immutable artifact ID, sets digest mismatch
+to fatal, and disables decompression explicitly (including for the direct
+Windows ZIP). The publisher rejects absent, additional, nested, linked,
+special, renamed, oversized, size-mismatched, or digest-mismatched filesystem
+objects. It attests only the already validated `(subject-name,
+subject-digest)` pair, never passes the archive as `subject-path`, validates
+that the returned DSSE statement has exactly that subject, retains the exact
+bundle bytes, and rehashes the still-inert archive before uploading sidecars
+and finally the archive. The publisher invokes no repository script and never
+opens a native payload member.
+
+Because the portable manifest binds the complete Ibex source revision, its
+release basename includes that revision and the workflow runs on every commit
+to `main` without path filtering. Each revision gets a separate prerelease
+whose asset namespace is bounded to that portable archive and its three
+sidecars; portable revisions therefore cannot accumulate against GitHub's
+per-release asset limit. The shared Hermes-identity prerelease retains only
+stable-name legacy cache assets. Release tags, titles, and URLs are untrusted
+transport locators rather than provenance authority. Complete macOS Debug,
+Linux, and Windows legacy sets skip their native builders; a complete macOS
+Release legacy set is neither repackaged nor republished when the shared
+Release build runs to make a new portable package.
+Completeness is not inferred from names alone: the read-only resolver parses
+all paginated release-asset metadata and skips a four-file set only when every
+expected name has exactly one positive asset ID, `uploaded` state, and positive
+bounded size. Missing, duplicate, `starter`, zero-size, or oversized members
+select that set for publisher repair; a failed upload therefore cannot make a
+later run bless an unusable name-complete release.
+
+Distinct source revisions may publish their revision-suffixed portable sets in
+parallel, but they MUST NOT interleave writes to stable legacy names. Before
+the first stable legacy package-asset mutation or upload, the publisher
+atomically creates one temporary release-asset lease whose stable name is
+scoped to the Hermes identity and whose strict JSON bytes bind the owning
+workflow run, attempt, and source revision. GitHub's duplicate asset-name
+rejection is the exclusive create operation. A contender first requires
+exactly one matching release
+asset with a positive ID, strictly parsed creation time and state, and bounded
+nonzero size before downloading any lock bytes. A `starter` asset can be the
+winning upload after its name is reserved but before its bytes become
+downloadable, so contenders poll that same immutable ID without mutation
+through a bounded five-minute creation grace. Only a `starter` still present
+after that grace, or an `uploaded` lock with an impossible size, is recoverable
+by deleting the exact inspected asset ID; unknown states remain fail-closed.
+For valid lock bytes, the contender treats the recorded run as active only when
+the Actions API rejoins its workflow path, attempt, source revision, and
+non-completed status. A definitive authenticated 404 means that the run record
+no longer exists and the lock is stale; authentication, rate-limit, server,
+transport, and malformed-response failures remain fail-closed. An invalid,
+completed, missing, or prior-attempt owner is likewise recovered only by
+deleting the exact immutable asset ID that was inspected. Cleanup downloads
+the lease again and deletes it only if all owner fields still name the current
+attempt. Every stable-name legacy sidecar and archive upload occurs after
+acquisition and before owner-checked cleanup, so two revisions cannot mix one
+run's Sigstore bundle with another run's bundle checksum. The SHA-unique
+portable sidecars and archive are uploaded to their revision-scoped prerelease
+before any legacy-lease wait and never use this lock. The transient lease is
+coordination metadata, not package or provenance authority; a crash may leave
+partial untrusted release storage, but cannot make a mixed set verify, and a
+later publisher recovers the stale lease after GitHub marks its owner inactive
+or its retained run record disappears.
+
 For v1, GitHub build provenance is the package-publisher authority;
 Authenticode publisher identity and SmartScreen reputation are explicitly out
 of scope and are not implied by that provenance. If a later Windows publisher
@@ -485,6 +585,18 @@ workflow, source ref/revision, target, and artifact kind to the independently
 verified attestation claims. A correctly signed archive whose internal
 manifest names a different build authority is rejected; neither side may
 self-assert the other's binding.
+
+The offline verifier's expectation document contains only independently
+selected policy: subject name, repository and numeric identities, publisher
+workflow path, source ref/revision, admitted event set, hosted-runner class,
+private visibility, and the closed certificate/build identities derived from
+those values. A workflow display name, the selected event, run ID, and attempt
+are signed observations rather than local authority inputs. The verifier
+derives them from the signing certificate, requires the selected event to be a
+member of the admitted set, validates the run URI canonically, and joins both
+the event and invocation exactly to the signed provenance statement. An
+installer MUST NOT accept those run-specific observations from the bundle,
+release metadata, or caller as if they were independent expectations.
 
 The installer retains the verified attestation bundle, archive digest,
 verification policy identity, signer workflow/ref/source revision, and
@@ -613,6 +725,102 @@ before conformance begins. A changed input fails even if a same-named path
 still exists. This is a build-integrity check inside the trusted same-user job,
 not a claim that Cargo can retain file handles across arbitrary compilers and
 linkers in the presence of a malicious sibling process.
+
+### Build-consumption and post-link contracts
+
+`ibex/portable-engine-build-consumption/1` is the canonical exact-field record
+an authoritative native build must emit. Its top-level fields are exactly
+`schema, portable, manifestDigest, installationReceiptDigest,
+verificationPolicyDigest, target, ibexFeatures, headers, runtimeComponent,
+linkInputs, hostTools, nonSystemLoadableDependencies, consumptionDigest`.
+`portable` is the complete portable identity. The three authority digests bind
+the complete canonical manifest, complete canonical installation receipt, and
+checked verification policy respectively; the installation-receipt digest
+therefore also commits to the selected archive and retained provenance bundle.
+`target` is the exact portable target and `ibexFeatures` is a strictly sorted,
+unique set of the Cargo features active for that build.
+
+`headers` has exact fields `headerSetDigest, includeRoots, files` and must equal
+the complete declared header-set document, not only headers observed in one
+compiler trace. `runtimeComponent` has exact `path, digest, size` fields.
+`linkInputs` contains exact `role, path, digest, size` rows for the runtime and
+every declared link-input regular file. `hostTools` contains exact
+`role, path, digest, size, compatibilityDigest` rows.
+`nonSystemLoadableDependencies` contains exact `role, path, digest, size` rows
+for every non-runtime, non-system loadable component. Every path in these
+collections is a normalized payload-relative path and every collection is
+strictly sorted and unique: feature/include-root sets and file rows sort by
+UTF-8 bytes, while role-bearing rows sort by `(role, path)`. Store roots,
+checkout paths, Cargo target directories, device/file IDs, and invocation
+timestamps are forbidden. The
+record digest is:
+
+```text
+"sha256-" || base64url(
+  SHA-256("ibex.portable-engine-build-consumption.v1\0" ||
+          JCS(record without consumptionDigest))
+)
+```
+
+`ibex/portable-engine-post-link-verification/1` is the closed result for one
+final macOS arm64 engine-using executable. Its top-level fields are exactly
+`schema, portable, buildConsumptionDigest, manifestDigest,
+installationReceiptDigest, verificationPolicyDigest, target, ibexFeatures,
+executable, payloadRevalidation, audit, outcome, verificationDigest`. The
+portable identity, authority digests, target, and feature set must equal the
+bound build-consumption record. `executable` has exact fields `logicalName,
+targetKind, digest, size`. `logicalName` uses the closed ASCII grammar
+`<targetKind>/<cargo-target-name>`, where `targetKind` is exactly `bin`,
+`test`, `example`, or `bench` and the name is one to 128 ASCII alphanumeric,
+hyphen, or underscore characters beginning with an alphanumeric character.
+The prefix must equal `targetKind`; dots, percent escapes, separators, and
+local output paths are unrepresentable.
+
+`payloadRevalidation` has exact fields `artifactId, buildConsumptionDigest,
+manifestDigest, installationReceiptDigest, verificationPolicyDigest,
+manifestEntryCount, regularEntryCount, regularByteCount,
+manifestGraphValidation, transportProvenanceReverified`. The verifier rehashes
+every regular manifest entry, checks these complete entry and byte totals,
+revalidates exact archive/manifest membership plus the normalized path and
+symlink graph, and re-verifies the installation receipt's transport
+provenance. `manifestGraphValidation` is exactly
+`complete-exact-membership-path-and-link-graph` and
+`transportProvenanceReverified` is exactly `true`. These claims never mean a
+selected input subset. `outcome` is exactly `verified`, and the verifier emits
+no result on a failed check.
+
+The v1 `audit` is deliberately the closed macOS Mach-O variant with exact
+fields `class, format, architecture, cpuSubtype, fileType, dynamicLinker,
+dyldEnvironment, rpaths, dependencies`. It requires an arm64 `MH_EXECUTE`
+image using `/usr/lib/dyld`. `dyldEnvironment` is explicitly the empty array:
+any `LC_DYLD_ENVIRONMENT` command can redirect library or framework resolution
+and fails before a result is emitted. The final-executable parser also rejects
+the obsolete load-bearing `LC_LOADFVMLIB`, `LC_FVMFILE`, and
+`LC_PREBOUND_DYLIB` commands rather than silently excluding them from the
+audit. Rpaths are a complete, strictly sorted set of loader-relative
+`@executable_path` or `@loader_path` values; absolute build/store rpaths are
+unrepresentable. `dependencies` is the complete strictly sorted inventory of
+the final executable's `LC_LOAD_DYLIB`, `LC_LOAD_WEAK_DYLIB`,
+`LC_REEXPORT_DYLIB`, `LC_LOAD_UPWARD_DYLIB`, and `LC_LAZY_LOAD_DYLIB`
+commands, sorted by `(command, installName)`, not a selected engine-only subset.
+Exactly one row resolves to the portable runtime in the current runtime-only
+topology, with its payload path and digest equal to `runtimeComponent`; a
+future admitted non-system component must likewise have exactly one matching
+row. Every portable-component row must use current `LC_LOAD_DYLIB`, never weak,
+lazy, upward, or re-export loading. Every other row must name and resolve to a
+target-policy-admitted Apple system dependency. Missing, duplicate,
+undeclared, or path-resolved local dylibs fail. Windows final-PE evidence
+requires its separately frozen loader/import-graph contract and may not be
+represented as this Mach-O v1 result.
+
+The result digest is:
+
+```text
+"sha256-" || base64url(
+  SHA-256("ibex.portable-engine-post-link-verification.v1\0" ||
+          JCS(result without verificationDigest))
+)
+```
 
 For an authoritative Cargo build, `build.rs` accepts an artifact ID or a
 validated store root, selects the exact declared runtime/link/header
@@ -898,8 +1106,17 @@ by both the pinned Release
 runtime and its bundled `hermesc`; the producer must rejoin those observations
 rather than treating the checked policy value as evidence.
 The policy also fixes finite archive and detached-bundle limits, the versioned
-payload-path equivalence policy, symlink containment rules, and the empirically
-observed macOS Release runtime's Apple system dependency set.
+payload-path equivalence policy, symlink containment rules, and the exact
+reviewed Apple platform-system allowlist needed by the Release runtime,
+`hermesc`, and authoritative Ibex executables. That allowlist is permission for
+an observed dependency, not a claim that every image uses every member; each
+manifest, host-tool closure, and post-link result still carries its complete
+actual subset. The final-executable additions are CoreServices, Security,
+`libiconv`, `libresolv`, and `libz`, observed in the current macOS arm64 Ibex
+binary alongside the previously reviewed runtime/tool dependencies. Because
+the checked trust policy is itself a physical package build-authority input,
+this policy revision changes newly produced portable artifact identities even
+though portable acceptance remains false.
 
 The inner vectors now verify Git commit-to-tree object identity, derive the
 reviewed profile projection and producer-shaped source/cache identity from
@@ -923,7 +1140,10 @@ The golden vectors freeze these semantic digest purposes and projections:
 | Portable artifact ID | `ibex.portable-engine-manifest.v1` | manifest without `artifactId` |
 | Complete manifest digest | `ibex.portable-engine-manifest-digest.v1` | complete manifest |
 | Trust-policy digest | `ibex.portable-engine-provenance-trust-policy.v1` | complete checked policy |
+| Installation-receipt digest | `ibex.portable-engine-installation-receipt.v1` | complete installation receipt |
 | Interface-contract digest | `ibex.portable-engine-interface.v1` | complete manifest `interface` object |
+| Build-consumption digest | `ibex.portable-engine-build-consumption.v1` | build-consumption record without `consumptionDigest` |
+| Post-link verification digest | `ibex.portable-engine-post-link-verification.v1` | post-link result without `verificationDigest` |
 | Mapped observation digest | `ibex.mapped-engine-instance-identity.v1` | mapped identity without `observationDigest` |
 | Suite-descriptor digest | `ibex.portable-engine-suite-lineage.v1` | complete suite descriptor |
 | Shard-assignment digest | `ibex.portable-engine-shard-assignment.v1` | complete assignment descriptor |
@@ -952,6 +1172,32 @@ distribution-provenance verification, safe installation, authoritative build
 consumption, and the accepted RFC switch remain absent. Reports and
 advertisements therefore stay unchanged and empty.
 
+The checked schema checkpoint additionally freezes the authoritative
+build-consumption record and macOS arm64 final-executable post-link result.
+Their golden DAG joins the complete installation receipt, manifest, policy,
+portable identity, header set, runtime/link/tool/dependency inputs, final
+executable byte digest and size, loader-relative rpaths, and complete direct
+Mach-O dependency inventory. This is a contract and adversarial vector
+checkpoint only:
+`build.rs` does not yet emit the record and no post-link verifier consumes it.
+The valid golden is derived only by replaying the complete base64 bytes of the
+checked admitted synthetic Mach-O fixture through the production parser. The
+parser records exact sorted `(load command, install name)` rows, complete
+sorted `LC_RPATH` values, the exact `LC_DYLD_ENVIRONMENT` set, and the whole
+executable's raw digest and size; the authoritative final-executable mode
+requires the environment set to be empty. The updater projects those fields
+verbatim into the post-link result. Mutation tests coherently recompute result
+digests and still reject command, environment, rpath, executable-byte,
+Cargo-identity, build-input, and full-payload-count changes at their semantic
+joins.
+
+A separate checked diagnostic observation records those same fields for the
+current arm64 debug executable used to review the Apple allowlist. It grants
+no physical authority and never supplies the valid golden. That executable
+carries an absolute checkout-local `LC_RPATH`, so the result schema deliberately
+rejects it. Phase 1 must produce and verify a loader-relative final executable
+before the contract can become authority.
+
 Exit: two paths containing the same validated payload derive the same portable
 ID, every local/provenance field mutation is classified correctly, and no new
 authority is consumed.
@@ -968,11 +1214,12 @@ authority is consumed.
   evaluated-JavaScript mutation route; and
 - retain the existing local mapped-object proof.
 
-Implementation checkpoint (2026-07-20): the reviewed Release publisher now
-constructs a **diagnostic-only** macOS arm64 package containing exactly the
-runtime framework, public header tree, `hermesc`, schema-2 profile receipt,
-checked smoke source, raw Ibex commit/tree contents, and canonical authority
-documents. It omits the xcframework/iOS slices and standalone `hermes` CLI.
+Implementation checkpoint (2026-07-20): the reviewed unprivileged Release
+producer now constructs a **diagnostic-only** macOS arm64 package containing
+exactly the runtime framework, public header tree, `hermesc`, schema-2 profile
+receipt, checked smoke source, raw Ibex commit/tree contents, and canonical
+authority documents. It omits the xcframework/iOS slices and standalone
+`hermes` CLI.
 The producer strict-parses the receipt and reconstructs its source, patch,
 builder, cache-key, and runtime-byte joins. It parses the arm64 Mach-O slices
 directly for machine, generic CPU subtype, role-specific file type, external-
@@ -984,10 +1231,11 @@ request before patch replay or receipt creation. The producer independently
 reconstructs the default upstream version/ref/commit literals from the exact
 tracked `hermes-version.sh` bytes and rejects a receipt for any other source.
 
-The publisher runs `hermesc --version` and a smoke compilation in distinct
-fresh private workspaces with an exact replacement environment, empty stdin,
-fixed relative paths, and bounded output. It binds raw stdout/stderr and HBC
-output bytes and checks the HBC magic, header length, and version 99. It also
+The unprivileged producer runs `hermesc --version` and a smoke compilation in
+distinct fresh private workspaces with an exact replacement environment,
+empty stdin, fixed relative paths, and bounded output. It binds raw
+stdout/stderr and HBC output bytes and checks the HBC magic, header length, and
+version 99. It also
 compiles a bounded arm64 probe with no pre-main Hermes import, verifies that
 probe's Mach-O dependencies from bytes, `dlopen`s the exact runtime component,
 and reads `IHermesRootAPI::getBytecodeVersion()` as a producer gate. The probe
@@ -1004,47 +1252,75 @@ metadata, checksums, padding, limits, path equivalence, symlink existence and
 cycles before publication. Member, per-file, cumulative-expanded, archive,
 and symlink-depth limits are applied before retaining input bytes and again
 while inspecting the archive. The workflow pins every invoked action by commit,
-requires the checked producer `HEAD` to equal `GITHUB_SHA`, separately attests
-this final archive, and retains the exact Sigstore bundle beside it. No
-selector, `build.rs` consumer, post-link audit, runtime identity migration, or
-advertisement change is implemented by this checkpoint, and
-`portableArtifactAcceptanceEnabled` remains false. The production installer
-does invoke the pinned offline verifier, but no real private Ibex corpus has
-yet authorized a package and a missing or byte-different verifier fails closed.
+requires each checked producer `HEAD` to equal `GITHUB_SHA`, and emits the
+portable archive for every `main` commit. All four legacy native packages and
+the portable package are produced in `contents: read` jobs as direct raw
+artifact-service handoffs. A single fresh credentialed publisher has no
+checkout, repository scripts, archive extraction, or native execution; it
+validates the fixed workflow context, current-run immutable artifact metadata,
+closed selected-role set, raw name/size/digest, and regular-file shape before
+attesting only the subject name/digest. It strict-validates and retains the
+exact returned Sigstore bundle, rehashes the archive, uploads sidecars first,
+and publishes the archive last. Structural tests pin this topology and execute
+the production handoff validator against missing, extra, linked, traversing,
+expanded, malformed, oversize, and byte-mismatched inputs. The same tests run
+the production release-state validator against complete, missing, duplicate,
+`starter`, zero-size, and oversized asset metadata. Existing legacy
+release assets remain skip-keyed: unrelated platform builders do not run, and
+the shared macOS Release build does not repackage or republish its complete
+legacy set while producing a new revision-bound portable package. A tested
+cross-revision release-asset lease encloses every stable-name legacy upload,
+polls newly created `starter` assets without mutation, and recovers only aged
+starters, impossible uploaded sizes, and definitively missing run owners by
+exact asset ID while failing closed on unknown states or ambiguous API
+failures. Each SHA-unique portable four-file set is published first to its own
+revision-scoped prerelease, keeping every portable release below GitHub's asset
+ceiling and removing per-`main`-revision growth from the shared legacy asset
+namespace while preserving parallelism.
+Portable release creation and all four portable uploads precede even legacy
+release creation, so exhaustion or failure of the legacy cache cannot prevent
+that revision's portable set from becoming complete and retained. A later
+legacy failure still makes the overall workflow job red; it does not roll back
+the already uploaded, attested portable set. The shared legacy identity release
+is not absolutely bounded across future builder or installer authority changes;
+choosing authority-scoped legacy releases versus a retention policy is
+follow-up work because deleting old sets would break cold installs from
+historical checkouts.
 
-The checkout-local installer foundation now pins the archive and detached
-bundle into a private same-filesystem workspace, requires a canonical offline-
+The checkout-local installer foundation pins the archive and detached bundle
+into a private same-filesystem workspace, requires a canonical offline-
 verification result before creating a gzip reader, and streams bounded gzip /
 ustar input through an exact-member extractor without a generic archive tool
 or whole-archive buffer. It rejects the cross-platform path-equivalence,
 special-member, symlink, limit, digest, mode, authority-document, partial-store,
 mutation, truncation/resource-lifecycle, ownership, ACL, and crash-restart
-cases in the acceptance corpus. It reconstructs publisher
-expectations from checked policy plus the externally selected current checkout
-revision, validates the manifest plus every declared authority-document
-preimage and its payload join, writes canonical transport/completion records
-last, atomically publishes the artifact-ID store,
-and fully reverifies an existing store and selected transport. That
-reverification re-extracts the freshly authenticated retained archive into a
-new private candidate, rehashes archive and bundle around extraction, and
-compares its canonical manifest and full validated graph to the store. A second
-authenticated transport encoding can be added atomically without changing
-portable identity. Per-artifact serialization, bottom-up synchronization, and
-no-follow retained quarantine make incomplete or invalid exact destinations
-restartable without deletion. The production wrapper accepts no injection;
-the separately named harness injects a verifier into a test-only store contract
-so it can exercise valid and adversarial transports without fabricating an
-Ibex signature or writing production local records. Effective-UID ownership,
-non-shared checkout/target modes, a mode-0700 store root, and rejection of
-macOS extended ACLs make the filesystem premise explicit. Production copies
-the exact policy-digested verifier into a private workspace, writes canonical
-stable v2 expectations, invokes it without a shell or network-dependent
-inputs, bounds its output/time, and rehashes the verifier and expectations
-around execution. A missing, redirected, writable-by-another-principal, or
-byte-different verifier fails closed. A real private Ibex archive/bundle corpus
-is still required before this path can furnish promotion evidence. The store
-still has no `build.rs`, post-link, runtime, REPL, or conformance consumer, and
-this materialization does not enable portable acceptance.
+cases in the acceptance corpus. It reconstructs publisher expectations from
+checked policy plus the externally selected current checkout revision,
+validates the manifest plus every declared authority-document preimage and its
+payload join, writes canonical transport/completion records last, atomically
+publishes the artifact-ID store, and fully reverifies an existing store and
+selected transport. That reverification re-extracts the freshly authenticated
+retained archive into a new private candidate, rehashes archive and bundle
+around extraction, and compares its canonical manifest and full validated
+graph to the store. A second authenticated transport encoding can be added
+atomically without changing portable identity. Per-artifact serialization,
+bottom-up synchronization, and no-follow retained quarantine make incomplete
+or invalid exact destinations restartable without deletion.
+
+The production wrapper accepts no injection; the separately named harness
+injects a verifier into a test-only store contract so it can exercise valid
+and adversarial transports without fabricating an Ibex signature or writing
+production local records. Effective-UID ownership, non-shared checkout/target
+modes, a mode-0700 store root, and rejection of macOS extended ACLs make the
+filesystem premise explicit. Production copies the exact policy-digested
+verifier into a private workspace, writes canonical stable v2 expectations,
+invokes it without a shell or network-dependent inputs, bounds its output and
+time, and rehashes the verifier and expectations around execution. A missing,
+redirected, writable-by-another-principal, or byte-different verifier fails
+closed. A real private Ibex archive/bundle corpus is still required before this
+path can furnish promotion evidence. The store still has no `build.rs`,
+post-link, runtime, REPL, or conformance consumer; target advertisements and
+`portableArtifactAcceptanceEnabled` remain unchanged and closed.
 
 Exit: a clean checkout can install and run the reviewed Release engine without
 another worktree, and archive/manifest/path/profile tampering fails before
@@ -1180,3 +1456,7 @@ keep the target unadvertised.
    promotion authority?
 5. Should a future offline/local promotion ceremony have a separate admitted
    signing root, or remain explicitly unsupported?
+6. Should stable legacy caches move to authority-scoped releases, or adopt an
+   explicit retention horizon, so builder/installer authority changes cannot
+   eventually exhaust one Hermes-identity release without silently breaking
+   historical cold-checkout installs?

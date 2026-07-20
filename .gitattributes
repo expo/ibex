@@ -7,6 +7,36 @@ src/builtins/helpers/capsec-registry.generated.cjs text eol=lf
 src/capsec_registry_generated.rs text eol=lf
 src/engine/capsec_registry_generated.h text eol=lf
 
+# Generated example policies bind raw package-tree bytes into package principal
+# integrity. Keep every current text input byte-identical on Windows while
+# leaving binary example payloads under Git's normal binary handling.
+examples/**/*.js text eol=lf
+examples/**/*.mjs text eol=lf
+examples/**/*.json text eol=lf
+
+# The aggregate generated-drift gate hashes generator/authority bytes and
+# compares committed outputs byte-for-byte. Keep that closed text family at LF
+# so a Windows checkout evaluates the same generation contract as Unix hosts.
+packages/ibex-devtools/src/scripts/** text eol=lf
+vendored-generated/** text eol=lf
+session/** text eol=lf
+llp/fixtures/** text eol=lf
+runtime-surface.json text eol=lf
+
+# Parser-pin conformance searches the lockfile's checked-in text with an
+# LF-delimited exact version record.
+Cargo.lock text eol=lf
+
+# The shared Rust/JavaScript JCS oracle is a tab-separated byte corpus; the
+# JavaScript contract test splits its records on LF.
+crates/capsec-semantics/tests/fixtures/jcs-number-vectors.tsv text eol=lf
+
+# The Rust module-runner producer binds source bytes into artifacts and compares
+# its canonical JSON renderings byte-for-byte with these checked-in outputs.
+tests/fixtures/module-runner-spike/sources/** text eol=lf
+tests/fixtures/module-runner-spike/canonical-artifacts.json text eol=lf
+tests/fixtures/module-runner-spike/test262-artifacts.json text eol=lf
+
 # Evaluator identity review hashes these checked-in bytes. Keep a Windows
 # checkout byte-identical to the reviewed LF source and patch authorities.
 patches/hermes/*.patch text eol=lf -whitespace
@@ -24,9 +54,15 @@ scripts/check-generated-drift.sh text eol=lf
 src/engine/hermes_runtime.cc text eol=lf
 
 # The vendored-runtime fingerprint hashes these source bytes directly. Keep
-# every authority byte-identical across checkouts so the hermetic build's
-# content check is genuinely portable to Windows.
+# every runtime, registry, embedding, and build authority byte-identical across
+# checkouts so the hermetic build and source-review checks are portable to
+# Windows.
+build.rs text eol=lf
+include/** text eol=lf
+platform/android/** text eol=lf
+src/** text eol=lf
 src/builtins/** text eol=lf
+src/engine/bootstrap/** text eol=lf
 packages/ibex-runtime-js/src/** text eol=lf
 modules.ts text eol=lf
 
@@ -41,6 +77,7 @@ packages/ibex-devtools/src/scripts/*portable-engine-* text eol=lf
 scripts/package-portable-hermes-macos.mjs text eol=lf
 scripts/portable-engine-contract.mjs text eol=lf
 scripts/package-portable-hermes-macos.test.mjs text eol=lf
+scripts/hermes-artifacts-workflow-security.test.mjs text eol=lf
 tests/fixtures/portable-engine/** text eol=lf
 
 # The standalone offline verifier embeds and hashes exact trust/corpus bytes;

@@ -368,8 +368,12 @@ export function parseJsonStrict(bytes, label = "<json>") {
   return value;
 }
 
+export function portableDiagnosticPath(value) {
+  return String(value).replaceAll("\\", "/");
+}
+
 export function readJsonStrict(filePath) {
-  const label = path.relative(repoRoot, filePath);
+  const label = portableDiagnosticPath(path.relative(repoRoot, filePath));
   return parseJsonStrict(fs.readFileSync(filePath), label);
 }
 
@@ -4383,8 +4387,8 @@ export function renderLegacyReconciliation(
 function validateInvalidFixtureEntry(entry, contract) {
   const filePath = path.join(capsecRoot, entry.path);
   const label = entry.path;
-  if (entry.validator === "strict-json") return readJsonStrict(filePath);
-  const value = readJsonStrict(filePath);
+  const value = parseJsonStrict(fs.readFileSync(filePath), label);
+  if (entry.validator === "strict-json") return value;
   if (entry.validator === "selector") {
     validateWith(contract.ajv, SCHEMA_IDS.selector, value, label);
     validateSelectorSemantics(value, contract.definitionsById, label, {

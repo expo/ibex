@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-build-consumption-v1.schema.json",
+  "title": "Ibex authoritative portable engine build consumption record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "portable",
+    "manifestDigest",
+    "installationReceiptDigest",
+    "verificationPolicyDigest",
+    "target",
+    "ibexFeatures",
+    "headers",
+    "runtimeComponent",
+    "linkInputs",
+    "hostTools",
+    "nonSystemLoadableDependencies",
+    "consumptionDigest"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/portable-engine-build-consumption/1" },
+    "portable": { "$ref": "portable-engine-artifact-identity-v1.schema.json" },
+    "manifestDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest",
+      "$comment": "SHA-256 over the complete portable manifest JCS, domain ibex.portable-engine-manifest-digest.v1 followed by one NUL byte."
+    },
+    "installationReceiptDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest",
+      "$comment": "SHA-256 over the complete installation receipt JCS, domain ibex.portable-engine-installation-receipt.v1 followed by one NUL byte."
+    },
+    "verificationPolicyDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+    },
+    "target": { "$ref": "portable-engine-common-v1.schema.json#/$defs/target" },
+    "ibexFeatures": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "portable-engine-common-v1.schema.json#/$defs/stableId" }
+    },
+    "headers": { "$ref": "#/$defs/headerInputs" },
+    "runtimeComponent": { "$ref": "#/$defs/fileInput" },
+    "linkInputs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/linkInput" }
+    },
+    "hostTools": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/hostToolInput" }
+    },
+    "nonSystemLoadableDependencies": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/loadableDependency" }
+    },
+    "consumptionDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest",
+      "$comment": "SHA-256 over JCS(build consumption without consumptionDigest), domain ibex.portable-engine-build-consumption.v1 followed by one NUL byte."
+    }
+  },
+  "$defs": {
+    "fileInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "digest", "size"],
+      "properties": {
+        "path": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath"
+        },
+        "digest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "size": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/safeInteger"
+        }
+      }
+    },
+    "headerInputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["headerSetDigest", "includeRoots", "files"],
+      "properties": {
+        "headerSetDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+        },
+        "includeRoots": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath"
+          }
+        },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/fileInput" }
+        }
+      }
+    },
+    "linkInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "path", "digest", "size"],
+      "properties": {
+        "role": { "enum": ["runtime", "link-input"] },
+        "path": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath"
+        },
+        "digest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "size": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/safeInteger"
+        }
+      }
+    },
+    "hostToolInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "path", "digest", "size", "compatibilityDigest"],
+      "properties": {
+        "role": { "const": "host-tool" },
+        "path": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath"
+        },
+        "digest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "size": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/safeInteger"
+        },
+        "compatibilityDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+        }
+      }
+    },
+    "loadableDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "path", "digest", "size"],
+      "properties": {
+        "role": { "const": "runtime-dependency" },
+        "path": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath"
+        },
+        "digest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "size": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/safeInteger"
+        }
+      }
+    }
+  }
+}

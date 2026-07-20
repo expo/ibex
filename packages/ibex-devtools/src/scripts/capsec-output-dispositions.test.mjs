@@ -455,15 +455,15 @@ describe("LLP 0023 output-disposition dataset", () => {
     );
   });
 
-  test("accounts for all 7,327 covered surfaces and emits 6,429 context-bound output rows", async () => {
+  test("accounts for all 7,328 covered surfaces and emits 6,429 context-bound output rows", async () => {
     const { catalog, coverage } = await repositoryCatalogFixture();
     expect(catalog.outputShapeCatalogSchema).toBe(
       "ibex/capsec-output-shape-catalog/2",
     );
     expect(catalog.counts).toEqual({
-      coverageSurfaces: 7_327,
+      coverageSurfaces: 7_328,
       outputBearingSurfaces: 5_761,
-      structuralOnlySurfaces: 1_562,
+      structuralOnlySurfaces: 1_563,
       unresolvedSurfaces: 4,
       catalogRows: 6_429,
       parameterizedBindings: 1,
@@ -483,7 +483,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       }),
     ).toEqual({
       "output-bearing": 5_761,
-      "structural-only": 1_562,
+      "structural-only": 1_563,
       unresolved: 4,
     });
     expect(

@@ -174886,7 +174886,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-24251dc358991e3f9e80052edd8b3bddd44ae41d7182899197fc9ea10697db4f",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -174909,7 +174909,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-24251dc358991e3f9e80052edd8b3bddd44ae41d7182899197fc9ea10697db4f",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -174940,7 +174940,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-24251dc358991e3f9e80052edd8b3bddd44ae41d7182899197fc9ea10697db4f",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
         "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -192480,7 +192480,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-24251dc358991e3f9e80052edd8b3bddd44ae41d7182899197fc9ea10697db4f",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/bootstrap/compat-polyfills.js#eval",
           "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -192509,7 +192509,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-24251dc358991e3f9e80052edd8b3bddd44ae41d7182899197fc9ea10697db4f",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/bootstrap/compat-polyfills.js#eval",
           "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -192546,7 +192546,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-24251dc358991e3f9e80052edd8b3bddd44ae41d7182899197fc9ea10697db4f",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/bootstrap/compat-polyfills.js#eval",
         "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -203844,7 +203844,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-24251dc358991e3f9e80052edd8b3bddd44ae41d7182899197fc9ea10697db4f",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -203867,7 +203867,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-24251dc358991e3f9e80052edd8b3bddd44ae41d7182899197fc9ea10697db4f",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -203898,7 +203898,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-24251dc358991e3f9e80052edd8b3bddd44ae41d7182899197fc9ea10697db4f",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
         "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -204072,7 +204072,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-24251dc358991e3f9e80052edd8b3bddd44ae41d7182899197fc9ea10697db4f",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -204095,7 +204095,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-24251dc358991e3f9e80052edd8b3bddd44ae41d7182899197fc9ea10697db4f",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -204126,7 +204126,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-24251dc358991e3f9e80052edd8b3bddd44ae41d7182899197fc9ea10697db4f",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
         "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -262447,6 +262447,39 @@
       ]
     },
     {
+      "edgeId": "surface.startup.env.ibex.legacy.hermes.block.scoping.0sb3swi",
+      "observedKey": "startup:env:IBEX_LEGACY_HERMES_BLOCK_SCOPING",
+      "branchId": "surface.startup.env.ibex.legacy.hermes.block.scoping.0sb3swi.main",
+      "enforcementBranchId": "surface.startup.env.ibex.legacy.hermes.block.scoping.0sb3swi.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:env:IBEX_LEGACY_HERMES_BLOCK_SCOPING"
+        ],
+        "proofSourceRefs": [
+          "src/bin/ibex/main.rs#env_flag_enabled:IBEX_LEGACY_HERMES_BLOCK_SCOPING:read"
+        ],
+        "sourceRefs": [
+          "src/bin/ibex/main.rs#env_flag_enabled:IBEX_LEGACY_HERMES_BLOCK_SCOPING:read"
+        ],
+        "terminalObservedKey": "startup:env:IBEX_LEGACY_HERMES_BLOCK_SCOPING"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/bin/ibex/main.rs#env_flag_enabled:IBEX_LEGACY_HERMES_BLOCK_SCOPING:read"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.startup.env.ibex.legacy.hermes.block.scoping.0sb3swi.main.cannot-widen-authority",
+        "surface.startup.env.ibex.legacy.hermes.block.scoping.0sb3swi.main.non-capability",
+        "surface.startup.env.ibex.legacy.hermes.block.scoping.0sb3swi.main.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.startup.env.ibex.legacy.module.loader.0jlar90",
       "observedKey": "startup:env:IBEX_LEGACY_MODULE_LOADER",
       "branchId": "surface.startup.env.ibex.legacy.module.loader.0jlar90.main",
@@ -272987,7 +273020,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-fBQZkyYBSLNfntnWJcwHB7JmPgMN14e8uJCk3Dxp_QY"
+      "rawContentDigest": "sha256-6Ze8vWWiHAMNHOPFg73BSnpIUis5TMSt4HZbN8Dw9GQ"
     },
     {
       "kind": "output-disposition-dataset",
@@ -273002,44 +273035,44 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-vR5ob-XDIyoOWJCPQRH0uJteNXPx_mvLfQCM9Blu6f0"
+      "rawContentDigest": "sha256-kDnMg9G86cDBRUcOw1_nfY65fpkLZ5wVor18a4BLzoo"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-KlE-XMzXmjLJBytpIyQ4qm3DxVUZD86mhDrgsox-IpQ"
+      "rawContentDigest": "sha256-BN_yM8tBejMVvsgXFOK91jlzMSpBobO0G7gr_GYSwqQ"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-eKUjnwZ0rcVMhE0fSvb-d9SkBHuv3mA3NkD4ofPiTcw"
+      "rawContentDigest": "sha256-CuXzv9mxyaIzTCvEvqOzgfztcrypcCwyeoqB3UdQygc"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-_pq--ZgkuMHbhppBZ9P9Ctgo4mWEF2lnh-YCrdcT7e0"
+      "rawContentDigest": "sha256-_NazchlTJ-pSaB3vSt4Mzc8SVC_XcxQCVqgz1K2NCTQ"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-_uCpQytvt72OCh5jIxQ8sU7uNI4a2xhz0W9oi3KBqls"
+      "rawContentDigest": "sha256-Fa8CqeZzPFEegafDyJixlUrYXqbAjk3drTm9CAjbZPg"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-Cj2xHhRhtTspc1UWBKV8DwchDus7pClcaKIamtdXKzA"
+      "rawContentDigest": "sha256-RURDxahDbWo3-VIf-QSmiPggsetlRu62-BPORKMqX4Y"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-YLc_AKv5vfxIhtx4oChtpEowMyCCQEhCfeP25Hzq0HI"
+      "rawContentDigest": "sha256-F80XeDQA6WJxA9heuZRW9fBHU14UsTIDFH8sDzEd2sM"
     }
   ],
   "counts": {
-    "observedReferences": 12869,
-    "logicalSurfaces": 7327,
-    "enforcementBranches": 7546,
-    "coverageEdges": 7327,
-    "targetCells": 14654
+    "observedReferences": 12870,
+    "logicalSurfaces": 7328,
+    "enforcementBranches": 7547,
+    "coverageEdges": 7328,
+    "targetCells": 14656
   }
 }

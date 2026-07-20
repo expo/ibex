@@ -970,41 +970,8 @@ fn derive_authenticated_project_history_scope(
 fn project_object_identity_for_handle(
     handle: &File,
 ) -> io::Result<capsec_semantics::model::ObjectIdentity> {
-    use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
-
-    let metadata = handle.metadata()?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let platform = if cfg!(any(target_os = "macos", target_os = "ios")) {
-            ObjectPlatform::Apple
-        } else if cfg!(target_os = "android") {
-            ObjectPlatform::Android
-        } else {
-            ObjectPlatform::Unix
-        };
-        Ok(ObjectIdentity {
-            platform,
-            volume: NonEmptyString::new(format!("dev:{}", metadata.dev()))
-                .map_err(|message| io::Error::new(io::ErrorKind::InvalidData, message))?,
-            file: NonEmptyString::new(format!("ino:{}", metadata.ino()))
-                .map_err(|message| io::Error::new(io::ErrorKind::InvalidData, message))?,
-        })
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        Ok(ObjectIdentity {
-            platform: ObjectPlatform::Windows,
-            volume: NonEmptyString::new(format!(
-                "volume:{}",
-                metadata.volume_serial_number().unwrap_or(0)
-            ))
-            .map_err(|message| io::Error::new(io::ErrorKind::InvalidData, message))?,
-            file: NonEmptyString::new(format!("file:{}", metadata.file_index().unwrap_or(0)))
-                .map_err(|message| io::Error::new(io::ErrorKind::InvalidData, message))?,
-        })
-    }
+    ibex_runtime::host::object_identity_for_open_file(handle)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
 #[cfg(unix)]

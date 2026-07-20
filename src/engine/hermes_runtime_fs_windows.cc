@@ -1309,15 +1309,27 @@ std::vector<uint64_t> exactCollectTypedPrincipalStack() {
   std::vector<uint64_t> principals;
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   if (g_vm_runtime != nullptr) {
-    auto frames = g_vm_runtime->getStackTrace(
-        facebook::hermes::HermesRuntime::StackTraceKind::NoSourceLocation);
-    for (auto& frame : frames) {
-      auto domain = frame.getDomain();
-      if (domain && *domain != kRuntimePrincipalId &&
-          *domain != kNoUserPrincipalId &&
-          std::find(principals.begin(), principals.end(), *domain) == principals.end()) {
-        principals.push_back(*domain);
+    // @ref LLP 0013#mechanism-3 — collect frame-derived principals through the
+    // reviewed Hermes C bridge. g_vm_runtime is intentionally opaque here, and
+    // the bridge keeps Windows aligned with the non-Windows attribution path.
+    constexpr size_t kMaxTypedPrincipalStack = 256;
+    uint32_t ids[kMaxTypedPrincipalStack];
+    size_t count = ex_hermes_vm_collect_package_ids(
+        g_vm_runtime, ids, kMaxTypedPrincipalStack);
+    principals.reserve(count + 1);
+    for (size_t index = 0; index < count; ++index) {
+      auto id = static_cast<uint64_t>(ids[index]);
+      if (id != static_cast<uint64_t>(kRuntimePrincipalId) &&
+          id != static_cast<uint64_t>(kNoUserPrincipalId) &&
+          std::find(principals.begin(), principals.end(), id) ==
+              principals.end()) {
+        principals.push_back(id);
       }
+    }
+    if (count == kMaxTypedPrincipalStack) {
+      // A full buffer may have dropped an outer, lower-authority caller. Keep
+      // an explicit fail-closed attribution witness instead of trusting it.
+      principals.push_back(static_cast<uint64_t>(kNoUserPrincipalId));
     }
   }
 #endif

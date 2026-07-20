@@ -3,6 +3,7 @@ import {
   CONFORMANCE_COMMANDS,
   CONFORMANCE_PREFLIGHT_COMMANDS,
   CONFORMANCE_PRODUCT_COMMANDS,
+  resolveConformanceMatrixInvocation,
 } from "./capsec-conformance-matrix.mjs";
 
 test("conformance prerequisite matrix covers every product test layer", () => {
@@ -62,4 +63,61 @@ test("conformance prerequisite matrix covers every product test layer", () => {
     "all-generated-drift",
     "linked-literate-references",
   ]);
+});
+
+test("Windows registry drift uses the pinned Node oracle", () => {
+  const invocation = resolveConformanceMatrixInvocation({
+    id: "capsec-registry-drift",
+    command: "bun",
+    args: ["run", "check:capsec-registry"],
+    target: "x86_64-pc-windows-msvc",
+    environment: { IBEX_NODE_ORACLE_BIN: "C:\\node\\node.exe" },
+    repoRoot: "C:/ibex",
+  });
+  expect(invocation).toEqual({
+    command: "C:\\node\\node.exe",
+    args: [
+      "C:/ibex/packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs",
+      "--check",
+    ],
+    environmentKeys: ["IBEX_NODE_ORACLE_BIN"],
+  });
+  expect(() =>
+    resolveConformanceMatrixInvocation({
+      id: "capsec-registry-drift",
+      command: "bun",
+      args: ["run", "check:capsec-registry"],
+      target: "x86_64-pc-windows-msvc",
+      environment: {},
+      repoRoot: "C:/ibex",
+    }),
+  ).toThrow(/IBEX_NODE_ORACLE_BIN/u);
+});
+
+test("Windows shell commands use the pinned Git for Windows bash", () => {
+  const invocation = resolveConformanceMatrixInvocation({
+    id: "all-generated-drift",
+    command: "bash",
+    args: ["./scripts/check-generated-drift.sh"],
+    target: "x86_64-pc-windows-msvc",
+    environment: {
+      IBEX_GIT_BASH_BIN: "C:\\Program Files\\Git\\bin\\bash.exe",
+    },
+    repoRoot: "C:/ibex",
+  });
+  expect(invocation).toEqual({
+    command: "C:\\Program Files\\Git\\bin\\bash.exe",
+    args: ["./scripts/check-generated-drift.sh"],
+    environmentKeys: ["IBEX_GIT_BASH_BIN"],
+  });
+  expect(() =>
+    resolveConformanceMatrixInvocation({
+      id: "all-generated-drift",
+      command: "bash",
+      args: ["./scripts/check-generated-drift.sh"],
+      target: "x86_64-pc-windows-msvc",
+      environment: {},
+      repoRoot: "C:/ibex",
+    }),
+  ).toThrow(/IBEX_GIT_BASH_BIN/u);
 });
