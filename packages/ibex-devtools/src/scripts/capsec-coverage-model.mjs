@@ -14466,7 +14466,9 @@ export function buildCoverageModel(surfaces, { definitions, rules }) {
     }
     seenEdgeIds.set(classification.edge.id, observedKey);
     edges.push(classification.edge);
-    implementationRows.push(...classification.implementationRows);
+    for (const row of classification.implementationRows) {
+      implementationRows.push(row);
+    }
   }
 
   edges.sort((left, right) => utf8Compare(left.id, right.id));

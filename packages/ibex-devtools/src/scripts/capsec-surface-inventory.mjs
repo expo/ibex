@@ -358,7 +358,9 @@ function collectCppStringValues(text, label) {
   const flushPending = () => {
     if (!pending) return;
     values.push(pending);
-    if (pendingIncludesRaw) values.push(...scanEmbeddedScriptStrings(pending));
+    if (pendingIncludesRaw) {
+      for (const value of scanEmbeddedScriptStrings(pending)) values.push(value);
+    }
     pending = "";
     pendingIncludesRaw = false;
   };
@@ -2638,7 +2640,9 @@ function buildHostAbiOutputContract({
               typeRegistry,
             })
           : null;
-        if (expanded) outputChannels.push(...expanded);
+        if (expanded) {
+          for (const channel of expanded) outputChannels.push(channel);
+        }
         continue;
       }
       if (
@@ -3667,7 +3671,9 @@ function objectPropertyNames(node, substitutions = new Map()) {
     if (!property.computed && property.key?.type === "Identifier") {
       names.push(property.key.name);
     } else {
-      names.push(...staticPropertyName(property.key, substitutions));
+      for (const name of staticPropertyName(property.key, substitutions)) {
+        names.push(name);
+      }
     }
   }
   return uniqueSorted(names);
@@ -10826,7 +10832,9 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
           environment,
         );
         for (const returned of tsReturnExpressions(declaration)) {
-          returns.push(...resolveValueExpressions(returned, invocation, seen));
+          for (const value of resolveValueExpressions(returned, invocation, seen)) {
+            returns.push(value);
+          }
         }
       }
       return returns.length > 0 ? returns : [{ environment, node }];
@@ -11549,7 +11557,7 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
         (ts.isMethodDeclaration(property) ||
           ts.isGetAccessorDeclaration(property))
       ) {
-        values.push(...tsReturnExpressions(property));
+        for (const value of tsReturnExpressions(property)) values.push(value);
       }
       if (
         names.includes("get") &&
@@ -16379,7 +16387,7 @@ export function scanRustLoaderRoutes(sources) {
           ? `${lexicalParent.definitionId ?? `${record.moduleId}::${lexicalParent.definition.name}`}::${record.definition.name}`
           : `${record.moduleId}::${record.definition.name}`;
     }
-    records.push(...sourceRecords);
+    for (const record of sourceRecords) records.push(record);
   }
 
   const byId = new Map(records.map((record) => [record.id, record]));
@@ -22010,20 +22018,24 @@ export async function discoverRepositorySurfaces(repoRoot) {
     const relativePath = posixPath(path.relative(repoRoot, filePath));
     const source = readUtf8(filePath);
     if (filePath.startsWith(`${engineRoot}${path.sep}`)) {
-      nativeRows.push(...scanPrivateNativeIdentifiers(source, relativePath));
-      nativeGlobalRows.push(
-        ...scanCppGlobalPropertySurfaces(source, relativePath),
-      );
-      nativeGlobalRows.push(
-        ...scanEvaluatedCppGlobalScripts(source, relativePath),
-      );
-      lifecycleRows.push(...scanNativeLifecycleSurfaces(source, relativePath));
+      for (const row of scanPrivateNativeIdentifiers(source, relativePath)) {
+        nativeRows.push(row);
+      }
+      for (const row of scanCppGlobalPropertySurfaces(source, relativePath)) {
+        nativeGlobalRows.push(row);
+      }
+      for (const row of scanEvaluatedCppGlobalScripts(source, relativePath)) {
+        nativeGlobalRows.push(row);
+      }
+      for (const row of scanNativeLifecycleSurfaces(source, relativePath)) {
+        lifecycleRows.push(row);
+      }
     }
-    abiRows.push(
-      ...scanCppPublicAbiDefinitions(source, relativePath, {
-        typeRegistry: abiTypeRegistry,
-      }),
-    );
+    for (const row of scanCppPublicAbiDefinitions(source, relativePath, {
+      typeRegistry: abiTypeRegistry,
+    })) {
+      abiRows.push(row);
+    }
   }
 
   for (const filePath of listFiles(
