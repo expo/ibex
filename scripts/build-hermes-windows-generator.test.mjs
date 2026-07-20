@@ -41,20 +41,24 @@ test("selects the exact CMake generator for each supported hosted MSVC major", (
   assert.equal(vs2026.stdout.trim(), "Visual Studio 18 2026");
 });
 
-test("refuses missing, malformed, and unsupported Visual Studio generations", () => {
-  for (const version of [
-    null,
-    "18-preview",
-    "18.0-preview",
-    "18.0garbage",
-    "16.11",
-    "19.0",
-  ]) {
-    const result = selectGenerator(version);
-    assert.notEqual(result.status, 0, `unexpectedly accepted ${version}`);
-    assert.match(
-      `${result.stdout}\n${result.stderr}`,
-      /Supported Visual Studio developer environment is required/u,
-    );
-  }
-});
+test(
+  "refuses missing, malformed, and unsupported Visual Studio generations",
+  { timeout: 15_000 },
+  () => {
+    for (const version of [
+      null,
+      "18-preview",
+      "18.0-preview",
+      "18.0garbage",
+      "16.11",
+      "19.0",
+    ]) {
+      const result = selectGenerator(version);
+      assert.notEqual(result.status, 0, `unexpectedly accepted ${version}`);
+      assert.match(
+        `${result.stdout}\n${result.stderr}`,
+        /Supported Visual Studio developer environment is required/u,
+      );
+    }
+  },
+);
