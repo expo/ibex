@@ -7,6 +7,7 @@ import {
   commandEvidenceIdSuffix,
   createCapsecCommandSupervisor,
   runObservedCommand,
+  SUPERVISOR_COMMAND_IDENTITY_ENV,
 } from "./capsec-command-evidence.mjs";
 import {
   bindConformanceSuitePlan,
@@ -116,6 +117,51 @@ test(
   },
   process.platform === "win32" ? 90_000 : 30_000,
 );
+
+test("the supervisor injects the fixed pre-command identity out of band", async () => {
+  const { root, supervisor } = fixture();
+  const outputPath = path.join(root, "observed-command-identity.txt");
+  const attempt = await runObservedCommand({
+    supervisor,
+    id: "capsec-registry-drift",
+    command: process.execPath,
+    args: [
+      "-e",
+      `require('fs').writeFileSync(${JSON.stringify(outputPath)}, process.env[${JSON.stringify(SUPERVISOR_COMMAND_IDENTITY_ENV)}])`,
+    ],
+    cwd: root,
+    expectedOutputs: [outputPath],
+    injectCommandIdentity: true,
+  });
+  expect(fs.readFileSync(outputPath, "utf8")).toBe(attempt.commandIdentity);
+  expect(
+    attempt.outputs.find((output) => output.path === outputPath),
+  ).toBeDefined();
+});
+
+test("a child cannot supply or project the reserved command identity", async () => {
+  for (const ownership of ["environment", "projection"]) {
+    const { root, supervisor } = fixture();
+    const environment = { ...process.env };
+    const environmentKeys = [];
+    if (ownership === "environment") {
+      environment[SUPERVISOR_COMMAND_IDENTITY_ENV] = "sha256-spoofed";
+    } else {
+      environmentKeys.push(SUPERVISOR_COMMAND_IDENTITY_ENV);
+    }
+    await expect(
+      runObservedCommand({
+        supervisor,
+        id: "capsec-registry-drift",
+        command: process.execPath,
+        cwd: root,
+        env: environment,
+        environmentKeys,
+        injectCommandIdentity: true,
+      }),
+    ).rejects.toThrow(/reserved for supervisor injection/u);
+  }
+});
 
 test("command evidence preserves a nonzero child exit code", async () => {
   const { root, supervisor } = fixture();

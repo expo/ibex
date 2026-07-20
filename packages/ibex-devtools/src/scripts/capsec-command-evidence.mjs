@@ -16,6 +16,8 @@ const ATTEMPT_RECORD_DOMAIN = "ibex/capsec-command-attempt/1";
 const OUTCOME_RECORD_DOMAIN = "ibex/capsec-execution-outcome/1";
 const STATUS_RECORD_DOMAIN = "ibex/capsec-live-status/1";
 const OUTER_BUDGET_DOMAIN = "ibex/capsec-outer-budget/1";
+export const SUPERVISOR_COMMAND_IDENTITY_ENV =
+  "IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST";
 const DEFAULT_ENVIRONMENT_KEYS = Object.freeze([
   "PATH",
   "PATHEXT",
@@ -459,6 +461,7 @@ export class CapsecCommandSupervisor {
     expectedOutputs = [],
     redactedArgs = args,
     abortSignal = this.abortSignal,
+    injectCommandIdentity = false,
   }) {
     if (!/^[a-z0-9][a-z0-9-]*$/u.test(id)) {
       throw new Error(`invalid command evidence id ${JSON.stringify(id)}`);
@@ -468,6 +471,17 @@ export class CapsecCommandSupervisor {
     }
     if (this.status !== "running") {
       throw new Error("command supervisor no longer accepts attempts");
+    }
+    if (typeof injectCommandIdentity !== "boolean") {
+      throw new Error("injectCommandIdentity must be a boolean");
+    }
+    if (
+      Object.hasOwn(env, SUPERVISOR_COMMAND_IDENTITY_ENV) ||
+      environmentKeys.includes(SUPERVISOR_COMMAND_IDENTITY_ENV)
+    ) {
+      throw new Error(
+        `${SUPERVISOR_COMMAND_IDENTITY_ENV} is reserved for supervisor injection`,
+      );
     }
     const policy = commandPolicyFor(this.plan, this.target, id);
     const attemptId = `attempt-${String(this.nextAttempt).padStart(6, "0")}`;
@@ -491,6 +505,15 @@ export class CapsecCommandSupervisor {
       COMMAND_DESCRIPTOR_DOMAIN,
       descriptor,
     );
+    // The child needs the already-fixed pre-command identity in order to emit
+    // acyclic mapped-engine evidence. It cannot supply or project this value:
+    // doing so would either let the child self-assert authority or make the
+    // descriptor digest recursively depend on itself.
+    // @ref LLP 0035#reports-and-advertisements — mapped evidence names the
+    // pre-command descriptor; the finalized attempt names the evidence output.
+    const spawnedEnvironment = injectCommandIdentity
+      ? { ...env, [SUPERVISOR_COMMAND_IDENTITY_ENV]: commandIdentity }
+      : env;
     const displayedInvocation = [command, ...redactedArgs];
     const now = Date.now();
     const budget = this.plan.targets[this.target];
@@ -622,7 +645,7 @@ export class CapsecCommandSupervisor {
           : args;
       child = spawn(spawnedCommand, spawnedArgs, {
         cwd,
-        env,
+        env: spawnedEnvironment,
         detached: this.platform !== "win32",
         stdio: ["ignore", stdout.descriptor, stderr.descriptor],
         windowsHide: true,

@@ -71,6 +71,7 @@ test("the plan covers every fixed command emitted by both suite entry points", (
     "generate-executable-recipes",
     "exact-hermes-typed-adapter-recipes",
     "exact-fixture-evidence-pilot",
+    "exact-fixture-evidence-portable-pilot",
     "exact-loaded-engine-attestation-after-evidence",
     "generate-conformance-report",
     "loaded-engine-preflight",

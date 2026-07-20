@@ -1677,6 +1677,28 @@ not coerced or switched, the authored v1 attestation and advertisement arrays
 remain empty, and `portableArtifactAcceptanceEnabled` remains exactly false.
 Merely producing or validating these additive identities grants no authority.
 
+The next isolated live slice brackets the Exact fixture pilot with one fresh,
+non-serializable mapped observation owned by the engine-using process and
+thread, retaining the no-follow runtime descriptor and its initial object/change
+coordinates until the after-observation and canonical-path rejoin. The command
+supervisor fixes the command descriptor first and injects
+its digest through a reserved child-only environment key that is excluded from
+the descriptor projection; the child cannot supply or project that key. In
+portable mode the child closes and re-reads every detached portable fixture
+output, finalizes the mapped observation in that same process, and writes the
+mapped-engine execution record last. The supervisor then finalizes the attempt
+over all declared outputs, and the live JavaScript bridge rejoins exact output,
+mapped-evidence, and attempt bytes into a locality-free v2 report slice. This
+preserves the acyclic order `command identity -> fixture bytes -> mapped
+evidence -> finalized attempt -> report slice`.
+
+Only the exact three-marker `null\n` legacy build state selects the existing v1
+path; mixed markers fail closed. The portable slice is recorded as incomplete
+while recipe, public-surface, output-disposition, and aggregate report
+generation remain v1. It is not consumed by promotion, does not change Host
+startup, and does not enable acceptance. Authored attestation and advertisement
+arrays remain empty.
+
 Exit: reports and advertisements contain no host-local values, while every
 accepted local run still proves its exact mapped file.
 

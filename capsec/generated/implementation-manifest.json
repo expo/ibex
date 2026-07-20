@@ -262160,6 +262160,68 @@
       ]
     },
     {
+      "edgeId": "surface.startup.env.ibex.capsec.mapped.engine.evidence.output.1i8m8ra",
+      "observedKey": "startup:env:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT",
+      "branchId": "surface.startup.env.ibex.capsec.mapped.engine.evidence.output.1i8m8ra.main",
+      "enforcementBranchId": "surface.startup.env.ibex.capsec.mapped.engine.evidence.output.1i8m8ra.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:env:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT"
+        ],
+        "proofSourceRefs": [
+          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read"
+        ],
+        "sourceRefs": [
+          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read"
+        ],
+        "terminalObservedKey": "startup:env:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read"
+      ],
+      "implementationOwner": "WP9",
+      "fixtureObligations": [
+        "surface.startup.env.ibex.capsec.mapped.engine.evidence.output.1i8m8ra.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.env.ibex.capsec.portable.evidence.plan.0orcp1x",
+      "observedKey": "startup:env:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN",
+      "branchId": "surface.startup.env.ibex.capsec.portable.evidence.plan.0orcp1x.main",
+      "enforcementBranchId": "surface.startup.env.ibex.capsec.portable.evidence.plan.0orcp1x.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:env:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN"
+        ],
+        "proofSourceRefs": [
+          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN:read"
+        ],
+        "sourceRefs": [
+          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN:read"
+        ],
+        "terminalObservedKey": "startup:env:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN:read"
+      ],
+      "implementationOwner": "WP9",
+      "fixtureObligations": [
+        "surface.startup.env.ibex.capsec.portable.evidence.plan.0orcp1x.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.startup.env.ibex.capsec.public.batch.evidence.output.1fl72f2",
       "observedKey": "startup:env:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT",
       "branchId": "surface.startup.env.ibex.capsec.public.batch.evidence.output.1fl72f2.main",
@@ -262231,6 +262293,37 @@
       "implementationOwner": "WP9",
       "fixtureObligations": [
         "surface.startup.env.ibex.capsec.recipe.catalog.1590m4m.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.env.ibex.capsec.supervisor.command.identity.digest.0kl8qxk",
+      "observedKey": "startup:env:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST",
+      "branchId": "surface.startup.env.ibex.capsec.supervisor.command.identity.digest.0kl8qxk.main",
+      "enforcementBranchId": "surface.startup.env.ibex.capsec.supervisor.command.identity.digest.0kl8qxk.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:env:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST"
+        ],
+        "proofSourceRefs": [
+          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read"
+        ],
+        "sourceRefs": [
+          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read"
+        ],
+        "terminalObservedKey": "startup:env:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read"
+      ],
+      "implementationOwner": "WP9",
+      "fixtureObligations": [
+        "surface.startup.env.ibex.capsec.supervisor.command.identity.digest.0kl8qxk.main.non-capability"
       ]
     },
     {
@@ -273020,7 +273113,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-6Ze8vWWiHAMNHOPFg73BSnpIUis5TMSt4HZbN8Dw9GQ"
+      "rawContentDigest": "sha256-l5uzUGzkNFx0K_8XhK3PA7KnrNwp6xQYTwB5qb3adx8"
     },
     {
       "kind": "output-disposition-dataset",
@@ -273035,44 +273128,44 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-5_wQjKaPWlzlUSkLHEpM_JKnWIwfMsPFNJJP9ExS2z4"
+      "rawContentDigest": "sha256-WpCOvQfQh3qBe5qY5Fr94Bx9uXxCXhxKKqcH4wVGEYY"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-jOjd4BAAwrmRkD8aEh9iVP38GNipSaG4N-y2-IAh-kI"
+      "rawContentDigest": "sha256-WOUwpCsJWyh89NDCfVMukXUwwX4DTbidw6BzCzg6fYk"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-CuXzv9mxyaIzTCvEvqOzgfztcrypcCwyeoqB3UdQygc"
+      "rawContentDigest": "sha256-mxV2TExRl0-w4q-jSXD2KiMsnKAh7291t5ZfUvvixSo"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-_NazchlTJ-pSaB3vSt4Mzc8SVC_XcxQCVqgz1K2NCTQ"
+      "rawContentDigest": "sha256-NaFzn0HB0yMe1OyXiRpop14vMFxh_rd5xGc6UBHJhNc"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-Fa8CqeZzPFEegafDyJixlUrYXqbAjk3drTm9CAjbZPg"
+      "rawContentDigest": "sha256-9EPza6tv0L5wyXB7ib_Ak8xAovPg4i7480oa01p71Yk"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-RURDxahDbWo3-VIf-QSmiPggsetlRu62-BPORKMqX4Y"
+      "rawContentDigest": "sha256--B7MYmxjRBkDcYgq7DrGCiNVjJ1PYK7ZrbH5ANs2m-I"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-F80XeDQA6WJxA9heuZRW9fBHU14UsTIDFH8sDzEd2sM"
+      "rawContentDigest": "sha256-Bu6UP_otaNuLQ9YsUEBqaT_CcL6KlfwCkcI3KtXP4jw"
     }
   ],
   "counts": {
-    "observedReferences": 12870,
-    "logicalSurfaces": 7328,
-    "enforcementBranches": 7547,
-    "coverageEdges": 7328,
-    "targetCells": 14656
+    "observedReferences": 12873,
+    "logicalSurfaces": 7331,
+    "enforcementBranches": 7550,
+    "coverageEdges": 7331,
+    "targetCells": 14662
   }
 }

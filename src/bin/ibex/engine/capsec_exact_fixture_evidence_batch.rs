@@ -16,6 +16,30 @@ const FIXTURE_COMMAND: [&str; 10] = [
     "--nocapture",
 ];
 
+const PORTABLE_FIXTURE_EVIDENCE_DOMAIN: &str =
+    "ibex:capsec:portable-fixture-evidence:1";
+const PORTABLE_EXECUTION_BINDING_DOMAIN: &str = "ibex:capsec:portable-execution-binding:1";
+const MAPPED_ENGINE_EXECUTION_EVIDENCE_DOMAIN: &str =
+    "ibex:capsec:mapped-engine-execution-evidence:1";
+const PORTABLE_COMMAND_ID: &str = "exact-fixture-evidence-portable-pilot";
+const PORTABLE_PHASE_ID: &str = "fixture-evidence";
+const PORTABLE_EXECUTOR: &str = "ibex-exact-fixture-evidence-pilot";
+const SUPERVISOR_COMMAND_IDENTITY_ENV: &str =
+    "IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST";
+
+#[derive(Clone, Debug)]
+struct PortableFixtureOutput {
+    fixture_id: String,
+    path: std::path::PathBuf,
+}
+
+#[derive(Clone, Debug)]
+struct PortableEvidencePlan {
+    bindings: serde_json::Value,
+    binding_digest: String,
+    fixture_outputs: Vec<PortableFixtureOutput>,
+}
+
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — this
 // is the reviewed Exact fixture pilot, not every scenario later promoted on
 // the same surfaces. Keep it aligned with the independent JS binding builder.
@@ -82,6 +106,61 @@ fn tagged_bytes_digest(bytes: &[u8]) -> String {
         "sha256-{}",
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(bytes))
     )
+}
+
+fn domain_digest(value: &serde_json::Value, domain: &str, omit: &[&str]) -> String {
+    capsec_semantics::digest::compute_domain_digest(
+        domain,
+        value,
+        &omit.iter().map(|field| (*field).to_owned()).collect::<Vec<_>>(),
+    )
+    .unwrap_or_else(|error| panic!("compute {domain} digest: {error}"))
+}
+
+fn pretty_json_bytes(value: &serde_json::Value) -> Vec<u8> {
+    let mut bytes = serde_json::to_vec_pretty(value).expect("portable evidence must serialize");
+    bytes.push(b'\n');
+    bytes
+}
+
+fn write_new_synced(path: &std::path::Path, bytes: &[u8], label: &str) {
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .unwrap_or_else(|error| panic!("create {label} {}: {error}", path.display()));
+    output
+        .write_all(bytes)
+        .unwrap_or_else(|error| panic!("write {label} {}: {error}", path.display()));
+    output
+        .sync_all()
+        .unwrap_or_else(|error| panic!("sync {label} {}: {error}", path.display()));
+}
+
+fn portable_fixture_artifact(
+    plan: &PortableEvidencePlan,
+    engine: &ibex_runtime::engine::portable_identity::PortableEngineArtifactIdentity,
+    fixture_id: &str,
+) -> serde_json::Value {
+    let mut artifact = serde_json::json!({
+        "fixtureEvidenceSchema": "ibex/capsec-portable-fixture-evidence/1",
+        "profile": "ibex/capsec/1",
+        "sourceRevision": plan.bindings["sourceRevision"],
+        "sourceTreeDigest": plan.bindings["sourceTreeDigest"],
+        "target": plan.bindings["target"],
+        "engine": engine,
+        "fixtureId": fixture_id,
+        "outcome": "passed",
+        "executor": PORTABLE_EXECUTOR,
+        "bindingDigest": plan.binding_digest,
+        "artifactDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    });
+    artifact["artifactDigest"] = serde_json::Value::String(domain_digest(
+        &artifact,
+        PORTABLE_FIXTURE_EVIDENCE_DOMAIN,
+        &["artifactDigest"],
+    ));
+    artifact
 }
 
 fn load_strict_json(path: &std::path::Path, label: &str) -> serde_json::Value {
@@ -240,6 +319,58 @@ fn exact_recipe_selection_excludes_promoted_sibling_scenarios() {
         .all(|recipe| recipe["fixtureId"] != "fixture.promoted-sibling"));
 }
 
+#[test]
+fn portable_fixture_domain_matches_the_frozen_cross_language_vector() {
+    let vectors: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../schemas/vectors/portable-engine-provenance-v1.valid.json"
+    ))
+    .unwrap();
+    let engine: ibex_runtime::engine::portable_identity::PortableEngineArtifactIdentity =
+        serde_json::from_value(vectors["documents"]["portableIdentity"].clone()).unwrap();
+    let plan = PortableEvidencePlan {
+        bindings: serde_json::json!({
+            "sourceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sourceTreeDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "target": {
+                "triple": "aarch64-apple-darwin",
+                "features": [
+                    "hermes-frame-attribution",
+                    "native-compartments",
+                    "native-lockdown"
+                ]
+            }
+        }),
+        binding_digest: "sha256-YRBVCE6H6u5yTEnh8f4r4YneABEr_A3ZsLv0yLMkGXI".into(),
+        fixture_outputs: Vec::new(),
+    };
+    let artifact = portable_fixture_artifact(
+        &plan,
+        &engine,
+        "fixture.portable-engine-example",
+    );
+    assert_exact_keys(
+        &artifact,
+        &[
+            "fixtureEvidenceSchema",
+            "profile",
+            "sourceRevision",
+            "sourceTreeDigest",
+            "target",
+            "engine",
+            "fixtureId",
+            "outcome",
+            "executor",
+            "bindingDigest",
+            "artifactDigest",
+        ],
+        "portable fixture evidence",
+    );
+    assert_eq!(
+        artifact["artifactDigest"],
+        "sha256-swK95uvOY_8ch8RLuQDEVKtG2PPRIpsay-nUU6dUAEw"
+    );
+}
+
 fn validate_binding(
     binding_artifact: &serde_json::Value,
     catalog: &serde_json::Value,
@@ -323,6 +454,149 @@ fn validate_binding(
     (execution_binding, binding_digest, plans)
 }
 
+fn load_portable_evidence_plan(
+    path: &std::path::Path,
+    recipes: &[serde_json::Value],
+    legacy_execution_binding: &serde_json::Value,
+    portable_engine: &ibex_runtime::engine::portable_identity::PortableEngineArtifactIdentity,
+) -> PortableEvidencePlan {
+    let value = load_strict_json(
+        &std::fs::canonicalize(path).expect("canonicalize portable evidence plan"),
+        "portable evidence plan",
+    );
+    assert_exact_keys(
+        &value,
+        &[
+            "portableEvidencePlanSchema",
+            "profile",
+            "bindings",
+            "bindingDigest",
+            "fixtureOutputs",
+        ],
+        "portable evidence plan",
+    );
+    assert_eq!(
+        value["portableEvidencePlanSchema"],
+        "ibex/capsec-portable-evidence-plan/1"
+    );
+    assert_eq!(value["profile"], "ibex/capsec/1");
+    let bindings = value["bindings"].clone();
+    assert_exact_keys(
+        &bindings,
+        &[
+            "sourceRevision",
+            "sourceTreeDigest",
+            "target",
+            "engine",
+            "vocabularyDigest",
+            "registryDigest",
+            "implementationManifestDigest",
+            "fixtureCatalogDigest",
+            "targetCellsRawContentDigest",
+            "recipeCatalogDigest",
+            "recipeCatalogRawContentDigest",
+            "publicSurfaceExecutionDigest",
+            "publicSurfaceExecutionRawContentDigest",
+            "outputDispositionEvidenceRawContentDigest",
+        ],
+        "portable execution bindings",
+    );
+    assert_eq!(bindings["sourceRevision"], legacy_execution_binding["sourceRevision"]);
+    assert_eq!(
+        bindings["sourceTreeDigest"],
+        legacy_execution_binding["sourceTreeDigest"]
+    );
+    assert_eq!(bindings["target"], legacy_execution_binding["target"]);
+    assert_eq!(
+        bindings["engine"],
+        serde_json::to_value(portable_engine).expect("portable engine identity must serialize")
+    );
+    assert_eq!(bindings["target"]["triple"], compiled_target_triple());
+    let target_features = bindings["target"]["features"]
+        .as_array()
+        .expect("portable binding target features must be an array")
+        .iter()
+        .map(|feature| {
+            feature
+                .as_str()
+                .expect("portable binding target feature must be a string")
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    let mut sorted_features = target_features.clone();
+    sorted_features.sort_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
+    sorted_features.dedup();
+    assert_eq!(target_features, sorted_features, "target features must be a set");
+
+    let binding_digest = value["bindingDigest"]
+        .as_str()
+        .expect("portable evidence plan has no bindingDigest")
+        .to_owned();
+    assert_eq!(
+        binding_digest,
+        domain_digest(&bindings, PORTABLE_EXECUTION_BINDING_DOMAIN, &[]),
+        "portable execution binding digest is stale"
+    );
+
+    let output_values = value["fixtureOutputs"]
+        .as_array()
+        .expect("portable evidence plan fixtureOutputs must be an array");
+    let mut fixture_outputs = Vec::with_capacity(output_values.len());
+    for output in output_values {
+        assert_exact_keys(
+            output,
+            &["fixtureId", "path"],
+            "portable fixture output",
+        );
+        let fixture_id = output["fixtureId"]
+            .as_str()
+            .expect("portable fixture output has no fixtureId")
+            .to_owned();
+        let output_path = std::path::PathBuf::from(
+            output["path"]
+                .as_str()
+                .expect("portable fixture output has no path"),
+        );
+        assert!(output_path.is_absolute(), "portable fixture output path must be absolute");
+        assert!(
+            !output_path.exists(),
+            "portable fixture output must not already exist: {}",
+            output_path.display()
+        );
+        fixture_outputs.push(PortableFixtureOutput {
+            fixture_id,
+            path: output_path,
+        });
+    }
+    let expected_fixture_ids = recipes
+        .iter()
+        .map(|recipe| recipe["fixtureId"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    let actual_fixture_ids = fixture_outputs
+        .iter()
+        .map(|output| output.fixture_id.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual_fixture_ids, expected_fixture_ids,
+        "portable output membership must equal the canonical recipe membership"
+    );
+    let unique_paths = fixture_outputs
+        .iter()
+        .map(|output| output.path.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        unique_paths.len(),
+        fixture_outputs.len(),
+        "portable fixture outputs repeat a path"
+    );
+
+    PortableEvidencePlan {
+        bindings,
+        binding_digest,
+        fixture_outputs,
+    }
+}
+
 #[test]
 fn exact_fixture_pilot_terminal_contract_includes_both_exact_artifact_abis() {
     assert_eq!(EXACT_PILOT_EXPECTATIONS.len(), 9);
@@ -339,6 +613,9 @@ fn exact_fixture_pilot_terminal_contract_includes_both_exact_artifact_abis() {
     }
 }
 
+// The mapped-observation guard is deliberately thread-owned. Keep this
+// authority-bearing pilot on Tokio's current-thread runtime so the before and
+// after observations bracket engine work on the same Hermes owner thread.
 #[tokio::test(flavor = "current_thread")]
 async fn capsec_exact_fixture_evidence_batch() {
     let Ok(recipe_path) = std::env::var("IBEX_CAPSEC_RECIPE_CATALOG") else {
@@ -347,8 +624,13 @@ async fn capsec_exact_fixture_evidence_batch() {
     };
     let binding_path = std::env::var("IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING")
         .expect("Exact fixture evidence requires an owned binding input");
-    let output_path = std::env::var("IBEX_CAPSEC_FIXTURE_EVIDENCE_OUTPUT")
-        .expect("Exact fixture evidence requires an owned output path");
+    let legacy_output_path = std::env::var("IBEX_CAPSEC_FIXTURE_EVIDENCE_OUTPUT").ok();
+    let portable_plan_path = std::env::var("IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN").ok();
+    assert_ne!(
+        legacy_output_path.is_some(),
+        portable_plan_path.is_some(),
+        "Exact fixture evidence requires exactly one legacy output or portable plan"
+    );
     let catalog = load_strict_json(
         &std::fs::canonicalize(recipe_path).expect("canonicalize recipe catalog"),
         "Exact fixture recipe catalog",
@@ -368,6 +650,20 @@ async fn capsec_exact_fixture_evidence_batch() {
         recipe["fixtureId"] == plan["fixtureId"]
             && recipe["planDigest"].as_str() == Some(tagged_jcs_digest(plan).as_str())
     }));
+
+    let portable_context = portable_plan_path.map(|plan_path| {
+        let portable_engine = HermesEngine::loaded_engine_portable_identity()
+            .expect("portable evidence requires authenticated embedded engine identity");
+        let plan = load_portable_evidence_plan(
+            std::path::Path::new(&plan_path),
+            &recipes,
+            &execution_binding,
+            &portable_engine,
+        );
+        let observation = HermesEngine::begin_loaded_engine_mapped_observation()
+            .expect("begin mapped-engine observation before Exact fixture execution");
+        (portable_engine, plan, observation)
+    });
 
     let mut executions = Vec::with_capacity(recipes.len());
     for (recipe, plan) in recipes.iter().zip(&plans) {
@@ -421,23 +717,125 @@ async fn capsec_exact_fixture_evidence_batch() {
     assert_eq!(identity_after, identity_before);
     ibex_runtime::engine::verify_loaded_engine_binary_identity(&identity_before)
         .expect("re-verify mapped Hermes after Exact fixture evidence");
-    let artifact = serde_json::json!({
-        "executionArtifactSchema": "ibex/capsec-executions/1",
-        "executionBinding": execution_binding,
-        "bindingDigest": binding_digest,
-        "executions": executions,
-    });
-    let mut output = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(output_path)
-        .expect("create owned Exact fixture evidence artifact");
-    serde_json::to_writer_pretty(&mut output, &artifact)
-        .expect("serialize Exact fixture evidence artifact");
-    output
-        .write_all(b"\n")
-        .expect("finish Exact fixture evidence artifact");
-    output
-        .sync_all()
-        .expect("sync Exact fixture evidence artifact");
+    if let Some((portable_engine, portable_plan, observation)) = portable_context {
+        assert_eq!(
+            HermesEngine::loaded_engine_portable_identity()
+                .expect("reconstruct portable identity after fixture execution"),
+            portable_engine,
+            "portable engine identity changed across fixture execution"
+        );
+        let mapped_output_path = std::path::PathBuf::from(
+            std::env::var("IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT")
+                .expect("portable evidence requires a mapped-engine output path"),
+        );
+        assert!(
+            mapped_output_path.is_absolute(),
+            "mapped-engine evidence output path must be absolute"
+        );
+        assert!(
+            !mapped_output_path.exists(),
+            "mapped-engine evidence output must not already exist"
+        );
+        assert!(
+            portable_plan
+                .fixture_outputs
+                .iter()
+                .all(|output| output.path != mapped_output_path),
+            "mapped-engine evidence path collides with a fixture output"
+        );
+
+        for output in &portable_plan.fixture_outputs {
+            let artifact = portable_fixture_artifact(
+                &portable_plan,
+                &portable_engine,
+                &output.fixture_id,
+            );
+            write_new_synced(
+                &output.path,
+                &pretty_json_bytes(&artifact),
+                "portable fixture evidence",
+            );
+        }
+        // Re-read every declared non-mapped output before finalizing the
+        // evidence. A missing output therefore prevents mapped evidence from
+        // being written, while later substitution is caught by the
+        // supervisor's finalized output rows.
+        let mut output_digests = portable_plan
+            .fixture_outputs
+            .iter()
+            .map(|output| {
+                let bytes = std::fs::read(&output.path).unwrap_or_else(|error| {
+                    panic!(
+                        "read declared portable fixture output {}: {error}",
+                        output.path.display()
+                    )
+                });
+                tagged_bytes_digest(&bytes)
+            })
+            .collect::<Vec<_>>();
+        output_digests.sort_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
+        output_digests.dedup();
+        assert_eq!(
+            output_digests.len(),
+            portable_plan.fixture_outputs.len(),
+            "portable fixture outputs have ambiguous equal raw digests"
+        );
+
+        let mapped_engine = observation
+            .finish()
+            .expect("finalize mapped-engine observation after Exact fixture execution");
+        assert_eq!(mapped_engine.portable, portable_engine);
+        let command_identity = std::env::var(SUPERVISOR_COMMAND_IDENTITY_ENV)
+            .expect("portable evidence requires supervisor-injected command identity");
+        capsec_semantics::model::Digest::new(command_identity.clone())
+            .expect("supervisor command identity must be a semantic digest");
+        let fixture_ids = portable_plan
+            .fixture_outputs
+            .iter()
+            .map(|output| output.fixture_id.clone())
+            .collect::<Vec<_>>();
+        let mut mapped_evidence = serde_json::json!({
+            "mappedEngineExecutionEvidenceSchema":
+                "ibex/capsec-mapped-engine-execution-evidence/1",
+            "profile": "ibex/capsec/1",
+            "authorityClass": "same-runner-authoritative",
+            "sourceRevision": portable_plan.bindings["sourceRevision"],
+            "sourceTreeDigest": portable_plan.bindings["sourceTreeDigest"],
+            "target": portable_plan.bindings["target"],
+            "phaseId": PORTABLE_PHASE_ID,
+            "commandId": PORTABLE_COMMAND_ID,
+            "commandIdentityDigest": command_identity,
+            "fixtureIds": fixture_ids,
+            "outputDigests": output_digests,
+            "engine": portable_engine,
+            "mappedEngine": mapped_engine,
+            "evidenceDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        });
+        mapped_evidence["evidenceDigest"] = serde_json::Value::String(domain_digest(
+            &mapped_evidence,
+            MAPPED_ENGINE_EXECUTION_EVIDENCE_DOMAIN,
+            &["evidenceDigest"],
+        ));
+        write_new_synced(
+            &mapped_output_path,
+            &pretty_json_bytes(&mapped_evidence),
+            "mapped-engine execution evidence",
+        );
+    } else {
+        let artifact = serde_json::json!({
+            "executionArtifactSchema": "ibex/capsec-executions/1",
+            "executionBinding": execution_binding,
+            "bindingDigest": binding_digest,
+            "executions": executions,
+        });
+        write_new_synced(
+            std::path::Path::new(
+                legacy_output_path
+                    .as_deref()
+                    .expect("legacy Exact fixture evidence requires an output path"),
+            ),
+            &pretty_json_bytes(&artifact),
+            "Exact fixture evidence artifact",
+        );
+    }
 }

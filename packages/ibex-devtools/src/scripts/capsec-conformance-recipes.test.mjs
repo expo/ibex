@@ -255,11 +255,11 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(24_074);
+    expect(recipes.summary.requiredFixtures).toBe(24_077);
     // Thirty reviewed roots gain exact fresh-engine receipts while the
     // formerly source-misattributed stream/promises export probe is retracted.
     expect(recipes.summary.fullyExecutableFixtures).toBe(2_532);
-    expect(recipes.summary.unresolvedFixtures).toBe(21_542);
+    expect(recipes.summary.unresolvedFixtures).toBe(21_545);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -355,9 +355,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_959);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_962);
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_390);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_569);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_572);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>

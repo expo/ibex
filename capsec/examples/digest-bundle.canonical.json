@@ -270092,6 +270092,26 @@
             "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
           },
           {
+            "id": "surface.startup.env.ibex.capsec.mapped.engine.evidence.output.1i8m8ra",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "env:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
+            "id": "surface.startup.env.ibex.capsec.portable.evidence.plan.0orcp1x",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "env:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
             "id": "surface.startup.env.ibex.capsec.public.batch.evidence.output.1fl72f2",
             "classification": "non-capability",
             "surface": {
@@ -270107,6 +270127,16 @@
             "surface": {
               "kind": "startup",
               "name": "env:IBEX_CAPSEC_RECIPE_CATALOG"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
+            "id": "surface.startup.env.ibex.capsec.supervisor.command.identity.digest.0kl8qxk",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "env:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST"
             },
             "rationaleId": "runtime-bootstrap-state",
             "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."

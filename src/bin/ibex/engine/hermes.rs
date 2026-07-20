@@ -1855,6 +1855,25 @@ impl HermesEngine {
         ibex_runtime::engine::loaded_engine_binary_identity().map_err(anyhow::Error::msg)
     }
 
+    pub(crate) fn loaded_engine_portable_identity(
+    ) -> Result<ibex_runtime::engine::portable_identity::PortableEngineArtifactIdentity> {
+        ibex_runtime::engine::portable_identity::loaded_engine_portable_identity()
+            .map_err(anyhow::Error::msg)
+    }
+
+    pub(crate) fn loaded_engine_portable_identity_if_present(
+    ) -> Result<Option<ibex_runtime::engine::portable_identity::PortableEngineArtifactIdentity>>
+    {
+        ibex_runtime::engine::portable_identity::loaded_engine_portable_identity_if_present()
+            .map_err(anyhow::Error::msg)
+    }
+
+    pub(crate) fn begin_loaded_engine_mapped_observation(
+    ) -> Result<ibex_runtime::engine::portable_identity::LoadedEngineMappedObservation> {
+        ibex_runtime::engine::portable_identity::begin_loaded_engine_mapped_observation()
+            .map_err(anyhow::Error::msg)
+    }
+
     /// Create a new Hermes engine instance
     #[cfg(test)]
     pub fn new() -> Result<Self> {
@@ -5811,6 +5830,26 @@ Promise.resolve().then(function capsecSafeThrowMetadataFixture() {
         output
             .sync_all()
             .expect("loaded engine identity must be durable before success");
+
+        if let Ok(portable_output_path) =
+            std::env::var("IBEX_CAPSEC_PORTABLE_ENGINE_IDENTITY_OUTPUT")
+        {
+            let portable = HermesEngine::loaded_engine_portable_identity_if_present()
+                .expect("portable engine markers must be all absent or authenticated");
+            let mut portable_output = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(portable_output_path)
+                .expect("portable identity marker output must be a new runner-owned file");
+            serde_json::to_writer(&mut portable_output, &portable)
+                .expect("portable identity marker must serialize");
+            portable_output
+                .write_all(b"\n")
+                .expect("portable identity marker must be written completely");
+            portable_output
+                .sync_all()
+                .expect("portable identity marker must be durable before success");
+        }
     }
 
     #[tokio::test]

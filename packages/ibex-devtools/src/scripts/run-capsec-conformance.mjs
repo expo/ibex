@@ -51,6 +51,12 @@ import {
   EXACT_FIXTURE_EVIDENCE_COMMAND,
   validateExactFixtureEvidenceArtifact,
 } from "./capsec-fixture-evidence.mjs";
+import {
+  buildPortableEvidencePlan,
+  parsePortableEngineIdentityMarker,
+  portableReportSliceBytes,
+  validateLivePortableProcess,
+} from "./capsec-live-portable-engine-evidence.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -182,6 +188,43 @@ function readOwnedJson(filePath, label) {
   return readOwnedJsonWithBytes(filePath, label).value;
 }
 
+function writeNewOwnedBytes(filePath, bytes, label) {
+  const descriptor = fs.openSync(
+    filePath,
+    fs.constants.O_CREAT |
+      fs.constants.O_EXCL |
+      fs.constants.O_WRONLY |
+      (fs.constants.O_NOFOLLOW ?? 0),
+    0o600,
+  );
+  let opened;
+  try {
+    fs.writeFileSync(descriptor, bytes);
+    fs.fsyncSync(descriptor);
+    opened = fs.fstatSync(descriptor);
+    if (
+      !opened.isFile() ||
+      opened.nlink !== 1 ||
+      !ownedByCurrentUser(opened)
+    ) {
+      throw new Error(`${label}: opened output is not an owned regular file`);
+    }
+  } finally {
+    fs.closeSync(descriptor);
+  }
+  const metadata = fs.lstatSync(filePath);
+  if (
+    metadata.isSymbolicLink() ||
+    !metadata.isFile() ||
+    metadata.nlink !== 1 ||
+    !ownedByCurrentUser(metadata) ||
+    metadata.dev !== opened.dev ||
+    metadata.ino !== opened.ino
+  ) {
+    throw new Error(`${label}: output is not an owned regular file`);
+  }
+}
+
 if (!fs.existsSync(engineArtifactPath)) {
   throw new Error(
     `bound runtime engine artifact not found: ${engineArtifactPath}`,
@@ -265,6 +308,14 @@ const engineIdentityAfterPath = path.join(
   evidenceDirectory,
   "loaded-engine-identity-after-evidence.json",
 );
+const portableEngineIdentityPath = path.join(
+  evidenceDirectory,
+  "portable-engine-identity.json",
+);
+const portableEngineIdentityAfterPath = path.join(
+  evidenceDirectory,
+  "portable-engine-identity-after-evidence.json",
+);
 const exactEngineEnvironment = {
   ...engineLoaderEnvironment(engineArtifactPath),
   IBEX_CAPSEC_ENGINE_ARTIFACT: fs.realpathSync(engineArtifactPath),
@@ -276,7 +327,7 @@ const exactEngineEnvironmentKeys = Object.keys(exactEngineEnvironment).filter(
     !Object.hasOwn(process.env, name) ||
     process.env[name] !== exactEngineEnvironment[name],
 );
-const runEngineAttestation = async (id, identityPath) => {
+const runEngineAttestation = async (id, identityPath, portableIdentityPath) => {
   return await runObservedCommand({
     supervisor,
     id,
@@ -296,13 +347,15 @@ const runEngineAttestation = async (id, identityPath) => {
     env: {
       ...exactEngineEnvironment,
       IBEX_CAPSEC_ENGINE_IDENTITY_OUTPUT: identityPath,
+      IBEX_CAPSEC_PORTABLE_ENGINE_IDENTITY_OUTPUT: portableIdentityPath,
     },
     environmentKeys: [
       ...exactEngineEnvironmentKeys,
       "IBEX_CAPSEC_ENGINE_IDENTITY_OUTPUT",
+      "IBEX_CAPSEC_PORTABLE_ENGINE_IDENTITY_OUTPUT",
     ],
     declaredInputs: [{ name: "engineArtifact", digest: engineBinaryDigest }],
-    expectedOutputs: [identityPath],
+    expectedOutputs: [identityPath, portableIdentityPath],
   });
 };
 const runMatrixCommands = async (commands) => {
@@ -341,6 +394,7 @@ commandEvidence.push(
     await runEngineAttestation(
       "exact-loaded-engine-attestation",
       engineIdentityPath,
+      portableEngineIdentityPath,
     ),
   ),
 );
@@ -354,6 +408,13 @@ const engineBinding = validateLoadedEngineIdentity({
   binaryDigest: engineBinaryDigest,
   target,
 });
+const portableEngineIdentityBytes = readOwnedJsonWithBytes(
+  portableEngineIdentityPath,
+  "portable engine identity marker",
+).bytes;
+const portableEngineIdentity = parsePortableEngineIdentityMarker(
+  portableEngineIdentityBytes,
+);
 const recipeCatalogPath = path.join(
   evidenceDirectory,
   "executable-recipes.json",
@@ -721,6 +782,163 @@ validateExactFixtureEvidenceArtifact(fixtureArtifact, {
   fixtureCatalogDigest,
 });
 const executions = fixtureArtifact.executions;
+let portableProcessEvidence = {
+  portableProcessEvidenceSchema: "ibex/capsec-portable-process-preparation/1",
+  status: "legacy-null-marker",
+  reason: "the exact build carries the canonical legacy null marker",
+};
+if (portableEngineIdentity !== null) {
+  if (!bindings.outputDispositionEvidenceRawContentDigest) {
+    portableProcessEvidence = {
+      portableProcessEvidenceSchema:
+        "ibex/capsec-portable-process-preparation/1",
+      status: "incomplete",
+      reason:
+        "portable process evidence requires exact output-disposition bytes before its acyclic execution binding can be fixed",
+    };
+  } else {
+    const targetCellsPath = path.join(capsecRoot, "registry/target-cells.json");
+    const portableBindings = {
+      sourceRevision: bindings.sourceRevision,
+      sourceTreeDigest: bindings.sourceTreeDigest,
+      target,
+      engine: portableEngineIdentity,
+      vocabularyDigest: bindings.vocabularyDigest,
+      registryDigest: bindings.registryDigest,
+      implementationManifestDigest: bindings.implementationManifestDigest,
+      fixtureCatalogDigest,
+      targetCellsRawContentDigest: taggedDigest(
+        fs.readFileSync(targetCellsPath),
+      ),
+      recipeCatalogDigest: recipeCatalog.recipeCatalogDigest,
+      recipeCatalogRawContentDigest: taggedDigest(
+        fs.readFileSync(recipeCatalogPath),
+      ),
+      publicSurfaceExecutionDigest:
+        publicSurfaceEvidence.publicSurfaceExecutionDigest,
+      publicSurfaceExecutionRawContentDigest: taggedDigest(
+        fs.readFileSync(publicSurfaceEvidencePath),
+      ),
+      outputDispositionEvidenceRawContentDigest:
+        bindings.outputDispositionEvidenceRawContentDigest,
+    };
+    const fixtureIds = fixtureEvidenceBinding.fixturePlans.map(
+      (plan) => plan.fixtureId,
+    );
+    const portablePlanState = buildPortableEvidencePlan({
+      bindings: portableBindings,
+      evidenceDirectory,
+      fixtureIds,
+    });
+    const portablePlanPath = path.join(
+      evidenceDirectory,
+      "portable-evidence-plan.json",
+    );
+    const portablePlanBytes = Buffer.from(
+      `${JSON.stringify(portablePlanState.plan, null, 2)}\n`,
+    );
+    writeNewOwnedBytes(
+      portablePlanPath,
+      portablePlanBytes,
+      "portable evidence plan",
+    );
+    const portableAttempt = await runObservedCommand({
+      supervisor,
+      id: "exact-fixture-evidence-portable-pilot",
+      command: EXACT_FIXTURE_EVIDENCE_COMMAND[0],
+      args: EXACT_FIXTURE_EVIDENCE_COMMAND.slice(1),
+      cwd: repoRoot,
+      env: {
+        ...exactEngineEnvironment,
+        IBEX_CAPSEC_RECIPE_CATALOG: recipeCatalogPath,
+        IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING: fixtureEvidenceBindingPath,
+        IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN: portablePlanPath,
+        IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:
+          portablePlanState.mappedEvidencePath,
+      },
+      environmentKeys: [
+        ...exactEngineEnvironmentKeys,
+        "IBEX_CAPSEC_RECIPE_CATALOG",
+        "IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING",
+        "IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN",
+        "IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT",
+      ],
+      declaredInputs: [
+        {
+          name: "recipeCatalog",
+          digest: recipeCatalog.recipeCatalogDigest,
+        },
+        { name: "fixtureBinding", digest: bindingDigest },
+        {
+          name: "portableExecutionBinding",
+          digest: portablePlanState.plan.bindingDigest,
+        },
+        {
+          name: "portableEvidencePlan",
+          digest: taggedDigest(portablePlanBytes),
+        },
+        { name: "engineArtifact", digest: engineBinaryDigest },
+      ],
+      expectedOutputs: [
+        ...portablePlanState.fixtureOutputs.map((output) => output.path),
+        portablePlanState.mappedEvidencePath,
+      ],
+      injectCommandIdentity: true,
+    });
+    commandEvidence.push(legacyCommandEvidence(portableAttempt));
+    const validatedPortableProcess = validateLivePortableProcess({
+      attempt: portableAttempt,
+      bindings: portableBindings,
+      fixtureOutputs: portablePlanState.fixtureOutputs,
+      mappedEvidencePath: portablePlanState.mappedEvidencePath,
+    });
+    const portableAttemptPath = path.join(
+      evidenceDirectory,
+      "portable-command-attempt.json",
+    );
+    writeNewOwnedBytes(
+      portableAttemptPath,
+      validatedPortableProcess.process.commandAttemptBytes,
+      "portable command attempt",
+    );
+    const portableReportSlicePath = path.join(
+      evidenceDirectory,
+      "portable-report-slice.json",
+    );
+    const reportSliceBytes = portableReportSliceBytes(
+      validatedPortableProcess.reportSlice,
+    );
+    writeNewOwnedBytes(
+      portableReportSlicePath,
+      reportSliceBytes,
+      "portable report slice",
+    );
+    portableProcessEvidence = {
+      portableProcessEvidenceSchema:
+        "ibex/capsec-portable-process-preparation/1",
+      status: "validated-incomplete",
+      reason:
+        "the exact mapped process slice is v2-ready; live recipe, public-surface, output-disposition, and aggregate report generation remain v1",
+      engine: portableEngineIdentity,
+      mappedEngineExecutionEvidence:
+        validatedPortableProcess.reportSlice.bindings
+          .mappedEngineExecutionEvidence,
+      executions: validatedPortableProcess.reportSlice.executions,
+      reportSliceRawContentDigest: taggedDigest(reportSliceBytes),
+      detachedEvidence: {
+        reportSlicePath: path.relative(repoRoot, portableReportSlicePath),
+        commandAttemptPath: path.relative(repoRoot, portableAttemptPath),
+        mappedEvidencePath: path.relative(
+          repoRoot,
+          portablePlanState.mappedEvidencePath,
+        ),
+        fixturePaths: portablePlanState.fixtureOutputs.map((output) =>
+          path.relative(repoRoot, output.path),
+        ),
+      },
+    };
+  }
+}
 const sourceRevisionAfterFixtureEvidence = git("rev-parse", "HEAD")
   .toString("utf8")
   .trim();
@@ -741,6 +959,7 @@ commandEvidence.push(
     await runEngineAttestation(
       "exact-loaded-engine-attestation-after-evidence",
       engineIdentityAfterPath,
+      portableEngineIdentityAfterPath,
     ),
   ),
 );
@@ -754,6 +973,18 @@ if (
 ) {
   throw new Error(
     "loaded engine identity changed across conformance evidence execution",
+  );
+}
+const portableEngineIdentityAfterBytes = readOwnedJsonWithBytes(
+  portableEngineIdentityAfterPath,
+  "post-evidence portable engine identity marker",
+).bytes;
+const portableEngineIdentityAfter = parsePortableEngineIdentityMarker(
+  portableEngineIdentityAfterBytes,
+);
+if (canonicalJson(portableEngineIdentityAfter) !== canonicalJson(portableEngineIdentity)) {
+  throw new Error(
+    "portable engine identity marker changed across conformance evidence execution",
   );
 }
 // A broad suite pass is prerequisite evidence, never a per-obligation pass.
@@ -790,6 +1021,7 @@ fs.writeFileSync(
           }),
       commands: commandEvidence,
       executions,
+      portableProcessEvidence,
     },
     null,
     2,

@@ -81649,6 +81649,24 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.startup.env.ibex.capsec.mapped.engine.evidence.output.1i8m8ra",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.startup.env.ibex.capsec.portable.evidence.plan.0orcp1x",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN:read"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.startup.env.ibex.capsec.public.batch.evidence.output.1fl72f2",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
@@ -81667,6 +81685,15 @@
         "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
         "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
         "src/bin/ibex/engine/capsec_public_startup_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.startup.env.ibex.capsec.supervisor.command.identity.digest.0kl8qxk",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read"
       ],
       "outputKinds": []
     },
@@ -83475,9 +83502,9 @@
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
   "catalogKeyDigest": "sha256-Grdk3lJg-td1LRK4Riavm7xU_vrHceHnkOXzJ0BRZf4",
   "counts": {
-    "coverageSurfaces": 7328,
+    "coverageSurfaces": 7331,
     "outputBearingSurfaces": 5761,
-    "structuralOnlySurfaces": 1563,
+    "structuralOnlySurfaces": 1566,
     "unresolvedSurfaces": 4,
     "catalogRows": 6429,
     "parameterizedBindings": 1,

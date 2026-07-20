@@ -20,7 +20,7 @@ use serde_json::{Map, Value};
 use sha2::{Digest as _, Sha256};
 use std::collections::BTreeSet;
 #[cfg(target_os = "macos")]
-use std::io::Read as _;
+use std::io::{Read as _, Seek as _};
 use std::path::Path;
 #[cfg(target_os = "macos")]
 use std::path::PathBuf;
@@ -758,6 +758,38 @@ pub fn loaded_engine_portable_identity() -> Result<PortableEngineArtifactIdentit
         .map_err(Clone::clone)
 }
 
+fn portable_marker_presence(markers: [&str; 3]) -> Result<bool, String> {
+    let absent = markers.map(|marker| marker == "null\n");
+    if absent.iter().all(|value| *value) {
+        return Ok(false);
+    }
+    if absent.iter().any(|value| *value) {
+        return Err(
+            "portable engine build markers are mixed between absent and authenticated values"
+                .into(),
+        );
+    }
+    Ok(true)
+}
+
+/// Return the authenticated portable identity when this is a portable build.
+///
+/// The only compatibility case is the exact legacy marker triplet written by
+/// `build.rs`. A mixed triplet is corruption, not a legacy build, and fails
+/// closed. The strict [`loaded_engine_portable_identity`] API remains the
+/// authority-bearing entry point for callers that require portable mode.
+pub fn loaded_engine_portable_identity_if_present(
+) -> Result<Option<PortableEngineArtifactIdentity>, String> {
+    if !portable_marker_presence([
+        super::EMBEDDED_PORTABLE_ENGINE_MANIFEST,
+        super::EMBEDDED_PORTABLE_ENGINE_INSTALLATION_RECEIPT,
+        super::EMBEDDED_PORTABLE_ENGINE_BUILD_CONSUMPTION,
+    ])? {
+        return Ok(None);
+    }
+    loaded_engine_portable_identity().map(Some)
+}
+
 impl MappedEngineInstanceIdentity {
     fn payload(&self) -> MappedEngineObservationPayload<'_> {
         MappedEngineObservationPayload {
@@ -961,7 +993,7 @@ fn capture_native_macos_mapping() -> Result<MacOsMappingProof, String> {
 fn object_and_change_coordinates(
     file: &std::fs::File,
     metadata: &std::fs::Metadata,
-) -> Result<(ObjectIdentity, (i64, i64, i64, i64)), String> {
+) -> Result<(ObjectIdentity, MacOsChangeCoordinates), String> {
     use std::os::unix::fs::MetadataExt;
     let object = super::engine_object_identity(file, metadata)?;
     Ok((
@@ -976,20 +1008,14 @@ fn object_and_change_coordinates(
 }
 
 #[cfg(target_os = "macos")]
-fn capture_file_observation(
-    canonical_path: &Path,
+type MacOsChangeCoordinates = (i64, i64, i64, i64);
+
+#[cfg(target_os = "macos")]
+fn observe_pinned_file(
+    file: &std::fs::File,
     expected_mapping_object: &ObjectIdentity,
-) -> Result<MappedEngineFileObservation, String> {
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true);
-    use std::os::unix::fs::OpenOptionsExt;
-    options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
-    let mut file = options.open(canonical_path).map_err(|error| {
-        format!(
-            "failed to pin mapped Hermes runtime {}: {error}",
-            canonical_path.display()
-        )
-    })?;
+    expected_change: Option<MacOsChangeCoordinates>,
+) -> Result<(MappedEngineFileObservation, MacOsChangeCoordinates), String> {
     let before_metadata = file
         .metadata()
         .map_err(|error| format!("failed to inspect mapped Hermes runtime: {error}"))?;
@@ -1003,10 +1029,19 @@ fn capture_file_observation(
     if &before_object != expected_mapping_object {
         return Err("loaded Hermes path names a different object than the factory mapping".into());
     }
+    if expected_change.is_some_and(|expected| expected != before_change) {
+        return Err(
+            "pinned Hermes runtime change coordinates differ from the initial observation".into(),
+        );
+    }
+    let mut reader = file;
+    reader
+        .seek(std::io::SeekFrom::Start(0))
+        .map_err(|error| format!("failed to rewind pinned Hermes runtime: {error}"))?;
     let mut hasher = Sha256::new();
     let mut chunk = [0u8; 64 * 1024];
     loop {
-        let read = file
+        let read = reader
             .read(&mut chunk)
             .map_err(|error| format!("failed to hash mapped Hermes runtime: {error}"))?;
         if read == 0 {
@@ -1031,22 +1066,108 @@ fn capture_file_observation(
     for byte in digest {
         write!(&mut hex, "{byte:02x}").expect("writing SHA-256 hex to a String cannot fail");
     }
-    Ok(MappedEngineFileObservation {
-        size: before_metadata.len(),
-        digest: RawSha256Digest::new(hex)?,
-        object: before_object,
-    })
+    Ok((
+        MappedEngineFileObservation {
+            size: before_metadata.len(),
+            digest: RawSha256Digest::new(hex)?,
+            object: before_object,
+        },
+        before_change,
+    ))
 }
 
 #[cfg(target_os = "macos")]
-#[derive(Clone, Debug, Eq, PartialEq)]
+fn open_pinned_file_observation(
+    canonical_path: &Path,
+    expected_mapping_object: &ObjectIdentity,
+) -> Result<
+    (
+        std::fs::File,
+        MappedEngineFileObservation,
+        MacOsChangeCoordinates,
+    ),
+    String,
+> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    use std::os::unix::fs::OpenOptionsExt;
+    options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    let file = options.open(canonical_path).map_err(|error| {
+        format!(
+            "failed to pin mapped Hermes runtime {}: {error}",
+            canonical_path.display()
+        )
+    })?;
+    let (observation, change) = observe_pinned_file(&file, expected_mapping_object, None)?;
+    Ok((file, observation, change))
+}
+
+#[cfg(target_os = "macos")]
+fn capture_file_observation(
+    canonical_path: &Path,
+    expected_mapping_object: &ObjectIdentity,
+) -> Result<MappedEngineFileObservation, String> {
+    let (_file, observation, _change) =
+        open_pinned_file_observation(canonical_path, expected_mapping_object)?;
+    Ok(observation)
+}
+
+#[cfg(target_os = "macos")]
 struct MacOsMappedEngineExpectation {
     portable: PortableEngineArtifactIdentity,
     canonical_path: PathBuf,
     local_object: ObjectIdentity,
     mapping_proof: MacOsMappingProof,
     before: MappedEngineFileObservation,
+    pinned_file: std::sync::Mutex<std::fs::File>,
+    pinned_change: MacOsChangeCoordinates,
     process_architecture: ProcessArchitecture,
+}
+
+/// A non-serializable, process-local bracket around one engine-using phase.
+///
+/// Beginning the bracket pins the mapped object and its bytes. Finishing
+/// consumes the bracket and obtains the fresh after-observation. Keeping the
+/// owner coordinates private prevents conformance code from importing a
+/// mapped observation produced in another process or thread as if it covered
+/// the current engine work.
+#[must_use = "mapped-engine observations must be finalized after engine work"]
+pub struct LoadedEngineMappedObservation {
+    owner_process_id: u32,
+    owner_thread_id: std::thread::ThreadId,
+    _thread_affinity: std::marker::PhantomData<std::rc::Rc<()>>,
+    #[cfg(target_os = "macos")]
+    expected: MacOsMappedEngineExpectation,
+}
+
+fn verify_observation_owner(
+    owner_process_id: u32,
+    owner_thread_id: std::thread::ThreadId,
+) -> Result<(), String> {
+    if owner_process_id != std::process::id() {
+        return Err("mapped-engine observation belongs to another process".into());
+    }
+    if owner_thread_id != std::thread::current().id() {
+        return Err("mapped-engine observation belongs to another thread".into());
+    }
+    Ok(())
+}
+
+impl LoadedEngineMappedObservation {
+    /// Finalize the mapped identity after the bracketed engine work.
+    #[cfg(target_os = "macos")]
+    pub fn finish(self) -> Result<MappedEngineInstanceIdentity, String> {
+        verify_observation_owner(self.owner_process_id, self.owner_thread_id)?;
+        complete_macos_mapped_identity(&self.expected)
+    }
+
+    /// Portable mapped-engine production is deliberately macOS-only in this
+    /// implementation slice.
+    #[cfg(not(target_os = "macos"))]
+    pub fn finish(self) -> Result<MappedEngineInstanceIdentity, String> {
+        verify_observation_owner(self.owner_process_id, self.owner_thread_id)?;
+        Err("portable mapped-engine identity is not implemented for this platform".into())
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -1070,7 +1191,8 @@ fn capture_macos_expectation() -> Result<MacOsMappedEngineExpectation, String> {
     }
     let mapping_before = capture_native_macos_mapping()?;
     let local_object = mapping_before.platform_observation.mapped_object.clone();
-    let before = capture_file_observation(&canonical_path, &local_object)?;
+    let (pinned_file, before, pinned_change) =
+        open_pinned_file_observation(&canonical_path, &local_object)?;
     let mapping_after = capture_native_macos_mapping()?;
     if mapping_after != mapping_before {
         return Err("Hermes factory mapping changed during the initial observation".into());
@@ -1084,8 +1206,28 @@ fn capture_macos_expectation() -> Result<MacOsMappedEngineExpectation, String> {
         local_object,
         mapping_proof: mapping_before,
         before,
+        pinned_file: std::sync::Mutex::new(pinned_file),
+        pinned_change,
         process_architecture: current_process_architecture()?,
     })
+}
+
+/// Start one fresh mapped-engine observation interval in the current process
+/// and thread. Unlike the compatibility accessor below, this does not reuse a
+/// process-global before-observation.
+#[cfg(target_os = "macos")]
+pub fn begin_loaded_engine_mapped_observation() -> Result<LoadedEngineMappedObservation, String> {
+    Ok(LoadedEngineMappedObservation {
+        owner_process_id: std::process::id(),
+        owner_thread_id: std::thread::current().id(),
+        _thread_affinity: std::marker::PhantomData,
+        expected: capture_macos_expectation()?,
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn begin_loaded_engine_mapped_observation() -> Result<LoadedEngineMappedObservation, String> {
+    Err("portable mapped-engine identity is not implemented for this platform".into())
 }
 
 #[cfg(target_os = "macos")]
@@ -1114,7 +1256,24 @@ fn complete_macos_mapped_identity(
     expected: &MacOsMappedEngineExpectation,
 ) -> Result<MappedEngineInstanceIdentity, String> {
     let mapping_before = capture_native_macos_mapping()?;
-    let after = capture_file_observation(&expected.canonical_path, &expected.local_object)?;
+    let (after, after_change) = {
+        let pinned_file = expected
+            .pinned_file
+            .lock()
+            .map_err(|_| "pinned Hermes runtime lock is poisoned".to_owned())?;
+        observe_pinned_file(
+            &pinned_file,
+            &expected.local_object,
+            Some(expected.pinned_change),
+        )?
+    };
+    if after_change != expected.pinned_change {
+        return Err("pinned Hermes runtime changed across the mapped observation interval".into());
+    }
+    let path_after = capture_file_observation(&expected.canonical_path, &expected.local_object)?;
+    if path_after != after {
+        return Err("loaded Hermes path no longer names the retained mapped runtime object".into());
+    }
     let mapping_after = capture_native_macos_mapping()?;
     if mapping_before != expected.mapping_proof || mapping_after != expected.mapping_proof {
         return Err("Hermes factory mapping differs from the initial observation".into());
@@ -1252,6 +1411,36 @@ mod tests {
     }
 
     #[test]
+    fn legacy_portable_markers_are_all_or_nothing() {
+        assert!(!portable_marker_presence(["null\n", "null\n", "null\n"]).unwrap());
+        assert!(portable_marker_presence(["{}", "{}", "{}"]).unwrap());
+        for markers in [
+            ["null\n", "{}", "{}"],
+            ["{}", "null\n", "{}"],
+            ["{}", "{}", "null\n"],
+        ] {
+            let error = portable_marker_presence(markers).unwrap_err();
+            assert!(error.contains("mixed"), "{error}");
+        }
+    }
+
+    #[test]
+    fn mapped_observation_owner_rejects_wrong_process_or_thread() {
+        let current_process = std::process::id();
+        let current_thread = std::thread::current().id();
+        assert!(verify_observation_owner(current_process, current_thread).is_ok());
+        let other_process = current_process.checked_add(1).unwrap_or(1);
+        let error = verify_observation_owner(other_process, current_thread).unwrap_err();
+        assert!(error.contains("another process"), "{error}");
+
+        let other_thread = std::thread::spawn(|| std::thread::current().id())
+            .join()
+            .unwrap();
+        let error = verify_observation_owner(current_process, other_thread).unwrap_err();
+        assert!(error.contains("another thread"), "{error}");
+    }
+
+    #[test]
     fn mapped_identity_type_and_domain_digest_match_the_frozen_vector() {
         let vectors = vectors();
         let value = vectors["documents"]["mappedInstance"].clone();
@@ -1266,6 +1455,26 @@ mod tests {
             identity.computed_observation_digest().unwrap(),
             identity.observation_digest
         );
+    }
+
+    #[test]
+    fn aslr_local_mapping_changes_do_not_change_portable_identity() {
+        let value = vectors()["documents"]["mappedInstance"].clone();
+        let first: MappedEngineInstanceIdentity = serde_json::from_value(value.clone()).unwrap();
+        let mut second_value = value;
+        second_value["mappingProof"]["platformObservation"]["regionStart"] =
+            Value::String("0x700000000".into());
+        second_value["mappingProof"]["platformObservation"]["regionEnd"] =
+            Value::String("0x700100000".into());
+        let mut second: MappedEngineInstanceIdentity =
+            serde_json::from_value(second_value).unwrap();
+        second.observation_digest = second.computed_observation_digest().unwrap();
+
+        first.validate().unwrap();
+        second.validate().unwrap();
+        assert_eq!(first.portable, second.portable);
+        assert_ne!(first.mapping_proof, second.mapping_proof);
+        assert_ne!(first.observation_digest, second.observation_digest);
     }
 
     #[cfg(target_os = "macos")]
@@ -1319,6 +1528,34 @@ mod tests {
         .unwrap();
         portable.runtime_component_digest = before.digest.clone();
         assert!(verify_unchanged_runtime_observation(&before, &after, &portable).is_err());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn retained_descriptor_rejects_ancestor_path_replacement() {
+        let directory = tempfile::tempdir().unwrap();
+        let original_parent = directory.path().join("original");
+        let moved_parent = directory.path().join("moved");
+        std::fs::create_dir(&original_parent).unwrap();
+        let runtime = original_parent.join("hermesvm");
+        std::fs::write(&runtime, b"mapped-runtime").unwrap();
+        let runtime = std::fs::canonicalize(runtime).unwrap();
+        let object = object_for_file(&runtime);
+        let (pinned, before, change) = open_pinned_file_observation(&runtime, &object).unwrap();
+
+        std::fs::rename(&original_parent, &moved_parent).unwrap();
+        std::fs::create_dir(&original_parent).unwrap();
+        std::fs::write(&runtime, b"mapped-runtime").unwrap();
+
+        let (retained_after, retained_change) =
+            observe_pinned_file(&pinned, &object, Some(change)).unwrap();
+        assert_eq!(retained_after, before);
+        assert_eq!(retained_change, change);
+        let error = capture_file_observation(&runtime, &object).unwrap_err();
+        assert!(
+            error.contains("different object than the factory mapping"),
+            "{error}"
+        );
     }
 
     #[cfg(target_os = "macos")]
