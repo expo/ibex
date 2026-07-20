@@ -18,6 +18,11 @@ vendored-generated/** text eol=lf
 tests/fixtures/computed-candidates-v1.golden.json text eol=lf
 tests/fixtures/module-runner-spike/** text eol=lf
 
+# WebGPU registry authorities hash raw fixture bytes. Keep their source and
+# generated corpus identities invariant on Windows checkouts.
+tests/fixtures/webgpu-*.json text eol=lf
+tests/fixtures/webgpu-*.js text eol=lf
+
 # Archived LLP evidence and its independently checked-in inputs are hashed as
 # exact bytes; preserve their canonical identity on Windows checkouts.
 # @ref LLP 0024#31-post-retirement-oxc-handoff — the parser differential is a
