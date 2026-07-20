@@ -136,3 +136,18 @@ test("Windows conformance can isolate target-absence evidence", () => {
   expect(windowsJob).toContain('"target-absence-evidence.json"');
   expect(windowsJob).toContain('"target-absence.log"');
 });
+
+test("Windows conformance can isolate filesystem queue-rejection evidence", () => {
+  const windowsJob = conformanceWorkflow.slice(
+    conformanceWorkflow.indexOf("Complete matrix + unadvertised evidence (Windows x64)"),
+  );
+  expect(conformanceWorkflow).toContain("- fs-queue");
+  expect(windowsJob).toContain(
+    "name: Run focused filesystem queue-rejection evidence",
+  );
+  expect(windowsJob).toContain("inputs.scope == 'fs-queue'");
+  expect(windowsJob).toContain(
+    "queue_rejection_releases_owned_fds_and_rolls_back_close",
+  );
+  expect(windowsJob).toContain('"native-fs-queue-rejection.log"');
+});

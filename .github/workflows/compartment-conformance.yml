@@ -27,6 +27,7 @@ on:
           - module-semantics
           - dns
           - target-absence
+          - fs-queue
   schedule:
     # Weekly, Monday 08:00 UTC (after the patch canary).
     - cron: "0 8 * * 1"
@@ -340,6 +341,17 @@ jobs:
           cargo test --bin ibex --features capsec-conformance-observer,openssl-crypto capsec_public_target_absence_batch -- --test-threads=1 --nocapture 2>&1 |
             Tee-Object -FilePath (Join-Path $directory "target-absence.log")
           if ($LASTEXITCODE -ne 0) { throw "focused target-absence evidence failed" }
+
+      - name: Run focused filesystem queue-rejection evidence
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.scope == 'fs-queue' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $directory = Join-Path $PWD "target\capsec-focused-windows"
+          New-Item -ItemType Directory -Force -Path $directory | Out-Null
+          cargo test --test native_fs_pool queue_rejection_releases_owned_fds_and_rolls_back_close -- --exact --test-threads=1 --nocapture 2>&1 |
+            Tee-Object -FilePath (Join-Path $directory "native-fs-queue-rejection.log")
+          if ($LASTEXITCODE -ne 0) { throw "focused filesystem queue-rejection evidence failed" }
 
       - name: Run the complete CapSec matrix and bind evidence
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'full' }}

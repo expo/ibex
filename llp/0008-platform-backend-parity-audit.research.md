@@ -5,7 +5,7 @@
 **Systems:** Engine, Build, Runtime
 **Author:** Codex
 **Date:** 2026-06-14
-**Revised:** 2026-07-20 (ENG-24933: Windows default-path non-address DNS queries now use the bounded raw-UDP, rcode-preserving contract, including validated response/question parsing and the test-only server override); 2026-07-20 (ENG-24933: the Windows BCrypt/CNG profile supplies PBKDF2, portable RFC 7914 scrypt, RFC 5869 HKDF, padded AES-CBC, and EC key generation with PKCS#8/SPKI export in addition to hash and HMAC); 2026-07-12 (ENG-24261: executable host-JVM tests cover the production Android WebSocket queue's flood, overflow, terminal, and repeated flow-control behavior); 2026-07-12 (spawn registry teardown now honors explicit ChildProcess unref state; previously 2026-07-11: ENG-23541 Windows async fs worker-pool hooks and verified error/handle/durability semantics; 2026-07-09: Linux curl CLI fallback now spawns via posix_spawnp instead of std::system — ENG-23874; Windows Child Process section — ENG-23485; default-path DNS rcode fidelity and the raw UDP transport decision — ENG-23506)
+**Revised:** 2026-07-20 (ENG-24933: the fs queue-rejection fixture retains `/dev/fd` counting on POSIX and uses the parent-owned Windows process handle for an exact before/after native-handle count); 2026-07-20 (ENG-24933: Windows default-path non-address DNS queries now use the bounded raw-UDP, rcode-preserving contract, including validated response/question parsing and the test-only server override); 2026-07-20 (ENG-24933: the Windows BCrypt/CNG profile supplies PBKDF2, portable RFC 7914 scrypt, RFC 5869 HKDF, padded AES-CBC, and EC key generation with PKCS#8/SPKI export in addition to hash and HMAC); 2026-07-12 (ENG-24261: executable host-JVM tests cover the production Android WebSocket queue's flood, overflow, terminal, and repeated flow-control behavior); 2026-07-12 (spawn registry teardown now honors explicit ChildProcess unref state; previously 2026-07-11: ENG-23541 Windows async fs worker-pool hooks and verified error/handle/durability semantics; 2026-07-09: Linux curl CLI fallback now spawns via posix_spawnp instead of std::system — ENG-23874; Windows Child Process section — ENG-23485; default-path DNS rcode fidelity and the raw UDP transport decision — ENG-23506)
 **Related:** LLP 0001; LLP 0003; LLP 0005
 
 ## Purpose
@@ -124,7 +124,14 @@ worker-pool async hooks for whole-file reads/writes, fd chunk reads/writes,
 `access`, `chmod`, `mkdtemp`). The Windows fd handles are shared between sync
 and async paths through a `shared_ptr` wrapper with a per-handle I/O mutex so
 the Rust save-cursor positional read/write shims cannot interleave on the same
-fd. Unsupported Windows fs operations still fail honestly with `ENOSYS` until
+fd. Queue-capacity refusal is a resource boundary too: every rejected fd-form
+operation must release its duplicate, and a rejected async close must restore
+the caller's close authority. The cross-platform fixture measures open entries
+through `/dev/fd` only on POSIX. On Windows, the Rust test parent queries the
+live child process handle with `GetProcessHandleCount` at two synchronized
+checkpoints after first settling the lazy rejection path, preserving the same
+zero-delta invariant without treating a nonexistent POSIX path as evidence.
+Unsupported Windows fs operations still fail honestly with `ENOSYS` until
 host hooks exist. Durability is no longer one of those gaps: the opaque host
 handle exposes `File::sync_all` / `File::sync_data`, so Windows
 `fsync`/`fdatasync` reach `FlushFileBuffers`. The remaining unsupported set is

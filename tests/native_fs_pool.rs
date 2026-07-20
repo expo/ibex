@@ -30,6 +30,49 @@ fn unique_dir(tag: &str) -> PathBuf {
     dir
 }
 
+#[cfg(windows)]
+fn wait_for_checkpoint(
+    child: &mut std::process::Child,
+    marker: &std::path::Path,
+    label: &str,
+) -> Result<(), String> {
+    let start = Instant::now();
+    let deadline = Duration::from_secs(30);
+    loop {
+        if marker.exists() {
+            return Ok(());
+        }
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|error| format!("checking child status at {label}: {error}"))?
+        {
+            return Err(format!(
+                "child exited with {status:?} before reaching {label}"
+            ));
+        }
+        if start.elapsed() > deadline {
+            return Err(format!("child did not reach {label} within {deadline:?}"));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[cfg(windows)]
+fn process_handle_count(child: &std::process::Child) -> Result<u32, std::io::Error> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::System::Threading::GetProcessHandleCount;
+
+    let mut count = 0;
+    // SAFETY: `Child` owns a live Windows process handle for the duration of
+    // this call, and `count` is a valid writable out-parameter.
+    let ok = unsafe { GetProcessHandleCount(child.as_raw_handle() as _, &mut count) };
+    if ok == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(count)
+    }
+}
+
 // A 64 MiB file is large enough that the old sync-on-JS-thread readFile
 // blocked the loop for a long, easily-detectable stretch (hundreds of ms even
 // from page cache in a release build; seconds in debug), while staying cheap
@@ -365,9 +408,21 @@ fn queue_rejection_releases_owned_fds_and_rolls_back_close() {
         &script,
         r#"var fs = require('fs');
 (async function() {
+  var windows = process.platform === 'win32';
+  async function checkpoint(name) {
+    if (!windows) return;
+    fs.writeFileSync(name + '.ready', 'ready');
+    while (!fs.existsSync(name + '.continue')) {
+      await new Promise(function(resolve) { setTimeout(resolve, 5); });
+    }
+  }
   fs.writeFileSync('payload.txt', 'alive');
   var fd = fs.openSync('payload.txt', 'r');
-  var before = fs.readdirSync('/dev/fd').length;
+  // Initialize and settle the capacity-rejection path before the parent takes
+  // its Windows process-handle baseline. No worker is admitted at capacity 0.
+  var seedRejected = await fs.promises.fstat(fd).then(function() { return false; }, function() { return true; });
+  await checkpoint('before');
+  var before = windows ? 0 : fs.readdirSync('/dev/fd').length;
   var rejected = await Promise.all(Array.from({length: 100}, function(_, i) {
     var op = i % 2 ? fs.promises.fstat(fd) : fs.promises.fchmod(fd, 0o600);
     return op.then(function() { return false; }, function() { return true; });
@@ -375,15 +430,66 @@ fn queue_rejection_releases_owned_fds_and_rolls_back_close() {
   var closeRejected = await fs.promises.close(fd).then(function() { return false; }, function() { return true; });
   var byte = Buffer.alloc(1); fs.readSync(fd, byte, 0, 1, 0);
   var openRejected = await fs.promises.open('must-not-exist.txt', 'w').then(function() { return false; }, function() { return true; });
-  var after = fs.readdirSync('/dev/fd').length;
+  var after = windows ? 0 : fs.readdirSync('/dev/fd').length;
+  await checkpoint('after');
   fs.closeSync(fd);
-  console.log('fs-queue-reject: rejected=' + rejected.filter(Boolean).length +
+  console.log('fs-queue-reject: seed=' + seedRejected + ' rejected=' + rejected.filter(Boolean).length +
     ' close=' + closeRejected + ' open=' + openRejected + ' byte=' + byte.toString() +
     ' created=' + fs.existsSync('must-not-exist.txt') + ' fdDelta=' + (after - before));
 })().catch(function(e) { console.log('fs-queue-reject: error=' + (e.stack || e)); process.exitCode = 1; });
 "#,
     )
     .expect("write rejection script");
+
+    // @ref LLP 0008#filesystem — rejected Windows fd operations must release
+    // their duplicated native handles; `/dev/fd` is only a POSIX oracle.
+    #[cfg(windows)]
+    let (out, handle_delta) = {
+        let mut child = Command::new(IBEX)
+            .args(["capsec", "audit", "reject.js"])
+            .env("IBEX_TEST_FS_WORKER_MAX_QUEUE", "0")
+            .current_dir(&dir)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("run Windows queue rejection test");
+
+        let checkpoints = (|| -> Result<(u32, u32), String> {
+            wait_for_checkpoint(&mut child, &dir.join("before.ready"), "before checkpoint")?;
+            let before = process_handle_count(&child)
+                .map_err(|error| format!("reading before process handle count: {error}"))?;
+            std::fs::write(dir.join("before.continue"), "continue")
+                .map_err(|error| format!("releasing before checkpoint: {error}"))?;
+
+            wait_for_checkpoint(&mut child, &dir.join("after.ready"), "after checkpoint")?;
+            let after = process_handle_count(&child)
+                .map_err(|error| format!("reading after process handle count: {error}"))?;
+            std::fs::write(dir.join("after.continue"), "continue")
+                .map_err(|error| format!("releasing after checkpoint: {error}"))?;
+            Ok((before, after))
+        })();
+
+        let (before, after) = match checkpoints {
+            Ok(counts) => counts,
+            Err(error) => {
+                let _ = child.kill();
+                let out = child
+                    .wait_with_output()
+                    .expect("collect failed child output");
+                panic!(
+                    "{error}:\nstdout:\n{}\nstderr:\n{}",
+                    String::from_utf8_lossy(&out.stdout),
+                    String::from_utf8_lossy(&out.stderr)
+                );
+            }
+        };
+        let out = child
+            .wait_with_output()
+            .expect("collect queue rejection output");
+        (out, i64::from(after) - i64::from(before))
+    };
+
+    #[cfg(not(windows))]
     let out = Command::new(IBEX)
         .args(["capsec", "audit", "reject.js"])
         .env("IBEX_TEST_FS_WORKER_MAX_QUEUE", "0")
@@ -397,8 +503,14 @@ fn queue_rejection_releases_owned_fds_and_rolls_back_close() {
         "queue rejection process must exit normally, got {:?}:\nstdout:\n{stdout}\nstderr:\n{stderr}",
         out.status.code()
     );
+    #[cfg(windows)]
+    assert_eq!(
+        handle_delta, 0,
+        "queue rejection must release every duplicated Windows process handle:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let expected = "seed=true rejected=100 close=true open=true byte=a created=false fdDelta=0";
     assert!(
-        stdout.contains("rejected=100 close=true open=true byte=a created=false fdDelta=0"),
+        stdout.contains(expected),
         "queue rejection must release duplicates and restore close authority:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
     let _ = std::fs::remove_dir_all(&dir);

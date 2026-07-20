@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-20 (ENG-24933 replaces the POSIX-only filesystem queue-rejection leak oracle with synchronized native Windows process-handle counts after the complete matrix exposed `/dev/fd` as its sole failure)
 **Revised:** 2026-07-20 (ENG-24933 physically clears the Windows module-semantics baseline and advances the default suite to the Windows DNS record-query stub)
 **Revised:** 2026-07-20 (ENG-24933 physically clears the verified Windows Hermes CLI binding and advances the default product suite to platform-specific module-semantics baseline drift)
 **Revised:** 2026-07-20 (ENG-24933 physically clears Windows EC key generation/export and advances the default product suite to a missing verified-Hermes CLI binding)
@@ -2294,6 +2295,18 @@ including the nested POSIX-only process stream properties. This exact evidence
 closes the absence-recipe batch, but a complete report on the new revision must
 still verify every other suite and residual before any target cell or empty
 advertisement changes.
+The retained post-DNS complete run
+[`29754029378`](https://github.com/ccheever/ibex/actions/runs/29754029378)
+then passed 578 of 579 executed default Rust tests (with three ignored) and
+stopped only in `queue_rejection_releases_owned_fds_and_rolls_back_close`.
+The product queue path had not failed: the fixture attempted to enumerate
+POSIX `/dev/fd` on Windows before reaching any of its duplicate-release or
+close-rollback assertions. The fixture now retains that descriptor-count
+oracle on POSIX and synchronizes the Windows child at warmed before/after
+checkpoints so the Rust parent can query the child's real process handle count.
+The Windows-focused workflow runs that exact integration test and retains its
+log. This repair still awaits physical Windows execution and a later complete
+report; it does not credit a fixture or change the empty advertisements.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked
