@@ -1095,22 +1095,25 @@ function typescriptGlobalInstallerBinding({ branch, sourceRef, sourcePath, locat
   const markerIndex = locator.indexOf(marker);
   if (markerIndex < 1) return null;
   const installerName = locator.slice(0, markerIndex);
-  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(installerName)) return null;
+  const moduleInstaller = installerName === "<module>";
+  if (!moduleInstaller && !/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(installerName)) return null;
   const logicalPath = locator.slice(markerIndex + marker.length).split(".");
   if (logicalPath.some((part) => !part || part.includes("[["))) return null;
   const ast = parse(text, {
     sourceType: "module",
     plugins: ["typescript", "decorators-legacy"],
   });
-  const installers = [];
-  walkJavaScript(ast.program, (node) => {
-    if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(node.type)
-      && (node.id?.name === installerName)) installers.push(node);
-  });
+  const installers = moduleInstaller ? [ast.program] : [];
+  if (!moduleInstaller) {
+    walkJavaScript(ast.program, (node) => {
+      if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(node.type)
+        && (node.id?.name === installerName)) installers.push(node);
+    });
+  }
   if (installers.length !== 1) return null;
   const installer = installers[0];
   const candidates = [];
-  walkJavaScript(installer.body, (node, parent) => {
+  walkJavaScript(moduleInstaller ? installer : installer.body, (node, parent) => {
     if (node.type === "AssignmentExpression") {
       const segments = memberSegments(node.left);
       if (globalPathMatches(segments, logicalPath)) {
@@ -1168,6 +1171,47 @@ function typescriptGlobalInstallerBinding({ branch, sourceRef, sourcePath, locat
       conditionId: `target-branch:${branch.targetVariant}:installer:${installerName}`,
       requiredSiteIds: sites.map((site) => site.siteId),
     }],
+  });
+}
+
+function cppSymbolProvenanceBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (!branch?.observedKey?.startsWith("native-op:")
+    || !/\.(?:cc|mm|h)$/u.test(sourcePath)
+    || locator.startsWith("jsi-global:")) return null;
+  let token = locator;
+  for (const prefix of ["jsi-global:", "jsi-global-property:", "definition:"]) {
+    if (token.startsWith(prefix)) token = token.slice(prefix.length);
+  }
+  if (token.startsWith("embedded:")) token = token.split(":").at(-1);
+  if (token.includes(":")) token = token.split(":").at(-1);
+  if (token.includes(".")) token = token.split(".").at(-1);
+  token = token.replace(/^\[\[|\]\]$/gu, "");
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(token)) return null;
+  const pattern = new RegExp(`\\b${escapeRegExp(token)}\\b`, "gu");
+  const ranges = [];
+  for (const match of text.matchAll(pattern)) {
+    const range = lineRange(text, match.index);
+    const line = text.slice(range.startByte, range.endByte).trimStart();
+    if (line.startsWith("//") || line.startsWith("/*") || line.startsWith("*")) continue;
+    ranges.push(range);
+  }
+  const unique = dedupeRanges(ranges);
+  if (unique.length === 0) return null;
+  const sites = unique.map((range, indexValue) => sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "symbol-provenance",
+    siteKey: `${locator}.${indexValue}`,
+    range,
+    text,
+    bytes,
+  }));
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "cpp-symbol-provenance",
+    resolutionPolicy: "provenance-only",
+    sites,
+    producerPaths: [],
   });
 }
 
@@ -1801,13 +1845,16 @@ function exactGlobalAliasBinding({ branch, sourceRef, sourcePath, locator, absol
 }
 
 function evaluatedCppGlobalBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
-  if (!branch?.observedKey?.startsWith("native-op:global:")
+  if (!branch?.observedKey?.startsWith("native-op:")
     || !/\.(?:cc|mm)$/u.test(sourcePath)
     || !locator.startsWith("embedded:")) return null;
   const match = /^embedded:([^:]+):(.+)$/u.exec(locator);
   if (!match) return null;
   const [, variable, logicalName] = match;
-  if (branch.observedKey.slice("native-op:global:".length) !== logicalName) return null;
+  const observedName = branch.observedKey.startsWith("native-op:global:")
+    ? branch.observedKey.slice("native-op:global:".length)
+    : branch.observedKey.slice("native-op:".length);
+  if (observedName !== logicalName) return null;
   const declarationPattern = new RegExp(`\\b${escapeRegExp(variable)}\\b\\s*=\\s*R\"([A-Za-z0-9_]*)\\(`, "gu");
   const declarations = [...text.matchAll(declarationPattern)];
   if (declarations.length !== 1) return null;
@@ -1926,6 +1973,79 @@ function evaluatedCppGlobalBinding({ branch, sourceRef, sourcePath, locator, tex
       conditionId: `target-branch:${branch.targetVariant}:embedded:${variable}`,
       requiredSiteIds: sites.map((site) => site.siteId),
     }],
+  });
+}
+
+function nativeDefinitionBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (!branch?.observedKey?.startsWith("native-op:")
+    || !/\.(?:cc|mm|h)$/u.test(sourcePath)
+    || !locator.startsWith("definition:")) return null;
+  const symbol = locator.slice("definition:".length);
+  if (branch.observedKey.slice("native-op:".length) !== symbol) return null;
+  const definition = robustFunctionDeclarationRange(text, symbol);
+  if (!definition) return null;
+  const definitionText = text.slice(definition.startByte, definition.endByte);
+  if (!/\bextern\s+"C"/u.test(definitionText)) return null;
+  const producer = sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "value-producer",
+    siteKey: `${symbol}.native-definition`,
+    range: definition,
+    text,
+    bytes,
+  });
+  const publication = sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "publication",
+    siteKey: `${symbol}.extern-c-publication`,
+    range: definition,
+    text,
+    bytes,
+  });
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "native-operation-definition",
+    resolutionPolicy: "composite-path",
+    sites: [producer, publication],
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0native-definition`),
+      conditionId: `target-branch:${branch.targetVariant}:definition:${sourcePath}`,
+      requiredSiteIds: [producer.siteId, publication.siteId],
+    }],
+  });
+}
+
+function preprocessorBranchBinding({ sourceRef, sourcePath, locator, text, bytes }) {
+  if (!/\.(?:cc|mm|h)$/u.test(sourcePath) || !locator.startsWith("preprocessor:")) return null;
+  const [, macro, expected] = locator.split(":");
+  if (!macro || !expected) return null;
+  const directives = [];
+  let offset = 0;
+  for (const line of text.split(/(?<=\n)/u)) {
+    const content = line.endsWith("\n") ? line.slice(0, -1) : line;
+    if (/^\s*#\s*(?:if|ifdef|ifndef|elif)\b/u.test(content) && content.includes(macro)) {
+      directives.push({ startByte: offset, endByte: offset + content.length });
+    }
+    offset += line.length;
+  }
+  if (directives.length === 0) return null;
+  const sites = directives.map((range, indexValue) => sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "branch-selector",
+    siteKey: `${macro}.${expected}.${indexValue}`,
+    range,
+    text,
+    bytes,
+  }));
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "preprocessor-branch-provenance",
+    resolutionPolicy: "provenance-only",
+    sites,
+    producerPaths: [],
   });
 }
 
@@ -2979,6 +3099,20 @@ function cppValueProducerRange(text, variable, before) {
   return lineRange(text, startByte);
 }
 
+function activePreprocessorCondition(text, offset) {
+  const stack = [];
+  for (const line of text.slice(0, offset).split(/\r?\n/u)) {
+    const directive = /^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b\s*(.*)$/u.exec(line);
+    if (!directive) continue;
+    const [, kind, expression] = directive;
+    if (["if", "ifdef", "ifndef"].includes(kind)) stack.push(`${kind}:${expression.trim()}`);
+    else if (kind === "elif" && stack.length > 0) stack[stack.length - 1] = `elif:${expression.trim()}`;
+    else if (kind === "else" && stack.length > 0) stack[stack.length - 1] = `${stack.at(-1)}:else`;
+    else if (kind === "endif") stack.pop();
+  }
+  return stack.length > 0 ? stack.join("+") : null;
+}
+
 function jsiGlobalBranchBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
   if (!/\.(?:cc|mm|h)$/u.test(sourcePath)) return null;
   const observedPath = branch?.observedKey?.startsWith("native-op:global:")
@@ -2997,44 +3131,62 @@ function jsiGlobalBranchBinding({ branch, sourceRef, sourcePath, locator, text, 
   const rootCalls = setPropertyCalls(text, logicalPath[0]).filter(
     (call) => ["rt.global()", "runtime.global()"].includes(call.caller),
   );
-  if (rootCalls.length !== 1) return null;
-  const rootCall = rootCalls[0];
-  const rootVariable = movedIdentifier(rootCall.value);
-  let producerRange;
-  let memberCall;
-  if (logicalPath.length === 1) {
-    producerRange = cppValueProducerRange(text, rootVariable, rootCall.range.startByte)
-      ?? rootCall.range;
-  } else {
-    if (!rootVariable) return null;
-    const memberCalls = setPropertyCalls(text, logicalPath[1]).filter(
-      (call) => call.caller === rootVariable && call.range.startByte < rootCall.range.startByte,
-    );
-    if (memberCalls.length !== 1) return null;
-    memberCall = memberCalls[0];
-    producerRange = cppValueProducerRange(
-      text,
-      movedIdentifier(memberCall.value),
-      memberCall.range.startByte,
-    ) ?? memberCall.range;
+  if (rootCalls.length === 0) return null;
+  const branchConditions = rootCalls.map((rootCall) =>
+    activePreprocessorCondition(text, rootCall.range.startByte));
+  if (rootCalls.length > 1) {
+    const explicit = branchConditions.filter(Boolean);
+    const implicitCount = branchConditions.length - explicit.length;
+    if (explicit.length === 0 || implicitCount > 1 || new Set(explicit).size !== explicit.length) {
+      return null;
+    }
   }
-  const sites = [
-    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${logicalPath.join(".")}.producer`, range: producerRange, text, bytes }),
-  ];
-  if (memberCall) {
-    sites.push(sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${logicalPath.join(".")}.member-publication`, range: memberCall.range, text, bytes }));
+  const sites = [];
+  const producerPaths = [];
+  for (const [indexValue, rootCall] of rootCalls.entries()) {
+    const rootVariable = movedIdentifier(rootCall.value);
+    let producerRange;
+    let memberCall;
+    if (logicalPath.length === 1) {
+      producerRange = cppValueProducerRange(text, rootVariable, rootCall.range.startByte)
+        ?? rootCall.range;
+    } else {
+      if (!rootVariable) return null;
+      const memberCalls = setPropertyCalls(text, logicalPath[1]).filter(
+        (call) => call.caller === rootVariable && call.range.startByte < rootCall.range.startByte,
+      );
+      if (memberCalls.length !== 1) return null;
+      memberCall = memberCalls[0];
+      producerRange = cppValueProducerRange(
+        text,
+        movedIdentifier(memberCall.value),
+        memberCall.range.startByte,
+      ) ?? memberCall.range;
+    }
+    const pathSites = [
+      sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${logicalPath.join(".")}.producer.${indexValue}`, range: producerRange, text, bytes }),
+    ];
+    if (memberCall) {
+      pathSites.push(sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${logicalPath.join(".")}.member-publication.${indexValue}`, range: memberCall.range, text, bytes }));
+    }
+    pathSites.push(sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${logicalPath[0]}.root-publication.${indexValue}`, range: rootCall.range, text, bytes }));
+    sites.push(...pathSites);
+    producerPaths.push({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0${logicalPath.join(".")}\0${indexValue}`),
+      conditionId: branchConditions[indexValue]
+        ? `preprocessor:${branchConditions[indexValue]}`
+        : rootCalls.length > 1
+          ? "preprocessor:otherwise"
+          : `target-branch:${branch.targetVariant}:publication:${sourcePath}`,
+      requiredSiteIds: pathSites.map((site) => site.siteId),
+    });
   }
-  sites.push(sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${logicalPath[0]}.root-publication`, range: rootCall.range, text, bytes }));
   return validateRestrictedExactSourceBinding({
     sourceRef,
     locatorKind: "jsi-root-global-route",
-    resolutionPolicy: "composite-path",
+    resolutionPolicy: producerPaths.length > 1 ? "conditioned-alternatives" : "composite-path",
     sites,
-    producerPaths: [{
-      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0${logicalPath.join(".")}`),
-      conditionId: `target-branch:${branch.targetVariant}:publication:${sourcePath}`,
-      requiredSiteIds: sites.map((site) => site.siteId),
-    }],
+    producerPaths,
   });
 }
 
@@ -3178,7 +3330,10 @@ function exactInvocationsForTokens(text, tokens, excludedRanges = []) {
 function androidJavaCallBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
   if (
     !branch?.observedKey?.startsWith("host-abi:java:")
-    || sourcePath !== "src/engine/native_android_networking.cc"
+    && !branch?.observedKey?.startsWith("native-op:")
+  ) return null;
+  if (
+    sourcePath !== "src/engine/native_android_networking.cc"
     || !locator.startsWith("java-call:")
   ) return null;
   const [, methodName, locatorMethod] = locator.split(":");
@@ -3246,7 +3401,10 @@ function jniTableEntryRange(text, javaMethod, target) {
 function androidJniCallbackBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
   if (
     !branch?.observedKey?.startsWith("host-abi:jni:")
-    || sourcePath !== "src/engine/native_android_networking.cc"
+    && !branch?.observedKey?.startsWith("native-op:")
+  ) return null;
+  if (
+    sourcePath !== "src/engine/native_android_networking.cc"
     || !locator.startsWith("jni-callback:")
   ) return null;
   const [, javaMethod, target] = locator.split(":");
@@ -4766,6 +4924,8 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? builtinExportBranchBinding({ branch, sourceRef, ...loaded })
     ?? builtinInheritedTableFallbackBinding({ branch, sourceRef, ...loaded })
     ?? builtinExportFallbackBinding({ branch, sourceRef, ...loaded })
+    ?? nativeDefinitionBinding({ branch, sourceRef, ...loaded })
+    ?? preprocessorBranchBinding({ branch, sourceRef, ...loaded })
     ?? jsiGlobalBranchBinding({ branch, sourceRef, ...loaded })
     ?? javaHostMethodBinding({ branch, sourceRef, ...loaded })
     ?? androidJavaCallBinding({ branch, sourceRef, ...loaded })
@@ -4800,6 +4960,7 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? typescriptObjectMemberBinding({ branch, sourceRef, ...loaded })
     ?? exactGlobalAliasBinding({ branch, sourceRef, ...loaded })
     ?? evaluatedCppGlobalBinding({ branch, sourceRef, ...loaded })
+    ?? cppSymbolProvenanceBinding({ branch, sourceRef, ...loaded })
     ?? legacyJavascriptGlobalRouteBinding({ branch, sourceRef, ...loaded })
     ?? javascriptSymbolProvenanceBinding({ branch, sourceRef, ...loaded });
   return contextual ?? resolveRestrictedExactSourceBinding(sourceRef, root);
@@ -4954,6 +5115,28 @@ export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root =
           requiredSiteIds: [...producerSiteIds, ...pathEntry.requiredSiteIds],
         });
       }
+    }
+  } else if (branch.observedKey.startsWith("native-op:")
+    && entries.some(({ binding }) => [
+      "android-java-call-route",
+      "android-jni-direct-export-route",
+      "android-jni-table-route",
+    ].includes(binding.locatorKind))) {
+    const androidEntries = entries.filter(({ binding }) => [
+      "native-operation-definition",
+      "android-java-call-route",
+      "android-jni-direct-export-route",
+      "android-jni-table-route",
+    ].includes(binding.locatorKind));
+    if (androidEntries.some(({ binding }) => binding.locatorKind === "native-operation-definition")) {
+      for (const entry of androidEntries) selectedEntries.add(entry);
+      const requiredSiteIds = androidEntries.flatMap(({ binding }) =>
+        binding.sites.map((site) => site.siteId));
+      producerPaths.push({
+        pathId: stableId("producer", `${branch.branchId}\0android-native-operation`),
+        conditionId: "target-platform:android",
+        requiredSiteIds,
+      });
     }
   } else if (branch.observedKey.startsWith("native-op:global:")) {
     const observedPath = branch.observedKey.slice("native-op:global:".length);

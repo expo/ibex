@@ -636,6 +636,58 @@ void install(Runtime& rt) {
     }
   });
 
+  test("binds platform native definitions and Android dispatch as one route", () => {
+    const definition = resolveRestrictedExactBranchSourceBinding({
+      branchId: "surface.native.op.native.fetch.cancel.android",
+      observedKey: "native-op:native_fetch_cancel",
+      targetVariant: "android",
+    }, "src/engine/native_android_networking.cc#definition:native_fetch_cancel");
+    expect(definition.locatorKind).toBe("native-operation-definition");
+    expect(definition.sites.map((site) => site.role)).toEqual([
+      "value-producer",
+      "publication",
+    ]);
+
+    const route = buildRestrictedExactBranchSourceRoute({
+      branchId: "surface.native.op.native.fetch.perform.android",
+      observedKey: "native-op:native_fetch_perform",
+      targetVariant: "android",
+    }, [
+      "src/engine/native_android_networking.cc#definition:native_fetch_perform",
+      "src/engine/native_android_networking.cc#java-call:fetch:fetch",
+      "src/engine/native_android_networking.cc#jni-callback:nativeFetchDidComplete:android_fetch_did_complete",
+    ]);
+    expect(route.status).toBe("executable");
+    expect(route.producerPaths).toHaveLength(1);
+    expect(route.producerPaths[0].conditionId).toBe("target-platform:android");
+  });
+
+  test("keeps multiple exact JSI publications as conditioned alternatives", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding({
+      branchId: "surface.native.op.exactarch.windows",
+      observedKey: "native-op:__exactArch",
+      targetVariant: "windows",
+    }, "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactArch");
+    expect(binding.locatorKind).toBe("jsi-root-global-route");
+    expect(binding.producerPaths).toHaveLength(2);
+    expect(new Set(binding.producerPaths.map((pathEntry) => pathEntry.conditionId)).size).toBe(2);
+  });
+
+  test("binds module-level global assignments and C++ supporting symbols", () => {
+    const moduleBinding = resolveRestrictedExactBranchSourceBinding({
+      branchId: "surface.native.op.android.dispatch.all",
+      observedKey: "native-op:__exactAndroidDispatchPlatformEvent",
+      targetVariant: "all",
+    }, "packages/ibex-runtime-js/src/window/index.ts#<module>:globals:__exactAndroidDispatchPlatformEvent");
+    expect(moduleBinding.locatorKind).toBe("typescript-global-installer-route");
+    const cppBinding = resolveRestrictedExactBranchSourceBinding({
+      branchId: "surface.native.op.compartments.default",
+      observedKey: "native-op:__compartments",
+      targetVariant: "default",
+    }, "src/engine/hermes_module_runner.cc#__compartments");
+    expect(cppBinding.locatorKind).toBe("cpp-symbol-provenance");
+  });
+
   test("binds a TypeScript member without crediting the entire class", () => {
     const sourceRef = "packages/ibex-runtime-js/src/node/Buffer.ts#Buffer.prototype.copy";
     const binding = resolveRestrictedExactBranchSourceBinding(
