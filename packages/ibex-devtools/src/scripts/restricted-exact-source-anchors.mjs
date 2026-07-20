@@ -494,7 +494,14 @@ function javascriptIndex(absolute, text) {
   const ast = parse(text, {
     sourceType: "unambiguous",
     allowReturnOutsideFunction: true,
-    plugins: ["classProperties", "classPrivateProperties", "classPrivateMethods"],
+    plugins: [
+      "classProperties",
+      "classPrivateProperties",
+      "classPrivateMethods",
+      ...(absolute.endsWith(".ts") || absolute.endsWith(".tsx")
+        ? ["typescript", "decorators-legacy"]
+        : []),
+    ],
   });
   const declarations = new Map();
   const assignments = [];
@@ -527,13 +534,17 @@ function javascriptIndex(absolute, text) {
   return result;
 }
 
-function objectProperty(objectNode, name) {
+function objectProperties(objectNode, name) {
   if (objectNode?.type !== "ObjectExpression") return null;
-  const properties = objectNode.properties.filter(
+  return objectNode.properties.filter(
     (property) => ["ObjectProperty", "ObjectMethod"].includes(property.type)
       && !property.computed
       && propertyName(property.key) === name,
   );
+}
+
+function objectProperty(objectNode, name) {
+  const properties = objectProperties(objectNode, name) ?? [];
   return properties.length === 1 ? properties[0] : null;
 }
 
@@ -554,31 +565,231 @@ function resolveIdentifierValue(index, node, seen = new Set()) {
   return { node: declaration.value ?? declaration.node, declaration };
 }
 
-function memberProducer(index, ownerName, memberName) {
+function memberProducer(index, ownerName, memberName, preference = "prefer-static") {
   const owner = declarationFor(index, ownerName);
   const ownerValue = owner?.value;
-  if (ownerValue?.type === "ClassDeclaration" || ownerValue?.type === "ClassExpression") {
-    const methods = ownerValue.body.body.filter(
+  const selectClassMember = (classNode) => {
+    const matching = classNode.body.body.filter(
       (method) => ["ClassMethod", "ClassPrivateMethod", "ClassProperty"].includes(method.type)
         && propertyName(method.key) === memberName,
     );
-    if (methods.length === 1) return methods[0];
+    const staticMembers = matching.filter((method) => Boolean(method.static));
+    const prototypeMembers = matching.filter((method) => !method.static);
+    if (preference === "static") return staticMembers.length === 1 ? staticMembers[0] : null;
+    if (preference === "prototype") return prototypeMembers.length === 1 ? prototypeMembers[0] : null;
+    if (staticMembers.length === 1) return staticMembers[0];
+    return prototypeMembers.length === 1 ? prototypeMembers[0] : null;
+  };
+  if (ownerValue?.type === "ClassDeclaration" || ownerValue?.type === "ClassExpression") {
+    const selected = selectClassMember(ownerValue);
+    if (selected) return selected;
   }
   if (owner?.node?.type === "ClassDeclaration") {
-    const methods = owner.node.body.body.filter(
-      (method) => ["ClassMethod", "ClassPrivateMethod", "ClassProperty"].includes(method.type)
-        && propertyName(method.key) === memberName,
-    );
-    if (methods.length === 1) return methods[0];
+    const selected = selectClassMember(owner.node);
+    if (selected) return selected;
   }
-  const assignments = index.assignments.filter(({ segments }) =>
-    segments
-    && (
-      JSON.stringify(segments) === JSON.stringify([ownerName, "prototype", memberName])
-      || JSON.stringify(segments) === JSON.stringify([ownerName, memberName])
-    )
-  );
-  return assignments.length === 1 ? assignments[0].node : null;
+  const staticAssignments = index.assignments.filter(({ segments }) =>
+    JSON.stringify(segments) === JSON.stringify([ownerName, memberName]));
+  const prototypeAssignments = index.assignments.filter(({ segments }) =>
+    JSON.stringify(segments) === JSON.stringify([ownerName, "prototype", memberName]));
+  if (preference === "prototype") {
+    return prototypeAssignments.length === 1 ? prototypeAssignments[0].node : null;
+  }
+  if (preference === "static") {
+    return staticAssignments.length === 1 ? staticAssignments[0].node : null;
+  }
+  if (staticAssignments.length === 1) return staticAssignments[0].node;
+  return prototypeAssignments.length === 1 ? prototypeAssignments[0].node : null;
+}
+
+function classElementName(element) {
+  const direct = propertyName(element.key);
+  if (direct !== null) return direct;
+  const segments = memberSegments(element.key);
+  return element.computed && segments ? `[[${segments.join(".")}]]` : null;
+}
+
+function typescriptClassMemberBinding({ sourceRef, sourcePath, locator, absolute, text, bytes }) {
+  if (!sourcePath.startsWith("packages/ibex-runtime-js/src/") || !/\.tsx?$/u.test(sourcePath)) {
+    return null;
+  }
+  if (locator.includes(":globals:") || locator.startsWith("<module>")) return null;
+  const extendsMarker = ":extends:";
+  const extendsIndex = locator.indexOf(extendsMarker);
+  const pathPart = extendsIndex >= 0 ? locator.slice(0, extendsIndex) : locator;
+  const className = pathPart.split(".")[0];
+  const index = javascriptIndex(absolute, text);
+  const declaration = declarationFor(index, className);
+  const classNode = declaration?.node?.type === "ClassDeclaration"
+    ? declaration.node
+    : declaration?.value;
+  if (!classNode || !["ClassDeclaration", "ClassExpression"].includes(classNode.type)) return null;
+  let producer = classNode;
+  let siteKey = `${className}.definition`;
+  if (extendsIndex >= 0) {
+    const expectedBase = locator.slice(extendsIndex + extendsMarker.length);
+    const actualBase = memberSegments(classNode.superClass)?.join(".");
+    if (actualBase !== expectedBase) return null;
+    siteKey = `${className}.extends.${expectedBase}`;
+  } else if (pathPart !== className) {
+    const prototypePrefix = `${className}.prototype.`;
+    const staticPrefix = `${className}.`;
+    const prototype = pathPart.startsWith(prototypePrefix);
+    const memberName = pathPart.slice((prototype ? prototypePrefix : staticPrefix).length);
+    if (!memberName || (!prototype && !pathPart.startsWith(staticPrefix))) return null;
+    const members = classNode.body.body.filter((element) =>
+      classElementName(element) === memberName
+      && Boolean(element.static) === !prototype,
+    );
+    if (members.length !== 1) return null;
+    producer = members[0];
+    siteKey = `${className}.${prototype ? "prototype." : ""}${memberName}`;
+  }
+  const site = sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: extendsIndex >= 0 ? "alias" : "value-producer",
+    siteKey,
+    range: { startByte: producer.start, endByte: producer.end },
+    text,
+    bytes,
+  });
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: extendsIndex >= 0 ? "typescript-class-inheritance" : "typescript-class-member",
+    resolutionPolicy: "provenance-only",
+    sites: [site],
+    producerPaths: [],
+  });
+}
+
+function bootstrapGlobalBinding({ sourceRef, sourcePath, locator, absolute, text, bytes }) {
+  if (sourcePath !== "packages/ibex-runtime-js/src/bootstrap.ts") return null;
+  const lazyPrefix = "defineLazyGlobal:globals:";
+  const installMarker = ":globals:";
+  const lazy = locator.startsWith(lazyPrefix);
+  const markerIndex = locator.indexOf(installMarker);
+  if (!lazy && markerIndex < 1) return null;
+  const logicalPath = (lazy
+    ? locator.slice(lazyPrefix.length)
+    : locator.slice(markerIndex + installMarker.length)).split(".");
+  const root = logicalPath[0];
+  const candidates = [];
+  walkJavaScript(parse(text, {
+    sourceType: "module",
+    plugins: ["typescript", "decorators-legacy"],
+  }).program, (node, parent) => {
+    if (lazy && node.type === "CallExpression" && node.callee?.type === "Identifier"
+      && node.callee.name === "defineLazyGlobal" && propertyName(node.arguments[1]) === root) {
+      candidates.push({ node: parent?.type === "ExpressionStatement" ? parent : node, role: "lazy-trigger" });
+    }
+    if (!lazy && node.type === "CallExpression"
+      && JSON.stringify(memberSegments(node.callee)) === JSON.stringify(["Object", "defineProperty"])
+      && ["g", "globalThis"].includes(node.arguments[0]?.name)
+      && propertyName(node.arguments[1]) === root) {
+      candidates.push({ node: parent?.type === "ExpressionStatement" ? parent : node, role: "publication" });
+    }
+    if (!lazy && node.type === "AssignmentExpression") {
+      const segments = memberSegments(node.left);
+      if (segments?.length === 2 && ["g", "globalThis"].includes(segments[0]) && segments[1] === root) {
+        candidates.push({ node: parent?.type === "ExpressionStatement" ? parent : node, role: "publication" });
+      }
+    }
+  });
+  const unique = [...new Map(candidates.map((candidate) => [
+    `${candidate.node.start}:${candidate.node.end}`,
+    candidate,
+  ])).values()];
+  if (unique.length !== 1) return null;
+  const candidate = unique[0];
+  const site = sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: candidate.role,
+    siteKey: `${root}.${candidate.role}`,
+    range: { startByte: candidate.node.start, endByte: candidate.node.end },
+    text,
+    bytes,
+  });
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: lazy ? "typescript-lazy-global-publication" : "typescript-global-publication",
+    resolutionPolicy: "provenance-only",
+    sites: [site],
+    producerPaths: [],
+  });
+}
+
+function legacyBootstrapGlobalBinding({ branch, sourceRef, sourcePath, locator, absolute, text, bytes }) {
+  if (!sourcePath.startsWith("src/engine/bootstrap/") || !sourcePath.endsWith(".js")) return null;
+  if (locator.includes(":") || locator.includes("[[")) return null;
+  const parts = locator.split(".");
+  if (parts.length > 2) return null;
+  const root = parts[0];
+  const index = javascriptIndex(absolute, text);
+  const rootDeclaration = declarationFor(index, root);
+  let producer = parts.length === 1
+    ? rootDeclaration?.node
+    : memberProducer(index, root, parts[1]);
+  if (!producer) return null;
+  const publications = [];
+  for (const assignment of index.assignments) {
+    if (JSON.stringify(assignment.segments) === JSON.stringify(["globalThis", root])) {
+      publications.push({ node: assignment.parent?.type === "ExpressionStatement" ? assignment.parent : assignment.node, role: "publication" });
+    }
+  }
+  const ast = parse(text, { sourceType: "script", allowReturnOutsideFunction: true });
+  walkJavaScript(ast.program, (node, parent) => {
+    if (node.type === "CallExpression" && node.callee?.type === "Identifier"
+      && node.callee.name === "defineLazyGlobal" && propertyName(node.arguments[0]) === root) {
+      publications.push({ node: parent?.type === "ExpressionStatement" ? parent : node, role: "lazy-trigger" });
+    }
+    if (node.type === "CallExpression"
+      && JSON.stringify(memberSegments(node.callee)) === JSON.stringify(["Object", "defineProperty"])
+      && node.arguments[0]?.type === "Identifier" && node.arguments[0].name === "globalThis"
+      && propertyName(node.arguments[1]) === root) {
+      publications.push({ node: parent?.type === "ExpressionStatement" ? parent : node, role: "publication" });
+    }
+  });
+  const uniquePublications = [...new Map(publications.map((publication) => [
+    `${publication.role}:${publication.node.start}:${publication.node.end}`,
+    publication,
+  ])).values()];
+  if (
+    uniquePublications.length === 0
+    || !uniquePublications.some((publication) => publication.role === "publication")
+  ) return null;
+  const sites = [sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "value-producer",
+    siteKey: `${locator}.producer`,
+    range: { startByte: producer.start, endByte: producer.end },
+    text,
+    bytes,
+  })];
+  for (const [indexValue, publication] of uniquePublications.entries()) {
+    sites.push(sourceSite({
+      sourceRef,
+      path: sourcePath,
+      role: publication.role,
+      siteKey: `${root}.${publication.role}.${indexValue}`,
+      range: { startByte: publication.node.start, endByte: publication.node.end },
+      text,
+      bytes,
+    }));
+  }
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "legacy-bootstrap-global-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0legacy-fallback`),
+      conditionId: "legacy-bootstrap:global-missing",
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
 }
 
 function builtinExportBranchBinding({ branch, sourceRef, sourcePath, locator, absolute, text, bytes }) {
@@ -601,12 +812,54 @@ function builtinExportBranchBinding({ branch, sourceRef, sourcePath, locator, ab
   if (parts[0] === "default") {
     rootValue = modulePublication.value;
   } else {
-    rootProperty = objectProperty(moduleValue, parts[0]);
+    const matchingProperties = objectProperties(moduleValue, parts[0]) ?? [];
+    if (
+      parts.length === 1
+      && matchingProperties.length === 2
+      && new Set(matchingProperties.map((property) => property.kind)).size === 2
+      && matchingProperties.every((property) => ["get", "set"].includes(property.kind))
+    ) {
+      const sites = matchingProperties.map((property) => sourceSite({
+        sourceRef,
+        path: sourcePath,
+        role: "value-producer",
+        siteKey: `${exportPath}.${property.kind}`,
+        range: { startByte: property.start, endByte: property.end },
+        text,
+        bytes,
+      }));
+      sites.push(sourceSite({
+        sourceRef,
+        path: sourcePath,
+        role: "publication",
+        siteKey: "module.exports",
+        range: { startByte: modulePublication.node.start, endByte: modulePublication.node.end },
+        text,
+        bytes,
+      }));
+      return validateRestrictedExactSourceBinding({
+        sourceRef,
+        locatorKind: "commonjs-export-route",
+        resolutionPolicy: "composite-path",
+        sites,
+        producerPaths: [{
+          pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0${exportPath}`),
+          conditionId: `target-branch:${branch.targetVariant}`,
+          requiredSiteIds: sites.map((site) => site.siteId),
+        }],
+      });
+    }
+    rootProperty = matchingProperties.length === 1 ? matchingProperties[0] : null;
     rootValue = rootProperty?.type === "ObjectMethod" ? rootProperty : rootProperty?.value;
     if (!rootProperty) {
+      const moduleIdentifier = modulePublication.value.type === "Identifier"
+        ? modulePublication.value.name
+        : null;
       const direct = index.assignments.filter(({ segments }) =>
         JSON.stringify(segments) === JSON.stringify(["module", "exports", parts[0]])
         || JSON.stringify(segments) === JSON.stringify(["exports", parts[0]])
+        || (moduleIdentifier
+          && JSON.stringify(segments) === JSON.stringify([moduleIdentifier, parts[0]]))
       );
       if (direct.length !== 1) return null;
       rootProperty = direct[0].node;
@@ -668,6 +921,152 @@ function builtinExportBranchBinding({ branch, sourceRef, sourcePath, locator, ab
     sites,
     producerPaths: [{
       pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0${exportPath}`),
+      conditionId: `target-branch:${branch.targetVariant}`,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function splitTopLevelArguments(text) {
+  const parts = [];
+  let start = 0;
+  let depth = 0;
+  let state = "code";
+  for (let index = 0; index < text.length; index += 1) {
+    const current = text[index];
+    const next = text[index + 1];
+    if (state === "line-comment") {
+      if (current === "\n") state = "code";
+      continue;
+    }
+    if (state === "block-comment") {
+      if (current === "*" && next === "/") {
+        state = "code";
+        index += 1;
+      }
+      continue;
+    }
+    if (["single", "double"].includes(state)) {
+      if (current === "\\") index += 1;
+      else if ((state === "single" && current === "'") || (state === "double" && current === '"')) state = "code";
+      continue;
+    }
+    if (current === "/" && next === "/") {
+      state = "line-comment";
+      index += 1;
+    } else if (current === "/" && next === "*") {
+      state = "block-comment";
+      index += 1;
+    } else if (current === "'") state = "single";
+    else if (current === '"') state = "double";
+    else if (["(", "[", "{"].includes(current)) depth += 1;
+    else if ([")", "]", "}"].includes(current)) depth -= 1;
+    else if (current === "," && depth === 0) {
+      parts.push(text.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  parts.push(text.slice(start).trim());
+  return parts;
+}
+
+function setPropertyCalls(text, property) {
+  const calls = [];
+  const marker = ".setProperty";
+  let markerOffset = text.indexOf(marker);
+  while (markerOffset >= 0) {
+    const opening = text.indexOf("(", markerOffset + marker.length);
+    const end = opening < 0 ? -1 : matchingDelimiterEnd(text, opening, "(", ")");
+    if (end < 0) break;
+    const prefix = text.slice(Math.max(0, markerOffset - 100), markerOffset);
+    const callerMatch = /((?:[A-Za-z_$][A-Za-z0-9_$]*\.)?global\(\)|[A-Za-z_$][A-Za-z0-9_$]*)\s*$/u.exec(prefix);
+    const args = splitTopLevelArguments(text.slice(opening + 1, end - 1));
+    const propertyArg = args[1]?.trim();
+    if (callerMatch && [`"${property}"`, `'${property}'`].includes(propertyArg)) {
+      const startByte = markerOffset - callerMatch[0].trimStart().length;
+      const semicolon = text.indexOf(";", end);
+      calls.push({
+        caller: callerMatch[1],
+        value: args.slice(2).join(", ").trim(),
+        range: { startByte, endByte: semicolon >= 0 ? semicolon + 1 : end },
+      });
+    }
+    markerOffset = text.indexOf(marker, end);
+  }
+  return calls;
+}
+
+function movedIdentifier(expression) {
+  const match = /^(?:std::move\()?([A-Za-z_$][A-Za-z0-9_$]*)(?:\))?$/u.exec(expression.trim());
+  return match?.[1] ?? null;
+}
+
+function cppValueProducerRange(text, variable, before) {
+  if (!variable) return null;
+  const escaped = escapeRegExp(variable);
+  const declaration = new RegExp(
+    `(?:^|\\n)[^\\n;{}]*\\b${escaped}\\s*(?:=|\\()`,
+    "gu",
+  );
+  const matches = [...text.slice(0, before).matchAll(declaration)];
+  if (matches.length === 0) return null;
+  const match = matches.at(-1);
+  const startByte = match.index + (match[0][0] === "\n" ? 1 : 0);
+  const equal = text.indexOf("=", startByte);
+  const opening = text.indexOf("(", equal >= 0 && equal < before ? equal : startByte);
+  if (opening >= 0 && opening < before) {
+    const end = matchingDelimiterEnd(text, opening, "(", ")");
+    if (end > 0 && end <= before) {
+      const semicolon = text.indexOf(";", end);
+      return { startByte, endByte: semicolon >= 0 && semicolon < before ? semicolon + 1 : end };
+    }
+  }
+  return lineRange(text, startByte);
+}
+
+function jsiGlobalBranchBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (!/\.(?:cc|mm|h)$/u.test(sourcePath) || !locator.startsWith("jsi-global:")) return null;
+  if (locator === "jsi-global:process.cwd") return null;
+  const logicalPath = locator.slice("jsi-global:".length).split(".");
+  if (logicalPath.length > 2 || logicalPath.some((part) => part.includes("[["))) return null;
+  const rootCalls = setPropertyCalls(text, logicalPath[0]).filter(
+    (call) => ["rt.global()", "runtime.global()"].includes(call.caller),
+  );
+  if (rootCalls.length !== 1) return null;
+  const rootCall = rootCalls[0];
+  const rootVariable = movedIdentifier(rootCall.value);
+  let producerRange;
+  let memberCall;
+  if (logicalPath.length === 1) {
+    producerRange = cppValueProducerRange(text, rootVariable, rootCall.range.startByte)
+      ?? rootCall.range;
+  } else {
+    if (!rootVariable) return null;
+    const memberCalls = setPropertyCalls(text, logicalPath[1]).filter(
+      (call) => call.caller === rootVariable && call.range.startByte < rootCall.range.startByte,
+    );
+    if (memberCalls.length !== 1) return null;
+    memberCall = memberCalls[0];
+    producerRange = cppValueProducerRange(
+      text,
+      movedIdentifier(memberCall.value),
+      memberCall.range.startByte,
+    ) ?? memberCall.range;
+  }
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${logicalPath.join(".")}.producer`, range: producerRange, text, bytes }),
+  ];
+  if (memberCall) {
+    sites.push(sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${logicalPath.join(".")}.member-publication`, range: memberCall.range, text, bytes }));
+  }
+  sites.push(sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${logicalPath[0]}.root-publication`, range: rootCall.range, text, bytes }));
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "jsi-root-global-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0${logicalPath.join(".")}`),
       conditionId: `target-branch:${branch.targetVariant}`,
       requiredSiteIds: sites.map((site) => site.siteId),
     }],
@@ -799,8 +1198,121 @@ export function resolveRestrictedExactBranchSourceBinding(
 ) {
   const loaded = loadSourceRef(sourceRef, root);
   const contextual = moduleSpecifierBranchBinding({ branch, sourceRef, ...loaded })
-    ?? builtinExportBranchBinding({ branch, sourceRef, ...loaded });
+    ?? builtinExportBranchBinding({ branch, sourceRef, ...loaded })
+    ?? jsiGlobalBranchBinding({ branch, sourceRef, ...loaded })
+    ?? bootstrapGlobalBinding({ branch, sourceRef, ...loaded })
+    ?? legacyBootstrapGlobalBinding({ branch, sourceRef, ...loaded })
+    ?? typescriptClassMemberBinding({ branch, sourceRef, ...loaded });
   return contextual ?? resolveRestrictedExactSourceBinding(sourceRef, root);
+}
+
+function locatorOf(sourceRef) {
+  return sourceRef.slice(sourceRef.indexOf("#") + 1);
+}
+
+function selectGlobalProducerEntry(observedPath, entries) {
+  const [root, ...memberParts] = observedPath.split(".");
+  const member = memberParts.join(".");
+  const exactLocator = member ? `${root}.${member}` : root;
+  const prototypeLocator = member ? `${root}.prototype.${member}` : null;
+  const producers = entries.filter(({ binding }) =>
+    ["typescript-class-member", "typescript-class-inheritance"].includes(binding.locatorKind),
+  );
+  const exact = producers.filter(({ sourceRef }) => locatorOf(sourceRef) === exactLocator);
+  if (exact.length === 1) return exact[0];
+  const prototype = producers.filter(({ sourceRef }) => locatorOf(sourceRef) === prototypeLocator);
+  return prototype.length === 1 ? prototype[0] : null;
+}
+
+export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root = repoRoot) {
+  const entries = [];
+  const unresolved = [];
+  for (const sourceRef of [...new Set(sourceRefs)].sort()) {
+    try {
+      entries.push({
+        sourceRef,
+        binding: resolveRestrictedExactBranchSourceBinding(branch, sourceRef, root),
+      });
+    } catch (error) {
+      unresolved.push({ sourceRef, error: error.message });
+    }
+  }
+  if (unresolved.length > 0) {
+    return { branchId: branch.branchId, status: "incomplete", unresolved };
+  }
+  const selectedEntries = new Set();
+  const producerPaths = [];
+  if (branch.observedKey.startsWith("native-op:global:")) {
+    const observedPath = branch.observedKey.slice("native-op:global:".length);
+    const producer = selectGlobalProducerEntry(observedPath, entries);
+    const publications = entries.filter(({ binding }) =>
+      ["typescript-global-publication", "typescript-lazy-global-publication"].includes(binding.locatorKind),
+    );
+    if (producer && publications.length === 1) {
+      selectedEntries.add(producer);
+      selectedEntries.add(publications[0]);
+      const requiredSiteIds = [
+        ...producer.binding.sites,
+        ...publications[0].binding.sites,
+      ].map((site) => site.siteId);
+      producerPaths.push({
+        pathId: stableId("producer", `${branch.branchId}\0runtime-bundle`),
+        conditionId: publications[0].binding.locatorKind === "typescript-lazy-global-publication"
+          ? "runtime-bundle:global-missing"
+          : `target-branch:${branch.targetVariant}`,
+        requiredSiteIds,
+      });
+    }
+    for (const entry of entries.filter(({ binding }) => binding.locatorKind === "legacy-bootstrap-global-route")) {
+      selectedEntries.add(entry);
+      producerPaths.push(...entry.binding.producerPaths);
+    }
+  } else {
+    for (const entry of entries.filter(({ binding }) => binding.producerPaths.length > 0)) {
+      selectedEntries.add(entry);
+      producerPaths.push(...entry.binding.producerPaths);
+    }
+  }
+  if (producerPaths.length === 0) {
+    return {
+      branchId: branch.branchId,
+      status: "incomplete",
+      unresolved: [{ sourceRef: "<branch-route>", error: "no executable producer path" }],
+    };
+  }
+  const sites = [...new Map(
+    [...selectedEntries].flatMap((entry) => entry.binding.sites)
+      .map((site) => [site.siteId, site]),
+  ).values()];
+  const siteIds = new Set(sites.map((site) => site.siteId));
+  if (producerPaths.some((producerPath) =>
+    producerPath.requiredSiteIds.some((siteId) => !siteIds.has(siteId)))) {
+    throw new Error(`${branch.branchId}: producer path references an unselected site`);
+  }
+  const conditions = producerPaths.map((producerPath) => producerPath.conditionId);
+  if (producerPaths.length > 1 && new Set(conditions).size !== conditions.length) {
+    throw new Error(`${branch.branchId}: alternative producer paths lack distinct conditions`);
+  }
+  const bindingDispositions = entries.map((entry) => ({
+    sourceRef: entry.sourceRef,
+    disposition: selectedEntries.has(entry)
+      ? "selected-route"
+      : entry.binding.resolutionPolicy === "provenance-only"
+        ? "supporting-provenance"
+        : "excluded-nonterminal-route",
+    locatorKind: entry.binding.locatorKind,
+  }));
+  return {
+    branchId: branch.branchId,
+    edgeId: branch.edgeId,
+    observedKey: branch.observedKey,
+    targetVariant: branch.targetVariant,
+    status: "executable",
+    resolutionPolicy: producerPaths.length > 1 ? "conditioned-alternatives" : "composite-path",
+    sites,
+    producerPaths,
+    bindingDispositions,
+  };
 }
 
 export function resolveRestrictedExactSourceAnchor(sourceRef, root = repoRoot) {
@@ -862,6 +1374,31 @@ export function auditRestrictedExactBranchSourceBindings() {
     }
   }
   return { bindings, unresolved, total: bindings.length + unresolved.length };
+}
+
+export function auditRestrictedExactBranchSourceRoutes() {
+  const implementation = readJsonStrict(
+    path.join(capsecRoot, "generated/implementation-manifest.json"),
+  );
+  const routes = [];
+  const incomplete = [];
+  for (const branch of implementation.surfaces) {
+    const refs = [...new Set([
+      ...branch.sourceRefs,
+      ...branch.enforcementRoute.sourceRefs,
+      ...branch.enforcementRoute.proofSourceRefs,
+    ])].sort();
+    const route = buildRestrictedExactBranchSourceRoute(branch, refs);
+    if (route.status === "executable") routes.push(route);
+    else incomplete.push({
+      branchId: branch.branchId,
+      edgeId: branch.edgeId,
+      observedKey: branch.observedKey,
+      targetVariant: branch.targetVariant,
+      ...route,
+    });
+  }
+  return { routes, incomplete, total: implementation.surfaces.length };
 }
 
 function main() {

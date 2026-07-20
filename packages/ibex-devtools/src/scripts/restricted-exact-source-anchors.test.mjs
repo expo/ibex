@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, expect, test } from "vitest";
 
 import {
+  buildRestrictedExactBranchSourceRoute,
   resolveRestrictedExactSourceAnchor,
   resolveRestrictedExactSourceBinding,
   resolveRestrictedExactBranchSourceBinding,
@@ -116,6 +117,110 @@ describe("restricted Exact source anchors", () => {
     expect(
       bytes.subarray(binding.sites[0].startByte, binding.sites[0].endByte).toString(),
     ).toMatch(/Cipher\.prototype\.update|update\s*\(/u);
+  });
+
+  test("binds JSI globals through HostFunction construction and exact publication", () => {
+    const branch = {
+      branchId: "surface.native.op.exactaccess.default",
+      observedKey: "native-op:__exactAccess",
+      targetVariant: "default",
+    };
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      branch,
+      "src/engine/hermes_runtime_fs.cc#jsi-global:__exactAccess",
+    );
+    expect(binding.locatorKind).toBe("jsi-root-global-route");
+    expect(binding.sites.map((site) => site.role)).toEqual([
+      "value-producer",
+      "publication",
+    ]);
+    const bytes = fs.readFileSync("src/engine/hermes_runtime_fs.cc");
+    expect(bytes.subarray(binding.sites[0].startByte, binding.sites[0].endByte).toString()).toContain(
+      "createFromHostFunction",
+    );
+    expect(bytes.subarray(binding.sites[1].startByte, binding.sites[1].endByte).toString()).toContain(
+      'setProperty(rt, "__exactAccess"',
+    );
+  });
+
+  test("rejects an unclassified second JSI publication", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-jsi-branch-"));
+    try {
+      fs.writeFileSync(path.join(root, "fixture.cc"), `
+void install(Runtime& rt) {
+  auto first = createHostFunction();
+  rt.global().setProperty(rt, "danger", std::move(first));
+  auto second = createHostFunction();
+  rt.global().setProperty(rt, "danger", std::move(second));
+}
+`);
+      expect(() => resolveRestrictedExactBranchSourceBinding(
+        { branchId: "danger.default", observedKey: "native-op:danger", targetVariant: "default" },
+        "fixture.cc#jsi-global:danger",
+        root,
+      )).toThrow(/missing, ambiguous, or unsupported/u);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("binds a TypeScript member without crediting the entire class", () => {
+    const sourceRef = "packages/ibex-runtime-js/src/node/Buffer.ts#Buffer.prototype.copy";
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      { branchId: "buffer.copy.all", observedKey: "native-op:global:Buffer.copy", targetVariant: "all" },
+      sourceRef,
+    );
+    expect(binding.locatorKind).toBe("typescript-class-member");
+    expect(binding.resolutionPolicy).toBe("provenance-only");
+    const source = fs.readFileSync("packages/ibex-runtime-js/src/node/Buffer.ts");
+    const slice = source.subarray(binding.sites[0].startByte, binding.sites[0].endByte).toString();
+    expect(slice).toMatch(/^\s*copy\(/u);
+    expect(slice).not.toContain("class Buffer");
+  });
+
+  test("composes a global member route and excludes a nonterminal prototype homonym", () => {
+    const branch = {
+      branchId: "surface.native.op.global.buffer.compare.all",
+      edgeId: "surface.native.op.global.buffer.compare",
+      observedKey: "native-op:global:Buffer.compare",
+      targetVariant: "all",
+    };
+    const route = buildRestrictedExactBranchSourceRoute(branch, [
+      "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:Buffer",
+      "packages/ibex-runtime-js/src/node/Buffer.ts#Buffer.compare",
+      "packages/ibex-runtime-js/src/node/Buffer.ts#Buffer.prototype.compare",
+    ]);
+    expect(route.status).toBe("executable");
+    expect(route.producerPaths).toHaveLength(1);
+    expect(route.bindingDispositions).toContainEqual({
+      sourceRef: "packages/ibex-runtime-js/src/node/Buffer.ts#Buffer.prototype.compare",
+      disposition: "supporting-provenance",
+      locatorKind: "typescript-class-member",
+    });
+    expect(route.sites.map((site) => site.role)).toEqual([
+      "value-producer",
+      "publication",
+    ]);
+  });
+
+  test("composes runtime-bundle and legacy-bootstrap lazy alternatives", () => {
+    const branch = {
+      branchId: "surface.native.op.global.abortcontroller.abort.default",
+      edgeId: "surface.native.op.global.abortcontroller.abort",
+      observedKey: "native-op:global:AbortController.abort",
+      targetVariant: "default",
+    };
+    const route = buildRestrictedExactBranchSourceRoute(branch, [
+      "packages/ibex-runtime-js/src/abort/AbortController.ts#AbortController.prototype.abort",
+      "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:AbortController",
+      "src/engine/bootstrap/bootstrap-globals.js#AbortController.abort",
+    ]);
+    expect(route.status).toBe("executable");
+    expect(route.resolutionPolicy).toBe("conditioned-alternatives");
+    expect(route.producerPaths.map((producerPath) => producerPath.conditionId).sort()).toEqual([
+      "legacy-bootstrap:global-missing",
+      "runtime-bundle:global-missing",
+    ]);
   });
 
   test("uses UTF-8 byte offsets and isolates alternate-root caches", () => {
