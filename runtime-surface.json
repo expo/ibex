@@ -7,6 +7,8 @@
     "eval",
     "repl",
     "build",
+    "compile",
+    "inspect-executable",
     "completions",
     "version",
     "debug",
@@ -175,11 +177,31 @@
           "parserKind": "unsigned-integer-u64"
         },
         {
+          "commandPath": "ibex compile",
+          "argumentId": "compile_policy",
+          "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex compile",
+          "argumentId": "entry",
+          "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex compile",
+          "argumentId": "output",
+          "parserKind": "os-path"
+        },
+        {
           "commandPath": "ibex eval",
           "argumentId": "code",
           "parserKind": "utf8-string"
         },
         {
+          "commandPath": "ibex inspect-executable",
+          "argumentId": "file",
+          "parserKind": "os-path"
+        },
+        {
           "commandPath": "ibex policy check",
           "argumentId": "entry",
           "parserKind": "os-path"
@@ -191,8 +213,23 @@
         },
         {
           "commandPath": "ibex policy check",
+          "argumentId": "mount_profile",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex policy check",
           "argumentId": "out",
           "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex policy check",
+          "argumentId": "target_profile",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex policy check",
+          "argumentId": "target_triple",
+          "parserKind": "utf8-string"
         },
         {
           "commandPath": "ibex policy generate",
@@ -206,8 +243,23 @@
         },
         {
           "commandPath": "ibex policy generate",
+          "argumentId": "mount_profile",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex policy generate",
           "argumentId": "out",
           "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex policy generate",
+          "argumentId": "target_profile",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex policy generate",
+          "argumentId": "target_triple",
+          "parserKind": "utf8-string"
         },
         {
           "commandPath": "ibex run",
@@ -1539,6 +1591,135 @@
         ]
       },
       {
+        "path": "ibex compile",
+        "options": [
+          {
+            "id": "carrier",
+            "names": [
+              "--carrier"
+            ],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": [
+                "CARRIER"
+              ],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "enumerated",
+              "possibleValues": [
+                {
+                  "value": "hbc",
+                  "aliases": [],
+                  "hidden": false
+                },
+                {
+                  "value": "factory-table",
+                  "aliases": [],
+                  "hidden": false
+                }
+              ],
+              "possibleValuesHidden": false,
+              "defaultValues": [
+                "hbc"
+              ],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "compile_policy",
+            "names": [
+              "--policy"
+            ],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": [
+                "FILE"
+              ],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "deny_unsupported",
+            "names": [
+              "--deny-unsupported"
+            ],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": [
+                "DENY_UNSUPPORTED"
+              ],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "output",
+            "names": [
+              "--output",
+              "-o"
+            ],
+            "valueShape": {
+              "action": "Set",
+              "required": true,
+              "valueNames": [
+                "OUTPUT"
+              ],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          }
+        ],
+        "positionals": [
+          {
+            "id": "entry",
+            "index": 1,
+            "passthrough": false,
+            "valueShape": {
+              "action": "Set",
+              "required": true,
+              "valueNames": [
+                "ENTRY"
+              ],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          }
+        ]
+      },
+      {
         "path": "ibex completions",
         "positionals": [
           {
@@ -1621,6 +1802,31 @@
         ]
       },
       {
+        "path": "ibex inspect-executable",
+        "positionals": [
+          {
+            "id": "file",
+            "index": 1,
+            "passthrough": false,
+            "valueShape": {
+              "action": "Set",
+              "required": true,
+              "valueNames": [
+                "FILE"
+              ],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          }
+        ]
+      },
+      {
         "path": "ibex policy"
       },
       {
@@ -1669,6 +1875,27 @@
             }
           },
           {
+            "id": "mount_profile",
+            "names": [
+              "--mount-profile"
+            ],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": [
+                "MOUNT_PROFILE"
+              ],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
             "id": "out",
             "names": [
               "--out"
@@ -1678,6 +1905,48 @@
               "required": false,
               "valueNames": [
                 "OUT"
+              ],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "target_profile",
+            "names": [
+              "--target-profile"
+            ],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": [
+                "TARGET_PROFILE"
+              ],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "target_triple",
+            "names": [
+              "--target-triple"
+            ],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": [
+                "TARGET_TRIPLE"
               ],
               "minValues": 1,
               "maxValues": 1,
@@ -1737,6 +2006,27 @@
             }
           },
           {
+            "id": "mount_profile",
+            "names": [
+              "--mount-profile"
+            ],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": [
+                "MOUNT_PROFILE"
+              ],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
             "id": "out",
             "names": [
               "--out"
@@ -1746,6 +2036,48 @@
               "required": false,
               "valueNames": [
                 "OUT"
+              ],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "target_profile",
+            "names": [
+              "--target-profile"
+            ],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": [
+                "TARGET_PROFILE"
+              ],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "target_triple",
+            "names": [
+              "--target-triple"
+            ],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": [
+                "TARGET_TRIPLE"
               ],
               "minValues": 1,
               "maxValues": 1,

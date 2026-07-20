@@ -41,7 +41,7 @@
     },
     "execution": {
       "type": "object",
-      "required": ["durableMode", "auditWorkflow", "contractFixtureWorkflow", "publicPermissive", "publicOff", "missingPolicy", "incompleteTarget", "deputyIntersection", "processAuthorityCeiling"],
+      "required": ["durableMode", "auditWorkflow", "contractFixtureWorkflow", "publicPermissive", "publicOff", "missingPolicy", "incompleteTarget", "deputyIntersection", "processAuthorityCeiling", "rootAuthorityCeiling"],
       "properties": {
         "durableMode": { "const": "enforce" },
         "auditWorkflow": { "const": "ibex capsec audit" },
@@ -51,22 +51,23 @@
         "missingPolicy": { "const": "canonical-empty-enforce" },
         "incompleteTarget": { "const": "refuse-before-code" },
         "deputyIntersection": { "const": "all-actions-structural" },
-        "processAuthorityCeiling": { "const": "unbounded-allows-bounded-requires-containment-empty-bounded-denies-all" }
+        "processAuthorityCeiling": { "const": "unbounded-allows-bounded-requires-containment-empty-bounded-denies-all" },
+        "rootAuthorityCeiling": { "const": "bounded-applies-only-to-authenticated-root-before-ambient-root" }
       },
       "additionalProperties": false
     },
     "digestContract": { "$ref": "#/$defs/digestContract" },
     "decisionPrecedence": {
       "type": "array",
-      "minItems": 15,
-      "maxItems": 15,
+      "minItems": 17,
+      "maxItems": 17,
       "uniqueItems": true,
       "items": { "$ref": "#/$defs/decisionId" }
     },
     "decisionStrata": {
       "type": "array",
-      "minItems": 15,
-      "maxItems": 15,
+      "minItems": 17,
+      "maxItems": 17,
       "items": { "$ref": "#/$defs/decisionStratum" }
     },
     "principalSemantics": {
@@ -241,10 +242,12 @@
         "lifecycle-and-target-closure",
         "protected-resource-guards",
         "process-ceiling",
+        "root-authority-ceiling",
         "principal-denial",
         "revocation-negative-generation",
         "quarantine-deny",
         "definition-and-edge-positive-predicates",
+        "bootstrap-floor",
         "static-floor",
         "bearer-handle",
         "dynamic-session",
@@ -354,7 +357,7 @@
           "properties": {
             "vocabulary": { "const": "ibex:capsec:vocab:1" },
             "registry": { "const": "ibex:capsec:registry:1" },
-            "policy": { "const": "ibex:capsec:policy:1" },
+            "policy": { "const": "ibex:capsec:policy:2" },
             "armedSnapshot": { "const": "ibex:capsec:armed:1" },
             "conformance": { "const": "ibex:capsec:conformance:1" }
           },

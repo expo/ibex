@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/prepared-module-graph-v2.schema.json",
+  "title": "Ibex prepared module graph v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "entry",
+    "producerBinaryDigest",
+    "deploymentGraphDigest",
+    "records",
+    "carriers",
+    "candidateTables"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/prepared-module-graph/2" },
+    "entry": { "$ref": "prepared-module-graph-v1.schema.json#/$defs/sourceId" },
+    "producerBinaryDigest": { "$ref": "#/$defs/digest" },
+    "deploymentGraphDigest": { "$ref": "#/$defs/digest" },
+    "records": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "prepared-module-graph-v1.schema.json#/$defs/record" }
+    },
+    "carriers": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "prepared-module-graph-v1.schema.json#/$defs/carrier" }
+    },
+    "candidateTables": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/candidateTable" }
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]{43}$"
+    },
+    "candidateTable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "digest"],
+      "properties": {
+        "file": {
+          "type": "string",
+          "pattern": "^candidate-[0-9]+\\.json$"
+        },
+        "digest": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}

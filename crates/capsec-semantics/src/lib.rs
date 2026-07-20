@@ -7,10 +7,12 @@
 pub mod arming;
 pub mod cache;
 pub mod canonical;
+pub mod compiled_mount;
 pub mod containment;
 pub mod decision;
 pub mod digest;
 pub mod error;
+pub mod graph_snapshot;
 pub mod model;
 pub mod path_alias;
 pub mod policy;

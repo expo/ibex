@@ -5,10 +5,12 @@
 **Systems:** Build, Module Loader, Runtime, CLI
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
-**Revised:** 2026-07-15 (LLP 0026 adoption defines the bounded initialization-triggering authority carried by an authorized import edge); 2026-07-11 (ENG-24147 typed authoring and canonical policy generation); 2026-07-12 (ENG-24239/24247/24251 registry-bound policy ingress, selector constraints, and semantic drift classification)
+**Revised:** 2026-07-18 (the aggregate generated-drift gate validates every
+checked policy lockfile so registry digest rotations cannot strand stale review
+artifacts); 2026-07-18 (checked portable policy examples pin their authenticated source trees and rendered artifacts to LF across Git checkout platforms); 2026-07-18 (Snapback's 0.2 requirement activates computed imports: the generator joins reviewed manifest declarations to producer-owned `ibex:site` correspondence rows and authenticates the exact materialized sidecars); 2026-07-17 (canonical policy v2 binds graph, entry, deployment profile, normalized root ceiling, and closed computed-candidate materialization for LLP 0028/0029); 2026-07-15 (LLP 0026 adoption defines the bounded initialization-triggering authority carried by an authorized import edge); 2026-07-11 (ENG-24147 typed authoring and canonical policy generation); 2026-07-12 (ENG-24239/24247/24251 registry-bound policy ingress, selector constraints, and semantic drift classification)
 **Related:** LLP 0013 (compartments/capability enforcement — this spec defines its grant-authoring surface); LLP 0007 (bundler pipeline the generator rides); LLP 0004 (package manifests); LLP 0026 (module-runner initialization authority)
 
-> **Current implementation (2026-07-11):** authoring produces the versioned,
+> **Current implementation (2026-07-17):** authoring produces the versioned,
 > digest-bound canonical typed policy defined by LLP 0021. References below to
 > the unversioned `PolicyFile`, permissive execution, environment endowments,
 > or audit/enforce mode selection describe the superseded rollout and must not
@@ -245,7 +247,7 @@ this.
 
 ## The generated artifact
 
-The artifact is the canonical `ibex/capsec-policy/1` review policy. The trusted
+The artifact is the canonical `ibex/capsec-policy/2` review policy. The trusted
 arming step consumes it; the legacy `PolicyFile` is not a production-policy
 form. ESM authors encode a JSON array of typed selectors in the string-valued
 `authorities` import attribute. CommonJS authors use a JSON-only second
@@ -255,7 +257,7 @@ rejected at the canonical boundary rather than copied or silently omitted.
 
 ```jsonc
 {
-  "policySchema": "ibex/capsec-policy/1",
+  "policySchema": "ibex/capsec-policy/2",
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
   "vocabDigest": "sha256-...",
@@ -263,6 +265,22 @@ rejected at the canonical boundary rather than copied or silently omitted.
   "policyDigest": "sha256-...",
   "purpose": "production",
   "mode": "enforce",
+  "graphIdentity": "sha256-...",
+  "entryIdentity": {
+    "root": "project",
+    "components": [{ "encoding": "utf8", "value": "src" },
+      { "encoding": "utf8", "value": "app.mjs" }],
+    "sourceIntegrity": "sha256-..."
+  },
+  "targetProfile": { "kind": "source", "profile": "portable-v1" },
+  "mountProfile": "project-v1",
+  "rootCeiling": [],
+  "computedCandidates": {
+    "schema": "ibex/computed-candidate-manifest/1",
+    "declarations": [],
+    "packageClosureOptIns": [],
+    "materializedSites": []
+  },
   "principals": [{
     "principal": { "kind": "package", "name": "image-lib",
       "integrity": "sha256-...", "locator": "image-lib@2.4.1" },
@@ -278,6 +296,43 @@ rejected at the canonical boundary rather than copied or silently omitted.
 
 Normative properties:
 
+- **One authenticated graph and entry.** `graphIdentity` is the
+  `ibex/authenticated-graph-snapshot/1` digest of the canonical projection over
+  the entry identity, source-integrity-bearing module nodes, integrity-bound
+  package principals, typed package edges, and materialized computed-candidate
+  sets. `entryIdentity` is a normalized project-relative `PathComponent` path
+  plus source integrity. Both fields participate in `policyDigest`; a policy
+  cannot be reused for another graph or entry merely because its package rows
+  happen to look alike. Checked `portable-v1` examples pin every tracked source
+  and rendered policy artifact to LF through `.gitattributes`; otherwise Git's
+  Windows checkout conversion would change the authenticated graph bytes and
+  make one committed review artifact platform-dependent.
+- **One deployment profile.** `targetProfile` is tagged as either source
+  (`portable-v1`) or compiled (`sfe-v1` plus a normalized target triple), and
+  `mountProfile` is `project-v1` or `compiled-app-work-v1`. The pair is part of
+  the reviewed digest. Default artifact names include entry, target profile,
+  target triple when present, and mount profile; an explicit `--out` remains
+  available for checked-in compatibility examples.
+- **The root ceiling is explicit.** `rootCeiling` is the normalized,
+  provenance-carrying authority declaration authored at
+  `package.json#ibex.rootAuthorityCeiling`. An absent declaration is the empty
+  ceiling; deployment code does not infer ambient authority from the host.
+- **Computed resolution is closed.** Root `package.json` declares stable
+  requester/label sites with explicit specifiers and/or exact package locators
+  under `ibex.computedCandidates.sites`. A locator may contribute its package
+  closure only when that exact package manifest opts in with
+  `ibex.computedCandidateClosure: true`. The generator records the opt-in with
+  provenance and materializes the complete per-site candidate set. Every
+  declaration has exactly one materialized row, every declared explicit
+  specifier is present, and undeclared/open filesystem discovery is forbidden.
+  The Oxc producer is the only parser and assigns the site ordinal, stable
+  source-authored `ibex:site` label, and original-source span. Policy
+  generation consumes that correspondence through the authenticated graph
+  snapshot; it does not parse source to rediscover or renumber sites. The
+  resulting `ibex/computed-candidates/1` table binds requester/source integrity,
+  transform-fingerprint domain, generation, attributes, exact spellings, and
+  resolved target identities. Adding a candidate is therefore an explicit
+  authority-relevant policy diff.
 - **Every integrity-bound package in the analyzed graph appears**, granted or not, and
   every entry carries an explicit `builtins` list (`[]` when the package
   imports no builtin). The runtime reads an *absent* `builtins` as
@@ -296,9 +351,12 @@ Normative properties:
   difference, reporting typed authority **expansions** separately from
   narrowings, mixed changes, semantic vocabulary changes, and graph/package
   identity changes separately. Package/builtin imports, endowments, denial
-  removal, and ceiling widening participate in authority classification rather
-  than being mislabeled as structural drift. Provenance-only changes remain
-  loud diffs.
+  removal, root or package ceiling widening, and computed-candidate additions
+  participate in authority expansion classification rather than being
+  mislabeled as structural drift. Provenance-only changes remain loud diffs.
+  The aggregate `bun run check:drift` gate invokes this check for every
+  committed example, so a registry digest rotation and its policy lockfiles
+  cannot validate independently.
 
 ## Dynamic grants and the static ceiling
 

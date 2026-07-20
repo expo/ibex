@@ -5,6 +5,9 @@
 **Systems:** Tooling, Build, Agent Skills, Developer Experience, CI
 **Author:** Charlie Cheever / Claude (second-round pilot feedback)
 **Date:** 2026-07-05
+**Revised:** 2026-07-18 (the fail-loud Rust test wrapper binds Cargo to the
+configured absolute MSVC linker and vendored OpenSSL to a validated native
+Perl under Git Bash, where Git tools otherwise shadow both executables)
 **Revised:** 2026-07-05 (added frictions 5–7 — vendored-vs-src stale build, agents parking on backgrounded builds, and the hot-`main` rebuild tax — plus plan items 5–7 and a sharp-edges appendix, from the 14-way parallel cdc-linear-do run); 2026-07-05 (revised items 1, 2, 5, 7 per the OpenAI- and Claude-family reviews under `llp/reviews/`: agent stale-vendored path now fails nonzero not warn-only, test wrapper defaults to the full package test set instead of dropping the 63 binary tests, post-rebase re-verify gets a minimum-verification policy, and item-1 required-artifact semantics are made explicit); 2026-07-05 (implemented the core items — see Implementation status); 2026-07-06 (verified Homebrew coreutils 9.11 and timeout/gtimeout on the current macOS host); 2026-07-09 (replaced the mtime stale heuristic with a deterministic committed source fingerprint after clean checkouts and Exact's cargo re-fingerprinting touches produced false positives)
 **Related:** LLP 0000; LLP 0005; LLP 0006 (fail-closed/loud principle); LLP 0015 (build machines); LLP 0017 (agent execution reliability); ENG-22986
 
@@ -416,6 +419,11 @@ playbook; verified end to end in this checkout.
   default (lib + `ibex` binary + integration), narrowable via `--scope`, sums the
   reported counts, exits nonzero on zero tests (unless `--allow-zero`), preserves
   cargo's real exit status via `PIPESTATUS`, and reports the scope + total it ran.
+  Under Git Bash on Windows it also binds Cargo to the absolute linker installed
+  by the active Visual Studio developer environment, refusing a missing or
+  unknown MSVC target rather than allowing Git's Coreutils `link.exe` to shadow
+  it. It likewise selects a native Perl with OpenSSL's required modules from the
+  original Windows developer path instead of Git's incomplete Perl.
 - **Item 3 — partial.** `scripts/warm-worktree.sh --clone-target` does the APFS
   `cp -c` per-worktree `target/` clone (refusing to overwrite), and
   `check-build-machine.sh` verifies `sccache` + `RUSTC_WRAPPER`/`SCCACHE_DIR`.

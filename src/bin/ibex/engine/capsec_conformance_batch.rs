@@ -3298,10 +3298,14 @@ async fn execute_module_runner_host_abi_public_recipe(
     let entry = project_root.join("entry.mjs");
     std::fs::write(
         &entry,
-        "import { value as imported } from './dep.mjs';\n\
+        "import { settled } from './asynchronous-entry.mjs';\n\
+         import cjs from './commonjs-entry.cjs';\n\
+         import { value as imported } from './dep.mjs';\n\
          export { other as forwarded } from './dep.mjs';\n\
          export * from './star.mjs';\n\
-         export const local = imported;\n",
+         export const local = imported + cjs.total + (settled ? 0 : 100);\n\
+         export function loadDynamic() { return import('./dynamic.mjs'); }\n\
+         export function loadComputed(name) { return import(name, { with: { 'ibex:site': 'esm-route' } }); }\n",
     )
     .expect("write module-runner public entry");
     std::fs::write(
@@ -3312,8 +3316,31 @@ async fn execute_module_runner_host_abi_public_recipe(
     std::fs::write(project_root.join("star.mjs"), "export const star = 3;\n")
         .expect("write module-runner public star dependency");
     let commonjs_entry = project_root.join("commonjs-entry.cjs");
-    std::fs::write(&commonjs_entry, "exports.total = 5;\n")
-        .expect("write module-runner public CommonJS entry");
+    std::fs::write(
+        &commonjs_entry,
+        "const peer = require('./commonjs-peer.cjs');\n\
+         const esm = require('./commonjs-esm.mjs');\n\
+         exports.total = peer.value + esm.value;\n\
+         exports.loadDynamic = () => import('./dynamic.mjs');\n\
+         const route = './dynamic.mjs';\n\
+         exports.loadComputed = () => import(route, { with: { 'ibex:site': 'cjs-route' } });\n",
+    )
+    .expect("write module-runner public CommonJS entry");
+    std::fs::write(
+        project_root.join("commonjs-peer.cjs"),
+        "exports.value = 2;\n",
+    )
+    .expect("write module-runner public CommonJS dependency");
+    std::fs::write(
+        project_root.join("commonjs-esm.mjs"),
+        "export const value = 3;\n",
+    )
+    .expect("write module-runner public CommonJS ESM dependency");
+    std::fs::write(
+        project_root.join("package.json"),
+        r#"{"ibex":{"computedCandidates":{"sites":[{"requester":"commonjs-entry.cjs","label":"cjs-route","specifiers":["./dynamic.mjs"]},{"requester":"entry.mjs","label":"esm-route","specifiers":["./dynamic.mjs"]}]}}}"#,
+    )
+    .expect("write module-runner computed-candidate declarations");
     let asynchronous_entry = project_root.join("asynchronous-entry.mjs");
     std::fs::write(
         &asynchronous_entry,
@@ -3323,11 +3350,22 @@ async fn execute_module_runner_host_abi_public_recipe(
     .expect("write module-runner public asynchronous entry");
 
     let _reset = HostResetGuard;
-    // Oxc executes inside the mapped Ibex image, not the separately loaded
-    // Hermes image.
-    // @ref LLP 0027#canonical-encoding-and-validation
-    let producer_digest = crate::runtime::module_producer_binary_digest()
-        .expect("authenticate mapped Ibex module producer");
+    let producer_digest = capsec_semantics::model::Digest::new(engine_binary_digest.to_owned())
+        .expect("loaded engine digest is a canonical digest");
+    let build_graph = |entry: &std::path::Path| {
+        match build_authenticated_source_graph_v1(entry, producer_digest.clone())
+            .expect("build authenticated module-runner public graph")
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!(
+                    "module-runner public graph unexpectedly required legacy: {}",
+                    requirement
+                )
+            }
+        }
+    };
+    let graph = build_graph(&entry);
     let deployment_digest = ibex_runtime::module_loader::artifact::digest_bytes(
         "ibex/capsec-module-runner-public-prepared/1",
         b"authenticated prepared graph",
@@ -3339,46 +3377,46 @@ async fn execute_module_runner_host_abi_public_recipe(
     // @ref LLP 0027#esmcommonjs-interop-matrix
     unsafe { ibex_test_begin_module_runner_abi_observation() };
     let session_id = format!("public-module-runner-host-abi:{}", recipe.plan_digest);
-    execute_authenticated_module_runner_public_graph(
-        &project_root,
-        &entry,
-        "capsec-module-runner-public-esm",
-        &producer_digest,
-        None,
-        &session_id,
-        true,
-    )
-    .await;
-    execute_authenticated_module_runner_public_graph(
-        &project_root,
-        &commonjs_entry,
-        "capsec-module-runner-public-commonjs",
-        &producer_digest,
-        None,
-        &session_id,
-        false,
-    )
-    .await;
-    execute_authenticated_module_runner_public_graph(
-        &project_root,
-        &asynchronous_entry,
-        "capsec-module-runner-public-asynchronous",
-        &producer_digest,
-        None,
-        &session_id,
-        false,
-    )
-    .await;
-    execute_authenticated_module_runner_public_graph(
-        &project_root,
-        &entry,
-        "capsec-module-runner-public-esm",
-        &producer_digest,
-        Some(deployment_digest),
-        &session_id,
-        false,
-    )
-    .await;
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
+        &session_id
+    ));
+    let runtime = engine
+        .ensure_runtime()
+        .await
+        .expect("borrow loaded runtime for graph-context retain");
+    runtime
+        .with_runtime(|raw| -> anyhow::Result<()> {
+            use ibex_runtime::engine::module_runner::{
+                GraphEvaluationContext, NativeModuleRuntime,
+            };
+            use ibex_runtime::module_loader::identity::SourceId;
+
+            let nonce = unsafe { ex_hermes_runtime_nonce(raw) };
+            let raw = std::ptr::NonNull::new(raw.cast())
+                .expect("loaded Hermes runtime pointer is non-null");
+            let native = unsafe { NativeModuleRuntime::from_raw(raw, nonce)? };
+            let context = native.create_graph_context(GraphEvaluationContext::new(
+                SourceId::synthetic("capsec-module-runner-public", "retained-context")?,
+                0,
+                0,
+                [0],
+                1,
+            )?)?;
+            let retained = context.clone();
+            drop(retained);
+            drop(context);
+            Ok(())
+        })
+        .expect("access loaded runtime for graph-context retain")
+        .expect("retain a real native graph context");
+    engine
+        .run_authenticated_module_graph(&graph)
+        .await
+        .expect("execute authenticated module-runner public ESM graph");
+    engine
+        .run_authenticated_module_graph(&prepared_graph)
+        .await
+        .expect("execute authenticated module-runner public prepared graph");
     let pointer = unsafe { ibex_test_take_module_runner_abi_observation() };
     assert!(
         !pointer.is_null(),

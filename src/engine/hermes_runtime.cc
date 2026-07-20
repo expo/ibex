@@ -247,7 +247,18 @@ bool env_flag_enabled(const char* env_name) {
   // all work), everything else (0/false/no/off/empty/unset) disables. The Rust
   // `env_flag_enabled` (src/bin/ibex/main.rs) mirrors this so the bundler driver
   // and the engine never disagree about whether compartments are on. (ENG-22634)
+#if defined(_WIN32)
+  // @ref LLP 0003#how-hermes-is-driven — the DLL's CRT environment can be a
+  // separate snapshot from Rust's process environment; query the process block
+  // so pre-construction runtime configuration is shared across that boundary.
+  DWORD required = GetEnvironmentVariableA(env_name, nullptr, 0);
+  if (required == 0) return false;
+  std::string value(required, '\0');
+  DWORD copied = GetEnvironmentVariableA(env_name, value.data(), required);
+  const char* val = copied > 0 && copied < required ? value.c_str() : nullptr;
+#else
   const char* val = std::getenv(env_name);
+#endif
   return val && (val[0] == '1' || val[0] == 'y' || val[0] == 'Y' ||
                  val[0] == 't' || val[0] == 'T');
 }
@@ -416,6 +427,7 @@ extern "C" uint32_t ex_host_authorize_typed_fs_stack(
     int32_t needs_write,
     const char* presented_handle_id);
 extern "C" int32_t ex_host_matches_armed_snapshot_digest(const char* digest);
+extern "C" int32_t ex_host_seal_bootstrap_phase(void);
 extern "C" int32_t ex_host_authorize_exact_endowment(
     uint64_t host_context_id,
     uint32_t context_kind,
@@ -470,6 +482,9 @@ extern "C" int32_t ex_host_fs_append(const char* path, const uint8_t* data, uint
 // Returns the value's full byte length (>= len signals truncation), or -1 when
 // the variable is unset. See getEnvValue below (ENG-22955).
 extern "C" int64_t ex_host_env_get(const char* key, char* out_buf, uint32_t len);
+extern "C" int64_t ex_host_env_compiled_key_count();
+extern "C" int64_t ex_host_env_compiled_key_at(
+    size_t index, char* out_buf, uint32_t len);
 extern "C" int32_t ex_host_random_fill(uint8_t* buf, uint32_t len);
 
 namespace {
@@ -3338,6 +3353,23 @@ std::optional<std::string> getEnvValue(const std::string& key) {
   return result;
 }
 
+std::optional<std::string> getCompiledEnvKey(size_t index) {
+  char buffer[256];
+  int64_t needed =
+      ex_host_env_compiled_key_at(index, buffer, sizeof(buffer));
+  if (needed < 0) return std::nullopt;
+  size_t fullLen = static_cast<size_t>(needed);
+  if (fullLen < sizeof(buffer)) {
+    return std::string(buffer, buffer + fullLen);
+  }
+  std::string result(fullLen, '\0');
+  int64_t written = ex_host_env_compiled_key_at(
+      index, result.data(), static_cast<uint32_t>(fullLen + 1));
+  if (written < 0) return std::nullopt;
+  result.resize(std::min(static_cast<size_t>(written), fullLen));
+  return result;
+}
+
 void runNextTickQueue(ExactHermesRuntime* runtime);
 
 // Native StringBuffer for O(1) amortized string append (avoids O(n^2) JS string concatenation)
@@ -4235,6 +4267,24 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                const facebook::jsi::Value*,
                size_t) -> facebook::jsi::Value {
         facebook::jsi::Object env(runtime);
+        int64_t compiledCount = ex_host_env_compiled_key_count();
+        if (compiledCount >= 0) {
+          for (int64_t index = 0; index < compiledCount; ++index) {
+            auto key = getCompiledEnvKey(static_cast<size_t>(index));
+            if (!key.has_value() ||
+                !typedEnvironmentOverlayAccessAllowed(
+                    *key, ExactEnvironmentOverlayAccess::EnumerationRead)) {
+              continue;
+            }
+            auto value = getEnvValue(*key);
+            if (!value.has_value()) continue;
+            env.setProperty(
+                runtime,
+                facebook::jsi::PropNameID::forUtf8(runtime, *key),
+                facebook::jsi::String::createFromUtf8(runtime, *value));
+          }
+          return env;
+        }
         // @ref LLP 0022#7-capabilities-principals-and-affordance-parity — the
         // armed base is empty. Enumeration visits only the current principal's
         // overlay and independently authorizes each exact name before copying
@@ -6072,19 +6122,47 @@ void emitNewScripts(ExactHermesRuntime* runtime,
             #name, (long long)_elapsed, _elapsed / 1000.0); \
   }
 
+#if defined(_WIN32)
+namespace {
+
+HMODULE loadedHermesModule() {
+  // The address of an imported C++ function can name the executable's import
+  // thunk rather than the DLL that supplies it. Resolve a carried C bridge
+  // first, then ask Windows for the image that contains the resolved address.
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // engine evidence must identify the mapped Hermes DLL, never its caller.
+  HMODULE candidate = GetModuleHandleA("hermesvm.dll");
+  if (candidate == nullptr) return nullptr;
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  FARPROC bridge =
+      GetProcAddress(candidate, "ex_hermes_vm_current_package_id");
+  if (bridge == nullptr) return nullptr;
+  HMODULE containing = nullptr;
+  if (!GetModuleHandleExA(
+          GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+              GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+          reinterpret_cast<LPCSTR>(bridge), &containing) ||
+      containing != candidate) {
+    return nullptr;
+  }
+#endif
+  return candidate;
+}
+
+} // namespace
+#endif
+
 extern "C" int32_t ex_hermes_engine_binary_path(char* out, size_t out_len) {
   if (out == nullptr || out_len == 0) return -1;
-#if !defined(_WIN32)
-  using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
-      const ::hermes::vm::RuntimeConfig&);
-  auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
-#endif
 #if defined(_WIN32)
-  HMODULE module = exactHermesRuntimeImageModule();
+  HMODULE module = loadedHermesModule();
   if (module == nullptr) return -1;
   DWORD written = GetModuleFileNameA(module, out, static_cast<DWORD>(out_len));
   return written > 0 && written < out_len ? static_cast<int32_t>(written) : -1;
 #else
+  using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
+      const ::hermes::vm::RuntimeConfig&);
+  auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
   Dl_info info = {};
   if (dladdr(reinterpret_cast<void*>(factory), &info) == 0 || info.dli_fname == nullptr) {
     return -1;
@@ -6110,7 +6188,7 @@ extern "C" int32_t ex_hermes_engine_mapped_object(
   // independently of the Rust handle used to hash the named artifact. Windows
   // does not expose the loader's image-section handle here, so this remains
   // diagnostic pathname-reopen evidence and cannot authenticate mapped code.
-  HMODULE module = exactHermesRuntimeImageModule();
+  HMODULE module = loadedHermesModule();
   if (module == nullptr) return -1;
   std::vector<char> path(32768, '\0');
   DWORD written =
@@ -7425,6 +7503,17 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
     // Verify the armed posture after that final seal, while retaining full
     // partial-runtime cleanup for every refusal.
     // @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+    cleanupPartiallyConstructedRuntime(handle);
+    return nullptr;
+  }
+
+  if (armed && ex_host_seal_bootstrap_phase() != 1) {
+    // Bootstrap authority is an evaluator-owned, one-shot phase credential.
+    // Application code cannot begin unless the exact active Host context
+    // proves that this constructor destroyed it.
+    // @ref LLP 0029#4-compiled-mode-authority
+    ex_host_console_log(
+        1, "Armed startup refused: bootstrap authority did not seal exactly once");
     cleanupPartiallyConstructedRuntime(handle);
     return nullptr;
   }
@@ -12437,11 +12526,11 @@ static int evalRuntimeUnchecked(
 #endif
 
     // If the result is a thenable/Promise, resolve it before returning.
-    // This makes top-level await work in the REPL and eval contexts.
-    // Windows Hermes currently does not support async function syntax in this
-    // eval path, and the CLI already drives the event loop after file/eval
-    // execution, so skip the JS unwrap shim there.
-#if !defined(_WIN32)
+    // This makes top-level await work in the REPL and eval contexts. The
+    // shipping Windows Hermes accepts the same generated async wrappers, so
+    // keep result and rejection handling target-independent.
+    // @ref LLP 0024#engine-premises — authoritative target tests verify the
+    // async-wrapper premise before the legacy seam is offered on that target.
     if (result.isObject()) {
       auto& rt = *runtime->runtime;
       // Stash the result as a temp global so JS can inspect it
@@ -12554,8 +12643,6 @@ static int evalRuntimeUnchecked(
         }
       }
     }
-#endif
-
     if (out_value) {
       if (result.isUndefined()) {
         *out_value = nullptr;

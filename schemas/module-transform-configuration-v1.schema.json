@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://exact.dev/schemas/module-transform-configuration-v1.schema.json",
+  "title": "Ibex module transform configuration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "transformConfigurationSchema",
+    "producer",
+    "oxc",
+    "ecmascriptTarget",
+    "hermesTarget",
+    "handwrittenPassVersion",
+    "moduleRunnerAbi",
+    "hermesCompatVersion",
+    "commonJsDetector",
+    "options"
+  ],
+  "properties": {
+    "transformConfigurationSchema": {
+      "const": "ibex/module-transform-configuration/1"
+    },
+    "producer": { "type": "string", "minLength": 1 },
+    "oxc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["directPackages"],
+      "properties": {
+        "directPackages": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
+          },
+          "propertyNames": { "pattern": "^oxc_" }
+        }
+      }
+    },
+    "ecmascriptTarget": { "type": "string", "pattern": "^es[0-9]+$" },
+    "hermesTarget": { "type": "string", "minLength": 1 },
+    "handwrittenPassVersion": { "type": "string", "minLength": 1 },
+    "moduleRunnerAbi": { "type": "string", "minLength": 1 },
+    "hermesCompatVersion": { "type": "string", "minLength": 1 },
+    "commonJsDetector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["oxc", "codegen", "factories", "json"],
+      "properties": {
+        "oxc": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["module", "typescript", "jsx", "decorators"],
+          "properties": {
+            "module": { "const": "preserve" },
+            "typescript": { "const": "strip" },
+            "jsx": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["enabled", "runtime"],
+              "properties": {
+                "enabled": { "const": true },
+                "runtime": { "const": "classic" }
+              }
+            },
+            "decorators": { "const": false }
+          }
+        },
+        "codegen": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sourceMap", "minify"],
+          "properties": {
+            "sourceMap": { "const": "v3-source-id" },
+            "minify": { "const": false }
+          }
+        },
+        "factories": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["module", "commonJs", "json"],
+          "properties": {
+            "module": { "const": "declare-execute" },
+            "commonJs": { "const": "commonjs-wrapper" },
+            "json": { "const": "json-default-export" }
+          }
+        },
+        "json": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["strict", "duplicateKeys"],
+          "properties": {
+            "strict": { "const": true },
+            "duplicateKeys": { "const": "reject" }
+          }
+        }
+      }
+    }
+  }
+}

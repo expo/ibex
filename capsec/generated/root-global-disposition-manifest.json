@@ -2,7 +2,7 @@
   "rootGlobalDispositionManifestSchema": "ibex/root-global-disposition-manifest/1",
   "profile": "ibex/capsec/1",
   "status": "enforced-by-armed-live-sweep",
-  "sourceDigest": "sha256-oqB-n4JqQFUrmx4vSY8RHjEIBUmn3twA0llK62t26FI",
+  "sourceDigest": "sha256-yOXneceesjQOaFQORk1IxTQNJ03UtudTNRVj5kF5OWM",
   "sweep": {
     "roots": [
       "globalThis"
@@ -3223,73 +3223,22 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.asyncfunction.224676dff7f26546",
+      "installId": "root-global.asyncfunction.3a8aa0a540e62bd2",
       "observedKey": "native-op:global:AsyncFunction",
       "registryEdgeId": "surface.native.op.global.asyncfunction.12527a5",
       "branch": {
         "id": "windows",
         "routes": [
-          "hermes-intrinsic-windows-source-patched-c1f3df89055e-84bc50a29f72"
+          "hermes-intrinsic-windows-source-patched-ca0aba4514e9-84bc50a29f72"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-c1f3df89055e0791e636aac0fbee262134192ca52cf3f1188ca68c908f0f7e4d",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
         ],
         "targetVariant": "windows",
-        "activation": "intrinsic-reference-only"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "AsyncFunction"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "source-derived",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.asyncfunction.31c6929f89d9e46a",
-      "observedKey": "native-op:global:AsyncFunction",
-      "registryEdgeId": "surface.native.op.global.asyncfunction.12527a5",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "hermes-intrinsic-source-patched-afb724557d11-84bc50a29f72"
-        ],
-        "sourceRefs": [
-          "patches/hermes/0001-domain-package-principal.patch#patch-content",
-          "patches/hermes/0002-frame-attribution-helper.patch#patch-content",
-          "patches/hermes/0003-capability-bridge-exports.patch#patch-content",
-          "patches/hermes/0004-native-compartment-globals.patch#patch-content",
-          "patches/hermes/0005-native-compartment-refinements.patch#patch-content",
-          "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
-          "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
-          "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
-          "patches/hermes/0009-raw-throw-capture.patch#patch-content",
-          "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
-          "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
-          "scripts/apply-hermes-patches.sh#patches",
-          "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
-          "scripts/build-hermes.sh#apply-hermes-patches.sh",
-          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
-          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
-          "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
-          "scripts/hermes-version.sh#ibex_hermes_patch_digest",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
-          "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
-        ],
-        "targetVariant": "default",
         "activation": "intrinsic-reference-only"
       },
       "property": {
@@ -3330,6 +3279,57 @@
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
         ],
         "targetVariant": "android",
+        "activation": "intrinsic-reference-only"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "AsyncFunction"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "source-derived",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.asyncfunction.e561d43b8e5f8824",
+      "observedKey": "native-op:global:AsyncFunction",
+      "registryEdgeId": "surface.native.op.global.asyncfunction.12527a5",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "hermes-intrinsic-source-patched-29cbb561c089-84bc50a29f72"
+        ],
+        "sourceRefs": [
+          "patches/hermes/0001-domain-package-principal.patch#patch-content",
+          "patches/hermes/0002-frame-attribution-helper.patch#patch-content",
+          "patches/hermes/0003-capability-bridge-exports.patch#patch-content",
+          "patches/hermes/0004-native-compartment-globals.patch#patch-content",
+          "patches/hermes/0005-native-compartment-refinements.patch#patch-content",
+          "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
+          "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
+          "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+          "patches/hermes/0009-raw-throw-capture.patch#patch-content",
+          "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
+          "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "scripts/apply-hermes-patches.sh#patches",
+          "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
+          "scripts/build-hermes.sh#apply-hermes-patches.sh",
+          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
+          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
+          "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-29cbb561c0894a35dd2f5f471e4b809de37d763d4f62fe8861c0c84283473868",
+          "scripts/hermes-version.sh#ibex_hermes_patch_digest",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
+        ],
+        "targetVariant": "default",
         "activation": "intrinsic-reference-only"
       },
       "property": {
@@ -21922,48 +21922,13 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.eval.03202cae8768a131",
-      "observedKey": "native-op:global:eval",
-      "registryEdgeId": "surface.native.op.global.eval.018ogi5",
-      "branch": {
-        "id": "windows",
-        "routes": [
-          "hermes-intrinsic-windows-source-patched-c1f3df89055e-84bc50a29f72"
-        ],
-        "sourceRefs": [
-          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-c1f3df89055e0791e636aac0fbee262134192ca52cf3f1188ca68c908f0f7e4d",
-          "scripts/install-windows-hermes.ps1#hermes-windows-",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
-          "src/engine/hermes_runtime.cc#lockdownJS:eval"
-        ],
-        "targetVariant": "windows",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "eval"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "source-derived",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.eval.89b607bdefe84c52",
+      "installId": "root-global.eval.15feb3fde4fe3dca",
       "observedKey": "native-op:global:eval",
       "registryEdgeId": "surface.native.op.global.eval.018ogi5",
       "branch": {
         "id": "default",
         "routes": [
-          "hermes-intrinsic-source-patched-afb724557d11-84bc50a29f72",
+          "hermes-intrinsic-source-patched-29cbb561c089-84bc50a29f72",
           "legacy-bootstrap"
         ],
         "sourceRefs": [
@@ -21984,7 +21949,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-29cbb561c0894a35dd2f5f471e4b809de37d763d4f62fe8861c0c84283473868",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/bootstrap/compat-polyfills.js#eval",
           "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -31850,6 +31815,37 @@
           "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactBytesToUtf8String"
         ],
         "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactBytesToUtf8String"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.exactbytestoutf8string.f6e8272ba4563d7f",
+      "observedKey": "native-op:__exactBytesToUtf8String",
+      "registryEdgeId": "surface.native.op.exactbytestoutf8string.17y16zr",
+      "branch": {
+        "id": "windows",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactBytesToUtf8String"
+        ],
+        "targetVariant": "windows",
         "activation": "always"
       },
       "property": {
@@ -48956,6 +48952,57 @@
       "nativeImplementation": false
     },
     {
+      "installId": "root-global.function.19cfe6ff54b7fbfd",
+      "observedKey": "native-op:global:Function",
+      "registryEdgeId": "surface.native.op.global.function.132ixh3",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "hermes-intrinsic-source-patched-29cbb561c089-84bc50a29f72"
+        ],
+        "sourceRefs": [
+          "patches/hermes/0001-domain-package-principal.patch#patch-content",
+          "patches/hermes/0002-frame-attribution-helper.patch#patch-content",
+          "patches/hermes/0003-capability-bridge-exports.patch#patch-content",
+          "patches/hermes/0004-native-compartment-globals.patch#patch-content",
+          "patches/hermes/0005-native-compartment-refinements.patch#patch-content",
+          "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
+          "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
+          "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+          "patches/hermes/0009-raw-throw-capture.patch#patch-content",
+          "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
+          "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "scripts/apply-hermes-patches.sh#patches",
+          "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
+          "scripts/build-hermes.sh#apply-hermes-patches.sh",
+          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
+          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
+          "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-29cbb561c0894a35dd2f5f471e4b809de37d763d4f62fe8861c0c84283473868",
+          "scripts/hermes-version.sh#ibex_hermes_patch_digest",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdownJS:Function"
+        ],
+        "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "Function"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "source-derived",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
       "installId": "root-global.function.36fd54217b96b012",
       "observedKey": "native-op:global:Function",
       "registryEdgeId": "surface.native.op.global.function.132ixh3",
@@ -48996,73 +49043,22 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.function.796efcb3403881b7",
+      "installId": "root-global.function.b9904d1acb9e65dc",
       "observedKey": "native-op:global:Function",
       "registryEdgeId": "surface.native.op.global.function.132ixh3",
       "branch": {
         "id": "windows",
         "routes": [
-          "hermes-intrinsic-windows-source-patched-c1f3df89055e-84bc50a29f72"
+          "hermes-intrinsic-windows-source-patched-ca0aba4514e9-84bc50a29f72"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-c1f3df89055e0791e636aac0fbee262134192ca52cf3f1188ca68c908f0f7e4d",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
         "targetVariant": "windows",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "Function"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "source-derived",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.function.8d24322a671fd1e8",
-      "observedKey": "native-op:global:Function",
-      "registryEdgeId": "surface.native.op.global.function.132ixh3",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "hermes-intrinsic-source-patched-afb724557d11-84bc50a29f72"
-        ],
-        "sourceRefs": [
-          "patches/hermes/0001-domain-package-principal.patch#patch-content",
-          "patches/hermes/0002-frame-attribution-helper.patch#patch-content",
-          "patches/hermes/0003-capability-bridge-exports.patch#patch-content",
-          "patches/hermes/0004-native-compartment-globals.patch#patch-content",
-          "patches/hermes/0005-native-compartment-refinements.patch#patch-content",
-          "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
-          "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
-          "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
-          "patches/hermes/0009-raw-throw-capture.patch#patch-content",
-          "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
-          "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
-          "scripts/apply-hermes-patches.sh#patches",
-          "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
-          "scripts/build-hermes.sh#apply-hermes-patches.sh",
-          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
-          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
-          "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
-          "scripts/hermes-version.sh#ibex_hermes_patch_digest",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
-          "src/engine/hermes_runtime.cc#lockdownJS:Function"
-        ],
-        "targetVariant": "default",
         "activation": "always"
       },
       "property": {
@@ -49188,13 +49184,13 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.generatorfunction.c1c2e9e91e974208",
+      "installId": "root-global.generatorfunction.efa2faced4aec2b2",
       "observedKey": "native-op:global:GeneratorFunction",
       "registryEdgeId": "surface.native.op.global.generatorfunction.05wtx3w",
       "branch": {
         "id": "default",
         "routes": [
-          "hermes-intrinsic-source-patched-afb724557d11-84bc50a29f72"
+          "hermes-intrinsic-source-patched-29cbb561c089-84bc50a29f72"
         ],
         "sourceRefs": [
           "patches/hermes/0001-domain-package-principal.patch#patch-content",
@@ -49214,7 +49210,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-29cbb561c0894a35dd2f5f471e4b809de37d763d4f62fe8861c0c84283473868",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -102306,10 +102302,10 @@
     }
   ],
   "counts": {
-    "installBranches": 2721,
+    "installBranches": 2722,
     "logicalGlobals": 2574,
     "registryEdges": 2574,
     "sealedOrPrivate": 346,
-    "permittedReachable": 2375
+    "permittedReachable": 2376
   }
 }

@@ -19,7 +19,7 @@ use std::path::PathBuf;
 #[command(propagate_version = true)]
 #[command(disable_version_flag = true)]
 #[command(
-    after_help = "Examples:\n  ibex app.ts                  Run a TypeScript file\n  ibex eval '1 + 1'            Evaluate an expression\n  ibex -p 'process.versions'   Evaluate and print the result\n  ibex --watch server.ts       Run with auto-restart on changes\n  ibex run dev                 Run a package script\n  ibex build app.ts            Compile to Hermes bytecode\n  ibex completions zsh         Generate shell completions\n  ibex debug modules           Print builtin module registry metadata\n  ibex repl                    Interactive REPL (also: ibex with no arguments)"
+    after_help = "Examples:\n  ibex app.ts                  Run a TypeScript file\n  ibex eval '1 + 1'            Evaluate an expression\n  ibex -p 'process.versions'   Evaluate and print the result\n  ibex --watch server.ts       Run with auto-restart on changes\n  ibex run dev                 Run a package script\n  ibex build app.ts            Compile to Hermes bytecode\n  ibex compile app.ts -o app   Build a single-file executable\n  ibex inspect-executable app  Inspect an SFE without executing it\n  ibex completions zsh         Generate shell completions\n  ibex debug modules           Print builtin module registry metadata\n  ibex repl                    Interactive REPL (also: ibex with no arguments)"
 )]
 pub struct Cli {
     /// Print version information
@@ -252,6 +252,36 @@ pub enum Commands {
         outdir: Option<PathBuf>,
     },
 
+    /// Build a release-pinned single-file executable
+    Compile {
+        /// Application entry point
+        #[arg(required = true)]
+        entry: PathBuf,
+
+        /// Executable output path
+        #[arg(short = 'o', long = "output", required = true)]
+        output: PathBuf,
+
+        /// Prepared module carrier encoding
+        #[arg(long, value_enum, default_value = "hbc")]
+        carrier: CompileCarrier,
+
+        /// Canonical production policy (conflicts with root --policy)
+        #[arg(long = "policy", value_name = "FILE")]
+        compile_policy: Option<PathBuf>,
+
+        /// Refuse graphs containing guarded invocation-time unsupported sites
+        #[arg(long)]
+        deny_unsupported: bool,
+    },
+
+    /// Inspect a single-file executable without evaluating application code
+    InspectExecutable {
+        /// Executable to inspect
+        #[arg(required = true)]
+        file: PathBuf,
+    },
+
     /// Generate shell completions
     Completions {
         /// Target shell
@@ -391,6 +421,18 @@ pub enum PolicyCommands {
         /// Policy mode recorded in the artifact
         #[arg(long)]
         mode: Option<String>,
+
+        /// Deployment profile name (defaults to portable-v1 or sfe-v1)
+        #[arg(long)]
+        target_profile: Option<String>,
+
+        /// Compile for this exact target and bind the authenticated native graph
+        #[arg(long)]
+        target_triple: Option<String>,
+
+        /// Logical mount profile (derived from the target when omitted)
+        #[arg(long)]
+        mount_profile: Option<String>,
     },
     /// Regenerate and fail if the committed artifact drifted (CI gate)
     Check {
@@ -407,6 +449,18 @@ pub enum PolicyCommands {
         /// regeneration that defaults to `enforce`. (ENG-22642)
         #[arg(long)]
         mode: Option<String>,
+
+        /// Deployment profile name used by the committed artifact
+        #[arg(long)]
+        target_profile: Option<String>,
+
+        /// Compiled target triple used by the committed artifact
+        #[arg(long)]
+        target_triple: Option<String>,
+
+        /// Logical mount profile used by the committed artifact
+        #[arg(long)]
+        mount_profile: Option<String>,
     },
 }
 
@@ -488,6 +542,16 @@ impl BundleFormat {
             Self::Esm => "esm",
         }
     }
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompileCarrier {
+    /// Catalog-paired Hermes bytecode (release default)
+    #[value(name = "hbc")]
+    Hbc,
+    /// Diagnostic factory-table carrier; not release eligible
+    #[value(name = "factory-table")]
+    FactoryTable,
 }
 
 #[cfg(test)]

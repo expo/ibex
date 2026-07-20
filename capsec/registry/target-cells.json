@@ -100099,6 +100099,108 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.cli.argument.parser.ibex.20compile.compile.policy.os.path.0zmsspy",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.20compile.compile.policy.os.path.0zmsspy.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20compile.compile.policy.os.path.0zmsspy",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.20compile.compile.policy.os.path.0zmsspy.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20compile.entry.os.path.18bncka",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.20compile.entry.os.path.18bncka.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20compile.entry.os.path.18bncka",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.20compile.entry.os.path.18bncka.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20compile.output.os.path.0h1zfo3",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.20compile.output.os.path.0h1zfo3.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20compile.output.os.path.0h1zfo3",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.20compile.output.os.path.0h1zfo3.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.cli.argument.parser.ibex.20eval.code.utf8.string.04w813p",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -100128,6 +100230,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.cli.argument.parser.ibex.20eval.code.utf8.string.04w813p.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20inspect.executable.file.os.path.0iusmb4",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.20inspect.executable.file.os.path.0iusmb4.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20inspect.executable.file.os.path.0iusmb4",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.20inspect.executable.file.os.path.0iusmb4.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -100201,6 +100337,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.cli.argument.parser.ibex.20policy.20check.mount.profile.utf8.string.1kkjz0u",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.20policy.20check.mount.profile.utf8.string.1kkjz0u.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20policy.20check.mount.profile.utf8.string.1kkjz0u",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.20policy.20check.mount.profile.utf8.string.1kkjz0u.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.cli.argument.parser.ibex.20policy.20check.out.os.path.0gn6aus",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -100230,6 +100400,74 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.cli.argument.parser.ibex.20policy.20check.out.os.path.0gn6aus.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20policy.20check.target.profile.utf8.string.0lqoaju",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.20policy.20check.target.profile.utf8.string.0lqoaju.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20policy.20check.target.profile.utf8.string.0lqoaju",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.20policy.20check.target.profile.utf8.string.0lqoaju.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20policy.20check.target.triple.utf8.string.1xzxyej",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.20policy.20check.target.triple.utf8.string.1xzxyej.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20policy.20check.target.triple.utf8.string.1xzxyej",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.20policy.20check.target.triple.utf8.string.1xzxyej.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -100303,6 +100541,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.cli.argument.parser.ibex.20policy.20generate.mount.profile.utf8.string.04t6xpx",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.20policy.20generate.mount.profile.utf8.string.04t6xpx.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20policy.20generate.mount.profile.utf8.string.04t6xpx",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.20policy.20generate.mount.profile.utf8.string.04t6xpx.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.cli.argument.parser.ibex.20policy.20generate.out.os.path.1tp9rkz",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -100332,6 +100604,74 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.cli.argument.parser.ibex.20policy.20generate.out.os.path.1tp9rkz.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20policy.20generate.target.profile.utf8.string.0jwx7bn",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.20policy.20generate.target.profile.utf8.string.0jwx7bn.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20policy.20generate.target.profile.utf8.string.0jwx7bn",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.20policy.20generate.target.profile.utf8.string.0jwx7bn.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20policy.20generate.target.triple.utf8.string.123n9ao",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.20policy.20generate.target.triple.utf8.string.123n9ao.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20policy.20generate.target.triple.utf8.string.123n9ao",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.20policy.20generate.target.triple.utf8.string.123n9ao.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -101357,6 +101697,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.cli.command.ibex.20compile.0fxtfv8",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.command.ibex.20compile.0fxtfv8.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.command.ibex.20compile.0fxtfv8",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.command.ibex.20compile.0fxtfv8.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.cli.command.ibex.20completions.0y14t12",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -101488,6 +101862,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.cli.command.ibex.20eval.1b2f8xx.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.command.ibex.20inspect.executable.0hlqzqc",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.command.ibex.20inspect.executable.0hlqzqc.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.command.ibex.20inspect.executable.0hlqzqc",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.command.ibex.20inspect.executable.0hlqzqc.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -101760,6 +102168,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.cli.compat.1cae0kr.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.compile.186d216",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.compile.186d216.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.compile.186d216",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.compile.186d216.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -102100,6 +102542,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.cli.init.15im7kn.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.inspect.executable.08svsoi",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.inspect.executable.08svsoi.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.inspect.executable.08svsoi",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.inspect.executable.08svsoi.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -105301,6 +105777,720 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.0s51s14",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.carrier.0s51s14.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.0s51s14",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.carrier.0s51s14.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.action.set.09jla3m",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.carrier.action.set.09jla3m.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.action.set.09jla3m",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.carrier.action.set.09jla3m.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.arity.1.1.00xj53j",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.carrier.arity.1.1.00xj53j.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.arity.1.1.00xj53j",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.carrier.arity.1.1.00xj53j.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.default.hbc.1leyl5a",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.carrier.default.hbc.1leyl5a.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.default.hbc.1leyl5a",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.carrier.default.hbc.1leyl5a.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.enum.factory.table.0qvn5vi",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.carrier.enum.factory.table.0qvn5vi.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.enum.factory.table.0qvn5vi",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.carrier.enum.factory.table.0qvn5vi.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.enum.hbc.0z7fwui",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.carrier.enum.hbc.0z7fwui.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.enum.hbc.0z7fwui",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.carrier.enum.hbc.0z7fwui.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.value.name.carrier.102gtaf",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.carrier.value.name.carrier.102gtaf.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.value.name.carrier.102gtaf",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.carrier.value.name.carrier.102gtaf.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.compile.policy.12a3d7o",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.compile.policy.12a3d7o.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.compile.policy.12a3d7o",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.compile.policy.12a3d7o.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.compile.policy.action.set.17cztxa",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.compile.policy.action.set.17cztxa.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.compile.policy.action.set.17cztxa",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.compile.policy.action.set.17cztxa.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.compile.policy.arity.1.1.072xhgz",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.compile.policy.arity.1.1.072xhgz.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.compile.policy.arity.1.1.072xhgz",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.compile.policy.arity.1.1.072xhgz.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.compile.policy.value.name.file.02rf7fb",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.compile.policy.value.name.file.02rf7fb.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.compile.policy.value.name.file.02rf7fb",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.compile.policy.value.name.file.02rf7fb.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.deny.unsupported.057lkpu",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.deny.unsupported.057lkpu.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.deny.unsupported.057lkpu",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.deny.unsupported.057lkpu.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.deny.unsupported.action.settrue.13z0hio",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.deny.unsupported.action.settrue.13z0hio.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.deny.unsupported.action.settrue.13z0hio",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.deny.unsupported.action.settrue.13z0hio.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.deny.unsupported.arity.0.0.1l2ghb1",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.deny.unsupported.arity.0.0.1l2ghb1.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.deny.unsupported.arity.0.0.1l2ghb1",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.deny.unsupported.arity.0.0.1l2ghb1.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.deny.unsupported.default.false.0na6u00",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.deny.unsupported.default.false.0na6u00.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.deny.unsupported.default.false.0na6u00",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.deny.unsupported.default.false.0na6u00.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.deny.unsupported.default.missing.true.0nm57m2",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.deny.unsupported.default.missing.true.0nm57m2.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.deny.unsupported.default.missing.true.0nm57m2",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.deny.unsupported.default.missing.true.0nm57m2.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.deny.unsupported.value.name.deny.unsupported.147ygld",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.deny.unsupported.value.name.deny.unsupported.147ygld.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.deny.unsupported.value.name.deny.unsupported.147ygld",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.deny.unsupported.value.name.deny.unsupported.147ygld.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.output.0raigyp",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.output.0raigyp.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.output.0raigyp",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.output.0raigyp.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.output.action.set.1rxm7y1",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.output.action.set.1rxm7y1.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.output.action.set.1rxm7y1",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.output.action.set.1rxm7y1.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.output.arity.1.1.1av3phm",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.output.arity.1.1.1av3phm.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.output.arity.1.1.1av3phm",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.output.arity.1.1.1av3phm.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.output.value.name.output.0xvh65x",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.output.value.name.output.0xvh65x.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.output.value.name.output.0xvh65x",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20compile.output.value.name.output.0xvh65x.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.cli.option.ibex.20policy.20check.entry.1l9i2xe",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -105573,6 +106763,142 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.mount.profile.0idiiy1",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.mount.profile.0idiiy1.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.mount.profile.0idiiy1",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.mount.profile.0idiiy1.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.mount.profile.action.set.1alk3r5",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.mount.profile.action.set.1alk3r5.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.mount.profile.action.set.1alk3r5",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.mount.profile.action.set.1alk3r5.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.mount.profile.arity.1.1.0bitcg2",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.mount.profile.arity.1.1.0bitcg2.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.mount.profile.arity.1.1.0bitcg2",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.mount.profile.arity.1.1.0bitcg2.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.mount.profile.value.name.mount.profile.092m0t7",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.mount.profile.value.name.mount.profile.092m0t7.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.mount.profile.value.name.mount.profile.092m0t7",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.mount.profile.value.name.mount.profile.092m0t7.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.cli.option.ibex.20policy.20check.out.0lfulwu",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -105704,6 +107030,278 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.cli.option.ibex.20policy.20check.out.value.name.out.0rmxrmd.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.profile.0bhllsp",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.target.profile.0bhllsp.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.profile.0bhllsp",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.target.profile.0bhllsp.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.profile.action.set.16je8vl",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.target.profile.action.set.16je8vl.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.profile.action.set.16je8vl",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.target.profile.action.set.16je8vl.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.profile.arity.1.1.1aj7vg2",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.target.profile.arity.1.1.1aj7vg2.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.profile.arity.1.1.1aj7vg2",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.target.profile.arity.1.1.1aj7vg2.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.profile.value.name.target.profile.1s76w6n",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.target.profile.value.name.target.profile.1s76w6n.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.profile.value.name.target.profile.1s76w6n",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.target.profile.value.name.target.profile.1s76w6n.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.triple.0w82sd0",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.target.triple.0w82sd0.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.triple.0w82sd0",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.target.triple.0w82sd0.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.triple.action.set.0dtgapa",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.target.triple.action.set.0dtgapa.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.triple.action.set.0dtgapa",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.target.triple.action.set.0dtgapa.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.triple.arity.1.1.1u75lwj",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.target.triple.arity.1.1.1u75lwj.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.triple.arity.1.1.1u75lwj",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.target.triple.arity.1.1.1u75lwj.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.triple.value.name.target.triple.03rs30p",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.target.triple.value.name.target.triple.03rs30p.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.triple.value.name.target.triple.03rs30p",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20check.target.triple.value.name.target.triple.03rs30p.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -105981,6 +107579,142 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.mount.profile.0itlwwa",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.mount.profile.0itlwwa.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.mount.profile.0itlwwa",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.mount.profile.0itlwwa.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.mount.profile.action.set.0kz11c0",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.mount.profile.action.set.0kz11c0.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.mount.profile.action.set.0kz11c0",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.mount.profile.action.set.0kz11c0.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.mount.profile.arity.1.1.1qz47vl",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.mount.profile.arity.1.1.1qz47vl.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.mount.profile.arity.1.1.1qz47vl",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.mount.profile.arity.1.1.1qz47vl.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.mount.profile.value.name.mount.profile.0uqzs0u",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.mount.profile.value.name.mount.profile.0uqzs0u.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.mount.profile.value.name.mount.profile.0uqzs0u",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.mount.profile.value.name.mount.profile.0uqzs0u.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.cli.option.ibex.20policy.20generate.out.03h1fz9",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -106112,6 +107846,278 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.cli.option.ibex.20policy.20generate.out.value.name.out.0a4t3s0.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.profile.1amtflg",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.target.profile.1amtflg.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.profile.1amtflg",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.target.profile.1amtflg.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.profile.action.set.0xmms5q",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.target.profile.action.set.0xmms5q.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.profile.action.set.0xmms5q",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.target.profile.action.set.0xmms5q.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.profile.arity.1.1.1ifrfib",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.target.profile.arity.1.1.1ifrfib.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.profile.arity.1.1.1ifrfib",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.target.profile.arity.1.1.1ifrfib.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.profile.value.name.target.profile.0oxazk2",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.target.profile.value.name.target.profile.0oxazk2.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.profile.value.name.target.profile.0oxazk2",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.target.profile.value.name.target.profile.0oxazk2.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.triple.0ldi853",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.target.triple.0ldi853.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.triple.0ldi853",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.target.triple.0ldi853.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.triple.action.set.1tm9a7n",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.target.triple.action.set.1tm9a7n.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.triple.action.set.1tm9a7n",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.target.triple.action.set.1tm9a7n.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.triple.arity.1.1.13ff78o",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.target.triple.arity.1.1.13ff78o.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.triple.arity.1.1.13ff78o",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.target.triple.arity.1.1.13ff78o.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.triple.value.name.target.triple.10vmd7c",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.target.triple.value.name.target.triple.10vmd7c.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.triple.value.name.target.triple.10vmd7c",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.20policy.20generate.target.triple.value.name.target.triple.10vmd7c.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -113801,6 +115807,176 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.cli.option.name.ibex.20compile.carrier.carrier.0k21zzg",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20compile.carrier.carrier.0k21zzg.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20compile.carrier.carrier.0k21zzg",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20compile.carrier.carrier.0k21zzg.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20compile.compile.policy.policy.1f16tue",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20compile.compile.policy.policy.1f16tue.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20compile.compile.policy.policy.1f16tue",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20compile.compile.policy.policy.1f16tue.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20compile.deny.unsupported.deny.unsupported.1pwfege",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20compile.deny.unsupported.deny.unsupported.1pwfege.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20compile.deny.unsupported.deny.unsupported.1pwfege",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20compile.deny.unsupported.deny.unsupported.1pwfege.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20compile.output.o.0hdy00l",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20compile.output.o.0hdy00l.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20compile.output.o.0hdy00l",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20compile.output.o.0hdy00l.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20compile.output.output.0rrr4o2",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20compile.output.output.0rrr4o2.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20compile.output.output.0rrr4o2",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20compile.output.output.0rrr4o2.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.cli.option.name.ibex.20policy.20check.entry.entry.0p6nlj6",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -113869,6 +116045,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.cli.option.name.ibex.20policy.20check.mount.profile.mount.profile.1g2br4w",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20policy.20check.mount.profile.mount.profile.1g2br4w.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20policy.20check.mount.profile.mount.profile.1g2br4w",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20policy.20check.mount.profile.mount.profile.1g2br4w.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.cli.option.name.ibex.20policy.20check.out.out.1uamipe",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -113898,6 +116108,74 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.cli.option.name.ibex.20policy.20check.out.out.1uamipe.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20policy.20check.target.profile.target.profile.019khs6",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20policy.20check.target.profile.target.profile.019khs6.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20policy.20check.target.profile.target.profile.019khs6",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20policy.20check.target.profile.target.profile.019khs6.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20policy.20check.target.triple.target.triple.1huevsw",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20policy.20check.target.triple.target.triple.1huevsw.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20policy.20check.target.triple.target.triple.1huevsw",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20policy.20check.target.triple.target.triple.1huevsw.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -113971,6 +116249,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.cli.option.name.ibex.20policy.20generate.mount.profile.mount.profile.13hzpfj",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20policy.20generate.mount.profile.mount.profile.13hzpfj.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20policy.20generate.mount.profile.mount.profile.13hzpfj",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20policy.20generate.mount.profile.mount.profile.13hzpfj.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.cli.option.name.ibex.20policy.20generate.out.out.0qxlk7x",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -114000,6 +116312,74 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.cli.option.name.ibex.20policy.20generate.out.out.0qxlk7x.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20policy.20generate.target.profile.target.profile.1hhiwh1",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20policy.20generate.target.profile.target.profile.1hhiwh1.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20policy.20generate.target.profile.target.profile.1hhiwh1",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20policy.20generate.target.profile.target.profile.1hhiwh1.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20policy.20generate.target.triple.target.triple.0g8ukz7",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20policy.20generate.target.triple.target.triple.0g8ukz7.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20policy.20generate.target.triple.target.triple.0g8ukz7",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.20policy.20generate.target.triple.target.triple.0g8ukz7.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -115909,6 +118289,142 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.cli.positional.ibex.20compile.entry.0e4lhdt",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.positional.ibex.20compile.entry.0e4lhdt.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20compile.entry.0e4lhdt",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.positional.ibex.20compile.entry.0e4lhdt.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20compile.entry.action.set.16vnr6h",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.positional.ibex.20compile.entry.action.set.16vnr6h.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20compile.entry.action.set.16vnr6h",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.positional.ibex.20compile.entry.action.set.16vnr6h.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20compile.entry.arity.1.1.1n32oiy",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.positional.ibex.20compile.entry.arity.1.1.1n32oiy.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20compile.entry.arity.1.1.1n32oiy",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.positional.ibex.20compile.entry.arity.1.1.1n32oiy.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20compile.entry.value.name.entry.16pv870",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.positional.ibex.20compile.entry.value.name.entry.16pv870.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20compile.entry.value.name.entry.16pv870",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.positional.ibex.20compile.entry.value.name.entry.16pv870.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.cli.positional.ibex.20completions.shell.1svbaqx",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -116346,6 +118862,142 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.cli.positional.ibex.20eval.code.value.name.code.0j3wy53.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20inspect.executable.file.1up2nub",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.positional.ibex.20inspect.executable.file.1up2nub.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20inspect.executable.file.1up2nub",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.positional.ibex.20inspect.executable.file.1up2nub.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20inspect.executable.file.action.set.0j3ufvj",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.positional.ibex.20inspect.executable.file.action.set.0j3ufvj.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20inspect.executable.file.action.set.0j3ufvj",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.positional.ibex.20inspect.executable.file.action.set.0j3ufvj.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20inspect.executable.file.arity.1.1.1w2t5fw",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.positional.ibex.20inspect.executable.file.arity.1.1.1w2t5fw.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20inspect.executable.file.arity.1.1.1w2t5fw",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.positional.ibex.20inspect.executable.file.arity.1.1.1w2t5fw.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20inspect.executable.file.value.name.file.18usz2s",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.positional.ibex.20inspect.executable.file.value.name.file.18usz2s.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20inspect.executable.file.value.name.file.18usz2s",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.positional.ibex.20inspect.executable.file.value.name.file.18usz2s.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -118348,6 +121000,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.commonjs.record.link.computed.dynamic.import.1b3mrxc",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.hermes.commonjs.record.link.computed.dynamic.import.1b3mrxc.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.commonjs.record.link.computed.dynamic.import.1b3mrxc",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.hermes.commonjs.record.link.computed.dynamic.import.1b3mrxc.default"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -119837,6 +122523,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.module.preflight.bytecode.1r3a78f",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.hermes.module.preflight.bytecode.1r3a78f.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.preflight.bytecode.1r3a78f",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.hermes.module.preflight.bytecode.1r3a78f.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -119900,6 +122620,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.host.abi.ex.hermes.module.record.instantiate.043epyu.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.record.link.computed.dynamic.import.0b6fvhe",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.hermes.module.record.link.computed.dynamic.import.0b6fvhe.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.record.link.computed.dynamic.import.0b6fvhe",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.hermes.module.record.link.computed.dynamic.import.0b6fvhe.default"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -122362,6 +125116,74 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.host.abi.ex.host.enter.context.15xwr1j.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.env.compiled.key.at.1821b5o",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.env.compiled.key.at.1821b5o.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.env.compiled.key.at.1821b5o",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.env.compiled.key.at.1821b5o.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.env.compiled.key.count.1b4azqw",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.env.compiled.key.count.1b4azqw.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.env.compiled.key.count.1b4azqw",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.env.compiled.key.count.1b4azqw.default"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -125320,6 +128142,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.host.abi.ex.host.restore.context.1q77zqb.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.seal.bootstrap.phase.17osacf",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.seal.bootstrap.phase.17osacf.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.seal.bootstrap.phase.17osacf",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.seal.bootstrap.phase.17osacf.default"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -129994,40 +132850,6 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.loader.function.javascript.lookslikemodulesyntax.0ll0153.main"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
-      "edgeId": "surface.loader.function.javascript.makewindowscryptomodule.0029u8l",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.loader.function.javascript.makewindowscryptomodule.0029u8l.main"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
-      "edgeId": "surface.loader.function.javascript.makewindowscryptomodule.0029u8l",
-      "target": {
-        "triple": "x86_64-pc-windows-msvc",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.loader.function.javascript.makewindowscryptomodule.0029u8l.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -143389,6 +146211,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.loader.route.resolution.rust.normalize.windows.verbatim.path.text.0aq09a9",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.normalize.windows.verbatim.path.text.0aq09a9.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.normalize.windows.verbatim.path.text.0aq09a9",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.normalize.windows.verbatim.path.text.0aq09a9.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.loader.route.resolution.rust.normalized.1o6rft8",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -145434,6 +148290,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.loader.route.resolution.rust.strip.file.module.decorations.0vw3ztd.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.strip.file.specifier.decorations.0z6tnsv",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.strip.file.specifier.decorations.0z6tnsv.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.strip.file.specifier.decorations.0z6tnsv",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.strip.file.specifier.decorations.0z6tnsv.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -149431,7 +152321,7 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [
-        "surface.native.op.exactbytestoutf8string.17y16zr.default"
+        "surface.native.op.exactbytestoutf8string.17y16zr.windows"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -237539,6 +240429,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.startup.env.dynamic.cpp.nsgetenviron.1witmke",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -240871,6 +243795,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.startup.env.ibex.compat.loader.test.1gjpny3",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.startup.env.ibex.compat.loader.test.1gjpny3.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.startup.env.ibex.compat.loader.test.1gjpny3",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.startup.env.ibex.compat.loader.test.1gjpny3.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.startup.env.ibex.dns.server.0ggdo6d",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -242605,7 +245563,7 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
-      "edgeId": "surface.startup.evaluation.defined.13e9rgh.promise.unwrap.0x213h5",
+      "edgeId": "surface.startup.evaluation.evalruntimeunchecked.promise.unwrap.1oq5x03",
       "target": {
         "triple": "aarch64-apple-darwin",
         "features": [
@@ -242616,13 +245574,13 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [
-        "surface.startup.evaluation.defined.13e9rgh.promise.unwrap.0x213h5.main"
+        "surface.startup.evaluation.evalruntimeunchecked.promise.unwrap.1oq5x03.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
-      "edgeId": "surface.startup.evaluation.defined.13e9rgh.promise.unwrap.0x213h5",
+      "edgeId": "surface.startup.evaluation.evalruntimeunchecked.promise.unwrap.1oq5x03",
       "target": {
         "triple": "x86_64-pc-windows-msvc",
         "features": [
@@ -242633,7 +245591,7 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [
-        "surface.startup.evaluation.defined.13e9rgh.promise.unwrap.0x213h5.main"
+        "surface.startup.evaluation.evalruntimeunchecked.promise.unwrap.1oq5x03.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."

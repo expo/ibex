@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schema/hermesc-recipe-v1.schema.json",
+  "title": "Ibex fixed hermesc production recipe v1",
+  "type": "object",
+  "required": ["schema", "arguments", "inputEncoding", "outputEncoding"],
+  "properties": {
+    "schema": { "const": "ibex/hermesc-recipe/1" },
+    "arguments": {
+      "const": ["-emit-binary", "-out", "{output}", "{input}"]
+    },
+    "inputEncoding": { "const": "utf8-javascript-factory-table" },
+    "outputEncoding": { "const": "hermes-bytecode-file" }
+  },
+  "additionalProperties": false
+}

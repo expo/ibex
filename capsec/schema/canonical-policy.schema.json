@@ -3,9 +3,9 @@
   "$id": "https://ibex.dev/capsec/schema/canonical-policy.schema.json",
   "title": "Ibex canonical capsec review policy",
   "type": "object",
-  "required": ["policySchema", "capsVocab", "semanticCore", "vocabDigest", "registryDigest", "policyDigest", "purpose", "mode", "rootImports", "principals"],
+  "required": ["policySchema", "capsVocab", "semanticCore", "vocabDigest", "registryDigest", "policyDigest", "purpose", "mode", "graphIdentity", "entryIdentity", "targetProfile", "mountProfile", "rootCeiling", "computedCandidates", "rootImports", "principals"],
   "properties": {
-    "policySchema": { "const": "ibex/capsec-policy/1" },
+    "policySchema": { "const": "ibex/capsec-policy/2" },
     "capsVocab": { "const": "ibex/capsec/1" },
     "semanticCore": { "const": "capsec/semantics/1" },
     "vocabDigest": {
@@ -19,12 +19,23 @@
     },
     "purpose": { "const": "production" },
     "mode": { "const": "enforce" },
+    "graphIdentity": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+    },
+    "entryIdentity": { "$ref": "#/$defs/entryIdentity" },
+    "targetProfile": { "$ref": "#/$defs/targetProfile" },
+    "mountProfile": {
+      "enum": ["project-v1", "compiled-app-work-v1"]
+    },
+    "rootCeiling": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/canonicalRow" }
+    },
+    "computedCandidates": { "$ref": "#/$defs/computedCandidates" },
     "rootImports": {
       "type": "array",
-      "uniqueItems": true,
-      "items": {
-        "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/packageLocator"
-      }
+      "items": { "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/packageLocator" },
+      "uniqueItems": true
     },
     "principals": {
       "type": "array",
@@ -33,6 +44,125 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "entryIdentity": {
+      "type": "object",
+      "required": ["root", "components", "sourceIntegrity"],
+      "properties": {
+        "root": { "const": "project" },
+        "components": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/pathComponent"
+          }
+        },
+        "sourceIntegrity": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        }
+      },
+      "additionalProperties": false
+    },
+    "targetProfile": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "profile"],
+          "properties": {
+            "kind": { "const": "source" },
+            "profile": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "profile", "targetTriple"],
+          "properties": {
+            "kind": { "const": "compiled" },
+            "profile": { "type": "string", "minLength": 1 },
+            "targetTriple": {
+              "type": "string",
+              "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+)+$"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "candidateSiteDeclaration": {
+      "type": "object",
+      "required": ["requester", "label", "specifiers", "packageClosures"],
+      "properties": {
+        "requester": { "type": "string", "minLength": 1 },
+        "label": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        },
+        "specifiers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "packageClosures": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/packageLocator"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "candidateClosureOptIn": {
+      "type": "object",
+      "required": ["package", "provenance"],
+      "properties": {
+        "package": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/packageLocator"
+        },
+        "provenance": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/provenance" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "materializedCandidateSite": {
+      "type": "object",
+      "required": ["requester", "label", "candidates"],
+      "properties": {
+        "requester": { "type": "string", "minLength": 1 },
+        "label": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        },
+        "candidates": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "additionalProperties": false
+    },
+    "computedCandidates": {
+      "type": "object",
+      "required": ["schema", "declarations", "packageClosureOptIns", "materializedSites"],
+      "properties": {
+        "schema": { "const": "ibex/computed-candidate-manifest/1" },
+        "declarations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/candidateSiteDeclaration" }
+        },
+        "packageClosureOptIns": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/candidateClosureOptIn" }
+        },
+        "materializedSites": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/materializedCandidateSite" }
+        }
+      },
+      "additionalProperties": false
+    },
     "canonicalRow": {
       "type": "object",
       "required": ["authority", "provenance"],

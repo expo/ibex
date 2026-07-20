@@ -55,6 +55,31 @@ struct CachedMap {
 static SOURCE_MAP_CACHE: OnceLock<Mutex<HashMap<PathBuf, CachedMap>>> = OnceLock::new();
 
 impl SourceMap {
+    /// Construct a map from an already-authenticated module-artifact
+    /// projection. ModuleArtifact v1 stores typed SourceIds instead of free
+    /// source-path strings; its caller resolves those IDs to authenticated
+    /// display labels before invoking this constructor.
+    pub fn from_parts(sources: Vec<String>, mappings: &str) -> Option<Self> {
+        Self::from_parts_with_generated_line_offset(sources, mappings, 0)
+    }
+
+    /// Construct an authenticated artifact map after embedding its generated
+    /// code behind a carrier prefix containing `generated_line_offset` lines.
+    pub fn from_parts_with_generated_line_offset(
+        sources: Vec<String>,
+        mappings: &str,
+        generated_line_offset: u32,
+    ) -> Option<Self> {
+        if sources.is_empty() {
+            return None;
+        }
+        let mut mappings = decode_vlq_mappings(mappings);
+        for mapping in &mut mappings {
+            mapping.gen_line = mapping.gen_line.checked_add(generated_line_offset)?;
+        }
+        Some(Self { sources, mappings })
+    }
+
     /// Load and parse a V3 source map from a file path.
     pub fn load(path: &Path) -> Option<Self> {
         let data = std::fs::read_to_string(path).ok()?;
@@ -109,11 +134,7 @@ impl SourceMap {
     /// Parse a V3 source map JSON string.
     fn parse(json: &str) -> Option<Self> {
         let raw: RawSourceMap = serde_json::from_str(json).ok()?;
-        let mappings = decode_vlq_mappings(&raw.mappings);
-        Some(SourceMap {
-            sources: raw.sources,
-            mappings,
-        })
+        Self::from_parts(raw.sources, &raw.mappings)
     }
 
     /// Look up the original position for a generated line and column.
@@ -317,6 +338,10 @@ fn rewrite_stack_line(line: &str, source_map: &SourceMap, bundle_path: &str) -> 
     let col: u32 = parts[0].parse().ok()?;
     let gen_line: u32 = parts[1].parse().ok()?;
     let filename = if parts.len() > 2 { parts[2] } else { "" };
+    // Hermes canonicalizes absolute `//# sourceURL=/path` labels to file URLs
+    // in module-factory stacks. Compare the URL path to the authenticated host
+    // label; the map's own source labels remain untouched.
+    let comparable_filename = filename.strip_prefix("file://").unwrap_or(filename);
 
     // Only rewrite if the filename matches the bundle path or is empty
     let bundle_basename = Path::new(bundle_path)
@@ -324,8 +349,8 @@ fn rewrite_stack_line(line: &str, source_map: &SourceMap, bundle_path: &str) -> 
         .and_then(|n| n.to_str())
         .unwrap_or("");
     if !filename.is_empty()
-        && filename != bundle_path
-        && filename != bundle_basename
+        && comparable_filename != bundle_path
+        && comparable_filename != bundle_basename
         && !filename.contains(".bundle.")
         && filename != "<module-loader>"
         && filename != "<eval>"

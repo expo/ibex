@@ -1,5 +1,10 @@
 #include "hermes_runtime_internal.h"
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
 #include <algorithm>
 #include <cerrno>
 #include <condition_variable>
@@ -67,6 +72,39 @@ std::mutex g_files_mutex;
 std::unordered_map<int, FileEntry> g_files;
 int g_next_fd = 3;
 thread_local const std::vector<uint64_t>* g_typed_principal_stack = nullptr;
+constexpr size_t kMaxTypedPrincipalStack = 256;
+
+bool principalMayUseProcessStdio(uint64_t principal) {
+  if (principal == 0) {
+    return true;
+  }
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  if (principal == static_cast<uint64_t>(kRuntimePrincipalId)) {
+    return true;
+  }
+#endif
+  return false;
+}
+
+facebook::jsi::Value writeProcessStdio(
+    facebook::jsi::Runtime& runtime,
+    int fd,
+    const std::vector<uint8_t>& bytes) {
+  if (!principalMayUseProcessStdio(currentPrincipalId()) && !isAllowAll()) {
+    throw facebook::jsi::JSError(runtime, "write: bad file descriptor");
+  }
+  HANDLE handle = GetStdHandle(fd == 1 ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE);
+  if (handle == nullptr || handle == INVALID_HANDLE_VALUE) {
+    throw facebook::jsi::JSError(runtime, "write: bad file descriptor");
+  }
+  DWORD written = 0;
+  DWORD requested = static_cast<DWORD>(std::min<size_t>(
+      bytes.size(), static_cast<size_t>(std::numeric_limits<DWORD>::max())));
+  if (!WriteFile(handle, bytes.data(), requested, &written, nullptr)) {
+    throw facebook::jsi::JSError(runtime, "write: standard descriptor write failed");
+  }
+  return facebook::jsi::Value(static_cast<double>(written));
+}
 
 extern "C" void* ex_host_fs_open(const char* path, uint32_t flags);
 extern "C" int32_t ex_host_fs_read(void* file, uint8_t* buf, uint32_t len);
@@ -1309,26 +1347,52 @@ void exactRequireArmedSqliteFile(
       "ERR_IBEX_TARGET_UNSUPPORTED: checked file-backed SQLite is unavailable on Windows");
 }
 
+static std::vector<uint64_t> normalizeTypedPrincipalStack(
+    const std::vector<uint64_t>& collected) {
+#ifndef EXACT_HAVE_FRAME_ATTRIBUTION
+  return collected;
+#else
+  // kNoUserPrincipal is an absence marker, not an additional authority
+  // dimension, when the same walk also recovered a real user/scheduler
+  // principal. Preserve the explicit truncation sentinel appended below.
+  // @ref LLP 0021#decision-staging-and-principal-semantics
+  if (collected.size() > kMaxTypedPrincipalStack) return collected;
+  bool hasRealPrincipal = std::any_of(
+      collected.begin(), collected.end(), [](uint64_t principal) {
+        return principal != static_cast<uint64_t>(kNoUserPrincipalId) &&
+            principal != static_cast<uint64_t>(kRuntimePrincipalId);
+      });
+  if (!hasRealPrincipal) return collected;
+
+  std::vector<uint64_t> normalized;
+  normalized.reserve(collected.size());
+  for (uint64_t principal : collected) {
+    if (principal != static_cast<uint64_t>(kNoUserPrincipalId)) {
+      normalized.push_back(principal);
+    }
+  }
+  return normalized;
+#endif
+}
+
 std::vector<uint64_t> exactCollectTypedPrincipalStack() {
   std::vector<uint64_t> principals;
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   if (g_vm_runtime != nullptr) {
-    // @ref LLP 0013#mechanism-3 — collect frame-derived principals through the
-    // reviewed Hermes C bridge. g_vm_runtime is intentionally opaque here, and
-    // the bridge keeps Windows aligned with the non-Windows attribution path.
-    constexpr size_t kMaxTypedPrincipalStack = 256;
+    // @ref LLP 0013#mechanism-3-frame-derived-attribution — use the carried
+    // Hermes C bridge so the opaque VM pointer never depends on private VM
+    // headers or a platform-specific concrete runtime type.
     uint32_t ids[kMaxTypedPrincipalStack];
     size_t count = ex_hermes_vm_collect_package_ids(
         g_vm_runtime, ids, kMaxTypedPrincipalStack);
     principals.reserve(count + 1);
     for (size_t index = 0; index < count; ++index) {
       auto id = static_cast<uint64_t>(ids[index]);
-      if (id != static_cast<uint64_t>(kRuntimePrincipalId) &&
-          id != static_cast<uint64_t>(kNoUserPrincipalId) &&
-          std::find(principals.begin(), principals.end(), id) ==
-              principals.end()) {
-        principals.push_back(id);
+      if (id == static_cast<uint64_t>(kRuntimePrincipalId) ||
+          id == static_cast<uint64_t>(kNoUserPrincipalId)) {
+        continue;
       }
+      if (principals.empty() || principals.back() != id) principals.push_back(id);
     }
     if (count == kMaxTypedPrincipalStack) {
       // A full buffer may have dropped an outer, lower-authority caller. Keep
@@ -1337,6 +1401,10 @@ std::vector<uint64_t> exactCollectTypedPrincipalStack() {
     }
   }
 #endif
+  // A captured scheduler/owner stack is an additional constrained dimension,
+  // not a replacement for live callback frames. On a worker thread
+  // g_vm_runtime is null; on the runtime thread this intersects both authors.
+  // @ref LLP 0021#decision-staging-and-principal-semantics
   if (g_typed_principal_stack) {
     for (auto id : *g_typed_principal_stack) {
       if (std::find(principals.begin(), principals.end(), id) == principals.end()) {
@@ -1354,12 +1422,14 @@ std::vector<uint64_t> exactCollectTypedPrincipalStack() {
     principals.push_back(scheduler);
   }
   if (principals.empty()) principals.push_back(currentPrincipalId());
-  return principals;
+  return normalizeTypedPrincipalStack(principals);
 }
 
 ScopedTypedPrincipalStack::ScopedTypedPrincipalStack(
     const std::vector<uint64_t>& principals)
     : principals_(principals), previous_(g_typed_principal_stack) {
+  // Scheduler records may be erased by their own callback; keep the captured
+  // constraint alive for this full dynamic scope.
   g_typed_principal_stack = &principals_;
 }
 
@@ -1657,10 +1727,17 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsWrite: fd and data required");
         }
         auto fd = fdFromValue(runtime, args[0]);
-        requireSessionDescriptorWrite(runtime, fd, "write");
+        auto bytes = extractBytes(runtime, args[1]);
+        // Windows file handles live in the opaque g_files table, but inherited
+        // stdout/stderr are process-owned OS handles rather than file-table
+        // entries. Mirror the POSIX standard-descriptor exception while
+        // retaining the same root/runtime-principal ownership check.
+        // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+        if (fd == 1 || fd == 2) {
+          return writeProcessStdio(runtime, fd, bytes);
+        }
         auto entry = getFileEntry(runtime, fd);
         requireFileEntryWrite(runtime, entry);
-        auto bytes = extractBytes(runtime, args[1]);
         if (bytes.empty()) {
           return facebook::jsi::Value(0.0);
         }

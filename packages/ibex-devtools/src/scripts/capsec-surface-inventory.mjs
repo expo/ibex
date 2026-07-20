@@ -5350,12 +5350,12 @@ export function scanStaticBuiltinExports(
     }
     return owner;
   };
-  const activeClassFactoryDefinitions = new Set();
   const bindClassExpression = (
     target,
     exportNames,
     classNode,
     substitutions,
+    visitingCallableDefinitions = new Set(),
   ) => {
     if (!classNode) return false;
     if (classNode.type === "ClassExpression") {
@@ -5388,7 +5388,13 @@ export function scanStaticBuiltinExports(
       let bound = false;
       for (const child of children) {
         bound =
-          bindClassExpression(target, exportNames, child, substitutions) ||
+          bindClassExpression(
+            target,
+            exportNames,
+            child,
+            substitutions,
+            visitingCallableDefinitions,
+          ) ||
           bound;
       }
       return bound;
@@ -5425,8 +5431,8 @@ export function scanStaticBuiltinExports(
         return false;
       }
       const definition = definitions[0].node;
-      if (activeClassFactoryDefinitions.has(definition)) return false;
-      activeClassFactoryDefinitions.add(definition);
+      if (visitingCallableDefinitions.has(definition)) return false;
+      visitingCallableDefinitions.add(definition);
       try {
         const localValues = new Map();
         walkDirectFunctionBody(definition, (node) => {
@@ -5450,6 +5456,7 @@ export function scanStaticBuiltinExports(
             exportNames,
             value,
             substitutions,
+            visitingCallableDefinitions,
           );
         };
         let bound = false;
@@ -5466,7 +5473,7 @@ export function scanStaticBuiltinExports(
         }
         return bound;
       } finally {
-        activeClassFactoryDefinitions.delete(definition);
+        visitingCallableDefinitions.delete(definition);
       }
     }
     return false;
@@ -7663,11 +7670,9 @@ export function scanStaticGlobalApiSurfaces(
 ) {
   const fullProgram = parseJavaScript(text, sourcePath);
   const webStreamsWrapperMatch =
-    /(?:^|\r?\n)(\(function \(\) \{\r?\n  var globalObject = )/u.exec(text);
+    /(?:^|\r?\n)(?=\(function \(\) \{\r?\n  var globalObject = )/u.exec(text);
   const webStreamsWrapperOffset = webStreamsWrapperMatch
-    ? webStreamsWrapperMatch.index +
-      webStreamsWrapperMatch[0].length -
-      webStreamsWrapperMatch[1].length
+    ? webStreamsWrapperMatch.index + webStreamsWrapperMatch[0].length
     : -1;
   const sourceText =
     webStreamsWrapperOffset === -1
@@ -7993,7 +7998,7 @@ export function scanStaticGlobalApiSurfaces(
     substitutions = staticBindings,
   ) => {
     const owners = new Set();
-    const activeCallableDefinitions = new Set();
+    const visitingCallableDefinitions = new Set();
     const visit = (candidate) => {
       if (!candidate) return;
       if (candidate.type === "ClassExpression") {
@@ -8056,8 +8061,8 @@ export function scanStaticGlobalApiSurfaces(
           return;
         }
         const definition = definitions[0].node;
-        if (activeCallableDefinitions.has(definition)) return;
-        activeCallableDefinitions.add(definition);
+        if (visitingCallableDefinitions.has(definition)) return;
+        visitingCallableDefinitions.add(definition);
         try {
           const localValues = new Map();
           walkDirectFunctionBody(definition, (node) => {
@@ -8091,7 +8096,7 @@ export function scanStaticGlobalApiSurfaces(
             });
           }
         } finally {
-          activeCallableDefinitions.delete(definition);
+          visitingCallableDefinitions.delete(definition);
         }
       }
     };
@@ -13077,9 +13082,9 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
         "sha256-4ee8b3103bf9341b9d7460884323978471558d5a03f0926d70e5593c07ff9025",
       sourceBuildAuthorityDigests: {
         "scripts/build-hermes-linux.sh":
-          "sha256-8d0f00b05f198bb2c823f55a92cabc4f0101bddad7daaa54e0244d63e97ba011",
+          "sha256-20efff550b25810c7912b632a9de9847577d175004398742295962712be9a517",
         "scripts/build-hermes.sh":
-          "sha256-31584f20c5deeb86750d79a2bfbb56ec98a84861ddc2a0c681c314185e100d69",
+          "sha256-9cd679e3551a25b0bca4219dd8f288de26a2dc491f4c4c1056de48b4079a10c2",
       },
       sourceCommit: "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",
       sourceRef: "260318099.0.0-stable",
@@ -13128,6 +13133,16 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
 
 function sha256Hex(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+// PowerShell authorities retain platform-native checkout bytes because the
+// published Windows artifact manifest attests those raw bytes independently.
+// Evaluator review is source-semantic, so one CRLF/LF spelling has one review
+// identity while every other source mutation still fails closed.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — keep
+// artifact attestation byte-exact without making evaluator review OS-specific.
+function reviewedTextAuthorityDigest(value) {
+  return `sha256-${sha256Hex(value.replaceAll("\r\n", "\n"))}`;
 }
 
 function canonicalReviewValue(value) {
@@ -13378,9 +13393,9 @@ export function scanHermesEvaluatorIdentityProfiles({
       `sha256-${sha256Hex(consumer.text)}`,
     ]),
   );
-  const windowsSourceBuildAuthorityDigest = `sha256-${sha256Hex(
+  const windowsSourceBuildAuthorityDigest = reviewedTextAuthorityDigest(
     windowsSourceBuildText,
-  )}`;
+  );
 
   const androidVersionAuthority =
     'HERMES_ANDROID_VERSION="${HERMES_ANDROID_VERSION:-$IBEX_HERMES_ANDROID_VERSION}"';
@@ -13422,9 +13437,9 @@ export function scanHermesEvaluatorIdentityProfiles({
     /^\$asset = "(hermes-windows-)\$Arch-\$assetKey\.zip"$/gmu,
     `${windowsInstallerPath}#release-asset`,
   )[1];
-  const windowsInstallerAuthorityDigest = `sha256-${sha256Hex(
+  const windowsInstallerAuthorityDigest = reviewedTextAuthorityDigest(
     windowsInstallerText,
-  )}`;
+  );
 
   const discovered = [
     {
@@ -22029,6 +22044,7 @@ function assertNonemptyCategories(categories) {
 export async function discoverRepositorySurfaces(repoRoot) {
   const engineRoot = path.join(repoRoot, "src", "engine");
   const sourceRoot = path.join(repoRoot, "src");
+  const compiledStubRoot = path.join(repoRoot, "crates", "compiled-stub", "src");
   const bootstrapRoot = path.join(engineRoot, "bootstrap");
   const embeddingHeaderPath = path.join(repoRoot, "include", "exact_runtime.h");
   const embeddingHeader = readUtf8(embeddingHeaderPath);
@@ -22230,10 +22246,16 @@ export async function discoverRepositorySurfaces(repoRoot) {
         sourcePath: posixPath(path.relative(repoRoot, filePath)),
         text: readUtf8(filePath),
       })),
-    rust: listFiles(
-      sourceRoot,
-      (candidate) => path.extname(candidate) === ".rs",
-    )
+    rust: [
+      ...listFiles(
+        sourceRoot,
+        (candidate) => path.extname(candidate) === ".rs",
+      ),
+      ...listFiles(
+        compiledStubRoot,
+        (candidate) => path.extname(candidate) === ".rs",
+      ),
+    ]
       .filter(environmentSourceAllowed)
       .map((filePath) => ({
         sourcePath: posixPath(path.relative(repoRoot, filePath)),

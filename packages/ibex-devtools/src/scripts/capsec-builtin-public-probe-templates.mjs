@@ -1408,6 +1408,39 @@ const NONCAP_GENERIC_EXPORT_EXCLUSIONS = new Set([
   "node_os",
 ]);
 
+function targetUnavailablePublicExportReason(surface, target) {
+  const triple =
+    typeof target === "string"
+      ? target
+      : typeof target?.triple === "string"
+        ? target.triple
+        : null;
+  const metadata = surface?.metadata;
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — Windows keeps Brotli constants but does not install the native codec globals required by callable Brotli exports.
+  if (
+    triple === "x86_64-pc-windows-msvc" &&
+    metadata?.surfaceType === "export" &&
+    metadata.sourceKey === "node_zlib" &&
+    /^(?:Brotli|brotli|createBrotli)/u.test(metadata.exportName)
+  ) {
+    return "builtin-export-native-prerequisite-not-installed-on-target";
+  }
+  // The shared crypto builtin is reachable on Windows, but its reduced native
+  // profile does not install the PBKDF2, scrypt, or HKDF host functions. Keep
+  // their synchronous exports in the honest target gap instead of promoting
+  // recipes that can only throw at runtime.
+  // @ref LLP 0006#platform-native-crypto-with-honest-reduced-profiles
+  if (
+    triple === "x86_64-pc-windows-msvc" &&
+    metadata?.surfaceType === "export" &&
+    metadata.sourceKey === "exact_crypto" &&
+    ["hkdfSync", "pbkdf2Sync", "scryptSync"].includes(metadata.exportName)
+  ) {
+    return "builtin-export-native-prerequisite-not-installed-on-target";
+  }
+  return null;
+}
+
 function platformForTarget(target) {
   const triple =
     typeof target === "string"
@@ -1508,6 +1541,7 @@ function sourceDescriptor(
     ) ||
     canonicalJson(metadata.publicModuleSpecifiers) !==
       canonicalJson(canonicalSet(metadata.publicModuleSpecifiers)) ||
+    targetUnavailablePublicExportReason(surface, target) !== null ||
     availability === false ||
     (!allowTargetAbsence &&
       availability &&
@@ -1686,6 +1720,13 @@ export function nonCapabilityBuiltinProbeResidualReason({
     surface.metadata.importReachability === "private-manifest"
   ) {
     return "builtin-export-not-publicly-importable";
+  }
+  const targetUnavailableReason = targetUnavailablePublicExportReason(
+    surface,
+    target,
+  );
+  if (targetUnavailableReason) {
+    return targetUnavailableReason;
   }
   const availability = platformAvailability(surface?.metadata);
   const targetPlatform = platformForTarget(target);

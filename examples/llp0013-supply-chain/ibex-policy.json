@@ -1,12 +1,43 @@
 {
-  "policySchema": "ibex/capsec-policy/1",
+  "policySchema": "ibex/capsec-policy/2",
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
-  "vocabDigest": "sha256-Bnni0MPeD14Jq69cCSHWO1VdUW1QOC7KhenPqNZNa5M",
-  "registryDigest": "sha256-nCNjEMcLg5PGvFkW2wp3nRFn2AiTz4UEWBccpkFKV0c",
-  "policyDigest": "sha256-r3esaY4BBqV-Z0VJs9xurPDOVsjgXrC39vaxQp87yzs",
+  "vocabDigest": "sha256-Yda8iI7kMfivaArotDBeNiCsmZSKh3BATcXw4P94DzY",
+  "registryDigest": "sha256-5SpgfNFOtWuII8zD-x0wVwUCMzbfcNvShj9qg3f0-UM",
+  "policyDigest": "sha256-KmEFDytbUm9kqPFFrrNR_i56AWYutAjebfvDl4SEAJc",
   "purpose": "production",
   "mode": "enforce",
+  "graphIdentity": "sha256-_TKDSpUuwDYZkjO0_gQOEgxMCQk25yKNMxcL5MW64SM",
+  "entryIdentity": {
+    "root": "project",
+    "components": [
+      {
+        "encoding": "utf8",
+        "value": "examples"
+      },
+      {
+        "encoding": "utf8",
+        "value": "llp0013-supply-chain"
+      },
+      {
+        "encoding": "utf8",
+        "value": "app.mjs"
+      }
+    ],
+    "sourceIntegrity": "sha256-fJo8zD4M9Zb0MJQv9o-qTHVcRNZuRhK6hCvbQxdx7jE"
+  },
+  "targetProfile": {
+    "kind": "source",
+    "profile": "portable-v1"
+  },
+  "mountProfile": "project-v1",
+  "rootCeiling": [],
+  "computedCandidates": {
+    "schema": "ibex/computed-candidate-manifest/1",
+    "declarations": [],
+    "packageClosureOptIns": [],
+    "materializedSites": []
+  },
   "rootImports": [
     "env-reader@1.0.0",
     "evil-pkg@1.0.0"

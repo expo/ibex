@@ -26,6 +26,9 @@ pub mod cdp;
 // decision logic in handwritten Rust.
 pub mod cache_topology;
 pub mod capsec_registry_generated;
+pub mod capsec_runtime_projection_generated;
+pub mod compiled_contract;
+pub mod compiled_environment_profile_generated;
 pub mod engine;
 pub mod host;
 pub mod identity_generated;

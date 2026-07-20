@@ -171,16 +171,31 @@ describe("Ibex custom DNS Resolver", () => {
   test("connected resolver socket rejects a forged response from another source port", async () => {
     const server = dgram.createSocket("udp4");
     const attacker = dgram.createSocket("udp4");
+    let unexpectedAttackerError: Error | undefined;
+    let resolveForgedSend!: () => void;
+    let rejectForgedSend!: (error: Error) => void;
+    const forgedSend = new Promise<void>((resolve, reject) => {
+      resolveForgedSend = resolve;
+      rejectForgedSend = reject;
+    });
+    let realReplyTimer: ReturnType<typeof setTimeout> | undefined;
     sockets.push(server, attacker);
-    attacker.on("error", (error: NodeJS.ErrnoException) => {
-      // Linux may return an ICMP port-unreachable error to the forged sender
-      // when the connected resolver socket rejects its foreign-source packet.
-      if (error.code !== "ECONNREFUSED") throw error;
+    // Linux can report the connected resolver socket's expected source-port
+    // rejection back to this unconnected sender as an asynchronous refusal.
+    // Keep that platform signal from becoming an uncaught Bun test error while
+    // retaining every other attacker-side error for the assertion below.
+    attacker.on("error", (error: any) => {
+      if (error?.code !== "ECONNREFUSED") unexpectedAttackerError = error;
     });
     await new Promise<void>((resolve) => attacker.bind(0, "127.0.0.1", resolve));
     server.on("message", (query, peer) => {
-      attacker.send(dnsTxtResponse(query, "forged-source"), peer.port, peer.address);
-      setTimeout(() => {
+      attacker.send(
+        dnsTxtResponse(query, "forged-source"),
+        peer.port,
+        peer.address,
+        (error) => (error ? rejectForgedSend(error) : resolveForgedSend()),
+      );
+      realReplyTimer = setTimeout(() => {
         server.send(dnsTxtResponse(query, "real-source"), peer.port, peer.address);
       }, 10);
     });
@@ -188,7 +203,13 @@ describe("Ibex custom DNS Resolver", () => {
 
     const resolver = new ibexDns.Resolver({ timeout: 100, tries: 1 });
     resolver.setServers([`127.0.0.1:${(server.address() as any).port}`]);
-    expect(await resolveTxt(resolver)).toEqual([["real-source"]]);
+    try {
+      expect(await resolveTxt(resolver)).toEqual([["real-source"]]);
+      await forgedSend;
+      expect(unexpectedAttackerError).toBeUndefined();
+    } finally {
+      if (realReplyTimer !== undefined) clearTimeout(realReplyTimer);
+    }
   });
 
   test("uses noncolliding unpredictable transaction ids for concurrent queries", async () => {

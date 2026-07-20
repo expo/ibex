@@ -25,7 +25,7 @@
             "enum": [
               "ibex:capsec:vocab:1",
               "ibex:capsec:registry:1",
-              "ibex:capsec:policy:1",
+              "ibex:capsec:policy:2",
               "ibex:capsec:armed:1",
               "ibex:capsec:conformance:1"
             ]

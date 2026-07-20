@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schema/compiled-environment-profile-v1.schema.json",
+  "title": "Ibex compiled runtime environment profile v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "sourceManifestSchema",
+    "sourceManifestStatus",
+    "allowlistDecision",
+    "releaseEligible",
+    "realEnvironment",
+    "applicationEnvironment",
+    "nameAlgebra",
+    "consumers"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/compiled-environment-profile/1" },
+    "sourceManifestSchema": { "const": "ibex/capsec-implementation/1" },
+    "sourceManifestStatus": { "type": "string", "minLength": 1 },
+    "allowlistDecision": {
+      "type": "object",
+      "required": ["status", "names"],
+      "properties": {
+        "status": {
+          "enum": ["blocked-on-author-decision-2", "decided"]
+        },
+        "names": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "releaseEligible": { "type": "boolean" },
+    "realEnvironment": { "type": "object" },
+    "applicationEnvironment": { "type": "object" },
+    "nameAlgebra": { "type": "object" },
+    "consumers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["observedKey", "disposition", "sourceRefs", "branchIds"],
+        "properties": {
+          "observedKey": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "disposition": {
+            "enum": [
+              "application-behavior",
+              "privileged-control",
+              "application-broker",
+              "capture-primitive",
+              "typed-internal-dispatch"
+            ]
+          },
+          "sourceRefs": { "type": "array", "items": { "type": "string" } },
+          "branchIds": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

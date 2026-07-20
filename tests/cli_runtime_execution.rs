@@ -66,7 +66,8 @@ async fn run_ibex_isolated(home: &Path, entry: &Path) -> std::process::Output {
         .env("XDG_CACHE_HOME", home.join("xdg-cache"))
         .env_remove("IBEX_NO_BYTECODE")
         .env_remove("EX_NO_BYTECODE")
-        .env_remove("EXACT_COMPAT_TEST");
+        .env_remove("EXACT_COMPAT_TEST")
+        .env_remove("IBEX_COMPAT_LOADER_TEST");
     if let Some(compiler) = hermesc_path() {
         // `HERMESC` is a build/test-harness convention and may name a compiler
         // with any basename. Runtime discovery intentionally accepts only
@@ -159,6 +160,32 @@ async fn cli_runtime_standalone_mjs_entry_without_tla_runs_lowered_source() {
     assert!(
         stdout.contains("exists=true"),
         "the lowered import must resolve\nstdout: {stdout}\nstderr: {stderr}"
+    );
+}
+
+/// LLP 0028 entry-shim migration keeps ordinary CommonJS outside the async
+/// wrapper: a raw `.cjs` entry with no TLA still executes through `require()`
+/// with its normal module/exports/top-level-this contract.
+#[tokio::test]
+async fn cli_runtime_cjs_entry_remains_passthrough_after_shim_migration() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let entry = dir.path().join("app.cjs");
+    std::fs::write(
+        &entry,
+        "module.exports.answer = 42; console.log('cjs=' + module.exports.answer + ',this=' + (this === module.exports));\n",
+    )
+    .expect("write entry");
+
+    let output = run_ibex_isolated(dir.path(), &entry).await;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        ".cjs passthrough failed\nstdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("cjs=42,this=true"),
+        ".cjs wrapper semantics drifted\nstdout: {stdout}\nstderr: {stderr}"
     );
 }
 

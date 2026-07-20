@@ -25,6 +25,8 @@ use std::sync::OnceLock;
 extern "C" {
     fn ex_hermes_bytecode_version() -> u32;
     fn ex_hermes_engine_binary_path(out: *mut std::ffi::c_char, out_len: usize) -> i32;
+    #[cfg(unix)]
+    fn ex_open_pinned_self_image(error: *mut std::ffi::c_char, error_len: usize) -> i32;
     #[cfg(any(
         target_os = "linux",
         target_os = "android",
@@ -32,6 +34,35 @@ extern "C" {
         windows
     ))]
     fn ex_hermes_engine_mapped_object(out_device: *mut u64, out_inode: *mut u64) -> i32;
+}
+
+/// Open the running executable once and prove that the descriptor names the
+/// object backing its mapped code. Callers must perform every subsequent
+/// executable read through the returned descriptor.
+// @ref LLP 0029#3-identity-separated-digest-domains — a pathname lookup cannot
+// safely authenticate an envelope after the running image has been replaced.
+#[cfg(unix)]
+pub fn open_pinned_self_image() -> Result<std::fs::File, String> {
+    use std::os::fd::FromRawFd;
+
+    let mut error = [0i8; 512];
+    let fd = unsafe { ex_open_pinned_self_image(error.as_mut_ptr(), error.len()) };
+    if fd < 0 {
+        let message = unsafe { std::ffi::CStr::from_ptr(error.as_ptr()) }
+            .to_string_lossy()
+            .into_owned();
+        return Err(if message.is_empty() {
+            "failed to pin the running executable image".into()
+        } else {
+            message
+        });
+    }
+    Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+}
+
+#[cfg(not(unix))]
+pub fn open_pinned_self_image() -> Result<std::fs::File, String> {
+    Err("pinned self-image acquisition is unsupported on this target".into())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
@@ -192,7 +223,25 @@ fn engine_object_identity(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn verify_loaded_mapping_object(
+    metadata: &std::fs::Metadata,
+    _object: &capsec_semantics::model::ObjectIdentity,
+) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let mut device = 0u64;
+    let mut inode = 0u64;
+    if unsafe { ex_hermes_engine_mapped_object(&mut device, &mut inode) } != 1 {
+        return Err("failed to identify the mapped Hermes ELF image".into());
+    }
+    if inode != metadata.ino() || device != metadata.dev() {
+        return Err("loaded Hermes path names a different object than the mapped ELF image".into());
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
 fn verify_loaded_mapping_object(
     metadata: &std::fs::Metadata,
     _object: &capsec_semantics::model::ObjectIdentity,
@@ -432,6 +481,94 @@ pub fn take_callback_pending() -> bool {
 mod tests {
     use std::ffi::{c_void, CStr, CString};
     use std::os::raw::c_char;
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn pinned_self_image_survives_path_replacement() {
+        use sha2::{Digest as _, Sha256};
+        use std::io::{Read as _, Write as _};
+        use std::os::unix::net::{UnixListener, UnixStream};
+        use std::process::Command;
+        use std::time::{Duration, Instant};
+
+        const CHILD: &str = "IBEX_PINNED_SELF_IMAGE_REPLACEMENT_CHILD";
+        const SOCKET: &str = "IBEX_PINNED_SELF_IMAGE_REPLACEMENT_SOCKET";
+        const EXPECTED: &str = "IBEX_PINNED_SELF_IMAGE_REPLACEMENT_DIGEST";
+
+        if std::env::var_os(CHILD).is_some() {
+            let mut image = super::open_pinned_self_image().expect("pin mapped test executable");
+            let mut stream = UnixStream::connect(std::env::var_os(SOCKET).expect("socket path"))
+                .expect("connect replacement controller");
+            stream
+                .write_all(b"ready")
+                .expect("report pinned descriptor");
+            let mut release = [0u8; 1];
+            stream
+                .read_exact(&mut release)
+                .expect("await pathname replacement");
+            let mut bytes = Vec::new();
+            image
+                .read_to_end(&mut bytes)
+                .expect("read pinned descriptor");
+            let actual = format!("{:x}", Sha256::digest(&bytes));
+            assert_eq!(actual, std::env::var(EXPECTED).expect("expected digest"));
+            return;
+        }
+
+        let temp = tempfile::tempdir().expect("replacement test directory");
+        let probe = temp.path().join("mapped-probe");
+        std::fs::copy(std::env::current_exe().expect("test executable"), &probe)
+            .expect("copy test executable");
+        let original = std::fs::read(&probe).expect("read copied executable");
+        let expected = format!("{:x}", Sha256::digest(&original));
+        let socket_path = temp.path().join("controller.sock");
+        let listener = UnixListener::bind(&socket_path).expect("bind replacement controller");
+        listener
+            .set_nonblocking(true)
+            .expect("make replacement controller nonblocking");
+        let mut child = Command::new(&probe)
+            .arg("--exact")
+            .arg("engine::tests::pinned_self_image_survives_path_replacement")
+            .arg("--nocapture")
+            .env(CHILD, "1")
+            .env(SOCKET, &socket_path)
+            .env(EXPECTED, expected)
+            .spawn()
+            .expect("spawn copied test executable");
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    if let Some(status) = child.try_wait().expect("poll child") {
+                        panic!("replacement child exited before pinning: {status}");
+                    }
+                    assert!(
+                        Instant::now() < deadline,
+                        "replacement child did not pin in time"
+                    );
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("accept replacement child: {error}"),
+            }
+        };
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("set replacement controller timeout");
+        let mut ready = [0u8; 5];
+        stream
+            .read_exact(&mut ready)
+            .expect("await pinned descriptor");
+        assert_eq!(&ready, b"ready");
+
+        std::fs::rename(&probe, temp.path().join("mapped-original"))
+            .expect("move running executable pathname");
+        std::fs::write(&probe, b"replacement object").expect("replace executable pathname");
+        stream.write_all(b"g").expect("release replacement child");
+        let status = child.wait().expect("wait for replacement child");
+        assert!(status.success(), "replacement child failed: {status}");
+    }
 
     #[test]
     fn loaded_engine_identity_binds_factory_object_to_current_file_snapshot() {
@@ -3584,8 +3721,8 @@ function collect() {
 
         impl RuntimeGuard {
             fn new() -> Self {
+                crate::host::abi::install_host(crate::host::Host::default_legacy());
                 unsafe {
-                    ex_host_install();
                     let runtime = ex_hermes_create_diagnostic();
                     assert!(!runtime.is_null());
                     Self(runtime)
@@ -3613,14 +3750,14 @@ function collect() {
             runtime: *mut HermesRuntimeOpaque,
             source: &str,
         ) -> Option<String> {
-            unsafe { ex_host_install() };
+            crate::host::abi::install_host(crate::host::Host::default_legacy());
             let (mut status, mut value) = eval(runtime, source);
             if status != 0
                 && value
                     .as_deref()
                     .is_some_and(|message| message.contains("Permission denied"))
             {
-                unsafe { ex_host_install() };
+                crate::host::abi::install_host(crate::host::Host::default_legacy());
                 (status, value) = eval(runtime, source);
             }
             assert_eq!(status, 0, "eval failed: {value:?}");
@@ -3965,7 +4102,9 @@ function collect() {
             let tcp_source = format!(
                 r#"
                 globalThis.__windowsNativeTcp = {{ done: false, result: '' }};
-                __exactEnsureNet();
+                // Structural lockdown eagerly runs and then seals the private
+                // lazy installer; the installed TCP bridge is what this smoke
+                // exercises. @ref LLP 0013#phase-1
                 var tcpHandle = __exactTcpConnect('127.0.0.1', {tcp_port}, null, null);
                 __exactTcpWrite(tcpHandle, 'ibex-winsock-tcp');
                 function __tcpBytesToText(bytes) {{

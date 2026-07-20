@@ -161,9 +161,138 @@ export function resolveTypedDelegations({ seed, edges, requests, bareOf = (value
   return effective;
 }
 
-export function buildCanonicalPolicy(principals, rootImports = []) {
+function defaultPolicyBinding() {
+  return {
+    graphIdentity: packageIntegrity('ibex-policy-test-graph'),
+    entryIdentity: {
+      root: 'project',
+      components: [{ encoding: 'utf8', value: 'test-entry.mjs' }],
+      sourceIntegrity: packageIntegrity('ibex-policy-test-entry'),
+    },
+    targetProfile: { kind: 'source', profile: 'portable-v1' },
+    mountProfile: 'project-v1',
+    rootCeiling: [],
+    computedCandidates: {
+      schema: 'ibex/computed-candidate-manifest/1',
+      declarations: [],
+      packageClosureOptIns: [],
+      materializedSites: [],
+    },
+  };
+}
+
+function canonicalComputedCandidates(input) {
+  const manifest = input || defaultPolicyBinding().computedCandidates;
+  const optIns = (manifest.packageClosureOptIns || []).map((row) => ({
+    package: row.package,
+    provenance: [...new Map((row.provenance || []).map((entry) => [
+      canonicalJson(entry), entry,
+    ])).values()].sort(compareCanonicalBytes),
+  })).sort(compareCanonicalBytes);
+  const optInPackages = new Set(optIns.map((row) => row.package));
+  const declarations = (manifest.declarations || []).map((row) => ({
+    requester: row.requester,
+    label: row.label,
+    specifiers: canonicalStringSet(row.specifiers || []),
+    packageClosures: canonicalStringSet(row.packageClosures || []),
+  })).sort(compareCanonicalBytes);
+  const materializedSites = (manifest.materializedSites || []).map((row) => ({
+    requester: row.requester,
+    label: row.label,
+    candidates: canonicalStringSet(row.candidates || []),
+  })).sort(compareCanonicalBytes);
+  const siteKey = (row) => canonicalJson([row.requester, row.label]);
+  if (new Set(declarations.map(siteKey)).size !== declarations.length)
+    throw new TypeError('computed-candidate declarations repeat a requester label');
+  if (new Set(materializedSites.map(siteKey)).size !== materializedSites.length)
+    throw new TypeError('materialized computed-candidate sites repeat a requester label');
+  const materializedBySite = new Map(materializedSites.map((row) => [siteKey(row), row]));
+  for (const declaration of declarations) {
+    const materialized = materializedBySite.get(siteKey(declaration));
+    if (!materialized)
+      throw new TypeError(`computed-candidate site ${declaration.label} is not materialized`);
+    for (const packageClosure of declaration.packageClosures) {
+      if (!optInPackages.has(packageClosure)) {
+        throw new TypeError(
+          `computed-candidate package closure ${packageClosure} has no package opt-in`,
+        );
+      }
+    }
+    for (const specifier of declaration.specifiers) {
+      if (!materialized.candidates.includes(specifier)) {
+        throw new TypeError(
+          `computed-candidate site ${declaration.label} omits declared specifier ${specifier}`,
+        );
+      }
+    }
+  }
+  if (materializedSites.length !== declarations.length)
+    throw new TypeError('materialized computed-candidate sites have no declaration');
+  return {
+    schema: 'ibex/computed-candidate-manifest/1',
+    declarations,
+    packageClosureOptIns: optIns,
+    materializedSites,
+  };
+}
+
+function logicalRootsIn(value, roots = new Set()) {
+  if (Array.isArray(value)) {
+    for (const entry of value) logicalRootsIn(entry, roots);
+    return roots;
+  }
+  if (!value || typeof value !== 'object') return roots;
+  if (typeof value.root === 'string' && Array.isArray(value.components)) {
+    roots.add(value.root);
+  }
+  for (const entry of Object.values(value)) logicalRootsIn(entry, roots);
+  return roots;
+}
+
+function assertDeploymentBinding(principals, binding) {
+  const compiled = binding.targetProfile?.kind === 'compiled';
+  const expectedMount = compiled ? 'compiled-app-work-v1' : 'project-v1';
+  if (binding.mountProfile !== expectedMount) {
+    throw new TypeError(
+      `target profile ${binding.targetProfile?.kind || '<missing>'} requires mount profile ${expectedMount}`,
+    );
+  }
+  if (!compiled) return;
+
+  const rows = [
+    ...(binding.rootCeiling || []),
+    ...principals.flatMap((entry) => [
+      ...(entry.floor || []),
+      ...(entry.denials || []),
+      ...(entry.escalationCeiling || []),
+    ]),
+  ];
+  for (const [index, row] of rows.entries()) {
+    for (const root of logicalRootsIn(row.authority)) {
+      if (!['app', 'work', 'absolute'].includes(root)) {
+        throw new TypeError(
+          `compiled authority row ${index} uses unavailable logical root ${root}; ` +
+            'use app, work, or an explicit absolute binding',
+        );
+      }
+    }
+  }
+}
+
+export function buildCanonicalPolicy(
+  principals,
+  rootImportsOrBinding = [],
+  explicitBinding = undefined,
+) {
+  const rootImports = Array.isArray(rootImportsOrBinding) ? rootImportsOrBinding : [];
+  const binding = explicitBinding ||
+    (Array.isArray(rootImportsOrBinding) ? defaultPolicyBinding() : rootImportsOrBinding);
+  // @ref LLP 0029#4-compiled-mode-authority — compiled policies must name
+  // their actual `/app`/`/work`/absolute namespace and may not smuggle source
+  // mode's project-root meaning into the executable.
+  assertDeploymentBinding(principals, binding);
   const policy = {
-    policySchema: 'ibex/capsec-policy/1',
+    policySchema: 'ibex/capsec-policy/2',
     capsVocab: 'ibex/capsec/1',
     semanticCore: 'capsec/semantics/1',
     vocabDigest: contract().policy.vocabDigest,
@@ -171,6 +300,12 @@ export function buildCanonicalPolicy(principals, rootImports = []) {
     policyDigest: contract().policy.policyDigest,
     purpose: 'production',
     mode: 'enforce',
+    graphIdentity: binding.graphIdentity,
+    entryIdentity: binding.entryIdentity,
+    targetProfile: binding.targetProfile,
+    mountProfile: binding.mountProfile,
+    rootCeiling: canonicalAuthorityRows(binding.rootCeiling || [], 'root ceiling'),
+    computedCandidates: canonicalComputedCandidates(binding.computedCandidates),
     rootImports: canonicalStringSet(rootImports),
     principals: principals.map((entry) => ({
       principal: entry.principal,
@@ -275,6 +410,32 @@ export function classifyPolicyDrift(before, after) {
       .filter((locator) => !newRootImports.has(locator))
       .map((locator) => `rootImports ${locator}`),
   };
+  const rootCeilingDelta = (() => {
+    const wrap = (policy) => ({
+      ...policy,
+      principals: [{
+        principal: { locator: '<root>' },
+        rootCeiling: policy.rootCeiling || [],
+      }],
+    });
+    const oldRows = authorityRows(wrap(before), 'rootCeiling');
+    const newRows = authorityRows(wrap(after), 'rootCeiling');
+    const oldKeys = new Set(oldRows.map((row) => canonicalJson(row.authority)));
+    const newKeys = new Set(newRows.map((row) => canonicalJson(row.authority)));
+    return {
+      expansions: newRows.filter((row) => !oldKeys.has(canonicalJson(row.authority)))
+        .map((row) => row.rendered),
+      narrowings: oldRows.filter((row) => !newKeys.has(canonicalJson(row.authority)))
+        .map((row) => row.rendered),
+    };
+  })();
+  const candidateRows = (policy) => new Set(
+    (policy.computedCandidates?.materializedSites || []).flatMap((site) =>
+      site.candidates.map((candidate) =>
+        `${site.requester}#${site.label}: computed candidate ${candidate}`)),
+  );
+  const oldCandidates = candidateRows(before);
+  const newCandidates = candidateRows(after);
   const expansions = canonicalStringSet([
     ...floor.expansions,
     ...ceiling.expansions,
@@ -283,6 +444,8 @@ export function classifyPolicyDrift(before, after) {
     ...packages.expansions,
     ...endowments.expansions,
     ...rootImports.expansions,
+    ...rootCeilingDelta.expansions,
+    ...[...newCandidates].filter((row) => !oldCandidates.has(row)),
   ]);
   const narrowings = canonicalStringSet([
     ...floor.narrowings,
@@ -292,6 +455,8 @@ export function classifyPolicyDrift(before, after) {
     ...packages.narrowings,
     ...endowments.narrowings,
     ...rootImports.narrowings,
+    ...rootCeilingDelta.narrowings,
+    ...[...oldCandidates].filter((row) => !newCandidates.has(row)),
   ]);
   const identitySet = (policy) => new Set(policy.principals.map((entry) =>
     canonicalJson(entry.principal)));
@@ -302,6 +467,9 @@ export function classifyPolicyDrift(before, after) {
       .map((identity) => `+ ${identity}`),
     ...[...oldIdentities].filter((identity) => !newIdentities.has(identity))
       .map((identity) => `- ${identity}`),
+    ...['graphIdentity', 'entryIdentity', 'targetProfile', 'mountProfile']
+      .filter((field) => canonicalJson(before[field]) !== canonicalJson(after[field]))
+      .map((field) => `~ ${field}: ${canonicalJson(before[field])} -> ${canonicalJson(after[field])}`),
   ]);
   let classification = 'none';
   if (expansions.length && narrowings.length) classification = 'mixed';

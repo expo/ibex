@@ -1,0 +1,64 @@
+{
+  "schema": "ibex/single-file-executable-golden/1",
+  "description": "Deterministic development-stub envelope vector for ibex/single-file-executable/1",
+  "fileLength": 5260,
+  "fileDigest": "sha256-tI_m5hF8dUvxpSWBLo-1MpF96jdd54hTV2KaAKBM38Q",
+  "envelopeDigest": "sha256-ZLiEpbc9RTsEZ2T1160TEHOtKzMjnanb5DbIHDeUaSw",
+  "stubContractDigest": "sha256-j83nwiAPDyjJdtE69kS8Ca-tE86FThc8s3z3MWSi-V4",
+  "directory": {
+    "schema": "ibex/single-file-executable/1",
+    "stubContractDigest": "sha256-j83nwiAPDyjJdtE69kS8Ca-tE86FThc8s3z3MWSi-V4",
+    "sections": [
+      {
+        "id": "provenance",
+        "kind": "provenance-manifest",
+        "offset": 0,
+        "length": 38,
+        "alignment": 8,
+        "digest": "sha256-NE7mDE--jhjwTIi1hHSHnqP6Q79TMNQs-FgiRNb4YMM"
+      },
+      {
+        "id": "graph",
+        "kind": "embedded-module-graph",
+        "offset": 40,
+        "length": 41,
+        "alignment": 8,
+        "digest": "sha256-PJNM2sYe7-bBWa8RdlmIQYMsvtmByeTc3VwR1brlnGU"
+      },
+      {
+        "id": "policy",
+        "kind": "resolved-policy",
+        "offset": 88,
+        "length": 39,
+        "alignment": 8,
+        "digest": "sha256-L-qnd_v5dJ0BhXSfOmDzEhzw5xVwDpeBkYAYfxRxBXo"
+      },
+      {
+        "id": "entry",
+        "kind": "entry-designation",
+        "offset": 128,
+        "length": 185,
+        "alignment": 8,
+        "digest": "sha256-UfYcM-_p5MX4w_iXhErtV1kAnrW35PdXKsIIpr31Ytw"
+      },
+      {
+        "id": "carrier-manifest-0",
+        "kind": "carrier-manifest",
+        "pairId": "module-0",
+        "offset": 320,
+        "length": 34,
+        "alignment": 8,
+        "digest": "sha256-hFj9WPqliusJ1gUhsu44A8U_h1WwNfkh9Rlao5vZrQc"
+      },
+      {
+        "id": "carrier-payload-0",
+        "kind": "carrier-payload",
+        "pairId": "module-0",
+        "offset": 4072,
+        "length": 13,
+        "alignment": 4096,
+        "digest": "sha256-VzqQxIXhcNkzhgmEM9UGjHObbZXNSkLBKgxyAX4ih0E"
+      }
+    ]
+  }
+}

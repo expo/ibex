@@ -129,10 +129,10 @@ jobs:
             fi
           }
           {
-            echo "need_macos=$(need "hermes-macos-arm64-${{ steps.compute.outputs.macos_cache_key }}.tar.gz")"
-            echo "need_macos_release=$(need "hermes-macos-arm64-release-${{ steps.compute.outputs.macos_release_cache_key }}.tar.gz")"
-            echo "need_linux=$(need "hermes-linux-x64-${{ steps.compute.outputs.linux_cache_key }}.tar.gz")"
-            echo "need_windows=$(need "hermes-windows-x64-${{ steps.compute.outputs.windows_asset_key }}.zip")"
+            echo "need_macos=$(need "hermes-macos-arm64-$identity.tar.gz")"
+            echo "need_macos_release=$(need "hermes-macos-arm64-release-$identity.tar.gz")"
+            echo "need_linux=$(need "hermes-linux-x64-$identity-static-v1.tar.gz")"
+            echo "need_windows=$(need "hermes-windows-x64-$identity.zip")"
           } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT" || true
 
@@ -201,7 +201,9 @@ jobs:
     name: Build + publish Linux bundle (x64)
     needs: identity
     if: needs.identity.outputs.need_linux == 'true'
-    runs-on: ubuntu-latest
+    # Stub contracts record glibc 2.35 as the maximum permitted symbol floor;
+    # build the catalog engine and audit image on that exact Ubuntu generation.
+    runs-on: ubuntu-22.04
     timeout-minutes: 150
     env:
       IDENTITY: ${{ needs.identity.outputs.identity }}
@@ -214,7 +216,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build
+          sudo apt-get install -y libicu-dev ninja-build pkg-config
 
       - name: Build patched Hermes from source
         run: ./scripts/build-hermes-linux.sh
@@ -227,25 +229,47 @@ jobs:
           echo "install=$install" >> "$GITHUB_ENV"
           test -f "$install/include/jsi/jsi.h"
           test -x "$install/bin/hermesc"
-          lib_file="$(find "$install/lib" -maxdepth 1 -name 'libhermesvm.*' -print -quit)"
-          test -n "$lib_file"
-          case "$lib_file" in
-            *.so)
-              symbols="$(nm -D "$lib_file")"
-              test -f "$install/lib/hermes-profile-provenance.json"
-              ibex_hermes_profile_receipt_has_cache_key "$install/lib/hermes-profile-provenance.json" "$SOURCE_CACHE_KEY"
-              ;;
-            *)    symbols="$(nm "$lib_file" 2>/dev/null)" ;;
-          esac
-          [[ "$symbols" == *ex_hermes_vm_current_package_id* ]] \
-            || { echo "::error::built lib lacks ex_hermes_vm_current_package_id (patch stack not applied?)"; exit 1; }
+          test -f "$install/lib/libhermesvm.so"
+          test -f "$install/lib/libhermesvm_a.a"
+          test -f "$install/lib/libjsi.a"
+          test -f "$install/lib/libboost_context.a"
+          shared_symbols="$(nm -D "$install/lib/libhermesvm.so")"
+          static_symbols="$(nm "$install/lib/libhermesvm_a.a" 2>/dev/null)"
+          [[ "$shared_symbols" == *ex_hermes_vm_current_package_id* ]] \
+            || { echo "::error::built shared library lacks ex_hermes_vm_current_package_id (patch stack not applied?)"; exit 1; }
+          [[ "$static_symbols" == *ex_hermes_vm_current_package_id* ]] \
+            || { echo "::error::built static library lacks ex_hermes_vm_current_package_id (patch stack not applied?)"; exit 1; }
           "$install/bin/hermesc" --help >/dev/null
           echo "Bundle verified: patched export present, hermesc runs."
+
+      - name: Install Rust toolchain
+        run: scripts/install-rust-toolchain.sh
+
+      - name: Build and audit static compiled-stub dependency surface
+        env:
+          HERMES_LINK_STATIC: "1"
+          HERMES_STATIC_LIB_NAME: hermesvm_a
+          IBEX_SFE_LINUX_RELEASE_STUB: "1"
+          CARGO_TARGET_DIR: target/sfe-linux-static-audit
+        run: |
+          set -euo pipefail
+          cargo build --release --package ibex-compiled-stub
+          scripts/audit-sfe-linux-deps.sh \
+            target/sfe-linux-static-audit/release/ibex-compiled-stub \
+            --minimum-platform linux-glibc-2.35-x86-64-v1 \
+            --output target/sfe-linux-static-audit/dependency-audit.json
+
+      - name: Upload Linux dependency audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: sfe-linux-static-dependency-audit
+          path: target/sfe-linux-static-audit/dependency-audit.json
+          if-no-files-found: error
 
       - name: Package + checksum
         run: |
           set -euo pipefail
-          asset="hermes-linux-x64-$SOURCE_CACHE_KEY.tar.gz"
+          asset="hermes-linux-x64-$IDENTITY-static-v1.tar.gz"
           tar -C "$install" -czf "$asset" include lib bin
           shasum -a 256 "$asset" > "$asset.sha256"
           ls -lh "$asset"*
@@ -258,7 +282,7 @@ jobs:
       - name: Upload to release (idempotent overwrite)
         run: |
           set -euo pipefail
-          asset="hermes-linux-x64-$SOURCE_CACHE_KEY.tar.gz"
+          asset="hermes-linux-x64-$IDENTITY-static-v1.tar.gz"
           gh release upload "$TAG" "$asset" "$asset.sha256" --repo "$GITHUB_REPOSITORY" --clobber
 
   macos-release:

@@ -5,8 +5,8 @@
 **Systems:** CLI Runtime, Runtime, Build, Distribution, Documentation
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-06-14
-**Revised:** 2026-07-13
-**Related:** LLP 0000; LLP 0002; LLP 0005; LLP 0006; LLP 0022; LLP 0024; LLP 0025
+**Revised:** 2026-07-17 (LLP 0029 adds release-pinned `compile` and non-evaluating `inspect-executable`; compiled program argv is outside the Ibex clap surface); 2026-07-11
+**Related:** LLP 0000; LLP 0002; LLP 0005; LLP 0006
 
 ## Summary
 
@@ -23,8 +23,9 @@ tooling consumer of that runtime.
 The `ibex` command is runtime-only:
 
 - shipped runtime commands: file execution, `run`, `eval`, `repl`, `build`,
-  `completions`, `version`, runtime diagnostics (`debug`), and the LLP 0014
-  `policy` toolchain.
+  release-pinned single-file `compile`, non-evaluating `inspect-executable`,
+  `completions`, `version`, runtime diagnostics (`debug`), the LLP 0014
+  `policy` toolchain, and the explicit `capsec audit` diagnostic.
 - hidden harness commands: `self-test` runs a compact in-binary smoke suite for
   CI consumers; `compat` runs the WPT/Node/Bun/Exact compatibility harness
   (ported from exact's stranded `packages/exact-cli` compat module, ENG-23081)
@@ -37,8 +38,12 @@ The `ibex` command is runtime-only:
 - Exact project commands such as `new`, `create`, `init`, `verify`, `facet`,
   `agent`, `mcp`, `doctor`, and `lint` remain Exact CLI commands.
 
-An existing local path wins over the command tables, so `ibex test` can still
+An existing local path wins over the reserved/project command tables, so `ibex test` can still
 execute a file named `test`.
+
+The argv surface of an executable produced by `ibex compile` belongs to that
+compiled application and LLP 0029, not to the `ibex` clap tree or this command
+manifest.
 
 ### Surface manifest
 
@@ -99,7 +104,7 @@ semantics, not a claim that help text or every Clap-internal setting is
 serialized. The source-side test accepts only reviewed `#[arg]` and
 `#[command]` attribute keys, so a new unrepresented parser relation fails
 before it can hide behind an unchanged manifest. The accepted inventory
-currently contains 14 command paths including the root, 58 options, and 7
+currently contains 18 command paths including the root, 64 options, and 11
 positionals, of which the root and `run` `ARGS` positionals are passthrough.
 
 Clap's generated help arguments, generated version arguments, and generated

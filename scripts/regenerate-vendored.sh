@@ -34,13 +34,21 @@ bun run generate:root-global-dispositions
 bun run generate:capsec-registry
 bun run generate:runtime-environment-inventory
 bun run generate:capsec-contract
+bun run generate:capsec-runtime-projection
+bun run generate:compiled-environment-profile
+bun run generate:oxc-retirement-manifest
 bun run generate:identity
 bun run generate:import-grant-keys
 bun run generate:modules
+bun run generate:module-transform-config
 # Postcondition: the module generator writes both the JS runtime manifest and
 # the Rust builtin manifest. Check immediately so a future package-script edit
 # cannot silently stop refreshing one side.
 bun run generate:modules --check
+bun run check:capsec-runtime-projection
+bun run check:compiled-environment-profile
+bun run check:oxc-retirement
+bun run check:module-transform-config
 bun run build:builtins
 bun run build:runtime
 bun run generate:vendored-fingerprint

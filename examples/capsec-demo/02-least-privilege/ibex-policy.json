@@ -1,12 +1,47 @@
 {
-  "policySchema": "ibex/capsec-policy/1",
+  "policySchema": "ibex/capsec-policy/2",
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
-  "vocabDigest": "sha256-Bnni0MPeD14Jq69cCSHWO1VdUW1QOC7KhenPqNZNa5M",
-  "registryDigest": "sha256-nCNjEMcLg5PGvFkW2wp3nRFn2AiTz4UEWBccpkFKV0c",
-  "policyDigest": "sha256-7qkI-iaGJHQGn6Xm2Ueg3lKMeIllRf-nWQwlRMWRiKE",
+  "vocabDigest": "sha256-Yda8iI7kMfivaArotDBeNiCsmZSKh3BATcXw4P94DzY",
+  "registryDigest": "sha256-5SpgfNFOtWuII8zD-x0wVwUCMzbfcNvShj9qg3f0-UM",
+  "policyDigest": "sha256-zYK0d_qF59qpKafEgEZ2wYNB1W39dosEfdNqHTbo-EQ",
   "purpose": "production",
   "mode": "enforce",
+  "graphIdentity": "sha256-luOVMl9V4PSBiHTYl2XIdQbEEUlaJf8Ls_-Pxf6tTP0",
+  "entryIdentity": {
+    "root": "project",
+    "components": [
+      {
+        "encoding": "utf8",
+        "value": "examples"
+      },
+      {
+        "encoding": "utf8",
+        "value": "capsec-demo"
+      },
+      {
+        "encoding": "utf8",
+        "value": "02-least-privilege"
+      },
+      {
+        "encoding": "utf8",
+        "value": "app.mjs"
+      }
+    ],
+    "sourceIntegrity": "sha256-a7RY6EUNvZTAPeaiULZlt3-7vYmaOOzMW5stZw9-VsI"
+  },
+  "targetProfile": {
+    "kind": "source",
+    "profile": "portable-v1"
+  },
+  "mountProfile": "project-v1",
+  "rootCeiling": [],
+  "computedCandidates": {
+    "schema": "ibex/computed-candidate-manifest/1",
+    "declarations": [],
+    "packageClosureOptIns": [],
+    "materializedSites": []
+  },
   "rootImports": [
     "logger@1.0.0"
   ],

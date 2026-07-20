@@ -6,6 +6,39 @@ packages/ibex-runtime-js/src/security/capsec-registry.generated.ts text eol=lf
 src/builtins/helpers/capsec-registry.generated.cjs text eol=lf
 src/capsec_registry_generated.rs text eol=lf
 src/engine/capsec_registry_generated.h text eol=lf
+src/capsec_runtime_projection_generated.rs text eol=lf
+src/compiled_environment_profile_generated.rs text eol=lf
+src/identity_generated.rs text eol=lf
+src/module_loader/transform_config_generated.rs text eol=lf
+config/oxc-retirement-manifest.json text eol=lf
+vendored-generated/** text eol=lf
+
+# Rust golden tests hash these fixture bytes and compare canonical JSON text.
+# Keep their sources and expected artifacts identical on Windows checkouts.
+tests/fixtures/computed-candidates-v1.golden.json text eol=lf
+tests/fixtures/module-runner-spike/** text eol=lf
+
+# Archived LLP evidence and its independently checked-in inputs are hashed as
+# exact bytes; preserve their canonical identity on Windows checkouts.
+# @ref LLP 0024#31-post-retirement-oxc-handoff — the parser differential is a
+# content-addressed cutover report bound to its projection and corpus.
+llp/evidence/** text eol=lf
+config/llp0024-parser-differential-projection.json text eol=lf
+tests/fixtures/llp0024-parser-differential/** text eol=lf
+
+# Cross-host contract tests inspect exact multiline engine source structure.
+# Keep the text they verify identical on every checkout platform.
+src/engine/** text eol=lf
+
+# Checked example policies authenticate their complete source trees and compare
+# the rendered artifact byte-for-byte. Keep those portable-v1 authorities
+# canonical across Git checkout platforms.
+# @ref LLP 0014#the-generated-artifact — one reviewed policy binds exact source
+# integrity and must not drift solely because Git selected CRLF on Windows.
+examples/llp0013-supply-chain/** text eol=lf
+examples/capsec-demo/01-supply-chain/** text eol=lf
+examples/capsec-demo/02-least-privilege/** text eol=lf
+examples/capsec-demo/04-defense-in-depth/** text eol=lf
 
 # Generated example policies bind raw package-tree bytes into package principal
 # integrity. Keep every current text input byte-identical on Windows while
@@ -51,7 +84,6 @@ scripts/install-windows-hermes.ps1 text eol=lf
 scripts/run-tests.sh text eol=lf
 scripts/test-android-java.sh text eol=lf
 scripts/check-generated-drift.sh text eol=lf
-src/engine/hermes_runtime.cc text eol=lf
 
 # The vendored-runtime fingerprint hashes these source bytes directly. Keep
 # every runtime, registry, embedding, and build authority byte-identical across

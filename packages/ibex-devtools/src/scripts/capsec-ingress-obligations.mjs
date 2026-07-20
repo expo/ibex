@@ -74,7 +74,7 @@ export const REQUIRED_INGRESS_OBLIGATIONS = Object.freeze([
       freezeEvidence("src/module_loader/runner_pipeline.rs", [
         "pub fn validate_authenticated_entry_request(",
         "verify_record(record, &self.producer_binary_digest)?.artifact()",
-        "request.source_id() != Some(&self.entry_vfs_source_id)",
+        "self.entry_vfs_source_id.as_ref() != request.source_id()",
         "self.snapshot.digest() != request.authenticated_snapshot_digest()",
         "entry_artifact.semantics.source_integrity != *request.source_digest()",
         "entry_artifact.semantics.source_goal != expected_goal",
@@ -684,7 +684,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-product-routing",
       "pub(crate) enum AuthenticatedProductIngress {",
       "async fn run_capsec_audit(",
-      "sha256-bejlqF4ZJ3mE6_ilKf6IxK9iKj56OjolIipbezOWrjE",
+      "sha256-XUmGN_unJPjNkTmcFvO-WUdbr9lEGKLk19F8qwF72J8",
     ),
     freezeReviewedRange(
       "authenticated-product-execution",
@@ -804,7 +804,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "sealed-bare-evaluator",
       'extern "C" int ex_hermes_eval(',
       'extern "C" int ibex_test_install_capsec_context_observer(',
-      "sha256-y_NGtLoFIY-ovUeuoVtnQ22rMicI5isC98-CxG7XLwU",
+      "sha256-huIQhkZZF7N5BeRsIUJQjErXlkKOGRMVFC86zAnsyo4",
     ),
   ]),
   "src/engine/hermes_structured.rs": Object.freeze([
@@ -842,7 +842,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-entry-request-join",
       "    pub fn validate_authenticated_entry_request(",
       "    pub fn plan(&self) -> Result<SynchronousGraphPlan<'_>> {",
-      "sha256-GW9dAFWLA6tAd0coIEQKQPNe_145eax7RevwhGlJNVE",
+      "sha256-JcQZUSC5TS8jGzQZaxJMkSWH7BJApFmCGn2hxd-sXPQ",
     ),
   ]),
   "src/vfs/mod.rs": Object.freeze([

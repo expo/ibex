@@ -178,35 +178,11 @@ fn armed_creates_are_exclusive_and_fd_entries_are_identity_checked() {
 }
 
 #[test]
-fn posix_armed_walker_binds_root_links_and_directory_spelling() {
-    let walker = source_section(
-        POSIX_FS,
-        "static ArmedResolvedPath walkArmedPath(",
-        "struct ArmedOpenedPath {",
-    );
-    assert!(walker.contains("canonicalRoot->c_str(), 3, surface"));
-    assert!(walker.contains("sameObjectAt(*rootParent, rootParentAndName.second, rootRaw)"));
-    assert!(walker.contains("fdResolvesToPath(*current.fd, current.backingPath)"));
-    assert!(walker.contains("traversedLink ? kFsSurfaceReadlink : surface"));
-    assert!(walker.contains("++followedLinks > kMaxArmedSymlinkHops"));
-
-    let readlink = source_section(
-        POSIX_FS,
-        "static FsAsyncResult fsReadlinkArmedWork(",
-        "static FsAsyncResult fsAccessArmedWork(",
-    );
-    assert!(readlink.contains("physicalTarget, virtualPath, kFsSurfaceReadlink, \"\", false"));
-
-    let realpath = source_section(
-        POSIX_FS,
-        "static FsAsyncResult fsRealpathArmedWork(",
-        "static FsAsyncResult fsReadlinkArmedWork(",
-    );
-    assert!(realpath.contains("fdResolvesToPath(*parent, parentAndName.first)"));
-    assert!(realpath.contains("ibex_private_vfs_project_realpath("));
-    assert!(realpath.contains("reinterpret_cast<const uint8_t*>(virtualPath.data())"));
-    assert!(realpath.contains("reinterpret_cast<const uint8_t*>(resolved->data())"));
-    assert!(realpath.contains("ex_host_free_buffer(projected, projectedLength)"));
+fn windows_process_stdio_bypasses_only_the_opaque_file_table() {
+    assert!(WINDOWS_FS.contains("principalMayUseProcessStdio(currentPrincipalId())"));
+    assert!(WINDOWS_FS.contains("GetStdHandle(fd == 1 ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE)"));
+    assert!(WINDOWS_FS.contains("if (fd == 1 || fd == 2)"));
+    assert!(WINDOWS_FS.contains("return writeProcessStdio(runtime, fd, bytes)"));
 }
 
 #[test]

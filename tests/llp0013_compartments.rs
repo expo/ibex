@@ -324,6 +324,7 @@ fn run_audit(directory: &Path) -> std::process::Output {
         .args(["capsec", "audit", "app.js"])
         .current_dir(directory)
         .env("EXACT_COMPAT_TEST", "1")
+        .env("IBEX_COMPAT_LOADER_TEST", "1")
         .output()
         .expect("run diagnostic compatibility fixture")
 }

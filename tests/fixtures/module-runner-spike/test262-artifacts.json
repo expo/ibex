@@ -1,6 +1,6 @@
 {
   "schema": "ibex/module-runner-test262-artifacts/1",
-  "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+  "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
   "subsetSchema": "ibex/module-runner-test262-subset/1",
   "upstream": {
     "repository": "https://github.com/tc39/test262",
@@ -26,7 +26,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-6jovMou15z2ef5aei4DRP/j2aMJ5l0CJMaB+S5LX6F0=",
-        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
         "staticEdges": [],
         "dynamicEdges": [],
         "exportDescriptors": [],
@@ -61,7 +61,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-5TfmKCemvzJ7w7WWQxbf+JQ41isoK7AIW8XiGMHK7Yk=",
-        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
         "staticEdges": [],
         "dynamicEdges": [],
         "exportDescriptors": [
@@ -83,7 +83,7 @@
           "sourcesContent": [
             "var count = 0;\n\nexport class C {} if (true) { count += 1; }\n\nassert.sameValue(count, 1);\n"
           ],
-          "mappings": ";;;;;;;AAAA;AAEA;AAAA;AAAA;AAAA;AAEA;AAAA",
+          "mappings": ";;;;;;;AAAA;AAEA;AAAA;AAAA;AACA;AADA;AAEA",
           "x_ibex_composed": true,
           "x_ibex_factory_lines": 17
         },
@@ -102,7 +102,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-A60KTb5Jv8OzdkjWBgvI972HVS/IfVqyvm2f3gUoj4Y=",
-        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
         "staticEdges": [],
         "dynamicEdges": [],
         "exportDescriptors": [
@@ -124,7 +124,7 @@
           "sourcesContent": [
             "var count = 0;\n\nexport default class {} if (true) { count += 1; }\n\nassert.sameValue(count, 1);\n"
           ],
-          "mappings": ";;;;;;;AAAA;AAEA;AAAA;AAAA;AAAA;AAEA;AAAA",
+          "mappings": ";;;;;;;AAAA;AAEA;AAAA;AAAA;AACA;AADA;AAEA",
           "x_ibex_composed": true,
           "x_ibex_factory_lines": 17
         },
@@ -143,7 +143,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-bIpMmGKCYxRSwIT32VZsuGaYsMkWl1nose10x3lsQc4=",
-        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
         "staticEdges": [],
         "dynamicEdges": [],
         "exportDescriptors": [
@@ -165,7 +165,7 @@
           "sourcesContent": [
             "var count = 0;\n\nexport default class C {} if (true) { count += 1; }\n\nassert.sameValue(count, 1);\n"
           ],
-          "mappings": ";;;;;;;AAAA;AAEA;AAAA;AAAA;AAAA;AAEA;AAAA",
+          "mappings": ";;;;;;;AAAA;AAEA;AAAA;AAAA;AACA;AADA;AAEA",
           "x_ibex_composed": true,
           "x_ibex_factory_lines": 17
         },
@@ -184,7 +184,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-I1YhGgd/AWjlO50uJWdeps893MmRztgTYsyXW4v1R8U=",
-        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
         "staticEdges": [],
         "dynamicEdges": [],
         "exportDescriptors": [
@@ -206,7 +206,7 @@
           "sourcesContent": [
             "var count = 0;\n\nexport default function() {} if (true) { count += 1; }\n\nassert.sameValue(count, 1);\n"
           ],
-          "mappings": ";;;;;;;AAAA;AAEA;AAAA;AAAA;AAAA;AAEA;AAAA",
+          "mappings": ";;;;;;;AAAA;AAEA;AAAA;AAAA;AACA;AADA;AAEA",
           "x_ibex_composed": true,
           "x_ibex_factory_lines": 17
         },
@@ -225,7 +225,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-7c/ByQtwfvBoEXH0eP4J3dUYCoRLHX2WREqgHH3sGHk=",
-        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
         "staticEdges": [],
         "dynamicEdges": [],
         "exportDescriptors": [
@@ -247,7 +247,7 @@
           "sourcesContent": [
             "var count = 0;\n\nexport default function f() {} if (true) { count += 1; }\n\nassert.sameValue(count, 1);\n"
           ],
-          "mappings": ";;;;;;;AAAA;AAEA;AAAA;AAAA;AAAA;AAEA;AAAA",
+          "mappings": ";;;;;;;AAAA;AAEA;AAAA;AAAA;AACA;AADA;AAEA",
           "x_ibex_composed": true,
           "x_ibex_factory_lines": 17
         },
@@ -266,7 +266,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-TwY7qwt0tLBuxUZO9RMV7Tv7uzx6hi3Pwa7Abs6gkIc=",
-        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
         "staticEdges": [],
         "dynamicEdges": [],
         "exportDescriptors": [
@@ -288,7 +288,7 @@
           "sourcesContent": [
             "var count = 0;\n\nexport function f() {} if (true) { count += 1; }\n\nassert.sameValue(count, 1);\n"
           ],
-          "mappings": ";;;;;;;;;AAAA;AAEA;AAAA;AAEA;AAAA",
+          "mappings": ";;;;;;;;;AAAA;AAEA;AACA;AADA;AAEA",
           "x_ibex_composed": true,
           "x_ibex_factory_lines": 17
         },
@@ -307,7 +307,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-bnEK9UWyeDSSxHqGY/MUcr6HVqJoW/uBOr6bbYJvDu0=",
-        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
         "staticEdges": [],
         "dynamicEdges": [],
         "exportDescriptors": [],
@@ -342,7 +342,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-IFWBJpB2taoUESM2MMth9ezC9cqtNq3cz6mFUS4tzxA=",
-        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
         "staticEdges": [],
         "dynamicEdges": [],
         "exportDescriptors": [],
@@ -377,7 +377,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-QHbXB2oW8Jr6TExnKlQBYRHidqjcOGjCtOTmPzBdcFA=",
-        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
         "staticEdges": [],
         "dynamicEdges": [],
         "exportDescriptors": [],
@@ -412,7 +412,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-MgfnnG0+Hrq7cv9JFiWT6zgnJisnjymOarn1RCmkPNk=",
-        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
         "staticEdges": [],
         "dynamicEdges": [],
         "exportDescriptors": [],
@@ -447,7 +447,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-qDnYpghf4yMKuL2iR9HozEDtGkF/IhHpxOdi71NL3kw=",
-        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
         "staticEdges": [],
         "dynamicEdges": [],
         "exportDescriptors": [],
@@ -482,7 +482,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-dgoAb6vjWBcLOghcIZ2G9mbeHPUz2OTF7NQvqeaht+4=",
-        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
         "staticEdges": [],
         "dynamicEdges": [],
         "exportDescriptors": [],
@@ -498,7 +498,7 @@
           "sourcesContent": [
             "var completed = 0;\nvar p = Promise.resolve(true);\n\nif (await p) {\n  completed += 1;\n}\n\nassert.sameValue(completed, 1);\n\n$DONE();\n"
           ],
-          "mappings": ";;;;;;;AAAA;AACA;AAEA;AACA;AAAA;AAGA;AAEA",
+          "mappings": ";;;;;;;AAAA;AACA;AAEA;AAAA;AAEA;AAEA;AAEA",
           "x_ibex_composed": true,
           "x_ibex_factory_lines": 17
         },
@@ -517,7 +517,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-Cm6DCVkimeI3A9vVZMY6SfI3yACfoj527eJkU0WglOA=",
-        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
         "staticEdges": [],
         "dynamicEdges": [],
         "exportDescriptors": [],
@@ -533,7 +533,7 @@
           "sourcesContent": [
             "var thenable = {\n  then: function (resolve, reject) {\n    resolve(42);\n  }\n}\n\nassert.sameValue(await thenable, 42);\n\n$DONE();\n"
           ],
-          "mappings": ";;;;;;;AAAA;AAEA;AAAA;AAIA;AAEA",
+          "mappings": ";;;;;;;AAAA;AACA;AAEA;AAGA;AAEA",
           "x_ibex_composed": true,
           "x_ibex_factory_lines": 15
         },
@@ -552,7 +552,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-Zw8UQcLfD9BcQKCbaHur5p9OtiBDgDC8WLid03z9BGY=",
-        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
         "staticEdges": [],
         "dynamicEdges": [],
         "exportDescriptors": [],
@@ -587,7 +587,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-/t81sRaG3qe9rKFbOkQ5NcgwBfxtnqGlt6Z/TUQsJ0Y=",
-        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
         "staticEdges": [],
         "dynamicEdges": [],
         "exportDescriptors": [],
@@ -603,7 +603,7 @@
           "sourcesContent": [
             "function fn() { return 42; }\nawait function fn() { return 111; };\n\nassert.sameValue(fn(), 42);\n\n$DONE();\n"
           ],
-          "mappings": ";;;;;;;AAAA;AAAA;AAEA;AADA;AAAA;AAIA;AAFA;AAEA",
+          "mappings": ";;;;;;;AAAA;AACA;AADA;AACA;AAGA;AAHA;AAEA;AAEA",
           "x_ibex_composed": true,
           "x_ibex_factory_lines": 18
         },
@@ -622,7 +622,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-sxd6AdOts7v6lZiatzNyyR7nd/C5dT5jnu5GZcm0g6Y=",
-        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
         "staticEdges": [],
         "dynamicEdges": [],
         "exportDescriptors": [],
@@ -638,7 +638,7 @@
           "sourcesContent": [
             "var lol = false;\nvar x = {\n  get y() {\n    lol = true;\n  }\n};\n\nvar g = 42;\n\nawait /x.y/g;\n\nif (lol) {\n  $DONE('It should be a RegExp');\n} else {\n  $DONE();\n}\n"
           ],
-          "mappings": ";;;;;;;AAAA;AACA;AAEA;AAAA;AAIA;AAEA;AAEA;AACA;AAJA;AAMA;AAJA",
+          "mappings": ";;;;;;;AAAA;AACA;AACA;AAEA;AAGA;AAEA;AAEA;AAJA;AAMA;AAJA;AAMA",
           "x_ibex_composed": true,
           "x_ibex_factory_lines": 21
         },
@@ -657,7 +657,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-zec/QwdH7hQP6UHSVgP/cXVGAj3p9+DPJ8sFruHj/Fc=",
-        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
         "staticEdges": [],
         "dynamicEdges": [],
         "exportDescriptors": [],
@@ -692,7 +692,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-FK7r2xhtEfnyrjPvR7fiyJKx+YEN42hjOeEcryUp6zo=",
-        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
         "staticEdges": [],
         "dynamicEdges": [],
         "exportDescriptors": [],
@@ -727,7 +727,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-zdoXXOWaVzgDns3Aj7wq5WUqp6LYUVGCHITKDThRclc=",
-        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
         "staticEdges": [],
         "dynamicEdges": [],
         "exportDescriptors": [],
@@ -743,7 +743,7 @@
           "sourcesContent": [
             "var x;\n\ntry {\n  await Promise.reject(42);\n} catch (e) {\n  x = e;\n}\nassert.sameValue(x, 42, 'number');\n\ntry {\n  await Promise.reject('');\n} catch (e) {\n  x = e;\n}\nassert.sameValue(x, '', 'string');\n\ntry {\n  var s = Symbol();\n  await Promise.reject(s);\n} catch (e) {\n  x = e;\n}\nassert.sameValue(x, s, 'symbol');\n\ntry {\n  await Promise.reject(false);\n} catch (e) {\n  x = e;\n}\nassert.sameValue(x, false, 'false');\n\ntry {\n  await Promise.reject(true);\n} catch (e) {\n  x = e;\n}\nassert.sameValue(x, true, 'true');\n\ntry {\n  await Promise.reject(NaN);\n} catch (e) {\n  x = e;\n}\nassert.sameValue(x, NaN, 'NaN');\n\ntry {\n  await Promise.reject(null);\n} catch (e) {\n  x = e;\n}\nassert.sameValue(x, null, 'null');\n\ntry {\n  await Promise.reject(undefined);\n} catch (e) {\n  x = e;\n}\nassert.sameValue(x, undefined, 'undefined');\n\ntry {\n  var obj = {};\n  await Promise.reject(obj);\n} catch (e) {\n  x = e;\n}\nassert.sameValue(x, obj, 'object');\n\n$DONE();\n"
           ],
-          "mappings": ";;;;;;;AAAA;AAEA;AACA;AAAA;AAEA;AAAA;AAEA;AAEA;AACA;AADA;AAGA;AADA;AAGA;AAEA;AAFA;AAIA;AAFA;AAIA;AAFA;AAIA;AAEA;AACA;AAHA;AAKA;AAHA;AAKA;AAEA;AACA;AAJA;AAMA;AAJA;AAMA;AAEA;AACA;AALA;AAOA;AALA;AAOA;AAEA;AACA;AANA;AAQA;AANA;AAQA;AAEA;AACA;AAPA;AASA;AAPA;AASA;AAEA;AARA;AAUA;AARA;AAUA;AARA;AAUA;AAEA",
+          "mappings": ";;;;;;;AAAA;AAEA;AAAA;AAEA;AAAA;AAEA;AACA;AAEA;AADA;AAGA;AADA;AAGA;AACA;AAEA;AAFA;AACA;AAIA;AAFA;AAIA;AACA;AAEA;AAHA;AAKA;AAHA;AAKA;AACA;AAEA;AAJA;AAMA;AAJA;AAMA;AACA;AAEA;AALA;AAOA;AALA;AAOA;AACA;AAEA;AANA;AAQA;AANA;AAQA;AACA;AAEA;AAPA;AASA;AAPA;AASA;AACA;AAEA;AARA;AACA;AAUA;AARA;AAUA;AACA;AAEA",
           "x_ibex_composed": true,
           "x_ibex_factory_lines": 68
         },

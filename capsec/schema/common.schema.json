@@ -54,7 +54,7 @@
       "required": ["root", "components"],
       "properties": {
         "root": {
-          "enum": ["project", "package", "home", "tmp", "absolute"]
+          "enum": ["project", "package", "app", "work", "home", "tmp", "absolute"]
         },
         "components": {
           "type": "array",

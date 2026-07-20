@@ -1,12 +1,47 @@
 {
-  "policySchema": "ibex/capsec-policy/1",
+  "policySchema": "ibex/capsec-policy/2",
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
-  "vocabDigest": "sha256-Bnni0MPeD14Jq69cCSHWO1VdUW1QOC7KhenPqNZNa5M",
-  "registryDigest": "sha256-nCNjEMcLg5PGvFkW2wp3nRFn2AiTz4UEWBccpkFKV0c",
-  "policyDigest": "sha256-zOv6H9ah4qSQBCBVMD3Eq2IyADxQo8jlk_7QvNtmAck",
+  "vocabDigest": "sha256-Yda8iI7kMfivaArotDBeNiCsmZSKh3BATcXw4P94DzY",
+  "registryDigest": "sha256-5SpgfNFOtWuII8zD-x0wVwUCMzbfcNvShj9qg3f0-UM",
+  "policyDigest": "sha256-Wi_1AYOTKSY-Z5wydFYyLCAnkYkIXIgD13PlFIcNHDI",
   "purpose": "production",
   "mode": "enforce",
+  "graphIdentity": "sha256-dholS0rkZtDRb15Fl4KCdZebwn0ZmhTAkqhEq1N-Dy0",
+  "entryIdentity": {
+    "root": "project",
+    "components": [
+      {
+        "encoding": "utf8",
+        "value": "examples"
+      },
+      {
+        "encoding": "utf8",
+        "value": "capsec-demo"
+      },
+      {
+        "encoding": "utf8",
+        "value": "04-defense-in-depth"
+      },
+      {
+        "encoding": "utf8",
+        "value": "app.mjs"
+      }
+    ],
+    "sourceIntegrity": "sha256-NDyjwFDeJQ1bP-4gFC_7DKyXq6gsa2UwzQSgEvpyS4A"
+  },
+  "targetProfile": {
+    "kind": "source",
+    "profile": "portable-v1"
+  },
+  "mountProfile": "project-v1",
+  "rootCeiling": [],
+  "computedCandidates": {
+    "schema": "ibex/computed-candidate-manifest/1",
+    "declarations": [],
+    "packageClosureOptIns": [],
+    "materializedSites": []
+  },
   "rootImports": [],
   "principals": []
 }
