@@ -735,6 +735,27 @@ void install(Runtime& rt) {
     }
   });
 
+  test("binds returned stream and video-frame prototype members", () => {
+    for (const [observedPath, pathCount] of [
+      ["ReadableStream.[[return]].__exactReadableStreamIteratorPatched", 1],
+      ["ReadableStream.[[return]].getReader", 2],
+      ["ReadableStream.[[return]].tee", 2],
+      ["ReadableStream.[[return]].values", 2],
+      ["VideoFrame.[[return]].close", 1],
+    ]) {
+      const branch = {
+        branchId: `surface.${observedPath}.default`,
+        observedKey: `native-op:global:${observedPath}`,
+        targetVariant: "default",
+      };
+      const sourceRef = `src/engine/bootstrap/web-streams-polyfill.js#${observedPath}`;
+      const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+      expect(binding.locatorKind).toBe("legacy-returned-prototype-member-route");
+      expect(binding.producerPaths).toHaveLength(pathCount);
+      expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status).toBe("executable");
+    }
+  });
+
   test("models guarded legacy global assignments as distinct executable paths", () => {
     const branch = {
       branchId: "surface.native.op.global.badly.default",

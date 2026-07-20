@@ -2115,6 +2115,66 @@ function legacyViewConstructorTableBinding({ branch, sourceRef, sourcePath, loca
   });
 }
 
+function legacyReturnedPrototypeMemberBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (sourcePath !== "src/engine/bootstrap/web-streams-polyfill.js"
+    || branch?.observedKey !== `native-op:global:${locator}`) return null;
+  const match = /^(ReadableStream|VideoFrame)\.\[\[return\]\]\.([A-Za-z_$][A-Za-z0-9_$]*)$/u.exec(locator);
+  if (!match) return null;
+  const [, owner, member] = match;
+  const ast = parse(text, { sourceType: "script", allowReturnOutsideFunction: true });
+  const candidates = [];
+  walkJavaScript(ast.program, (node, parent) => {
+    if (owner === "ReadableStream"
+      && node.type === "ClassDeclaration"
+      && node.id?.name === "ReadableStream") {
+      for (const element of node.body.body) {
+        if (["ClassMethod", "ClassProperty"].includes(element.type)
+          && classElementName(element) === member
+          && !element.static) candidates.push({ node: element, kind: "polyfill-class" });
+      }
+    }
+    if (node.type !== "AssignmentExpression") return;
+    const segments = memberSegments(node.left);
+    const readableMatch = owner === "ReadableStream"
+      && JSON.stringify(segments) === JSON.stringify(["OriginalReadableStream", "prototype", member]);
+    const videoMatch = owner === "VideoFrame"
+      && JSON.stringify(segments) === JSON.stringify(["exactVideoFrameCtor", "prototype", member]);
+    if (readableMatch || videoMatch) {
+      candidates.push({
+        node: parent?.type === "ExpressionStatement" ? parent : node,
+        kind: readableMatch ? "compat-wrapper" : "fallback-constructor",
+      });
+    }
+  });
+  const unique = [...new Map(candidates.map((candidate) => [
+    `${candidate.node.start}:${candidate.node.end}`,
+    candidate,
+  ])).values()];
+  if (unique.length === 0) return null;
+  const sites = [];
+  const producerPaths = [];
+  for (const [indexValue, candidate] of unique.entries()) {
+    const pathSites = [
+      sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${locator}.producer.${indexValue}`, range: { startByte: candidate.node.start, endByte: candidate.node.end }, text, bytes }),
+      sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${locator}.publication.${indexValue}`, range: { startByte: candidate.node.start, endByte: candidate.node.end }, text, bytes }),
+    ];
+    sites.push(...pathSites);
+    producerPaths.push({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0returned-member\0${indexValue}`),
+      conditionId: `returned-member:${candidate.kind}:${candidate.node.start}`,
+      requiredSiteIds: pathSites.map((site) => site.siteId),
+    });
+  }
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "legacy-returned-prototype-member-route",
+    targetGlobalPath: locator,
+    resolutionPolicy: producerPaths.length > 1 ? "conditioned-alternatives" : "composite-path",
+    sites,
+    producerPaths,
+  });
+}
+
 function legacyJavascriptGlobalRouteBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
   if (!branch?.observedKey?.startsWith("native-op:global:")
     || !sourcePath.startsWith("src/engine/bootstrap/")
@@ -5748,6 +5808,7 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? evaluatedCppGlobalBinding({ branch, sourceRef, ...loaded })
     ?? cppSymbolProvenanceBinding({ branch, sourceRef, ...loaded })
     ?? legacyViewConstructorTableBinding({ branch, sourceRef, ...loaded })
+    ?? legacyReturnedPrototypeMemberBinding({ branch, sourceRef, ...loaded })
     ?? legacyJavascriptGlobalRouteBinding({ branch, sourceRef, ...loaded })
     ?? generatedJavascriptGlobalBinding({ branch, sourceRef, ...loaded })
     ?? javascriptSymbolProvenanceBinding({ branch, sourceRef, ...loaded });
