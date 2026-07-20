@@ -5,7 +5,14 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (r24 — completes the report-derived production
+**Revised:** 2026-07-20 (r25 — records the sixth pinned Linux release attempt,
+which passed reachable, control-plane, all 14,386 source/live absence
+observations, and the global corpora but failed closed at report ingestion
+because the exact-key validator omitted the newly emitted
+`actualBoundaryObservation`; validates that target-specific boundary evidence
+instead of deleting it, rebinds the unchanged-policy fixture plan to the
+production-installer-refreshed source-route graph, and keeps advertisements
+empty pending a fresh run; r24 — completes the report-derived production
 installer path before the next source-bound release run: restricted artifacts
 remain `candidate-unadvertised` without an exact generated target row, become
 `target-advertised` only when target, features, engine digest, and projection
@@ -477,6 +484,18 @@ absence evidence publication because its final assertion still required
 executor now derives this invariant as exactly two observations per current
 absent edge. No target report or advertisement was produced; a fresh
 unchanged-policy Linux run remains required.
+The sixth pinned Linux release attempt (Actions run `29781127295`, Linux job
+`88482378141`, exact source `950d38e479d16234d5e39fe80776d7e795e2ccac`)
+passed the reachable and control-plane executors, all 14,386 source-install and
+live-reachability observations, and the global corpora. Report ingestion then
+failed closed because the route-receipt exact-key validator had not been
+updated when native evidence began emitting `actualBoundaryObservation`. The
+retained Linux artifact re-ingests successfully after validating, rather than
+discarding, each route kind's exact target, boundary kind, complete receipt
+roster, blocked segment, mode, startup trace, and callback completion slots;
+removal and target tampering are rejected. The run remains failed evidence,
+produced no conformant report or advertisement, and cannot contribute to
+promotion. A fresh unchanged-policy Linux run remains required.
 A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full

@@ -8,7 +8,7 @@
   },
   "absenceRouteGraph": {
     "path": "capsec/generated/restricted-exact-absence-route-graph.json",
-    "rawContentDigest": "sha256-YZKGCGFRcmb35DZ7zFwbFyo3IqbPShemqCA_wYV-Ebk"
+    "rawContentDigest": "sha256-oa9-EXQ0ToK9eDHzoAavsD6TB37LWbqvmkA8HwL52Ac"
   },
   "evidenceKinds": [
     {

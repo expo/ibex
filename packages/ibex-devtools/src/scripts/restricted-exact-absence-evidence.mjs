@@ -108,6 +108,140 @@ function expectedDescriptorPrefixes(rootManifest, absentIds) {
   return result;
 }
 
+function validateLogicalPathReceipt(receipt, expectedMode, label) {
+  assertExactKeys(
+    receipt,
+    [
+      "requestedPath", "mode", "boundaryKind", "lastResolvedSegmentIndex",
+      "lastResolvedSegment", "firstBlockedSegmentIndex", "firstBlockedSegment",
+    ],
+    label,
+  );
+  const segments = typeof receipt.requestedPath === "string"
+    ? receipt.requestedPath.split(".")
+    : null;
+  if (
+    !Array.isArray(segments)
+    || segments.length === 0
+    || segments.some((segment) => segment.length === 0)
+    || receipt.mode !== expectedMode
+    || !["missing-descriptor", "undefined-terminal-value"].includes(receipt.boundaryKind)
+    || !Number.isSafeInteger(receipt.firstBlockedSegmentIndex)
+    || receipt.firstBlockedSegmentIndex < 0
+    || receipt.firstBlockedSegmentIndex >= segments.length
+    || receipt.firstBlockedSegment !== segments[receipt.firstBlockedSegmentIndex]
+  ) {
+    throw new Error(`${label} identity or blocked segment drift`);
+  }
+  if (receipt.lastResolvedSegmentIndex === null) {
+    if (receipt.lastResolvedSegment !== null || receipt.firstBlockedSegmentIndex !== 0) {
+      throw new Error(`${label} root-boundary receipt drift`);
+    }
+  } else if (
+    !Number.isSafeInteger(receipt.lastResolvedSegmentIndex)
+    || receipt.lastResolvedSegmentIndex < 0
+    || receipt.lastResolvedSegmentIndex >= receipt.firstBlockedSegmentIndex
+    || receipt.lastResolvedSegment !== segments[receipt.lastResolvedSegmentIndex]
+  ) {
+    throw new Error(`${label} resolved segment drift`);
+  }
+}
+
+export function validateRestrictedActualBoundaryObservation(
+  observation,
+  routeKind,
+  probeTarget,
+  label = "restricted actual boundary observation",
+) {
+  assertExactKeys(observation, ["routeKind", "exactTarget", "boundary"], label);
+  if (observation.routeKind !== routeKind || observation.exactTarget !== probeTarget) {
+    throw new Error(`${label} route identity drift`);
+  }
+  const boundary = observation.boundary;
+  if (!boundary || typeof boundary !== "object" || Array.isArray(boundary)) {
+    throw new Error(`${label} boundary is not an object`);
+  }
+  const receiptBoundary = (kind, expectedPaths, extraKeys = []) => {
+    assertExactKeys(boundary, ["kind", "receipts", ...extraKeys], `${label} boundary`);
+    if (boundary.kind !== kind || !Array.isArray(boundary.receipts) || boundary.receipts.length === 0) {
+      throw new Error(`${label} boundary kind or receipt roster drift`);
+    }
+    if (canonicalJson(boundary.receipts.map((receipt) => receipt.requestedPath))
+      !== canonicalJson(expectedPaths)) {
+      throw new Error(`${label} boundary receipt roster drift`);
+    }
+    return boundary.receipts;
+  };
+  let receipts = [];
+  let expectedMode = "absent";
+  switch (routeKind) {
+    case "descriptor-prefix":
+      receipts = receiptBoundary("root-descriptor", [probeTarget]);
+      break;
+    case "restricted-module-resolution":
+    case "restricted-loader-entry":
+      receipts = receiptBoundary("module-loader-roots", [
+        "require",
+        "__exactResolveModule",
+        "__exactResolveManifestBuiltinInternal",
+        "__exactRegisterPackage",
+      ]);
+      break;
+    case "restricted-cli-entry":
+      receipts = receiptBoundary("cli-ingress-roots", ["process", "Bun", "Deno", "Ibex", "require"]);
+      break;
+    case "restricted-js-native-abi":
+      receipts = receiptBoundary(
+        "javascript-native-abi-roots",
+        ["__hostCall", "__hostCallAsync", "process", "require", "Bun"],
+      );
+      break;
+    case "restricted-callback-route":
+      receipts = receiptBoundary(
+        "callback-producer-roots-and-slots",
+        ["__hostCall", "__hostCallAsync", "fetch", "WebSocket", "process"],
+        ["completionSlots"],
+      );
+      assertExactKeys(
+        boundary.completionSlots,
+        ["targetsConsumed", "callbacksQueued", "callbacksDelivered"],
+        `${label} completion slots`,
+      );
+      if (Object.values(boundary.completionSlots).some((value) => value !== 0)) {
+        throw new Error(`${label} retained callback authority`);
+      }
+      break;
+    case "restricted-startup-route":
+      assertExactKeys(boundary, ["kind", "restrictedTrace", "selected"], `${label} boundary`);
+      if (boundary.kind !== "startup-selection" || boundary.restrictedTrace !== 0x1ff || boundary.selected !== false) {
+        throw new Error(`${label} startup selection drift`);
+      }
+      return;
+    case "restricted-native-installer-route": {
+      const logical = probeTarget.replace(/^native-op:/, "").replace(/^global:/, "");
+      if (logical === "[[dynamic-table:native-global-name]]") {
+        receipts = receiptBoundary(
+          "dynamic-native-installer-roots",
+          ["__hostCall", "__hostCallAsync", "__exactResolveModule", "process"],
+          ["restrictedTrace"],
+        );
+        if (boundary.restrictedTrace !== 0x1ff) {
+          throw new Error(`${label} dynamic installer trace drift`);
+        }
+      } else {
+        receipts = receiptBoundary("native-logical-path", [logical]);
+        expectedMode = "unreachable";
+      }
+      break;
+    }
+    default:
+      throw new Error(`${label} unknown route kind ${routeKind}`);
+  }
+  for (let index = 0; index < receipts.length; index += 1) {
+    validateLogicalPathReceipt(receipts[index], expectedMode, `${label} receipt ${index}`);
+  }
+}
+
 export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefined) {
   const reportAuthorities = authorities ?? loadRestrictedReportAuthorities();
   const artifact = parseJsonStrict(rawBytes, "restricted absence evidence");
@@ -299,20 +433,27 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
   const cutsetObservationById = new Map(
     barrier.actualCutsetObservations.map((row) => [row.observationId, row]),
   );
+  const expectsActualBoundaryObservation = revisionBytes(
+    artifact.sourceRevision,
+    "src/host/embedder_artifacts.rs",
+  ).includes(Buffer.from('"actualBoundaryObservation"', "utf8"));
   const validateRouteReceipt = (
     receipt,
     route,
     probeId,
     probeTarget,
+    routeKind,
     proofKind,
   ) => {
+    const receiptKeys = [
+      "routeId", "probeId", "selectedTarget", "probeTarget", "branchId",
+      "proofKind", "cutsetObservations",
+      "lastObservedNode", "blockedEdge", "runtimeGeneration", "outcome",
+    ];
+    if (expectsActualBoundaryObservation) receiptKeys.splice(7, 0, "actualBoundaryObservation");
     assertExactKeys(
       receipt,
-      [
-        "routeId", "probeId", "selectedTarget", "probeTarget", "branchId",
-        "proofKind", "cutsetObservations", "lastObservedNode", "blockedEdge",
-        "runtimeGeneration", "outcome",
-      ],
+      receiptKeys,
       `absence route receipt ${probeId}/${route.routeId}`,
     );
     const sourceSelection = proofKind === "source-selection";
@@ -347,6 +488,21 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
     }
     if (receipt.runtimeGeneration !== observedRuntimeGeneration) {
       throw new Error("absence route receipts crossed runtime generations");
+    }
+    if (!expectsActualBoundaryObservation) {
+      return;
+    }
+    if (sourceSelection) {
+      if (receipt.actualBoundaryObservation !== null || routeKind !== null) {
+        throw new Error(`source route receipt carried live boundary evidence for ${probeId}`);
+      }
+    } else {
+      validateRestrictedActualBoundaryObservation(
+        receipt.actualBoundaryObservation,
+        routeKind,
+        probeTarget,
+        `absence route receipt ${probeId}/${route.routeId}`,
+      );
     }
   };
   const rootManifest = parseJsonStrict(rootManifestBytes, rootManifestRelativePath);
@@ -438,6 +594,7 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
           route,
           probe.probeId,
           observation.observedIdentity,
+          null,
           "source-selection",
         );
       }
@@ -492,6 +649,7 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
             routes[routeIndex],
             probe.probeId,
             probe.target,
+            probe.routeKind,
             "live-reachability",
           );
         }

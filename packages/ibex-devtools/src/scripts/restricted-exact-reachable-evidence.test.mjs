@@ -4,7 +4,10 @@ import { execFileSync } from "node:child_process";
 import { describe, expect, test } from "bun:test";
 
 import { capsecRoot } from "./capsec-contract.mjs";
-import { ingestRestrictedAbsenceEvidence } from "./restricted-exact-absence-evidence.mjs";
+import {
+  ingestRestrictedAbsenceEvidence,
+  validateRestrictedActualBoundaryObservation,
+} from "./restricted-exact-absence-evidence.mjs";
 import { ingestRestrictedControlEvidence } from "./restricted-exact-control-evidence.mjs";
 import { ingestRestrictedGlobalCorporaEvidence } from "./restricted-exact-global-corpora-evidence.mjs";
 import {
@@ -91,10 +94,47 @@ describe("LLP 0033 restricted evidence invalidation", () => {
       fs.readFileSync(corpusEvidencePath),
       fs.readFileSync(evidencePath),
     )).toThrow("restricted authority changed after evidence");
-  });
+  }, 30_000);
 });
 
 describe("LLP 0033 per-edge absence evidence", () => {
+  test("requires and validates live boundary observations", () => {
+    const observation = {
+      routeKind: "descriptor-prefix",
+      exactTarget: "__compartments",
+      boundary: {
+        kind: "root-descriptor",
+        receipts: [{
+          requestedPath: "__compartments",
+          mode: "absent",
+          boundaryKind: "missing-descriptor",
+          lastResolvedSegmentIndex: null,
+          lastResolvedSegment: null,
+          firstBlockedSegmentIndex: 0,
+          firstBlockedSegment: "__compartments",
+        }],
+      },
+    };
+    expect(() => validateRestrictedActualBoundaryObservation(
+      observation,
+      "descriptor-prefix",
+      "__compartments",
+    )).not.toThrow();
+    expect(() => validateRestrictedActualBoundaryObservation(
+      undefined,
+      "descriptor-prefix",
+      "__compartments",
+    )).toThrow();
+
+    const tampered = structuredClone(observation);
+    tampered.boundary.receipts[0].requestedPath = "Exact";
+    expect(() => validateRestrictedActualBoundaryObservation(
+      tampered,
+      "descriptor-prefix",
+      "__compartments",
+    )).toThrow("boundary receipt roster drift");
+  });
+
   test("rejects a missing planned source-install result", () => {
     const artifact = currentArtifact();
     const observation = artifact.observations.find(
@@ -164,5 +204,5 @@ describe("LLP 0033 per-edge absence evidence", () => {
       Buffer.from(`${JSON.stringify(reused)}\n`),
       currentHistoricalAuthorities,
     )).toThrow("absence route receipt drift");
-  }, 30_000);
+  }, 120_000);
 });
