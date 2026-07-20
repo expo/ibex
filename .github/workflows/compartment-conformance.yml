@@ -207,6 +207,10 @@ jobs:
           packages/ibex-devtools/src/scripts/capsec-command-evidence.test.mjs
           packages/ibex-devtools/src/scripts/capsec-engine-identity.test.mjs
 
+      - name: Preflight CapSec registry generation before Hermes setup
+        shell: pwsh
+        run: node packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs --check
+
       - name: Cache patched Hermes artifacts
         uses: actions/cache@v4
         with:
