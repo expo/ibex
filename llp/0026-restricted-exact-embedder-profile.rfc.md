@@ -5,7 +5,11 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-19 (r5 — implements the profile-distinct restricted
+**Revised:** 2026-07-19 (r6 — adds the immutable activation-scoped checkpoint
+output sink, requires exactly one initial and one successor checkpoint per
+accepted semantic event, poisons failed event transitions, and regenerates the
+7,129-edge projection with 28 reachable/22 control-plane/7,079 absent rows;
+r5 — implements the profile-distinct restricted
 Hermes constructor, deterministic checkpoint/clock/RNG activation, minimal
 installer and lockdown, owner-thread callback readiness, Host-owned single-use
 source/HBC ingress, poisoning/replay refusal, raw-eval refusal, and the actual
@@ -309,8 +313,8 @@ empty.
 
 Implementation status (2026-07-19): the additive definition, projection, and
 advertisement schemas and their non-writing drift gate are implemented. The
-authored definition pins the exact 7,126-edge full-registry set and binds each
-of 27 candidate reachable and 20 trusted-control-plane rows to its
+authored definition pins the exact 7,129-edge full-registry set and binds each
+of 28 candidate reachable and 22 trusted-control-plane rows to its
 source-derived kind and name; the remaining 7,079 rows are candidate
 structural absences whose source-install and live-reachability evidence is
 explicitly pending. The projection also binds the raw definition, coverage,
@@ -321,7 +325,13 @@ raw-byte/object mismatch, advertisement attempts, projection omission, and
 digest tampering. The profile-distinct constructor, activation configuration,
 authenticated bundle-copy/run ingress, and their dedicated restricted
 installer/evaluation routes now enter the full registry and are explicitly
-admitted by the projection. Advertisements remain empty and `promotionReady`
+admitted by the projection. The immutable checkpoint-output setter and
+`exact.publishCheckpoint(Uint8Array)` sink are activation-scoped and copy only
+opaque bytes; JavaScript receives no session, lease, generation, or durable
+publication authority. Bundle startup must publish exactly one initial
+checkpoint, and each successful semantic event must publish exactly one
+successor checkpoint; missing, duplicate, invalid, oversized, or throwing
+transitions poison the realm. Advertisements remain empty and `promotionReady`
 remains false. A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full
@@ -346,14 +356,15 @@ disables general eval and the debugger, skips `installGlobals`, Web Streams,
 and the package-compartment bootstrap, and installs only the stable `exact`
 object, bounded timers/microtasks, deterministic time/RNG/checkpoint ingress,
 and the reviewed restricted lockdown. Bundle execution requires immutable app
-operation and renderer callbacks first, consumes bytes only from the claimed
+operation, renderer, and checkpoint-output callbacks first, consumes bytes only from the claimed
 Host artifact, freezes the final `exact` object, requires checkpoint
 consumption, rejects replay/general eval, and poisons the runtime on any failed
 post-consumption attempt. A target-local native test proves successful source
-ingress, deterministic activation, output dispatch, replay refusal, and raw
-eval refusal. Source-install/live-reachability evidence, hostile lifecycle
-fixtures, semantic event ingress, Linux evidence, and target advertisement are
-still pending.
+ingress, deterministic activation, frame and checkpoint output, callback
+replacement refusal, replay refusal, and raw eval refusal. Complete
+source-install/live-reachability evidence, the self-contained Contract-bundle
+fresh-realm fixture on an eligible exact-engine build, the remaining hostile
+lifecycle corpus, Linux evidence, and target advertisement are still pending.
 
 ### Phase 1 — Apple vertical slice
 

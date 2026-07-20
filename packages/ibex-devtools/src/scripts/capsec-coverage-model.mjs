@@ -4733,6 +4733,7 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "hitTest",
     "invokeHostAsync",
     "nodeExists",
+    "publishCheckpoint",
     "runtime",
     "runtime.detectEngine",
     "runtime.detectPlatform",
@@ -5153,6 +5154,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_set_kernel_handle",
     "ex_hermes_set_module_dispatch_callback",
     "ex_hermes_set_module_sync_callback",
+    "ex_hermes_set_restricted_exact_checkpoint_callback",
     "ex_host_armed_endowments",
     "ex_host_authorize_exact_endowment",
     "ex_host_authorize_typed_environment_read_stack",
@@ -9140,6 +9142,7 @@ function callbackClassification(surface) {
       "ios-dispatch-debug-context",
       "ios-module-dispatch",
       "ios-module-sync",
+      "restricted-exact-checkpoint-output",
       "worklet-measure",
       "worklet-scheduled-drain",
     ]).has(name)
@@ -11751,6 +11754,7 @@ function embedderAbiClassification(name) {
         "exhermessethostwakehook",
         "exhermessetmoduledispatchcallback",
         "exhermessetmodulesynccallback",
+        "exhermessetrestrictedexactcheckpointcallback",
       ]).has(name)
     ) {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");

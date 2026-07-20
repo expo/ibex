@@ -4,8 +4,8 @@
   "fullProfile": "ibex/capsec/1",
   "status": "draft-unadvertised",
   "sourceEdgeSet": {
-    "count": 7126,
-    "digest": "sha256-fAAWENFOuH8q7AwKTIO3bFW1mql5FH445Faam7aPXNk"
+    "count": 7129,
+    "digest": "sha256-9mdTtWbc-DQvsCTRfeM3WwTkY6-H8khLWwR94apIs54"
   },
   "candidateTargets": [
     {
@@ -79,6 +79,12 @@
       "surfaceKind": "native-op",
       "surfaceName": "global:exact.invokeHostAsync",
       "reason": "the manifest-bound binary Exact endowment is the only JavaScript-to-native operation channel"
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.publishcheckpoint.1sxxctt",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:exact.publishCheckpoint",
+      "reason": "the Contract bundle can copy opaque checkpoint bytes only into the activation-scoped native output sink"
     },
     {
       "edgeId": "surface.native.op.global.exact.takecheckpointbytes.1hbxdow",
@@ -191,6 +197,12 @@
   ],
   "trustedControlPlane": [
     {
+      "edgeId": "surface.callback.restricted.exact.checkpoint.output.1al4vku",
+      "surfaceKind": "callback",
+      "surfaceName": "restricted-exact-checkpoint-output",
+      "reason": "the trusted supervisor buffers copied checkpoint bytes without granting JavaScript session, generation, or publication authority"
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.configure.restricted.exact.activation.12kr2mk",
       "surfaceKind": "host-abi",
       "surfaceName": "ex_hermes_configure_restricted_exact_activation",
@@ -279,6 +291,12 @@
       "surfaceKind": "host-abi",
       "surfaceName": "ex_hermes_set_keep_alive_on_async_error",
       "reason": "trusted supervisor selects the embedded-session async error policy before polling"
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_hermes_set_restricted_exact_checkpoint_callback",
+      "reason": "trusted embedder installs one immutable activation-scoped checkpoint byte sink before bundle ingress"
     },
     {
       "edgeId": "surface.host.abi.ex.host.authorize.exact.endowment.035a1se",

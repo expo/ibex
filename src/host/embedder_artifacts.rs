@@ -1305,6 +1305,11 @@ mod tests {
             runtime: *mut HermesRuntimeOpaque,
             out_error: *mut *mut std::ffi::c_char,
         ) -> i32;
+        fn ex_hermes_set_restricted_exact_checkpoint_callback(
+            runtime: *mut HermesRuntimeOpaque,
+            callback: extern "C" fn(*const u8, usize, *mut std::ffi::c_void),
+            context: *mut std::ffi::c_void,
+        ) -> i32;
         fn ex_hermes_set_dispatch_callback(
             runtime: *mut HermesRuntimeOpaque,
             callback: extern "C" fn(*const u8, usize, *mut std::ffi::c_void),
@@ -1929,6 +1934,7 @@ mod tests {
               throw new Error('restricted callbacks missing');
             }
             exact.dispatch(new Uint8Array([9, 4, 1]));
+            exact.publishCheckpoint(new Uint8Array([1, 2, 3, 4]));
           })();
         "#;
         let result = build_restricted_exact_embedder_artifact(
@@ -2041,6 +2047,24 @@ mod tests {
                 capture_dispatch,
                 (&mut replacement_dispatch as *mut Vec<u8>).cast(),
             );
+            let mut published_checkpoint = Vec::<u8>::new();
+            assert_eq!(
+                ex_hermes_set_restricted_exact_checkpoint_callback(
+                    runtime,
+                    capture_dispatch,
+                    (&mut published_checkpoint as *mut Vec<u8>).cast(),
+                ),
+                0
+            );
+            let mut replacement_checkpoint = Vec::<u8>::new();
+            assert_eq!(
+                ex_hermes_set_restricted_exact_checkpoint_callback(
+                    runtime,
+                    capture_dispatch,
+                    (&mut replacement_checkpoint as *mut Vec<u8>).cast(),
+                ),
+                -5
+            );
 
             let mut error = std::ptr::null_mut();
             assert_eq!(
@@ -2060,6 +2084,8 @@ mod tests {
             }
             assert_eq!(dispatched, [9, 4, 1]);
             assert!(replacement_dispatch.is_empty());
+            assert_eq!(published_checkpoint, [1, 2, 3, 4]);
+            assert!(replacement_checkpoint.is_empty());
 
             let mut replay_error = std::ptr::null_mut();
             assert_eq!(

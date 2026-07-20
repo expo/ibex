@@ -14799,6 +14799,15 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
   ),
   fixedSurface(
     "callback",
+    "restricted-exact-checkpoint-output",
+    fixedEvidence(
+      "public-abi",
+      "src/engine/hermes_runtime_ios.cc",
+      "ex_hermes_set_restricted_exact_checkpoint_callback",
+    ),
+  ),
+  fixedSurface(
+    "callback",
     "ios-dispatch-debug-context",
     fixedEvidence(
       "public-abi",

@@ -98364,6 +98364,37 @@
       ]
     },
     {
+      "edgeId": "surface.callback.restricted.exact.checkpoint.output.1al4vku",
+      "observedKey": "callback:restricted-exact-checkpoint-output",
+      "branchId": "surface.callback.restricted.exact.checkpoint.output.1al4vku.main",
+      "enforcementBranchId": "surface.callback.restricted.exact.checkpoint.output.1al4vku.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "callback:restricted-exact-checkpoint-output"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_set_restricted_exact_checkpoint_callback"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_set_restricted_exact_checkpoint_callback"
+        ],
+        "terminalObservedKey": "callback:restricted-exact-checkpoint-output"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_restricted_exact_checkpoint_callback"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.callback.restricted.exact.checkpoint.output.1al4vku.main.closed"
+      ]
+    },
+    {
       "edgeId": "surface.callback.signal.delivery.0rrtfw7",
       "observedKey": "callback:signal-delivery",
       "branchId": "surface.callback.signal.delivery.0rrtfw7.main",
@@ -116361,6 +116392,43 @@
         "surface.host.abi.ex.hermes.set.module.sync.callback.0c126e2.ios.non-capability",
         "surface.host.abi.ex.hermes.set.module.sync.callback.0c126e2.ios.principal-restore",
         "surface.host.abi.ex.hermes.set.module.sync.callback.0c126e2.ios.snapshot-mismatch-deny"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw",
+      "observedKey": "host-abi:ex_hermes_set_restricted_exact_checkpoint_callback",
+      "branchId": "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw.ios",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw.ios",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_set_restricted_exact_checkpoint_callback"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_set_restricted_exact_checkpoint_callback"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_set_restricted_exact_checkpoint_callback"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_set_restricted_exact_checkpoint_callback"
+      },
+      "branchKind": "single",
+      "targetVariant": "ios",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "ios"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_restricted_exact_checkpoint_callback"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw.ios.attribution-missing-deny",
+        "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw.ios.generation-recheck",
+        "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw.ios.non-capability",
+        "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw.ios.principal-restore",
+        "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw.ios.snapshot-mismatch-deny"
       ]
     },
     {
@@ -189775,6 +189843,38 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.global.exact.publishcheckpoint.1sxxctt",
+      "observedKey": "native-op:global:exact.publishCheckpoint",
+      "branchId": "surface.native.op.global.exact.publishcheckpoint.1sxxctt.ios",
+      "enforcementBranchId": "surface.native.op.global.exact.publishcheckpoint.1sxxctt.ios",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:exact.publishCheckpoint"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#jsi-global:exact.publishCheckpoint"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#jsi-global:exact.publishCheckpoint"
+        ],
+        "terminalObservedKey": "native-op:global:exact.publishCheckpoint"
+      },
+      "branchKind": "single",
+      "targetVariant": "ios",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "ios"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#jsi-global:exact.publishCheckpoint"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.native.op.global.exact.publishcheckpoint.1sxxctt.ios.closed"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.global.exact.readablestreamtoarray.02ii6au",
       "observedKey": "native-op:global:Exact.readableStreamToArray",
       "branchId": "surface.native.op.global.exact.readablestreamtoarray.02ii6au.default",
@@ -262542,6 +262642,7 @@
         "surface.callback.ios.dispatch.debug.context.1floye2",
         "surface.callback.ios.module.dispatch.03dvnsp",
         "surface.callback.ios.module.sync.1yuirro",
+        "surface.callback.restricted.exact.checkpoint.output.1al4vku",
         "surface.callback.worklet.measure.0xyn55v",
         "surface.callback.worklet.scheduled.drain.1g4n74z",
         "surface.host.abi.ex.hermes.dispatch.event.0lbx6vi",
@@ -262672,6 +262773,7 @@
         "surface.native.op.global.exact.hittest.0g8tl31",
         "surface.native.op.global.exact.invokehostasync.0b92itq",
         "surface.native.op.global.exact.nodeexists.1qt4kt0",
+        "surface.native.op.global.exact.publishcheckpoint.1sxxctt",
         "surface.native.op.global.measure.109akat",
         "surface.native.op.global.messagechannel.1f2qo6p",
         "surface.native.op.global.messagechannel.port1.0zqpae5",
@@ -262729,7 +262831,7 @@
         "surface.startup.installer.installipclistenerpatch.1a0b3bh",
         "surface.startup.script.ipc.listener.183xoza"
       ],
-      "rationale": "Closed by 223 observed surface edges."
+      "rationale": "Closed by 225 observed surface edges."
     },
     {
       "definitionId": "network:connect",
@@ -265207,44 +265309,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-6orGB48R-bBwQV9J0AkMIjL4Vw6pPKdex7Y6BVwRcF0"
+      "rawContentDigest": "sha256-W1pbS8CFUy2rcGMUxHdZ_U5vc4K3bFF9Ol6d0-Z3Xe0"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-Xf5JyOtFbzLh-lUnOHI4SIaPn2WRwnFfI6jjrDg7d2k"
+      "rawContentDigest": "sha256-BItXi5z3K7ygp2XtGiQyKGPIjln1rONEdzwcP7ODuEc"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-2TRx0ZAtkb6nhXx5kHeki4x5lyQC2HiJ3FM2Eu-fNns"
+      "rawContentDigest": "sha256-AY6IELM-FbDf8G4KF3gPMohnLoIjHadqSSOrw_lnXT4"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-p5vwwIiJQYtqXtQuPb7rltyAT292Rp7T70Q1kv_7TvE"
+      "rawContentDigest": "sha256-feD-McHTtgxvcx3iDSOriqqD7bsZAbtwrLsHxfc8yUY"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-7A0hTvq6gQTzK9g9mEUaOBCDQqmKNBStZFXUn75SG9o"
+      "rawContentDigest": "sha256-PUh0f8epFksl8tZO36Jt-QvoCFu7egT2scZaDjybggQ"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-A3UPg2F49x0-s0G6KNc1PeJ8UTV9UUXSTFaAwhM71es"
+      "rawContentDigest": "sha256-ZOXBiAJ7arA3MhwQU2pPLKG2IBecTbwfU9N8073FoZY"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-aCtLRPEKROYoz0yYl0mYXA-WVHLi7zM0q3PudK9C2Zc"
+      "rawContentDigest": "sha256-_FAw6cOlGHihlctSzeibeDu1dvTmaExerD9h6R22WEs"
     }
   ],
   "counts": {
-    "observedReferences": 12794,
-    "logicalSurfaces": 7126,
-    "enforcementBranches": 7325,
-    "coverageEdges": 7126,
-    "targetCells": 7126
+    "observedReferences": 12797,
+    "logicalSurfaces": 7129,
+    "enforcementBranches": 7328,
+    "coverageEdges": 7129,
+    "targetCells": 7129
   }
 }

@@ -49677,6 +49677,23 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.callback.restricted.exact.checkpoint.output.1al4vku",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.callback.restricted.exact.checkpoint.output.1al4vku.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.callback.signal.delivery.0rrtfw7",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -59233,6 +59250,21 @@
     },
     {
       "edgeId": "surface.host.abi.ex.hermes.set.module.sync.callback.0c126e2",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw",
       "target": {
         "triple": "aarch64-apple-darwin",
         "features": [
@@ -88655,6 +88687,21 @@
       "implementationBranchIds": [
         "surface.native.op.global.exact.platform.056t94j.default"
       ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.publishcheckpoint.1sxxctt",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },

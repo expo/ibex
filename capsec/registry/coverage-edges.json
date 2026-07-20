@@ -134800,6 +134800,16 @@
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
     },
     {
+      "id": "surface.callback.restricted.exact.checkpoint.output.1al4vku",
+      "classification": "closed",
+      "surface": {
+        "kind": "callback",
+        "name": "restricted-exact-checkpoint-output"
+      },
+      "cap": "ipc:channel",
+      "rationale": "Embedder and worklet callback data channels remain closed until their typed payload and attribution are proved."
+    },
+    {
       "id": "surface.callback.signal.delivery.0rrtfw7",
       "classification": "non-capability",
       "surface": {
@@ -140435,6 +140445,16 @@
       "surface": {
         "kind": "host-abi",
         "name": "ex_hermes_set_module_sync_callback"
+      },
+      "rationaleId": "callback-attribution-carrier",
+      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_set_restricted_exact_checkpoint_callback"
       },
       "rationaleId": "callback-attribution-carrier",
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
@@ -217283,6 +217303,16 @@
           "negative-generation-change"
         ]
       }
+    },
+    {
+      "id": "surface.native.op.global.exact.publishcheckpoint.1sxxctt",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "global:exact.publishCheckpoint"
+      },
+      "cap": "ipc:channel",
+      "rationale": "Exact layout, state-mirror, module-dispatch, and hit-test calls are ambient embedder channels."
     },
     {
       "id": "surface.native.op.global.exact.readablestreamtoarray.02ii6au",

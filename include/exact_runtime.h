@@ -99,8 +99,19 @@ int ex_hermes_configure_restricted_exact_activation(
     uint64_t rng_seed_0,
     uint64_t rng_seed_1);
 
+/// Install the sole checkpoint-output sink for a restricted Exact activation.
+/// This is owner-thread-only, immutable, and must be called before bundle
+/// execution. JavaScript may publish only copied Uint8Array bytes; the native
+/// supervisor remains responsible for session/generation authority and durable
+/// settlement.
+int ex_hermes_set_restricted_exact_checkpoint_callback(
+    ExactHermesRuntime* runtime,
+    void (*callback)(const uint8_t* data, size_t length, void* context),
+    void* context);
+
 /// Consume and execute the one authenticated bundle bound to the Host artifact.
-/// The exact host-operation and output callbacks must already be installed.
+/// The exact host-operation, frame-output, and checkpoint-output callbacks must
+/// already be installed.
 /// Returns 0 on success, 1 on refusal/evaluation failure, or 2 when HBC was
 /// rejected before execution. `out_error`, when non-NULL, is freed with
 /// ex_hermes_free_string. A failed ingress poisons the runtime.

@@ -4194,7 +4194,8 @@ extern "C" int ex_hermes_run_restricted_exact_bundle(
     return 1;
   }
   if (runtime->exact_host_call_async_fn == nullptr ||
-      runtime->ios_dispatch_callback == nullptr) {
+      runtime->ios_dispatch_callback == nullptr ||
+      runtime->restricted_exact_checkpoint_callback == nullptr) {
     writeRestrictedExactError(
         out_error,
         "restricted Exact callbacks must be installed before bundle execution");
@@ -4286,6 +4287,10 @@ extern "C" int ex_hermes_run_restricted_exact_bundle(
     if (!runtime->restricted_exact_checkpoint_consumed) {
       throw facebook::jsi::JSError(
           rt, "restricted Exact bundle did not consume its activation checkpoint");
+    }
+    if (runtime->restricted_exact_checkpoint_publication_count != 1) {
+      throw facebook::jsi::JSError(
+          rt, "restricted Exact bundle did not publish exactly one initial checkpoint");
     }
     if (!verifyRestrictedExactRuntimePosture(runtime)) {
       throw facebook::jsi::JSError(

@@ -242,10 +242,14 @@ struct ExactHermesRuntime {
   bool restricted_exact_poisoned = false;
   bool restricted_exact_activation_configured = false;
   bool restricted_exact_checkpoint_consumed = false;
+  uint64_t restricted_exact_checkpoint_publication_count = 0;
   uint64_t restricted_exact_wall_clock_ms = 0;
   uint64_t restricted_exact_rng_state_0 = 0;
   uint64_t restricted_exact_rng_state_1 = 0;
   std::vector<uint8_t> restricted_exact_checkpoint;
+  void (*restricted_exact_checkpoint_callback)(
+      const uint8_t* data, size_t length, void* context) = nullptr;
+  void* restricted_exact_checkpoint_context = nullptr;
 
   bool stream_enhance_loaded = false;
   bool web_crypto_loaded = false;

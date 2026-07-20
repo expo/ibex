@@ -30,9 +30,9 @@ function inputs() {
 describe("LLP 0026 restricted Exact profile projection", () => {
   test("projects every full-registry edge once and advertises nothing", () => {
     const result = loadAndBuildRestrictedExactProfile();
-    expect(result.projection.counts.total).toBe(7126);
-    expect(result.projection.counts.reachable).toBe(27);
-    expect(result.projection.counts.trustedControlPlane).toBe(20);
+    expect(result.projection.counts.total).toBe(7129);
+    expect(result.projection.counts.reachable).toBe(28);
+    expect(result.projection.counts.trustedControlPlane).toBe(22);
     expect(result.projection.counts.structurallyAbsent).toBe(7079);
     expect(result.projection.rows).toHaveLength(result.projection.counts.total);
     expect(result.projection.promotionReady).toBe(false);

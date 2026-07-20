@@ -3,17 +3,17 @@
   "profile": "ibex/exact-embedder-contract/1",
   "fullProfile": "ibex/capsec/1",
   "status": "phase0-candidate-evidence-pending",
-  "definitionRawContentDigest": "sha256-30uwePeae9G0MTUnjin50Zj1YrpLZ6wEd-p7RQ0e-0E",
-  "coverageRawContentDigest": "sha256-2TRx0ZAtkb6nhXx5kHeki4x5lyQC2HiJ3FM2Eu-fNns",
-  "implementationManifestRawContentDigest": "sha256-vTFBXX55hLmMTZrq2N3oDiAd0k7oEBT3YW2HM_rpAPc",
+  "definitionRawContentDigest": "sha256-dMpNruBqgaKxo_4SJGV_3qOIdWxlStOe9VTkp6Uxr04",
+  "coverageRawContentDigest": "sha256-AY6IELM-FbDf8G4KF3gPMohnLoIjHadqSSOrw_lnXT4",
+  "implementationManifestRawContentDigest": "sha256-SVSpHFpK3VeVOk7BMzu_Rj-Qlxgp_P4HLWAFwmrB2wA",
   "schemaRawContentDigests": {
     "advertisements": "sha256-9leFLXi4ezI8AfRqcP7L6zgQ1rto_TT5oBH2mBxJB3c",
     "definition": "sha256-XhhtwCROf1zqhnAYRz80T2CkzRJAPkfT1xR2sL0xCOE",
     "projection": "sha256-0A18tkQi75RBb4bgL9Ieu6ZdfmTZVcXXfCXV87FeHDs"
   },
   "sourceEdgeSet": {
-    "count": 7126,
-    "digest": "sha256-fAAWENFOuH8q7AwKTIO3bFW1mql5FH445Faam7aPXNk"
+    "count": 7129,
+    "digest": "sha256-9mdTtWbc-DQvsCTRfeM3WwTkY6-H8khLWwR94apIs54"
   },
   "candidateTargets": [
     {
@@ -34,10 +34,10 @@
     }
   ],
   "counts": {
-    "total": 7126,
-    "reachable": 27,
+    "total": 7129,
+    "reachable": 28,
     "structurallyAbsent": 7079,
-    "trustedControlPlane": 20,
+    "trustedControlPlane": 22,
     "evidenced": 0
   },
   "rows": [
@@ -2963,6 +2963,7 @@
     ["surface.callback.producer.src.engine.hermes.runtime.websocket.cc.installwebsocketglobals.0y1f3jo","structurally-absent","pending"],
     ["surface.callback.queue.drain.0hyao68","structurally-absent","pending"],
     ["surface.callback.queue.enqueue.0uj36yk","structurally-absent","pending"],
+    ["surface.callback.restricted.exact.checkpoint.output.1al4vku","trusted-control-plane","pending"],
     ["surface.callback.signal.delivery.0rrtfw7","structurally-absent","pending"],
     ["surface.callback.timer.invoke.1qq42bc","structurally-absent","pending"],
     ["surface.callback.watchdog.heartbeat.0nu0qwa","structurally-absent","pending"],
@@ -3527,6 +3528,7 @@
     ["surface.host.abi.ex.hermes.set.kernel.handle.0qask6y","structurally-absent","pending"],
     ["surface.host.abi.ex.hermes.set.module.dispatch.callback.0w8zr7x","structurally-absent","pending"],
     ["surface.host.abi.ex.hermes.set.module.sync.callback.0c126e2","structurally-absent","pending"],
+    ["surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw","trusted-control-plane","pending"],
     ["surface.host.abi.ex.host.armed.endowments.19wlvvz","structurally-absent","pending"],
     ["surface.host.abi.ex.host.authorize.exact.endowment.035a1se","trusted-control-plane","pending"],
     ["surface.host.abi.ex.host.authorize.typed.environment.read.stack.08r7vbv","structurally-absent","pending"],
@@ -5269,6 +5271,7 @@
     ["surface.native.op.global.exact.peek.01d6vnb","structurally-absent","pending"],
     ["surface.native.op.global.exact.peek.status.0j2fa7h","structurally-absent","pending"],
     ["surface.native.op.global.exact.platform.056t94j","structurally-absent","pending"],
+    ["surface.native.op.global.exact.publishcheckpoint.1sxxctt","reachable","pending"],
     ["surface.native.op.global.exact.readablestreamtoarray.02ii6au","structurally-absent","pending"],
     ["surface.native.op.global.exact.readablestreamtoarraybuffer.0i6rqpc","structurally-absent","pending"],
     ["surface.native.op.global.exact.readablestreamtoblob.1a6lh4a","structurally-absent","pending"],
