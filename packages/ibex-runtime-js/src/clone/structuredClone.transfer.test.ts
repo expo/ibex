@@ -95,21 +95,86 @@ test('transferring an ArrayBuffer moves the data and detaches the source', () =>
   }
 });
 
-test('non-transferable ArrayBuffers reject reachable and transfer-list-only moves', () => {
-  for (const reachable of [true, false]) {
-    const buf = new ArrayBuffer(4);
-    new Uint8Array(buf).set([1, 2, 3, 4]);
-    markNonTransferableArrayBuffer(buf);
+test('non-transferable ArrayBuffers reject moves despite hostile legacy registries', () => {
+  const legacyRegistryKey = Symbol.for('exact.nonTransferableArrayBuffers');
+  const previous = Object.getOwnPropertyDescriptor(globalThis, legacyRegistryKey);
+  try {
+    for (const [reachable, attack] of [
+      [true, 'delete-entry'],
+      [false, 'replace-registry'],
+    ] as const) {
+      const buf = new ArrayBuffer(4);
+      new Uint8Array(buf).set([1, 2, 3, 4]);
+      markNonTransferableArrayBuffer(buf);
 
-    let thrown: unknown;
-    try {
-      structuredClone(reachable ? { buf } : {}, { transfer: [buf] });
-    } catch (error) {
-      thrown = error;
+      const hostileRegistry = new WeakSet<ArrayBuffer>();
+      hostileRegistry.add(buf);
+      Object.defineProperty(globalThis, legacyRegistryKey, {
+        value: hostileRegistry,
+        writable: true,
+        enumerable: false,
+        configurable: true,
+      });
+      if (attack === 'delete-entry') {
+        hostileRegistry.delete(buf);
+      } else {
+        (globalThis as any)[legacyRegistryKey] = new WeakSet<ArrayBuffer>();
+      }
+
+      let thrown: unknown;
+      try {
+        structuredClone(reachable ? { buf } : {}, { transfer: [buf] });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toMatchObject({ name: 'DataCloneError' });
+      expect(isDetachedArrayBuffer(buf)).toBe(false);
+      expect(Array.from(new Uint8Array(buf))).toEqual([1, 2, 3, 4]);
     }
-    expect(thrown).toMatchObject({ name: 'DataCloneError' });
-    expect(isDetachedArrayBuffer(buf)).toBe(false);
-    expect(Array.from(new Uint8Array(buf))).toEqual([1, 2, 3, 4]);
+  } finally {
+    if (previous) {
+      Object.defineProperty(globalThis, legacyRegistryKey, previous);
+    } else {
+      Reflect.deleteProperty(globalThis, legacyRegistryKey);
+    }
+  }
+});
+
+test('non-transferable ArrayBuffers reject moves despite WeakSet prototype poisoning', () => {
+  const add = Object.getOwnPropertyDescriptor(WeakSet.prototype, 'add');
+  const has = Object.getOwnPropertyDescriptor(WeakSet.prototype, 'has');
+  try {
+    Object.defineProperty(WeakSet.prototype, 'add', {
+      value: function hostileAdd(this: WeakSet<object>): WeakSet<object> {
+        return this;
+      },
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(WeakSet.prototype, 'has', {
+      value: () => false,
+      writable: true,
+      configurable: true,
+    });
+
+    for (const reachable of [true, false]) {
+      const buf = new ArrayBuffer(4);
+      new Uint8Array(buf).set([1, 2, 3, 4]);
+      markNonTransferableArrayBuffer(buf);
+
+      let thrown: unknown;
+      try {
+        structuredClone(reachable ? { buf } : {}, { transfer: [buf] });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toMatchObject({ name: 'DataCloneError' });
+      expect(isDetachedArrayBuffer(buf)).toBe(false);
+      expect(Array.from(new Uint8Array(buf))).toEqual([1, 2, 3, 4]);
+    }
+  } finally {
+    if (add) Object.defineProperty(WeakSet.prototype, 'add', add);
+    if (has) Object.defineProperty(WeakSet.prototype, 'has', has);
   }
 });
 

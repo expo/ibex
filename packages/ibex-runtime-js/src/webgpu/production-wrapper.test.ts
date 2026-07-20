@@ -4788,6 +4788,84 @@ describe('production-private GPUBuffer lifecycle', () => {
     binding.revoke();
   });
 
+  test('refuses duplicate pending and active maps before generation or service ingress', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs);
+    const device = await requestTestLifecycleDevice(binding);
+
+    const activeBuffer = device.createBuffer({
+      mappedAtCreation: true,
+      size: 8,
+      usage: 9,
+    });
+    const beforeActiveAttempt = bridge.submissions.length;
+    const activeMapBodiesBefore = bufferLifecycleEncodings(
+      codecs,
+      'GPUBuffer.mapAsync',
+    ).length;
+    let activeAttempt!: Promise<undefined>;
+    expect(() => {
+      activeAttempt = activeBuffer.mapAsync(2, 0, 8);
+    }).not.toThrow();
+    await expect(activeAttempt).rejects.toMatchObject({ name: 'OperationError' });
+    expect(bridge.submissions).toHaveLength(beforeActiveAttempt);
+    expect(bufferLifecycleEncodings(codecs, 'GPUBuffer.mapAsync'))
+      .toHaveLength(activeMapBodiesBefore);
+    activeBuffer.unmap();
+
+    const buffer = device.createBuffer({ size: 8, usage: 1 });
+    let release: (() => void) | undefined;
+    bridge.setPromiseResultHook((event) => new Promise((resolve) => {
+      release = () => resolve(bufferMapResultEvent(event, {
+        variant: 'mapped-bytes',
+        pendingMapGeneration: '1',
+        mode: 1,
+        offset: '0',
+        size: '8',
+        ownedBytes: Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]),
+      }));
+    }));
+    const first = buffer.mapAsync(1, 0, 8);
+    expect(buffer.mapState).toBe('pending');
+    const beforePendingAttempt = bridge.submissions.length;
+    const pendingMapBodiesBefore = bufferLifecycleEncodings(
+      codecs,
+      'GPUBuffer.mapAsync',
+    ).length;
+    let duplicate!: Promise<undefined>;
+    expect(() => {
+      duplicate = buffer.mapAsync(1, 0, 8);
+    }).not.toThrow();
+    await expect(duplicate).rejects.toMatchObject({ name: 'OperationError' });
+    expect(bridge.submissions).toHaveLength(beforePendingAttempt);
+    expect(bufferLifecycleEncodings(codecs, 'GPUBuffer.mapAsync'))
+      .toHaveLength(pendingMapBodiesBefore);
+
+    buffer.unmap();
+    await expect(first).rejects.toMatchObject({ name: 'AbortError' });
+    expect(release).toBeFunction();
+    release!();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    bridge.setPromiseResultHook((event) => bufferMapResultEvent(event, {
+      variant: 'mapped-bytes',
+      pendingMapGeneration: '2',
+      mode: 1,
+      offset: '0',
+      size: '8',
+      ownedBytes: Uint8Array.from([8, 7, 6, 5, 4, 3, 2, 1]),
+    }));
+    await expect(buffer.mapAsync(1, 0, 8)).resolves.toBeUndefined();
+    expect(bufferLifecycleEncodings(codecs, 'GPUBuffer.mapAsync').map((body) =>
+      body.kind === 'map-async-v1' ? body.pendingMapGeneration : 'cleanup'
+    )).toEqual(['1', '2']);
+    buffer.unmap();
+    binding.revoke();
+  });
+
   test('retries synchronous map and cleanup rejection with stable local generations', async () => {
     const bridge = createFakeBridge();
     const codecs = createFakeCodecs();
@@ -5268,7 +5346,7 @@ describe('production-private GPUBuffer lifecycle', () => {
     binding.revoke();
   });
 
-  test('drops retained cleanup on spontaneous loss while preserving ordinary active views', async () => {
+  test('drops retained cleanup on loss and keeps later unmap or destroy local-only', async () => {
     const bridge = createFakeBridge();
     const codecs = createFakeCodecs();
     const unmapWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
@@ -5292,16 +5370,126 @@ describe('production-private GPUBuffer lifecycle', () => {
       usage: 9,
     });
     const activeRange = active.getMappedRange();
+    const destroyedAfterLoss = device.createBuffer({
+      mappedAtCreation: true,
+      size: 4,
+      usage: 9,
+    });
+    const destroyedRange = destroyedAfterLoss.getMappedRange();
     expect(retained.unmap()).toBeUndefined();
-    expect(inspectBinding(binding).current.trackedBufferLifecycleCount).toBe(2);
+    expect(inspectBinding(binding).current.trackedBufferLifecycleCount).toBe(3);
 
     emitDeviceLoss(bridge, '301', '1');
     await expect(device.lost).resolves.toMatchObject({ reason: 'unknown' });
-    expect(inspectBinding(binding).current.trackedBufferLifecycleCount).toBe(1);
+    expect(inspectBinding(binding).current.trackedBufferLifecycleCount).toBe(2);
     expect(active.mapState).toBe('mapped');
     expect(isDetachedArrayBuffer(activeRange)).toBe(false);
+    expect(isDetachedArrayBuffer(destroyedRange)).toBe(false);
+
+    const submissionsAfterLoss = bridge.submissions.length;
+    const cleanupEncodingsAfterLoss =
+      bufferLifecycleEncodings(codecs, 'GPUBuffer.unmap').length +
+      bufferLifecycleEncodings(codecs, 'GPUBuffer.destroy').length;
+    const realmGlobal = globalThis;
+    const detachedRegistryKey = Symbol.for('exact.detachedArrayBuffers');
+    const previousDetachedRegistry = Object.getOwnPropertyDescriptor(
+      realmGlobal,
+      detachedRegistryKey,
+    );
+    const previousWeakSet = Object.getOwnPropertyDescriptor(
+      realmGlobal,
+      'WeakSet',
+    );
+    const previousGlobalThis = Object.getOwnPropertyDescriptor(
+      realmGlobal,
+      'globalThis',
+    );
+    let detachedRegistryAccessorCalls = 0;
+    Object.defineProperty(realmGlobal, detachedRegistryKey, {
+      get: () => {
+        detachedRegistryAccessorCalls += 1;
+        throw new Error('hostile detached registry getter');
+      },
+      set: () => {
+        detachedRegistryAccessorCalls += 1;
+        throw new Error('hostile detached registry setter');
+      },
+      configurable: true,
+    });
+    try {
+      expect(active.unmap()).toBeUndefined();
+      expect(detachedRegistryAccessorCalls).toBe(0);
+      Reflect.deleteProperty(realmGlobal, detachedRegistryKey);
+      Object.defineProperty(realmGlobal, 'WeakSet', {
+        value: function HostileWeakSet(): never {
+          throw new Error('hostile WeakSet constructor');
+        },
+        writable: true,
+        configurable: true,
+      });
+      Object.defineProperty(realmGlobal, 'globalThis', {
+        get: () => {
+          throw new Error('hostile globalThis getter');
+        },
+        configurable: true,
+      });
+      let destroyError: unknown;
+      try {
+        destroyedAfterLoss.destroy();
+      } catch (error) {
+        destroyError = error;
+      } finally {
+        if (previousGlobalThis) {
+          Object.defineProperty(realmGlobal, 'globalThis', previousGlobalThis);
+        } else {
+          Reflect.deleteProperty(realmGlobal, 'globalThis');
+        }
+        if (previousWeakSet) {
+          Object.defineProperty(realmGlobal, 'WeakSet', previousWeakSet);
+        } else {
+          Reflect.deleteProperty(realmGlobal, 'WeakSet');
+        }
+      }
+      expect(destroyError).toBeUndefined();
+      expect(retained.destroy()).toBeUndefined();
+      expect(bridge.submissions).toHaveLength(submissionsAfterLoss);
+      expect(
+        bufferLifecycleEncodings(codecs, 'GPUBuffer.unmap').length +
+        bufferLifecycleEncodings(codecs, 'GPUBuffer.destroy').length,
+      ).toBe(cleanupEncodingsAfterLoss);
+      expect(active.mapState).toBe('unmapped');
+      expect(destroyedAfterLoss.mapState).toBe('unmapped');
+      expect(isDetachedArrayBuffer(activeRange)).toBe(true);
+      expect(isDetachedArrayBuffer(destroyedRange)).toBe(true);
+      expect(inspectBinding(binding).current.trackedBufferLifecycleCount).toBe(0);
+    } finally {
+      if (previousGlobalThis) {
+        Object.defineProperty(realmGlobal, 'globalThis', previousGlobalThis);
+      } else {
+        Reflect.deleteProperty(realmGlobal, 'globalThis');
+      }
+      if (previousWeakSet) {
+        Object.defineProperty(realmGlobal, 'WeakSet', previousWeakSet);
+      } else {
+        Reflect.deleteProperty(realmGlobal, 'WeakSet');
+      }
+      if (previousDetachedRegistry) {
+        Object.defineProperty(
+          realmGlobal,
+          detachedRegistryKey,
+          previousDetachedRegistry,
+        );
+      } else {
+        Reflect.deleteProperty(realmGlobal, detachedRegistryKey);
+      }
+    }
+
+    const beforeDestroyedMap = bridge.submissions.length;
+    await expect(destroyedAfterLoss.mapAsync(2, 0, 4)).rejects.toMatchObject({
+      name: 'OperationError',
+    });
+    expect(bridge.submissions).toHaveLength(beforeDestroyedMap);
     binding.revoke();
-    expect(isDetachedArrayBuffer(activeRange)).toBe(true);
   });
 
   test('marks mapped range leases non-transferable for Ibex structuredClone', async () => {

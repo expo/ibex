@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-19 (hardens the construction-private GPUBuffer lifecycle: retained cleanup and destroyed-state fence new maps without service work; all post-WebIDL `mapAsync` failures remain Promise rejections; void cleanup suppresses known non-admission while retaining the exact retry snapshot and closes on ambiguous admission; spontaneous loss discards detached retry snapshots but preserves active views; cleanup moves the existing private MAP_WRITE block without a second full allocation; and Ibex structured clone/ArrayBuffer transfer entry points enforce mapped-range non-transferability without claiming native Hermes detachment; the embedded codec slot, public issuer, positive CapSec support, ordinary global installation, and support claim remain absent)
+**Revised:** 2026-07-19 (hardens the construction-private GPUBuffer lifecycle: retained cleanup, destroyed state, and an existing pending or active mapping fence new maps without service work; all post-WebIDL `mapAsync` failures remain Promise rejections; void cleanup suppresses known non-admission while retaining the exact retry snapshot and closes on ambiguous admission; spontaneous loss discards detached retry snapshots, preserves active views, and makes their later explicit cleanup local-only with private detachment bookkeeping; cleanup moves the existing private MAP_WRITE block without a second full allocation; and Ibex structured clone/ArrayBuffer transfer entry points enforce mapped-range non-transferability through an inaccessible lexical set and captured operations without claiming native Hermes detachment; the embedded codec slot, public issuer, positive CapSec support, ordinary global installation, and support claim remain absent)
 **Revised:** 2026-07-19 (materializes construction-private `GPUBuffer.destroy`, `GPUBuffer.getMappedRange`, `GPUBuffer.mapAsync`, and `GPUBuffer.unmap` over the authenticated existing lifecycle codecs and V2 routes, with wrapper-owned mapped bytes, independent positive map/cleanup generations, generation-fenced cancellation and typed completion, bounded nonoverlapping mapped-range leases, exact MAP_WRITE cleanup, MAP_READ discard, and synchronous detachment on owning cleanup; the embedded codec slot, public issuer, positive CapSec support, ordinary global installation, and support claim remain absent)
 **Revised:** 2026-07-19 (materializes authenticated `GPUDevice.createComputePipeline` and `GPUQueue.writeBuffer` methods inside the construction-private wrapper, adds the `GPUComputePipeline` and existing `GPUComputePassEncoder` interface objects to that gated installation inventory, and consumes distinct positive queue ingress for `writeBuffer` without consuming pending command records; the embedded codec slot, public issuer, positive CapSec support, ordinary global installation, and support claim remain absent)
 **Revised:** 2026-07-18 (adds the authenticated production-private `GPUDevice.createBuffer` Web IDL conversion, bounded structural transport, six-field wrapper target, wrapper-local immutable `usage`/`mapState` metadata, ordered semantic boundary, dual-ledger accounting evidence, and 21-call positive/adversarial corpus without installing native execution or a CapSec edge); 2026-07-18 (adds the authenticated production-private `GPUDevice.createPipelineLayout` Web IDL, full-reference transport, semantic-boundary program, wrapper target, and positive/adversarial corpus without installing native execution); 2026-07-18 (separates the complete post-WebIDL bind-group-layout structural transport type from the post-decode TypeGPU workload predicate); 2026-07-18 (consumes Exact-generated wrapper pins as the sole normalized digest/route authority and classifies the immutable 25-operation triangle separately from explicit TypeGPU graduates)
@@ -827,11 +827,12 @@ synchronous service acceptance, and accepts only the matching typed completion
 variant, mode, offset, size, and owned byte extent. Provider failure rejects
 `OperationError`, wrapper allocation failure rejects `RangeError`, and late
 cleanup rejects `AbortError`; a stale or mismatched terminal cannot publish an
-active mapping. Destroyed buffers and buffers retaining any cleanup snapshot
-reject `mapAsync` locally without encoding or service submission. Every failure
-after the receiver brand check — including converted-value staging and map
-generation exhaustion — is returned through the Promise rejection path, and a
-reclamation-preparation failure cannot throw from an ignored receipt handler.
+active mapping. Destroyed buffers, buffers retaining any cleanup snapshot, and
+buffers with an existing pending or active mapping reject `mapAsync` locally
+without consuming a map generation, encoding, or service submission. Every
+failure after the receiver brand check — including converted-value staging and
+map generation exhaustion — is returned through the Promise rejection path,
+and a reclamation-preparation failure cannot throw from an ignored receipt handler.
 A kind-2 receipt rejection is the captured validation terminal for that call
 and is never reinterpreted as an uncaptured-error notification.
 
@@ -848,12 +849,21 @@ device-ingress ordinal. An ambiguous bridge throw closes the wrapper realm.
 Explicit device, account, realm, and runtime teardown detach owning mappings.
 Spontaneous physical device/provider loss rejects pending maps and discards any
 wrapper-detached retry snapshot whose target disappeared, while preserving an
-ordinary already-active mapping until explicit owning cleanup. Map and cleanup
+ordinary already-active mapping until explicit owning cleanup. That later
+`unmap` or `destroy` only detaches and discards local state; it cannot submit
+against the dead target or mint retry authority. Private detachment bookkeeping
+and captured intrinsic operations make that transition independent of the
+app-visible legacy detached-buffer registry, which is observed and published
+only through captured own-descriptor operations and remains a best-effort
+compatibility mirror for the separate Buffer builtin. Map and cleanup
 generations, active mode/range, native Promise identity, and late terminals are
 all checked against the exact branded buffer generation.
 
-Mapped range copies are tagged non-transferable. Ibex structured clone rejects
-both reachable and transfer-list-only attempts, and the runtime-installed
+Mapped range copies are tagged in an inaccessible module-lexical
+non-transferable set, queried and populated through captured intrinsic
+operations rather than a realm-global symbol registry or mutable prototype
+lookup. Ibex structured clone rejects both reachable and transfer-list-only
+attempts, and the runtime-installed
 `ArrayBuffer.prototype.transfer` / `transferToFixedLength` fences reject before
 moving or detaching the source. This is wrapper enforcement, not a claim that
 Hermes now exposes true engine-level detachment: the existing tracked/zeroed

@@ -5271,6 +5271,22 @@ export function createProductionWebGpuPrivateBinding(
     operationId: 'GPUBuffer.destroy' | 'GPUBuffer.unmap',
   ): void => {
     try {
+      if (buffer.device?.lost.settled) {
+        // The physical target disappeared before this owning cleanup. WebGPU's
+        // invalid-device branch still performs the synchronous content-side
+        // authority reduction, but it issues no device/provider work. Do not
+        // mint a retry snapshot for a target that can never admit it.
+        cancelPendingBufferMap(
+          buffer,
+          operationId === 'GPUBuffer.destroy'
+            ? 'GPUBuffer was destroyed after device loss'
+            : 'GPUBuffer was unmapped after device loss',
+          false,
+        );
+        detachActiveBufferMapping(buffer);
+        discardPendingBufferCleanup(buffer);
+        return;
+      }
       const cleanup = captureBufferCleanup(buffer, operationId);
       if (cleanup) submitBufferCleanup(buffer, cleanup);
     } catch {
@@ -5353,7 +5369,6 @@ export function createProductionWebGpuPrivateBinding(
     let converted!: Readonly<Record<string, unknown>>;
     let generationPlan!: NextCounterConsumption;
     let pending!: PendingBufferMapState;
-    let installPending!: boolean;
     let body!: ProductionGpuBufferLifecycleEncoding;
     try {
       converted = asRecord(
@@ -5384,6 +5399,16 @@ export function createProductionWebGpuPrivateBinding(
           'GPUBuffer is destroyed or awaiting cleanup',
         );
       }
+      if (
+        buffer.bufferMapState !== 'unmapped' ||
+        buffer.bufferPendingMap !== undefined ||
+        buffer.bufferActiveMapping !== undefined
+      ) {
+        // Content-timeline refusal: WebGPU permits only one pending/active map
+        // lifecycle at a time. This rejected Promise consumes neither a map
+        // generation nor authenticated service ingress.
+        throw namedError('OperationError', 'GPUBuffer already has a mapping');
+      }
       generationPlan = consumeNextCounterOrClose(
         buffer.bufferNextMapGeneration,
         buffer.bufferMapGenerationExhausted,
@@ -5395,7 +5420,6 @@ export function createProductionWebGpuPrivateBinding(
         mapOffset,
         mapSize,
       );
-      installPending = buffer.bufferMapState === 'unmapped';
       body = Object.freeze({
         kind: 'map-async-v1',
         pendingMapGeneration: pending.generation,
@@ -5417,11 +5441,9 @@ export function createProductionWebGpuPrivateBinding(
         true,
         undefined,
         () => {
-          if (installPending) {
-            buffer.bufferPendingMap = pending;
-            buffer.bufferMapState = 'pending';
-            retainBufferLifecycle(buffer);
-          }
+          buffer.bufferPendingMap = pending;
+          buffer.bufferMapState = 'pending';
+          retainBufferLifecycle(buffer);
         },
         (failure) => {
           if (buffer.bufferPendingMap === pending) {
@@ -5462,24 +5484,8 @@ export function createProductionWebGpuPrivateBinding(
       return pending.promise;
     }
     servicePromise.then(
-      (decoded) => {
-        if (!installPending) {
-          settlePendingBufferMap(
-            pending,
-            namedError('OperationError', 'GPUBuffer already has a mapping'),
-          );
-          return;
-        }
-        handleBufferMapCompletion(buffer, pending, decoded);
-      },
+      (decoded) => handleBufferMapCompletion(buffer, pending, decoded),
       (error) => {
-        if (!installPending) {
-          settlePendingBufferMap(
-            pending,
-            namedError('OperationError', 'GPUBuffer already has a mapping'),
-          );
-          return;
-        }
         clearCurrentPendingMap(
           buffer,
           pending,

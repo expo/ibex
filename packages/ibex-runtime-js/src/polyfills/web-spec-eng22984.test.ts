@@ -124,6 +124,77 @@ describe('ENG-22984 #1 ArrayBuffer resize is no longer a silent no-op', () => {
     }
   });
 
+  test('legacy global registry deletion and replacement cannot bypass transfer fences', () => {
+    const legacyRegistryKey = Symbol.for('exact.nonTransferableArrayBuffers');
+    const previous = Object.getOwnPropertyDescriptor(globalThis, legacyRegistryKey);
+    try {
+      for (const [method, attack] of [
+        ['transfer', 'delete-entry'],
+        ['transferToFixedLength', 'replace-registry'],
+      ] as const) {
+        const buffer = new ArrayBuffer(4);
+        new Uint8Array(buffer).set([1, 2, 3, 4]);
+        markNonTransferableArrayBuffer(buffer);
+
+        const hostileRegistry = new WeakSet<ArrayBuffer>();
+        hostileRegistry.add(buffer);
+        Object.defineProperty(globalThis, legacyRegistryKey, {
+          value: hostileRegistry,
+          writable: true,
+          enumerable: false,
+          configurable: true,
+        });
+        if (attack === 'delete-entry') {
+          hostileRegistry.delete(buffer);
+        } else {
+          (globalThis as any)[legacyRegistryKey] = new WeakSet<ArrayBuffer>();
+        }
+
+        expect(() => (buffer as any)[method]()).toThrow(TypeError);
+        expect(isDetachedArrayBuffer(buffer)).toBe(false);
+        expect(Array.from(new Uint8Array(buffer))).toEqual([1, 2, 3, 4]);
+      }
+    } finally {
+      if (previous) {
+        Object.defineProperty(globalThis, legacyRegistryKey, previous);
+      } else {
+        Reflect.deleteProperty(globalThis, legacyRegistryKey);
+      }
+    }
+  });
+
+  test('WeakSet prototype poisoning cannot bypass transfer fences', () => {
+    const add = Object.getOwnPropertyDescriptor(WeakSet.prototype, 'add');
+    const has = Object.getOwnPropertyDescriptor(WeakSet.prototype, 'has');
+    try {
+      Object.defineProperty(WeakSet.prototype, 'add', {
+        value: function hostileAdd(this: WeakSet<object>): WeakSet<object> {
+          return this;
+        },
+        writable: true,
+        configurable: true,
+      });
+      Object.defineProperty(WeakSet.prototype, 'has', {
+        value: () => false,
+        writable: true,
+        configurable: true,
+      });
+
+      for (const method of ['transfer', 'transferToFixedLength'] as const) {
+        const buffer = new ArrayBuffer(4);
+        new Uint8Array(buffer).set([1, 2, 3, 4]);
+        markNonTransferableArrayBuffer(buffer);
+
+        expect(() => (buffer as any)[method]()).toThrow(TypeError);
+        expect(isDetachedArrayBuffer(buffer)).toBe(false);
+        expect(Array.from(new Uint8Array(buffer))).toEqual([1, 2, 3, 4]);
+      }
+    } finally {
+      if (add) Object.defineProperty(WeakSet.prototype, 'add', add);
+      if (has) Object.defineProperty(WeakSet.prototype, 'has', has);
+    }
+  });
+
   test('fenced transfer still moves ordinary buffers', () => {
     const buffer = new ArrayBuffer(4);
     new Uint8Array(buffer).set([1, 2, 3, 4]);
