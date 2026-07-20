@@ -2,7 +2,7 @@
   "rootGlobalDispositionManifestSchema": "ibex/root-global-disposition-manifest/1",
   "profile": "ibex/capsec/1",
   "status": "enforced-by-armed-live-sweep",
-  "sourceDigest": "sha256-HEOYnPrPW3zrkQ9gfI0-oIBf5-6NGI9lBfLTO0OCdJU",
+  "sourceDigest": "sha256-4WCmA7hTyPh2MskuzWA7yAA9da9zVwi7LqR6O74apaM",
   "sweep": {
     "roots": [
       "globalThis"
@@ -90,6 +90,7 @@
       "surface.native.op.exactdebugmodulesource.17ymgg1",
       "surface.native.op.exactdebugmodulesources.0897z1y",
       "surface.native.op.exactdebugmodulesources.length.0srmigk",
+      "surface.native.op.exactdeepfreeze.1vcvmfo",
       "surface.native.op.exactdeflatesync.1ub149z",
       "surface.native.op.exactdispatchpendingsignals.0rebamv",
       "surface.native.op.exactdnsgetservers.0juhxzo",
@@ -237,6 +238,7 @@
       "surface.native.op.exactmoduleresolve.14a0zlj",
       "surface.native.op.exactmoduleresolvemeta.0cn3rq2",
       "surface.native.op.exactnativedialog.0qc9nk6",
+      "surface.native.op.exactnativefreeze.0145fn1",
       "surface.native.op.exactnativemoduleresolve.0lt1gr6",
       "surface.native.op.exactnativemoduleresolvemeta.05tdyxr",
       "surface.native.op.exactnativewrapstate.1bb1293",
@@ -1745,14 +1747,12 @@
       "surface.native.op.global.performancemark.detail.0rjd46p",
       "surface.native.op.global.performancemark.duration.1gcf2eo",
       "surface.native.op.global.performancemark.entrytype.15c2o30",
-      "surface.native.op.global.performancemark.name.0f38t6b",
       "surface.native.op.global.performancemark.starttime.19y6iz1",
       "surface.native.op.global.performancemark.tojson.07v3yef",
       "surface.native.op.global.performancemeasure.0ddftb5",
       "surface.native.op.global.performancemeasure.detail.08ue7vw",
       "surface.native.op.global.performancemeasure.duration.0kez5dh",
       "surface.native.op.global.performancemeasure.entrytype.0g210lf",
-      "surface.native.op.global.performancemeasure.name.14ve0m6",
       "surface.native.op.global.performancemeasure.starttime.0sps3g6",
       "surface.native.op.global.performancemeasure.tojson.0jwk6cu",
       "surface.native.op.global.performanceobserver.1rcmxvh",
@@ -32449,6 +32449,38 @@
       "nativeImplementation": false
     },
     {
+      "installId": "root-global.exactdeepfreeze.bf1c3bbc7d20c626",
+      "observedKey": "native-op:__exactDeepFreeze",
+      "registryEdgeId": "surface.native.op.exactdeepfreeze.1vcvmfo",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "evaluated-native-script"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#embedded:kFreezeSealJS:__exactDeepFreeze",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:__exactDeepFreeze"
+        ],
+        "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactDeepFreeze"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-evaluated-script",
+      "privateConsumer": "native-lockdown-bootstrap",
+      "disposition": "private",
+      "traversal": "descend",
+      "liveExpectation": "absent",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
       "installId": "root-global.exactdeflatesync.33f760662b6eb51b",
       "observedKey": "native-op:__exactDeflateSync",
       "registryEdgeId": "surface.native.op.exactdeflatesync.1ub149z",
@@ -38348,6 +38380,38 @@
       "liveExpectation": "reachable",
       "resolution": "static",
       "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.exactnativefreeze.7a358f46219f8c46",
+      "observedKey": "native-op:__exactNativeFreeze",
+      "registryEdgeId": "surface.native.op.exactnativefreeze.0145fn1",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "evaluated-native-script"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#embedded:kFreezeSealJS:__exactNativeFreeze",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:__exactNativeFreeze"
+        ],
+        "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactNativeFreeze"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-evaluated-script",
+      "privateConsumer": "native-lockdown-bootstrap",
+      "disposition": "private",
+      "traversal": "descend",
+      "liveExpectation": "absent",
+      "resolution": "static",
+      "nativeImplementation": false
     },
     {
       "installId": "root-global.exactnativemoduleresolve.8ab215c64b4f5e82",
@@ -69208,43 +69272,6 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.performancemark.name.ce8fb002300a8ce5",
-      "observedKey": "native-op:global:PerformanceMark.name",
-      "registryEdgeId": "surface.native.op.global.performancemark.name.0f38t6b",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:PerformanceMark",
-          "packages/ibex-runtime-js/src/performance/Performance.ts#PerformanceEntry.prototype.name"
-        ],
-        "targetVariant": "all",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "PerformanceMark"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "name"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "exposed",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
       "installId": "root-global.performancemark.starttime.70efdfd9f1c752ff",
       "observedKey": "native-op:global:PerformanceMark.startTime",
       "registryEdgeId": "surface.native.op.global.performancemark.starttime.19y6iz1",
@@ -69450,43 +69477,6 @@
           {
             "kind": "string",
             "value": "entryType"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "exposed",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.performancemeasure.name.58ea8e1078f7474a",
-      "observedKey": "native-op:global:PerformanceMeasure.name",
-      "registryEdgeId": "surface.native.op.global.performancemeasure.name.14ve0m6",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:PerformanceMeasure",
-          "packages/ibex-runtime-js/src/performance/Performance.ts#PerformanceEntry.prototype.name"
-        ],
-        "targetVariant": "all",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "PerformanceMeasure"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "name"
           }
         ]
       },
@@ -97733,8 +97723,7 @@
         ],
         "sourceRefs": [
           "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:WebSocketError",
-          "packages/ibex-runtime-js/src/events/DOMException.ts#DOMException.name",
-          "packages/ibex-runtime-js/src/events/DOMException.ts#DOMException.prototype.name"
+          "packages/ibex-runtime-js/src/websocket/WebSocketError.ts#WebSocketError.name"
         ],
         "targetVariant": "all",
         "activation": "shared-runtime-bundle"
@@ -102391,7 +102380,7 @@
     "installBranches": 2723,
     "logicalGlobals": 2576,
     "registryEdges": 2576,
-    "sealedOrPrivate": 346,
-    "permittedReachable": 2377
+    "sealedOrPrivate": 348,
+    "permittedReachable": 2375
   }
 }

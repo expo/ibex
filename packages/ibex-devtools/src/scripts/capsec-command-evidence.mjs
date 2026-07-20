@@ -25,6 +25,15 @@ export const commandEvidenceDirectoryModeIsPrivate = (
   platform = process.platform,
 ) => platform === "win32" || (metadata.mode & 0o077) === 0;
 
+// Bun's Windows spawnSync command lookup does not reliably rediscover the
+// already-running bun.exe through PATH/PATHEXT. Reuse the current executable
+// for nested Bun commands while retaining the logical `bun ...` command in
+// the evidence envelope.
+export const resolveObservedExecutable = (
+  command,
+  runtime = { execPath: process.execPath, versions: process.versions },
+) => command === "bun" && runtime.versions?.bun ? runtime.execPath : command;
+
 function assertOwnedRegularPath(filePath, opened) {
   const current = fs.lstatSync(filePath);
   if (
@@ -132,7 +141,7 @@ export function runObservedCommand({
   let result;
   try {
     stderr = openOwnedLog(stderrPath);
-    result = spawnSync(command, args, {
+    result = spawnSync(resolveObservedExecutable(command), args, {
       cwd,
       env,
       stdio: ["ignore", stdout.descriptor, stderr.descriptor],

@@ -4,11 +4,11 @@
   "projectionRawContentDigest": "sha256-mHn15f_8W945Jz_Wj7zRbhduqQDSvOfNmmsd9WAnNvg",
   "coverageRawContentDigest": "sha256-HAE42W6gCg2kA5x_CBPckbSLwdDRaGvHuzdrGTSVudg",
   "implementationManifestRawContentDigest": "sha256-_sqfg-MEhdABqxlp0RQKh8fhtpq3nSOK3922Nt5wVP0",
-  "rootGlobalManifestRawContentDigest": "sha256-h2HfD6tz8JI4aywueYwnjPrjgf-VpBHiU5p-dNN7vR4",
+  "rootGlobalManifestRawContentDigest": "sha256-qrz6Up3VxwZP6uhK3oiJxmze4Rj0Few2NkL09L73Y28",
   "counts": {
     "edges": 7194,
     "sourceInstallProbes": 7408,
-    "liveReachabilityProbes": 9794
+    "liveReachabilityProbes": 9796
   },
   "edges": [
     {
@@ -132209,6 +132209,13 @@
       ],
       "liveReachability": [
         {
+          "probeId": "live.surface.native.op.exactdeepfreeze.1vcvmfo.descriptor.0",
+          "routeKind": "descriptor-prefix",
+          "target": "__exactDeepFreeze",
+          "unresolvedSegment": null,
+          "expected": "unreachable"
+        },
+        {
           "probeId": "live.surface.native.op.exactdeepfreeze.1vcvmfo.route.0",
           "routeKind": "restricted-native-installer-route",
           "target": "native-op:__exactDeepFreeze",
@@ -138677,6 +138684,13 @@
         }
       ],
       "liveReachability": [
+        {
+          "probeId": "live.surface.native.op.exactnativefreeze.0145fn1.descriptor.0",
+          "routeKind": "descriptor-prefix",
+          "target": "__exactNativeFreeze",
+          "unresolvedSegment": null,
+          "expected": "unreachable"
+        },
         {
           "probeId": "live.surface.native.op.exactnativefreeze.0145fn1.route.0",
           "routeKind": "restricted-native-installer-route",

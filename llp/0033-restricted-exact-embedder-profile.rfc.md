@@ -9,7 +9,7 @@
 executable-route completion replaced three synthetic stream export rows with
 52 exact inherited-member rows and removed two false performance-name rows;
 the 7,347-edge projection now has 7,194 structural absences, 7,408 source
-probes, and 9,794 live probes, and all earlier target evidence remains invalid;
+probes, and 9,796 live probes, and all earlier target evidence remains invalid;
 r17 — records the third failed independent review,
 revokes the second attempted absence fan-out, and pins executable-route v2 as
 separate build/applicability, installer-selection, and exact-target live proof;
@@ -402,7 +402,7 @@ no incomplete source route. Its inventory correction replaced three synthetic
 `node_stream` export rows with 52 exact inherited writable-member rows and
 removed the false `PerformanceMark.name` and `PerformanceMeasure.name` rows.
 The regenerated authority has 7,194 absent edges, 7,408 source-install probes,
-9,794 live-reachability probes, and descriptor-prefix probes for 2,458 edges.
+9,796 live-reachability probes, and descriptor-prefix probes for 2,460 edges.
 Because the definition, coverage, projection, probe plan, route graph, and
 fixture-plan bindings changed, every earlier Apple evidence artifact and report
 is historical only and cannot contribute to promotion.

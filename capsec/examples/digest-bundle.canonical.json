@@ -223401,7 +223401,7 @@
               "name": "global:eval"
             },
             "cap": "vm:evaluate",
-            "rationale": "Dynamic JavaScript compilation remains closed; the restricted profile replaces these globals with throwing sentinels."
+            "rationale": "Dynamic global code evaluation is closed by the initial profile and lockdown."
           },
           {
             "id": "surface.native.op.global.event.0z0erp1",
@@ -229135,7 +229135,7 @@
               "name": "global:Function"
             },
             "cap": "vm:evaluate",
-            "rationale": "Dynamic JavaScript compilation remains closed; the restricted profile replaces these globals with throwing sentinels."
+            "rationale": "Dynamic global code evaluation is closed by the initial profile and lockdown."
           },
           {
             "id": "surface.native.op.global.gc.0dj0o95",
@@ -242557,16 +242557,6 @@
             "rationale": "Clock reads are runtime information rather than reusable positive package authority; timing-side-channel policy belongs to the runtime profile."
           },
           {
-            "id": "surface.native.op.global.performancemark.name.0f38t6b",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "native-op",
-              "name": "global:PerformanceMark.name"
-            },
-            "rationaleId": "ordinary-time",
-            "rationale": "Clock reads are runtime information rather than reusable positive package authority; timing-side-channel policy belongs to the runtime profile."
-          },
-          {
             "id": "surface.native.op.global.performancemark.starttime.19y6iz1",
             "classification": "non-capability",
             "surface": {
@@ -242622,16 +242612,6 @@
             "surface": {
               "kind": "native-op",
               "name": "global:PerformanceMeasure.entryType"
-            },
-            "rationaleId": "ordinary-time",
-            "rationale": "Clock reads are runtime information rather than reusable positive package authority; timing-side-channel policy belongs to the runtime profile."
-          },
-          {
-            "id": "surface.native.op.global.performancemeasure.name.14ve0m6",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "native-op",
-              "name": "global:PerformanceMeasure.name"
             },
             "rationaleId": "ordinary-time",
             "rationale": "Clock reads are runtime information rather than reusable positive package authority; timing-side-channel policy belongs to the runtime profile."

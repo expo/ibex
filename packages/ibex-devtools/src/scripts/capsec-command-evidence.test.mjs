@@ -5,6 +5,7 @@ import { afterEach, expect, test } from "bun:test";
 import {
   commandEvidenceDirectoryModeIsPrivate,
   commandEvidenceIdSuffix,
+  resolveObservedExecutable,
   runObservedCommand,
 } from "./capsec-command-evidence.mjs";
 
@@ -37,6 +38,21 @@ test("command evidence enforces real POSIX modes without trusting Windows synthe
   expect(commandEvidenceDirectoryModeIsPrivate({ mode: 0o777 }, "win32")).toBe(
     true,
   );
+});
+
+test("nested Bun commands reuse the running executable without changing recorded commands", () => {
+  const runtime = {
+    execPath: "C:\\tools\\bun.exe",
+    versions: { bun: "1.3.12" },
+  };
+  expect(resolveObservedExecutable("bun", runtime)).toBe(runtime.execPath);
+  expect(resolveObservedExecutable("cargo", runtime)).toBe("cargo");
+  expect(
+    resolveObservedExecutable("bun", {
+      execPath: "/usr/bin/node",
+      versions: { node: "22.0.0" },
+    }),
+  ).toBe("bun");
 });
 
 test("command evidence streams large output and retains only a bounded tail", () => {

@@ -42,7 +42,7 @@ describe("LLP 0033 restricted Exact absence dominance graph", () => {
       routes: 7408,
       sourceFiles: 208,
       sourceBindings: 12468,
-      liveProbeBindings: 10298,
+      liveProbeBindings: 10300,
     });
     expect(graph.routes.every((route) => route.sourcePath.at(-1).startsWith("terminal."))).toBe(true);
     expect(graph.routes.every((route) => route.liveCutsetObservationIds.length === 3)).toBe(true);
