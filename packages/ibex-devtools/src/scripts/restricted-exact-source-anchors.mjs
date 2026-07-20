@@ -3287,6 +3287,36 @@ function setPropertyCalls(text, property) {
   return calls;
 }
 
+function helperPropertyCalls(text, caller, property) {
+  return callExpressionRangesWithin(
+    text,
+    "installStdioQueryAccessor",
+    { startByte: 0, endByte: text.length },
+  ).flatMap((range) => {
+    const opening = text.indexOf("(", range.startByte);
+    const args = splitTopLevelArguments(text.slice(opening + 1, range.endByte - 1));
+    if (args[0]?.trim() !== caller
+      || ![`"${property}"`, `'${property}'`].includes(args[2]?.trim())) return [];
+    const declaration = /(?:^|\n)\s*auto\s+installStdioQueryAccessor\s*=/gu;
+    const definitions = [...text.slice(0, range.startByte).matchAll(declaration)];
+    if (definitions.length !== 1) return [];
+    const startByte = definitions[0].index + (definitions[0][0][0] === "\n" ? 1 : 0);
+    const body = text.indexOf("{", startByte);
+    const bodyEnd = body < 0 ? -1 : matchingBraceEnd(text, body);
+    if (bodyEnd < 0 || bodyEnd > range.startByte) return [];
+    const semicolon = text.indexOf(";", bodyEnd);
+    return [{
+      caller,
+      value: "",
+      range,
+      producerRange: {
+        startByte,
+        endByte: semicolon >= 0 && semicolon < range.startByte ? semicolon + 1 : bodyEnd,
+      },
+    }];
+  });
+}
+
 function movedIdentifier(expression) {
   const match = /^(?:std::move\()?([A-Za-z_$][A-Za-z0-9_$]*)(?:\))?$/u.exec(expression.trim());
   return match?.[1] ?? null;
@@ -3392,11 +3422,15 @@ function jsiGlobalBranchBinding({ branch, sourceRef, sourcePath, locator, text, 
       const memberCalls = [];
       for (const memberName of logicalPath.slice(1)) {
         if (!currentVariable) return false;
-        const matches = setPropertyCalls(text, memberName).filter(
+        const directMatches = setPropertyCalls(text, memberName).filter(
           (call) => call.caller === currentVariable
             && call.range.startByte >= lowerBound
             && call.range.startByte < before,
         );
+        const helperMatches = helperPropertyCalls(text, currentVariable, memberName).filter(
+          (call) => call.range.startByte >= lowerBound && call.range.startByte < before,
+        );
+        const matches = [...directMatches, ...helperMatches];
         if (matches.length !== 1) return false;
         const memberCall = matches[0];
         memberCalls.push(memberCall);
@@ -3407,7 +3441,12 @@ function jsiGlobalBranchBinding({ branch, sourceRef, sourcePath, locator, text, 
         }
         before = memberCall.range.startByte;
       }
-      memberCallsByRoot.set(rootCall.range.startByte, { memberCalls, currentVariable, before });
+      memberCallsByRoot.set(rootCall.range.startByte, {
+        memberCalls,
+        currentVariable,
+        before,
+        producerRange: memberCalls.at(-1)?.producerRange ?? null,
+      });
       return true;
     });
   }
@@ -3430,7 +3469,8 @@ function jsiGlobalBranchBinding({ branch, sourceRef, sourcePath, locator, text, 
     const memberCalls = trace?.memberCalls ?? [];
     const currentVariable = trace?.currentVariable ?? movedIdentifier(rootCall.value);
     const before = trace?.before ?? rootCall.range.startByte;
-    const producerRange = cppValueProducerRange(text, currentVariable, before)
+    const producerRange = trace?.producerRange
+      ?? cppValueProducerRange(text, currentVariable, before)
       ?? memberCalls.at(-1)?.range
       ?? rootCall.range;
     const pathSites = [
