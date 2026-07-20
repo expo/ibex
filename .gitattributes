@@ -18,6 +18,14 @@ vendored-generated/** text eol=lf
 tests/fixtures/computed-candidates-v1.golden.json text eol=lf
 tests/fixtures/module-runner-spike/** text eol=lf
 
+# Archived LLP evidence and its independently checked-in inputs are hashed as
+# exact bytes; preserve their canonical identity on Windows checkouts.
+# @ref LLP 0024#31-post-retirement-oxc-handoff — the parser differential is a
+# content-addressed cutover report bound to its projection and corpus.
+llp/evidence/** text eol=lf
+config/llp0024-parser-differential-projection.json text eol=lf
+tests/fixtures/llp0024-parser-differential/** text eol=lf
+
 # Checked example policies authenticate their complete source trees and compare
 # the rendered artifact byte-for-byte. Keep those portable-v1 authorities
 # canonical across Git checkout platforms.
