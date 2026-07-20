@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schema/runtime-identity-v1.schema.json",
+  "title": "Ibex semantic runtime identity projection v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "version",
+    "name",
+    "processTitle",
+    "userAgent",
+    "release",
+    "versions",
+    "compat"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/runtime-identity/1" },
+    "version": { "type": "integer", "minimum": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "processTitle": { "type": "string", "minLength": 1 },
+    "userAgent": { "type": "string", "minLength": 1 },
+    "release": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "versions": {
+      "type": "object",
+      "minProperties": 1,
+      "required": ["ibex", "node"],
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "compat": {
+      "type": "object",
+      "required": ["bun"],
+      "properties": {
+        "bun": {
+          "type": "object",
+          "required": ["versionWhenEnabled"],
+          "properties": {
+            "versionWhenEnabled": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

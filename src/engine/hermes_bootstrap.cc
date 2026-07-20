@@ -69,15 +69,6 @@ static bool installSharedRuntimeBundle(ExactHermesRuntime* handle) {
     return false;
   }
 
-#if defined(_WIN32)
-  if (startup_trace_enabled()) {
-    fprintf(stderr,
-            "[startup]   shared_runtime_bundle skipped on Windows "
-            "(disk runtime loads after native startup)\n");
-  }
-  return false;
-#endif
-
   if (env_flag_enabled("EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE")) {
     if (startup_trace_enabled()) {
       fprintf(

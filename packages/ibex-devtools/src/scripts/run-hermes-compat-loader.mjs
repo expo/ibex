@@ -10,8 +10,9 @@
  *
  * Drives the shared for-of scoping corpus (hermes-compat-corpus.mjs) through
  * the actual built `ibex` binary. Each fixture is written as a module file and
- * loaded via `require()` from a generated entry, with `EXACT_COMPAT_TEST=1` so
- * the binary skips the rolldown pre-bundle (which would apply the AST
+ * loaded via `require()` from a generated entry. `EXACT_COMPAT_TEST=1` selects
+ * fixture fidelity; `IBEX_COMPAT_LOADER_TEST=1` makes the binary skip the
+ * rolldown pre-bundle (which would apply the AST
  * transform) and takes the in-process pipeline instead: SWC transpile, then
  * the embedded bootstrap loader's string-scanner `fixForOfScoping`
  * (src/engine/bootstrap/module-loader.js). That is the exact production path
@@ -37,7 +38,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { forOfScopingCorpus } from './hermes-compat-corpus.mjs';
-import { runV8 } from './run-hermes-compat-corpus.mjs';
+import { legacyHermesBlockScoping, runV8 } from './run-hermes-compat-corpus.mjs';
 
 const scriptsDir = fileURLToPath(new URL('.', import.meta.url));
 const repoRoot = path.resolve(scriptsDir, '../../../..');
@@ -92,7 +93,7 @@ export const loaderExpectations = Object.freeze({
       'ENG-23137: the loader scanner only rewrites pretty-printed single-line `for (const ... of ...) {` ' +
       'headers by design (LLP 0019 accepted divergence — the scanner may bail where the AST authority ' +
       'rewrites, never the reverse), so a minified braceless header stays raw and its escaping closures ' +
-      'keep capture-last behavior on non-block-scoping Hermes; the AST authority rewrites it',
+      'keep capture-last behavior in legacy block-scoping mode; the AST authority rewrites it',
   },
   'bailed-yield-body': {
     matchesOracle: true,
@@ -108,7 +109,7 @@ export const loaderExpectations = Object.freeze({
     reason:
       'ENG-22990: the scanner now hazard-bails on a var declaration in the body (converged ' +
       'with the AST twin), leaving the loop raw — so escaping closures keep raw capture-last ' +
-      'behavior on non-block-scoping Hermes, the same documented hole the corpus pins for the ' +
+      'behavior in legacy block-scoping mode, the same documented hole the corpus pins for the ' +
       'AST path (hermesMatchesOracle=false / rawHermesCaptureLast)',
   },
   'iterator-close-on-throw': {
@@ -118,17 +119,14 @@ export const loaderExpectations = Object.freeze({
 });
 
 /**
- * Engine-premise canary. The body contains a `continue`, so the loader
- * scanner bails and the loop reaches the engine RAW. On the shipping Hermes
- * configuration (ES6BlockScoping=false) escaping closures then capture the
- * LAST value — the exact pitfall the loader rewrite exists to fix. If this
- * canary ever reports ["a","b"], the embedded engine has gained per-iteration
- * for-of bindings and the loader rewrite (and these expectations) should be
- * re-evaluated.
+ * Engine-mode canary. The body contains a `continue`, so the loader scanner
+ * bails and the loop reaches the engine RAW. It must report per-iteration
+ * bindings in the default ES6-block-scoping mode and capture-last only under
+ * the explicit legacy rollback mode. This catches runtime/configuration drift
+ * before the compatibility-transform fixtures can mask it.
  */
 const engineCanary = {
-  id: 'engine-canary-raw-capture-last',
-  expectedStdout: '["b","b"]',
+  id: 'engine-canary-raw-block-scoping',
   source: `
 function collect(items) {
   const fns = [];
@@ -177,7 +175,11 @@ function runIbexFixture(ibexBin, id, source) {
         encoding: 'utf8',
         timeout: 120000,
         cwd: dir,
-        env: { ...process.env, EXACT_COMPAT_TEST: '1' },
+        env: {
+          ...process.env,
+          EXACT_COMPAT_TEST: '1',
+          IBEX_COMPAT_LOADER_TEST: '1',
+        },
       },
     );
     return {
@@ -205,6 +207,7 @@ export function runLoaderCorpus({ ibexBin = resolveIbexBin() } = {}) {
   }
 
   const results = [];
+  const legacyBlockScoping = legacyHermesBlockScoping();
 
   // Expectation-table completeness, both directions (fail loud on drift).
   const corpusIds = new Set(forOfScopingCorpus.map((fixture) => fixture.id));
@@ -227,12 +230,14 @@ export function runLoaderCorpus({ ibexBin = resolveIbexBin() } = {}) {
       failures.push(
         `ibex exited ${run.status} (${run.error?.message ?? 'no spawn error'}): ${run.stderr}`,
       );
-    } else if (run.stdout !== engineCanary.expectedStdout) {
-      failures.push(
-        `raw (scanner-bailed) for-of no longer captures-last: got ${run.stdout}, expected ` +
-          `${engineCanary.expectedStdout}. The embedded Hermes appears to have per-iteration ` +
-          'for-of bindings now — re-evaluate the loader rewrite and these expectations.',
-      );
+    } else {
+      const expectedStdout = legacyBlockScoping ? '["b","b"]' : '["a","b"]';
+      if (run.stdout !== expectedStdout) {
+        failures.push(
+          `raw (scanner-bailed) for-of used the wrong lexical mode: got ${run.stdout}, expected ` +
+            `${expectedStdout} (${legacyBlockScoping ? 'legacy capture-last' : 'ES6 block scoping'}).`,
+        );
+      }
     }
     results.push({ id: engineCanary.id, ok: failures.length === 0, failures });
   }
@@ -261,8 +266,9 @@ export function runLoaderCorpus({ ibexBin = resolveIbexBin() } = {}) {
       continue;
     }
 
-    const expected = expectation.matchesOracle ? oracle : expectation.stdout;
-    if (!expectation.matchesOracle && expectation.stdout === oracle) {
+    const resolvedMatchesOracle = legacyBlockScoping ? expectation.matchesOracle : true;
+    const expected = resolvedMatchesOracle ? oracle : expectation.stdout;
+    if (!resolvedMatchesOracle && expectation.stdout === oracle) {
       failures.push(
         'documented divergence equals the oracle — the expectation entry is stale; flip it to matchesOracle: true',
       );
@@ -275,7 +281,7 @@ export function runLoaderCorpus({ ibexBin = resolveIbexBin() } = {}) {
       );
     } else if (run.stdout !== expected) {
       failures.push(
-        expectation.matchesOracle
+        resolvedMatchesOracle
           ? `loader path != oracle: ibex=${run.stdout} oracle=${oracle}`
           : `loader path != documented divergence: ibex=${run.stdout} documented=${expected} oracle=${oracle}` +
             (run.stdout === oracle

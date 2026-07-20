@@ -28,6 +28,9 @@ use crate::registry::DefinitionSet;
 use crate::strict_json::parse_strict;
 use crate::{Error, Result};
 
+pub const ARMED_SNAPSHOT_SCHEMA: &str = "ibex/capsec-armed/1";
+pub const ARMING_ABI: &str = "ibex-capsec-arming-2-root-ceiling-embedded-ranges-bootstrap-seal";
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExpectedArmingIdentity {
@@ -57,6 +60,10 @@ pub struct ExpectedArmingIdentity {
     /// content hashes. The snapshot's role labels are accepted only when they
     /// exactly match this launcher-supplied set.
     pub protected_artifacts: Vec<ExpectedProtectedArtifact>,
+    /// Envelope sections authenticated from the already pinned executable.
+    /// These have no host path; identity is the mapped object plus byte range,
+    /// semantic role, and section digest.
+    pub embedded_protected_artifacts: Vec<ExpectedEmbeddedProtectedArtifact>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -216,6 +223,22 @@ pub struct ExpectedProtectedArtifact {
     pub content_digest: Digest,
 }
 
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EmbeddedByteRange {
+    pub offset: SafeUint,
+    pub length: SafeUint,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExpectedEmbeddedProtectedArtifact {
+    pub role: ProtectedArtifactRole,
+    pub executable_object: ObjectIdentity,
+    pub range: EmbeddedByteRange,
+    pub content_digest: Digest,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExactEmbedderEndowments {
@@ -286,6 +309,7 @@ pub struct ArmedSnapshot {
     path_canonicalizers: PathAliasCanonicalizers,
     module_edges: Arc<[SnapshotImportEdge]>,
     protected_artifacts: Arc<[ExpectedProtectedArtifact]>,
+    embedded_protected_artifacts: Arc<[ExpectedEmbeddedProtectedArtifact]>,
     bootstrap_compatibility_modes: Arc<[String]>,
     armed_snapshot_digest: Digest,
     generations: SnapshotGenerations,
@@ -298,7 +322,7 @@ impl ArmedSnapshot {
             message: format!("armed snapshot is not UTF-8: {error}"),
         })?;
         let document = parse_strict(text)?;
-        require_string(&document, "snapshotSchema", "ibex/capsec-armed/1")?;
+        require_string(&document, "snapshotSchema", ARMED_SNAPSHOT_SCHEMA)?;
         require_string(&document, "capsVocab", &expected.profile)?;
         require_string(&document, "semanticCore", &expected.semantic_core)?;
         require_string(&document, "vocabDigest", expected.vocab_digest.as_str())?;
@@ -440,6 +464,7 @@ impl ArmedSnapshot {
             path_canonicalizers,
             module_edges: graph.import_edges.into(),
             protected_artifacts: expected.protected_artifacts.clone().into(),
+            embedded_protected_artifacts: expected.embedded_protected_artifacts.clone().into(),
             bootstrap_compatibility_modes: bootstrap_compatibility_modes.into(),
             armed_snapshot_digest: claimed,
             generations,
@@ -550,6 +575,13 @@ impl ArmedSnapshot {
     /// checks both object identity and content digest before runtime creation.
     pub fn protected_artifacts(&self) -> &[ExpectedProtectedArtifact] {
         &self.protected_artifacts
+    }
+
+    /// Authenticated sections residing in the pinned mapped executable. The
+    /// caller establishes these facts from envelope admission before loading
+    /// the snapshot; no pathname materialization is permitted.
+    pub fn embedded_protected_artifacts(&self) -> &[ExpectedEmbeddedProtectedArtifact] {
+        &self.embedded_protected_artifacts
     }
 
     /// Optional Exact-specific ingress identity authenticated by the armed
@@ -780,6 +812,29 @@ impl ArmedSnapshot {
             }
             _ => return Err(invalid("processAuthorityCeiling.kind is invalid")),
         };
+        let root_ceiling = match value_at(&self.document, &["rootAuthorityCeiling"])?
+            .get("kind")
+            .and_then(Value::as_str)
+        {
+            Some("unbounded") => AuthorityCeiling::Unbounded,
+            Some("bounded") => {
+                let selectors: Vec<AuthoritySelector> = serde_json::from_value(
+                    value_at(&self.document, &["rootAuthorityCeiling", "authorities"])?.clone(),
+                )
+                .map_err(|error| invalid(format!("invalid root authority ceiling: {error}")))?;
+                AuthorityCeiling::Bounded(bind_root_ceiling(
+                    selectors,
+                    self.digest(),
+                    &self.path_canonicalizers,
+                )?)
+            }
+            _ => return Err(invalid("rootAuthorityCeiling.kind is invalid")),
+        };
+        let bootstrap_floor: Vec<AuthoritySelector> =
+            serde_json::from_value(value_at(&self.document, &["bootstrapAuthorityFloor"])?.clone())
+                .map_err(|error| invalid(format!("invalid bootstrap authority floor: {error}")))?;
+        let bootstrap_floor =
+            bind_bootstrap_floor(bootstrap_floor, self.digest(), &self.path_canonicalizers)?;
 
         Ok(DecisionAuthorityState {
             generations: GenerationSet {
@@ -788,6 +843,8 @@ impl ArmedSnapshot {
                 handle: self.generations.handle,
             },
             process_ceiling: process_ceiling.into(),
+            root_ceiling: root_ceiling.into(),
+            bootstrap_floor: bootstrap_floor.into(),
             protected_objects: protected_objects.into(),
             protected_resources: protected_resources.into(),
             principal_policies: principal_policies.into(),
@@ -926,6 +983,10 @@ struct CompartmentEndowmentRow {
 struct SnapshotProtectedObject {
     role: ProtectedArtifactRole,
     object: ObjectIdentity,
+    #[serde(default)]
+    embedded_range: Option<EmbeddedByteRange>,
+    #[serde(default)]
+    content_digest: Option<Digest>,
     denied_actions: Vec<ActionId>,
 }
 
@@ -1436,21 +1497,57 @@ fn validate_protected_object_rows(document: &Value) -> Result<()> {
         return refused("armed snapshot protected artifact count does not match its bindings");
     }
     let mut roles = Vec::with_capacity(rows.len());
-    let mut objects = Vec::with_capacity(rows.len());
+    let mut host_objects = BTreeSet::new();
+    let mut embedded_ranges = Vec::new();
     for row in rows {
         if row.denied_actions.len() != 1 || row.denied_actions[0].as_str() != "fs:write" {
             return refused("every protected artifact must deny exactly fs:write");
         }
         roles.push(row.role);
-        objects.push(row.object);
+        match (row.embedded_range, row.content_digest) {
+            (None, None) => {
+                if !host_objects.insert(row.object) {
+                    return refused("host protected artifacts must have distinct objects");
+                }
+            }
+            (Some(range), Some(digest)) => {
+                if range.length == SafeUint::ZERO
+                    || range
+                        .offset
+                        .get()
+                        .checked_add(range.length.get())
+                        .and_then(|end| SafeUint::new(end).ok())
+                        .is_none()
+                {
+                    return refused("embedded protected artifact range is invalid");
+                }
+                embedded_ranges.push((row.object, range, row.role, digest));
+            }
+            _ => {
+                return refused("embedded protected artifact range and digest must appear together")
+            }
+        }
     }
     roles.sort();
     if roles != required {
         return refused("protected artifact roles are missing, duplicate, or mislabeled");
     }
-    objects.sort();
-    if objects.windows(2).any(|pair| pair[0] == pair[1]) {
-        return refused("mandatory protected artifacts must have distinct object identities");
+    embedded_ranges.sort_by(|left, right| {
+        (&left.0, left.1.offset, left.1.length, left.2, &left.3).cmp(&(
+            &right.0,
+            right.1.offset,
+            right.1.length,
+            right.2,
+            &right.3,
+        ))
+    });
+    for pair in embedded_ranges.windows(2) {
+        let (left_object, left, _, _) = &pair[0];
+        let (right_object, right, _, _) = &pair[1];
+        if left_object == right_object && left.offset.get() + left.length.get() > right.offset.get()
+        {
+            return refused("embedded protected artifact ranges overlap");
+        }
     }
     Ok(())
 }
@@ -1486,19 +1583,28 @@ fn validate_expected_protected_artifacts(
         required.push(ProtectedArtifactRole::ExactWebgpuProfile);
     }
     required.sort();
-    if expected.protected_artifacts.len() != required.len() {
+    if expected.protected_artifacts.len() + expected.embedded_protected_artifacts.len()
+        != required.len()
+    {
         return refused("arming identity protected artifact count does not match its bindings");
+    }
+    let mut authenticated_roles = expected
+        .protected_artifacts
+        .iter()
+        .map(|artifact| artifact.role)
+        .chain(
+            expected
+                .embedded_protected_artifacts
+                .iter()
+                .map(|artifact| artifact.role),
+        )
+        .collect::<Vec<_>>();
+    authenticated_roles.sort();
+    if authenticated_roles != required {
+        return refused("arming identity protected artifact roles are incomplete or duplicated");
     }
     let mut authenticated = expected.protected_artifacts.clone();
     authenticated.sort_by_key(|artifact| artifact.role);
-    if authenticated
-        .iter()
-        .map(|artifact| artifact.role)
-        .collect::<Vec<_>>()
-        != required
-    {
-        return refused("arming identity protected artifact roles are incomplete or duplicated");
-    }
     let mut host_paths = BTreeSet::new();
     let mut objects = BTreeSet::new();
     for artifact in &authenticated {
@@ -1540,17 +1646,77 @@ fn validate_expected_protected_artifacts(
         }
     }
 
+    let mut embedded = expected.embedded_protected_artifacts.clone();
+    embedded.sort_by_key(|artifact| artifact.role);
+    for artifact in &embedded {
+        if artifact.range.length == SafeUint::ZERO
+            || artifact
+                .range
+                .offset
+                .get()
+                .checked_add(artifact.range.length.get())
+                .and_then(|end| SafeUint::new(end).ok())
+                .is_none()
+        {
+            return refused("expected embedded protected artifact range is invalid");
+        }
+        if artifact.role == ProtectedArtifactRole::EngineBinary
+            && artifact.content_digest != expected.engine_binary_digest
+        {
+            return refused(
+                "protected embedded engine digest differs from the loaded engine digest",
+            );
+        }
+        if artifact.role == ProtectedArtifactRole::ExactOperationManifest
+            && exact_binding
+                .as_ref()
+                .is_none_or(|binding| artifact.content_digest != binding.operation_manifest_digest)
+        {
+            return refused(
+                "protected embedded Exact operation manifest digest differs from its armed binding",
+            );
+        }
+        if artifact.role == ProtectedArtifactRole::ExactWebgpuProfile
+            && gpu_binding
+                .as_ref()
+                .is_none_or(|binding| artifact.content_digest != binding.profile_digest)
+        {
+            return refused(
+                "protected embedded Exact WebGPU profile digest differs from its armed binding",
+            );
+        }
+    }
+
     let rows: Vec<SnapshotProtectedObject> =
         serde_json::from_value(value_at(document, &["protectedObjects"])?.clone())
             .map_err(|error| invalid(format!("invalid protected objects: {error}")))?;
     let by_role = rows
         .into_iter()
-        .map(|row| (row.role, row.object))
+        .map(|row| (row.role, row))
         .collect::<BTreeMap<_, _>>();
     for artifact in &authenticated {
-        if by_role.get(&artifact.role) != Some(&artifact.object) {
+        let Some(row) = by_role.get(&artifact.role) else {
+            return refused("protected host object has no snapshot row");
+        };
+        if row.object != artifact.object
+            || row.embedded_range.is_some()
+            || row.content_digest.is_some()
+        {
             return refused(
                 "protected object does not match the independently authenticated artifact role",
+            );
+        }
+    }
+    for artifact in &embedded {
+        let Some(row) = by_role.get(&artifact.role) else {
+            return refused("protected embedded object has no snapshot row");
+        };
+        if row.object != artifact.executable_object
+            || row.embedded_range.as_ref() != Some(&artifact.range)
+            || row.content_digest.as_ref() != Some(&artifact.content_digest)
+        {
+            return refused(
+                "embedded protected object does not match its authenticated range and digest",
             );
         }
     }
@@ -1961,6 +2127,56 @@ fn bind_process_ceiling(
     Ok(bound)
 }
 
+fn bind_root_ceiling(
+    selectors: Vec<AuthoritySelector>,
+    snapshot_digest: &Digest,
+    canonicalizers: &PathAliasCanonicalizers,
+) -> Result<Vec<BoundAuthority>> {
+    selectors
+        .into_iter()
+        .enumerate()
+        .map(|(selector_index, mut selector)| {
+            if selector.resource.contains_package_logical_root() {
+                return refused("root authority ceiling cannot contain a package logical root");
+            }
+            selector.resource = canonicalizers.canonicalize_selector(&selector.resource, None)?;
+            Ok(BoundAuthority {
+                source_id: NonEmptyString::new(format!(
+                    "root-authority-ceiling.{selector_index:06}"
+                ))
+                .map_err(Error::InvalidModel)?,
+                selector,
+                armed_snapshot_digest: snapshot_digest.clone(),
+                package_root_owner: None,
+            })
+        })
+        .collect()
+}
+
+fn bind_bootstrap_floor(
+    selectors: Vec<AuthoritySelector>,
+    snapshot_digest: &Digest,
+    canonicalizers: &PathAliasCanonicalizers,
+) -> Result<Vec<BoundAuthority>> {
+    selectors
+        .into_iter()
+        .enumerate()
+        .map(|(selector_index, mut selector)| {
+            if selector.resource.contains_package_logical_root() {
+                return refused("bootstrap authority floor cannot contain a package logical root");
+            }
+            selector.resource = canonicalizers.canonicalize_selector(&selector.resource, None)?;
+            Ok(BoundAuthority {
+                source_id: NonEmptyString::new(format!("bootstrap-floor.{selector_index:06}"))
+                    .map_err(Error::InvalidModel)?,
+                selector,
+                armed_snapshot_digest: snapshot_digest.clone(),
+                package_root_owner: None,
+            })
+        })
+        .collect()
+}
+
 fn bind_path_canonicalizers(
     rows: Vec<BoundVolumePathCanonicalizer>,
     root_bindings: &[ArmedRootBinding],
@@ -2163,6 +2379,7 @@ mod tests {
             path_canonicalizers: serde_json::from_value(value["pathCanonicalizers"].clone())
                 .unwrap(),
             protected_artifacts,
+            embedded_protected_artifacts: Vec::new(),
         };
         (serde_json::to_vec_pretty(&value).unwrap(), expected)
     }

@@ -5,7 +5,8 @@
 **Systems:** Build, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-17 (ENG-24933 adds patched Windows source/release bundles and a downloadable macOS no-debugger Release profile, each bound to exact build authority and binary identity); 2026-07-15 (ENG-25064 publishes directory-atomic prepared module graphs inside the existing deployment cache and admits them before execution); 2026-07-15 (ENG-25064 prepared module carriers bind HBC to loaded-engine identity and preserve the pre-execution-only fallback boundary); 2026-07-15 (Hermes source-cache/asset identity binds every source receipt authority and the Darwin/Linux builders share one kernel-backed build lock); 2026-07-14 (ENG-24851: `hermesc -output-source-map` is a boolean and the compiler-derived `<-out>.map` is published to the caller's requested path); 2026-07-12 (ENG-24264: Windows Hermes DLL publication is content-digest checked, atomic per file, and bundle-serialized across build processes, with real Windows locked-file coverage); 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495); 2026-07-11 (generated capsec registry bindings and drift gate — ENG-24145)
+**Revised:** 2026-07-17 (LLP 0029 adds static macOS Hermes bundle linkage and carrier v2's tagged loaded/static engine binding with inspected HBC metadata); 2026-07-17 (ENG-24933 adds patched Windows source/release bundles and a downloadable macOS no-debugger Release profile, each bound to exact build authority and binary identity)
+**Revised:** 2026-07-15 (ENG-25064 publishes directory-atomic prepared module graphs inside the existing deployment cache and admits them before execution); 2026-07-15 (ENG-25064 prepared module carriers bind HBC to loaded-engine identity and preserve the pre-execution-only fallback boundary); 2026-07-14 (ENG-24851: `hermesc -output-source-map` is a boolean and the compiler-derived `<-out>.map` is published to the caller's requested path); 2026-07-12 (ENG-24264: Windows Hermes DLL publication is content-digest checked, atomic per file, and bundle-serialized across build processes, with real Windows locked-file coverage); 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495); 2026-07-11 (generated capsec registry bindings and drift gate — ENG-24145)
 **Related:** LLP 0000; LLP 0001 (platforms); LLP 0003 (engine bridge); LLP 0004 (module loading)
 
 ## Summary
@@ -104,6 +105,15 @@ The engine prefers bytecode and falls back to source at startup
 ([LLP 0003](./0003-hermes-engine-bridge.explainer.md),
 `src/engine/hermes_bootstrap.cc:44-69`).
 
+Every Ibex-owned `hermesc` invocation passes `-Xes6-block-scoping` by default,
+matching the main and worklet `RuntimeConfig` used for source compilation.
+`IBEX_LEGACY_HERMES_BLOCK_SCOPING=1` omits the flag and selects the old runtime
+setting as a temporary rollback. Because this setting changes executable
+semantics without changing the HBC format version, runtime-entry toolchain and
+bundle cache identities include a stable enabled/legacy mode token; artifacts
+from opposite modes are never interchangeable ([LLP 0034](./0034-hermes-es6-block-scoping.decision.md);
+`build.rs`; `src/bin/ibex/engine/hermes.rs`; `src/bin/ibex/runtime.rs`).
+
 At run time the CLI keeps a parallel cache for **entry** bytecode: a bundled
 (or standalone) entry is compiled to a sibling `.hbc` when `hermesc` is
 available and reused while fresh (`src/bin/ibex/runtime.rs`,
@@ -125,14 +135,14 @@ have already happened by the time the error surfaces, so a fallback re-run
 would perform them all twice (ENG-23484).
 
 LLP 0026 module graphs apply the same boundary to multi-module prepared
-carriers. `ibex/module-carrier/1` admission checks the carrier bytes, producer,
+carriers. `ibex/module-carrier/2` admission checks the carrier bytes, producer,
 deployment graph, defining principal, per-entry semantic digests, loaded engine
-binary digest, and HBC version before native evaluation. The native carrier ABI
+binary or static compatibility identity, and inspected HBC version before native evaluation. The native carrier ABI
 returns a distinct refusal when Hermes rejects the bytecode sanity check before
 execution. Only that refusal may select the already-admitted source carrier;
 an exception from a selected factory is program execution and is never a
 fallback signal. The carrier schema and implementation are
-`schemas/module-carrier-v1.schema.json` and `src/module_loader/carrier.rs`
+`schemas/module-carrier-v2.schema.json` and `src/module_loader/carrier.rs`
 (`commit:c6d2aefe`).
 
 When that run-time compiler is asked for a source map it passes
@@ -157,12 +167,16 @@ Windows remains an exception to the strict bootstrap-HBC path. That exception
 was introduced for `ReactNative.Hermes.Windows` 0.71.x, whose compiler could
 report a matching HBC version while rejecting modern optional syntax. The
 managed Windows toolchain now builds the same pinned patched Hermes source as
-Apple/Linux, but `build.rs` continues to emit source startup headers until a
-Windows run explicitly proves the newer compiler/runtime path; changing the
-artifact does not silently remove the fallback boundary `[observed]`
-(`build.rs`; `scripts/build-hermes-windows.ps1`). Windows also continues to
-skip shared-runtime-bundle HBC because startup does not install that bundle
-`[observed]` (`src/engine/hermes_bootstrap.cc`; `build.rs`).
+Apple/Linux. Native bootstrap installs the shared-runtime source before
+compartment sealing and structural lockdown, so the runtime never attempts to
+add required polyfills to already-frozen intrinsics. Required per-file stages,
+including console enhancement, likewise evaluate their generated source
+headers instead of being omitted. `build.rs` still skips shared-runtime and
+per-file bootstrap HBC generation on Windows until the compiler path separately
+proves the modern syntax; changing the runtime artifact does not silently
+remove that fallback boundary `[observed]`
+(`src/engine/hermes_bootstrap.cc`; `build.rs`;
+`scripts/build-hermes-windows.ps1`).
 
 The macOS Hermes 0.11 compiler is stricter than the runtime authoring surface
 too: it rejects BigInt literal syntax in bootstrap files while accepting

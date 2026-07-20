@@ -32395,11 +32395,47 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.cli.argument.parser.ibex.20compile.compile.policy.os.path.0zmsspy",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex compile:compile_policy:os-path"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.argument.parser.ibex.20compile.entry.os.path.18bncka",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex compile:entry:os-path"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.argument.parser.ibex.20compile.output.os.path.0h1zfo3",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex compile:output:os-path"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.cli.argument.parser.ibex.20eval.code.utf8.string.04w813p",
       "status": "structural-only",
       "reasonCode": "cli-structural-surface",
       "sourceRefs": [
         "runtime-surface.json#clapSurface.semanticRelations:parser:ibex eval:code:utf8-string"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.argument.parser.ibex.20inspect.executable.file.os.path.0iusmb4",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex inspect-executable:file:os-path"
       ],
       "outputKinds": []
     },
@@ -32422,11 +32458,38 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.cli.argument.parser.ibex.20policy.20check.mount.profile.utf8.string.1kkjz0u",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy check:mount_profile:utf8-string"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.cli.argument.parser.ibex.20policy.20check.out.os.path.0gn6aus",
       "status": "structural-only",
       "reasonCode": "cli-structural-surface",
       "sourceRefs": [
         "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy check:out:os-path"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.argument.parser.ibex.20policy.20check.target.profile.utf8.string.0lqoaju",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy check:target_profile:utf8-string"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.argument.parser.ibex.20policy.20check.target.triple.utf8.string.1xzxyej",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy check:target_triple:utf8-string"
       ],
       "outputKinds": []
     },
@@ -32449,11 +32512,38 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.cli.argument.parser.ibex.20policy.20generate.mount.profile.utf8.string.04t6xpx",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy generate:mount_profile:utf8-string"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.cli.argument.parser.ibex.20policy.20generate.out.os.path.1tp9rkz",
       "status": "structural-only",
       "reasonCode": "cli-structural-surface",
       "sourceRefs": [
         "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy generate:out:os-path"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.argument.parser.ibex.20policy.20generate.target.profile.utf8.string.0jwx7bn",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy generate:target_profile:utf8-string"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.argument.parser.ibex.20policy.20generate.target.triple.utf8.string.123n9ao",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy generate:target_triple:utf8-string"
       ],
       "outputKinds": []
     },
@@ -32728,6 +32818,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.cli.command.ibex.20compile.0fxtfv8",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.cli.command.ibex.20completions.0y14t12",
       "status": "structural-only",
       "reasonCode": "cli-structural-surface",
@@ -32760,6 +32859,15 @@
       "reasonCode": "cli-structural-surface",
       "sourceRefs": [
         "runtime-surface.json#clapSurface.command:ibex eval"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.command.ibex.20inspect.executable.0hlqzqc",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex inspect-executable"
       ],
       "outputKinds": []
     },
@@ -32832,6 +32940,15 @@
       "reasonCode": "cli-structural-surface",
       "sourceRefs": [
         "runtime-surface.json#hiddenHarnessCommands"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.compile.186d216",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#visibleCommands"
       ],
       "outputKinds": []
     },
@@ -32922,6 +33039,15 @@
       "reasonCode": "cli-structural-surface",
       "sourceRefs": [
         "runtime-surface.json#legacyProjectCommands"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.inspect.executable.08svsoi",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#visibleCommands"
       ],
       "outputKinds": []
     },
@@ -33772,6 +33898,195 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.cli.option.ibex.20compile.carrier.0s51s14",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20compile.carrier.action.set.09jla3m",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20compile.carrier.arity.1.1.00xj53j",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20compile.carrier.default.hbc.1leyl5a",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20compile.carrier.enum.factory.table.0qvn5vi",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20compile.carrier.enum.hbc.0z7fwui",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20compile.carrier.value.name.carrier.102gtaf",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20compile.compile.policy.12a3d7o",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:compile_policy"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20compile.compile.policy.action.set.17cztxa",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:compile_policy"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20compile.compile.policy.arity.1.1.072xhgz",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:compile_policy"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20compile.compile.policy.value.name.file.02rf7fb",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:compile_policy"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20compile.deny.unsupported.057lkpu",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20compile.deny.unsupported.action.settrue.13z0hio",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20compile.deny.unsupported.arity.0.0.1l2ghb1",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20compile.deny.unsupported.default.false.0na6u00",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20compile.deny.unsupported.default.missing.true.0nm57m2",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20compile.deny.unsupported.value.name.deny.unsupported.147ygld",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20compile.output.0raigyp",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20compile.output.action.set.1rxm7y1",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20compile.output.arity.1.1.1av3phm",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20compile.output.value.name.output.0xvh65x",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.cli.option.ibex.20policy.20check.entry.1l9i2xe",
       "status": "structural-only",
       "reasonCode": "cli-structural-surface",
@@ -33844,6 +34159,42 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.cli.option.ibex.20policy.20check.mount.profile.0idiiy1",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:mount_profile"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20check.mount.profile.action.set.1alk3r5",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:mount_profile"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20check.mount.profile.arity.1.1.0bitcg2",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:mount_profile"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20check.mount.profile.value.name.mount.profile.092m0t7",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:mount_profile"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.cli.option.ibex.20policy.20check.out.0lfulwu",
       "status": "structural-only",
       "reasonCode": "cli-structural-surface",
@@ -33876,6 +34227,78 @@
       "reasonCode": "cli-structural-surface",
       "sourceRefs": [
         "runtime-surface.json#clapSurface.command:ibex policy check:option:out"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20check.target.profile.0bhllsp",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:target_profile"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20check.target.profile.action.set.16je8vl",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:target_profile"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20check.target.profile.arity.1.1.1aj7vg2",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:target_profile"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20check.target.profile.value.name.target.profile.1s76w6n",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:target_profile"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20check.target.triple.0w82sd0",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:target_triple"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20check.target.triple.action.set.0dtgapa",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:target_triple"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20check.target.triple.arity.1.1.1u75lwj",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:target_triple"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20check.target.triple.value.name.target.triple.03rs30p",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:target_triple"
       ],
       "outputKinds": []
     },
@@ -33952,6 +34375,42 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.cli.option.ibex.20policy.20generate.mount.profile.0itlwwa",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:mount_profile"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20generate.mount.profile.action.set.0kz11c0",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:mount_profile"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20generate.mount.profile.arity.1.1.1qz47vl",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:mount_profile"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20generate.mount.profile.value.name.mount.profile.0uqzs0u",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:mount_profile"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.cli.option.ibex.20policy.20generate.out.03h1fz9",
       "status": "structural-only",
       "reasonCode": "cli-structural-surface",
@@ -33984,6 +34443,78 @@
       "reasonCode": "cli-structural-surface",
       "sourceRefs": [
         "runtime-surface.json#clapSurface.command:ibex policy generate:option:out"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20generate.target.profile.1amtflg",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_profile"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20generate.target.profile.action.set.0xmms5q",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_profile"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20generate.target.profile.arity.1.1.1ifrfib",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_profile"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20generate.target.profile.value.name.target.profile.0oxazk2",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_profile"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20generate.target.triple.0ldi853",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_triple"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20generate.target.triple.action.set.1tm9a7n",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_triple"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20generate.target.triple.arity.1.1.13ff78o",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_triple"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.ibex.20policy.20generate.target.triple.value.name.target.triple.10vmd7c",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_triple"
       ],
       "outputKinds": []
     },
@@ -36022,6 +36553,51 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.cli.option.name.ibex.20compile.carrier.carrier.0k21zzg",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.name.ibex.20compile.compile.policy.policy.1f16tue",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:compile_policy"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.name.ibex.20compile.deny.unsupported.deny.unsupported.1pwfege",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.name.ibex.20compile.output.o.0hdy00l",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.name.ibex.20compile.output.output.0rrr4o2",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.cli.option.name.ibex.20policy.20check.entry.entry.0p6nlj6",
       "status": "structural-only",
       "reasonCode": "cli-structural-surface",
@@ -36040,11 +36616,38 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.cli.option.name.ibex.20policy.20check.mount.profile.mount.profile.1g2br4w",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:mount_profile"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.cli.option.name.ibex.20policy.20check.out.out.1uamipe",
       "status": "structural-only",
       "reasonCode": "cli-structural-surface",
       "sourceRefs": [
         "runtime-surface.json#clapSurface.command:ibex policy check:option:out"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.name.ibex.20policy.20check.target.profile.target.profile.019khs6",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:target_profile"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.name.ibex.20policy.20check.target.triple.target.triple.1huevsw",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:target_triple"
       ],
       "outputKinds": []
     },
@@ -36067,11 +36670,38 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.cli.option.name.ibex.20policy.20generate.mount.profile.mount.profile.13hzpfj",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:mount_profile"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.cli.option.name.ibex.20policy.20generate.out.out.0qxlk7x",
       "status": "structural-only",
       "reasonCode": "cli-structural-surface",
       "sourceRefs": [
         "runtime-surface.json#clapSurface.command:ibex policy generate:option:out"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.name.ibex.20policy.20generate.target.profile.target.profile.1hhiwh1",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_profile"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.option.name.ibex.20policy.20generate.target.triple.target.triple.0g8ukz7",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_triple"
       ],
       "outputKinds": []
     },
@@ -36580,6 +37210,42 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.cli.positional.ibex.20compile.entry.0e4lhdt",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:positional:entry"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.positional.ibex.20compile.entry.action.set.16vnr6h",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:positional:entry"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.positional.ibex.20compile.entry.arity.1.1.1n32oiy",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:positional:entry"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.positional.ibex.20compile.entry.value.name.entry.16pv870",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:positional:entry"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.cli.positional.ibex.20completions.shell.1svbaqx",
       "status": "structural-only",
       "reasonCode": "cli-structural-surface",
@@ -36693,6 +37359,42 @@
       "reasonCode": "cli-structural-surface",
       "sourceRefs": [
         "runtime-surface.json#clapSurface.command:ibex eval:positional:code"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.positional.ibex.20inspect.executable.file.1up2nub",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex inspect-executable:positional:file"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.positional.ibex.20inspect.executable.file.action.set.0j3ufvj",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex inspect-executable:positional:file"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.positional.ibex.20inspect.executable.file.arity.1.1.1w2t5fw",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex inspect-executable:positional:file"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.cli.positional.ibex.20inspect.executable.file.value.name.file.18usz2s",
+      "status": "structural-only",
+      "reasonCode": "cli-structural-surface",
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex inspect-executable:positional:file"
       ],
       "outputKinds": []
     },
@@ -37292,6 +37994,17 @@
         "out:error",
         "out:error_token",
         "out:evicted"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.link.computed.dynamic.import.1b3mrxc",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_computed_dynamic_import"
+      ],
+      "outputKinds": [
+        "[[return]]"
       ]
     },
     {
@@ -38016,6 +38729,18 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.module.preflight.bytecode.1r3a78f",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_preflight_bytecode"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:error"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -38037,6 +38762,17 @@
         "[[return]]",
         "out:error",
         "out:error_token"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.record.link.computed.dynamic.import.0b6fvhe",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_computed_dynamic_import"
+      ],
+      "outputKinds": [
+        "[[return]]"
       ]
     },
     {
@@ -39079,6 +39815,29 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.host.env.compiled.key.at.1821b5o",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_env_compiled_key_at"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:buf"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.env.compiled.key.count.1b4azqw",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_env_compiled_key_count"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.host.env.get.11ro4cp",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -40084,6 +40843,17 @@
         "src/host/abi.rs#ex_host_restore_context"
       ],
       "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.seal.bootstrap.phase.17osacf",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_seal_bootstrap_phase"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
     },
     {
       "surfaceId": "surface.host.abi.ex.host.session.descriptor.alias.source.route.14m0q4y",
@@ -41606,6 +42376,7 @@
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:parse:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:unwrap_or_else:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_check_syntax_error:count-1",
+        "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_enum_eval:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_scoping:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_source_text:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:qualified:Allocator::default:count-1",
@@ -42032,6 +42803,7 @@
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:parse:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:unwrap_or_else:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_check_syntax_error:count-1",
+        "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_enum_eval:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_scoping:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_source_text:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:qualified:Allocator::default:count-1",
@@ -42345,6 +43117,10 @@
         "src/module_loader/mod.rs#normalize_in_boundary:external:method:as_path:count-1",
         "src/module_loader/mod.rs#normalize_in_boundary:external:method:iter:count-1",
         "src/module_loader/mod.rs#normalize_in_boundary:external:method:starts_with:count-2",
+        "src/module_loader/mod.rs#normalize_windows_verbatim_path_text:external:call:Some:count-2",
+        "src/module_loader/mod.rs#normalize_windows_verbatim_path_text:external:method:strip_prefix:count-2",
+        "src/module_loader/mod.rs#normalize_windows_verbatim_path_text:external:qualified:std::borrow::Cow::Borrowed:count-2",
+        "src/module_loader/mod.rs#normalize_windows_verbatim_path_text:external:qualified:std::borrow::Cow::Owned:count-1",
         "src/module_loader/mod.rs#open_resolver_boundary:external:call:Err:count-1",
         "src/module_loader/mod.rs#open_resolver_boundary:external:call:Ok:count-1",
         "src/module_loader/mod.rs#open_resolver_boundary:external:method:as_bytes:count-1",
@@ -42544,6 +43320,8 @@
         "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:qualified:ResolverGeneric::new_with_file_system:count-1",
         "src/module_loader/mod.rs#resolve_meta_typed:external:call:Err:count-5",
         "src/module_loader/mod.rs#resolve_meta_typed:external:call:Some:count-3",
+        "src/module_loader/mod.rs#resolve_meta_typed:external:call:cfg:count-2",
+        "src/module_loader/mod.rs#resolve_meta_typed:external:method:as_ref:count-1",
         "src/module_loader/mod.rs#resolve_meta_typed:external:method:is_empty:count-2",
         "src/module_loader/mod.rs#resolve_meta_typed:external:method:starts_with:count-3",
         "src/module_loader/mod.rs#resolve_meta_typed:external:method:trim:count-1",
@@ -42575,7 +43353,9 @@
         "src/module_loader/mod.rs#resolve_transpile_cache_dir:external:method:with_context:count-2",
         "src/module_loader/mod.rs#resolve_transpile_cache_dir:external:qualified:std::fs::canonicalize:count-2",
         "src/module_loader/mod.rs#resolve_with_oxc:external:call:Some:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc:external:call:cfg:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc:external:method:and_then:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc:external:method:as_ref:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc:external:method:extension:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc:external:method:is_absolute:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc:external:method:is_dir:count-1",
@@ -42585,19 +43365,23 @@
         "src/module_loader/mod.rs#resolve_with_oxc:external:method:parent:count-2",
         "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_path_buf:count-3",
         "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_str:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_string_lossy:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc:external:method:unwrap_or:count-3",
         "src/module_loader/mod.rs#resolve_with_oxc:external:method:unwrap_or_else:count-2",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:PathBuf::from:count-2",
+        "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:PathBuf::from:count-3",
         "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:std::env::current_dir:count-2",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Err:count-2",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Ok:count-2",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Some:count-17",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:cfg:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:let:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:and_then:count-3",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:as_deref:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:as_str:count-1",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:canonicalize:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:clone:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:directory:count-1",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:display:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:eq_ignore_ascii_case:count-2",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:exists:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:extension:count-3",
@@ -42621,7 +43405,7 @@
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_string_lossy:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:unzip:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:version:count-1",
-        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:with_context:count-2",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:with_context:count-3",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:qualified:Path::new:count-1",
         "src/module_loader/mod.rs#resolver_boundary_refusal:external:qualified:io::Error::new:count-1",
         "src/module_loader/mod.rs#resolver_canonical_path:external:method:extend:count-1",
@@ -42764,6 +43548,15 @@
         "src/module_loader/mod.rs#strip_file_module_decorations:external:method:len:count-2",
         "src/module_loader/mod.rs#strip_file_module_decorations:external:method:starts_with:count-3",
         "src/module_loader/mod.rs#strip_file_module_decorations:external:method:unwrap_or:count-1",
+        "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:char_indices:count-1",
+        "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:find_map:count-1",
+        "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:is_absolute:count-1",
+        "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:is_some:count-1",
+        "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:len:count-1",
+        "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:starts_with:count-3",
+        "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:then_some:count-2",
+        "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:unwrap_or:count-2",
+        "src/module_loader/mod.rs#strip_file_specifier_decorations:external:qualified:Path::new:count-1",
         "src/module_loader/mod.rs#symlink_metadata:external:call:Err:count-2",
         "src/module_loader/mod.rs#symlink_metadata:external:call:Ok:count-1",
         "src/module_loader/mod.rs#symlink_metadata:external:call:cfg:count-2",
@@ -42895,6 +43688,7 @@
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:parse:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:unwrap_or_else:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_check_syntax_error:count-1",
+        "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_enum_eval:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_scoping:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_source_text:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:qualified:Allocator::default:count-1",
@@ -43309,6 +44103,7 @@
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:parse:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:unwrap_or_else:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_check_syntax_error:count-1",
+        "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_enum_eval:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_scoping:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_source_text:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:qualified:Allocator::default:count-1",
@@ -43581,15 +44376,6 @@
       "reasonCode": "loader-structural-route",
       "sourceRefs": [
         "src/engine/bootstrap/module-loader.js#looksLikeModuleSyntax"
-      ],
-      "outputKinds": []
-    },
-    {
-      "surfaceId": "surface.loader.function.javascript.makewindowscryptomodule.0029u8l",
-      "status": "structural-only",
-      "reasonCode": "loader-structural-route",
-      "sourceRefs": [
-        "src/engine/bootstrap/module-loader.js#makeWindowsCryptoModule"
       ],
       "outputKinds": []
     },
@@ -47264,6 +48050,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.loader.route.resolution.rust.normalize.windows.verbatim.path.text.0aq09a9",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/mod.rs#normalize_windows_verbatim_path_text"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.loader.route.resolution.rust.normalized.1o6rft8",
       "status": "structural-only",
       "reasonCode": "loader-structural-route",
@@ -47809,6 +48604,15 @@
       "reasonCode": "loader-structural-route",
       "sourceRefs": [
         "src/module_loader/mod.rs#strip_file_module_decorations"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.route.resolution.rust.strip.file.specifier.decorations.0z6tnsv",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/mod.rs#strip_file_specifier_decorations"
       ],
       "outputKinds": []
     },
@@ -49708,7 +50512,9 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_crypto.cc#__exactBytesToUtf8String",
-        "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactBytesToUtf8String"
+        "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactBytesToUtf8String",
+        "src/engine/hermes_runtime_crypto_windows.cc#__exactBytesToUtf8String",
+        "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactBytesToUtf8String"
       ],
       "outputKinds": [
         "native-invocation"
@@ -54148,8 +54954,8 @@
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-0447dfef4f03d2cf342be685caa1a5af22b306175726e1cf5388d1f02d08a436",
         "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-a9ee5ad0b15cb4667d0c952f6ed36a8a03e6da967ac7ad81b1966eba7e832a97",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
         "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -60121,8 +60927,8 @@
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-0447dfef4f03d2cf342be685caa1a5af22b306175726e1cf5388d1f02d08a436",
         "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-a9ee5ad0b15cb4667d0c952f6ed36a8a03e6da967ac7ad81b1966eba7e832a97",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
         "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -63878,8 +64684,8 @@
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-0447dfef4f03d2cf342be685caa1a5af22b306175726e1cf5388d1f02d08a436",
         "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-a9ee5ad0b15cb4667d0c952f6ed36a8a03e6da967ac7ad81b1966eba7e832a97",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
         "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -63932,8 +64738,8 @@
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-0447dfef4f03d2cf342be685caa1a5af22b306175726e1cf5388d1f02d08a436",
         "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-a9ee5ad0b15cb4667d0c952f6ed36a8a03e6da967ac7ad81b1966eba7e832a97",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
         "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -81794,6 +82600,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#GetEnvironmentVariableA:dynamic:read"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.startup.env.dynamic.cpp.nsgetenviron.1witmke",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
@@ -81898,6 +82713,8 @@
         "src/bin/ibex/runtime.rs#Command::default_env:dynamic:write",
         "src/bin/ibex/session_semantics_conformance.rs#Command::default_env:dynamic:write",
         "src/bin/ibex/session_worker.rs#Command::default_env:dynamic:write",
+        "src/bin/ibex/sfe.rs#Command::default_env:dynamic:write",
+        "src/module_loader/catalog_compiler.rs#Command::default_env:dynamic:write",
         "src/module_loader/mod.rs#Command::default_env:dynamic:write"
       ],
       "outputKinds": []
@@ -81909,6 +82726,7 @@
       "sourceRefs": [
         "src/bin/ibex/engine/hermes.rs#Command::env_clear:dynamic:unset",
         "src/bin/ibex/runtime.rs#Command::env_clear:dynamic:unset",
+        "src/module_loader/catalog_compiler.rs#Command::env_clear:dynamic:unset",
         "src/module_loader/mod.rs#Command::env_clear:dynamic:unset"
       ],
       "outputKinds": []
@@ -82781,6 +83599,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.startup.env.ibex.compat.loader.test.1gjpny3",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/bin/ibex/runtime.rs#env::var_os:IBEX_COMPAT_LOADER_TEST:read"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.startup.env.ibex.dns.server.0ggdo6d",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
@@ -82813,6 +83640,15 @@
       "reasonCode": "startup-structural-route",
       "sourceRefs": [
         "src/host/http_server.rs#env::var:IBEX_HTTP_MAX_REQUEST_BODY_BYTES:read"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.startup.env.ibex.legacy.hermes.block.scoping.0sb3swi",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/bin/ibex/main.rs#env_flag_enabled:IBEX_LEGACY_HERMES_BLOCK_SCOPING:read"
       ],
       "outputKinds": []
     },
@@ -83270,11 +84106,11 @@
       "outputKinds": []
     },
     {
-      "surfaceId": "surface.startup.evaluation.defined.13e9rgh.promise.unwrap.0x213h5",
+      "surfaceId": "surface.startup.evaluation.evalruntimeunchecked.promise.unwrap.1oq5x03",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
       "sourceRefs": [
-        "src/engine/hermes_runtime.cc#defined:13e9rgh:evaluateJavaScript:<promise-unwrap>"
+        "src/engine/hermes_runtime.cc#evalRuntimeUnchecked:evaluateJavaScript:<promise-unwrap>"
       ],
       "outputKinds": []
     },
@@ -84601,15 +85437,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-vv6oF6mUs5S3MTa5z7IelniH3PVMUGcp9NLlOkjJ-O8",
+  "catalogKeyDigest": "sha256-QRVmpzpNE1iB6Tp3YP0TI_g7yh-st775Y8G5I4JoF0k",
   "counts": {
-    "coverageSurfaces": 7440,
-    "outputBearingSurfaces": 5800,
-    "structuralOnlySurfaces": 1561,
+    "coverageSurfaces": 7528,
+    "outputBearingSurfaces": 5806,
+    "structuralOnlySurfaces": 1643,
     "unresolvedSurfaces": 79,
-    "catalogRows": 6475,
+    "catalogRows": 6483,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6068,
+    "sourceInventoryRows": 6076,
     "structuredRows": 407
   },
   "rows": [
@@ -147076,6 +147912,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.link.computed.dynamic.import.1b3mrxc",
+        "output": "[[return]]",
+        "alias": "ex_hermes_commonjs_record_link_computed_dynamic_import",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_commonjs_record_link_computed_dynamic_import"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_computed_dynamic_import"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.link.dynamic.import.1ro0xde",
         "output": "[[return]]",
         "alias": "ex_hermes_commonjs_record_link_dynamic_import",
@@ -150190,6 +151047,48 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.preflight.bytecode.1r3a78f",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_preflight_bytecode",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_preflight_bytecode"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_preflight_bytecode"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.preflight.bytecode.1r3a78f",
+        "output": "out:error",
+        "alias": "ex_hermes_module_preflight_bytecode",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_preflight_bytecode"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_preflight_bytecode"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7",
         "output": "[[return]]",
         "alias": "ex_hermes_module_record_declare_export",
@@ -150268,6 +151167,27 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_module_runner.cc#ex_hermes_module_record_instantiate"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.link.computed.dynamic.import.0b6fvhe",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_record_link_computed_dynamic_import",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_link_computed_dynamic_import"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_computed_dynamic_import"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -153802,6 +154722,69 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.host.env.compiled.key.at.1821b5o",
+        "output": "[[return]]",
+        "alias": "ex_host_env_compiled_key_at",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_env_compiled_key_at"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_env_compiled_key_at"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.env.compiled.key.at.1821b5o",
+        "output": "out:buf",
+        "alias": "ex_host_env_compiled_key_at",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_env_compiled_key_at"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_env_compiled_key_at"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.env.compiled.key.count.1b4azqw",
+        "output": "[[return]]",
+        "alias": "ex_host_env_compiled_key_count",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_env_compiled_key_count"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_env_compiled_key_count"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.host.env.get.11ro4cp",
         "output": "[[return]]",
         "alias": "ex_host_env_get",
@@ -155722,6 +156705,27 @@
         ],
         "sourceRefs": [
           "src/host/abi.rs#ex_host_resolve_manifest_builtin_internal"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.seal.bootstrap.phase.17osacf",
+        "output": "[[return]]",
+        "alias": "ex_host_seal_bootstrap_phase",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_seal_bootstrap_phase"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_seal_bootstrap_phase"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -159669,7 +160673,9 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_crypto.cc#__exactBytesToUtf8String",
-          "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactBytesToUtf8String"
+          "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactBytesToUtf8String",
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactBytesToUtf8String",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactBytesToUtf8String"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -172307,8 +173313,8 @@
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-0447dfef4f03d2cf342be685caa1a5af22b306175726e1cf5388d1f02d08a436",
           "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-a9ee5ad0b15cb4667d0c952f6ed36a8a03e6da967ac7ad81b1966eba7e832a97",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -183406,8 +184412,8 @@
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-0447dfef4f03d2cf342be685caa1a5af22b306175726e1cf5388d1f02d08a436",
           "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-a9ee5ad0b15cb4667d0c952f6ed36a8a03e6da967ac7ad81b1966eba7e832a97",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -190483,8 +191489,8 @@
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-0447dfef4f03d2cf342be685caa1a5af22b306175726e1cf5388d1f02d08a436",
           "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-a9ee5ad0b15cb4667d0c952f6ed36a8a03e6da967ac7ad81b1966eba7e832a97",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -190557,8 +191563,8 @@
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-0447dfef4f03d2cf342be685caa1a5af22b306175726e1cf5388d1f02d08a436",
           "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-a9ee5ad0b15cb4667d0c952f6ed36a8a03e6da967ac7ad81b1966eba7e832a97",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",

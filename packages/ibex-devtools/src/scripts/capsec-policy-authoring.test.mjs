@@ -31,6 +31,27 @@ function principal(floor = []) {
   };
 }
 
+function policyBinding(overrides = {}) {
+  return {
+    graphIdentity: packageIntegrity('authenticated graph'),
+    entryIdentity: {
+      root: 'project',
+      components: [{ encoding: 'utf8', value: 'src' }, { encoding: 'utf8', value: 'app.mjs' }],
+      sourceIntegrity: packageIntegrity('entry source'),
+    },
+    targetProfile: { kind: 'compiled', profile: 'sfe-v1', targetTriple: 'aarch64-apple-darwin' },
+    mountProfile: 'compiled-app-work-v1',
+    rootCeiling: [],
+    computedCandidates: {
+      schema: 'ibex/computed-candidate-manifest/1',
+      declarations: [],
+      packageClosureOptIns: [],
+      materializedSites: [],
+    },
+    ...overrides,
+  };
+}
+
 test('buildCanonicalPolicy emits deterministic typed rows and a self-digest', () => {
   const row = {
     authority,
@@ -45,63 +66,85 @@ test('buildCanonicalPolicy emits deterministic typed rows and a self-digest', ()
   expect(first.policyDigest).toMatch(/^sha256-/);
 }, 30_000);
 
-test('root import provenance is explicit, canonical, and drift-classified', () => {
-  const policy = buildCanonicalPolicy(
-    [principal()],
-    ['image-lib@1.0.0', 'image-lib@1.0.0'],
-  );
-  expect(policy.rootImports).toEqual(['image-lib@1.0.0']);
-  const closed = buildCanonicalPolicy([principal()]);
-  expect(classifyPolicyDrift(closed, policy).expansions)
-    .toContain('rootImports image-lib@1.0.0');
-  expect(classifyPolicyDrift(policy, closed).narrowings)
-    .toContain('rootImports image-lib@1.0.0');
+test('policy v2 binds graph, entry, deployment profile, root ceiling, and candidate closure', () => {
+  const candidateManifest = {
+    schema: 'ibex/computed-candidate-manifest/1',
+    declarations: [{
+      requester: 'src/app.mjs',
+      label: 'plugins',
+      specifiers: ['./local-plugin.mjs'],
+      packageClosures: ['image-lib@1.0.0'],
+    }],
+    packageClosureOptIns: [{
+      package: 'image-lib@1.0.0',
+      provenance: [{
+        kind: 'direct',
+        source: 'image-lib@1.0.0/package.json#ibex.computedCandidateClosure',
+      }],
+    }],
+    materializedSites: [{
+      requester: 'src/app.mjs',
+      label: 'plugins',
+      candidates: ['image-lib', './local-plugin.mjs'],
+    }],
+  };
+  const binding = policyBinding({
+    rootCeiling: [{
+      authority: {
+        ...authority,
+        resource: {
+          ...authority.resource,
+          path: { ...authority.resource.path, root: 'work' },
+        },
+      },
+      provenance: [{ kind: 'direct', source: 'package.json#ibex.rootAuthorityCeiling' }],
+    }],
+    computedCandidates: candidateManifest,
+  });
+  const policy = buildCanonicalPolicy([principal()], binding);
+  expect(policy.policySchema).toBe('ibex/capsec-policy/2');
+  expect(policy.graphIdentity).toBe(binding.graphIdentity);
+  expect(policy.entryIdentity).toEqual(binding.entryIdentity);
+  expect(policy.targetProfile).toEqual(binding.targetProfile);
+  expect(policy.mountProfile).toBe('compiled-app-work-v1');
+  expect(policy.rootCeiling).toHaveLength(1);
+  expect(policy.computedCandidates.materializedSites[0].candidates)
+    .toEqual(['./local-plugin.mjs', 'image-lib']);
+
+  const widened = structuredClone(binding);
+  widened.computedCandidates.materializedSites[0].candidates.push('./optional-plugin.mjs');
+  const drift = classifyPolicyDrift(policy, buildCanonicalPolicy([principal()], widened));
+  expect(drift.classification).toBe('expansion');
+  expect(drift.expansions).toEqual([
+    'src/app.mjs#plugins: computed candidate ./optional-plugin.mjs',
+  ]);
 });
 
-test('the v1 generator floor grants cwd observation to every admitted package', () => {
-  const existing = {
+test('compiled policy rejects project-root authority and target/mount skew', () => {
+  const row = {
     authority,
     provenance: [{ kind: 'import-site', source: 'src/app.mjs:1' }],
   };
-  expect(withV1CwdObserveFloor([])).toEqual([
-    {
-      authority: {
-        cap: 'path:cwd-observe',
-        resource: { kind: 'session-state', name: 'cwd' },
-      },
-      provenance: [
-        {
-          kind: 'macro-expansion',
-          source: 'profile:path.cwd.v1:universal-observe',
-        },
-      ],
-    },
-  ]);
-  expect(withV1CwdObserveFloor([existing])).toEqual([
-    existing,
-    expect.objectContaining({
-      authority: expect.objectContaining({ cap: 'path:cwd-observe' }),
-    }),
-  ]);
+  expect(() => buildCanonicalPolicy([principal([row])], policyBinding()))
+    .toThrow(/unavailable logical root project/);
+  expect(() => buildCanonicalPolicy([], policyBinding({ mountProfile: 'project-v1' })))
+    .toThrow(/requires mount profile compiled-app-work-v1/);
 });
 
-test('package policy cannot author the core-root-only cwd mutation action', () => {
-  expect(() =>
-    buildCanonicalPolicy([
-      principal([
-        {
-          authority: {
-            cap: 'path:cwd-mutate',
-            resource: {
-              kind: 'path-exact',
-              path: { root: 'project', components: [] },
-            },
-          },
-          provenance: [{ kind: 'import-site', source: 'src/app.mjs:1' }],
-        },
-      ]),
-    ]),
-  ).toThrow(/path:cwd-mutate is restricted to root principals/);
+test('policy v2 refuses a package-closure declaration without exact package opt-in', () => {
+  expect(() => buildCanonicalPolicy([], policyBinding({
+    computedCandidates: {
+      schema: 'ibex/computed-candidate-manifest/1',
+      declarations: [{
+        requester: 'src/app.mjs',
+        label: 'plugins',
+        specifiers: [],
+        packageClosures: ['image-lib@1.0.0'],
+      }],
+      packageClosureOptIns: [],
+      materializedSites: [{ requester: 'src/app.mjs', label: 'plugins', candidates: ['image-lib'] }],
+    },
+  }))).toThrow(/has no package opt-in/);
 });
 
 test('buildCanonicalPolicy rejects action/resource mismatches', () => {

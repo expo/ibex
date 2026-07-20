@@ -2,11 +2,11 @@
 import { parseSync } from 'rolldown/utils';
 
 export function parseModule(source, options = {}) {
-  return parseWithOxc(source, 'module', 'module.js', options);
+  return parseWithOxc(source, 'module', options.fileName ?? 'module.js', options);
 }
 
 export function parseScript(source, options = {}) {
-  return parseWithOxc(source, 'commonjs', 'script.js', options);
+  return parseWithOxc(source, 'commonjs', options.fileName ?? 'script.js', options);
 }
 
 export function parseModuleOrScript(source, options = {}) {
@@ -15,8 +15,16 @@ export function parseModuleOrScript(source, options = {}) {
 
 function parseWithOxc(source, sourceType, fileName, { locations = false } = {}) {
   try {
+    const extension = fileName.split('.').pop()?.toLowerCase();
+    const lang = extension === 'ts' || extension === 'mts' || extension === 'cts'
+      ? 'ts'
+      : extension === 'tsx'
+        ? 'tsx'
+        : extension === 'jsx'
+          ? 'jsx'
+          : 'js';
     const parsed = parseSync(fileName, source, {
-      lang: 'js',
+      lang,
       sourceType,
       range: true,
       preserveParens: false,

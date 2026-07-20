@@ -9,6 +9,12 @@
 **Revised:** 2026-07-19 (completes construction-private GPU V2 composition: pinned Hermes promotes internal ArrayBuffer storage to shared external ownership in place before aliasing, the two mapping HostFunctions preserve overlap/OOB/source/key/transfer invariants, operation-result bytes get one wrapper backing and an undefined success receipt, and forced compile-time/live-cast capability failures prove finalization rollback)
 **Revised:** 2026-07-17 (projects ASSIGNED_DETACHED requestDevice results while preserving both admission forms); 2026-07-17 (records native-or-absent FinalizationRegistry ownership and persistent-runtime `FsHandle` reclamation coverage); 2026-07-16 (projects self-contained detached-loss requestDevice terminals to the wrapper before outer receipt settlement); 2026-07-16 (adds the additive Exact GPU ABI V2 typed mailbox, lifecycle replay authority, construction-private four-method bridge, and close/service-entry race fences); 2026-07-16 (adds the construction-private low-level GPU bridge, bounded Promise receipt drain, and cancellation/retirement lifecycle without publishing a WebGPU JS API); 2026-07-16 (adds the optional Exact GPU service mailbox and non-waiting detached teardown); 2026-07-15 (ENG-25061 links indirect/star/namespace exports to native ModuleRecords); 2026-07-15 (ENG-25060 implements the common runtime-drive gate and native module factory/context/record capabilities); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized eval, poll, runner, and destroy entry); 2026-07-15 (ENG-25006: native fetch completion publishes its runtime callback before releasing the pending-fetch keepalive); 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
 **Revised:** 2026-07-16 (host-owned REPL/inspector/explicit keep-alive turns now expose their external liveness to native polling without promoting unreferenced timers into runtime liveness); 2026-07-15 (ENG-25061 links indirect/star/namespace exports to native live cells and adds the synchronous graph lifecycle driver); 2026-07-15 (ENG-25060 implements the common runtime-drive gate and native module factory/context/record capabilities); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized eval, poll, runner, and destroy entry); 2026-07-15 (ENG-25006: native fetch completion publishes its runtime callback before releasing the pending-fetch keepalive); 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
+**Revised:** 2026-07-18 (Windows runtime configuration reads the shared process
+environment rather than a DLL-private CRT snapshot, and legacy eval now settles
+its generated async wrappers consistently on every supported host)
+**Revised:** 2026-07-18 (the Windows native smoke consumes the installed TCP
+bridge after structural lockdown has eagerly run and sealed its private lazy
+installer); 2026-07-15 (ENG-25061 links indirect/star/namespace exports to native live cells and adds the synchronous graph lifecycle driver); 2026-07-15 (ENG-25060 implements the common runtime-drive gate and native module factory/context/record capabilities); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized eval, poll, runner, and destroy entry); 2026-07-15 (ENG-25006: native fetch completion publishes its runtime callback before releasing the pending-fetch keepalive); 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0004 (Module loading); LLP 0005 (Build pipeline); LLP 0026 (module runner)
 
 ## Summary
@@ -26,9 +32,14 @@ Production uses `ex_hermes_create_armed(snapshot_digest)`; the historical
 `ex_hermes_create()` symbol is intentionally non-executable, and the separately
 named diagnostic constructor is not a project-execution API. Armed creation:
 
-1. Builds a `hermes::vm::RuntimeConfig` with a microtask queue and `eval`
-   enabled, then `facebook::hermes::makeHermesRuntime(config)`
-   (`src/engine/hermes_runtime.cc:1391-1403`).
+1. Builds a `hermes::vm::RuntimeConfig` with a microtask queue, `eval`, and
+   ES6 block scoping enabled, then
+   `facebook::hermes::makeHermesRuntime(config)`. The explicit temporary
+   rollback `IBEX_LEGACY_HERMES_BLOCK_SCOPING=1` selects the old false value;
+   worklet runtime construction applies the same resolved mode. Unsupported
+   Hermes headers fail configuration instead of silently selecting a different
+   source-compilation profile ([LLP 0034](./0034-hermes-es6-block-scoping.decision.md);
+   `src/engine/hermes_runtime.cc`; `src/engine/hermes_runtime_worklet.cc`).
 2. Wraps it in an `ExactHermesRuntime` handle, records the owning thread, a
    fresh runtime nonce, and the exact claimed immutable Host context.
 3. Optionally constructs the async debugger if the Hermes build supports it
@@ -41,6 +52,20 @@ named diagnostic constructor is not a project-execution API. Armed creation:
 `ex_hermes_eval()` evaluates UTF-8 source or Hermes bytecode (`is_bytecode`
 flag) and returns a result string `[observed]`
 (`src/engine/hermes_runtime.cc:1464`).
+
+The current legacy eval seam drains microtasks and assimilates a returned
+Promise before producing that string on every host. Authoritative Windows
+product tests now prove that the shipping engine accepts the same generated
+async wrappers as the other targets and observes both fulfillment and
+rejection. LLP 0024 replaces this convenience seam with structured,
+non-assimilating settlement; target consistency here does not claim that future
+contract early.
+
+Windows runtime-construction flags are read from the Win32 process environment,
+not `std::getenv`. Rust may set a flag immediately before lazy native runtime
+creation, while a separately linked DLL CRT can retain its own environment
+snapshot; the process query keeps the native bootstrap on the same value Rust
+set without widening which variables are consulted.
 
 Frame attribution is runtime-handle scoped, not merely thread scoped. A thread
 may drive multiple runtimes or re-enter `ex_hermes_eval()` for a nested runtime
@@ -622,8 +647,10 @@ Crypto is split between the non-Windows crypto shim and a Windows-specific file:
 - **Windows:** `build.rs` compiles `hermes_runtime_crypto_windows.cc` and
   defines `EXACT_NO_OPENSSL` `[observed]` (`build.rs:729-765`). That file
   registers Windows BCrypt-backed hash/hashRaw/HMAC functions plus stdin/signal
-  noops; it does not register the non-Windows asymmetric throwing stubs
-  `[observed]` (`src/engine/hermes_runtime_crypto_windows.cc:1-8, 141-221`).
+  noops. It also installs the common bounds-checked byte-view-to-UTF-8 boundary;
+  platform selection must not turn a forged view into a missing-global error.
+  It does not register the non-Windows asymmetric throwing stubs `[observed]`
+  (`src/engine/hermes_runtime_crypto_windows.cc`).
 
 The crypto profile axis and the platform matrix are owned by
 [LLP 0001](./0001-target-platforms-and-ci-matrix.rfc.md); this section only maps

@@ -1,6 +1,6 @@
 {
   "schema": "ibex/module-runner-spike-artifacts/1",
-  "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+  "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
   "manifestSchema": "ibex/module-runner-spike-manifest/1",
   "fixtures": [
     {
@@ -21,7 +21,7 @@
           "sourceName": "entry.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-m+uy11FtBZgvzguwxZrmYjUP4QQX0CPxl0+GzvnZ9Lc=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [
             {
               "specifier": "./counter.js",
@@ -61,7 +61,7 @@
           "sourceName": "counter.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-KHhsYWHujWB9o99oaWwkYWfETaLQ7/6kkEYvyLK8hqo=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [],
           "dynamicEdges": [],
           "exportDescriptors": [
@@ -88,7 +88,7 @@
             "sourcesContent": [
               "export let count = 0;\nexport function increment() {\n  count += 1;\n}\n"
             ],
-            "mappings": ";;;;;;;;;;;;AAAA;AACA",
+            "mappings": ";;;;;;;;;;;;AAAA;AAAA",
             "x_ibex_composed": true,
             "x_ibex_factory_lines": 17
           },
@@ -114,7 +114,7 @@
           "sourceName": "entry.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-BKCzjEyXm8b+huYxKZAIk18EEaaEInaUXVXt3Vv4TSw=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [
             {
               "specifier": "./a.js",
@@ -148,7 +148,7 @@
           "sourceName": "a.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-+71hY/LwEcDcD291JumB/CD/9q0fZwkBfk8yGFgDEXc=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [
             {
               "specifier": "./b.js",
@@ -182,7 +182,7 @@
             "sourcesContent": [
               "import { fromA } from \"./b.js\";\nexport function getA() {\n  return \"A\";\n}\nexport const result = fromA;\n"
             ],
-            "mappings": ";;;;;;;;;;;;AAIA;AACA",
+            "mappings": ";;;;;;;;;;;;AAIA;AAAA",
             "x_ibex_composed": true,
             "x_ibex_factory_lines": 17
           },
@@ -193,7 +193,7 @@
           "sourceName": "b.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-wOTZFvuekNyb5SEFXRPB0wt0Divq1UE+BVosPcrIF/8=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [
             {
               "specifier": "./a.js",
@@ -222,7 +222,7 @@
             "sourcesContent": [
               "import { getA } from \"./a.js\";\nexport const fromA = getA() + \":B\";\n"
             ],
-            "mappings": ";;;;;;;;AACA;AACA",
+            "mappings": ";;;;;;;;AACA;AAAA",
             "x_ibex_composed": true,
             "x_ibex_factory_lines": 13
           },
@@ -247,7 +247,7 @@
           "sourceName": "entry.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-FrxzgZiAxxspmyPH99642G/jOhT/moc4YM0Q/nOIhgM=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [
             {
               "specifier": "./a.js",
@@ -281,7 +281,7 @@
           "sourceName": "a.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-QyymVyZxZjJo/wNtvpYZynFf7AU13Ps+9j1g7q165FE=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [
             {
               "specifier": "./b.js",
@@ -315,7 +315,7 @@
             "sourcesContent": [
               "import { valueB } from \"./b.js\";\nexport const valueA = \"A\";\nexport const observed = valueB;\n"
             ],
-            "mappings": ";;;;;;;;;AACA;AACA;AAAA;AACA",
+            "mappings": ";;;;;;;;;AACA;AAAA;AACA;AAAA",
             "x_ibex_composed": true,
             "x_ibex_factory_lines": 16
           },
@@ -326,7 +326,7 @@
           "sourceName": "b.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-Qrb9vuysGYpGxUsNqAqFsoP0DtASCXqCuOQ+KjVcn+k=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [
             {
               "specifier": "./a.js",
@@ -355,7 +355,7 @@
             "sourcesContent": [
               "import { valueA } from \"./a.js\";\nexport const valueB = valueA;\n"
             ],
-            "mappings": ";;;;;;;;AACA;AACA",
+            "mappings": ";;;;;;;;AACA;AAAA",
             "x_ibex_composed": true,
             "x_ibex_factory_lines": 13
           },
@@ -381,7 +381,7 @@
           "sourceName": "entry.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-P3jmvAZ1pl7T7bQgOyc2OqMIYzW9VvQEWJ9x5DkCp5E=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [
             {
               "specifier": "./hub.js",
@@ -415,7 +415,7 @@
           "sourceName": "hub.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-xjqeTmgeV1KeONFEQreR/I2KWKcGb8gyio22EWyKGcc=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [
             {
               "specifier": "./left.js",
@@ -464,7 +464,7 @@
           "sourceName": "left.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-Fa0S6nvvJc+ddD8R7LHJZYfmTm6gmJ1NzjNsLxVbW5c=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [],
           "dynamicEdges": [],
           "exportDescriptors": [
@@ -491,7 +491,7 @@
             "sourcesContent": [
               "export const shared = \"left-shared\";\nexport const left = \"left\";\n"
             ],
-            "mappings": ";;;;;;;;;AAAA;AACA;AAAA;AACA",
+            "mappings": ";;;;;;;;;AAAA;AAAA;AACA;AAAA",
             "x_ibex_composed": true,
             "x_ibex_factory_lines": 16
           },
@@ -502,7 +502,7 @@
           "sourceName": "right.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-L0v9P5FJLsrgyb3/CXdeDB+ldtfifLBigAHcsRkfZcI=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [],
           "dynamicEdges": [],
           "exportDescriptors": [
@@ -529,7 +529,7 @@
             "sourcesContent": [
               "export const shared = \"right-shared\";\nexport const right = \"right\";\n"
             ],
-            "mappings": ";;;;;;;;;AAAA;AACA;AAAA;AACA",
+            "mappings": ";;;;;;;;;AAAA;AAAA;AACA;AAAA",
             "x_ibex_composed": true,
             "x_ibex_factory_lines": 16
           },
@@ -554,7 +554,7 @@
           "sourceName": "entry.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-4SHeXtivRqg1tnDU69CSmYPUGYVqFr2q9NwGcdFYlao=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [
             {
               "specifier": "./hub.js",
@@ -588,7 +588,7 @@
           "sourceName": "hub.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-QblZfTObbC1tDQBUak7uP6dFZDBCO1HK0bCIeJ7Flm8=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [
             {
               "specifier": "./dep.js",
@@ -628,7 +628,7 @@
           "sourceName": "dep.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-abd218qpn92ZlvqQyiBMn4Q/QC+jldJnI0yVtjpjYZY=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [],
           "dynamicEdges": [],
           "exportDescriptors": [
@@ -650,7 +650,7 @@
             "sourcesContent": [
               "export const value = 41;\n"
             ],
-            "mappings": ";;;;;;;;AAAA;AACA",
+            "mappings": ";;;;;;;;AAAA;AAAA",
             "x_ibex_composed": true,
             "x_ibex_factory_lines": 13
           },
@@ -676,7 +676,7 @@
           "sourceName": "entry.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-aX6fgOfkUVHgtmZdaau3p+SDr2wvPe5C2StDC6fDdSk=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [],
           "dynamicEdges": [],
           "exportDescriptors": [],
@@ -718,7 +718,7 @@
           "sourceName": "entry.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-q4NQaYo3dmtSWu3ocoQca6ze347iCAUu8VCnakcSOwg=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [
             {
               "specifier": "./dep.js",
@@ -752,7 +752,7 @@
           "sourceName": "dep.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-S0RFfXsYm5AkpMHEVFYFtszJKZXZCgQ7h+LrPBg5rlQ=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [],
           "dynamicEdges": [],
           "exportDescriptors": [
@@ -774,7 +774,7 @@
             "sourcesContent": [
               "export const value = await Promise.resolve(42);\n"
             ],
-            "mappings": ";;;;;;;;AAAA;AACA",
+            "mappings": ";;;;;;;;AAAA;AAAA",
             "x_ibex_composed": true,
             "x_ibex_factory_lines": 13
           },
@@ -800,7 +800,7 @@
           "sourceName": "entry.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-cUE+hOwO8wpHTIP5ucq41OmKiHvCUxscFvvrbrQTIvs=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [],
           "dynamicEdges": [
             {
@@ -812,7 +812,7 @@
           ],
           "exportDescriptors": [],
           "hasTopLevelAwait": true,
-          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nconst namespace = await __ibex_context$0.dynamicImport(\"./dep.js\");\nprint(\"dynamic:\" + namespace.value);\n}\n};\n}\n",
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nconst namespace = await __ibex_context$0.dynamicImport(-1, 24, 42, 0, \"./dep.js\");\nprint(\"dynamic:\" + namespace.value);\n}\n};\n}\n",
           "sourceMap": {
             "version": 3,
             "file": "entry.js.factory.js",
@@ -834,7 +834,7 @@
           "sourceName": "dep.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-26VSXyIMhBQImOE5xjcR/0XtvrPuDCnqE97xLJcgEQY=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [],
           "dynamicEdges": [],
           "exportDescriptors": [
@@ -856,7 +856,7 @@
             "sourcesContent": [
               "export const value = 7;\n"
             ],
-            "mappings": ";;;;;;;;AAAA;AACA",
+            "mappings": ";;;;;;;;AAAA;AAAA",
             "x_ibex_composed": true,
             "x_ibex_factory_lines": 13
           },
@@ -882,7 +882,7 @@
           "sourceName": "entry.tsx",
           "dialect": "TSX",
           "sourceIntegrity": "sha256-S2Ea0f0sl8wnyTWlayEvb1czDPiInhxjrV6gYLYMaeg=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [],
           "dynamicEdges": [],
           "exportDescriptors": [
@@ -904,7 +904,7 @@
             "sourcesContent": [
               "const React = {\n  createElement(tag: string, _props: unknown, child: string) {\n    return tag + \":\" + child;\n  },\n};\nexport const view: string = <section>ok</section>;\nprint(view);\n"
             ],
-            "mappings": ";;;;;;;;AAAA;AAEA;AAAA;AAGA;AACA;AAAA",
+            "mappings": ";;;;;;;;AAAA;AACA;AAEA;AAEA;AAAA;AACA",
             "x_ibex_composed": true,
             "x_ibex_factory_lines": 17
           },
@@ -930,7 +930,7 @@
           "sourceName": "entry.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-eyYuOkJcVTRj72nYIyzv86gr0Wt0W/4HBk4texv4OOQ=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [],
           "dynamicEdges": [],
           "exportDescriptors": [
@@ -952,7 +952,7 @@
             "sourcesContent": [
               "const callbacks = [];\nfor (const item of [\"a\", \"b\"]) {\n  callbacks.push(() => item);\n}\nexport const joined = callbacks.map((callback) => callback()).join(\",\");\nprint(joined);\n"
             ],
-            "mappings": ";;;;;;;;AAAA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AAHA;AACA;AAAA",
+            "mappings": ";;;;;;;;AAAA;AACA;AACA;AACA;AAAA;AAAA;AAAA;AAAA;AACA;AAAA;AACA",
             "x_ibex_composed": true,
             "x_ibex_factory_lines": 22
           },
@@ -980,7 +980,7 @@
           "sourceName": "entry.ts",
           "dialect": "TS",
           "sourceIntegrity": "sha256-L+0+wXsNg1robah7HvqZ7koLIxpeHx8yHD5whpMP0fM=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [],
           "dynamicEdges": [],
           "exportDescriptors": [],
@@ -1024,7 +1024,7 @@
           "sourceName": "entry.js",
           "dialect": "JS",
           "sourceIntegrity": "sha256-vQxhZc+2hWaiAyReWddaHoFW7jfb8JfxI0MmiWRKIKo=",
-          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8",
           "staticEdges": [],
           "dynamicEdges": [],
           "exportDescriptors": [],

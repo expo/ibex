@@ -311,6 +311,28 @@ fn apple_volume_path_canonicalizer(_path: &Path) -> Result<PathAliasCanonicalize
     anyhow::bail!("an Apple object identity cannot be bound on this target")
 }
 
+// @ref LLP 0021#default-and-target-claim — artifact publication uses each
+// target's supported durability boundary without weakening byte/object checks.
+fn sync_published_artifact(directory: &Path, _artifact: &std::fs::File) -> Result<()> {
+    #[cfg(unix)]
+    {
+        std::fs::File::open(directory)?
+            .sync_all()
+            .context("failed to sync protected artifact directory")?;
+    }
+    #[cfg(not(unix))]
+    {
+        // Windows does not let `std::fs::File` open a directory for `sync_all`.
+        // The hard link names this same file object, so flush that pinned object
+        // again after publication instead of treating the directory as a file.
+        let _ = directory;
+        _artifact
+            .sync_all()
+            .context("failed to sync published protected artifact")?;
+    }
+    Ok(())
+}
+
 fn materialize_protected_artifact(
     role: &str,
     bytes: &[u8],
@@ -400,7 +422,7 @@ fn materialize_protected_artifact(
             staged.sync_all()?;
             validate(&mut staged)?;
             match std::fs::hard_link(&temporary, &path) {
-                Ok(()) => std::fs::File::open(&directory)?.sync_all()?,
+                Ok(()) => sync_published_artifact(&directory, &staged)?,
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                     let mut existing = open_existing()?;
                     validate(&mut existing)?;
@@ -687,8 +709,31 @@ fn build_exact_embedder_artifacts_with_gpu(
             "/capsec/registry/policy-rules.json"
         )),
     )?;
+    let entry_identity = serde_json::json!({
+        "root": "project",
+        "components": [{"encoding": "utf8", "value": "exact-operation-manifest.json"}],
+        "sourceIntegrity": format!(
+            "sha256-{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(Sha256::digest(operation_manifest_bytes))
+        ),
+    });
+    let graph_snapshot = serde_json::json!({
+        "graphSnapshotSchema": "ibex/authenticated-graph-snapshot/1",
+        "entryIdentity": entry_identity,
+        "nodes": [{
+            "principal": "<root>",
+            "modulePath": "exact-operation-manifest.json",
+            "sourceIntegrity": entry_identity["sourceIntegrity"],
+        }],
+        "packages": [],
+        "edges": [],
+        "candidateSets": [],
+    });
+    let graph_identity =
+        compute_domain_digest("ibex/authenticated-graph-snapshot/1", &graph_snapshot, &[])?;
     let mut policy = serde_json::json!({
-        "policySchema": "ibex/capsec-policy/1",
+        "policySchema": "ibex/capsec-policy/2",
         "capsVocab": crate::capsec_registry_generated::CAPSEC_PROFILE,
         "semanticCore": crate::capsec_registry_generated::CAPSEC_SEMANTIC_CORE,
         "vocabDigest": vocab_digest,
@@ -696,6 +741,17 @@ fn build_exact_embedder_artifacts_with_gpu(
         "policyDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         "purpose": "production",
         "mode": "enforce",
+        "graphIdentity": graph_identity,
+        "entryIdentity": entry_identity,
+        "targetProfile": {"kind": "source", "profile": "portable-v1"},
+        "mountProfile": "project-v1",
+        "rootCeiling": [],
+        "computedCandidates": {
+            "schema": "ibex/computed-candidate-manifest/1",
+            "declarations": [],
+            "packageClosureOptIns": [],
+            "materializedSites": [],
+        },
         "rootImports": [],
         "principals": [],
     });
@@ -753,6 +809,15 @@ fn build_exact_embedder_artifacts_with_gpu(
     document["workflow"] = serde_json::json!("production");
     document["effectiveMode"] = serde_json::json!("enforce");
     document["policyDigest"] = serde_json::to_value(&canonical_policy.policy_digest)?;
+    document["rootAuthorityCeiling"] = serde_json::json!({
+        "kind": "bounded",
+        "authorities": canonical_policy
+            .root_ceiling
+            .iter()
+            .map(|row| row.authority.clone())
+            .collect::<Vec<_>>(),
+    });
+    document["bootstrapAuthorityFloor"] = serde_json::json!([]);
     document["engine"] = serde_json::json!({
         "target": runtime_target_triple(),
         "binaryDigest": engine.binary_digest,
@@ -927,6 +992,7 @@ fn build_exact_embedder_artifacts_with_gpu(
                 content_digest: manifest_artifact.content_digest,
             },
         ],
+        embedded_protected_artifacts: Vec::new(),
     };
     if let Some(profile_artifact) = gpu_profile_artifact {
         expected
@@ -1242,6 +1308,7 @@ mod tests {
                     content_digest: registry_content,
                 },
             ],
+            embedded_protected_artifacts: Vec::new(),
         };
 
         RealEmbedderFixture {
@@ -1447,6 +1514,7 @@ mod tests {
             path_canonicalizers: serde_json::from_value(checked["pathCanonicalizers"].clone())
                 .unwrap(),
             protected_artifacts: Vec::new(),
+            embedded_protected_artifacts: Vec::new(),
         }
     }
 
@@ -1713,6 +1781,18 @@ mod tests {
                 .unwrap()["contentDigest"],
             digest
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_publishes_a_new_protected_artifact_without_opening_its_directory() {
+        let mut bytes = [0_u8; 32];
+        getrandom::getrandom(&mut bytes).unwrap();
+        let digest = content_digest(&bytes);
+        let artifact =
+            materialize_protected_artifact("windows-directory-sync-regression", &bytes, &digest)
+                .unwrap();
+        assert_eq!(artifact.content_digest, digest);
     }
 
     #[test]

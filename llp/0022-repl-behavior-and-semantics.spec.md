@@ -23,6 +23,9 @@ closed and unadvertised.)
 **Revised:** 2026-07-13 (implementation sync: LLP 0025's v1 constants and IBDX
 wire annex now exists at `session/session-constants.v1.json`; `OBL-BOUNDS` cites
 the checked artifact instead of the superseded “open in both” status.)
+**Revised:** 2026-07-18 (defines the LLP 0029 compiled-program environment-base
+exception without widening REPL/session authority)
+**Revised:** 2026-07-15 (ENG-25066 switched file-module execution to the authenticated runner while preserving this document's script/prompt goals and session semantics)
 **Revised:** 2026-07-12 (round-8 revision, on dual-model round-7 review plus two
 independent Codex runs of round 6: names the rule the whole document turns on —
 *never tell the operator something untrue* — and applies it reflexively to §11,
@@ -42,7 +45,8 @@ LLP 0025 (terminal session ownership and lifecycle — terminal, interrupt, exit
 history); LLP 0004 (module loading and builtins); LLP 0006 (design principles);
 LLP 0010 (Ibex binary ownership); LLP 0013 (per-package capability
 compartments); LLP 0014 (import-site grants and generated policy); LLP 0019
-(Hermes compat transform authority); LLP 0021 (capsec effect-model migration)
+(Hermes compat transform authority); LLP 0021 (capsec effect-model migration);
+LLP 0029 (single-file executable packaging)
 
 ## Summary
 
@@ -831,23 +835,16 @@ follows the armed classification: an empty base with per-principal overlays as
 the registry admits, never the host environment, and never the REPL's
 presentation variables.
 
-That base is the required literal `environmentBase: []` in the authenticated
-snapshot, not an empty-looking facade over a hidden host fallback. Every armed
-read, write, deletion, and non-empty enumeration member operates on the current
-authenticated principal's runtime-scoped overlay, with exact-name requested and
-commit decisions; read and write authority are independent. A principal cannot
-observe or mutate another principal's overlay, and a new runtime inherits no
-overlay from an earlier one.
-
-Bootstrap compatibility shape uses a different channel. The launcher captures
-the admitted fixed controls before arming and binds the normalized
-`bootstrapCompatibilityModes` set into the snapshot digest. Trusted bootstrap
-may consume that fixed projection, but no post-arming environment read may
-change it and the temporary carrier is sealed before project code. `Bun` is
-therefore absent by default; when the authenticated set includes `bun`, it is
-the same object as `Exact`, and `Bun.env`, `Exact.env`, and `process.env` project
-the same principal overlay. The mode itself is not an environment entry and
-grants no effect authority.
+**Compiled-program exception.** LLP 0029 executables have no REPL and therefore
+do not inherit a session's explicitly empty base. Their earliest owned hook
+captures the launch environment and sanitizes the real process environment;
+`process.env` exact reads then use the immutable captured broker base only after
+the existing exact-name requested/commit decisions. Enumeration is permitted
+solely as a projection of keys that individually pass the same two decisions,
+with the JavaScript proxy providing the process-local write/delete overlay used
+for child inheritance. The exception never exposes the sanitized real
+environment, privileged runtime configuration, or terminal-presentation state,
+and does not relax `OBL-ENV-BASE` for file/stdin/eval/REPL sessions.
 
 The one exception is **terminal-operator state** — the history file, prompt and
 color configuration, the CLI's private TTY determination — which the CLI owns for

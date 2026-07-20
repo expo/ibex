@@ -282,6 +282,11 @@ fn load_catalog(path: &std::path::Path) -> RecipeCatalog {
         catalog.recipe_catalog_schema,
         "ibex/capsec-executable-recipes/1"
     );
+    assert_eq!(
+        catalog.target.triple,
+        embedder_runtime_target_triple(),
+        "recipe catalog target triple does not describe this binary"
+    );
     assert!(
         catalog
             .recipes
@@ -603,42 +608,20 @@ fn generations_value(generations: capsec_semantics::cache::GenerationSet) -> ser
     serde_json::to_value(generations).expect("typed generations must serialize")
 }
 
-fn package_components(path: &std::path::Path) -> Vec<serde_json::Value> {
-    path.components()
-        .filter_map(|component| match component {
-            std::path::Component::Normal(value) => Some(serde_json::json!({
-                "encoding": "utf8",
-                "value": value.to_str().expect("package path must be UTF-8"),
-            })),
-            _ => None,
-        })
-        .collect()
+fn package_components(path: &std::path::Path) -> serde_json::Value {
+    serde_json::to_value(
+        ibex_runtime::host::host_path_components(path)
+            .expect("encode production-equivalent callback package path"),
+    )
+    .expect("serialize callback package path components")
 }
 
 fn object_identity(path: &std::path::Path) -> serde_json::Value {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let metadata = std::fs::metadata(path).expect("read callback package metadata");
-        serde_json::json!({
-            "platform": if cfg!(any(target_os = "macos", target_os = "ios")) {
-                "apple"
-            } else {
-                "unix"
-            },
-            "volume": format!("dev:{}", metadata.dev()),
-            "file": format!("ino:{}", metadata.ino()),
-        })
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = path;
-        serde_json::json!({
-            "platform": "windows",
-            "volume": "callback-fixture-volume",
-            "file": "callback-fixture-file",
-        })
-    }
+    serde_json::to_value(
+        ibex_runtime::host::object_identity_for_host_path(path)
+            .expect("pin production-equivalent callback package root"),
+    )
+    .expect("serialize callback package object identity")
 }
 
 fn prepare_package_fixture() -> PackageFixture {
@@ -989,6 +972,7 @@ fn prepare_embedder_artifact_fixture() -> EmbedderArtifactFixture {
                 content_digest: registry_content,
             },
         ],
+        embedded_protected_artifacts: Vec::new(),
     };
     EmbedderArtifactFixture {
         _directory: directory,
@@ -2771,13 +2755,48 @@ async fn capsec_public_callback_invariant_batch() {
             .entry(recipe.scenario.as_str())
             .or_insert(0usize) += 1;
     }
-    // A generic invariant run cannot prove an arbitrary carrier's selected
-    // branch. Only the exact embedder mechanisms receive executable probes;
-    // the six rationale-only scenario families remain explicit residuals.
-    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
-    assert_eq!(recipes.len(), 8);
-    assert_eq!(by_scenario.len(), 1);
-    assert_eq!(by_scenario.get("non-capability"), Some(&8));
+    let target_wide_scenario_count = match catalog.target.triple.as_str() {
+        "aarch64-apple-darwin" => 507,
+        "x86_64-pc-windows-msvc" => 507,
+        target => panic!("callback invariant batch has no reviewed target shape for {target}"),
+    };
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — keep the runtime evidence batch pinned to the same exact source-derived scenario shape as the recipe generator.
+    let authority_scenario_count = 382;
+    let non_capability_scenario_count = 8;
+    assert_eq!(
+        recipes.len(),
+        target_wide_scenario_count * 4
+            + authority_scenario_count * 2
+            + non_capability_scenario_count
+    );
+    assert_eq!(
+        by_scenario.get("attribution-missing-deny"),
+        Some(&target_wide_scenario_count)
+    );
+    assert_eq!(
+        by_scenario.get("generation-recheck"),
+        Some(&target_wide_scenario_count)
+    );
+    assert_eq!(
+        by_scenario.get("principal-restore"),
+        Some(&target_wide_scenario_count)
+    );
+    assert_eq!(
+        by_scenario.get("snapshot-mismatch-deny"),
+        Some(&target_wide_scenario_count)
+    );
+    assert_eq!(
+        by_scenario.get("cannot-widen-authority"),
+        Some(&authority_scenario_count)
+    );
+    assert_eq!(
+        by_scenario.get("post-lockdown-invariant"),
+        Some(&authority_scenario_count)
+    );
+    assert_eq!(
+        by_scenario.get("non-capability"),
+        Some(&non_capability_scenario_count)
+    );
     let (branches, edges) = checked_registry_rows();
     for recipe in &recipes {
         validate_recipe_source_binding(recipe, &branches, &edges);

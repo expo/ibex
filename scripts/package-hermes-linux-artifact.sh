@@ -5,7 +5,10 @@
 #
 # Expected inputs (produced by scripts/build-hermes-linux.sh):
 #   linux/hermes-headers/
-#   linux/lib/libhermesvm.{so|a}
+#   linux/lib/libhermesvm.so
+#   linux/lib/libhermesvm_a.a
+#   linux/lib/libjsi.a
+#   linux/lib/libboost_context.a
 #   tools/hermes/hermesc-linux-<arch>
 #
 # Usage:
@@ -73,13 +76,12 @@ if [[ ! -f "$HERMESC_PATH" ]]; then
   exit 1
 fi
 
-LIB_FILE=""
-if [[ -f "$LIB_DIR/libhermesvm.so" ]]; then
-  LIB_FILE="$LIB_DIR/libhermesvm.so"
-elif [[ -f "$LIB_DIR/libhermesvm.a" ]]; then
-  LIB_FILE="$LIB_DIR/libhermesvm.a"
-else
-  echo "Missing libhermesvm.so/.a in $LIB_DIR" >&2
+SHARED_LIB="$LIB_DIR/libhermesvm.so"
+STATIC_LIB="$LIB_DIR/libhermesvm_a.a"
+JSI_LIB="$LIB_DIR/libjsi.a"
+BOOST_CONTEXT_LIB="$LIB_DIR/libboost_context.a"
+if [[ ! -f "$SHARED_LIB" || ! -f "$STATIC_LIB" || ! -f "$JSI_LIB" || ! -f "$BOOST_CONTEXT_LIB" ]]; then
+  echo "Missing libhermesvm.so, libhermesvm_a.a, libjsi.a, or libboost_context.a in $LIB_DIR" >&2
   exit 1
 fi
 
@@ -89,7 +91,7 @@ PKG_DIR="$STAGE_DIR/$PACKAGE_NAME"
 
 mkdir -p "$PKG_DIR/lib" "$PKG_DIR/include" "$PKG_DIR/bin"
 cp -R "$HEADERS_DIR/"* "$PKG_DIR/include/"
-cp "$LIB_FILE" "$PKG_DIR/lib/"
+cp "$SHARED_LIB" "$STATIC_LIB" "$JSI_LIB" "$BOOST_CONTEXT_LIB" "$PKG_DIR/lib/"
 cp "$HERMESC_PATH" "$PKG_DIR/bin/hermesc"
 chmod +x "$PKG_DIR/bin/hermesc"
 
@@ -105,7 +107,10 @@ cat > "$PKG_DIR/metadata.json" <<EOF
   "arch": "$ARCH",
   "version": "$VERSION",
   "hermes_commit": "$HERMES_COMMIT",
-  "lib_file": "$(basename "$LIB_FILE")"
+  "shared_lib_file": "$(basename "$SHARED_LIB")",
+  "static_lib_file": "$(basename "$STATIC_LIB")",
+  "jsi_lib_file": "$(basename "$JSI_LIB")",
+  "boost_context_lib_file": "$(basename "$BOOST_CONTEXT_LIB")"
 }
 EOF
 

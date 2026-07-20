@@ -292,6 +292,7 @@ const REVIEWED_BINARY_RUST_PATHS = Object.freeze([
   "src/bin/ibex/session_worker.rs",
   "src/bin/ibex/session_worker/bounded_lane.rs",
   "src/bin/ibex/session_worker_runtime.rs",
+  "src/bin/ibex/sfe.rs",
   "src/bin/ibex/subprocess.rs",
   "src/bin/ibex/terminal_session.rs",
 ]);

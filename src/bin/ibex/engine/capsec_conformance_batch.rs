@@ -3298,10 +3298,14 @@ async fn execute_module_runner_host_abi_public_recipe(
     let entry = project_root.join("entry.mjs");
     std::fs::write(
         &entry,
-        "import { value as imported } from './dep.mjs';\n\
+        "import { settled } from './asynchronous-entry.mjs';\n\
+         import cjs from './commonjs-entry.cjs';\n\
+         import { value as imported } from './dep.mjs';\n\
          export { other as forwarded } from './dep.mjs';\n\
          export * from './star.mjs';\n\
-         export const local = imported;\n",
+         export const local = imported + cjs.total + (settled ? 0 : 100);\n\
+         export function loadDynamic() { return import('./dynamic.mjs'); }\n\
+         export function loadComputed(name) { return import(name, { with: { 'ibex:site': 'esm-route' } }); }\n",
     )
     .expect("write module-runner public entry");
     std::fs::write(
@@ -3312,8 +3316,31 @@ async fn execute_module_runner_host_abi_public_recipe(
     std::fs::write(project_root.join("star.mjs"), "export const star = 3;\n")
         .expect("write module-runner public star dependency");
     let commonjs_entry = project_root.join("commonjs-entry.cjs");
-    std::fs::write(&commonjs_entry, "exports.total = 5;\n")
-        .expect("write module-runner public CommonJS entry");
+    std::fs::write(
+        &commonjs_entry,
+        "const peer = require('./commonjs-peer.cjs');\n\
+         const esm = require('./commonjs-esm.mjs');\n\
+         exports.total = peer.value + esm.value;\n\
+         exports.loadDynamic = () => import('./dynamic.mjs');\n\
+         const route = './dynamic.mjs';\n\
+         exports.loadComputed = () => import(route, { with: { 'ibex:site': 'cjs-route' } });\n",
+    )
+    .expect("write module-runner public CommonJS entry");
+    std::fs::write(
+        project_root.join("commonjs-peer.cjs"),
+        "exports.value = 2;\n",
+    )
+    .expect("write module-runner public CommonJS dependency");
+    std::fs::write(
+        project_root.join("commonjs-esm.mjs"),
+        "export const value = 3;\n",
+    )
+    .expect("write module-runner public CommonJS ESM dependency");
+    std::fs::write(
+        project_root.join("package.json"),
+        r#"{"ibex":{"computedCandidates":{"sites":[{"requester":"commonjs-entry.cjs","label":"cjs-route","specifiers":["./dynamic.mjs"]},{"requester":"entry.mjs","label":"esm-route","specifiers":["./dynamic.mjs"]}]}}}"#,
+    )
+    .expect("write module-runner computed-candidate declarations");
     let asynchronous_entry = project_root.join("asynchronous-entry.mjs");
     std::fs::write(
         &asynchronous_entry,

@@ -1357,6 +1357,15 @@ int32_t ex_hermes_module_compile_factory(
     char** out_error,
     uint64_t* out_error_token);
 
+// Validate one prepared HBC payload with the decoder linked into this runtime
+// before any graph record is evaluated.
+// @ref LLP 0029#1-command-surface-and-producer-pipeline — compiled boot bulk-
+// preflights every carrier against the executing engine.
+int32_t ex_hermes_module_preflight_bytecode(
+    const uint8_t* bytes,
+    size_t length,
+    char** out_error);
+
 /// Load one verified source or HBC carrier and select the authenticated
 /// original-module factory identified by `entry_id`. `carrier_encoding` is 0
 /// for UTF-8 source and 1 for Hermes bytecode.
@@ -1435,6 +1444,17 @@ int32_t ex_hermes_commonjs_record_link_dynamic_import(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len,
+    ExactModuleRunnerHandle target_record);
+
+/// Bind one exact spelling to one computed-import site. Site identity is part
+/// of the key, so two sites in the same requester cannot borrow candidates.
+int32_t ex_hermes_commonjs_record_link_computed_dynamic_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    uint32_t site,
     const uint8_t* specifier,
     size_t specifier_len,
     ExactModuleRunnerHandle target_record);
@@ -1555,13 +1575,24 @@ int32_t ex_hermes_module_record_link_dependency(
     ExactModuleRunnerHandle record,
     ExactModuleRunnerHandle target_record);
 
-/// Link one already-authorized dynamic-import spelling to its exact target
-/// record. Literal edges and finite computed candidates share this table;
+/// Link one already-authorized literal dynamic-import spelling to its exact
+/// target record. Computed candidates use the site-bearing entry point below;
 /// absent or denied spellings reject without probing source state.
 int32_t ex_hermes_module_record_link_dynamic_import(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len,
+    ExactModuleRunnerHandle target_record);
+
+/// Bind one exact spelling to one computed-import site. The runtime never
+/// resolves or probes a spelling absent from this authenticated table.
+int32_t ex_hermes_module_record_link_computed_dynamic_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    uint32_t site,
     const uint8_t* specifier,
     size_t specifier_len,
     ExactModuleRunnerHandle target_record);
@@ -2682,6 +2713,10 @@ void ex_host_free_string(char* value);
 /// Return 1 only when the installed host has the exact snapshot digest.
 int ex_host_matches_armed_snapshot_digest(const char* digest);
 int ex_host_is_armed(void);
+
+/// Irreversibly consume the active armed Host's bootstrap authority token.
+/// Returns 1 only for the single successful live-to-sealed transition.
+int ex_host_seal_bootstrap_phase(void);
 
 /// Process-local terminal-session descriptor policy. These checks are a
 /// closed native-only routing seam: REFUSED is a typed permission failure,

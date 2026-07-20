@@ -1,0 +1,1 @@
+{"compat":{"bun":{"versionWhenEnabled":"1.2.0"}},"name":"ibex","processTitle":"ibex","release":{"name":"node"},"schema":"ibex/runtime-identity/1","userAgent":"Ibex/0.1.0 (Hermes)","version":1,"versions":{"hermes":"1.0.0","ibex":"0.1.0","node":"24.13.1"}}

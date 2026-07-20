@@ -5,6 +5,9 @@
 **Systems:** CLI Runtime, REPL, Runtime, Security
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-19 (Unix editor capture now makes input raw while
+preserving the terminal's inherited output processing, preventing session-induced LF
+stair-stepping without rewriting brokered program payload bytes.)
 **Revised:** 2026-07-18 (environment-inventory reconciliation now covers 159
 source-derived rows and 343 exact occurrences, including the current
 module-runner and conformance-harness reads.)
@@ -626,6 +629,13 @@ feasibility obligation; it does not manufacture product-surface advertisement or
 the engine is busy** (on Windows: ConPTY with `ENABLE_PROCESSED_INPUT` cleared). §6's byte-level interrupt
 promise depends on it: an interrupt must arrive as a byte on a descriptor the session owns, not as a signal
 the kernel may coalesce.
+
+On Unix, the session makes **input** raw while retaining the output-processing
+flags captured from the terminal. The broker still writes session framing and
+program payload bytes unchanged; the terminal applies its operator-selected
+newline behavior uniformly. Clearing output processing here would turn every
+LF into a vertical move without a carriage return, causing banner, result, and
+program output to stair-step across the screen.
 
 **A consequence that must be specified, not discovered: with `ISIG` off, typed `Ctrl+Z` is a byte, not a
 kernel `SIGTSTP`.** Interactive suspension therefore does not happen by itself. `Ctrl+Z` is a **keybinding**

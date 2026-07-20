@@ -130,7 +130,7 @@
           "tokens": [
             "pub fn validate_authenticated_entry_request(",
             "verify_record(record, &self.producer_binary_digest)?.artifact()",
-            "request.source_id() != Some(&self.entry_vfs_source_id)",
+            "self.entry_vfs_source_id.as_ref() != request.source_id()",
             "self.snapshot.digest() != request.authenticated_snapshot_digest()",
             "entry_artifact.semantics.source_integrity != *request.source_digest()",
             "entry_artifact.semantics.source_goal != expected_goal",

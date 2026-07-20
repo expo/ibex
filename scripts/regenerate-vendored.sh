@@ -29,21 +29,32 @@ bun run generate:interrupt-machine
 bun run generate:session-semantics
 bun run generate:vfs-error-union
 bun run generate:root-global-dispositions
+# The private CapSec registry authenticates the generated WebGPU production
+# plan, so refresh the wrapper inputs and plan before deriving the registry.
+bun run generate:webgpu-test-wrapper
+bun run generate:webgpu-production-plan
 # @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory — the
 # source-derived registry must exist before the contract binds its digests.
 bun run generate:capsec-registry
 bun run generate:runtime-environment-inventory
+bun run generate:host-task-ingress-inventory
 bun run generate:capsec-contract
+bun run generate:capsec-runtime-projection
+bun run generate:compiled-environment-profile
+bun run generate:oxc-retirement-manifest
 bun run generate:identity
 bun run generate:import-grant-keys
 bun run generate:modules
-bun run generate:webgpu-test-wrapper
-bun run generate:webgpu-production-plan
 bun run generate:webgpu-production-codec-corpus
+bun run generate:module-transform-config
 # Postcondition: the module generator writes both the JS runtime manifest and
 # the Rust builtin manifest. Check immediately so a future package-script edit
 # cannot silently stop refreshing one side.
 bun run generate:modules --check
+bun run check:capsec-runtime-projection
+bun run check:compiled-environment-profile
+bun run check:oxc-retirement
+bun run check:module-transform-config
 bun run build:builtins
 bun run build:runtime
 bun run generate:vendored-fingerprint

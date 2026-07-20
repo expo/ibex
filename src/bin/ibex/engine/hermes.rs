@@ -4822,6 +4822,9 @@ fn configure_hermesc_compile_command(
     emit_source_map: bool,
     input: &Path,
 ) {
+    if crate::hermes_es6_block_scoping_enabled() {
+        cmd.arg("-Xes6-block-scoping");
+    }
     cmd.arg("-emit-binary");
     cmd.arg("-out");
     cmd.arg(output);
@@ -4958,10 +4961,17 @@ fn bytecode_cache_identity_for(compiler: Option<&HermesToolIdentity>) -> String 
         .map(HermesToolIdentity::cache_fingerprint)
         .unwrap_or_else(|| "compiler-identity-unavailable".into());
     let mut digest = Sha256::new();
-    digest.update(b"ibex-hbc-toolchain-v3\0");
+    digest.update(b"ibex-hbc-toolchain-v4\0");
     digest.update(runtime);
     digest.update(b"\0");
     digest.update(compiler.as_bytes());
+    digest.update(b"\0es6-block-scoping\0");
+    let block_scoping_mode: &[u8] = if crate::hermes_es6_block_scoping_enabled() {
+        b"enabled"
+    } else {
+        b"legacy"
+    };
+    digest.update(block_scoping_mode);
     format!("{:x}", digest.finalize())
 }
 
@@ -6320,16 +6330,18 @@ Promise.resolve().then(function capsecSafeThrowMetadataFixture() {
             .get_args()
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect::<Vec<_>>();
-        assert_eq!(
-            args,
-            [
-                "-emit-binary",
-                "-out",
-                "bundle.hbc",
-                "-output-source-map",
-                "bundle.js"
-            ]
-        );
+        let mut expected = Vec::new();
+        if crate::hermes_es6_block_scoping_enabled() {
+            expected.push("-Xes6-block-scoping");
+        }
+        expected.extend([
+            "-emit-binary",
+            "-out",
+            "bundle.hbc",
+            "-output-source-map",
+            "bundle.js",
+        ]);
+        assert_eq!(args, expected);
         assert_eq!(
             hermesc_source_map_path(output),
             PathBuf::from("bundle.hbc.map")
@@ -7564,6 +7576,7 @@ cp \"$input\" \"$out\"\n";
                     }
                 })
                 .collect(),
+            embedded_protected_artifacts: Vec::new(),
         };
         let snapshot =
             ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();

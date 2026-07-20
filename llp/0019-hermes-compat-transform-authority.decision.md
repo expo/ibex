@@ -5,7 +5,15 @@
 **Systems:** Module Loader, Build, Runtime
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-06
-**Revised:** 2026-07-15 (ENG-25066 made Tier 3 canonical for ordinary ESM; Tier 2 remains only for the bounded unsupported-shape window); 2026-07-15 (LLP 0026 adoption adds the Rust/Oxc in-process zero-divergence mirror as a migration tier)
+**Revised:** 2026-07-17 (the native source/prepared real-binary gate and
+exhaustive Hermes target matrix pin every Tier 3 for-of corpus row to a pass
+or stable typed quarantine; unsupported Hermes syntax and BigInt/source-map
+expectations join the same executable contract); 2026-07-17 (LLP 0028 Phase 0
+quarantines unproven Tier 3 `for...of` shapes behind typed `LegacyRequired`
+categories); 2026-07-15 (ENG-25066 made Tier 3 canonical for ordinary ESM;
+Tier 2 remains only for the bounded unsupported-shape window); 2026-07-15
+(LLP 0026 adoption adds the Rust/Oxc in-process zero-divergence mirror as a
+migration tier)
 **Related:** LLP 0004 (module loading); LLP 0005 (build pipeline); LLP 0007 (transform convergence RFC); LLP 0009 (runtime transform scope); LLP 0018 (fail-loud tooling); LLP 0026 (module runner)
 
 ## Decision
@@ -56,6 +64,26 @@ the bounded 0.1 compatibility path for unsupported interop shapes and retires
 with that path. Any non-zero divergence requires an explicit revision here
 rather than an expected result hidden in the runner.
 
+**Dated compatibility disposition (2026-07-17).** The first Tier 3 `for...of` mirror used
+an ordinary-function IIFE without the canonical pass's control-flow, lexical
+`this`/`arguments`, hoisting, redeclaration, or nested-loop analysis. Until a
+complete Oxc pass lands, every unproven row is classified by an AST-derived
+`Tier3ForOfQuarantineReason` and returns typed `LegacyRequired` to the bounded
+0.1 compatibility loader. The simple identifier-bound block-capture row stays
+native only when none of those hazards is present. Deleting the fallback does
+not resolve a row: each quarantine must become a proven pass or a stable,
+documented unsupported diagnostic before the window closes.
+
+The Phase-0 gate closes the unclassified part of that exception.
+`config/llp0019-native-tier3-corpus.json` covers all 31 shared-corpus rows:
+four proven for-of rows execute natively; every other row has an exact typed
+code and reason. The broader `config/llp0019-hermes-target-matrix.json` pins
+the native contract for for-of, async generators, `for await`, explicit
+resource management, BigInt, decorators, and source maps. A quarantine still
+uses Tier 2 during the bounded window, but it can no longer disappear by
+accident: window close must preserve its stable unsupported diagnostic or
+land a proven pass.
+
 ## Why multiple implementations exist during migration
 
 The loader scanner runs *inside the Hermes bootstrap*: it executes on the
@@ -80,9 +108,11 @@ There were three implementations, and they demonstrably drifted:
 - an ibex-devtools byte-identical clone of the exact AST version.
 
 The pre-ENG-22569 AST shape also passed textual-shape assertions while
-closures captured `undefined` on shipping Hermes (ES6BlockScoping=false) —
-proof that shape-based tests prove nothing and only engine-honest behavioral
-fixtures gate this transform. The consolidation sequence:
+closures captured `undefined` in Hermes's legacy
+`ES6BlockScoping=false` mode — proof that shape-based tests prove nothing and
+only engine-honest behavioral fixtures gate this transform. LLP 0034 makes
+ES6 block scoping the Ibex default while retaining that old mode as an
+explicit temporary rollback. The consolidation sequence:
 
 - **ENG-22987** extracted the canonical transforms into `hermes-compat.mjs`,
   made `transforms.mjs` a re-export, and promoted the inline fixtures into the
@@ -101,7 +131,7 @@ in ENG-22567.
 
 ## The enforced conformance seam
 
-One corpus, one oracle, two systems under test:
+One corpus, one oracle, three systems under test:
 
 - `hermes-compat-corpus.mjs` — implementation-neutral fixtures recording
   observable behavior facts (`rewrites`, `hermesMatchesOracle`,
@@ -113,11 +143,20 @@ One corpus, one oracle, two systems under test:
   through the **real built `ibex` binary**'s in-process module pipeline (not
   a unit-test copy of the scanner), compared against the same oracle, with
   per-fixture expectations (`loaderExpectations`) that pin documented
-  divergences to their exact output. Stale entries, missing entries, and an
-  engine-premise canary (raw for-of must still capture-last) all fail loudly.
+  divergences to their exact output. Stale entries, missing entries, and a
+  mode canary all fail loudly: raw for-of must match the oracle by default and
+  reproduce capture-last under the explicit legacy rollback.
 - `tests/hermes_compat_conformance.rs` — wires both runners into
   `cargo test` / `scripts/run-tests.sh`, parsing non-empty pass counts so the
   gate cannot silently run nothing (LLP 0018).
+- `run-native-tier3-conformance.mjs` plus
+  `tests/native_tier3_conformance.rs` — drives the real CLI binary through
+  source and prepared native profiles. Passing rows must match the oracle and
+  emit one authenticated execution receipt; quarantined rows must emit their
+  stable code/reason and no receipt. The named macOS-arm64 and Linux-x64 CI
+  cells run this gate. Its debug-only CapSec conformance constructor skips
+  only report promotion while retaining exact-engine, protected-artifact,
+  root-binding, and bounded project/stdout authorization checks.
 
 `bun run test:hermes-compat` is the standalone entrypoint;
 `bun test packages` covers the AST path plus the async-generator corpus.
@@ -136,10 +175,11 @@ require a state-machine rewrite of the body.
 ## Accepted divergences between the tiers
 
 The tiers agree on emitted shape and on oracle-observable behavior except
-where the scanner's line-based analysis is inherently coarser. Divergences
-are acceptable only in the **safe direction** — the scanner may *bail* (leave
-a loop raw, costing the known capture-last pitfall on non-block-scoping
-Hermes) where the AST authority rewrites, never the reverse:
+where the scanner's line-based analysis is inherently coarser. Rewrite-set
+divergences remain acceptable only in the **safe direction** — the scanner may
+*bail* where the AST authority rewrites, never the reverse. Under LLP 0034's
+default engine mode those raw loops retain correct per-iteration bindings;
+under the temporary legacy rollback the old capture-last cost remains:
 
 - the scanner only rewrites single-line `for (const|let ... of ...) {`
   headers whose loop closes on a bare `}` line; the authority rewrites any
@@ -150,9 +190,10 @@ Hermes) where the AST authority rewrites, never the reverse:
   simple-binding `let`/`const` redeclaration) test raw body lines, so a
   keyword inside a nested closure bails the whole loop; the authority walks
   the AST and stops at function/class boundaries;
-- both tiers share one documented behavioral hole, pinned by the corpus: a
-  hazard-bailed loop's escaping closures keep raw capture-last behavior on
-  shipping Hermes (`hazard-bailed-var-in-body`).
+- both tiers retain one legacy-mode behavioral hole, pinned by the corpus: a
+  hazard-bailed loop's escaping closures keep raw capture-last behavior only
+  when `IBEX_LEGACY_HERMES_BLOCK_SCOPING=1`
+  (`hazard-bailed-var-in-body`).
 
 Every behavioral divergence visible through the corpus MUST appear as an
 explicit `loaderExpectations` entry with its exact output and reason; the
@@ -171,3 +212,7 @@ change).
 - The bundle cache hashes `hermes-compat.mjs` (see
   `bundler_cache_input_paths` in `src/bin/ibex/runtime.rs`) so semantic edits
   invalidate cached bundles.
+- Both transform tiers remain production-active for the LLP 0034 adoption
+  checkpoint. Their joint retirement is a separate cleanup change after
+  default and rollback evidence is established; until then this two-tier
+  decision remains the transform authority.

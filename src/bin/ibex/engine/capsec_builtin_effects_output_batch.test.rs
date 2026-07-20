@@ -1463,10 +1463,6 @@ async fn execute_family(
 struct EffectsBatchExecution {
     observed: Vec<Value>,
     blocked: Vec<Value>,
-    controls: Vec<Value>,
-    fixture_audits: Vec<Value>,
-    family_failures: Vec<Value>,
-    family_count: usize,
 }
 
 async fn execute_rows_with_diagnostics(rows: &[Value]) -> EffectsBatchExecution {
@@ -1482,22 +1478,15 @@ async fn execute_rows_with_diagnostics(rows: &[Value]) -> EffectsBatchExecution 
             .or_default()
             .push(row);
     }
-    let family_count = by_family.len();
     let mut observed = Vec::new();
     let mut blocked = Vec::new();
-    let mut controls = Vec::new();
-    let mut fixture_audits = Vec::new();
-    let mut family_failures = Vec::new();
     for (family, family_rows) in &by_family {
         match execute_family(family, family_rows).await {
-            Ok((mut family_observed, mut family_blocked, control, fixture_audit)) => {
+            Ok((mut family_observed, mut family_blocked, _control, _fixture_audit)) => {
                 observed.append(&mut family_observed);
                 blocked.append(&mut family_blocked);
-                controls.push(control);
-                fixture_audits.push(fixture_audit);
             }
             Err(error) => {
-                family_failures.push(json!({"family": family, "reason": format!("{error:#}")}));
                 for row in family_rows {
                     blocked.push(residual(
                         row,
@@ -1515,10 +1504,6 @@ async fn execute_rows_with_diagnostics(rows: &[Value]) -> EffectsBatchExecution 
     EffectsBatchExecution {
         observed,
         blocked,
-        controls,
-        fixture_audits,
-        family_failures,
-        family_count,
     }
 }
 

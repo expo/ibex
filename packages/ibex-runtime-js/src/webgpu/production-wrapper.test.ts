@@ -52,9 +52,9 @@ const EXPECTED_STAGED_LOCAL_RECORD_IDENTITIES = Object.freeze({
       '78b1c5ec959456d753b7e069c05fbad63bccf2c38f6f1344493a37dbac5aa05c',
   }),
   'GPUCommandEncoder.clearBuffer': Object.freeze({
-    localRecordId: 2733786132,
+    localRecordId: 3975569409,
     recordIdentitySha256:
-      '1444f2a270409c21371a63b12a198326421a0efe8d3bbeb44d1f9f9530c4c1ed',
+      '0160f6ec85e831ea481f45ea980ab876fe303730f92a120c2a481a9ddee4a424',
   }),
   'GPUCommandEncoder.copyBufferToBuffer': Object.freeze({
     localRecordId: 3780386829,

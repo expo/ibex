@@ -21,6 +21,7 @@ mod session_semantics_conformance;
 mod session_worker;
 #[cfg(unix)]
 mod session_worker_runtime;
+mod sfe;
 mod subprocess;
 mod terminal_session;
 
@@ -92,6 +93,13 @@ pub(crate) fn env_flag_enabled(name: &str) -> bool {
         .and_then(|v| v.chars().next())
         .map(|c| matches!(c, '1' | 'y' | 'Y' | 't' | 'T'))
         .unwrap_or(false)
+}
+
+/// @ref LLP 0034#decision — the compiler, cache identities, and embedded
+/// runtimes resolve one semantic mode. The legacy flag is deliberately an
+/// opt-out so ordinary Ibex execution gets correct per-iteration bindings.
+pub(crate) fn hermes_es6_block_scoping_enabled() -> bool {
+    !env_flag_enabled("IBEX_LEGACY_HERMES_BLOCK_SCOPING")
 }
 
 fn trace_startup() -> bool {
@@ -1228,6 +1236,21 @@ async fn run(cli: Cli) -> Result<()> {
         Some(Commands::Build { file, outdir }) => {
             build_bytecode(&cli, file, outdir.as_deref()).await
         }
+        Some(Commands::Compile {
+            entry,
+            output,
+            carrier,
+            compile_policy,
+            deny_unsupported,
+        }) => sfe::compile(
+            entry,
+            output,
+            *carrier,
+            cli.policy.as_deref(),
+            compile_policy.as_deref(),
+            *deny_unsupported,
+        ),
+        Some(Commands::InspectExecutable { file }) => sfe::inspect(file),
         Some(Commands::Version) => {
             print_version(&cli);
             Ok(())

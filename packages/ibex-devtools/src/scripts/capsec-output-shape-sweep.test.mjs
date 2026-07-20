@@ -1202,17 +1202,17 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         "ibex/capsec-output-shape-execution-partition/1",
       completeCatalogKeyDigest: completeCatalog.catalogKeyDigest,
     });
-    expect(completeCatalog.rows).toHaveLength(6417);
-    expect(executionPartition.genericCatalog.rows).toHaveLength(5876);
-    expect(executionPartition.genericProbes).toHaveLength(5876);
+    expect(completeCatalog.rows).toHaveLength(6483);
+    expect(executionPartition.genericCatalog.rows).toHaveLength(5910);
+    expect(executionPartition.genericProbes).toHaveLength(5910);
     expect(
       executionPartition.genericCatalog.rows.some(
         (row) => row.key.sourceKind === "host-abi",
       ),
     ).toBe(false);
     expect(executionPartition.hostAbi.targetAbsenceBindings).toHaveLength(59);
-    expect(executionPartition.hostAbi.rows).toHaveLength(463);
-    expect(executionPartition.hostAbi.residuals).toHaveLength(19);
+    expect(executionPartition.hostAbi.rows).toHaveLength(465);
+    expect(executionPartition.hostAbi.residuals).toHaveLength(49);
 
     const baseBindings = fixture().bindings;
     const targetAbsenceProbes = buildTargetAbsenceOutputShapeProbes({
@@ -1332,12 +1332,12 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       shifted.hostAbi.targetAbsenceBindings.length,
       shifted.hostAbi.rows.length,
       shifted.hostAbi.residuals.length,
-    ]).not.toEqual([59, 463, 19]);
+    ]).not.toEqual([59, 465, 49]);
     expect([
       executionPartition.hostAbi.targetAbsenceBindings.length,
       executionPartition.hostAbi.rows.length,
       executionPartition.hostAbi.residuals.length,
-    ]).toEqual([59, 463, 19]);
+    ]).toEqual([59, 465, 49]);
   }, 60_000);
 
   test("routes and exactly validates the complete builtin-effects tranche", async () => {

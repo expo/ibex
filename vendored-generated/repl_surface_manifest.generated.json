@@ -3,7 +3,7 @@
   "version": 1,
   "source": {
     "path": "runtime-surface.json",
-    "sha256": "b669fefbb1a35fd5668cf40d680996d743e9ac2079a7af8f3a8ffbb9c979af6a"
+    "sha256": "6bc3f3fe03bf331be88fe0e0d55ba778fe0f93d214d7175911c45c0832ea701b"
   },
   "schema": {
     "path": "session/schema/repl-surface.schema.json",
@@ -20,14 +20,14 @@
     },
     {
       "path": "capsec/registry/policy-rules.json",
-      "sha256": "95c3ed6f1bb70a668b56672406a9f74a7d018fd67829fd3bb9669a2b2e8e2fed"
+      "sha256": "ca1207663c495b66ef15acd4f9a0559008edefc73eb03f98324842ceb69161a1"
     }
   ],
   "outputs": [
     {
       "name": "rust",
       "path": "vendored-generated/repl_surface.generated.rs",
-      "sha256": "7efd3095813e88f585a2778465ff5cd5b6521ac06b51c675f4a0f07353e6783c"
+      "sha256": "ab6184f5b9071d8904aa2cddd7ea24d694c341dc156b35f41e6e9913adb8ed30"
     },
     {
       "name": "help",
@@ -37,7 +37,7 @@
     {
       "name": "table",
       "path": "vendored-generated/repl_surface.generated.md",
-      "sha256": "b1a12bdacf3caa2e10722a79716a7eae74ce91113f055ef8afd24ee9586d7c49"
+      "sha256": "99af1b0d22511f7c0a4ae26af5d62f6655f1a5091a2b4543c206f4887c3b5dbf"
     }
   ]
 }

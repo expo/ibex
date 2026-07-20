@@ -135535,6 +135535,36 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
+      "id": "surface.cli.argument.parser.ibex.20compile.compile.policy.os.path.0zmsspy",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "argument-parser:ibex%20compile:compile_policy:os-path"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.argument.parser.ibex.20compile.entry.os.path.18bncka",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "argument-parser:ibex%20compile:entry:os-path"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.argument.parser.ibex.20compile.output.os.path.0h1zfo3",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "argument-parser:ibex%20compile:output:os-path"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.cli.argument.parser.ibex.20eval.code.utf8.string.04w813p",
       "classification": "non-capability",
       "surface": {
@@ -135543,6 +135573,16 @@
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.argument.parser.ibex.20inspect.executable.file.os.path.0iusmb4",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "argument-parser:ibex%20inspect-executable:file:os-path"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.cli.argument.parser.ibex.20policy.20check.entry.os.path.12i2eyc",
@@ -135565,11 +135605,41 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
+      "id": "surface.cli.argument.parser.ibex.20policy.20check.mount.profile.utf8.string.1kkjz0u",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "argument-parser:ibex%20policy%20check:mount_profile:utf8-string"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
       "id": "surface.cli.argument.parser.ibex.20policy.20check.out.os.path.0gn6aus",
       "classification": "non-capability",
       "surface": {
         "kind": "cli",
         "name": "argument-parser:ibex%20policy%20check:out:os-path"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.argument.parser.ibex.20policy.20check.target.profile.utf8.string.0lqoaju",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "argument-parser:ibex%20policy%20check:target_profile:utf8-string"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.argument.parser.ibex.20policy.20check.target.triple.utf8.string.1xzxyej",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "argument-parser:ibex%20policy%20check:target_triple:utf8-string"
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
@@ -135595,11 +135665,41 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
+      "id": "surface.cli.argument.parser.ibex.20policy.20generate.mount.profile.utf8.string.04t6xpx",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "argument-parser:ibex%20policy%20generate:mount_profile:utf8-string"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
       "id": "surface.cli.argument.parser.ibex.20policy.20generate.out.os.path.1tp9rkz",
       "classification": "non-capability",
       "surface": {
         "kind": "cli",
         "name": "argument-parser:ibex%20policy%20generate:out:os-path"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.argument.parser.ibex.20policy.20generate.target.profile.utf8.string.0jwx7bn",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "argument-parser:ibex%20policy%20generate:target_profile:utf8-string"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.argument.parser.ibex.20policy.20generate.target.triple.utf8.string.123n9ao",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "argument-parser:ibex%20policy%20generate:target_triple:utf8-string"
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
@@ -135905,6 +136005,16 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
+      "id": "surface.cli.command.ibex.20compile.0fxtfv8",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "command:ibex%20compile"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.cli.command.ibex.20completions.0y14t12",
       "classification": "non-capability",
       "surface": {
@@ -135943,6 +136053,16 @@
       },
       "rationaleId": "internal-data-transform",
       "rationale": "Transforming already-held bytes or strings carries no independent external authority."
+    },
+    {
+      "id": "surface.cli.command.ibex.20inspect.executable.0hlqzqc",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "command:ibex%20inspect-executable"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.cli.command.ibex.20policy.0ajrhht",
@@ -136023,6 +136143,16 @@
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.compile.186d216",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "compile"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.cli.completions.12b1zj4",
@@ -136123,6 +136253,16 @@
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.inspect.executable.08svsoi",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "inspect-executable"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.cli.install.0nkdfxo",
@@ -137065,6 +137205,216 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
+      "id": "surface.cli.option.ibex.20compile.carrier.0s51s14",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:carrier"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compile.carrier.action.set.09jla3m",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:carrier:action:Set"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compile.carrier.arity.1.1.00xj53j",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:carrier:arity:1:1"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compile.carrier.default.hbc.1leyl5a",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:carrier:default:hbc"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compile.carrier.enum.factory.table.0qvn5vi",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:carrier:enum:factory-table"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compile.carrier.enum.hbc.0z7fwui",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:carrier:enum:hbc"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compile.carrier.value.name.carrier.102gtaf",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:carrier:value-name:CARRIER"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compile.compile.policy.12a3d7o",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:compile_policy"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compile.compile.policy.action.set.17cztxa",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:compile_policy:action:Set"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compile.compile.policy.arity.1.1.072xhgz",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:compile_policy:arity:1:1"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compile.compile.policy.value.name.file.02rf7fb",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:compile_policy:value-name:FILE"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compile.deny.unsupported.057lkpu",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:deny_unsupported"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compile.deny.unsupported.action.settrue.13z0hio",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:deny_unsupported:action:SetTrue"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compile.deny.unsupported.arity.0.0.1l2ghb1",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:deny_unsupported:arity:0:0"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compile.deny.unsupported.default.false.0na6u00",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:deny_unsupported:default:false"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compile.deny.unsupported.default.missing.true.0nm57m2",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:deny_unsupported:default-missing:true"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compile.deny.unsupported.value.name.deny.unsupported.147ygld",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:deny_unsupported:value-name:DENY_UNSUPPORTED"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compile.output.0raigyp",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:output"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compile.output.action.set.1rxm7y1",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:output:action:Set"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compile.output.arity.1.1.1av3phm",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:output:arity:1:1"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compile.output.value.name.output.0xvh65x",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compile:output:value-name:OUTPUT"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.cli.option.ibex.20policy.20check.entry.1l9i2xe",
       "classification": "non-capability",
       "surface": {
@@ -137145,6 +137495,46 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
+      "id": "surface.cli.option.ibex.20policy.20check.mount.profile.0idiiy1",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20check:mount_profile"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20check.mount.profile.action.set.1alk3r5",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20check:mount_profile:action:Set"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20check.mount.profile.arity.1.1.0bitcg2",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20check:mount_profile:arity:1:1"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20check.mount.profile.value.name.mount.profile.092m0t7",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20check:mount_profile:value-name:MOUNT_PROFILE"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
       "id": "surface.cli.option.ibex.20policy.20check.out.0lfulwu",
       "classification": "non-capability",
       "surface": {
@@ -137180,6 +137570,86 @@
       "surface": {
         "kind": "cli",
         "name": "option:ibex%20policy%20check:out:value-name:OUT"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20check.target.profile.0bhllsp",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20check:target_profile"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20check.target.profile.action.set.16je8vl",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20check:target_profile:action:Set"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20check.target.profile.arity.1.1.1aj7vg2",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20check:target_profile:arity:1:1"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20check.target.profile.value.name.target.profile.1s76w6n",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20check:target_profile:value-name:TARGET_PROFILE"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20check.target.triple.0w82sd0",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20check:target_triple"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20check.target.triple.action.set.0dtgapa",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20check:target_triple:action:Set"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20check.target.triple.arity.1.1.1u75lwj",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20check:target_triple:arity:1:1"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20check.target.triple.value.name.target.triple.03rs30p",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20check:target_triple:value-name:TARGET_TRIPLE"
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
@@ -137265,6 +137735,46 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
+      "id": "surface.cli.option.ibex.20policy.20generate.mount.profile.0itlwwa",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20generate:mount_profile"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20generate.mount.profile.action.set.0kz11c0",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20generate:mount_profile:action:Set"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20generate.mount.profile.arity.1.1.1qz47vl",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20generate:mount_profile:arity:1:1"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20generate.mount.profile.value.name.mount.profile.0uqzs0u",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20generate:mount_profile:value-name:MOUNT_PROFILE"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
       "id": "surface.cli.option.ibex.20policy.20generate.out.03h1fz9",
       "classification": "non-capability",
       "surface": {
@@ -137300,6 +137810,86 @@
       "surface": {
         "kind": "cli",
         "name": "option:ibex%20policy%20generate:out:value-name:OUT"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20generate.target.profile.1amtflg",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20generate:target_profile"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20generate.target.profile.action.set.0xmms5q",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20generate:target_profile:action:Set"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20generate.target.profile.arity.1.1.1ifrfib",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20generate:target_profile:arity:1:1"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20generate.target.profile.value.name.target.profile.0oxazk2",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20generate:target_profile:value-name:TARGET_PROFILE"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20generate.target.triple.0ldi853",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20generate:target_triple"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20generate.target.triple.action.set.1tm9a7n",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20generate:target_triple:action:Set"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20generate.target.triple.arity.1.1.13ff78o",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20generate:target_triple:arity:1:1"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20policy.20generate.target.triple.value.name.target.triple.10vmd7c",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20policy%20generate:target_triple:value-name:TARGET_TRIPLE"
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
@@ -139565,6 +140155,56 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
+      "id": "surface.cli.option.name.ibex.20compile.carrier.carrier.0k21zzg",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option-name:ibex%20compile:carrier:--carrier"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.name.ibex.20compile.compile.policy.policy.1f16tue",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option-name:ibex%20compile:compile_policy:--policy"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.name.ibex.20compile.deny.unsupported.deny.unsupported.1pwfege",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option-name:ibex%20compile:deny_unsupported:--deny-unsupported"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.name.ibex.20compile.output.o.0hdy00l",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option-name:ibex%20compile:output:-o"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.option.name.ibex.20compile.output.output.0rrr4o2",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option-name:ibex%20compile:output:--output"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.cli.option.name.ibex.20policy.20check.entry.entry.0p6nlj6",
       "classification": "non-capability",
       "surface": {
@@ -139585,11 +140225,41 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
+      "id": "surface.cli.option.name.ibex.20policy.20check.mount.profile.mount.profile.1g2br4w",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option-name:ibex%20policy%20check:mount_profile:--mount-profile"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
       "id": "surface.cli.option.name.ibex.20policy.20check.out.out.1uamipe",
       "classification": "non-capability",
       "surface": {
         "kind": "cli",
         "name": "option-name:ibex%20policy%20check:out:--out"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.name.ibex.20policy.20check.target.profile.target.profile.019khs6",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option-name:ibex%20policy%20check:target_profile:--target-profile"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.name.ibex.20policy.20check.target.triple.target.triple.1huevsw",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option-name:ibex%20policy%20check:target_triple:--target-triple"
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
@@ -139615,11 +140285,41 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
+      "id": "surface.cli.option.name.ibex.20policy.20generate.mount.profile.mount.profile.13hzpfj",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option-name:ibex%20policy%20generate:mount_profile:--mount-profile"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
       "id": "surface.cli.option.name.ibex.20policy.20generate.out.out.0qxlk7x",
       "classification": "non-capability",
       "surface": {
         "kind": "cli",
         "name": "option-name:ibex%20policy%20generate:out:--out"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.name.ibex.20policy.20generate.target.profile.target.profile.1hhiwh1",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option-name:ibex%20policy%20generate:target_profile:--target-profile"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.name.ibex.20policy.20generate.target.triple.target.triple.0g8ukz7",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option-name:ibex%20policy%20generate:target_triple:--target-triple"
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
@@ -140185,6 +140885,46 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
+      "id": "surface.cli.positional.ibex.20compile.entry.0e4lhdt",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "positional:ibex%20compile:entry"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.positional.ibex.20compile.entry.action.set.16vnr6h",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "positional:ibex%20compile:entry:action:Set"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.positional.ibex.20compile.entry.arity.1.1.1n32oiy",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "positional:ibex%20compile:entry:arity:1:1"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.positional.ibex.20compile.entry.value.name.entry.16pv870",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "positional:ibex%20compile:entry:value-name:ENTRY"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.cli.positional.ibex.20completions.shell.1svbaqx",
       "classification": "non-capability",
       "surface": {
@@ -140313,6 +141053,46 @@
       },
       "rationaleId": "internal-data-transform",
       "rationale": "Transforming already-held bytes or strings carries no independent external authority."
+    },
+    {
+      "id": "surface.cli.positional.ibex.20inspect.executable.file.1up2nub",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "positional:ibex%20inspect-executable:file"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.positional.ibex.20inspect.executable.file.action.set.0j3ufvj",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "positional:ibex%20inspect-executable:file:action:Set"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.positional.ibex.20inspect.executable.file.arity.1.1.1w2t5fw",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "positional:ibex%20inspect-executable:file:arity:1:1"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.cli.positional.ibex.20inspect.executable.file.value.name.file.18usz2s",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "positional:ibex%20inspect-executable:file:value-name:FILE"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.cli.positional.ibex.20run.args.0qpl96y",
@@ -141035,6 +141815,16 @@
       "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
     },
     {
+      "id": "surface.host.abi.ex.hermes.commonjs.record.link.computed.dynamic.import.1b3mrxc",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_commonjs_record_link_computed_dynamic_import"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.commonjs.record.link.dynamic.import.1ro0xde",
       "classification": "non-capability",
       "surface": {
@@ -141605,6 +142395,16 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
+      "id": "surface.host.abi.ex.hermes.module.preflight.bytecode.1r3a78f",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_module_preflight_bytecode"
+      },
+      "rationaleId": "module-reachability-only",
+      "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7",
       "classification": "non-capability",
       "surface": {
@@ -141623,6 +142423,16 @@
       },
       "rationaleId": "module-reachability-only",
       "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.module.record.link.computed.dynamic.import.0b6fvhe",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_module_record_link_computed_dynamic_import"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.host.abi.ex.hermes.module.record.link.dependency.0orur8e",
@@ -142605,6 +143415,90 @@
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.host.abi.ex.host.env.compiled.key.at.1821b5o",
+      "classification": "effects",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_env_compiled_key_at"
+      },
+      "effects": [
+        {
+          "cap": "env:read",
+          "selectorNormalizer": "environment.name.selector.v1",
+          "occurrenceNormalizer": "environment.name.occurrence.v1",
+          "stages": [
+            "requested",
+            "commit"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "frame-set",
+        "schedule-time"
+      ],
+      "effectOwnerSource": "innermost-nontransparent-frame",
+      "gate": "reclassifies",
+      "effectMode": "conjunctive",
+      "atomicityGroup": "surface.host.abi.ex.host.env.compiled.key.at.1821b5o.decision",
+      "lifetimeContract": "operation",
+      "barriers": {
+        "authorizeBefore": [
+          "environment-access"
+        ],
+        "recheckAt": [],
+        "cancelAt": [
+          "negative-generation-change"
+        ]
+      }
+    },
+    {
+      "id": "surface.host.abi.ex.host.env.compiled.key.count.1b4azqw",
+      "classification": "effects",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_env_compiled_key_count"
+      },
+      "effects": [
+        {
+          "cap": "env:read",
+          "selectorNormalizer": "environment.name.selector.v1",
+          "occurrenceNormalizer": "environment.name.occurrence.v1",
+          "stages": [
+            "requested",
+            "commit"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "frame-set",
+        "schedule-time"
+      ],
+      "effectOwnerSource": "innermost-nontransparent-frame",
+      "gate": "reclassifies",
+      "effectMode": "conjunctive",
+      "atomicityGroup": "surface.host.abi.ex.host.env.compiled.key.count.1b4azqw.decision",
+      "lifetimeContract": "operation",
+      "barriers": {
+        "authorizeBefore": [
+          "environment-access"
+        ],
+        "recheckAt": [],
+        "cancelAt": [
+          "negative-generation-change"
+        ]
+      }
     },
     {
       "id": "surface.host.abi.ex.host.env.get.11ro4cp",
@@ -145983,6 +146877,16 @@
       "surface": {
         "kind": "host-abi",
         "name": "ex_host_restore_context"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.host.abi.ex.host.seal.bootstrap.phase.17osacf",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_seal_bootstrap_phase"
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -155962,16 +156866,6 @@
       "surface": {
         "kind": "loader",
         "name": "function:javascript:looksLikeModuleSyntax"
-      },
-      "rationaleId": "module-reachability-only",
-      "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
-    },
-    {
-      "id": "surface.loader.function.javascript.makewindowscryptomodule.0029u8l",
-      "classification": "non-capability",
-      "surface": {
-        "kind": "loader",
-        "name": "function:javascript:makeWindowsCryptoModule"
       },
       "rationaleId": "module-reachability-only",
       "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
@@ -187239,6 +188133,16 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
+      "id": "surface.loader.route.resolution.rust.normalize.windows.verbatim.path.text.0aq09a9",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "loader",
+        "name": "route:resolution:rust:normalize_windows_verbatim_path_text"
+      },
+      "rationaleId": "internal-data-transform",
+      "rationale": "Transforming already-held bytes or strings carries no independent external authority."
+    },
+    {
       "id": "surface.loader.route.resolution.rust.normalized.1o6rft8",
       "classification": "non-capability",
       "surface": {
@@ -193179,6 +194083,16 @@
       "surface": {
         "kind": "loader",
         "name": "route:resolution:rust:strip_file_module_decorations"
+      },
+      "rationaleId": "internal-data-transform",
+      "rationale": "Transforming already-held bytes or strings carries no independent external authority."
+    },
+    {
+      "id": "surface.loader.route.resolution.rust.strip.file.specifier.decorations.0z6tnsv",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "loader",
+        "name": "route:resolution:rust:strip_file_specifier_decorations"
       },
       "rationaleId": "internal-data-transform",
       "rationale": "Transforming already-held bytes or strings carries no independent external authority."
@@ -260101,6 +261015,47 @@
       }
     },
     {
+      "id": "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t",
+      "classification": "effects",
+      "surface": {
+        "kind": "startup",
+        "name": "env:<dynamic>:cpp:GetEnvironmentVariableA"
+      },
+      "effects": [
+        {
+          "cap": "env:read",
+          "selectorNormalizer": "environment.name.selector.v1",
+          "occurrenceNormalizer": "environment.name.occurrence.v1",
+          "stages": [
+            "requested",
+            "commit"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "root"
+      ],
+      "effectOwnerSource": "root",
+      "gate": "reclassifies",
+      "effectMode": "conjunctive",
+      "atomicityGroup": "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t.decision",
+      "lifetimeContract": "operation",
+      "barriers": {
+        "authorizeBefore": [
+          "environment-access"
+        ],
+        "recheckAt": [],
+        "cancelAt": [
+          "negative-generation-change"
+        ]
+      }
+    },
+    {
       "id": "surface.startup.env.dynamic.cpp.nsgetenviron.1witmke",
       "classification": "effects",
       "surface": {
@@ -265234,6 +266189,16 @@
       "rationale": "IBEX_COMPARTMENTS can weaken, widen, or replace shared runtime security and trust behavior."
     },
     {
+      "id": "surface.startup.env.ibex.compat.loader.test.1gjpny3",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "env:IBEX_COMPAT_LOADER_TEST"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
       "id": "surface.startup.env.ibex.dns.server.0ggdo6d",
       "classification": "effects",
       "surface": {
@@ -265770,6 +266735,16 @@
           "peer-mismatch"
         ]
       }
+    },
+    {
+      "id": "surface.startup.env.ibex.legacy.hermes.block.scoping.0sb3swi",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "env:IBEX_LEGACY_HERMES_BLOCK_SCOPING"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.startup.env.ibex.legacy.module.loader.0jlar90",
@@ -269194,11 +270169,11 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
-      "id": "surface.startup.evaluation.defined.13e9rgh.promise.unwrap.0x213h5",
+      "id": "surface.startup.evaluation.evalruntimeunchecked.promise.unwrap.1oq5x03",
       "classification": "non-capability",
       "surface": {
         "kind": "startup",
-        "name": "evaluation:defined:13e9rgh:promise-unwrap"
+        "name": "evaluation:evalRuntimeUnchecked:promise-unwrap"
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."

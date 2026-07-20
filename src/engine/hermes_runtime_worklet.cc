@@ -627,8 +627,13 @@ extern "C" ExactHermesRuntime* ex_worklet_create() {
                       .withInitHeapSize(1 << 20)
                       .withMaxHeapSize(8 << 20)
                       .build();
-  auto config =
-      ::hermes::vm::RuntimeConfig::Builder().withGCConfig(gcConfig).withEnableEval(true).build();
+  auto configBuilder = ::hermes::vm::RuntimeConfig::Builder().withGCConfig(gcConfig);
+#if defined(EXACT_HAVE_HERMES_ES6_BLOCK_SCOPING_CONFIG)
+  configBuilder.withES6BlockScoping(ibexHermesES6BlockScopingEnabled());
+#elif defined(EXACT_HAVE_HERMES_ENABLE_BLOCK_SCOPING_CONFIG)
+  configBuilder.withEnableBlockScoping(ibexHermesES6BlockScopingEnabled());
+#endif
+  auto config = configBuilder.withEnableEval(true).build();
 
   auto runtime = facebook::hermes::makeHermesRuntime(config);
   if (!runtime) {

@@ -82,6 +82,8 @@ fn context() -> VerifiedDecisionContext {
                 handle: SafeUint::ZERO,
             },
             process_ceiling: AuthorityCeiling::Unbounded.into(),
+            root_ceiling: AuthorityCeiling::Unbounded.into(),
+            bootstrap_floor: Vec::new().into(),
             protected_objects: Vec::new().into(),
             protected_resources: Vec::new().into(),
             principal_policies: BTreeMap::new().into(),

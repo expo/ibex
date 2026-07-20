@@ -1,7 +1,7 @@
 //! End-to-end tests for the Node-compat zlib builtin, driving the real
 //! `ibex` binary (ENG-23456 finding 2): the deflate/inflate host functions
-//! are registered per-platform, and on builds without them (Windows today)
-//! the JS call sites used to raise a bare `ReferenceError:
+//! are registered per-platform, and on builds without them the JS call sites
+//! used to raise a bare `ReferenceError:
 //! __exactDeflateSync is not defined` from inside gzipSync. They must fail
 //! with the same clear "not available" error shape the brotli/zstd paths
 //! already use — and keep working where the bridge exists.
@@ -529,6 +529,9 @@ async fn node_zlib_enforces_output_budget_inside_native_inflate() {
     );
 }
 
+// Windows' replacement crypto translation unit installs deflate/inflate and
+// streaming zlib, but it does not install the vendored Brotli host functions.
+#[cfg(not(windows))]
 #[tokio::test]
 async fn node_brotli_enforces_output_budget_before_native_growth() {
     let js = r#"(async function(){

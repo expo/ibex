@@ -1970,6 +1970,21 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         },
       ),
     ).not.toThrow();
+
+    const cyclicFactory = scanStaticBuiltinExports(
+      "function first() { return second(); } function second() { return first(); } module.exports.Public = first();",
+      {
+        sourceKey: "node_cyclic_factory",
+        sourcePath: "src/builtins/cyclic-factory.js",
+      },
+    );
+    expect(
+      cyclicFactory.some((row) =>
+        /^Public\.\[\[dynamic-table:inherited-[a-f0-9]{12}-properties\]\]$/u.test(
+          row.metadata.exportName,
+        ),
+      ),
+    ).toBe(true);
   });
 
   test("legacy accessors and reflective prototype mutations are exact and fail closed", () => {
@@ -2584,10 +2599,17 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         ),
       ),
     ).toBe(true);
+    const cyclicFactoryRows = scanStaticGlobalApiSurfaces(
+      "function first() { return second(); } function second() { return first(); } globalThis.Public = first();",
+      "src/engine/bootstrap/cyclic-factory.js",
+    );
     expect(
-      opaqueFactoryRows.find((row) => row.name.includes("[[dynamic-table:"))
-        ?.metadata.publicReadAccessSourceProven,
-    ).toBeUndefined();
+      cyclicFactoryRows.some((row) =>
+        /^global:Public\.\[\[dynamic-table:call-result-[a-f0-9]{12}-properties\]\]$/u.test(
+          row.name,
+        ),
+      ),
+    ).toBe(true);
     const duplicateRows = scanStaticGlobalApiSurfaces(
       "globalThis.Dynamic = unknownFactory(); globalThis.Dynamic = function Dynamic() {};",
       "src/engine/bootstrap/duplicate-dynamic.js",
@@ -4703,6 +4725,19 @@ int main() { return 0; }
       "windows",
     ]);
     expect(discoverHermesEvaluatorIdentityProfiles(repoRoot)).toEqual(profiles);
+
+    const windowsCrlfProfiles = scanHermesEvaluatorIdentityProfiles({
+      ...inputs,
+      windowsInstallerText: inputs.windowsInstallerText.replaceAll(
+        "\n",
+        "\r\n",
+      ),
+      windowsSourceBuildText: inputs.windowsSourceBuildText.replaceAll(
+        "\n",
+        "\r\n",
+      ),
+    });
+    expect(windowsCrlfProfiles).toEqual(profiles);
 
     for (const mutated of [
       {
@@ -7253,13 +7288,20 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       ]),
     );
 
+    const streamSource = fs.readFileSync(
+      path.join(repoRoot, "src/engine/bootstrap/web-streams-polyfill.js"),
+      "utf8",
+    );
     const streamRows = scanStaticGlobalApiSurfaces(
-      fs.readFileSync(
-        path.join(repoRoot, "src/engine/bootstrap/web-streams-polyfill.js"),
-        "utf8",
-      ),
+      streamSource,
       "src/engine/bootstrap/web-streams-polyfill.js",
     );
+    expect(
+      scanStaticGlobalApiSurfaces(
+        streamSource.replaceAll("\n", "\r\n"),
+        "src/engine/bootstrap/web-streams-polyfill.js",
+      ),
+    ).toEqual(streamRows);
     expect(streamRows.map((row) => row.name)).toEqual(
       expect.arrayContaining([
         "__exactWebStreamsPolyfillLoaded",
@@ -7827,6 +7869,9 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")),
     ).toHaveLength(157);
+    expect(
+      first.hostAbi.some((row) => row.name === "ex_host_seal_bootstrap_phase"),
+    ).toBe(true);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")).length,
     ).toBeGreaterThan(0);

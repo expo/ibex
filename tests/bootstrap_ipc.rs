@@ -34,7 +34,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
-
 // Diagnostic `.js` entries authenticate the selected bundler before project
 // code starts. Authenticated fork fixtures perform another cold child startup
 // after the audit parent is ready, so shared-host full-matrix load can consume
@@ -627,7 +626,6 @@ fn assert_split_multibyte_decodes(tag: &str, env: &[(&str, &str)]) {
         cmd.env(k, v);
     }
     unsafe {
-        use std::os::unix::process::CommandExt;
         cmd.pre_exec(move || {
             // dup2 clears CLOEXEC on the destination fd.
             if libc::dup2(child_fd, 3) < 0 {

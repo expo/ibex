@@ -5,6 +5,7 @@
 **Systems:** Runtime, CLI Runtime, Documentation
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-06-27
+**Revised:** 2026-07-17
 **Related:** LLP 0000; LLP 0006; LLP 0010
 
 ## Context
@@ -38,6 +39,18 @@ The policy is Node-primary and truth-preserving:
 - The Bun-shaped surface is opt-in. When `--compat=bun` or
   `EXACT_COMPAT_BUN=1` enables the Bun facade, `process.versions.bun` is set
   too so feature detection remains coherent.
+
+The semantic identity projection is `ibex/runtime-identity/1`, specified by
+`schemas/runtime-identity-v1.schema.json`. It contains `version`, `name`,
+`processTitle`, `userAgent`, `release`, `versions`, and `compat`; commentary
+and LLP provenance from the authority are deliberately excluded. Its bytes
+are strict I-JSON serialized as RFC 8785 JCS. Its identity is
+`SHA-256(UTF8("ibex:runtime-identity:1") || NUL || projection-bytes)`, encoded
+as the repository's `sha256-` plus unpadded-base64url digest form. The
+generator emits the schema, domain, and digest constants into both Rust and
+TypeScript and writes the canonical projection used by drift checks and
+cross-language tests. Unknown authority fields are rejected so a new semantic
+claim cannot silently fall outside this digest.
 
 ## Consequences
 

@@ -31,30 +31,20 @@ stale=()
 # registry freshness and its downstream contract digests are required.
 bun run check:capsec-registry
 bun run check:runtime-environment-inventory
+bun run check:host-task-ingress-inventory
 bun run check:capsec-contract
-if ! bun run check:repl-surface >/dev/null 2>&1; then
-  stale+=("vendored-generated/repl_surface.generated.rs" "vendored-generated/repl_help.generated.txt" "vendored-generated/repl_surface.generated.md" "vendored-generated/repl_surface_manifest.generated.json")
-fi
-if ! bun run check:session-constants >/dev/null 2>&1; then
-  stale+=("vendored-generated/session_constants.generated.rs")
-fi
-if ! bun run check:interrupt-machine >/dev/null 2>&1; then
-  stale+=("vendored-generated/interrupt_machine.generated.rs" "vendored-generated/interrupt_machine_table.generated.md" "vendored-generated/interrupt_trajectories.generated.json" "vendored-generated/interrupt_machine_manifest.generated.json")
-fi
-if ! bun run check:session-semantics >/dev/null 2>&1; then
-  stale+=("capsec/session-semantics/fixtures.json" "capsec/session-semantics/tables.md" "capsec/session-semantics/manifest.json")
-fi
-if ! bun run check:vfs-error-union >/dev/null 2>&1; then
-  stale+=("llp/fixtures/0023-vfs-error-precedence.generated.json")
-fi
-if ! bun run check:root-global-dispositions >/dev/null 2>&1; then
-  stale+=("capsec/generated/root-global-disposition-manifest.json" "src/engine/root_global_disposition.generated.h")
-fi
+bun run check:capsec-runtime-projection
+# @ref LLP 0014#the-generated-artifact — policy lockfiles bind the registry
+# digest and must rotate in the same change as the generated registry.
+bun run check:example-policy
+bun run check:compiled-environment-profile
+bun run check:oxc-retirement
+bun run check:module-transform-config
 if ! bun run generate:capability-bits --check >/dev/null 2>&1; then
   stale+=("packages/ibex-runtime-js/src/security/capability-bits.generated.ts")
 fi
 if ! bun run generate:identity --check >/dev/null 2>&1; then
-  stale+=("packages/ibex-runtime-js/src/identity.generated.ts" "src/identity_generated.rs")
+  stale+=("packages/ibex-runtime-js/src/identity.generated.ts" "src/identity_generated.rs" "vendored-generated/runtime-identity-projection.canonical.json")
 fi
 if ! bun run check:import-grant-keys >/dev/null 2>&1; then
   stale+=("vendored-generated/import_grant_keys.generated.rs" "src/engine/bootstrap/import-grant-keys.generated.js")

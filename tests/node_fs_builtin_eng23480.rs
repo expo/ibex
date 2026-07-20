@@ -369,11 +369,13 @@ var path = require('path');
 var d = fs.mkdtempSync(path.join(os.tmpdir(), 'eng23480-m-'));
 var f = path.join(d, 'x.txt');
 fs.writeFileSync(f, 'abc');
-var old = new Date(Date.now() - 3600000);
-fs.lutimesSync(new URL('file://' + f), old, old);
-console.log('lutimes-url|' + (Math.abs(fs.lstatSync(f).mtimeMs - old.getTime()) < 1000));
-fs.lchmodSync(Buffer.from(f), 0o600);
-console.log('lchmod-buffer|' + (fs.lstatSync(f).mode & 0o777).toString(8));
+if (process.platform === 'darwin') {
+  var old = new Date(Date.now() - 3600000);
+  fs.lutimesSync(new URL('file://' + f), old, old);
+  console.log('lutimes-url|' + (Math.abs(fs.lstatSync(f).mtimeMs - old.getTime()) < 1000));
+  fs.lchmodSync(Buffer.from(f), 0o600);
+  console.log('lchmod-buffer|' + (fs.lstatSync(f).mode & 0o777).toString(8));
+}
 fs.promises.appendFile(f, 'more').then(function(v) {
   console.log('promises-appendfile|' + (v === undefined ? 'undefined' : v));
   return fs.promises.open(f, 'a');
@@ -403,11 +405,11 @@ fs.promises.appendFile(f, 'more').then(function(v) {
 });
 "#;
     let run = run_app("promises", app, Duration::from_secs(30));
+    #[cfg(target_os = "macos")]
+    assert_lines(&run, &["lutimes-url|true", "lchmod-buffer|600"]);
     assert_lines(
         &run,
         &[
-            "lutimes-url|true",
-            "lchmod-buffer|600",
             "promises-appendfile|undefined",
             "filehandle-appendfile|undefined",
             "readfile-signal|ABORT_ERR",

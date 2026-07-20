@@ -12,3 +12,6 @@ export const RUNTIME_VERSIONS: ReadonlyArray<readonly [string, string]> = [
   ["hermes", "1.0.0"],
 ] as const;
 export const BUN_COMPAT_VERSION = "1.2.0";
+export const RUNTIME_IDENTITY_SCHEMA = "ibex/runtime-identity/1";
+export const RUNTIME_IDENTITY_DOMAIN = "ibex:runtime-identity:1";
+export const RUNTIME_IDENTITY_DIGEST = "sha256-dmZB5Er2GWaTKtPV648dAVePxidOkP5bPvXDVnUabKs";
