@@ -120,6 +120,55 @@ function declarationRange(text, name) {
   return endByte < 0 ? null : { startByte, endByte };
 }
 
+function robustFunctionDeclarationRange(text, name) {
+  const definitions = [];
+  for (const call of callExpressionRangesWithin(text, name, { startByte: 0, endByte: text.length })) {
+    let cursor = call.endByte;
+    while (cursor < text.length && cursor < call.endByte + 500 && /\s/u.test(text[cursor])) cursor += 1;
+    while (cursor < text.length && cursor < call.endByte + 500 && text[cursor] !== "{") {
+      if ([";", ",", ")", "]", "="].includes(text[cursor])) break;
+      cursor += 1;
+      while (cursor < text.length && /\s/u.test(text[cursor])) cursor += 1;
+    }
+    if (text[cursor] !== "{") continue;
+    const lineStart = text.lastIndexOf("\n", call.startByte - 1) + 1;
+    const prefix = text.slice(lineStart, call.startByte);
+    if (/^\s*(?:if|while|for|switch|return|else)\b/u.test(prefix)) continue;
+    const endByte = matchingBraceEnd(text, cursor);
+    if (endByte < 0) continue;
+    const prefixStart = prefix.search(/\S/u);
+    definitions.push({ startByte: prefixStart < 0 ? call.startByte : lineStart + prefixStart, endByte });
+  }
+  const unique = [...new Map(definitions.map((range) => [`${range.startByte}:${range.endByte}`, range])).values()];
+  return unique.length === 1 ? unique[0] : null;
+}
+
+function typeDeclarationRange(text, name) {
+  const escaped = escapeRegExp(name);
+  const matches = [...text.matchAll(new RegExp(`(?:^|\\n)\\s*(?:class|struct|enum|trait)\\s+${escaped}\\b`, "gu"))];
+  if (matches.length !== 1) return null;
+  const startByte = matches[0].index + matches[0][0].search(/\S/u);
+  const opening = text.indexOf("{", startByte);
+  const endByte = opening < 0 ? -1 : matchingBraceEnd(text, opening);
+  return endByte < 0 ? null : { startByte, endByte };
+}
+
+function qualifiedDeclarationRange(text, name) {
+  const direct = robustFunctionDeclarationRange(text, name);
+  if (direct || !name.includes("::")) return direct;
+  const separator = name.lastIndexOf("::");
+  const owner = name.slice(0, separator);
+  const member = name.slice(separator + 2);
+  const ownerRange = typeDeclarationRange(text, owner);
+  if (!ownerRange) return null;
+  const ownerText = text.slice(ownerRange.startByte, ownerRange.endByte);
+  const memberRange = robustFunctionDeclarationRange(ownerText, member);
+  return memberRange && {
+    startByte: ownerRange.startByte + memberRange.startByte,
+    endByte: ownerRange.startByte + memberRange.endByte,
+  };
+}
+
 function arrayDeclarationRange(text, name) {
   const candidates = [...new Set(declarationCandidateGroups(text, name).flat())]
     .sort((left, right) => left - right);
@@ -153,6 +202,65 @@ function tokenRangesWithin(text, token, containerRange) {
   while (offset >= 0 && offset < containerRange.endByte) {
     ranges.push(lineRange(text, offset));
     offset = text.indexOf(token, offset + token.length);
+  }
+  return ranges;
+}
+
+function callExpressionRangesWithin(text, callee, containerRange) {
+  const ranges = [];
+  let state = "code";
+  for (let index = containerRange.startByte; index < containerRange.endByte; index += 1) {
+    const current = text[index];
+    const next = text[index + 1];
+    if (state === "line-comment") {
+      if (current === "\n") state = "code";
+      continue;
+    }
+    if (state === "block-comment") {
+      if (current === "*" && next === "/") {
+        state = "code";
+        index += 1;
+      }
+      continue;
+    }
+    if (state === "single" || state === "double") {
+      if (current === "\\") index += 1;
+      else if ((state === "single" && current === "'") || (state === "double" && current === '"')) {
+        state = "code";
+      }
+      continue;
+    }
+    if (current === "/" && next === "/") {
+      state = "line-comment";
+      index += 1;
+      continue;
+    }
+    if (current === "/" && next === "*") {
+      state = "block-comment";
+      index += 1;
+      continue;
+    }
+    if (current === "'") {
+      state = "single";
+      continue;
+    }
+    if (current === '"') {
+      state = "double";
+      continue;
+    }
+    if (!text.startsWith(callee, index)) continue;
+    const previous = text[index - 1];
+    const following = text[index + callee.length];
+    if ((previous && /[A-Za-z0-9_$]/u.test(previous)) || (following && /[A-Za-z0-9_$]/u.test(following))) {
+      continue;
+    }
+    let opening = index + callee.length;
+    while (/\s/u.test(text[opening])) opening += 1;
+    if (text[opening] !== "(") continue;
+    const endByte = matchingDelimiterEnd(text, opening, "(", ")");
+    if (endByte < 0 || endByte > containerRange.endByte) continue;
+    ranges.push({ startByte: index, endByte });
+    index = endByte - 1;
   }
   return ranges;
 }
@@ -1260,6 +1368,388 @@ function exportedHostAbiBinding({ branch, sourceRef, sourcePath, locator, text, 
   });
 }
 
+function callbackProducerBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  const marker = ":pushRuntimeCallback";
+  if (
+    branch?.observedKey !== `callback:producer:${sourcePath}:${locator}`
+    || !locator.endsWith(marker)
+    || !/\.(?:cc|mm)$/u.test(sourcePath)
+  ) return null;
+  const producerName = locator.slice(0, -marker.length);
+  const producer = qualifiedDeclarationRange(text, producerName);
+  if (!producer) return null;
+  const enqueueCalls = callExpressionRangesWithin(text, "pushRuntimeCallback", producer);
+  if (enqueueCalls.length === 0) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${producerName}.definition`, range: producer, text, bytes }),
+    ...enqueueCalls.map((range, index) => sourceSite({
+      sourceRef,
+      path: sourcePath,
+      role: "publication",
+      siteKey: `${producerName}.enqueue.${index + 1}`,
+      range,
+      text,
+      bytes,
+    })),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "callback-producer-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0callback-enqueue`),
+      conditionId: `target-branch:${branch.targetVariant}`,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function callbackDeliveryCondition(sourcePath, targetVariant) {
+  if (sourcePath.includes("_windows.")) return "target-platform:windows";
+  if (sourcePath === "src/engine/hermes_runtime_fs.cc") return "target-platform:not-windows";
+  if (sourcePath.includes("_android.")) return "target-platform:android";
+  if (sourcePath.includes("_ios.")) return "target-platform:ios";
+  return `target-branch:${targetVariant}`;
+}
+
+function callbackDeliveryBinding({ branch, sourceRef, sourcePath, locator, absolute, text, bytes }) {
+  if (
+    !branch?.observedKey?.startsWith("callback:")
+    || branch.observedKey.startsWith("callback:producer:")
+    || !/\.(?:cc|mm)$/u.test(sourcePath)
+  ) return null;
+  const producer = qualifiedDeclarationRange(text, locator);
+  if (!producer) return null;
+  const enqueueCalls = callExpressionRangesWithin(text, "pushRuntimeCallback", producer);
+  if (enqueueCalls.length === 0) return null;
+
+  const root = path.resolve(
+    path.dirname(absolute),
+    ...Array(sourcePath.split("/").length - 1).fill(".."),
+  );
+  const queuePath = "src/engine/hermes_runtime.cc";
+  const queueBytes = sourcePath === queuePath
+    ? bytes
+    : fs.readFileSync(path.join(root, queuePath));
+  const queueText = sourcePath === queuePath ? text : queueBytes.toString("utf8");
+  const enqueue = robustFunctionDeclarationRange(queueText, "pushRuntimeCallback");
+  const drain = robustFunctionDeclarationRange(queueText, "drainCallbackQueue");
+  if (!enqueue || !drain) return null;
+  const retention = callExpressionRangesWithin(
+    queueText,
+    "runtime->callbackQueue.push_back",
+    enqueue,
+  );
+  const dispatch = callExpressionRangesWithin(queueText, "entry.callback", drain);
+  if (retention.length !== 1 || dispatch.length !== 1) return null;
+
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${locator}.producer`, range: producer, text, bytes }),
+    ...enqueueCalls.map((range, index) => sourceSite({
+      sourceRef,
+      path: sourcePath,
+      role: "publication",
+      siteKey: `${locator}.enqueue.${index + 1}`,
+      range,
+      text,
+      bytes,
+    })),
+    sourceSite({ sourceRef, path: queuePath, role: "definition", siteKey: "callback-queue.enqueue", range: enqueue, text: queueText, bytes: queueBytes }),
+    sourceSite({ sourceRef, path: queuePath, role: "retention", siteKey: "callback-queue.retention", range: retention[0], text: queueText, bytes: queueBytes }),
+    sourceSite({ sourceRef, path: queuePath, role: "definition", siteKey: "callback-queue.drain", range: drain, text: queueText, bytes: queueBytes }),
+    sourceSite({ sourceRef, path: queuePath, role: "dispatch", siteKey: "callback-queue.dispatch", range: dispatch[0], text: queueText, bytes: queueBytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "callback-delivery-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0callback-delivery`),
+      conditionId: callbackDeliveryCondition(sourcePath, branch.targetVariant),
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function callbackSetterBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (
+    !branch?.observedKey?.startsWith("callback:")
+    || branch.observedKey.startsWith("callback:producer:")
+    || !/\.(?:cc|mm)$/u.test(sourcePath)
+    || !/(?:set|register).*(?:callback|handler)/iu.test(locator)
+  ) return null;
+  const setter = qualifiedDeclarationRange(text, locator);
+  if (!setter) return null;
+  const callbackAssignments = tokenRangesWithin(text, "= callback;", setter);
+  const contextAssignments = tokenRangesWithin(text, "= context;", setter);
+  if (callbackAssignments.length !== 1) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "registration", siteKey: `${locator}.setter`, range: setter, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${locator}.callback-retention`, range: callbackAssignments[0], text, bytes }),
+    ...contextAssignments.map((range, index) => sourceSite({
+      sourceRef,
+      path: sourcePath,
+      role: "retention",
+      siteKey: `${locator}.context-retention.${index + 1}`,
+      range,
+      text,
+      bytes,
+    })),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "callback-setter-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0callback-setter`),
+      conditionId: callbackDeliveryCondition(sourcePath, branch.targetVariant),
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function callbackDirectDispatchBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (!branch?.observedKey?.startsWith("callback:") || branch.observedKey.startsWith("callback:producer:")) {
+    return null;
+  }
+  const specifications = {
+    "callback:microtask-drain": {
+      locator: "drainMicrotasks",
+      callee: "rt.drainMicrotasks",
+      conditions: ["target-platform:windows", "target-platform:not-windows"],
+    },
+    "callback:next-tick-drain": {
+      locator: "runNextTickQueue",
+      callee: "entry.callback.call",
+      conditions: ["next-tick:without-arguments", "next-tick:with-arguments"],
+    },
+    "callback:queue-drain": {
+      locator: "drainCallbackQueue",
+      callee: "entry.callback",
+      conditions: ["callback-queue:entry"],
+      retentionCallee: "queue.swap",
+    },
+    "callback:queue-enqueue": {
+      locator: "pushRuntimeCallback",
+      callee: "runtime->callbackQueue.push_back",
+      conditions: ["callback-queue:accepted-generation"],
+    },
+    "callback:worklet-scheduled-drain": {
+      locator: "ex_worklet_drain_scheduled",
+      callee: "drainJsonArray",
+      conditions: ["worklet-queue:scheduled"],
+    },
+  };
+  const specification = specifications[branch.observedKey];
+  if (!specification || locator !== specification.locator) return null;
+  const dispatcher = qualifiedDeclarationRange(text, locator);
+  if (!dispatcher) return null;
+  const dispatches = callExpressionRangesWithin(text, specification.callee, dispatcher);
+  if (dispatches.length !== specification.conditions.length) return null;
+  const retention = specification.retentionCallee
+    ? callExpressionRangesWithin(text, specification.retentionCallee, dispatcher)
+    : [];
+  if (specification.retentionCallee && retention.length !== 1) return null;
+  const definitionSite = sourceSite({ sourceRef, path: sourcePath, role: "registration", siteKey: `${locator}.dispatcher`, range: dispatcher, text, bytes });
+  const retentionSites = retention.map((range, index) => sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "retention",
+    siteKey: `${locator}.retention.${index + 1}`,
+    range,
+    text,
+    bytes,
+  }));
+  const dispatchSites = dispatches.map((range, index) => sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "dispatch",
+    siteKey: `${locator}.dispatch.${index + 1}`,
+    range,
+    text,
+    bytes,
+  }));
+  const sites = [definitionSite, ...retentionSites, ...dispatchSites];
+  const commonSiteIds = [definitionSite, ...retentionSites].map((site) => site.siteId);
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "callback-direct-dispatch-route",
+    resolutionPolicy: dispatches.length > 1 ? "conditioned-alternatives" : "composite-path",
+    sites,
+    producerPaths: dispatchSites.map((site, index) => ({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0${specification.conditions[index]}`),
+      conditionId: specification.conditions[index],
+      requiredSiteIds: [...commonSiteIds, site.siteId],
+    })),
+  });
+}
+
+function nativePrincipalRestoreBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (
+    branch?.observedKey !== "callback:native-principal-restore"
+    || sourcePath !== "src/engine/hermes_runtime_internal.h"
+    || locator !== "ScopedNativePrincipal"
+  ) return null;
+  const declaration = typeDeclarationRange(text, locator);
+  if (!declaration) return null;
+  const install = tokenRangesWithin(
+    text,
+    "g_native_callback_principal_id = principal;",
+    declaration,
+  );
+  const restore = tokenRangesWithin(
+    text,
+    "g_native_callback_principal_id = previous_;",
+    declaration,
+  );
+  if (install.length !== 1 || restore.length !== 1) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "registration", siteKey: "ScopedNativePrincipal.scope", range: declaration, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: "ScopedNativePrincipal.install", range: install[0], text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: "ScopedNativePrincipal.restore", range: restore[0], text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "callback-native-principal-restore-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0native-principal-restore`),
+      conditionId: "native-principal-scope:destruction",
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function timerCallbackBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (
+    branch?.observedKey !== "callback:timer-invoke"
+    || sourcePath !== "src/engine/hermes_runtime.cc"
+    || locator !== "ex_hermes_poll"
+  ) return null;
+  const entry = robustFunctionDeclarationRange(text, locator);
+  const dispatcher = robustFunctionDeclarationRange(text, "pollRuntime");
+  if (!entry || !dispatcher) return null;
+  const enterDispatch = callExpressionRangesWithin(text, "pollRuntime", entry);
+  const invocations = callExpressionRangesWithin(text, "it->second.callback.call", dispatcher);
+  if (enterDispatch.length !== 1 || invocations.length !== 2) return null;
+  const commonSites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "registration", siteKey: "timer.poll-entry", range: entry, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: "timer.poll-dispatch", range: enterDispatch[0], text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "definition", siteKey: "timer.poll-runtime", range: dispatcher, text, bytes }),
+  ];
+  const invocationSites = invocations.map((range, index) => sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "dispatch",
+    siteKey: `timer.invoke.${index + 1}`,
+    range,
+    text,
+    bytes,
+  }));
+  const sites = [...commonSites, ...invocationSites];
+  const commonSiteIds = commonSites.map((site) => site.siteId);
+  const conditions = ["timer-callback:without-arguments", "timer-callback:with-arguments"];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "callback-timer-dispatch-route",
+    resolutionPolicy: "conditioned-alternatives",
+    sites,
+    producerPaths: invocationSites.map((site, index) => ({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0${conditions[index]}`),
+      conditionId: conditions[index],
+      requiredSiteIds: [...commonSiteIds, site.siteId],
+    })),
+  });
+}
+
+function websocketContextReleaseBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (
+    branch?.observedKey !== "callback:websocket-context-release"
+    || sourcePath !== "src/engine/hermes_runtime.cc"
+    || locator !== "native_ws_release_context"
+  ) return null;
+  const release = robustFunctionDeclarationRange(text, locator);
+  if (!release) return null;
+  const deletes = tokenRangesWithin(text, "delete ctx;", release);
+  const finalizer = callExpressionRangesWithin(text, "pushRuntimeFinalizer", release);
+  if (deletes.length !== 2 || finalizer.length !== 1) return null;
+  const definitionSite = sourceSite({ sourceRef, path: sourcePath, role: "registration", siteKey: "websocket-context.release", range: release, text, bytes });
+  const directSite = sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: "websocket-context.direct-delete", range: deletes[0], text, bytes });
+  const finalizerSite = sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: "websocket-context.finalizer-publication", range: finalizer[0], text, bytes });
+  const deferredSite = sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: "websocket-context.deferred-delete", range: deletes[1], text, bytes });
+  const sites = [definitionSite, directSite, finalizerSite, deferredSite];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "callback-context-release-route",
+    resolutionPolicy: "conditioned-alternatives",
+    sites,
+    producerPaths: [
+      {
+        pathId: stableId("producer", `${branch.branchId}\0direct-release`),
+        conditionId: "callback-release:on-runtime-thread",
+        requiredSiteIds: [definitionSite.siteId, directSite.siteId],
+      },
+      {
+        pathId: stableId("producer", `${branch.branchId}\0deferred-release`),
+        conditionId: "callback-release:off-runtime-thread",
+        requiredSiteIds: [definitionSite.siteId, finalizerSite.siteId, deferredSite.siteId],
+      },
+    ],
+  });
+}
+
+function signalDispatchBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (
+    branch?.observedKey !== "callback:signal-delivery"
+    || sourcePath !== "src/engine/bootstrap/stream-enhance.js"
+    || locator !== "__exactDispatchPendingSignals"
+  ) return null;
+  const assignmentToken = "globalThis.__exactDispatchPendingSignals = function()";
+  const assignment = text.indexOf(assignmentToken);
+  const opening = assignment < 0 ? -1 : text.indexOf("{", assignment + assignmentToken.length);
+  const endByte = opening < 0 ? -1 : matchingBraceEnd(text, opening);
+  if (endByte < 0) return null;
+  const dispatcher = { startByte: assignment, endByte };
+  const publication = lineRange(text, assignment);
+  const poll = callExpressionRangesWithin(text, "__exactPollSignal", dispatcher);
+  const emit = callExpressionRangesWithin(text, "proc.emit", dispatcher);
+  const reset = callExpressionRangesWithin(text, "__exactResetSignal", dispatcher);
+  const redeliver = callExpressionRangesWithin(text, "proc.kill", dispatcher);
+  if (poll.length !== 1 || emit.length !== 1 || reset.length !== 1 || redeliver.length !== 1) {
+    return null;
+  }
+  const definitionSite = sourceSite({ sourceRef, path: sourcePath, role: "definition", siteKey: "signal.dispatcher", range: dispatcher, text, bytes });
+  const publicationSite = sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: "signal.dispatcher-global", range: publication, text, bytes });
+  const pollSite = sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: "signal.poll", range: poll[0], text, bytes });
+  const emitSite = sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: "signal.emit", range: emit[0], text, bytes });
+  const resetSite = sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: "signal.reset", range: reset[0], text, bytes });
+  const redeliverSite = sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: "signal.redeliver", range: redeliver[0], text, bytes });
+  const sites = [definitionSite, publicationSite, pollSite, emitSite, resetSite, redeliverSite];
+  const common = [definitionSite.siteId, publicationSite.siteId, pollSite.siteId];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "callback-signal-dispatch-route",
+    resolutionPolicy: "conditioned-alternatives",
+    sites,
+    producerPaths: [
+      {
+        pathId: stableId("producer", `${branch.branchId}\0signal-listener`),
+        conditionId: "signal-listener:present",
+        requiredSiteIds: [...common, emitSite.siteId],
+      },
+      {
+        pathId: stableId("producer", `${branch.branchId}\0signal-default`),
+        conditionId: "signal-listener:absent",
+        requiredSiteIds: [...common, resetSite.siteId, redeliverSite.siteId],
+      },
+    ],
+  });
+}
+
 function cliNamespaceRefusalBinding({ branch, sourceRef, sourcePath, locator, absolute, text, bytes }) {
   if (!branch?.observedKey?.startsWith("cli:") || sourcePath !== "runtime-surface.json") return null;
   if (!["legacyProjectCommands", "reservedCommands"].includes(locator)) return null;
@@ -1422,8 +1912,8 @@ export function validateRestrictedExactSourceBinding(binding) {
       (siteId) => binding.sites.find((site) => site.siteId === siteId).role,
     );
     if (binding.producerPaths.includes(producerPath)) {
-      if (!roles.includes("publication")) {
-        throw new Error(`${binding.sourceRef}: producer path lacks publication site`);
+      if (!roles.some((role) => ["publication", "dispatch"].includes(role))) {
+        throw new Error(`${binding.sourceRef}: producer path lacks publication or dispatch site`);
       }
       if (!roles.some((role) => ["definition", "value-producer", "registration"].includes(role))) {
         throw new Error(`${binding.sourceRef}: producer path lacks definition or value producer`);
@@ -1500,6 +1990,14 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? builtinExportBranchBinding({ branch, sourceRef, ...loaded })
     ?? jsiGlobalBranchBinding({ branch, sourceRef, ...loaded })
     ?? exportedHostAbiBinding({ branch, sourceRef, ...loaded })
+    ?? callbackProducerBinding({ branch, sourceRef, ...loaded })
+    ?? callbackDeliveryBinding({ branch, sourceRef, ...loaded })
+    ?? callbackSetterBinding({ branch, sourceRef, ...loaded })
+    ?? callbackDirectDispatchBinding({ branch, sourceRef, ...loaded })
+    ?? nativePrincipalRestoreBinding({ branch, sourceRef, ...loaded })
+    ?? timerCallbackBinding({ branch, sourceRef, ...loaded })
+    ?? websocketContextReleaseBinding({ branch, sourceRef, ...loaded })
+    ?? signalDispatchBinding({ branch, sourceRef, ...loaded })
     ?? cliVisibleCommandBinding({ branch, sourceRef, ...loaded })
     ?? cliNamespaceRefusalBinding({ branch, sourceRef, ...loaded })
     ?? bootstrapGlobalBinding({ branch, sourceRef, ...loaded })
@@ -1545,7 +2043,22 @@ export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root =
   const selectedEntries = new Set();
   const producerPaths = [];
   const refusalPaths = [];
-  if (branch.observedKey.startsWith("native-op:global:")) {
+  if (branch.observedKey === "callback:signal-delivery") {
+    const producer = entries.find(({ binding }) => binding.locatorKind === "callback-delivery-route");
+    const dispatcher = entries.find(({ binding }) => binding.locatorKind === "callback-signal-dispatch-route");
+    if (producer?.binding.producerPaths.length === 1 && dispatcher) {
+      selectedEntries.add(producer);
+      selectedEntries.add(dispatcher);
+      const producerSiteIds = producer.binding.producerPaths[0].requiredSiteIds;
+      for (const pathEntry of dispatcher.binding.producerPaths) {
+        producerPaths.push({
+          pathId: stableId("producer", `${branch.branchId}\0${pathEntry.conditionId}`),
+          conditionId: pathEntry.conditionId,
+          requiredSiteIds: [...producerSiteIds, ...pathEntry.requiredSiteIds],
+        });
+      }
+    }
+  } else if (branch.observedKey.startsWith("native-op:global:")) {
     const observedPath = branch.observedKey.slice("native-op:global:".length);
     const producer = selectGlobalProducerEntry(observedPath, entries);
     const publications = entries.filter(({ binding }) =>

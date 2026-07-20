@@ -279,6 +279,239 @@ void install(Runtime& rt) {
     ]);
   });
 
+  test("binds a callback producer to its exact runtime-queue publication call", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.callback.producer.android-animation-frame",
+        observedKey: "callback:producer:src/engine/hermes_runtime_android.cc:android_animation_frame_callback:pushRuntimeCallback",
+        targetVariant: "android",
+      },
+      "src/engine/hermes_runtime_android.cc#android_animation_frame_callback:pushRuntimeCallback",
+    );
+    expect(binding.locatorKind).toBe("callback-producer-route");
+    expect(binding.sites.map((site) => site.role)).toEqual([
+      "value-producer",
+      "publication",
+    ]);
+    const source = fs.readFileSync("src/engine/hermes_runtime_android.cc");
+    expect(
+      source.subarray(binding.sites[1].startByte, binding.sites[1].endByte).toString(),
+    ).toMatch(/^pushRuntimeCallback\(/u);
+  });
+
+  test("binds every WebSocket callback producer call without crediting comments", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.callback.producer.websocket",
+        observedKey: "callback:producer:src/engine/hermes_runtime_websocket.cc:installWebSocketGlobals:pushRuntimeCallback",
+        targetVariant: "main",
+      },
+      "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals:pushRuntimeCallback",
+    );
+    expect(binding.sites).toHaveLength(7);
+    expect(binding.sites.slice(1).every((site) => site.role === "publication")).toBe(true);
+    const source = fs.readFileSync("src/engine/hermes_runtime_websocket.cc");
+    for (const site of binding.sites.slice(1)) {
+      expect(source.subarray(site.startByte, site.endByte).toString()).toMatch(
+        /^pushRuntimeCallback\(/u,
+      );
+    }
+  });
+
+  test("binds callback delivery through exact producer, retention, and queue dispatch", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.callback.dns.async.delivery.0t5h1ll.main",
+        observedKey: "callback:dns-async-delivery",
+        targetVariant: "main",
+      },
+      "src/engine/hermes_runtime_dns.cc#startDnsAsync",
+    );
+    expect(binding.locatorKind).toBe("callback-delivery-route");
+    expect(binding.sites.map((site) => site.role)).toEqual([
+      "value-producer",
+      "publication",
+      "definition",
+      "retention",
+      "definition",
+      "dispatch",
+    ]);
+    expect(binding.sites.slice(-4).map((site) => site.path)).toEqual([
+      "src/engine/hermes_runtime.cc",
+      "src/engine/hermes_runtime.cc",
+      "src/engine/hermes_runtime.cc",
+      "src/engine/hermes_runtime.cc",
+    ]);
+  });
+
+  test("keeps POSIX and Windows filesystem callback deliveries target-conditioned", () => {
+    const branch = {
+      branchId: "surface.callback.filesystem.async.delivery.1ia1gd5.main",
+      edgeId: "surface.callback.filesystem.async.delivery.1ia1gd5",
+      observedKey: "callback:filesystem-async-delivery",
+      targetVariant: "main",
+    };
+    const route = buildRestrictedExactBranchSourceRoute(branch, [
+      "src/engine/hermes_runtime_fs.cc#startFsAsync",
+      "src/engine/hermes_runtime_fs_windows.cc#startFsAsync",
+    ]);
+    expect(route.status).toBe("executable");
+    expect(route.resolutionPolicy).toBe("conditioned-alternatives");
+    expect(route.producerPaths.map((producerPath) => producerPath.conditionId).sort()).toEqual([
+      "target-platform:not-windows",
+      "target-platform:windows",
+    ]);
+  });
+
+  test("binds callback setters through exact ABI registration and retained slots", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.callback.ios.dispatch.main",
+        observedKey: "callback:ios-dispatch",
+        targetVariant: "main",
+      },
+      "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_callback",
+    );
+    expect(binding.locatorKind).toBe("callback-setter-route");
+    expect(binding.sites.map((site) => site.role)).toEqual([
+      "registration",
+      "publication",
+      "retention",
+    ]);
+  });
+
+  test("keeps platform-specific microtask dispatches as distinct source paths", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.callback.microtask.drain",
+        observedKey: "callback:microtask-drain",
+        targetVariant: "all",
+      },
+      "src/engine/hermes_runtime.cc#drainMicrotasks",
+    );
+    expect(binding.locatorKind).toBe("callback-direct-dispatch-route");
+    expect(binding.producerPaths.map((producerPath) => producerPath.conditionId)).toEqual([
+      "target-platform:windows",
+      "target-platform:not-windows",
+    ]);
+    expect(binding.sites.map((site) => site.role)).toEqual([
+      "registration",
+      "dispatch",
+      "dispatch",
+    ]);
+  });
+
+  test("binds callback queue drain through retention transfer and exact invocation", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.callback.queue.drain",
+        observedKey: "callback:queue-drain",
+        targetVariant: "all",
+      },
+      "src/engine/hermes_runtime.cc#drainCallbackQueue",
+    );
+    expect(binding.locatorKind).toBe("callback-direct-dispatch-route");
+    expect(binding.sites.map((site) => site.role)).toEqual([
+      "registration",
+      "retention",
+      "dispatch",
+    ]);
+  });
+
+  test("binds timer callback alternatives through the public poll entry", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.callback.timer.invoke",
+        observedKey: "callback:timer-invoke",
+        targetVariant: "all",
+      },
+      "src/engine/hermes_runtime.cc#ex_hermes_poll",
+    );
+    expect(binding.locatorKind).toBe("callback-timer-dispatch-route");
+    expect(binding.producerPaths.map((producerPath) => producerPath.conditionId)).toEqual([
+      "timer-callback:without-arguments",
+      "timer-callback:with-arguments",
+    ]);
+  });
+
+  test("binds native-principal restoration to the exact RAII destructor write", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.callback.native.principal.restore",
+        observedKey: "callback:native-principal-restore",
+        targetVariant: "all",
+      },
+      "src/engine/hermes_runtime_internal.h#ScopedNativePrincipal",
+    );
+    expect(binding.locatorKind).toBe("callback-native-principal-restore-route");
+    expect(binding.sites.map((site) => site.role)).toEqual([
+      "registration",
+      "publication",
+      "dispatch",
+    ]);
+  });
+
+  test("keeps direct and owner-thread WebSocket context releases distinct", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.callback.websocket.context.release",
+        observedKey: "callback:websocket-context-release",
+        targetVariant: "all",
+      },
+      "src/engine/hermes_runtime.cc#native_ws_release_context",
+    );
+    expect(binding.locatorKind).toBe("callback-context-release-route");
+    expect(binding.producerPaths.map((producerPath) => producerPath.conditionId)).toEqual([
+      "callback-release:on-runtime-thread",
+      "callback-release:off-runtime-thread",
+    ]);
+  });
+
+  test("composes signal watcher, callback queue, and JS delivery outcomes", () => {
+    const branch = {
+      branchId: "surface.callback.signal.delivery",
+      edgeId: "surface.callback.signal.delivery",
+      observedKey: "callback:signal-delivery",
+      targetVariant: "main",
+    };
+    const route = buildRestrictedExactBranchSourceRoute(branch, [
+      "src/engine/bootstrap/stream-enhance.js#__exactDispatchPendingSignals",
+      "src/engine/hermes_runtime_crypto.cc#signalWatcherThreadMain",
+    ]);
+    expect(route.status).toBe("executable");
+    expect(route.producerPaths.map((producerPath) => producerPath.conditionId)).toEqual([
+      "signal-listener:present",
+      "signal-listener:absent",
+    ]);
+    expect(route.sites.map((site) => site.path)).toContain(
+      "src/engine/bootstrap/stream-enhance.js",
+    );
+    expect(route.sites.map((site) => site.path)).toContain(
+      "src/engine/hermes_runtime_crypto.cc",
+    );
+  });
+
+  test("binds every callback implementation branch to an executable source route", () => {
+    const implementation = JSON.parse(
+      fs.readFileSync("capsec/generated/implementation-manifest.json", "utf8"),
+    );
+    const incomplete = [];
+    for (const branch of implementation.surfaces.filter(
+      (surface) => surface.observedKey.startsWith("callback:"),
+    )) {
+      const refs = [...new Set([
+        ...branch.sourceRefs,
+        ...branch.enforcementRoute.sourceRefs,
+        ...branch.enforcementRoute.proofSourceRefs,
+      ])];
+      const route = buildRestrictedExactBranchSourceRoute(branch, refs);
+      if (route.status !== "executable") {
+        incomplete.push({ branchId: branch.branchId, unresolved: route.unresolved });
+      }
+    }
+    expect(incomplete).toEqual([]);
+  });
+
   test("binds a visible CLI command through manifest, clap enum, and dispatch", () => {
     const binding = resolveRestrictedExactBranchSourceBinding(
       {
