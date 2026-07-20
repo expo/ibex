@@ -305,6 +305,8 @@ jobs:
           $ErrorActionPreference = "Stop"
           $directory = Join-Path $PWD "target\capsec-focused-windows"
           New-Item -ItemType Directory -Force -Path $directory | Out-Null
+          $env:IBEX_MODULE_SEMANTICS_OBSERVATIONS_OUTPUT =
+            Join-Path $directory "module-semantics-observations.json"
           cargo test --test module_semantics_baseline -- --exact --test-threads=1 --nocapture 2>&1 |
             Tee-Object -FilePath (Join-Path $directory "module-semantics.log")
           if ($LASTEXITCODE -ne 0) { throw "focused module-semantics baseline failed" }

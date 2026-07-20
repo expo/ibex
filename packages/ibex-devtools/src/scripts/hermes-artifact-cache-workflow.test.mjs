@@ -107,4 +107,8 @@ test("Windows conformance can isolate module-semantics evidence", () => {
   expect(windowsJob).toContain("inputs.scope == 'module-semantics'");
   expect(windowsJob).toContain("cargo test --test module_semantics_baseline");
   expect(windowsJob).toContain('"module-semantics.log"');
+  expect(windowsJob).toContain(
+    "IBEX_MODULE_SEMANTICS_OBSERVATIONS_OUTPUT",
+  );
+  expect(windowsJob).toContain('"module-semantics-observations.json"');
 });

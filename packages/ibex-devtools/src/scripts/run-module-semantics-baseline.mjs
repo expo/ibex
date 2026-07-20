@@ -183,6 +183,12 @@ function main() {
     observations,
   };
 
+  const observationsOutput = process.env.IBEX_MODULE_SEMANTICS_OBSERVATIONS_OUTPUT;
+  if (observationsOutput) {
+    mkdirSync(path.dirname(observationsOutput), { recursive: true });
+    writeFileSync(observationsOutput, `${JSON.stringify(generated, null, 2)}\n`);
+  }
+
   if (options.writeBaseline) {
     mkdirSync(path.dirname(baselinePath), { recursive: true });
     writeFileSync(baselinePath, `${JSON.stringify(generated, null, 2)}\n`);
