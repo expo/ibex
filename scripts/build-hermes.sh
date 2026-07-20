@@ -45,6 +45,7 @@ esac
 HERMESC_DEST="$PROJECT_ROOT/tools/hermes/hermesc-macos-$HOST_ARCH"
 MACOS_FRAMEWORK_DEST="$FRAMEWORKS_DIR/hermesvm.framework"
 MACOS_STATIC_DIR="$FRAMEWORKS_DIR/macos-static"
+PROFILE_RECEIPT_DEST="$FRAMEWORKS_DIR/hermes-profile-provenance.json"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -482,6 +483,12 @@ cp -R "$VERSION_CACHE/hermesvm.xcframework" "$FRAMEWORKS_DIR/hermes.xcframework"
 rm -rf "$MACOS_FRAMEWORK_DEST"
 cp -R "$VERSION_CACHE/hermesvm.framework" "$MACOS_FRAMEWORK_DEST"
 verify_debugger_symbols "$MACOS_FRAMEWORK_DEST"
+write_profile_receipt
+if [ -f "$PROFILE_RECEIPT_DEST" ]; then
+    cp "$PROFILE_RECEIPT_DEST" "$VERSION_CACHE/hermes-profile-provenance.json"
+else
+    rm -f "$VERSION_CACHE/hermes-profile-provenance.json"
+fi
 rm -rf "$MACOS_STATIC_DIR"
 cp -R "$VERSION_CACHE/macos-static" "$MACOS_STATIC_DIR"
 
