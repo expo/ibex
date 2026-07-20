@@ -2022,6 +2022,99 @@ function typescriptModuleObjectMemberProvenanceBinding({ sourceRef, sourcePath, 
   });
 }
 
+function legacyViewConstructorTableBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (!branch?.observedKey?.startsWith("native-op:global:")
+    || !sourcePath.startsWith("src/engine/bootstrap/")
+    || !sourcePath.endsWith(".js")) return null;
+  const observedPath = branch.observedKey.slice("native-op:global:".length);
+  if (observedPath !== locator) return null;
+  const constructorName = observedPath.split(".")[0];
+  const ast = parse(text, { sourceType: "script", allowReturnOutsideFunction: true });
+  const wrapperNames = new Set([
+    "wrapCtor",
+    "wrapSharedArrayBufferViewCtor",
+    "__exactWrapSharedArrayBufferViewCtor",
+  ]);
+  const wrappers = new Map();
+  const arrays = [];
+  const calls = [];
+  walkJavaScript(ast.program, (node, parent) => {
+    if (node.type === "FunctionDeclaration" && wrapperNames.has(node.id?.name)) {
+      wrappers.set(node.id.name, node);
+    }
+    if (node.type === "VariableDeclarator"
+      && node.id?.type === "Identifier"
+      && node.init?.type === "ArrayExpression") {
+      arrays.push({ name: node.id.name, node, value: node.init });
+    }
+    if (node.type === "CallExpression"
+      && node.callee?.type === "Identifier"
+      && wrapperNames.has(node.callee.name)) {
+      calls.push({ node: parent?.type === "ExpressionStatement" ? parent : node, call: node });
+    }
+  });
+  const publications = new Map();
+  for (const [name, wrapper] of wrappers) {
+    const matches = [];
+    walkJavaScript(wrapper.body, (node, parent) => {
+      if (node.type !== "AssignmentExpression" || node.left?.type !== "MemberExpression") return;
+      const object = memberSegments(node.left.object);
+      if (JSON.stringify(object) === JSON.stringify(["globalThis"])
+        && node.left.computed
+        && node.left.property?.type === "Identifier"
+        && node.left.property.name === wrapper.params[0]?.name) {
+        matches.push(parent?.type === "ExpressionStatement" ? parent : node);
+      }
+    });
+    if (matches.length === 1) publications.set(name, matches[0]);
+  }
+  const routes = [];
+  for (const { node, call } of calls) {
+    const wrapperName = call.callee.name;
+    const publication = publications.get(wrapperName);
+    if (!publication) continue;
+    const argument = call.arguments[0];
+    let entry = null;
+    if (propertyName(argument) === constructorName) {
+      entry = argument;
+    } else if (argument?.type === "MemberExpression" && argument.object?.type === "Identifier") {
+      const candidates = arrays.filter((row) =>
+        row.name === argument.object.name
+        && row.node.start < call.start
+        && row.value.elements.some((element) => propertyName(element) === constructorName));
+      if (candidates.length > 0) {
+        const table = candidates.at(-1);
+        entry = table.value.elements.find((element) => propertyName(element) === constructorName);
+      }
+    }
+    if (entry) routes.push({ wrapperName, entry, dispatch: node, publication });
+  }
+  if (routes.length === 0) return null;
+  const sites = [];
+  const producerPaths = [];
+  for (const [indexValue, route] of routes.entries()) {
+    const pathSites = [
+      sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${constructorName}.table-entry.${indexValue}`, range: { startByte: route.entry.start, endByte: route.entry.end }, text, bytes }),
+      sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: `${constructorName}.wrapper-dispatch.${indexValue}`, range: { startByte: route.dispatch.start, endByte: route.dispatch.end }, text, bytes }),
+      sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${constructorName}.wrapper-publication.${indexValue}`, range: { startByte: route.publication.start, endByte: route.publication.end }, text, bytes }),
+    ];
+    sites.push(...pathSites);
+    producerPaths.push({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0view-wrapper\0${indexValue}`),
+      conditionId: `legacy-wrapper:${sourcePath}:${route.wrapperName}:${route.dispatch.start}`,
+      requiredSiteIds: pathSites.map((site) => site.siteId),
+    });
+  }
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "legacy-view-constructor-table-route",
+    targetGlobalPath: observedPath,
+    resolutionPolicy: producerPaths.length > 1 ? "conditioned-alternatives" : "composite-path",
+    sites,
+    producerPaths,
+  });
+}
+
 function legacyJavascriptGlobalRouteBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
   if (!branch?.observedKey?.startsWith("native-op:global:")
     || !sourcePath.startsWith("src/engine/bootstrap/")
@@ -5654,6 +5747,7 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? exactGlobalAliasBinding({ branch, sourceRef, ...loaded })
     ?? evaluatedCppGlobalBinding({ branch, sourceRef, ...loaded })
     ?? cppSymbolProvenanceBinding({ branch, sourceRef, ...loaded })
+    ?? legacyViewConstructorTableBinding({ branch, sourceRef, ...loaded })
     ?? legacyJavascriptGlobalRouteBinding({ branch, sourceRef, ...loaded })
     ?? generatedJavascriptGlobalBinding({ branch, sourceRef, ...loaded })
     ?? javascriptSymbolProvenanceBinding({ branch, sourceRef, ...loaded });

@@ -711,6 +711,30 @@ void install(Runtime& rt) {
     expect(binding.sites.every((site) => site.role === "symbol-provenance")).toBe(true);
   });
 
+  test("binds legacy view constructor tables through wrapper dispatch and publication", () => {
+    for (const observedPath of ["Float32Array", "Float32Array.constructor", "DataView"]) {
+      const branch = {
+        branchId: `surface.${observedPath}.default`,
+        observedKey: `native-op:global:${observedPath}`,
+        targetVariant: "default",
+      };
+      const refs = [
+        `src/engine/bootstrap/bootstrap-globals.js#${observedPath}`,
+        `src/engine/bootstrap/compat-polyfills.js#${observedPath}`,
+        `src/engine/bootstrap/module-loader.js#${observedPath}`,
+      ];
+      for (const sourceRef of refs) {
+        const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+        expect(binding.locatorKind).toBe("legacy-view-constructor-table-route");
+        expect(binding.sites.some((site) => site.role === "dispatch")).toBe(true);
+        expect(binding.sites.some((site) => site.role === "publication")).toBe(true);
+      }
+      const route = buildRestrictedExactBranchSourceRoute(branch, refs);
+      expect(route.status).toBe("executable");
+      expect(route.producerPaths).toHaveLength(4);
+    }
+  });
+
   test("models guarded legacy global assignments as distinct executable paths", () => {
     const branch = {
       branchId: "surface.native.op.global.badly.default",
