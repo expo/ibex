@@ -73,12 +73,19 @@ function buildFixture({
   authorityEngine = engine,
   authorityFamily = "macos",
   fixtureId = "fixture.portable-engine-example",
+  fixtureIds = null,
   mutateMapped = null,
 } = {}) {
   target = clone(target);
   authorityTarget = clone(authorityTarget);
   engine = clone(engine);
   authorityEngine = clone(authorityEngine);
+  const requiredFixtureIds = fixtureIds
+    ? [...fixtureIds].sort()
+    : [fixtureId];
+  if (requiredFixtureIds.length === 0) {
+    throw new Error("test fixture requires at least one fixture ID");
+  }
   const sourceRevision = "a".repeat(40);
   const sourceTreeDigest = digest("A");
   const executor = "ibex-exact-fixture-evidence-pilot";
@@ -92,29 +99,32 @@ function buildFixture({
         target: clone(target),
         disposition: "enforced",
         implementationBranchIds: ["branch.portable-engine-example"],
-        fixtures: [fixtureId],
+        fixtures: requiredFixtureIds,
         rationale: "Exact fixture evidence is required.",
       },
     ],
   };
   const targetCellsBytes = exactBytes(targetCells);
 
-  const recipe = {
-    fixtureId,
-    status: "fully-executable",
-    executor,
-    planDigest: digest("A"),
-  };
-  recipe.planDigest = portableRecipePlanDigest(recipe);
+  const recipes = requiredFixtureIds.map((requiredFixtureId) => {
+    const recipe = {
+      fixtureId: requiredFixtureId,
+      status: "fully-executable",
+      executor,
+      planDigest: digest("A"),
+    };
+    recipe.planDigest = portableRecipePlanDigest(recipe);
+    return recipe;
+  });
   const recipeCatalog = withSelfDigest(
     {
       recipeCatalogSchema: "ibex/capsec-executable-recipes/2",
       profile: "ibex/capsec/1",
       target: clone(target),
-      recipes: [recipe],
+      recipes,
       summary: {
-        requiredFixtures: 1,
-        fullyExecutableFixtures: 1,
+        requiredFixtures: requiredFixtureIds.length,
+        fullyExecutableFixtures: requiredFixtureIds.length,
         unresolvedFixtures: 0,
       },
       recipeCatalogDigest: digest("A"),
@@ -125,14 +135,17 @@ function buildFixture({
   const recipeCatalogBytes = exactBytes(recipeCatalog);
   const recipeCatalogRawContentDigest = rawContentDigest(recipeCatalogBytes);
 
-  const publicExecution = {
-    fixtureId,
-    outcome: "passed",
-    executor,
-    evidenceDigest: digest("A"),
-  };
-  publicExecution.evidenceDigest =
-    portablePublicSurfaceExecutionEvidenceDigest(publicExecution);
+  const publicExecutions = requiredFixtureIds.map((requiredFixtureId) => {
+    const execution = {
+      fixtureId: requiredFixtureId,
+      outcome: "passed",
+      executor,
+      evidenceDigest: digest("A"),
+    };
+    execution.evidenceDigest =
+      portablePublicSurfaceExecutionEvidenceDigest(execution);
+    return execution;
+  });
   const publicSurfaceExecution = withSelfDigest(
     {
       publicSurfaceExecutionSchema:
@@ -145,15 +158,15 @@ function buildFixture({
       recipeCatalogDigest: recipeCatalog.recipeCatalogDigest,
       recipeCatalogRawContentDigest,
       summary: {
-        requiredFixtures: 1,
-        executableFixtures: 1,
+        requiredFixtures: requiredFixtureIds.length,
+        executableFixtures: requiredFixtureIds.length,
         residualFixtures: 0,
-        executedFixtures: 1,
-        passedFixtures: 1,
+        executedFixtures: requiredFixtureIds.length,
+        passedFixtures: requiredFixtureIds.length,
         failedFixtures: 0,
         missingFixtures: 0,
       },
-      executions: [publicExecution],
+      executions: publicExecutions,
       publicSurfaceExecutionDigest: digest("A"),
     },
     "publicSurfaceExecutionDigest",
@@ -208,25 +221,32 @@ function buildFixture({
   };
   const bindingDigest = portableExecutionBindingDigest(portableBindings);
 
-  const fixtureArtifact = withSelfDigest(
-    {
-      fixtureEvidenceSchema: "ibex/capsec-portable-fixture-evidence/1",
-      profile: "ibex/capsec/1",
-      sourceRevision,
-      sourceTreeDigest,
-      target: clone(target),
-      engine: clone(engine),
-      fixtureId,
-      outcome: "passed",
-      executor,
-      bindingDigest,
-      artifactDigest: digest("A"),
-    },
-    "artifactDigest",
-    portableFixtureEvidenceDigest,
-  );
-  const fixtureArtifactBytes = exactBytes(fixtureArtifact);
-  const fixtureRawContentDigest = rawContentDigest(fixtureArtifactBytes);
+  const fixtureArtifacts = requiredFixtureIds.map((requiredFixtureId) => {
+    const artifact = withSelfDigest(
+      {
+        fixtureEvidenceSchema: "ibex/capsec-portable-fixture-evidence/1",
+        profile: "ibex/capsec/1",
+        sourceRevision,
+        sourceTreeDigest,
+        target: clone(target),
+        engine: clone(engine),
+        fixtureId: requiredFixtureId,
+        outcome: "passed",
+        executor,
+        bindingDigest,
+        artifactDigest: digest("A"),
+      },
+      "artifactDigest",
+      portableFixtureEvidenceDigest,
+    );
+    const bytes = exactBytes(artifact);
+    return {
+      artifact,
+      bytes,
+      rawContentDigest: rawContentDigest(bytes),
+    };
+  });
+  const fixtureArtifact = fixtureArtifacts[0].artifact;
 
   const mappedEngine = clone(baseMappedEngine);
   mappedEngine.portable = clone(engine);
@@ -251,8 +271,10 @@ function buildFixture({
       phaseId: "fixture-evidence",
       commandId: "exact-fixture-evidence",
       commandIdentityDigest: digest("E"),
-      fixtureIds: [fixtureId],
-      outputDigests: [fixtureRawContentDigest],
+      fixtureIds: requiredFixtureIds,
+      outputDigests: fixtureArtifacts.map(
+        (fixture) => fixture.rawContentDigest,
+      ),
       engine: clone(engine),
       mappedEngine,
       evidenceDigest: digest("A"),
@@ -293,11 +315,14 @@ function buildFixture({
         truncated: false,
       },
       outputs: [
-        {
-          path: "/runner/evidence/fixture.json",
-          bytes: fixtureArtifactBytes.byteLength,
-          digest: fixtureRawContentDigest,
-        },
+        ...fixtureArtifacts.map((fixture, index) => ({
+          path:
+            fixtureArtifacts.length === 1
+              ? "/runner/evidence/fixture.json"
+              : `/runner/evidence/fixture-${index + 1}.json`,
+          bytes: fixture.bytes.byteLength,
+          digest: fixture.rawContentDigest,
+        })),
         {
           path: "/runner/evidence/mapped-engine.json",
           bytes: mappedEvidenceBytes.byteLength,
@@ -330,30 +355,28 @@ function buildFixture({
         cells: 1,
         conformantCells: 1,
         incompleteCells: 0,
-        requiredFixtures: 1,
-        passedFixtures: 1,
+        requiredFixtures: requiredFixtureIds.length,
+        passedFixtures: requiredFixtureIds.length,
         missingFixtures: 0,
         failedFixtures: 0,
       },
-      executions: [
-        {
-          fixtureId,
-          outcome: "passed",
-          executor,
-          artifactDigest: fixtureArtifact.artifactDigest,
-          rawContentDigest: fixtureRawContentDigest,
-          bindingDigest,
-          mappedEngineExecutionEvidenceDigest: evidence.evidenceDigest,
-        },
-      ],
+      executions: fixtureArtifacts.map((fixture) => ({
+        fixtureId: fixture.artifact.fixtureId,
+        outcome: "passed",
+        executor,
+        artifactDigest: fixture.artifact.artifactDigest,
+        rawContentDigest: fixture.rawContentDigest,
+        bindingDigest,
+        mappedEngineExecutionEvidenceDigest: evidence.evidenceDigest,
+      })),
       cells: [
         {
           edgeId: "edge.portable-engine-example",
           implementationBranchIds: ["branch.portable-engine-example"],
           enforcementBranchIds: ["branch.portable-engine-example"],
           status: "conformant",
-          requiredFixtures: [fixtureId],
-          passedFixtures: [fixtureId],
+          requiredFixtures: requiredFixtureIds,
+          passedFixtures: requiredFixtureIds,
           missingFixtures: [],
           failedFixtures: [],
         },
@@ -456,7 +479,7 @@ function buildFixture({
       {
         mappedEvidenceBytes,
         commandAttemptBytes,
-        outputArtifactBytes: [fixtureArtifactBytes],
+        outputArtifactBytes: fixtureArtifacts.map((fixture) => fixture.bytes),
       },
     ],
   };
@@ -467,6 +490,7 @@ function buildFixture({
     bindingDigest,
     evidence,
     fixtureArtifact,
+    fixtureArtifacts,
     input,
     outputDispositionEvidence,
     publicSurfaceExecution,
@@ -556,6 +580,85 @@ function rewriteFixtureProcessChain(input, mutateFixture) {
   rewritten.processes[0].mappedEvidenceBytes = evidenceBytes;
   rewritten.processes[0].commandAttemptBytes = attemptBytes;
   rewritten.processes[0].outputArtifactBytes = [fixtureBytes];
+  return rewritten;
+}
+
+function orphanFirstExecutionFromMappedEvidence(input) {
+  const rewritten = clone(input);
+  const retainedFixtureBytes = rewritten.processes[0].outputArtifactBytes[1];
+  const retainedFixture = parseBytes(
+    retainedFixtureBytes,
+    "retained fixture artifact",
+  );
+  const retainedRawDigest = rawContentDigest(retainedFixtureBytes);
+
+  const evidence = parseBytes(
+    rewritten.processes[0].mappedEvidenceBytes,
+    "mapped evidence",
+  );
+  evidence.fixtureIds = [retainedFixture.fixtureId];
+  evidence.outputDigests = [retainedRawDigest];
+  evidence.evidenceDigest = mappedEngineExecutionEvidenceDigest(evidence);
+  const evidenceBytes = exactBytes(evidence);
+  const evidenceRawDigest = rawContentDigest(evidenceBytes);
+
+  const attempt = parseBytes(
+    rewritten.processes[0].commandAttemptBytes,
+    "supervisor attempt",
+  );
+  const retainedOutput = attempt.outputs.find(
+    (output) => output.digest === retainedRawDigest,
+  );
+  const mappedOutput = attempt.outputs.at(-1);
+  mappedOutput.bytes = evidenceBytes.byteLength;
+  mappedOutput.digest = evidenceRawDigest;
+  attempt.outputs = [retainedOutput, mappedOutput];
+  attempt.attemptDigest = commandAttemptDigest(attempt);
+  const attemptBytes = exactBytes(attempt);
+  const evidenceReference = {
+    evidenceDigest: evidence.evidenceDigest,
+    rawContentDigest: evidenceRawDigest,
+    attemptDigest: attempt.attemptDigest,
+    attemptRawContentDigest: rawContentDigest(attemptBytes),
+  };
+
+  const report = parseBytes(rewritten.reportBytes, "report");
+  report.bindings.mappedEngineExecutionEvidence = [evidenceReference];
+  report.executions[0].mappedEngineExecutionEvidenceDigest = digest("I");
+  report.executions[1].mappedEngineExecutionEvidenceDigest =
+    evidence.evidenceDigest;
+  report.conformanceDigest = portableConformanceDigest(report);
+  const reportBytes = exactBytes(report);
+  const reportRawDigest = rawContentDigest(reportBytes);
+
+  const attestations = parseBytes(
+    rewritten.attestationCatalogBytes,
+    "attestations",
+  );
+  attestations.attestations[0].conformanceDigest = report.conformanceDigest;
+  attestations.attestations[0].reportRawContentDigest = reportRawDigest;
+  attestations.attestations[0].mappedEngineExecutionEvidence = [
+    clone(evidenceReference),
+  ];
+  const advertisements = parseBytes(
+    rewritten.advertisementCatalogBytes,
+    "advertisements",
+  );
+  advertisements.advertisements[0].conformanceDigest =
+    report.conformanceDigest;
+  advertisements.advertisements[0].reportRawContentDigest = reportRawDigest;
+  advertisements.advertisements[0].mappedEngineExecutionEvidence = [
+    clone(evidenceReference),
+  ];
+
+  rewritten.reportBytes = reportBytes;
+  rewritten.attestationCatalogBytes = exactBytes(attestations);
+  rewritten.advertisementCatalogBytes = exactBytes(advertisements);
+  rewritten.processes[0] = {
+    mappedEvidenceBytes: evidenceBytes,
+    commandAttemptBytes: attemptBytes,
+    outputArtifactBytes: [retainedFixtureBytes],
+  };
   return rewritten;
 }
 
@@ -739,6 +842,17 @@ describe("additive Phase-2 portable-engine promotion contract", () => {
     const missingOutputBytes = clone(fixture.input);
     missingOutputBytes.processes[0].outputArtifactBytes = [];
     expectRefused(missingOutputBytes, /artifact membership differs/u);
+  });
+
+  test("rejects an orphan report execution when another mapped process is complete", () => {
+    const fixture = buildFixture({
+      fixtureIds: [
+        "fixture.portable-engine-alpha",
+        "fixture.portable-engine-beta",
+      ],
+    });
+    const input = orphanFirstExecutionFromMappedEvidence(fixture.input);
+    expectRefused(input, /report execution references unbound mapped-engine evidence/u);
   });
 
   test("joins report execution raw and semantic digests to exact output bytes", () => {

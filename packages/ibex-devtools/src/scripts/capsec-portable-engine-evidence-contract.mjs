@@ -700,13 +700,19 @@ function validateProcessRecord({ process, reference, report, authorityEntry, aut
   return { attempt, evidence };
 }
 
-function validateCompleteReport(report) {
+function validateCompleteReport(report, mappedEvidenceReferences) {
   invariant(report.status === "conformant", "only a conformant report may promote a target");
   invariant(report.cells.length > 0, "conformant report has no target cells");
   const executionsByFixture = new Map();
   for (const execution of report.executions) {
     invariant(!executionsByFixture.has(execution.fixtureId), "report repeats a fixture execution");
     invariant(execution.outcome === "passed", `${execution.fixtureId}: non-passing execution cannot promote`);
+    invariant(
+      mappedEvidenceReferences.has(
+        execution.mappedEngineExecutionEvidenceDigest,
+      ),
+      `${execution.fixtureId}: report execution references unbound mapped-engine evidence`,
+    );
     executionsByFixture.set(execution.fixtureId, execution);
   }
   invariant(
@@ -1097,14 +1103,13 @@ export function validatePortablePromotionV2(input) {
     report.bindings.mappedEngineExecutionEvidence,
     "report bindings.mappedEngineExecutionEvidence",
   );
-  validateCompleteReport(report);
-
   const references = new Map(
     report.bindings.mappedEngineExecutionEvidence.map((reference) => [
       reference.evidenceDigest,
       reference,
     ]),
   );
+  validateCompleteReport(report, references);
   invariant(
     input.processes.length === references.size,
     "detached mapped-evidence membership differs from the report",
