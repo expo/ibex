@@ -50,6 +50,27 @@ function nativeRoute(value, operationId) {
 }
 
 describe("test-only WebGPU wrapper generator", () => {
+  test("keeps historical compute-pipeline promotion provenance across the reviewed active identity rebind", () => {
+    validateWebGpuWrapperAuthority(authority);
+    const promotion = authority.provenance.localPromotions.find(
+      (candidate) => candidate.operationId === "GPUDevice.createComputePipeline",
+    );
+    const active = authority.payload.operations.find(
+      (candidate) => candidate.operationId === "GPUDevice.createComputePipeline",
+    );
+    expect(promotion).toMatchObject({
+      sourceOperationWireId: 2342501516,
+      sourceOperationSemanticSha256:
+        "26b046d57388a595abc66ac3c96e2722ea737b5f80fce67f6a34c8a79d77d590",
+    });
+    expect(active).toMatchObject({
+      wireId: 797909431,
+      semanticSha256:
+        "c9fa6574c6833ebcec767bdda2aa7e045fd1090270648c718a555d398590d5a0",
+    });
+    expect(active.wireId).not.toBe(promotion.sourceOperationWireId);
+  });
+
   test("binds the reviewed normalized projection and all subordinate digests", () => {
     const { computed } = validateWebGpuWrapperAuthority(authority);
     expect(computed).toEqual(REVIEWED_DIGESTS);

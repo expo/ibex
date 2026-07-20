@@ -5,6 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-20 (separates immutable compute-pipeline promotion provenance from its reviewed active content-addressed operation identity, so an outer Exact repin can rebind the active route without rewriting its source history)
 **Revised:** 2026-07-20 (adds an owner-thread outer host-task checkpoint to the construction-private V2 result: eval/result coercion, explicit promise advance, Exact poll callback batches, each timer, prepared runApp, native module/view/dispatch, structured evaluation, and debugger evaluation retain one Canvas epoch through nextTick and complete microtask drain; bounded Windows drains retain the same task across slices; the fifth exact frozen callback emits a distinct authenticated `texture-expire-v1` control under `GPUTexture.destroy`, while manual destroy remains orthogonal; ambiguous checkpoint failure quarantines the realm)
 **Revised:** 2026-07-20 (adds the named owner-thread `ex_hermes_seal_armed_shared_runtime_globals_v1` trusted-bootstrap transition: Ibex owns the single reviewed ambient/global closure program, diagnostic/off-owner/reentrant/provisional calls execute none of it, a thrown or native failure quarantines the generation, and `ex_hermes_finish_bootstrap` now requires the successful seal witness before its pristine descriptor sweep)
 **Revised:** 2026-07-20 (adds the explicit Exact-owned `EXACT_EXPERIMENTAL_WEBGPU_PRE1A` construction mode through separate Ibex artifact-builder and armed-host installer symbols: it raw-pins and derives exactly 58 private WebGPU target cells and 20 typed-positive `gpu:operation` selectors from the checked private registry, admits no app selector/cell/wildcard input, closes every ordinary target cell, leaves canonical arming and target advertisements unchanged, and still publishes the runtime wrapper only after authenticated V2 construction capture)
@@ -1200,7 +1201,11 @@ public installation, or WebGPU support claim.
 The compute-pipeline checkpoint promotes the previously staged conversion into
 one authenticated construction-private active route and generated request/result
 codec while preserving the staged semantic program and seven-row cohort as its
-explicit provenance authority. The private wrapper now materializes
+explicit provenance authority. Its historical `localPromotions` source identity
+records how the route entered this surface; it is not the active operation
+identity. A content-addressed wrapper repin may rebind the active `wireId` and
+semantic digest, so generation authenticates that reviewed pair separately and
+must not rewrite the historical source fields. The private wrapper now materializes
 `GPUDevice.createComputePipeline`, its `GPUComputePipeline` target wrapper, and
 the matching interface object only after receiving the authenticated V2 bridge
 and an explicitly injected digest-matched codec bundle. The production embedded

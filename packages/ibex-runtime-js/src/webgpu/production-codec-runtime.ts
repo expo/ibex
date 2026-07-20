@@ -103,7 +103,7 @@ interface NativeCodecField {
       | 1869756926
       | 2544948076
       | 3373402978
-      | 2342501516
+      | 797909431
       | 2407151159
       | 3285037552
       | 4177957718
@@ -119,7 +119,7 @@ interface NativeCodecField {
       | 2933046788
       | 404589710
       | 3114133342
-      | 2194495720
+      | 2735509416
       | 308839175;
   }>;
   readonly constant?: 1;
@@ -421,7 +421,7 @@ interface NativeCodecCreatePipelineLayoutRoute {
 
 interface NativeCodecCreateComputePipelineRoute {
   readonly operationId: 'GPUDevice.createComputePipeline';
-  readonly wireId: 2342501516;
+  readonly wireId: 797909431;
   readonly request: NativeCodecCreateBindGroupLayoutRoute['request'];
   readonly completion: NativeCodecCreateBindGroupLayoutRoute['completion'];
 }
@@ -579,7 +579,7 @@ interface NativeCodecQueueWriteTextureRoute {
 
 interface NativeCodecQueueCopyExternalImageToTextureRoute {
   readonly operationId: 'GPUQueue.copyExternalImageToTexture';
-  readonly wireId: 2194495720;
+  readonly wireId: 2735509416;
   readonly request: NativeCodecBufferLifecycleRoute['request'];
   readonly completion: NativeCodecBufferLifecycleRoute['completion'];
 }
@@ -968,7 +968,7 @@ const CREATE_PIPELINE_LAYOUT_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
 const CREATE_COMPUTE_PIPELINE_OPERATION_ID =
   'GPUDevice.createComputePipeline';
-const CREATE_COMPUTE_PIPELINE_WIRE_ID = 2342501516;
+const CREATE_COMPUTE_PIPELINE_WIRE_ID = 797909431;
 const CREATE_COMPUTE_PIPELINE_REQUEST_CODEC =
   'gpu-create-compute-pipeline-service-request-v1';
 const CREATE_COMPUTE_PIPELINE_COMPLETION_CODEC =
@@ -1040,7 +1040,7 @@ const QUEUE_WRITE_TEXTURE_COMPLETION_CODEC =
 const QUEUE_WRITE_TEXTURE_FIXED_PAYLOAD_BYTES = 192;
 const QUEUE_COPY_EXTERNAL_IMAGE_OPERATION_ID =
   'GPUQueue.copyExternalImageToTexture';
-const QUEUE_COPY_EXTERNAL_IMAGE_WIRE_ID = 2194495720;
+const QUEUE_COPY_EXTERNAL_IMAGE_WIRE_ID = 2735509416;
 const QUEUE_COPY_EXTERNAL_IMAGE_REQUEST_CODEC =
   'gpu-queue-copy-external-image-to-texture-service-request-v1';
 const QUEUE_COPY_EXTERNAL_IMAGE_COMPLETION_CODEC =
@@ -1081,7 +1081,7 @@ const EXPECTED_QUEUE_WRITE_BUFFER_NATIVE_CODEC_SHA256 =
 const EXPECTED_QUEUE_WRITE_TEXTURE_NATIVE_CODEC_SHA256 =
   '6f351b9a6fb152bc15e0c34cc1b5e4fc21bfbb51e1e08e3589f53bca91fe59ba';
 const EXPECTED_QUEUE_COPY_EXTERNAL_IMAGE_NATIVE_CODEC_SHA256 =
-  '0549e8c873541fee19da573b8c0fa5197475ec000c414f79011b6452c1b4bada';
+  'a3c40da61e6c716cedf3d7b78a1bac797bb4578ade6518f876f0c42147fba30b';
 const EXPECTED_QUEUE_SUBMIT_NATIVE_CODEC_SHA256 =
   '7384eadbb32ba1bdbf6986661155b6fc5ce91804d78c90c85b491c05e5ce1bf6';
 const EXPECTED_CANVAS_NATIVE_CODEC_SHA256 =
@@ -1091,7 +1091,7 @@ const EXPECTED_CREATE_RENDER_PIPELINE_NATIVE_ROUTE_SHA256 =
 const EXPECTED_CREATE_COMPUTE_PIPELINE_DESCRIPTOR_SHA256 =
   '1c6145dd069e31da8d4eca2cf765fd40c410d0bde08cdf92b98a3f4a05301943';
 const EXPECTED_CREATE_COMPUTE_PIPELINE_NATIVE_ROUTE_SHA256 =
-  '9ef551467a581cb5cb10e41e5a6c97e6bb64b3e452cfc5905fdd6ec85c283bdb';
+  'e836243af297f521065c469aa9a0d79b0f5a227c6e5b6fd01f1d8091887beec1';
 
 type NativeCodecProgramsWithoutQueueSubmitTypes = Omit<
   NativeCodecProgramsV2,
