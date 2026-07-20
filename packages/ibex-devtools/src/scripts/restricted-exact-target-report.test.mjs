@@ -63,6 +63,19 @@ describe("LLP 0033 restricted Exact target report", () => {
     expect(report.rows.every((row) => row.executionIds.length === 0)).toBe(true);
   });
 
+  test("rejects a fabricated clear-review digest", () => {
+    const input = fixture();
+    input.independentReview = {
+      status: "clear",
+      artifactDigest: taggedDigest(Buffer.from("no review artifact exists", "utf8")),
+      unresolvedCritical: 0,
+      unresolvedHigh: 0,
+    };
+    expect(() => buildRestrictedTargetReport(input)).toThrow(
+      "does not reopen exactly one artifact",
+    );
+  });
+
   test("credits only the exact observed edge and evidence kind", () => {
     const input = fixture();
     const projected = input.projection.rows.find((row) => row[1] === "reachable");

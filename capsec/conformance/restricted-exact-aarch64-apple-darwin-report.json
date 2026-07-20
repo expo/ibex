@@ -4496,13 +4496,13 @@
     }
   ],
   "independentReview": {
-    "artifactDigest": "sha256-zHTlvyb9-BLO6IOL4hmEEx3B0kaKfFhGYkwVAko_27M",
+    "artifactDigest": "sha256-TN0zxmXpKymTOQk3o4gWBo3iE637B_SalDmdzkaJBdM",
     "status": "failed",
     "unresolvedCritical": 1,
     "unresolvedHigh": 1
   },
   "profile": "ibex/exact-embedder-contract/1",
-  "reportDigest": "sha256-G0LfBVdj3kWIHBjv9CPk4_RkEh3x0Ahzps8vW6nKZOs",
+  "reportDigest": "sha256-myYSTLnJEQQJjIDV6qUSYbe949iCZPEVNixQNJTOq0w",
   "reportSchema": "ibex/restricted-profile-target-report/1",
   "rows": [
     {

@@ -48,7 +48,7 @@ function readFailedReview(reviewPath, evidencePaths) {
   }
   return {
     review,
-    artifactDigest: taggedDigest(Buffer.from(canonicalJson(review), "utf8")),
+    artifactDigest: taggedDigest(rawReview),
   };
 }
 

@@ -55,6 +55,151 @@ function reportDigest(report) {
   ]));
 }
 
+function validateIndependentReviewArtifact(independentReview, reviewedState) {
+  if (independentReview.status === "pending") {
+    if (independentReview.artifactDigest !== null) {
+      throw new Error("pending restricted review cannot name an artifact");
+    }
+    return;
+  }
+  if (independentReview.artifactDigest === null) {
+    throw new Error("settled restricted review omits its raw artifact digest");
+  }
+  const reviewRoot = path.join(capsecRoot, "conformance/reviews");
+  const candidates = fs.readdirSync(reviewRoot, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .map((entry) => path.join(reviewRoot, entry.name))
+    .filter((candidate) => {
+      const stat = fs.lstatSync(candidate);
+      return stat.isFile() && !stat.isSymbolicLink()
+        && taggedDigest(fs.readFileSync(candidate)) === independentReview.artifactDigest;
+    });
+  if (candidates.length !== 1) {
+    throw new Error("restricted review raw digest does not reopen exactly one artifact");
+  }
+  const rawReview = fs.readFileSync(candidates[0]);
+  const review = parseJsonStrict(rawReview, path.relative(repoRoot, candidates[0]));
+  if (
+    review.kind !== "ibex-llp-0033-independent-security-review"
+    || review.independent !== true
+    || !["clear", "fail"].includes(review.verdict)
+    || !Number.isSafeInteger(review.unresolvedCritical)
+    || !Number.isSafeInteger(review.unresolvedHigh)
+    || review.unresolvedCritical < 0
+    || review.unresolvedHigh < 0
+    || !Array.isArray(review.findings)
+    || typeof review.reviewedCommit !== "string"
+    || !/^([0-9a-f]{40})$/.test(review.reviewedCommit)
+    || typeof review.reviewedReportDigest !== "string"
+    || typeof review.reviewedReportRawContentDigest !== "string"
+    || review.reviewedEvidenceRawContentDigests === null
+    || typeof review.reviewedEvidenceRawContentDigests !== "object"
+    || Array.isArray(review.reviewedEvidenceRawContentDigests)
+  ) {
+    throw new Error("restricted independent review artifact is malformed");
+  }
+  const validSeverities = new Set(["critical", "high", "medium", "low"]);
+  const validFindingStatuses = new Set(["resolved", "unresolved"]);
+  if (review.findings.some((finding) => (
+    finding === null
+    || typeof finding !== "object"
+    || Array.isArray(finding)
+    || !validSeverities.has(finding.severity)
+    || !validFindingStatuses.has(finding.status)
+    || typeof finding.title !== "string"
+    || finding.title.length === 0
+    || !Array.isArray(finding.evidence)
+    || finding.evidence.length === 0
+    || finding.evidence.some((row) => typeof row !== "string" || row.length === 0)
+    || typeof finding.recommendation !== "string"
+    || finding.recommendation.length === 0
+  ))) {
+    throw new Error("restricted independent review findings are malformed");
+  }
+  const countedCritical = review.findings.filter(
+    (finding) => finding.status === "unresolved" && finding.severity === "critical",
+  ).length;
+  const countedHigh = review.findings.filter(
+    (finding) => finding.status === "unresolved" && finding.severity === "high",
+  ).length;
+  if (
+    countedCritical !== review.unresolvedCritical
+    || countedHigh !== review.unresolvedHigh
+  ) {
+    throw new Error("restricted review unresolved counts do not match findings");
+  }
+  const expectedStatus = review.verdict === "clear" ? "clear" : "failed";
+  if (
+    independentReview.status !== expectedStatus
+    || independentReview.unresolvedCritical !== review.unresolvedCritical
+    || independentReview.unresolvedHigh !== review.unresolvedHigh
+    || (review.verdict === "clear"
+      && (review.unresolvedCritical !== 0 || review.unresolvedHigh !== 0))
+    || (review.verdict === "fail"
+      && review.unresolvedCritical === 0 && review.unresolvedHigh === 0)
+  ) {
+    throw new Error("restricted review summary does not match its artifact verdict");
+  }
+  const reportPath = "capsec/conformance/restricted-exact-aarch64-apple-darwin-report.json";
+  let reviewedReportRaw;
+  try {
+    reviewedReportRaw = execFileSync(
+      "git",
+      ["show", `${review.reviewedCommit}:${reportPath}`],
+      { cwd: repoRoot, maxBuffer: 64 * 1024 * 1024 },
+    );
+  } catch {
+    throw new Error("restricted review commit does not contain its reviewed report");
+  }
+  const reviewedReport = parseJsonStrict(reviewedReportRaw, reportPath);
+  if (
+    taggedDigest(reviewedReportRaw) !== review.reviewedReportRawContentDigest
+    || reviewedReport.reportDigest !== review.reviewedReportDigest
+    || reviewedReport.reportDigest !== reportDigest(reviewedReport)
+  ) {
+    throw new Error("restricted review does not bind its historical report bytes");
+  }
+  const evidenceRoot = path.join(capsecRoot, "conformance/evidence/restricted-exact");
+  const reviewedEvidence = Object.entries(review.reviewedEvidenceRawContentDigests);
+  if (
+    reviewedEvidence.length !== 4
+    || !["absence-", "control-", "global-corpora-", "reachable-"].every(
+      (prefix) => reviewedEvidence.some(([name]) => name.startsWith(prefix)),
+    )
+  ) {
+    throw new Error("restricted review does not bind the four evidence families");
+  }
+  for (const [name, digest] of reviewedEvidence) {
+    if (path.basename(name) !== name || typeof digest !== "string") {
+      throw new Error("restricted review evidence binding is malformed");
+    }
+    const artifactPath = path.join(evidenceRoot, name);
+    const stat = fs.lstatSync(artifactPath);
+    if (!stat.isFile() || stat.isSymbolicLink()
+      || taggedDigest(fs.readFileSync(artifactPath)) !== digest) {
+      throw new Error(`restricted review evidence binding drifted: ${name}`);
+    }
+  }
+  if (review.verdict === "clear") {
+    const currentFixturePlan = readJsonStrict(path.join(
+      capsecRoot,
+      "registry/restricted-exact-fixture-plan.json",
+    ));
+    if (
+      typeof review.reviewedProbePlanRawContentDigest !== "string"
+      || review.reviewedProbePlanRawContentDigest
+        !== currentFixturePlan.absenceProbePlan.rawContentDigest
+    ) {
+      throw new Error("clear restricted review does not bind the current probe plan");
+    }
+    for (const field of ["bindings", "executions", "globalCorpora", "rows", "summary"]) {
+      if (canonicalJson(reviewedReport[field]) !== canonicalJson(reviewedState[field])) {
+        throw new Error(`clear restricted review covered different ${field}`);
+      }
+    }
+  }
+}
+
 function schemaValidator(schemaPath) {
   return new Ajv2020({ strict: true, allErrors: true }).compile(
     readJsonStrict(schemaPath),
@@ -306,6 +451,13 @@ function deriveRestrictedTargetReport({
     missingObservations: rows.reduce((sum, row) => sum + row.missingEvidenceKinds.length, 0),
     failedObservations: rows.reduce((sum, row) => sum + row.failedEvidenceKinds.length, 0),
   };
+  validateIndependentReviewArtifact(independentReview, {
+    bindings,
+    executions,
+    globalCorpora,
+    rows,
+    summary,
+  });
   const conformant = summary.conformant === summary.total
     && globalCorpora.every((row) => row.status === "passed")
     && independentReview.status === "clear"
