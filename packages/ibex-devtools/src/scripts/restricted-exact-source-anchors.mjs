@@ -2490,9 +2490,19 @@ function cppValueProducerRange(text, variable, before) {
 }
 
 function jsiGlobalBranchBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
-  if (!/\.(?:cc|mm|h)$/u.test(sourcePath) || !locator.startsWith("jsi-global:")) return null;
-  if (locator === "jsi-global:process.cwd") return null;
-  const logicalPath = locator.slice("jsi-global:".length).split(".");
+  if (!/\.(?:cc|mm|h)$/u.test(sourcePath)) return null;
+  const observedPath = branch?.observedKey?.startsWith("native-op:global:")
+    ? branch.observedKey.slice("native-op:global:".length)
+    : branch?.observedKey?.startsWith("native-op:")
+      ? branch.observedKey.slice("native-op:".length)
+      : null;
+  const locatorPath = locator.startsWith("jsi-global:")
+    ? locator.slice("jsi-global:".length)
+    : locator === observedPath
+      ? locator
+      : null;
+  if (!locatorPath || locatorPath === "process.cwd") return null;
+  const logicalPath = locatorPath.split(".");
   if (logicalPath.length > 2 || logicalPath.some((part) => part.includes("[["))) return null;
   const rootCalls = setPropertyCalls(text, logicalPath[0]).filter(
     (call) => ["rt.global()", "runtime.global()"].includes(call.caller),
@@ -2532,7 +2542,7 @@ function jsiGlobalBranchBinding({ branch, sourceRef, sourcePath, locator, text, 
     sites,
     producerPaths: [{
       pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0${logicalPath.join(".")}`),
-      conditionId: `target-branch:${branch.targetVariant}`,
+      conditionId: `target-branch:${branch.targetVariant}:publication:${sourcePath}`,
       requiredSiteIds: sites.map((site) => site.siteId),
     }],
   });
@@ -4326,6 +4336,7 @@ function selectGlobalProducerEntry(observedPath, entries) {
 function entryTargetsGlobalPath(entry, observedPath) {
   const locator = locatorOf(entry.sourceRef);
   if (locator.startsWith("jsi-global:")) return locator.slice("jsi-global:".length) === observedPath;
+  if (entry.binding.locatorKind === "jsi-root-global-route") return locator === observedPath;
   const marker = ":globals:";
   const markerIndex = locator.indexOf(marker);
   return markerIndex >= 0 && locator.slice(markerIndex + marker.length) === observedPath;
@@ -4479,8 +4490,18 @@ export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root =
       producerPaths.push(...entry.binding.producerPaths);
     }
   } else {
-    for (const entry of entries.filter(({ binding }) =>
-      binding.producerPaths.length > 0 || binding.refusalPaths.length > 0)) {
+    const terminalEntries = entries.filter(({ binding }) =>
+      binding.producerPaths.length > 0 || binding.refusalPaths.length > 0);
+    for (const entry of terminalEntries) {
+      if (entry.binding.locatorKind === "jsi-root-global-route"
+        && !locatorOf(entry.sourceRef).startsWith("jsi-global:")
+        && terminalEntries.some((candidate) =>
+          candidate.binding.locatorKind === "jsi-root-global-route"
+          && candidate.sourceRef.slice(0, candidate.sourceRef.indexOf("#"))
+            === entry.sourceRef.slice(0, entry.sourceRef.indexOf("#"))
+          && locatorOf(candidate.sourceRef) === `jsi-global:${locatorOf(entry.sourceRef)}`)) {
+        continue;
+      }
       selectedEntries.add(entry);
       producerPaths.push(...entry.binding.producerPaths);
       refusalPaths.push(...entry.binding.refusalPaths);

@@ -496,6 +496,42 @@ void install(Runtime& rt) {
     }
   });
 
+  test("upgrades a plain native locator through the same exact JSI publication proof", () => {
+    const branch = {
+      branchId: "surface.native.op.exactaccess.windows",
+      observedKey: "native-op:__exactAccess",
+      targetVariant: "windows",
+    };
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      branch,
+      "src/engine/hermes_runtime_fs_windows.cc#__exactAccess",
+    );
+    expect(binding.locatorKind).toBe("jsi-root-global-route");
+    expect(binding.sites.map((site) => site.role)).toEqual([
+      "value-producer",
+      "publication",
+    ]);
+  });
+
+  test("prefers an explicit JSI locator over its duplicate plain locator", () => {
+    const branch = {
+      branchId: "surface.native.op.ex.p.default",
+      observedKey: "native-op:__ex_p",
+      targetVariant: "default",
+    };
+    const route = buildRestrictedExactBranchSourceRoute(branch, [
+      "src/engine/hermes_runtime.cc#__ex_p",
+      "src/engine/hermes_runtime.cc#jsi-global:__ex_p",
+    ]);
+    expect(route.status).toBe("executable");
+    expect(route.producerPaths).toHaveLength(1);
+    expect(route.bindingDispositions).toContainEqual({
+      sourceRef: "src/engine/hermes_runtime.cc#__ex_p",
+      disposition: "excluded-nonterminal-route",
+      locatorKind: "jsi-root-global-route",
+    });
+  });
+
   test("binds a TypeScript member without crediting the entire class", () => {
     const sourceRef = "packages/ibex-runtime-js/src/node/Buffer.ts#Buffer.prototype.copy";
     const binding = resolveRestrictedExactBranchSourceBinding(
