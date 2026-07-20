@@ -317,7 +317,11 @@ function applyMutation(document, mutation) {
     return;
   }
   if (mutation.op === "add" || mutation.op === "replace") {
-    parent[key] = structuredClone(mutation.value);
+    if (mutation.op === "add" && Array.isArray(parent)) {
+      parent.splice(Number(key), 0, structuredClone(mutation.value));
+    } else {
+      parent[key] = structuredClone(mutation.value);
+    }
     return;
   }
   throw new Error(`unsupported mutation: ${mutation.op}`);
@@ -469,6 +473,27 @@ function expectedAuthorityInputEntries(documents) {
       "META-INF/authority/source-tree-identity.json",
       documents.sourceTreeIdentity,
     ),
+    {
+      kind: "directory",
+      role: "metadata",
+      path: "META-INF/authority/source-tree",
+    },
+    {
+      kind: "regular",
+      role: "metadata",
+      path: documents.sourceTreeIdentity.sourceRevisionObjectContent.path,
+      digest: documents.sourceTreeIdentity.sourceRevisionObjectContent.digest,
+      size: documents.sourceTreeIdentity.sourceRevisionObjectContent.size,
+      executable: false,
+    },
+    {
+      kind: "regular",
+      role: "metadata",
+      path: documents.sourceTreeIdentity.treeObjectContent.path,
+      digest: documents.sourceTreeIdentity.treeObjectContent.digest,
+      size: documents.sourceTreeIdentity.treeObjectContent.size,
+      executable: false,
+    },
   ];
   return rows.sort((left, right) => utf8Compare(left.path, right.path));
 }
@@ -763,14 +788,42 @@ function authorityInputSemantics(documents, rawFixtures) {
     ) === sourceTreeIdentity.treeObjectId,
     "tree object ID does not bind the supplied Git tree object",
   );
-  const commitText = new TextDecoder("utf-8", { fatal: true }).decode(commitObject);
-  const commitHeaderEnd = commitText.indexOf("\n\n");
+  for (const [label, descriptor, bytes] of [
+    [
+      "source revision object content",
+      sourceTreeIdentity.sourceRevisionObjectContent,
+      commitObject,
+    ],
+    ["tree object content", sourceTreeIdentity.treeObjectContent, treeObject],
+  ]) {
+    invariant(
+      descriptor.encoding === "raw-uncompressed-git-object-content" &&
+        descriptor.digest === rawSha256(bytes) &&
+        descriptor.size === bytes.length,
+      `${label} does not bind its exact bytes`,
+    );
+    const entry = manifestEntries.get(descriptor.path);
+    invariant(
+      entry?.kind === "regular" &&
+        entry.role === "metadata" &&
+        entry.digest === descriptor.digest &&
+        entry.size === descriptor.size &&
+        entry.executable === false,
+      `${label} is not an exact payload member`,
+    );
+  }
+  const commitHeaderEnd = commitObject.indexOf(Buffer.from("\n\n", "ascii"));
   invariant(commitHeaderEnd !== -1, "commit object has no header terminator");
-  const treeLines = commitText
-    .slice(0, commitHeaderEnd)
+  const treeLines = commitObject
+    .subarray(0, commitHeaderEnd)
+    .toString("latin1")
     .split("\n")
     .filter((line) => line.startsWith("tree "));
   invariant(treeLines.length === 1, "commit object does not name exactly one tree");
+  invariant(
+    /^tree [0-9a-f]+$/u.test(treeLines[0]),
+    "commit object tree header is not lowercase hexadecimal",
+  );
   invariant(
     treeLines[0] === `tree ${sourceTreeIdentity.treeObjectId}`,
     "Git commit does not point to the declared tree object",
@@ -1878,6 +1931,19 @@ describe("LLP 0034 portable engine authority schemas", () => {
     ).toThrow("tree object ID does not bind");
   });
 
+  test("raw Git objects are exact offline payload members", () => {
+    const documents = structuredClone(validVectors.documents);
+    const commitPath =
+      documents.sourceTreeIdentity.sourceRevisionObjectContent.path;
+    const commitEntry = documents.manifest.entries.find(
+      (entry) => entry.path === commitPath,
+    );
+    commitEntry.digest = `sha256-${"0".repeat(64)}`;
+    expect(() =>
+      authorityInputSemantics(documents, validVectors.rawFixtures),
+    ).toThrow("source revision object content is not an exact payload member");
+  });
+
   test("Git source identity cannot coherently switch object formats", () => {
     const documents = structuredClone(validVectors.documents);
     const rawFixtures = structuredClone(validVectors.rawFixtures);
@@ -1898,6 +1964,17 @@ describe("LLP 0034 portable engine authority schemas", () => {
       "commit",
       commitBytes,
     );
+    documents.sourceTreeIdentity.sourceRevisionObjectContent.digest =
+      rawSha256(commitBytes);
+    documents.sourceTreeIdentity.sourceRevisionObjectContent.size =
+      commitBytes.length;
+    const commitEntry = documents.manifest.entries.find(
+      (entry) =>
+        entry.path ===
+        documents.sourceTreeIdentity.sourceRevisionObjectContent.path,
+    );
+    commitEntry.digest = rawSha256(commitBytes);
+    commitEntry.size = commitBytes.length;
     documents.manifest.build.sourceRevision =
       documents.sourceTreeIdentity.sourceRevision;
     expect(() => authorityInputSemantics(documents, rawFixtures)).toThrow(

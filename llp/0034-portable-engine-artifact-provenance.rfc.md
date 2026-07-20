@@ -294,7 +294,12 @@ documents, not implementation-defined strings:
 - `sourceTreeDigest` is the domain-separated digest of
   `ibex/portable-engine-source-tree-identity/1`, whose exact fields are
   `schema, repository, sourceRevision, sourceRef, gitObjectFormat,
-  sourceRevisionObjectType, treeObjectId, treeObjectType`.
+  sourceRevisionObjectType, sourceRevisionObjectContent, treeObjectId,
+  treeObjectType, treeObjectContent`. Each `*ObjectContent` value binds a fixed
+  payload path, raw digest, size, and the exact
+  `raw-uncompressed-git-object-content` encoding. The raw commit and tree
+  contents therefore travel inside the package rather than depending on
+  network access or an incidental local `.git` object store.
   `sourceRevisionObjectType` and `treeObjectType` are exactly `commit` and
   `tree`; `gitObjectFormat` is `sha1` or `sha256` and determines the required
   40- or 64-hex width of both IDs. Verification hashes the supplied/fetched Git
@@ -363,6 +368,9 @@ documents, not implementation-defined strings:
   stderr, and output bytes. Every fixture is an exact regular
   `compatibility-fixture` manifest member with independently unique payload and
   staged workspace paths, so two fixtures cannot overwrite one staged file;
+  golden and physical producer evidence use the checked-in
+  `tests/fixtures/portable-engine/host-tools/smoke.js` bytes as their shared
+  source rather than maintaining a second hand-encoded program;
   invocation evidence binds exit, stdout/stderr sizes and
   digests, complete outputs, and bytecode version plus source path/digest.
   There is exactly one behavior document per manifest host tool, and the
@@ -379,7 +387,9 @@ so a consumer never has to recover a digest preimage from an opaque string.
 The six singleton documents live at fixed paths under
 `payload/META-INF/authority/`; host-tool documents live under
 `payload/META-INF/authority/host-tools/<compatibilityDigest>.json`. That
-reserved namespace contains exactly the declared directories and one document
+namespace also contains the two raw Git contents under
+`payload/META-INF/authority/source-tree/`, bound by the source-tree document.
+The reserved namespace contains exactly the declared directories and one document
 for every manifest host tool. Each entry's raw digest and size bind the JCS
 bytes, while its semantic digest binds the parsed closed document. Missing,
 additional, non-canonical, renamed, or byte-substituted authority inputs are

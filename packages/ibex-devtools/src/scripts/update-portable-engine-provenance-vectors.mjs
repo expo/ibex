@@ -80,6 +80,27 @@ if (mode !== "--write" && mode !== "--check") {
 const originalVectorBytes = fs.readFileSync(vectorPath);
 const vector = parseJsonStrict(originalVectorBytes, vectorPath);
 const documents = vector.documents;
+const checkedHostToolFixtureSources = new Map([
+  [
+    "share/compatibility/host-tools/input/smoke.js",
+    path.join(
+      repoRoot,
+      "tests/fixtures/portable-engine/host-tools/smoke.js",
+    ),
+  ],
+]);
+for (const fixture of vector.rawFixtures.hostToolInputs) {
+  const sourcePath = checkedHostToolFixtureSources.get(fixture.path);
+  if (!sourcePath) {
+    throw new Error(`host-tool fixture has no checked source: ${fixture.path}`);
+  }
+  fixture.bytesBase64 = fs.readFileSync(sourcePath).toString("base64");
+}
+if (
+  checkedHostToolFixtureSources.size !== vector.rawFixtures.hostToolInputs.length
+) {
+  throw new Error("checked host-tool fixture membership differs from the vector");
+}
 documents.trustPolicy = parseJsonStrict(
   fs.readFileSync(trustPolicyPath),
   trustPolicyPath,
@@ -146,6 +167,18 @@ const treeObject = Buffer.from(
   "base64",
 );
 const sourceTreeIdentity = documents.sourceTreeIdentity;
+sourceTreeIdentity.sourceRevisionObjectContent = {
+  path: "META-INF/authority/source-tree/commit.content",
+  digest: rawDigest(commitObject),
+  size: commitObject.length,
+  encoding: "raw-uncompressed-git-object-content",
+};
+sourceTreeIdentity.treeObjectContent = {
+  path: "META-INF/authority/source-tree/tree.content",
+  digest: rawDigest(treeObject),
+  size: treeObject.length,
+  encoding: "raw-uncompressed-git-object-content",
+};
 const targetPolicies = documents.trustPolicy.admittedTargets.filter(
   (row) => row.triple === documents.manifest.target.triple,
 );
@@ -161,14 +194,17 @@ sourceTreeIdentity.sourceRevision = gitObjectId(
   sourceTreeIdentity.sourceRevisionObjectType,
   commitObject,
 );
-const commitText = new TextDecoder("utf-8", { fatal: true }).decode(commitObject);
-const commitHeaderEnd = commitText.indexOf("\n\n");
+const commitHeaderEnd = commitObject.indexOf(Buffer.from("\n\n", "ascii"));
 if (commitHeaderEnd === -1) throw new Error("commit fixture has no header terminator");
-const treeLines = commitText
-  .slice(0, commitHeaderEnd)
+const treeLines = commitObject
+  .subarray(0, commitHeaderEnd)
+  .toString("latin1")
   .split("\n")
   .filter((line) => line.startsWith("tree "));
 if (treeLines.length !== 1) throw new Error("commit fixture must name one tree");
+if (!/^tree [0-9a-f]+$/u.test(treeLines[0])) {
+  throw new Error("commit fixture tree header is not lowercase hexadecimal");
+}
 sourceTreeIdentity.treeObjectId = treeLines[0].slice("tree ".length);
 if (
   gitObjectId(
@@ -408,6 +444,21 @@ const authorityInputEntries = [
   rawJcsEntry(
     "META-INF/authority/source-tree-identity.json",
     documents.sourceTreeIdentity,
+  ),
+  {
+    kind: "directory",
+    role: "metadata",
+    path: "META-INF/authority/source-tree",
+  },
+  rawFileEntry(
+    documents.sourceTreeIdentity.sourceRevisionObjectContent.path,
+    "metadata",
+    commitObject,
+  ),
+  rawFileEntry(
+    documents.sourceTreeIdentity.treeObjectContent.path,
+    "metadata",
+    treeObject,
   ),
 ];
 const rawHostToolInputs = new Map();

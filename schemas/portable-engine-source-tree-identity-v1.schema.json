@@ -11,8 +11,10 @@
     "sourceRef",
     "gitObjectFormat",
     "sourceRevisionObjectType",
+    "sourceRevisionObjectContent",
     "treeObjectId",
-    "treeObjectType"
+    "treeObjectType",
+    "treeObjectContent"
   ],
   "properties": {
     "schema": { "const": "ibex/portable-engine-source-tree-identity/1" },
@@ -29,11 +31,37 @@
     },
     "gitObjectFormat": { "enum": ["sha1", "sha256"] },
     "sourceRevisionObjectType": { "const": "commit" },
+    "sourceRevisionObjectContent": {
+      "allOf": [
+        { "$ref": "#/$defs/rawObjectContent" },
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "const": "META-INF/authority/source-tree/commit.content"
+            }
+          }
+        }
+      ]
+    },
     "treeObjectId": {
       "type": "string",
       "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
     },
-    "treeObjectType": { "const": "tree" }
+    "treeObjectType": { "const": "tree" },
+    "treeObjectContent": {
+      "allOf": [
+        { "$ref": "#/$defs/rawObjectContent" },
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "const": "META-INF/authority/source-tree/tree.content"
+            }
+          }
+        }
+      ]
+    }
   },
   "oneOf": [
     {
@@ -50,5 +78,24 @@
         "treeObjectId": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
       }
     }
-  ]
+  ],
+  "$defs": {
+    "rawObjectContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "digest", "size", "encoding"],
+      "properties": {
+        "path": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath"
+        },
+        "digest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "size": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/safeInteger"
+        },
+        "encoding": { "const": "raw-uncompressed-git-object-content" }
+      }
+    }
+  }
 }

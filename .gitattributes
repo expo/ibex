@@ -29,3 +29,12 @@ src/engine/hermes_runtime.cc text eol=lf
 src/builtins/** text eol=lf
 packages/ibex-runtime-js/src/** text eol=lf
 modules.ts text eol=lf
+
+# Portable-engine identities hash these exact checked-in authority and fixture
+# bytes. A platform checkout must not rewrite them before the producer or
+# golden-vector updater observes them.
+.github/workflows/hermes-artifacts.yml text eol=lf
+schemas/portable-engine-* text eol=lf
+schemas/vectors/portable-engine-* text eol=lf
+packages/ibex-devtools/src/scripts/*portable-engine-* text eol=lf
+tests/fixtures/portable-engine/** text eol=lf

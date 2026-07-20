@@ -432,7 +432,7 @@
       "schema": "portable-engine-manifest-v1.schema.json",
       "mutation": {
         "op": "replace",
-        "path": "/entries/16/target",
+        "path": "/entries/19/target",
         "value": "../../../etc/passwd"
       },
       "expected": "semantic-invalid"
@@ -443,7 +443,7 @@
       "schema": "portable-engine-manifest-v1.schema.json",
       "mutation": {
         "op": "replace",
-        "path": "/entries/16/target",
+        "path": "/entries/19/target",
         "value": "libhermes-current.dylib"
       },
       "expected": "semantic-invalid"
@@ -454,7 +454,7 @@
       "schema": "portable-engine-manifest-v1.schema.json",
       "mutation": {
         "op": "replace",
-        "path": "/entries/16/target",
+        "path": "/entries/19/target",
         "value": "missing.dylib"
       },
       "expected": "semantic-invalid"
@@ -498,7 +498,7 @@
       "schema": "portable-engine-manifest-v1.schema.json",
       "mutation": {
         "op": "replace",
-        "path": "/entries/17/size",
+        "path": "/entries/20/size",
         "value": 536870913
       },
       "expected": "semantic-invalid"
