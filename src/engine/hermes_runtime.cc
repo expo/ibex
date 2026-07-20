@@ -2879,7 +2879,11 @@ void exactTestPauseStructuredControlLease() {
 
 void exactTestObserveStructuredControlTeardownWait() {
   std::lock_guard<std::mutex> lock(g_structuredControlLeasePauseMutex);
-  if (!g_structuredControlLeasePaused) return;
+  // The observer originally accompanied the structured-control lease pause,
+  // but the teardown edge is shared by every admitted native producer.  Mark
+  // the actual wait itself: callers synchronize their chosen producer pause
+  // before starting destroy, so conditioning this receipt on one particular
+  // pause hook would make other producer classes impossible to prove.
   g_structuredControlTeardownWaitObserved = true;
   g_structuredControlLeasePauseCv.notify_all();
 }
