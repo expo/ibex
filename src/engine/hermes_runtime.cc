@@ -6126,12 +6126,12 @@ void emitNewScripts(ExactHermesRuntime* runtime,
 namespace {
 
 HMODULE loadedHermesModule() {
-  // The address of an imported C++ function can name the executable's import
-  // thunk rather than the DLL that supplies it. Resolve a carried C bridge
-  // first, then ask Windows for the image that contains the resolved address.
+  // The unique, pinned loader mapping is the first identity level. Resolve a
+  // carried C bridge from that mapping as the independent second level, then
+  // require Windows to attribute the resolved address to the same image.
   // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
   // engine evidence must identify the mapped Hermes DLL, never its caller.
-  HMODULE candidate = GetModuleHandleA("hermesvm.dll");
+  HMODULE candidate = exactHermesRuntimeImageModule();
   if (candidate == nullptr) return nullptr;
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   FARPROC bridge =

@@ -480,8 +480,8 @@ describe("canonical environment output templates", () => {
       auditCanonicalEnvironmentOutputSources({
         ...inputs,
         nativeEnvironmentSource: inputs.nativeEnvironmentSource.replace(
-          "key, ExactEnvironmentOverlayAccess::EnumerationRead",
-          "key, ExactEnvironmentOverlayAccess::ScalarRead",
+          "                    key, ExactEnvironmentOverlayAccess::EnumerationRead",
+          "                    key, ExactEnvironmentOverlayAccess::ScalarRead",
         ),
       }),
     ).toThrow(/authorize every current-principal overlay name/u);

@@ -6427,7 +6427,8 @@
           filename,
           dir,
           moduleDynamicImport,
-          moduleStaticImport
+          moduleStaticImport,
+          privateBuiltinBridges
         );
       } finally {
         manifestBuiltinEvaluationActive = false;

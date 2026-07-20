@@ -71,13 +71,13 @@ describe("source-bound module-loader output recipes", () => {
         ];
       }),
     );
-    expect(rows).toHaveLength(164);
+    expect(rows).toHaveLength(163);
     expect(counts).toEqual({
       base: { authored: 8, residual: 4 },
       "internal-loader-route": { authored: 48, residual: 0 },
       "lazy-loader-installer-route": { authored: 39, residual: 0 },
       "loader-entry-route": { authored: 9, residual: 3 },
-      "loader-function": { authored: 14, residual: 37 },
+      "loader-function": { authored: 14, residual: 36 },
       "loader-kind-branch": { authored: 1, residual: 1 },
     });
     const authored = rows.filter(
@@ -87,7 +87,7 @@ describe("source-bound module-loader output recipes", () => {
       ({ invocation }) => invocation.route.operation === "unexercisable",
     );
     expect(authored).toHaveLength(119);
-    expect(residual).toHaveLength(45);
+    expect(residual).toHaveLength(44);
     expect(
       residual
         .filter(({ surface }) =>

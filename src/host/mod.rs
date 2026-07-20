@@ -745,7 +745,7 @@ impl Host {
     ) -> capsec_semantics::Result<Self> {
         validate_loaded_engine_identity(&armed_snapshot)?;
         validate_snapshot_protected_artifacts(&armed_snapshot)?;
-        validate_snapshot_root_bindings(&armed_snapshot)?;
+        let authenticated_package_sources = validate_snapshot_root_bindings(&armed_snapshot)?;
         let cells = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
             .iter()
             .map(|edge| {
@@ -755,7 +755,12 @@ impl Host {
                 )
             })
             .collect();
-        Self::new_armed_with_target_cells(config, armed_snapshot, cells)
+        Self::new_armed_with_target_cells(
+            config,
+            armed_snapshot,
+            cells,
+            authenticated_package_sources,
+        )
     }
 
     fn target_cell(&self, edge: &str) -> capsec_semantics::decision::TargetCellDisposition {
@@ -6161,12 +6166,12 @@ fn host_path_from_logical_path(
 /// @ref LLP 0023#3-path-grammar-normalization-aliasing-and-containment
 #[doc(hidden)]
 pub fn validate_armed_alias_volume_topology(
-    snapshot: &capsec_semantics::arming::ArmedSnapshot,
+    _snapshot: &capsec_semantics::arming::ArmedSnapshot,
 ) -> capsec_semantics::Result<()> {
     #[cfg(target_os = "macos")]
     {
         let mounts = mounted_volume_roots()?;
-        validate_alias_volume_topology_bindings(snapshot.root_bindings()?, &mounts)?;
+        validate_alias_volume_topology_bindings(_snapshot.root_bindings()?, &mounts)?;
     }
     Ok(())
 }
@@ -10124,16 +10129,15 @@ mod tests {
         assert_ne!(crate::host::abi::install_host(host.clone()), 0);
 
         let producer = digest_bytes("package-compartment-module-graph", b"producer").unwrap();
-        let source_graph =
-            match build_authenticated_source_graph_v1(&entry, producer, "hermes-test").unwrap() {
-                SourceModuleGraphBuildV1::Native(graph) => graph,
-                SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
-                    panic!(
-                        "package-compartment fixture unexpectedly required the legacy loader: {}",
-                        requirement.reason
-                    )
-                }
-            };
+        let source_graph = match build_authenticated_source_graph_v1(&entry, producer).unwrap() {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!(
+                    "package-compartment fixture unexpectedly required the legacy loader: {}",
+                    requirement.reason
+                )
+            }
+        };
         assert_eq!(source_graph.records().count(), 2);
         let deployment = digest_bytes("package-compartment-module-graph", b"deployment").unwrap();
         let artifact_dir = fixture.path().join("bundle-artifact");

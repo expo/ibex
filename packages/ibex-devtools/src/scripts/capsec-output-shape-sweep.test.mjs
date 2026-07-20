@@ -1202,7 +1202,7 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         "ibex/capsec-output-shape-execution-partition/1",
       completeCatalogKeyDigest: completeCatalog.catalogKeyDigest,
     });
-    expect(completeCatalog.rows).toHaveLength(6397);
+    expect(completeCatalog.rows).toHaveLength(6405);
     expect(executionPartition.genericCatalog.rows).toHaveLength(5875);
     expect(executionPartition.genericProbes).toHaveLength(5875);
     expect(
@@ -1212,7 +1212,54 @@ describe("output-shape-sweep-v3 evidence contract", () => {
     ).toBe(false);
     expect(executionPartition.hostAbi.targetAbsenceBindings).toHaveLength(59);
     expect(executionPartition.hostAbi.rows).toHaveLength(463);
-    expect(executionPartition.hostAbi.residuals).toHaveLength(0);
+    expect(
+      executionPartition.hostAbi.residuals.map(({ key, reason }) => ({
+        alias: key.alias,
+        output: key.output,
+        reason,
+      })),
+    ).toEqual([
+      {
+        alias: "ex_hermes_commonjs_record_link_computed_dynamic_import",
+        output: "[[return]]",
+        reason: "engine-route-requires-owned-armed-or-diagnostic-runtime-state",
+      },
+      {
+        alias: "ex_hermes_module_preflight_bytecode",
+        output: "[[return]]",
+        reason: "engine-route-requires-owned-armed-or-diagnostic-runtime-state",
+      },
+      {
+        alias: "ex_hermes_module_preflight_bytecode",
+        output: "out:error",
+        reason: "engine-route-requires-owned-armed-or-diagnostic-runtime-state",
+      },
+      {
+        alias: "ex_hermes_module_record_link_computed_dynamic_import",
+        output: "[[return]]",
+        reason: "engine-route-requires-owned-armed-or-diagnostic-runtime-state",
+      },
+      {
+        alias: "ex_host_env_compiled_key_at",
+        output: "[[return]]",
+        reason: "stateful-host-abi-route-has-no-bounded-output-template",
+      },
+      {
+        alias: "ex_host_env_compiled_key_at",
+        output: "out:buf",
+        reason: "stateful-host-abi-route-has-no-bounded-output-template",
+      },
+      {
+        alias: "ex_host_env_compiled_key_count",
+        output: "[[return]]",
+        reason: "stateful-host-abi-route-has-no-bounded-output-template",
+      },
+      {
+        alias: "ex_host_seal_bootstrap_phase",
+        output: "[[return]]",
+        reason: "stateful-host-abi-route-has-no-bounded-output-template",
+      },
+    ]);
 
     const baseBindings = fixture().bindings;
     const targetAbsenceProbes = buildTargetAbsenceOutputShapeProbes({
@@ -1221,21 +1268,22 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       recipeCatalog,
       target,
     });
-    const completePlan = buildOutputShapeSweepPlan({
-      catalog: completeCatalog,
-      probes: [
-        ...executionPartition.genericProbes,
-        ...executionPartition.hostAbi.rows,
-        ...targetAbsenceProbes,
-      ],
-      ...baseBindings,
-      target,
-      engine: {
-        ...baseBindings.engine,
-        structuralFeatures: [...target.features],
-      },
-    });
-    expect(completePlan.rows).toHaveLength(6397);
+    expect(() =>
+      buildOutputShapeSweepPlan({
+        catalog: completeCatalog,
+        probes: [
+          ...executionPartition.genericProbes,
+          ...executionPartition.hostAbi.rows,
+          ...targetAbsenceProbes,
+        ],
+        ...baseBindings,
+        target,
+        engine: {
+          ...baseBindings.engine,
+          structuralFeatures: [...target.features],
+        },
+      }),
+    ).toThrow(/output-shape sweep probes is not bidirectional/u);
 
     const androidRows = [
       ...executionPartition.hostAbi.targetAbsenceBindings,
@@ -1331,12 +1379,12 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       shifted.hostAbi.targetAbsenceBindings.length,
       shifted.hostAbi.rows.length,
       shifted.hostAbi.residuals.length,
-    ]).not.toEqual([59, 463, 0]);
+    ]).not.toEqual([59, 463, 8]);
     expect([
       executionPartition.hostAbi.targetAbsenceBindings.length,
       executionPartition.hostAbi.rows.length,
       executionPartition.hostAbi.residuals.length,
-    ]).toEqual([59, 463, 0]);
+    ]).toEqual([59, 463, 8]);
   }, 60_000);
 
   test("routes and exactly validates the complete builtin-effects tranche", async () => {
