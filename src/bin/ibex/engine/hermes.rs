@@ -1615,6 +1615,8 @@ extern "C" {
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_root_global_disposition_last_failure() -> *const std::os::raw::c_char;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_embedder_capability_state_v1(runtime: *mut HermesRuntimeOpaque) -> u32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_root_global_logical_path_absent(
         runtime: *mut HermesRuntimeOpaque,
         path: *const std::os::raw::c_char,
@@ -9598,11 +9600,7 @@ module.exports = JSON.stringify({
         "navigator.gpu",
     ];
 
-    #[cfg(all(
-        feature = "webgpu-binding",
-        feature = "gpu-bridge-test-hooks",
-        feature = "capsec-conformance-observer"
-    ))]
+    #[cfg(feature = "capsec-conformance-observer")]
     unsafe fn assert_root_global_paths_absent(
         raw: *mut HermesRuntimeOpaque,
         paths: &[&str],
@@ -14871,6 +14869,129 @@ module.exports = JSON.stringify({
 
     #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
+    async fn armed_exact_ingress_activation_requires_finalized_transaction() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (host, digest) = build_armed_exact_test_host();
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+        let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let operations = [7_u32, 11_u32];
+        let manifest_digest =
+            CString::new("sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA").unwrap();
+
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_root_global_paths_absent(raw, &["exact.invokeHostAsync"], 1);
+                assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        manifest_digest.as_ptr(),
+                        abi_probe_exact_host_call,
+                        std::ptr::null_mut(),
+                    ),
+                    0
+                );
+                assert_root_global_paths_absent(raw, &["exact.invokeHostAsync"], 0);
+                assert_eq!(ibex_test_embedder_capability_state_v1(raw), 1);
+            })
+            .unwrap();
+
+        use capsec_semantics::model::{LogicalPath, LogicalRoot};
+        let unfinalized_request = evaluator
+            .sequence
+            .mint_repl(LogicalPath {
+                root: LogicalRoot::Project,
+                components: Vec::new(),
+                host_bound: None,
+            })
+            .unwrap()
+            .authorize_inline()
+            .bind_bytes(
+                b"globalThis.__unfinalizedIngressRan = true; 'unfinalized-ingress-ran'".to_vec(),
+            )
+            .into_request()
+            .unwrap();
+        let unfinalized_outcome = engine
+            .evaluate_authenticated(&evaluator.session, unfinalized_request)
+            .await;
+        assert!(
+            !matches!(
+                unfinalized_outcome,
+                Ok(AuthenticatedEvaluation::Value { .. })
+            ),
+            "a Configuring Exact ingress reopened user execution: {unfinalized_outcome:?}"
+        );
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(ibex_test_embedder_capability_state_v1(raw), 1);
+            })
+            .unwrap();
+
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                assert_root_global_paths_absent(raw, &["exact.invokeHostAsync"], 0);
+            })
+            .unwrap();
+        assert_eq!(
+            evaluator
+                .eval_string(
+                    &engine,
+                    "(function(){ var d = Object.getOwnPropertyDescriptor(exact, 'invokeHostAsync'); return typeof globalThis.__unfinalizedIngressRan + '/' + typeof d.value + '/' + d.writable + '/' + d.enumerable + '/' + d.configurable; })()",
+                )
+                .await,
+            "undefined/function/false/false/false",
+            "the finalized source-specific projection must survive the closed-bootstrap re-sweep"
+        );
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_exact_ingress_activation_rejects_forged_js_projection() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    r#"Object.defineProperty(exact, "invokeHostAsync", {
+                      value: function invokeHostAsync() {},
+                      writable: false,
+                      enumerable: false,
+                      configurable: true
+                    }); "forged""#,
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("forged")
+        );
+
+        let error = engine
+            .load_runtime()
+            .await
+            .expect_err("an unauthenticated same-spelling projection must fail armed finalization");
+        assert!(error.to_string().contains("fault"));
+        let detail = unsafe {
+            CStr::from_ptr(ibex_test_root_global_disposition_last_failure())
+                .to_string_lossy()
+                .into_owned()
+        };
+        assert!(
+            detail.contains("inactive conditional path remains reachable: exact.invokeHostAsync"),
+            "forged Exact ingress failed for the wrong reason: {detail}"
+        );
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
     async fn armed_gpu_provider_abi_authentication_requires_exact_snapshot_descriptor() {
         let _lock = hermes_engine_test_lock().lock().await;
         let (_reset, digest) = install_armed_gpu_test_host();
@@ -17004,6 +17125,7 @@ module.exports = JSON.stringify({
                     -8,
                     "an armed runtime must reject the wrong manifest before JSI mutation"
                 );
+                assert_root_global_paths_absent(raw, &["exact.invokeHostAsync"], 1);
                 let narrowed = [7_u32];
                 assert_eq!(
                     ex_hermes_set_exact_host_call_async(
@@ -17018,6 +17140,7 @@ module.exports = JSON.stringify({
                     -8,
                     "an armed runtime must reject a caller-selected endowment"
                 );
+                assert_root_global_paths_absent(raw, &["exact.invokeHostAsync"], 1);
                 assert_eq!(
                     ex_hermes_set_exact_host_call_async(
                         raw,
@@ -17030,6 +17153,7 @@ module.exports = JSON.stringify({
                     ),
                     0
                 );
+                assert_root_global_paths_absent(raw, &["exact.invokeHostAsync"], 0);
                 assert_eq!(
                     ex_hermes_set_exact_host_call_async(
                         raw,

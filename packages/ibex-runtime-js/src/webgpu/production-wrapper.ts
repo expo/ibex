@@ -1,5 +1,5 @@
 // @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
-// Cross-repo design authority: Exact LLP 0367, sections 3.5 and 9.1.
+// Cross-repo design authority: Exact LLP 0379, sections 3.5 and 9.1.
 
 import type {
   NativeGpuBridge,
@@ -3256,7 +3256,7 @@ export function createProductionWebGpuPrivateBinding(
         surfaceAccountToken: canvasAuthority.surfaceAccountToken,
         surfaceAccountGeneration: canvasAuthority.surfaceAccountGeneration,
       });
-    // LLP 0368 §2.2 installs the copied configuration immediately after the
+    // LLP 0380 §2.2 installs the copied configuration immediately after the
     // synchronous content checks. Native payload encoding and service
     // admission are downstream implementation work: neither a deterministic
     // non-admission nor a later device-timeline validation may resurrect the
@@ -3293,7 +3293,7 @@ export function createProductionWebGpuPrivateBinding(
         );
       } catch (error) {
         if (submissionFailure === 'bridge-threw' && realm.active) {
-          // A synchronous LLP 0368 §2.4 loss is already terminal and must
+          // A synchronous LLP 0380 §2.4 loss is already terminal and must
           // dominate the thrown bridge return. Otherwise admission is
           // ambiguous, so close the realm instead of guessing. An explicit
           // non-admission is not ambiguous and leaves the already-installed

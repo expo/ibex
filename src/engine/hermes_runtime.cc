@@ -6706,6 +6706,19 @@ static bool rootGlobalTargetApplies(
   return false;
 }
 
+static bool exactAuthenticatedHostIngressActive(
+    const ExactHermesRuntime* handle) {
+  if (!handle ||
+      handle->embedder_capability_state !=
+          EmbedderCapabilityState::Finalized ||
+      handle->exact_host_call_async_fn == nullptr ||
+      handle->exact_host_operations.empty()) {
+    return false;
+  }
+  return handle->exact_host_context == EXACT_EMBEDDER_CONTEXT_APP ||
+      handle->exact_host_context == EXACT_EMBEDDER_CONTEXT_AGENT;
+}
+
 static bool rootGlobalActivationApplies(
     ExactHermesRuntime* handle,
     const char* activation,
@@ -6735,6 +6748,9 @@ static bool rootGlobalActivationApplies(
   }
   if (std::strcmp(activation, "ipc-channel-bootstrap") == 0) {
     return handle->process_ipc_fd >= 0;
+  }
+  if (std::strcmp(activation, "authenticated-exact-host-ingress") == 0) {
+    return exactAuthenticatedHostIngressActive(handle);
   }
   if (std::strcmp(activation, "authenticated-webgpu-provider") == 0) {
     return exactGpuAuthenticatedV2ProviderGlobalsActive(handle);
@@ -6784,7 +6800,6 @@ static bool rootGlobalActivationApplies(
   if (
       std::strcmp(activation, "diagnostic-unarmed-promise-fallback") == 0 ||
       std::strcmp(activation, "intrinsic-reference-only") == 0 ||
-      std::strcmp(activation, "post-bootstrap-embedder-endowment") == 0 ||
       std::strcmp(activation, "post-bootstrap-lazy") == 0) {
     return false;
   }
@@ -7931,6 +7946,26 @@ static bool verifyRootGlobalDisposition(ExactHermesRuntime* handle) {
   } catch (...) {
     return rootGlobalDispositionFailure("unknown live descriptor sweep failure");
   }
+}
+
+// Authentication, baseline refresh, and property sealing all complete before
+// this transition. Finalized is therefore the native activation witness for
+// the generated Exact typed-ingress row. A bootstrap that is already closed
+// must immediately re-run the exact disposition join; failure terminally
+// replaces Finalized with Failed and revokes every still-revocable binding.
+static bool finalizeEmbedderCapabilityDisposition(
+    ExactHermesRuntime* runtime) {
+  runtime->embedder_capability_state = EmbedderCapabilityState::Finalized;
+  if (runtime->armed_bootstrap_eval_open) return true;
+
+  runtime->root_global_disposition_verified_for_user_execution = false;
+  if (!injectRootGlobalDispositionTestAccessor(runtime) ||
+      !verifyRootGlobalDisposition(runtime)) {
+    failRootGlobalDispositionFinalization(runtime);
+    return false;
+  }
+  runtime->root_global_disposition_verified_for_user_execution = true;
+  return true;
 }
 
 uint64_t exactAllocateRuntimeNonce() {
@@ -11147,6 +11182,13 @@ extern "C" uint32_t ex_hermes_structured_session_bind(
     return EX_HERMES_EVAL_FAULT_BOOTSTRAP_NOT_SEALED;
   }
   if (!runtime->structured_session_bound) {
+    // Binding creates the session-visible `$_` accessor. Do not mutate the
+    // verified root graph while an embedder capability projection remains
+    // provisional; the authenticated caller can retry the same unconsumed
+    // submission after finalization.
+    if (!exactRuntimeEnterUserExecution(runtime)) {
+      return EX_HERMES_EVAL_FAULT_ENGINE;
+    }
     // @ref LLP 0024#78-the-last-value-binding — the reserved binding is a
     // runtime-owned configurable accessor installed only for a bound session.
     if (!installStructuredLastValueAccessor(runtime)) {
@@ -11304,6 +11346,12 @@ extern "C" uint32_t ex_hermes_structured_submission_admit(
     return EX_HERMES_EVAL_FAULT_WRONG_ORDINAL;
   }
   if (runtime->next_structured_work_target_id == 0) {
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+  // Admission is the common source boundary for lowered scripts, generated
+  // entries, and native module graphs. A valid credential cannot reserve an
+  // ordinal or work target while embedder capabilities are provisional.
+  if (!exactRuntimeEnterUserExecution(runtime)) {
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
 
@@ -12306,6 +12354,18 @@ extern "C" int ex_hermes_eval_structured_session(
       expected_ordinal == std::numeric_limits<uint64_t>::max()
       ? 0
       : expected_ordinal + 1;
+  // A valid, accepted session credential still cannot cross a provisional
+  // embedder capability transaction. Gate after consuming the credential so
+  // the native ordinal stays aligned with the Rust linear submission permit
+  // on this terminal engine fault, but before allocating work or running any
+  // project instruction.
+  if (runtime->embedder_capability_state ==
+          EmbedderCapabilityState::Configuring ||
+      runtime->embedder_capability_state == EmbedderCapabilityState::Failed ||
+      !exactRuntimeEnterUserExecution(runtime)) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+    return 0;
+  }
   result->work_target_id = allocateStructuredWorkTarget(runtime);
   if (result->work_target_id == 0) {
     structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
@@ -14301,6 +14361,16 @@ extern "C" int32_t ex_hermes_begin_embedder_capabilities_v1(
   return EXACT_EMBEDDER_CAPABILITIES_OK;
 }
 
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+extern "C" uint32_t ibex_test_embedder_capability_state_v1(
+    ExactHermesRuntime* runtime) {
+  if (!runtime || runtime->runtime_thread != std::this_thread::get_id()) {
+    return UINT32_MAX;
+  }
+  return static_cast<uint32_t>(runtime->embedder_capability_state);
+}
+#endif
+
 extern "C" int32_t ex_hermes_finalize_embedder_capabilities_v1(
     ExactHermesRuntime* runtime) {
   if (!runtime || !runtime->runtime) {
@@ -14372,15 +14442,9 @@ extern "C" int32_t ex_hermes_finalize_embedder_capabilities_v1(
   // changed the live root graph and the descriptor-only exact join must run
   // again here. Otherwise finish_bootstrap performs the same sweep after it
   // removes the remaining construction-only session bridges.
-  if (!runtime->armed_bootstrap_eval_open) {
-    if (!injectRootGlobalDispositionTestAccessor(runtime) ||
-        !verifyRootGlobalDisposition(runtime)) {
-      failRootGlobalDispositionFinalization(runtime);
-      return EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED;
-    }
-    runtime->root_global_disposition_verified_for_user_execution = true;
+  if (!finalizeEmbedderCapabilityDisposition(runtime)) {
+    return EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED;
   }
-  runtime->embedder_capability_state = EmbedderCapabilityState::Finalized;
   return EXACT_EMBEDDER_CAPABILITIES_OK;
 }
 
@@ -14569,7 +14633,7 @@ extern "C" int ex_hermes_set_exact_host_call_async(
           rt,
           "exact.invokeHostAsync could not authenticate and finalize the package-compartment baseline");
     }
-    runtime->embedder_capability_state = EmbedderCapabilityState::Finalized;
+    if (!finalizeEmbedderCapabilityDisposition(runtime)) return -6;
   } catch (...) {
     rollbackExactHostIngress(runtime);
     return -6;

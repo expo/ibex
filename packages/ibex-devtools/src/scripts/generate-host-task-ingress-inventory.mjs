@@ -136,7 +136,11 @@ export const HOST_TASK_INGRESS_CLASSIFICATIONS = Object.freeze([
     "src/engine/hermes_runtime.cc",
     "admission-no-app-code",
     RATIONALE.admission,
-    ["ex_hermes_begin_app_bundle_evaluation_v1"],
+    [
+      "ex_hermes_begin_app_bundle_evaluation_v1",
+      "ex_hermes_structured_session_bind",
+      "ex_hermes_structured_submission_admit",
+    ],
   ),
   ...classificationsFor(
     "src/engine/hermes_runtime.cc",

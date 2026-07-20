@@ -1,5 +1,5 @@
 // @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
-// Cross-repo authority: Exact RFC 0115 §9 and LLP 0367 §§2.2-2.3, 8.
+// Cross-repo authority: Exact RFC 0115 §9 and LLP 0379 §§2.2-2.3, 8.
 
 import { Blob } from '../blob/Blob';
 

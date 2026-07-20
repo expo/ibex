@@ -141,8 +141,8 @@
     "operationSetSha256": "797ba84772ab1636bd2a8ed2e29a41c425a4b57365a0ff0e386420ab77192954",
     "semanticProgramSetSha256": "6cd57b6a10b071db4e14802c18b0d04a92b23f1196667f32b7920f0cfffa9586",
     "runtimeRoutingSha256": "07e106327f6f4222d4f0ef65ad53b71bd6fbe99cd7c34b2a8c01fca9d81f90eb",
-    "webgpuCVocabularySha256": "7d7779ae0bf3717d046419cc6ca988b251bfb61588f70142733729e4be688cd2",
-    "projectionPayloadSha256": "95e5e39d7aa45748c31e434fb689452b9affa57e4aee84ddf35f901c22b895b1"
+    "webgpuCVocabularySha256": "bb6e718fc69949026edd9568b721d7a0813761ae09d0bf309ad37f3e7e575401",
+    "projectionPayloadSha256": "f8c2f9480e37ee358118b884e7e7cfe8414e9c267f73590618f997479b3332d7"
   },
   "payload": {
     "profileId": "exact-webgpu-v1-draft",
@@ -430,7 +430,7 @@
         "localTimelineRule": "trusted-wrapper-recording-operations-carry-contiguous-service-validated-device-ingress-and-captured-scope-provenance;-every-service-call-flushes-the-required-prefix-and-popErrorScope-flushes-through-its-barrier"
       },
       "physicalOperationKey": {
-        "authority": "LLP-0367-section-3.6",
+        "authority": "LLP-0379-section-3.6",
         "fields": [
           "realmGeneration",
           "topology",
@@ -16813,7 +16813,7 @@
         "wedgedProviderDisposition": "force-loss-and-quarantine-generation",
         "redactedDiagnostic": "gpu-provider-shutdown-deadline-exceeded-v1"
       },
-      "webgpuCVocabularyDigest": "7d7779ae0bf3717d046419cc6ca988b251bfb61588f70142733729e4be688cd2",
+      "webgpuCVocabularyDigest": "bb6e718fc69949026edd9568b721d7a0813761ae09d0bf309ad37f3e7e575401",
       "operationSetDigest": "797ba84772ab1636bd2a8ed2e29a41c425a4b57365a0ff0e386420ab77192954",
       "semanticProgramDigest": "6cd57b6a10b071db4e14802c18b0d04a92b23f1196667f32b7920f0cfffa9586",
       "runtimeRoutingDigest": "07e106327f6f4222d4f0ef65ad53b71bd6fbe99cd7c34b2a8c01fca9d81f90eb",

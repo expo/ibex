@@ -900,13 +900,16 @@ inline bool exactRuntimeEnterUserExecution(ExactHermesRuntime* runtime) {
   if (runtime->app_bundle_evaluation_open.load(std::memory_order_acquire)) {
     return false;
   }
-  if (runtime->trusted_bootstrap_in_progress) {
-    return true;
-  }
+  // A provisional or failed native capability transaction outranks every
+  // evaluator posture, including trusted construction. Native finalizers use
+  // direct owner-thread JSI and do not need this project-execution gate.
   if (runtime->embedder_capability_state ==
           EmbedderCapabilityState::Configuring ||
       runtime->embedder_capability_state == EmbedderCapabilityState::Failed) {
     return false;
+  }
+  if (runtime->trusted_bootstrap_in_progress) {
+    return true;
   }
   // The host-controlled bare evaluator remains the phase-limited trusted
   // loader while armed_bootstrap_eval_open is true. It must neither close the

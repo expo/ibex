@@ -281,13 +281,10 @@ const POST_BOOTSTRAP_LAZY_ROOTS = new Set([
   "__exactUvEOFValue",
 ]);
 
-const POST_BOOTSTRAP_EMBEDDER_ENDOWMENT_PATHS = new Set([
-  // The native registrar predeclares the stable `exact` facade, but this
-  // method is added only after ex_hermes_set_exact_host_call_async validates
-  // one immutable app/agent operation endowment and refreshes the compartment
-  // baseline. It is deliberately absent at the armed bootstrap seal.
-  "exact.invokeHostAsync",
-]);
+const AUTHENTICATED_EXACT_HOST_INGRESS = Object.freeze({
+  logicalPath: "exact.invokeHostAsync",
+  sourceRef: "src/engine/hermes_runtime.cc#jsi-global:exact.invokeHostAsync",
+});
 
 const IPC_BOOTSTRAP_ROOTS = new Set([
   "__exactInstallAsyncIpcListenerPatch",
@@ -322,6 +319,30 @@ function branchActivation(surface, routes, sourceRefs, targetVariant) {
     );
   }
 
+  // The native registrar predeclares the stable `exact` facade, then this
+  // single source installs the typed method only after authenticating one
+  // immutable app/agent operation endowment. Bind the conditional activation
+  // to both that logical path and its reviewed native source so a same-spelling
+  // install from another route cannot inherit the classification.
+  const exactHostIngressSource = sourceRefs.includes(
+    AUTHENTICATED_EXACT_HOST_INGRESS.sourceRef,
+  );
+  if (
+    exactHostIngressSource ||
+    logicalPath === AUTHENTICATED_EXACT_HOST_INGRESS.logicalPath
+  ) {
+    if (
+      exactHostIngressSource &&
+      routeSet.has("native-jsi-global") &&
+      logicalPath === AUTHENTICATED_EXACT_HOST_INGRESS.logicalPath
+    ) {
+      return "authenticated-exact-host-ingress";
+    }
+    throw new Error(
+      `${surface.observedKey}: unreviewed authenticated Exact host ingress installation`,
+    );
+  }
+
   // Native process setup installs concrete stream/memory helpers before the
   // shared runtime replaces those objects with lazy JavaScript façades. The
   // native descriptors remain live only on the legacy fallback path.
@@ -346,9 +367,6 @@ function branchActivation(surface, routes, sourceRefs, targetVariant) {
   // module. They are covered by the install/registry join, but must not exist
   // at the armed bootstrap seal.
   if (POST_BOOTSTRAP_LAZY_ROOTS.has(root)) return "post-bootstrap-lazy";
-  if (POST_BOOTSTRAP_EMBEDDER_ENDOWMENT_PATHS.has(logicalPath)) {
-    return "post-bootstrap-embedder-endowment";
-  }
 
   if (IPC_BOOTSTRAP_ROOTS.has(root)) return "ipc-channel-bootstrap";
   if (

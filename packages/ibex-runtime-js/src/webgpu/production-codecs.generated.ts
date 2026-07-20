@@ -112,8 +112,8 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
     "operationSet": "797ba84772ab1636bd2a8ed2e29a41c425a4b57365a0ff0e386420ab77192954",
     "semanticProgramSet": "6cd57b6a10b071db4e14802c18b0d04a92b23f1196667f32b7920f0cfffa9586",
     "runtimeRouting": "07e106327f6f4222d4f0ef65ad53b71bd6fbe99cd7c34b2a8c01fca9d81f90eb",
-    "webgpuCVocabulary": "7d7779ae0bf3717d046419cc6ca988b251bfb61588f70142733729e4be688cd2",
-    "projection": "95e5e39d7aa45748c31e434fb689452b9affa57e4aee84ddf35f901c22b895b1"
+    "webgpuCVocabulary": "bb6e718fc69949026edd9568b721d7a0813761ae09d0bf309ad37f3e7e575401",
+    "projection": "f8c2f9480e37ee358118b884e7e7cfe8414e9c267f73590618f997479b3332d7"
   },
   "layout": {
     "requestMagic": "IBGQ",

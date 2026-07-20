@@ -6,15 +6,15 @@
   "status": "construction-private-source-derived-no-public-install",
   "source": {
     "productionPlanPath": "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts",
-    "productionPlanRawContentSha256": "19f32dfeee0fa4f4457d2b26ae7fea6a5518e4e9350aadf122d968539c86cc69",
+    "productionPlanRawContentSha256": "9d1ef81fb52b2c70c51e3b1446ddf3f7754fcbf2545fde8d7924ca8ffb1b6902",
     "wrapperAuthorityPath": "tests/fixtures/webgpu-test-wrapper-authority-v1.json",
-    "wrapperAuthorityRawContentSha256": "1cdf2ad2d5424aa7cdb386d461ff442f57b693199b72706d24e75686a86c547c",
+    "wrapperAuthorityRawContentSha256": "3d3f05de15293bf537083f384e627bfa2a486070e093c4d2bcc6cdff59cecba5",
     "authenticatedDigests": {
       "operationSet": "797ba84772ab1636bd2a8ed2e29a41c425a4b57365a0ff0e386420ab77192954",
       "semanticProgramSet": "6cd57b6a10b071db4e14802c18b0d04a92b23f1196667f32b7920f0cfffa9586",
       "runtimeRouting": "07e106327f6f4222d4f0ef65ad53b71bd6fbe99cd7c34b2a8c01fca9d81f90eb",
-      "webgpuCVocabulary": "7d7779ae0bf3717d046419cc6ca988b251bfb61588f70142733729e4be688cd2",
-      "projection": "95e5e39d7aa45748c31e434fb689452b9affa57e4aee84ddf35f901c22b895b1"
+      "webgpuCVocabulary": "bb6e718fc69949026edd9568b721d7a0813761ae09d0bf309ad37f3e7e575401",
+      "projection": "f8c2f9480e37ee358118b884e7e7cfe8414e9c267f73590618f997479b3332d7"
     }
   },
   "providerIdentity": {
@@ -22,7 +22,7 @@
     "topologyId": 1,
     "profileId": "exact-webgpu-v1-draft",
     "profileDigest": "eeda83784ff4297760619cb7df54f0e2f227a70562561909c47ecc9dc3232d95",
-    "webgpuCVocabularyDigest": "7d7779ae0bf3717d046419cc6ca988b251bfb61588f70142733729e4be688cd2",
+    "webgpuCVocabularyDigest": "bb6e718fc69949026edd9568b721d7a0813761ae09d0bf309ad37f3e7e575401",
     "operationSetDigest": "797ba84772ab1636bd2a8ed2e29a41c425a4b57365a0ff0e386420ab77192954",
     "semanticProgramDigest": "6cd57b6a10b071db4e14802c18b0d04a92b23f1196667f32b7920f0cfffa9586",
     "runtimeRoutingDigest": "07e106327f6f4222d4f0ef65ad53b71bd6fbe99cd7c34b2a8c01fca9d81f90eb",

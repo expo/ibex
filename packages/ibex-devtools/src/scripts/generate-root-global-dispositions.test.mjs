@@ -60,7 +60,7 @@ describe("generated root-global disposition artifacts", () => {
     expect(rendered.manifest.counts.sealedOrPrivate).toBeGreaterThan(20);
     expect(rendered.cxx).toContain("kRootExpectations");
     expect(rendered.cxx).toContain("kAbsentExpectations");
-    expect(rendered.cxx).toContain("kConditionalLiveSweepExpectations[33]");
+    expect(rendered.cxx).toContain("kConditionalLiveSweepExpectations[34]");
     expect(rendered.cxx).toContain("kNativeKeyExpectations");
     expect(rendered.cxx).toContain("kPermittedKeyExpectations");
     expect(rendered.cxx).toContain("__exactExit");
@@ -70,6 +70,9 @@ describe("generated root-global disposition artifacts", () => {
     );
     expect(rendered.cxx).toContain(
       '"createImageBitmap", "all", "authenticated-webgpu-decoded-image"',
+    );
+    expect(rendered.cxx).toContain(
+      '"exact", "invokeHostAsync", "default", "authenticated-exact-host-ingress"',
     );
     expect(
       renderRootGlobalDispositionHeader(rendered.manifest, rendered.json),

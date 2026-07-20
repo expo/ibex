@@ -449,9 +449,7 @@ describe("root-global disposition manifest", () => {
     expect(activation("__exactNativeWrapState")).toBe(
       "post-bootstrap-lazy",
     );
-    expect(activation("exact")).toBe(
-      "post-bootstrap-embedder-endowment",
-    );
+    expect(activation("exact")).toBe("authenticated-exact-host-ingress");
     expect(activation("__OriginalPromise")).toBe(
       "diagnostic-unarmed-promise-fallback",
     );
@@ -492,6 +490,20 @@ describe("root-global disposition manifest", () => {
         coverage: coverage([unreviewed]),
       }),
     ).toThrow(/unreviewed authenticated WebGPU root installation/u);
+  });
+
+  test("rejects a same-spelling Exact ingress from an unreviewed source", () => {
+    const forged = surface("global:exact.invokeHostAsync", {
+      globalName: "exact",
+      memberName: "invokeHostAsync",
+      sourceRefs: ["src/engine/forged_exact_ingress.cc#invokeHostAsync"],
+    });
+    expect(() =>
+      buildRootGlobalDispositionManifest({
+        globals: [forged],
+        coverage: coverage([forged]),
+      }),
+    ).toThrow(/unreviewed authenticated Exact host ingress installation/u);
   });
 
   test("missing, extra, and unresolved reachable rows fail closed", () => {
