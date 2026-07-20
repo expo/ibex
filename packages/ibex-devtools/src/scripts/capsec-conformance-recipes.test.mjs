@@ -203,25 +203,27 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(22_629);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_896);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_733);
-    const windowsPosixFsOpenRows = windowsRecipes.recipes.filter(
+    expect(windowsRecipes.summary.requiredFixtures).toBe(22_646);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_895);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_751);
+    const windowsAsyncFsOpenRows = windowsRecipes.recipes.filter(
       (recipe) =>
-        recipe.publicSurfaceProbe?.invocation?.globalName ===
-        "__exactFsOpenAsync",
+        recipe.fixtureId.includes("hermes.runtime.fs.windows.cc.exactfsopenasync"),
     );
-    expect(windowsPosixFsOpenRows).toHaveLength(1);
-    expect(windowsPosixFsOpenRows[0].publicSurfaceProbe).toMatchObject({
-      kind: "target-absence-probe",
-      invocation: {
-        expectedResult: "absent",
-      },
-    });
+    expect(windowsAsyncFsOpenRows).toHaveLength(18);
+    expect(
+      windowsAsyncFsOpenRows.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe === null &&
+          recipe.residualReasons.includes(
+            "native-public-operation-not-typed-on-target",
+          ),
+      ),
+    ).toBe(true);
     const windowsAbsenceRecipes = windowsRecipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
-    expect(windowsAbsenceRecipes).toHaveLength(211);
+    expect(windowsAbsenceRecipes).toHaveLength(209);
     const windowsTargetAbsenceRecipes = windowsAbsenceRecipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe.invocation.invocationSchema ===
@@ -233,7 +235,7 @@ describe("exact-target CapSec executable recipes", () => {
         "ibex/capsec-native-global-invocation/1",
     );
     expect(windowsTargetAbsenceRecipes).toHaveLength(125);
-    expect(windowsNativeAbsenceRecipes).toHaveLength(86);
+    expect(windowsNativeAbsenceRecipes).toHaveLength(84);
     expect(
       windowsTargetAbsenceRecipes.filter(
         (recipe) =>
@@ -441,7 +443,7 @@ describe("exact-target CapSec executable recipes", () => {
       windowsRecipes.summary.residualReasons[
         "native-public-operation-not-typed-on-target"
       ],
-    ).toBe(147);
+    ).toBe(165);
     expect(
       windowsRecipes.summary.residualReasons[
         "native-public-setup-operation-not-typed-on-target"

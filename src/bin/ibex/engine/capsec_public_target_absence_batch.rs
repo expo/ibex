@@ -310,9 +310,9 @@ fn expected_target_absence_counts(target_triple: &str) -> ExpectedTargetAbsenceC
         "x86_64-pc-windows-msvc" => ExpectedTargetAbsenceCounts {
             os: "windows",
             arch: "x86_64",
-            absent: 211,
+            absent: 209,
             target_absence: 125,
-            native_global_absence: 86,
+            native_global_absence: 84,
         },
         other => panic!("unsupported target-absence evidence target {other}"),
     }

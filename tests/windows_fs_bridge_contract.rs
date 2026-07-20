@@ -17,6 +17,8 @@ const RUNTIME_BOOTSTRAP: &str = include_str!("../packages/ibex-runtime-js/src/bo
 #[test]
 fn windows_async_fs_surface_is_registered() {
     for hook in [
+        "__exactFsOpenAsync",
+        "__exactFsCloseAsync",
         "__exactFsReadFileAsync",
         "__exactFsWriteFileAsync",
         "__exactFsReadAsync",
@@ -31,6 +33,34 @@ fn windows_async_fs_surface_is_registered() {
             "missing Windows async hook {hook}"
         );
     }
+}
+
+#[test]
+fn windows_async_open_and_close_commit_only_after_queue_admission() {
+    assert!(WINDOWS_FS.contains("IBEX_TEST_FS_WORKER_MAX_QUEUE"));
+    assert!(WINDOWS_FS.contains("if (onAccepted) onAccepted();"));
+    let close = WINDOWS_FS
+        .split("auto closeAsyncFn")
+        .nth(1)
+        .expect("Windows async close registration")
+        .split("rt.global().setProperty(rt, \"__exactFsCloseAsync\"")
+        .next()
+        .unwrap();
+    assert!(close.contains("startFsAsync("));
+    assert!(close.contains("g_files.erase(it)"));
+    assert!(
+        close.find("startFsAsync(") < close.find("g_files.erase(it)"),
+        "close authority must be removed by the queue-admission callback"
+    );
+    let open = WINDOWS_FS
+        .split("auto openAsyncFn")
+        .nth(1)
+        .expect("Windows async open registration")
+        .split("rt.global().setProperty(rt, \"__exactFsOpenAsync\"")
+        .next()
+        .unwrap();
+    assert!(open.contains("fsOpenPathWork"));
+    assert!(WINDOWS_FS.contains("if (resultPtr->registerOpenedFile)"));
 }
 
 #[test]

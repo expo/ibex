@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <condition_variable>
+#include <cstdlib>
 #include <cstdint>
 #include <deque>
 #include <exception>
@@ -314,6 +315,16 @@ struct FsAsyncResult {
   std::string message;
   std::string syscall;
   std::string path;
+  // Async open publishes the HANDLE-backed entry on the runtime thread before
+  // resolving its synthetic fd. Workers never mutate the shared fd registry.
+  bool registerOpenedFile = false;
+  std::shared_ptr<WindowsFileHandle> openedFile;
+  std::string openedPath;
+  bool openedAppend = false;
+  uint64_t openedRuntimeNonce = 0;
+  uint64_t openedOwner = 0;
+  bool openedCanRead = false;
+  bool openedCanWrite = false;
   bool tooLarge = false;
   double tooLargeSize = 0;
 };
@@ -372,15 +383,22 @@ class FsWorkerPool {
     return *pool;
   }
 
-  bool enqueue(std::function<void()> job, std::string& error) {
+  bool enqueue(
+      std::function<void()> job,
+      std::string& error,
+      const std::function<void()>& onAccepted = {}) {
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (queue_.size() >= kMaxQueue) {
+      if (queue_.size() >= maxQueue()) {
         error = "FS worker queue full";
         return false;
       }
       spawnWorkerIfNeededLocked();
       queue_.push_back(std::move(job));
+      // Commit close authority only after admission, while the queue lock
+      // prevents the worker from observing the job first.
+      // @ref LLP 0008#filesystem — rejected async close retains fd authority.
+      if (onAccepted) onAccepted();
     }
     cv_.notify_one();
     return true;
@@ -394,6 +412,16 @@ class FsWorkerPool {
   std::deque<std::function<void()>> queue_;
   size_t idle_ = 0;
   size_t total_ = 0;
+
+  static size_t maxQueue() {
+    // Deterministic failure injection for native resource-safety tests. The
+    // production default remains bounded at 1024.
+    const char* value = std::getenv("IBEX_TEST_FS_WORKER_MAX_QUEUE");
+    if (!value || !*value) return kMaxQueue;
+    char* end = nullptr;
+    auto parsed = std::strtoull(value, &end, 10);
+    return end && *end == '\0' ? static_cast<size_t>(parsed) : kMaxQueue;
+  }
 
   void spawnWorkerIfNeededLocked() {
     if (idle_ > queue_.size() || total_ >= kMaxWorkers) {
@@ -465,7 +493,9 @@ facebook::jsi::Value makeFsAsyncErrorValue(
 facebook::jsi::Value startFsAsync(
     ExactHermesRuntime* handle,
     facebook::jsi::Runtime& runtime,
-    std::function<FsAsyncResult()> work) {
+    std::function<FsAsyncResult()> work,
+    std::function<void()> onEnqueueFailure = {},
+    std::function<void()> onEnqueueAccepted = {}) {
   uint64_t principal = currentPrincipalId();
   auto principalStack =
       std::make_shared<std::vector<uint64_t>>(exactCollectTypedPrincipalStack());
@@ -475,7 +505,8 @@ facebook::jsi::Value startFsAsync(
       runtime,
       facebook::jsi::PropNameID::forAscii(runtime, "executor"),
       2,
-      [handle, principal, principalStack, workPtr](
+      [handle, principal, principalStack, workPtr, onEnqueueFailure,
+       onEnqueueAccepted](
           facebook::jsi::Runtime& rt,
           const facebook::jsi::Value&,
           const facebook::jsi::Value* args,
@@ -512,6 +543,9 @@ facebook::jsi::Value startFsAsync(
                 resultPtr = std::make_shared<FsAsyncResult>(
                     fsAsyncError("EIO", "filesystem worker failed", "fs"));
               }
+              if (resultPtr->registerOpenedFile) {
+                resultPtr->openedOwner = principal;
+              }
               *workPtr = {};
               auto runtimeResolve = std::move(resolve);
               auto runtimeReject = std::move(reject);
@@ -523,6 +557,19 @@ facebook::jsi::Value startFsAsync(
                     ScopedNativePrincipal nativePrincipal(principal);
                     try {
                       if (resultPtr->ok) {
+                        if (resultPtr->registerOpenedFile) {
+                          std::lock_guard<std::mutex> lock(g_files_mutex);
+                          int fd = g_next_fd++;
+                          g_files[fd] = FileEntry{
+                              resultPtr->openedFile,
+                              resultPtr->openedPath,
+                              resultPtr->openedAppend,
+                              resultPtr->openedRuntimeNonce,
+                              resultPtr->openedOwner,
+                              resultPtr->openedCanRead,
+                              resultPtr->openedCanWrite};
+                          resultPtr->number = static_cast<double>(fd);
+                        }
                         switch (resultPtr->kind) {
                           case FsAsyncResult::Kind::Bytes:
                             resolve->call(rt, makeUint8Array(rt, std::move(resultPtr->bytes)));
@@ -566,11 +613,13 @@ facebook::jsi::Value startFsAsync(
                     }
                   });
             },
-            enqueueError);
+            enqueueError,
+            onEnqueueAccepted);
         if (!queued) {
           // A rejected Promise can retain its executor. Clear the unqueued
           // callable so any owned native resources are released immediately.
           *workPtr = {};
+          if (onEnqueueFailure) onEnqueueFailure();
           auto queueError = fsAsyncError(
               "ERR_FS_WORKER_QUEUE_FULL", enqueueError, "fs");
           reject->call(rt, makeFsAsyncErrorValue(rt, queueError));
@@ -610,6 +659,29 @@ FsAsyncResult fsReadWholeHandleWork(
   }
   auto result = fsAsyncOk(FsAsyncResult::Kind::Bytes);
   result.bytes = std::move(data);
+  return result;
+}
+
+FsAsyncResult fsOpenPathWork(
+    const std::string& path,
+    int nodeFlags,
+    uint64_t runtimeNonce) {
+  uint32_t hostFlags = hostFlagsFromNodeFlags(nodeFlags);
+  void* rawFile = ex_host_fs_open(path.c_str(), hostFlags);
+  if (!rawFile) {
+    return fsAsyncSyscallError("open", path);
+  }
+  std::unique_ptr<void, decltype(&ex_host_fs_close)> rawGuard(
+      rawFile, &ex_host_fs_close);
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Number);
+  result.registerOpenedFile = true;
+  result.openedFile = std::make_shared<WindowsFileHandle>(rawFile);
+  rawGuard.release();
+  result.openedPath = path;
+  result.openedAppend = (nodeFlags & NODE_O_APPEND) == NODE_O_APPEND;
+  result.openedRuntimeNonce = runtimeNonce;
+  result.openedCanRead = (hostFlags & EXACT_FS_READ) == EXACT_FS_READ;
+  result.openedCanWrite = (hostFlags & EXACT_FS_WRITE) == EXACT_FS_WRITE;
   return result;
 }
 
@@ -1626,6 +1698,76 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             prefix);
       });
   rt.global().setProperty(rt, "__exactMkdtemp", std::move(mkdtempFn));
+
+  auto openAsyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactFsOpenAsync"),
+      4,
+      [handle](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isString() || !args[1].isNumber()) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactFsOpenAsync: path and flags required");
+        }
+        auto path = pathArg(runtime, args[0]);
+        int flags = static_cast<int>(args[1].asNumber());
+        uint32_t hostFlags = hostFlagsFromNodeFlags(flags);
+        if ((hostFlags & EXACT_FS_READ) == EXACT_FS_READ) {
+          requireReadCapability(runtime, path);
+        }
+        if ((hostFlags & EXACT_FS_WRITE) == EXACT_FS_WRITE) {
+          requireWriteCapability(runtime, path);
+        }
+        uint64_t runtimeNonce = exactCurrentRuntimeNonce();
+        return startFsAsync(handle, runtime, [path, flags, runtimeNonce]() {
+          return fsOpenPathWork(path, flags, runtimeNonce);
+        });
+      });
+  rt.global().setProperty(rt, "__exactFsOpenAsync", std::move(openAsyncFn));
+
+  auto closeAsyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactFsCloseAsync"),
+      1,
+      [handle](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsCloseAsync: fd required");
+        }
+        int fd = fdFromValue(runtime, args[0]);
+        auto entry = getFileEntry(runtime, fd);
+        auto file = entry.file;
+        auto expectedFile = file.get();
+        auto expectedNonce = entry.runtimeNonce;
+        auto expectedOwner = entry.owner;
+        auto committed = std::make_shared<bool>(false);
+        return startFsAsync(
+            handle,
+            runtime,
+            [file = std::move(file), committed]() mutable {
+              if (!*committed) {
+                return fsAsyncBadFd("close");
+              }
+              file.reset();
+              return fsAsyncOk();
+            },
+            {},
+            [fd, expectedFile, expectedNonce, expectedOwner, committed]() {
+              std::lock_guard<std::mutex> lock(g_files_mutex);
+              auto it = g_files.find(fd);
+              if (it != g_files.end() && it->second.file.get() == expectedFile &&
+                  it->second.runtimeNonce == expectedNonce &&
+                  it->second.owner == expectedOwner) {
+                g_files.erase(it);
+                *committed = true;
+              }
+            });
+      });
+  rt.global().setProperty(rt, "__exactFsCloseAsync", std::move(closeAsyncFn));
 
   auto readFileAsyncFn = facebook::jsi::Function::createFromHostFunction(
       rt,

@@ -4704,8 +4704,9 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   // read/write/stat. Validation + capability checks run here on the JS
   // thread; the returned Promise settles on the JS thread after the worker
   // completes. fs.js routes the callback/promise API through these when
-  // present and falls back to the deferred-sync path when absent (e.g. the
-  // Windows backend, which does not implement them yet).
+  // present and falls back to the deferred-sync path when absent. The Windows
+  // backend registers its HANDLE-backed equivalents in its own translation
+  // unit; partial test harnesses may intentionally omit them.
   // -------------------------------------------------------------------------
 
   // __exactFsReadFileAsync(pathOrFd, flags, mode) -> Promise<Uint8Array>

@@ -1254,7 +1254,6 @@ const nativeProjectFsOpenTemplate = ({
             kind: "event-loop-quiescence",
             timeoutMilliseconds: 1_000,
           },
-          unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
         }
       : {}),
   });
@@ -3303,6 +3302,7 @@ function bindNativeSetupSources(setup, liveByObservedKey, target) {
 // borrowing typed public recipes from the Apple target.
 const WINDOWS_UNTYPED_NATIVE_PUBLIC_OPERATIONS = new Set([
   "__exactFsOpen",
+  "__exactFsOpenAsync",
   "__exactFsPathAsync",
   "__exactFsFdatasyncSync",
   "__exactFsFsyncSync",

@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-20 (ENG-24933 physical Windows queue-rejection evidence exposes and repairs the missing async open/close hooks and non-injectable Windows fs worker capacity boundary)
 **Revised:** 2026-07-20 (ENG-24933 replaces the POSIX-only filesystem queue-rejection leak oracle with synchronized native Windows process-handle counts after the complete matrix exposed `/dev/fd` as its sole failure)
 **Revised:** 2026-07-20 (ENG-24933 physically clears the Windows module-semantics baseline and advances the default suite to the Windows DNS record-query stub)
 **Revised:** 2026-07-20 (ENG-24933 physically clears the verified Windows Hermes CLI binding and advances the default product suite to platform-specific module-semantics baseline drift)
@@ -2307,6 +2308,25 @@ checkpoints so the Rust parent can query the child's real process handle count.
 The Windows-focused workflow runs that exact integration test and retains its
 log. This repair still awaits physical Windows execution and a later complete
 report; it does not credit a fixture or change the empty advertisements.
+Focused physical run
+[`29759428422`](https://github.com/ccheever/ibex/actions/runs/29759428422)
+compiled the Windows process-handle observer, then proved the deeper product
+gap: Windows had no `__exactFsOpenAsync` or `__exactFsCloseAsync`, and its
+worker pool ignored the deterministic zero-capacity boundary. Promise close
+therefore fell back to synchronous close and invalidated the descriptor before
+the rollback assertion; promise open would likewise have created the refused
+file. Windows now publishes worker-opened handles on runtime-thread delivery,
+commits close authority only after queue admission, releases accepted closes
+on the worker, and uses the same bounded capacity override as POSIX. The
+registry consequently gains two honest Windows implementation branches and
+removes two former absence claims while keeping both target cells unsupported.
+The regenerated Windows catalog now accounts for 22,646 required fixtures as
+4,895 executable and 17,751 residual; its 209 absence probes comprise 125
+target-surface and 84 native-global probes. The 18 async-open branch scenarios
+remain residual because Windows does not yet have the typed public recipe
+needed to claim their runtime observations.
+This product repair awaits a replacement focused physical run and the later
+complete report; advertisements remain empty.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked

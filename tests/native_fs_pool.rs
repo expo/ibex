@@ -424,7 +424,10 @@ fn queue_rejection_releases_owned_fds_and_rolls_back_close() {
   await checkpoint('before');
   var before = windows ? 0 : fs.readdirSync('/dev/fd').length;
   var rejected = await Promise.all(Array.from({length: 100}, function(_, i) {
-    var op = i % 2 ? fs.promises.fstat(fd) : fs.promises.fchmod(fd, 0o600);
+    // Windows has a HANDLE-backed fstat worker but intentionally no fchmod
+    // implementation. POSIX covers both fd worker shapes.
+    var op = windows ? fs.promises.fstat(fd) :
+      (i % 2 ? fs.promises.fstat(fd) : fs.promises.fchmod(fd, 0o600));
     return op.then(function() { return false; }, function() { return true; });
   }));
   var closeRejected = await fs.promises.close(fd).then(function() { return false; }, function() { return true; });

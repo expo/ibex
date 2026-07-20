@@ -944,7 +944,7 @@ function _makeFileTooLargeError(size) {
 // sockets, and every other JS task. When the worker-pool-backed async natives
 // (__exactFs*Async) are present, readFile/writeFile/appendFile/read/write/
 // readv/writev/stat/lstat/fstat and the stream data paths route through them;
-// when absent (Windows backend, partial test harnesses) they fall back to the
+// when absent (for example in partial test harnesses) they fall back to the
 // historical deferred-sync path. *Sync entry points always stay synchronous.
 // @ref LLP 0003#blocking-work-worker-pools — worker-pool discipline and why
 // independent async ops may reorder (Node-faithful).

@@ -153251,7 +153251,7 @@
         ],
         "terminalObservedKey": "native-op:__exactFsCloseAsync"
       },
-      "branchKind": "single",
+      "branchKind": "alternative",
       "targetVariant": "posix",
       "targetApplicability": {
         "kind": "operating-system-family",
@@ -153264,6 +153264,41 @@
       "implementationOwner": "WP8",
       "fixtureObligations": [
         "surface.native.op.exactfscloseasync.117uwo2.posix.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactfscloseasync.117uwo2",
+      "observedKey": "native-op:__exactFsCloseAsync",
+      "branchId": "surface.native.op.exactfscloseasync.117uwo2.windows",
+      "enforcementBranchId": "surface.native.op.exactfscloseasync.117uwo2.windows",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__exactFsCloseAsync"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_fs_windows.cc#__exactFsCloseAsync",
+          "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsCloseAsync"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_fs_windows.cc#__exactFsCloseAsync",
+          "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsCloseAsync"
+        ],
+        "terminalObservedKey": "native-op:__exactFsCloseAsync"
+      },
+      "branchKind": "alternative",
+      "targetVariant": "windows",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "windows"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_fs_windows.cc#__exactFsCloseAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsCloseAsync"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.native.op.exactfscloseasync.117uwo2.windows.non-capability"
       ]
     },
     {
@@ -153904,7 +153939,7 @@
         ],
         "terminalObservedKey": "native-op:__exactFsOpenAsync"
       },
-      "branchKind": "single",
+      "branchKind": "alternative",
       "targetVariant": "posix",
       "targetApplicability": {
         "kind": "operating-system-family",
@@ -153934,6 +153969,58 @@
         "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.write.malformed",
         "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.write.missing-attribution",
         "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.write.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactfsopenasync.1jie13i",
+      "observedKey": "native-op:__exactFsOpenAsync",
+      "branchId": "surface.native.op.exactfsopenasync.1jie13i.windows",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "native-op:__exactFsOpenAsync"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_fs_windows.cc#__exactFsOpenAsync",
+          "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsOpenAsync"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_fs_windows.cc#__exactFsOpenAsync",
+          "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsOpenAsync"
+        ],
+        "terminalObservedKey": "native-op:__exactFsOpenAsync"
+      },
+      "branchKind": "alternative",
+      "targetVariant": "windows",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "windows"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_fs_windows.cc#__exactFsOpenAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsOpenAsync"
+      ],
+      "implementationOwner": "WP5",
+      "fixtureObligations": [
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read-write.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read-write.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read-write.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read-write.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read-write.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read-write.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.write.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.write.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.write.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.write.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.write.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.write.wrong-principal"
       ]
     },
     {
@@ -257080,10 +257167,12 @@
           "startup:env:IBEX_TEST_FS_WORKER_MAX_QUEUE"
         ],
         "proofSourceRefs": [
-          "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read"
+          "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read",
+          "src/engine/hermes_runtime_fs_windows.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read"
         ],
         "sourceRefs": [
-          "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read"
+          "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read",
+          "src/engine/hermes_runtime_fs_windows.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read"
         ],
         "terminalObservedKey": "startup:env:IBEX_TEST_FS_WORKER_MAX_QUEUE"
       },
@@ -257093,7 +257182,8 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read"
+        "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read",
+        "src/engine/hermes_runtime_fs_windows.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read"
       ],
       "implementationOwner": "WP9",
       "fixtureObligations": [
@@ -266044,12 +266134,12 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-Ftv4cCysUDSLZe-MLxZNe0pzpb-ESWPCgWJgpS8f0pM"
+      "rawContentDigest": "sha256-yXdCAwAPqW5PyLQcRwxdkb4v2b_muC35vZLkY3d0zWI"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-UKVE7yiE7YjrqG9PLQxvLmGEHHarnMuupnQQsIwkMD0"
+      "rawContentDigest": "sha256-UjKrReqDWMUZxyT76IRPP2nMmkPShEwQgjQkX1Itau8"
     },
     {
       "kind": "registry",
@@ -266059,28 +266149,28 @@
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-gMbDn82nGyvmbHnVEyqcZw8Jz-wNkJWZgnnuhL_bBdw"
+      "rawContentDigest": "sha256-CbfVA-RhV3wI3r1iE7FBBo9sM-vjH1z3aLtcD0DZERw"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-IkYDo8jbLOG3gStWVwz6uESvbLJgzdZlmmUgJrYBJNA"
+      "rawContentDigest": "sha256-Ob_iR2Fd6-7mvYvq66wTqAn63bGY_acetN2yfzabBqM"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-oa9V0-HTu4uJg3wA58cZHjMZdeCWm0ES3PLqCu7pATY"
+      "rawContentDigest": "sha256-CY340W8Ni5YHlY1rknGPleThBN9WdpUe23v7gELdAh0"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-jY1DgtNCzd5g9e3bnQ3v_RDMzqoec2dfDy-B2GHaQeI"
+      "rawContentDigest": "sha256-uqrmPz6i0E3rYu0e5EEC_-qsrK5BEUdn6uDsn8_isoA"
     }
   ],
   "counts": {
-    "observedReferences": 12853,
+    "observedReferences": 12858,
     "logicalSurfaces": 7103,
-    "enforcementBranches": 7338,
+    "enforcementBranches": 7340,
     "coverageEdges": 7103,
     "targetCells": 14206
   }
