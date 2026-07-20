@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { canonicalJson, repoRoot } from "./capsec-contract.mjs";
 import { readRestrictedAbsenceEvidence } from "./restricted-exact-absence-evidence.mjs";
 import { readRestrictedControlEvidence } from "./restricted-exact-control-evidence.mjs";
+import { readRestrictedGlobalCorporaEvidence } from "./restricted-exact-global-corpora-evidence.mjs";
 import { readRestrictedReachableEvidence } from "./restricted-exact-reachable-evidence.mjs";
 import {
   buildRestrictedTargetReport,
@@ -17,14 +18,21 @@ export function buildRestrictedTargetReportFromEvidence(
   reachablePath,
   controlPath,
   absencePath,
+  corpusPath,
 ) {
   const authorities = loadRestrictedReportAuthorities();
   const reachable = readRestrictedReachableEvidence(reachablePath, authorities);
   const control = readRestrictedControlEvidence(controlPath, authorities);
   const absence = readRestrictedAbsenceEvidence(absencePath, authorities);
+  const corpora = readRestrictedGlobalCorporaEvidence(
+    corpusPath,
+    reachablePath,
+    authorities,
+  );
   if (
     canonicalJson(reachable.bindings) !== canonicalJson(control.bindings)
     || canonicalJson(reachable.bindings) !== canonicalJson(absence.bindings)
+    || canonicalJson(reachable.bindings) !== canonicalJson(corpora.bindings)
   ) {
     throw new Error("restricted target evidence bindings differ");
   }
@@ -35,14 +43,11 @@ export function buildRestrictedTargetReportFromEvidence(
       ...reachable.executions,
       ...control.executions,
       ...absence.executions,
+      ...corpora.executions,
     ].sort(
       (left, right) => left.executionId.localeCompare(right.executionId),
     ),
-    globalCorpora: authorities.fixturePlan.globalCorpora.map((row) => ({
-      id: row.id,
-      status: "missing",
-      executionIds: [],
-    })),
+    globalCorpora: corpora.globalCorpora,
     independentReview: {
       status: "pending",
       artifactDigest: null,
@@ -62,18 +67,20 @@ function main() {
   const check = args.includes("--check") || !write;
   if (write && args.includes("--check")) throw new Error("choose --write or --check");
   const positional = args.filter((arg) => !arg.startsWith("--"));
-  if (positional.length !== 4) {
-    throw new Error("usage: generate-restricted-exact-target-report <reachable-evidence> <control-evidence> <absence-evidence> <report> [--write|--check]");
+  if (positional.length !== 5) {
+    throw new Error("usage: generate-restricted-exact-target-report <reachable-evidence> <control-evidence> <absence-evidence> <global-corpora-evidence> <report> [--write|--check]");
   }
   const reachablePath = path.resolve(repoRoot, positional[0]);
   const controlPath = path.resolve(repoRoot, positional[1]);
   const absencePath = path.resolve(repoRoot, positional[2]);
-  const outputPath = path.resolve(repoRoot, positional[3]);
+  const corpusPath = path.resolve(repoRoot, positional[3]);
+  const outputPath = path.resolve(repoRoot, positional[4]);
   const conformanceRoot = `${path.resolve(repoRoot, "capsec/conformance")}${path.sep}`;
   if (
     !reachablePath.startsWith(conformanceRoot)
     || !controlPath.startsWith(conformanceRoot)
     || !absencePath.startsWith(conformanceRoot)
+    || !corpusPath.startsWith(conformanceRoot)
     || !outputPath.startsWith(conformanceRoot)
   ) {
     throw new Error("restricted evidence and report must remain under capsec/conformance");
@@ -82,6 +89,7 @@ function main() {
     reachablePath,
     controlPath,
     absencePath,
+    corpusPath,
   ));
   if (write) {
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });

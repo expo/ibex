@@ -1,0 +1,400 @@
+{
+  "authorityDigests": {
+    "coverageRawContentDigest": "sha256-RxLDC47t7W7kLtzuZCBiC9nG06BNALnrbAYgGabuiYU",
+    "definitionRawContentDigest": "sha256-jBIUeHQsuAh4gaLUVa5mn0CJhqCyCOhRX-dBp1PMRDk",
+    "fixturePlanRawContentDigest": "sha256-_TAFcYA1wzMuAqZfbq6VgSagbdkLE_1CIJZY_dsSAZg",
+    "implementationManifestRawContentDigest": "sha256-0sPWphv10cbLXGnfgWURmSrnuzcT5-qkCv1V-WRjcJY",
+    "projectionRawContentDigest": "sha256-P-YikGNQ_TeQSCdHshS3TRuSFOvZ2AsraWGv-RinDh4",
+    "reportSchemaRawContentDigest": "sha256-9pfYln-aIXfsTb7fXDhCB6PY_8E-aV91wmyIEdgrH5w"
+  },
+  "bindingEvidenceRawContentDigest": "sha256-GsjCS1ta1eEoa4_2yESACQ4-zGDvYqQSxr423OQ1Kg0",
+  "commandEnvironment": {
+    "architecture": "arm64",
+    "platform": "darwin",
+    "runner": "/opt/homebrew/Cellar/bun/1.3.14/bin/bun"
+  },
+  "corpora": [
+    {
+      "executionIds": [
+        "restricted-corpus.artifact-tamper.restricted_exact_builder_binds_one_immutable_candidate_bundle",
+        "restricted-corpus.artifact-tamper.restricted_exact_builder_rejects_format_and_engine_confusion"
+      ],
+      "id": "artifact-tamper",
+      "status": "passed"
+    },
+    {
+      "executionIds": [
+        "restricted-corpus.hostile-lifecycle.restricted_exact_startup_checkpoint_failures_poison_the_runtime",
+        "restricted-corpus.hostile-lifecycle.restricted_exact_event_checkpoint_failures_poison_the_runtime"
+      ],
+      "id": "hostile-lifecycle",
+      "status": "passed"
+    },
+    {
+      "executionIds": [
+        "restricted-corpus.loader-and-bridge-absence.restricted_exact_runtime_has_authenticated_single_use_ingress",
+        "restricted-corpus.loader-and-bridge-absence.restricted_exact_absence_edges_close_source_and_live_routes"
+      ],
+      "id": "loader-and-bridge-absence",
+      "status": "passed"
+    },
+    {
+      "executionIds": [
+        "restricted-corpus.profile-confusion.restricted_exact_builder_binds_one_immutable_candidate_bundle",
+        "restricted-corpus.profile-confusion.restricted_exact_builder_rejects_format_and_engine_confusion",
+        "restricted-corpus.profile-confusion.restricted_exact_runtime_has_authenticated_single_use_ingress"
+      ],
+      "id": "profile-confusion",
+      "status": "passed"
+    },
+    {
+      "executionIds": [
+        "restricted-corpus.teardown.restricted_exact_control_plane_edges_enforce_lifecycle_refusals",
+        "restricted-corpus.teardown.restricted_exact_startup_checkpoint_failures_poison_the_runtime",
+        "restricted-corpus.teardown.restricted_exact_event_checkpoint_failures_poison_the_runtime"
+      ],
+      "id": "teardown",
+      "status": "passed"
+    }
+  ],
+  "engine": {
+    "binaryDigest": "sha256-W1UBSE-dkQBVEo8CvUuz45q2Qv_iNwbh8LFPIPNw3BY",
+    "engineArtifactPath": "/Users/ccheever/projects/.worktrees/ibex-llp0033-native-test/ios/Frameworks/hermesvm.framework/Versions/1/hermesvm",
+    "kind": "hermes",
+    "object": {
+      "file": "ino:21848632",
+      "platform": "apple",
+      "volume": "dev:16777233"
+    },
+    "structuralFeatures": [
+      "hermes-frame-attribution",
+      "native-compartments",
+      "native-lockdown"
+    ],
+    "targetArchitecture": "aarch64"
+  },
+  "evidenceSchema": "ibex/restricted-profile-global-corpora-evidence/1",
+  "executions": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ibex-runtime",
+        "--lib",
+        "--release",
+        "--features",
+        "capsec-conformance-observer",
+        "host::embedder_artifacts::tests::restricted_exact_builder_binds_one_immutable_candidate_bundle",
+        "--",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "executionId": "restricted-corpus.artifact-tamper.restricted_exact_builder_binds_one_immutable_candidate_bundle",
+      "exitCode": 0,
+      "fixtureId": "artifact-tamper",
+      "outcome": "passed",
+      "outputDigest": "sha256-GFF1WwHq5qLbeDOP6FsDWGxcs1SCxDmEs4_SykOuu2I",
+      "resultMarker": "ibex-restricted-global-corpus:passed:artifact-tamper:restricted_exact_builder_binds_one_immutable_candidate_bundle"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ibex-runtime",
+        "--lib",
+        "--release",
+        "--features",
+        "capsec-conformance-observer",
+        "host::embedder_artifacts::tests::restricted_exact_builder_rejects_format_and_engine_confusion",
+        "--",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "executionId": "restricted-corpus.artifact-tamper.restricted_exact_builder_rejects_format_and_engine_confusion",
+      "exitCode": 0,
+      "fixtureId": "artifact-tamper",
+      "outcome": "passed",
+      "outputDigest": "sha256-Eey7B0psiAHAE7Lg1vBeNELDygb2I7VUj3MrhWUICrY",
+      "resultMarker": "ibex-restricted-global-corpus:passed:artifact-tamper:restricted_exact_builder_rejects_format_and_engine_confusion"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ibex-runtime",
+        "--lib",
+        "--release",
+        "--features",
+        "capsec-conformance-observer",
+        "host::embedder_artifacts::tests::restricted_exact_startup_checkpoint_failures_poison_the_runtime",
+        "--",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "executionId": "restricted-corpus.hostile-lifecycle.restricted_exact_startup_checkpoint_failures_poison_the_runtime",
+      "exitCode": 0,
+      "fixtureId": "hostile-lifecycle",
+      "outcome": "passed",
+      "outputDigest": "sha256-ApsbDqJitWR4aH-pvH4wxy0Yn6wqTActOcWOohAPiaU",
+      "resultMarker": "ibex-restricted-global-corpus:passed:hostile-lifecycle:restricted_exact_startup_checkpoint_failures_poison_the_runtime"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ibex-runtime",
+        "--lib",
+        "--release",
+        "--features",
+        "capsec-conformance-observer",
+        "host::embedder_artifacts::tests::restricted_exact_event_checkpoint_failures_poison_the_runtime",
+        "--",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "executionId": "restricted-corpus.hostile-lifecycle.restricted_exact_event_checkpoint_failures_poison_the_runtime",
+      "exitCode": 0,
+      "fixtureId": "hostile-lifecycle",
+      "outcome": "passed",
+      "outputDigest": "sha256-jR8YuJH9adEPqgLBxyEDAhjPJNC79rUG14SadVIXQoY",
+      "resultMarker": "ibex-restricted-global-corpus:passed:hostile-lifecycle:restricted_exact_event_checkpoint_failures_poison_the_runtime"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ibex-runtime",
+        "--lib",
+        "--release",
+        "--features",
+        "capsec-conformance-observer",
+        "host::embedder_artifacts::tests::restricted_exact_runtime_has_authenticated_single_use_ingress",
+        "--",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "executionId": "restricted-corpus.loader-and-bridge-absence.restricted_exact_runtime_has_authenticated_single_use_ingress",
+      "exitCode": 0,
+      "fixtureId": "loader-and-bridge-absence",
+      "outcome": "passed",
+      "outputDigest": "sha256--_4Jm7AIFjUhG6WC6nmIEHv2hMNqk3AEB8oZr6yPitM",
+      "resultMarker": "ibex-restricted-global-corpus:passed:loader-and-bridge-absence:restricted_exact_runtime_has_authenticated_single_use_ingress"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ibex-runtime",
+        "--lib",
+        "--release",
+        "--features",
+        "capsec-conformance-observer",
+        "host::embedder_artifacts::tests::restricted_exact_absence_edges_close_source_and_live_routes",
+        "--",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "executionId": "restricted-corpus.loader-and-bridge-absence.restricted_exact_absence_edges_close_source_and_live_routes",
+      "exitCode": 0,
+      "fixtureId": "loader-and-bridge-absence",
+      "outcome": "passed",
+      "outputDigest": "sha256-MzQCSemWGny1OORMtd28pwerjkrxeSffB1y1c0O2gyY",
+      "resultMarker": "ibex-restricted-global-corpus:passed:loader-and-bridge-absence:restricted_exact_absence_edges_close_source_and_live_routes"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ibex-runtime",
+        "--lib",
+        "--release",
+        "--features",
+        "capsec-conformance-observer",
+        "host::embedder_artifacts::tests::restricted_exact_builder_binds_one_immutable_candidate_bundle",
+        "--",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "executionId": "restricted-corpus.profile-confusion.restricted_exact_builder_binds_one_immutable_candidate_bundle",
+      "exitCode": 0,
+      "fixtureId": "profile-confusion",
+      "outcome": "passed",
+      "outputDigest": "sha256-GFF1WwHq5qLbeDOP6FsDWGxcs1SCxDmEs4_SykOuu2I",
+      "resultMarker": "ibex-restricted-global-corpus:passed:profile-confusion:restricted_exact_builder_binds_one_immutable_candidate_bundle"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ibex-runtime",
+        "--lib",
+        "--release",
+        "--features",
+        "capsec-conformance-observer",
+        "host::embedder_artifacts::tests::restricted_exact_builder_rejects_format_and_engine_confusion",
+        "--",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "executionId": "restricted-corpus.profile-confusion.restricted_exact_builder_rejects_format_and_engine_confusion",
+      "exitCode": 0,
+      "fixtureId": "profile-confusion",
+      "outcome": "passed",
+      "outputDigest": "sha256-EW91C1gvnWjsoGbVKN6CdtW9ZfICmRCQRC860N760dw",
+      "resultMarker": "ibex-restricted-global-corpus:passed:profile-confusion:restricted_exact_builder_rejects_format_and_engine_confusion"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ibex-runtime",
+        "--lib",
+        "--release",
+        "--features",
+        "capsec-conformance-observer",
+        "host::embedder_artifacts::tests::restricted_exact_runtime_has_authenticated_single_use_ingress",
+        "--",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "executionId": "restricted-corpus.profile-confusion.restricted_exact_runtime_has_authenticated_single_use_ingress",
+      "exitCode": 0,
+      "fixtureId": "profile-confusion",
+      "outcome": "passed",
+      "outputDigest": "sha256-IoRGRr02HcgBxmG3q1UZZvp4JAZqZ4Wa5TkXWbc5m7k",
+      "resultMarker": "ibex-restricted-global-corpus:passed:profile-confusion:restricted_exact_runtime_has_authenticated_single_use_ingress"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ibex-runtime",
+        "--lib",
+        "--release",
+        "--features",
+        "capsec-conformance-observer",
+        "host::embedder_artifacts::tests::restricted_exact_control_plane_edges_enforce_lifecycle_refusals",
+        "--",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "executionId": "restricted-corpus.teardown.restricted_exact_control_plane_edges_enforce_lifecycle_refusals",
+      "exitCode": 0,
+      "fixtureId": "teardown",
+      "outcome": "passed",
+      "outputDigest": "sha256-uEI7WeZZbKhqehN0dKllHHa1a7xDSL5Dc6WZG9Imx8w",
+      "resultMarker": "ibex-restricted-global-corpus:passed:teardown:restricted_exact_control_plane_edges_enforce_lifecycle_refusals"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ibex-runtime",
+        "--lib",
+        "--release",
+        "--features",
+        "capsec-conformance-observer",
+        "host::embedder_artifacts::tests::restricted_exact_startup_checkpoint_failures_poison_the_runtime",
+        "--",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "executionId": "restricted-corpus.teardown.restricted_exact_startup_checkpoint_failures_poison_the_runtime",
+      "exitCode": 0,
+      "fixtureId": "teardown",
+      "outcome": "passed",
+      "outputDigest": "sha256-nyH3JkKqeH-eRTZh2QvVisnb0rxBNfeMLllh18gWj3s",
+      "resultMarker": "ibex-restricted-global-corpus:passed:teardown:restricted_exact_startup_checkpoint_failures_poison_the_runtime"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ibex-runtime",
+        "--lib",
+        "--release",
+        "--features",
+        "capsec-conformance-observer",
+        "host::embedder_artifacts::tests::restricted_exact_event_checkpoint_failures_poison_the_runtime",
+        "--",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "executionId": "restricted-corpus.teardown.restricted_exact_event_checkpoint_failures_poison_the_runtime",
+      "exitCode": 0,
+      "fixtureId": "teardown",
+      "outcome": "passed",
+      "outputDigest": "sha256-QaaCarw3Rsoi4o3i2aZCFz88Ol40-fxSmhhHpPuJE5A",
+      "resultMarker": "ibex-restricted-global-corpus:passed:teardown:restricted_exact_event_checkpoint_failures_poison_the_runtime"
+    }
+  ],
+  "exitCode": 0,
+  "hermesProfileProvenance": {
+    "path": "/Users/ccheever/projects/.worktrees/ibex-llp0033-native-test/ios/Frameworks/hermes-profile-provenance.json",
+    "rawContentDigest": "sha256-mWApvwpUkBxodQ1MSGsSeTVmnDzCb0e6jzrf96QcbwQ",
+    "receipt": {
+      "artifact": {
+        "binaryDigest": "sha256-5b5501484f9d910055128f02bd4bb3e39ab642ffe23706e1f0b14f20f370dc16",
+        "fileName": "hermesvm",
+        "targetArchitecture": "universal"
+      },
+      "origin": {
+        "cacheKey": "ac8c6e6c80ec-p4ee8b3103bf9-ba31584f20c5de-bl8d0f00b05f19-a4d422defe361-i7dd0ebd78fe1-oapple",
+        "kind": "source-patched-cache",
+        "reviewedProfileIdentity": {
+          "artifact": "facebook/hermes",
+          "patchApplicationAuthorityDigest": "sha256-4d422defe36111f1749f01c7884d942062ad54e6a7d611eee624547002bc4cdd",
+          "patchIdentityAuthorityDigest": "sha256-7dd0ebd78fe1a3732c3a9a8f5686c0925e723bc886dc03ce22bbb32b56552b1f",
+          "patchStackDigest": "sha256-4ee8b3103bf9341b9d7460884323978471558d5a03f0926d70e5593c07ff9025",
+          "sourceBuildAuthorityDigests": {
+            "scripts/build-hermes-linux.sh": "sha256-8d0f00b05f198bb2c823f55a92cabc4f0101bddad7daaa54e0244d63e97ba011",
+            "scripts/build-hermes.sh": "sha256-31584f20c5deeb86750d79a2bfbb56ec98a84861ddc2a0c681c314185e100d69"
+          },
+          "sourceCommit": "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",
+          "sourceRef": "260318099.0.0-stable",
+          "sourceVersion": "260318099.0.0"
+        }
+      },
+      "profileId": "source-patched",
+      "schema": "ibex/hermes-profile-provenance-receipt/2",
+      "targetVariant": "default"
+    }
+  },
+  "profile": "ibex/exact-embedder-contract/1",
+  "resultMarker": "ibex-restricted-global-corpora:passed",
+  "runId": "restricted-global-corpora-0d8cccd981d36f8331c4160b909e43be",
+  "sourceRevision": "04a08eebc15fb76102f9be59ecf394a80e731a28",
+  "sourceTreeDigest": "sha256-742zxgZwtipY67jX6M39PadYdQCTBPM9K1AydT8IUUM",
+  "target": {
+    "features": [
+      "hermes-frame-attribution",
+      "native-compartments",
+      "native-lockdown"
+    ],
+    "triple": "aarch64-apple-darwin"
+  }
+}
