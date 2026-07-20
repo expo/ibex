@@ -23,8 +23,7 @@ function readFailedReview(reviewPath, evidencePaths) {
     review.kind !== "ibex-llp-0033-independent-security-review"
     || review.independent !== true
     || review.verdict !== "fail"
-    || review.unresolvedCritical < 1
-    || review.unresolvedHigh < 1
+    || (review.unresolvedCritical < 1 && review.unresolvedHigh < 1)
   ) {
     throw new Error("restricted failed-review artifact is not a blocking independent review");
   }

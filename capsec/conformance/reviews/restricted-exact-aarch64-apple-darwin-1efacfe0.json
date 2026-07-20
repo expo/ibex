@@ -1,0 +1,66 @@
+{
+  "kind": "ibex-llp-0033-independent-security-review",
+  "independent": true,
+  "reviewedCommit": "1efacfe069c709bde89d05ea4d59600e340f020b",
+  "reviewedReportDigest": "sha256-8l59iqLoWZ1bl2OuDTG_PtHuelGBzkHYjsUfEtqQYro",
+  "reviewedReportRawContentDigest": "sha256-9twvYg5UBanqBrfw5ddkDY3ic3DRGmvujkpUsQgcca4",
+  "reviewedProbePlanRawContentDigest": "sha256-RqFH1A6VXD6zKHReua-LYZj0STaxQ3t4vTcTKJm6iCc",
+  "reviewedEvidenceRawContentDigests": {
+    "absence-aarch64-apple-darwin-f04bd910.json": "sha256-atEVuYtHDDs-CBS0Kb1T6b4n78zTnxA-XTZVMESZX-g",
+    "control-aarch64-apple-darwin-f04bd910.json": "sha256-kJ2NIEXfwmzDtblnDDn0AgmyH3aRcUgQgSlShxJnqb4",
+    "global-corpora-aarch64-apple-darwin-f04bd910.json": "sha256-e26KRMeCPA2pqJ4DDkhX97-x8161du32Ouk3kEyDybk",
+    "reachable-aarch64-apple-darwin-f04bd910.json": "sha256-_dYciw6vThzMZFoHI_NLVTpf3YGv1sky6j7vbslfG98"
+  },
+  "verdict": "fail",
+  "summary": "The Apple report must remain incomplete. The native freeze-hatch defect and prior teardown evidence gap are materially corrected, but the central absence-evidence defect remains: unique probe IDs still fan shared surface-kind predicates out into thousands of nominal per-edge and per-branch passes. The promotion validator also accepts a fabricated clear-review digest without reopening a review artifact.",
+  "findings": [
+    {
+      "severity": "critical",
+      "status": "unresolved",
+      "title": "The generated absence plan gives categorical checks per-edge names without executing edge-specific source or attacker routes",
+      "evidence": [
+        "The generator selects non-descriptor live routes solely from surfaceKind and does not derive executable route types from sourceRefs, aliases, lazy installers, callback producers, or enforcement proof paths.",
+        "The native executor ignores target for builtin, loader, CLI, Host ABI, and callback routes and reuses small shared root sets; startup probes compare target strings to a fixed selected-identity list.",
+        "Every source branch is labeled not-selected-or-retained without observing branch-specific selection, installer execution, aliases, resolver registrations, callback retention, or lazy routes.",
+        "Of 7,147 absent edges, 4,625 non-native-op edges receive a categorical mandatory live probe: 2,890 builtins, 36 callbacks, 540 CLI edges, 296 Host ABI edges, 569 loaders, and 294 startup edges.",
+        "The ingestor proves that result JSON matches the plan, not that the executor performed the named edge-specific operation; mutation tests do not cover target-insensitive executors or alternate routes."
+      ],
+      "recommendation": "Invalidate the 7,147 absence rows again. Generate executable probes from each branch's actual enforcement route, source references, aliases, lazy registrations, callback producers, and attacker roots. Instrument restricted bootstrap and registries so each source branch reports selected or not-selected by branch identity. A predicate that does not consume and distinguish its target cannot receive per-edge credit."
+    },
+    {
+      "severity": "high",
+      "status": "unresolved",
+      "title": "A conformant report can claim an arbitrary clear independent-review digest without a review artifact",
+      "evidence": [
+        "The target-report schema stores only review status, a digest-shaped string, and counts; it has no review path or reviewed bindings.",
+        "Target-report construction promotes from a caller-supplied clear status, any non-null digest, and zero counts without reopening an artifact.",
+        "Advertisement derivation copies the review digest from the report but does not prove that an artifact with that digest exists or reviewed the bound report and evidence.",
+        "A fabricated in-memory clear-review digest produced a conformant report accepted by validateRestrictedTargetReport.",
+        "The failed-review ingestion path reopens its artifact, but no equivalent clear-review path exists; its predicate also incorrectly requires both a critical and high finding."
+      ],
+      "recommendation": "Strictly validate a clear-review artifact with independence, reviewed commit, report and evidence bindings, verdict, findings, and unresolved counts. Store its path and raw digest in the report, reopen it during validation and advertisement derivation, and require a clear verdict with both counts zero."
+    },
+    {
+      "severity": "medium",
+      "status": "unresolved",
+      "title": "The focused target-report test suite is stale after five edges were reclassified",
+      "evidence": [
+        "The focused test expects 14,452 missing observations while the current 131/22/7,147 projection derives 14,447."
+      ],
+      "recommendation": "Update the projection-sensitive assertion and require the focused suite to pass before recording another release evidence set."
+    }
+  ],
+  "priorFindingResolution": {
+    "categoricalAbsenceFanout": "unresolved",
+    "teardownLifecycleEvidence": "resolved",
+    "nativeFreezeHatches": "resolved"
+  },
+  "verification": {
+    "probePlanDriftCheck": "passed",
+    "reportDriftCheck": "passed",
+    "focusedMutationTests": "failed due to stale 14,452 expectation",
+    "workingTree": "clean"
+  },
+  "unresolvedCritical": 1,
+  "unresolvedHigh": 1
+}

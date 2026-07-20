@@ -5,7 +5,10 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-19 (r14 — the first executed native-op probe found that
+**Revised:** 2026-07-19 (r15 — records the second failed independent review,
+invalidates the target-insensitive absence fan-out, retains the cleared
+teardown and freeze-hatch fixes, and restores 7,147 absence rows to incomplete;
+r14 — the first executed native-op probe found that
 the restricted lockdown inherited the two Hermes native freeze hatches; seals
 both in the authenticated Contract realm and adds a direct regression; r13 — invalidates the reviewed categorical absence
 evidence, corrects five admitted callback edges to reachable, and adds a
@@ -416,11 +419,14 @@ ingress, deterministic activation, frame and checkpoint output, callback
 replacement refusal, replay refusal, and raw eval refusal. The real
 self-contained Contract bundle and hostile lifecycle corpus now pass on the
 eligible exact-engine Apple build. Commit `f04bd910` produced fresh release
-evidence for all 131 reachable, 22 trusted-control-plane, and 7,147 absent
-edges plus all five preregistered global corpora; the resulting report has no
-failed or missing observations but remains `incomplete` pending an independent
-review. Teardown/supervisor evidence, Linux evidence, and target advertisements
-are still pending, and the advertisement set remains empty.
+evidence for all 131 reachable and 22 trusted-control-plane edges, and the
+second independent review cleared the teardown-race and native-freeze-hatch
+fixes. It rejected all 7,147 absence rows because the executor still maps
+thousands of unique probe IDs to predicates that ignore their edge target.
+The report therefore records 153 conformant edges, 7,147 incomplete edges,
+and 14,294 missing absence observations. Supervisor evidence, Linux evidence,
+and target advertisements are still pending, and the advertisement set remains
+empty.
 
 The first attempted Apple report was independently reviewed and failed: it
 expanded one categorical barrier into 14,304 nominal per-edge passes, including
@@ -430,8 +436,14 @@ bound to the superseded fixture-plan bytes are invalid. The generated
 least one exact source-branch probe and one live attacker-route probe (7,361
 source probes and 9,749 live probes total, including 2,602 descriptor-prefix
 probes across 2,460 edges). The plan is an obligation authority, and the
-`f04bd910` Apple release run published one result for every planned probe; the
-ingestor additionally rejects a removed source result or widened live result.
+`f04bd910` Apple release run published one result for every planned probe and
+the ingestor rejects a removed source result or widened live result. The second
+independent review nevertheless found that 4,625 non-native-op edges still use
+surface-kind predicates which do not consume the target, source reference,
+alias, lazy installer, callback producer, or enforcement branch. Those nominal
+results are invalid until bootstrap/registry instrumentation reports actual
+branch selection and the live executor resolves or invokes each source-derived
+attacker route.
 The same audit corrected microtask drain, native-principal restoration,
 callback-queue enqueue/drain, and timer invocation from candidate absence to
 reachable: all five are exercised by the admitted Contract lifecycle and may
