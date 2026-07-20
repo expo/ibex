@@ -9,12 +9,14 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   armedTargetPathEntries,
+  assertCanonicalBinaryEncodings,
   assertCanonicalKeyedSets,
   assertCanonicalSets,
   assertDigestProjectionContract,
   assertDigestVectorBindings,
   assertLegacyReconciliationCoverage,
   assertLegacyReconciliationDestinations,
+  assertIJson,
   assertOccurrencePrincipalContext,
   assertNoDuplicateJsonKeys,
   capsecRoot,
@@ -175,6 +177,18 @@ describe("LLP 0021 capsec contract", () => {
     expect(canonical.length).toBe(100_001);
     expect(canonical.startsWith("[[[[")).toBe(true);
     expect(canonical.endsWith("]]]]")).toBe(true);
+  });
+
+  test("I-JSON validation does not depend on the JavaScript call-stack ceiling", () => {
+    let value = "valid";
+    for (let depth = 0; depth < 50_000; depth += 1) value = { child: value };
+    expect(() => assertIJson(value)).not.toThrow();
+  });
+
+  test("binary validation does not depend on the JavaScript call-stack ceiling", () => {
+    let value = "valid";
+    for (let depth = 0; depth < 50_000; depth += 1) value = { child: value };
+    expect(() => assertCanonicalBinaryEncodings(value)).not.toThrow();
   });
 
   test("keyed sets must use their declared composite order", () => {

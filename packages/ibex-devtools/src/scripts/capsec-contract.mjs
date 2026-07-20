@@ -162,26 +162,37 @@ function assertUnicodeScalarString(value, label) {
 }
 
 export function assertIJson(value, label = "$") {
-  if (typeof value === "string") {
-    assertUnicodeScalarString(value, label);
-    return;
-  }
-  if (typeof value === "number") {
-    if (!Number.isFinite(value))
-      throw new Error(`${label}: non-finite JSON number`);
-    if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
-      throw new Error(`${label}: integer is outside the I-JSON safe range`);
+  const stack = [{ value, label }];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (typeof current.value === "string") {
+      assertUnicodeScalarString(current.value, current.label);
+      continue;
     }
-    return;
-  }
-  if (Array.isArray(value)) {
-    value.forEach((item, index) => assertIJson(item, `${label}[${index}]`));
-    return;
-  }
-  if (!value || typeof value !== "object") return;
-  for (const [key, child] of Object.entries(value)) {
-    assertUnicodeScalarString(key, `${label} object key`);
-    assertIJson(child, `${label}.${key}`);
+    if (typeof current.value === "number") {
+      if (!Number.isFinite(current.value))
+        throw new Error(`${current.label}: non-finite JSON number`);
+      if (Number.isInteger(current.value) && !Number.isSafeInteger(current.value)) {
+        throw new Error(`${current.label}: integer is outside the I-JSON safe range`);
+      }
+      continue;
+    }
+    if (Array.isArray(current.value)) {
+      for (let index = current.value.length - 1; index >= 0; index -= 1) {
+        stack.push({
+          value: current.value[index],
+          label: `${current.label}[${index}]`,
+        });
+      }
+      continue;
+    }
+    if (!current.value || typeof current.value !== "object") continue;
+    const entries = Object.entries(current.value);
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const [key, child] = entries[index];
+      assertUnicodeScalarString(key, `${current.label} object key`);
+      stack.push({ value: child, label: `${current.label}.${key}` });
+    }
   }
 }
 
@@ -252,24 +263,33 @@ function assertDigest(value, label) {
     throw new Error(`${label}: SHA-256 digest must decode to 32 bytes`);
 }
 
-function assertCanonicalBinaryEncodings(value, label = "$") {
-  if (Array.isArray(value)) {
-    value.forEach((item, index) =>
-      assertCanonicalBinaryEncodings(item, `${label}[${index}]`),
-    );
-    return;
-  }
-  if (!value || typeof value !== "object") return;
-  for (const [key, child] of Object.entries(value)) {
-    if (typeof child === "string") {
-      assertDigest(child, `${label}.${key}`);
-      if (key === "runNonce")
-        decodeBase64UrlCanonical(child, `${label}.${key}`);
+export function assertCanonicalBinaryEncodings(value, label = "$") {
+  const stack = [{ value, label }];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (Array.isArray(current.value)) {
+      for (let index = current.value.length - 1; index >= 0; index -= 1) {
+        stack.push({
+          value: current.value[index],
+          label: `${current.label}[${index}]`,
+        });
+      }
+      continue;
     }
-    if (key === "encoding" && child === "base64url") {
-      decodeBase64UrlCanonical(value.value, `${label}.value`);
+    if (!current.value || typeof current.value !== "object") continue;
+    const entries = Object.entries(current.value);
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const [key, child] = entries[index];
+      const childLabel = `${current.label}.${key}`;
+      if (typeof child === "string") {
+        assertDigest(child, childLabel);
+        if (key === "runNonce") decodeBase64UrlCanonical(child, childLabel);
+      }
+      if (key === "encoding" && child === "base64url") {
+        decodeBase64UrlCanonical(current.value.value, `${current.label}.value`);
+      }
+      stack.push({ value: child, label: childLabel });
     }
-    assertCanonicalBinaryEncodings(child, `${label}.${key}`);
   }
 }
 
