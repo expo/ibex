@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { capsecRoot } from "./capsec-contract.mjs";
-import { buildRestrictedTargetReportFromEvidence } from "./generate-restricted-exact-target-report.mjs";
+import { buildRestrictedTargetReportAfterFailedReview } from "./generate-restricted-exact-target-report.mjs";
 import { ingestRestrictedAbsenceEvidence } from "./restricted-exact-absence-evidence.mjs";
 import { ingestRestrictedControlEvidence } from "./restricted-exact-control-evidence.mjs";
 import { ingestRestrictedGlobalCorporaEvidence } from "./restricted-exact-global-corpora-evidence.mjs";
@@ -24,6 +24,10 @@ const absenceEvidencePath = path.join(
 const corpusEvidencePath = path.join(
   capsecRoot,
   "conformance/evidence/restricted-exact/global-corpora-aarch64-apple-darwin-04a08eeb.json",
+);
+const failedReviewPath = path.join(
+  capsecRoot,
+  "conformance/reviews/restricted-exact-aarch64-apple-darwin-041fbd55.json",
 );
 
 function rawArtifact() {
@@ -58,21 +62,25 @@ describe("LLP 0033 restricted reachable evidence", () => {
     expect(result.rawContentDigest).toMatch(/^sha256-/);
   });
 
-  test("credits all edge rows without bypassing global conformance", () => {
-    const report = buildRestrictedTargetReportFromEvidence(
+  test("invalidates overclaimed absence and corpus rows after the failed review", () => {
+    const report = buildRestrictedTargetReportAfterFailedReview(
       evidencePath,
       controlEvidencePath,
       absenceEvidencePath,
       corpusEvidencePath,
+      failedReviewPath,
     );
     expect(report.status).toBe("incomplete");
-    expect(report.summary.conformant).toBe(7300);
-    expect(report.summary.incomplete).toBe(0);
-    expect(report.summary.passedObservations).toBe(14452);
+    expect(report.summary.conformant).toBe(148);
+    expect(report.summary.incomplete).toBe(7152);
+    expect(report.summary.passedObservations).toBe(148);
     expect(report.summary.failedObservations).toBe(0);
-    expect(report.summary.missingObservations).toBe(0);
-    expect(report.executions).toHaveLength(14464);
-    expect(report.globalCorpora.every((row) => row.status === "passed")).toBe(true);
+    expect(report.summary.missingObservations).toBe(14304);
+    expect(report.executions).toHaveLength(148);
+    expect(report.globalCorpora.every((row) => row.status === "missing")).toBe(true);
+    expect(report.independentReview.status).toBe("failed");
+    expect(report.independentReview.unresolvedCritical).toBe(1);
+    expect(report.independentReview.unresolvedHigh).toBe(1);
   }, 30_000);
 
   test("ingests all 22 exact control-plane lifecycle observations", () => {
@@ -84,21 +92,17 @@ describe("LLP 0033 restricted reachable evidence", () => {
     );
   });
 
-  test("ingests both exact absence obligations for all 7,152 edges", () => {
-    const result = ingestRestrictedAbsenceEvidence(fs.readFileSync(absenceEvidencePath));
-    expect(result.executions).toHaveLength(14304);
-    expect(new Set(result.executions.map((row) => row.fixtureId)).size).toBe(14304);
-    expect(result.artifact.barrierAttestation.descriptorProbedEdges).toBe(2460);
+  test("rejects the reviewed synthesized absence artifact", () => {
+    expect(() => ingestRestrictedAbsenceEvidence(
+      fs.readFileSync(absenceEvidencePath),
+    )).toThrow("lacks an executed edge-specific probe");
   });
 
-  test("ingests all five preregistered global corpora", () => {
-    const result = ingestRestrictedGlobalCorporaEvidence(
+  test("rejects the reviewed teardown corpus after its plan gains the missing race fixture", () => {
+    expect(() => ingestRestrictedGlobalCorporaEvidence(
       fs.readFileSync(corpusEvidencePath),
       fs.readFileSync(evidencePath),
-    );
-    expect(result.globalCorpora).toHaveLength(5);
-    expect(result.executions).toHaveLength(12);
-    expect(result.globalCorpora.every((row) => row.status === "passed")).toBe(true);
+    )).toThrow("global corpus teardown execution set drift");
   });
 
   test("rejects root-authority and per-edge absence proof drift", () => {
@@ -112,7 +116,7 @@ describe("LLP 0033 restricted reachable evidence", () => {
         (row) => row.kind === "live-reachability" && row.proof.descriptorPrefixes.length > 0,
       );
       observation.proof.descriptorPrefixes[0].path = "wrong.path";
-    }))).toThrow("live-reachability proof drift");
+    }))).toThrow(/live-reachability proof drift|lacks an executed edge-specific probe/u);
   }, 30_000);
 
   test("rejects missing, identity-drifted, and proofless control observations", () => {

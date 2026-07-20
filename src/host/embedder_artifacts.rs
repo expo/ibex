@@ -1463,7 +1463,14 @@ mod tests {
         ) -> i32;
         fn ibex_test_restricted_exact_conformance_trace(runtime: *mut HermesRuntimeOpaque) -> u64;
         fn ibex_test_runtime_registered(runtime: *mut HermesRuntimeOpaque) -> i32;
+        fn ibex_test_runtime_host_context_id(runtime: *mut HermesRuntimeOpaque) -> u64;
         fn ibex_test_keep_alive_on_async_error(runtime: *mut HermesRuntimeOpaque) -> i32;
+        fn ibex_test_arm_exact_host_completion_pause() -> i32;
+        fn ibex_test_exact_host_completion_paused() -> i32;
+        fn ibex_test_release_exact_host_completion_pause() -> i32;
+        fn ibex_test_structured_control_teardown_wait_observed() -> i32;
+        fn ibex_test_reset_structured_control_teardown_wait_observer() -> i32;
+        fn ex_hermes_runtime_nonce(runtime: *mut HermesRuntimeOpaque) -> u64;
         fn ex_hermes_resolve_exact_host_call(
             runtime: *mut HermesRuntimeOpaque,
             call_id: u64,
@@ -1521,6 +1528,35 @@ mod tests {
                 COMPLETION.len(),
             );
         }
+    }
+
+    #[derive(Default)]
+    struct PendingRestrictedHostCall {
+        call_id: u64,
+        operation_id: u32,
+        payload: Vec<u8>,
+    }
+
+    extern "C" fn capture_pending_restricted_host_call(
+        _: *mut HermesRuntimeOpaque,
+        call_id: u64,
+        operation_id: u32,
+        data: *const u8,
+        len: usize,
+        context: *mut std::ffi::c_void,
+    ) {
+        let capture = unsafe { &mut *context.cast::<PendingRestrictedHostCall>() };
+        assert_eq!(
+            capture.call_id, 0,
+            "fixture observed duplicate pending call"
+        );
+        capture.call_id = call_id;
+        capture.operation_id = operation_id;
+        capture.payload = if data.is_null() || len == 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(data, len) }.to_vec()
+        };
     }
 
     struct RealEmbedderFixture {
@@ -3093,6 +3129,151 @@ mod tests {
             mismatches.is_empty(),
             "restricted Exact projection marks live root paths structurally absent:\n{}",
             serde_json::to_string_pretty(&mismatches).unwrap()
+        );
+    }
+
+    #[test]
+    fn restricted_exact_teardown_drains_admitted_completion_and_refuses_stale_generation() {
+        let _guard = crate::host::abi::host_test_lock();
+        if crate::engine::loaded_engine_structural_features()
+            != [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown",
+            ]
+        {
+            return;
+        }
+
+        let bundle = br#"(() => {
+          const checkpoint = exact.takeCheckpointBytes();
+          exact.invokeHostAsync(1000, new Uint8Array([7, 8, 9])).then(() => {
+            throw new Error('completion reached destroyed user code');
+          });
+          exact.publishCheckpoint(checkpoint);
+        })();"#;
+        let mut pending = Box::<PendingRestrictedHostCall>::default();
+        unsafe { ibex_test_reset_exact_host_completion_observer() };
+        let (runtime, _dispatch, _checkpoints) = unsafe {
+            configured_restricted_exact_runtime_with_host_callback(
+                bundle,
+                capture_pending_restricted_host_call,
+                (&mut *pending as *mut PendingRestrictedHostCall).cast(),
+            )
+        };
+        let mut error = std::ptr::null_mut();
+        assert_eq!(
+            unsafe { ex_hermes_run_restricted_exact_bundle(runtime, &mut error) },
+            0
+        );
+        assert!(error.is_null());
+        assert_ne!(pending.call_id, 0);
+        assert_eq!(pending.operation_id, 1000);
+        assert_eq!(pending.payload, [7, 8, 9]);
+        let runtime_nonce = unsafe { ex_hermes_runtime_nonce(runtime) };
+        let host_context_id = unsafe { ibex_test_runtime_host_context_id(runtime) };
+        assert_ne!(runtime_nonce, 0);
+        assert_ne!(host_context_id, 0);
+
+        assert_eq!(
+            unsafe { ibex_test_reset_structured_control_teardown_wait_observer() },
+            1
+        );
+        assert_eq!(unsafe { ibex_test_arm_exact_host_completion_pause() }, 1);
+        let runtime_address = runtime as usize;
+        let call_id = pending.call_id;
+        let completion = std::thread::spawn(move || {
+            const PAYLOAD: &[u8] = b"late-completion";
+            unsafe {
+                ex_hermes_resolve_exact_host_call(
+                    runtime_address as *mut HermesRuntimeOpaque,
+                    call_id,
+                    0,
+                    PAYLOAD.as_ptr(),
+                    PAYLOAD.len(),
+                );
+            }
+        });
+        let pause_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while unsafe { ibex_test_exact_host_completion_paused() } != 1 {
+            assert!(
+                std::time::Instant::now() < pause_deadline,
+                "completion did not reach the synchronized teardown edge"
+            );
+            std::thread::yield_now();
+        }
+        let release = std::thread::spawn(|| {
+            let wait_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while unsafe { ibex_test_structured_control_teardown_wait_observed() } != 1 {
+                assert!(
+                    std::time::Instant::now() < wait_deadline,
+                    "destroy did not wait for the admitted completion producer"
+                );
+                std::thread::yield_now();
+            }
+            assert_eq!(
+                unsafe { ibex_test_release_exact_host_completion_pause() },
+                1
+            );
+        });
+        unsafe { ex_hermes_destroy(runtime) };
+        completion.join().unwrap();
+        release.join().unwrap();
+
+        let mut targets_consumed = 0;
+        let mut callbacks_queued = 0;
+        let mut callbacks_delivered = 0;
+        assert_eq!(
+            unsafe {
+                ibex_test_exact_host_completion_observation(
+                    &mut targets_consumed,
+                    &mut callbacks_queued,
+                    &mut callbacks_delivered,
+                )
+            },
+            1
+        );
+        assert_eq!(
+            (targets_consumed, callbacks_queued, callbacks_delivered),
+            (1, 1, 0),
+            "teardown must drain admitted completion captures without user delivery"
+        );
+        assert_eq!(unsafe { ibex_test_runtime_registered(runtime) }, 0);
+        assert_eq!(unsafe { ex_hermes_runtime_nonce(runtime) }, 0);
+        assert_eq!(
+            crate::host::abi::ex_host_enter_context(host_context_id),
+            u64::MAX,
+            "destroyed Host context was reusable"
+        );
+        let event = std::ffi::CString::new("{}").unwrap();
+        assert_eq!(
+            unsafe { ex_hermes_dispatch_event(runtime, 1, event.as_ptr()) },
+            -1,
+            "destroyed runtime accepted an event"
+        );
+        assert_eq!(unsafe { ex_hermes_next_timer(runtime) }, -1);
+        assert_eq!(unsafe { ex_hermes_has_pending_tasks(runtime) }, 0);
+
+        // A duplicate/late producer publication carries only the stale pointer
+        // and old call id. It must be rejected by generation registries before
+        // any runtime dereference or callback delivery.
+        const STALE: &[u8] = b"stale";
+        unsafe {
+            ex_hermes_resolve_exact_host_call(runtime, call_id, 0, STALE.as_ptr(), STALE.len());
+        }
+        assert_eq!(
+            unsafe {
+                ibex_test_exact_host_completion_observation(
+                    &mut targets_consumed,
+                    &mut callbacks_queued,
+                    &mut callbacks_delivered,
+                )
+            },
+            1
+        );
+        assert_eq!(
+            (targets_consumed, callbacks_queued, callbacks_delivered),
+            (1, 1, 0)
         );
     }
 

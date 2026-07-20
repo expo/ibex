@@ -854,7 +854,8 @@ extern "C" int ex_hermes_dispatch_event(
     ExactHermesRuntime* runtime,
     uint32_t handler_id,
     const char* payload_json) {
-  if (!runtime || !runtime->runtime) return -1;
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive || !runtime->runtime) return -1;
   if (runtime->runtime_thread != std::this_thread::get_id()) return -1;
   if (runtime->restricted_exact &&
       (!runtime->restricted_exact_bundle_consumed ||

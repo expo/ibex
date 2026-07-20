@@ -263,6 +263,9 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
       ) {
         throw new Error(`source-install proof drift for ${observation.edgeId}`);
       }
+      throw new Error(
+        `source-install proof ${observation.edgeId} lacks an executed edge-specific closure probe`,
+      );
     } else {
       assertExactKeys(
         observation.proof,
@@ -281,6 +284,11 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
           !== canonicalJson(descriptorPrefixes.get(observation.edgeId) ?? [])
       ) {
         throw new Error(`live-reachability proof drift for ${observation.edgeId}`);
+      }
+      if (observation.proof.descriptorPrefixes.length === 0) {
+        throw new Error(
+          `live-reachability proof ${observation.edgeId} lacks an executed edge-specific probe`,
+        );
       }
     }
   }

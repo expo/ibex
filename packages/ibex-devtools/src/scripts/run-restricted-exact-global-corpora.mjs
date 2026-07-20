@@ -43,6 +43,7 @@ export const restrictedGlobalCorpusPlan = Object.freeze([
     id: "teardown",
     tests: Object.freeze([
       "restricted_exact_control_plane_edges_enforce_lifecycle_refusals",
+      "restricted_exact_teardown_drains_admitted_completion_and_refuses_stale_generation",
       "restricted_exact_startup_checkpoint_failures_poison_the_runtime",
       "restricted_exact_event_checkpoint_failures_poison_the_runtime",
     ]),

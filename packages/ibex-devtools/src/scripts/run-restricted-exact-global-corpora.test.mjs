@@ -18,5 +18,8 @@ describe("LLP 0033 restricted global corpus runner", () => {
     expect(restrictedGlobalCorpusPlan.flatMap((row) => row.tests)).toContain(
       "restricted_exact_control_plane_edges_enforce_lifecycle_refusals",
     );
+    expect(restrictedGlobalCorpusPlan.flatMap((row) => row.tests)).toContain(
+      "restricted_exact_teardown_drains_admitted_completion_and_refuses_stale_generation",
+    );
   });
 });

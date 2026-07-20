@@ -275,6 +275,10 @@ std::unordered_map<uint64_t, uint64_t>
 std::atomic<uint64_t> g_exact_host_completion_targets_consumed{0};
 std::atomic<uint64_t> g_exact_host_completion_callbacks_queued{0};
 std::atomic<uint64_t> g_exact_host_completion_callbacks_delivered{0};
+std::mutex g_exact_host_completion_pause_mutex;
+std::condition_variable g_exact_host_completion_pause_cv;
+bool g_exact_host_completion_pause_armed{false};
+bool g_exact_host_completion_paused{false};
 
 extern "C" void ibex_test_set_armed_startup_failure_stage(const char* stage) {
   g_injected_armed_startup_failure_stage = stage ? stage : "";
@@ -349,6 +353,40 @@ extern "C" int ibex_test_exact_host_completion_observation(
   *callbacks_delivered =
       g_exact_host_completion_callbacks_delivered.load(std::memory_order_seq_cst);
   return 1;
+}
+
+extern "C" int ibex_test_arm_exact_host_completion_pause() {
+  std::lock_guard<std::mutex> lock(g_exact_host_completion_pause_mutex);
+  if (g_exact_host_completion_pause_armed || g_exact_host_completion_paused) {
+    return 0;
+  }
+  g_exact_host_completion_pause_armed = true;
+  return 1;
+}
+
+extern "C" int ibex_test_exact_host_completion_paused() {
+  std::lock_guard<std::mutex> lock(g_exact_host_completion_pause_mutex);
+  return g_exact_host_completion_paused ? 1 : 0;
+}
+
+extern "C" int ibex_test_release_exact_host_completion_pause() {
+  {
+    std::lock_guard<std::mutex> lock(g_exact_host_completion_pause_mutex);
+    g_exact_host_completion_pause_armed = false;
+  }
+  g_exact_host_completion_pause_cv.notify_all();
+  return 1;
+}
+
+void exactTestPauseExactHostCompletion() {
+  std::unique_lock<std::mutex> lock(g_exact_host_completion_pause_mutex);
+  if (!g_exact_host_completion_pause_armed) return;
+  g_exact_host_completion_paused = true;
+  g_exact_host_completion_pause_cv.notify_all();
+  g_exact_host_completion_pause_cv.wait(
+      lock, [] { return !g_exact_host_completion_pause_armed; });
+  g_exact_host_completion_paused = false;
+  g_exact_host_completion_pause_cv.notify_all();
 }
 
 extern "C" uint64_t ibex_test_restricted_exact_conformance_trace(
@@ -2522,6 +2560,17 @@ extern "C" int ibex_test_runtime_registered(ExactHermesRuntime* runtime) {
   return g_activeRuntimes.find(runtime) != g_activeRuntimes.end() ? 1 : 0;
 }
 
+extern "C" uint64_t ibex_test_runtime_host_context_id(
+    ExactHermesRuntime* runtime) {
+  std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
+  auto iterator = g_activeRuntimes.find(runtime);
+  if (iterator == g_activeRuntimes.end() ||
+      iterator->second.state != RuntimeLifecycleState::Running) {
+    return 0;
+  }
+  return runtime->host_context_id;
+}
+
 extern "C" int ibex_test_keep_alive_on_async_error(
     ExactHermesRuntime* runtime) {
   std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
@@ -2891,6 +2940,12 @@ extern "C" int32_t ibex_test_structured_control_lease_paused() {
 extern "C" int32_t ibex_test_structured_control_teardown_wait_observed() {
   std::lock_guard<std::mutex> lock(g_structuredControlLeasePauseMutex);
   return g_structuredControlTeardownWaitObserved ? 1 : 0;
+}
+
+extern "C" int32_t ibex_test_reset_structured_control_teardown_wait_observer() {
+  std::lock_guard<std::mutex> lock(g_structuredControlLeasePauseMutex);
+  g_structuredControlTeardownWaitObserved = false;
+  return 1;
 }
 
 extern "C" int32_t ibex_test_release_structured_control_lease_pause() {
@@ -13684,6 +13739,11 @@ extern "C" void ex_hermes_resolve_exact_host_call(
 #ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
   g_exact_host_completion_targets_consumed.fetch_add(
       1, std::memory_order_seq_cst);
+  // Hold one already-admitted completion between callback extraction and
+  // queue publication. The teardown corpus drives Closing concurrently and
+  // proves that destroy waits for the producer pin, drains the queued capture
+  // on the owner thread, and never delivers it to user JavaScript.
+  exactTestPauseExactHostCompletion();
 #endif
 
   std::vector<uint8_t> payloadCopy;
