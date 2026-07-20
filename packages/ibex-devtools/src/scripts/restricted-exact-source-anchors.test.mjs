@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, expect, test } from "vitest";
 
 import {
+  auditRestrictedExactBranchSourceRoutes,
   buildRestrictedExactBranchSourceRoute,
   resolveRestrictedExactSourceAnchor,
   resolveRestrictedExactSourceBinding,
@@ -12,6 +13,18 @@ import {
 } from "./restricted-exact-source-anchors.mjs";
 
 describe("restricted Exact source anchors", () => {
+  test("supports bounded audits without retaining executable route payloads", () => {
+    const audit = auditRestrictedExactBranchSourceRoutes({
+      retainExecutableRoutes: false,
+      startIndex: 0,
+      endIndex: 3,
+    });
+    expect(audit.scanned).toBe(3);
+    expect(audit.executable + audit.incomplete.length).toBe(3);
+    expect(audit.routes).toEqual([]);
+    expect(audit.total).toBeGreaterThan(audit.scanned);
+  });
+
   test.each([
     [
       "build.rs#backend-selection:linux:native_fetch_linux.cc",
@@ -538,6 +551,45 @@ module.exports = { Public: Public };
     expect(buildRestrictedExactBranchSourceRoute(envBranch, [envRef]).status).toBe("executable");
   });
 
+  test("binds computed environment and structured-session global tables", () => {
+    const environmentBranch = {
+      branchId: "surface.process.env.dynamic.default",
+      observedKey: "native-op:global:process.env.[[dynamic-table:env-obj-properties]]",
+      targetVariant: "default",
+    };
+    const environmentRef =
+      "src/engine/hermes_runtime_process_setup.cc#jsi-global:process.env.[[dynamic-table:env-obj-properties]]";
+    const environment = resolveRestrictedExactBranchSourceBinding(
+      environmentBranch,
+      environmentRef,
+    );
+    expect(environment.locatorKind).toBe("jsi-process-env-dynamic-table-route");
+    expect(environment.producerPaths).toHaveLength(1);
+    expect(environment.sites.filter((site) => site.role === "publication"))
+      .toHaveLength(3);
+    expect(buildRestrictedExactBranchSourceRoute(environmentBranch, [environmentRef]).status)
+      .toBe("executable");
+
+    const structuredBranch = {
+      branchId: "surface.structured-session.dynamic-global.default",
+      observedKey: "native-op:global:[[dynamic-table:native-global-name]]",
+      targetVariant: "default",
+    };
+    const structuredRef =
+      "src/engine/hermes_runtime.cc#jsi-global:[[dynamic-table:native-global-name]]";
+    const structured = resolveRestrictedExactBranchSourceBinding(
+      structuredBranch,
+      structuredRef,
+    );
+    expect(structured.locatorKind).toBe("jsi-structured-dynamic-global-route");
+    expect(structured.producerPaths.map((entry) => entry.conditionId)).toEqual([
+      "structured-session:global-missing",
+      "structured-session:global-present",
+    ]);
+    expect(buildRestrictedExactBranchSourceRoute(structuredBranch, [structuredRef]).status)
+      .toBe("executable");
+  });
+
   test("binds Exact capability definition and sealing as one ordered route", () => {
     for (const [member, publicationCount] of [
       ["takeCheckpointBytes", 1],
@@ -979,6 +1031,17 @@ void install(Runtime& rt) {
     }, [sourceRef]);
     expect(ancestor.status).toBe("executable");
     expect(ancestor.bindingDispositions[0].disposition).toBe("selected-route");
+    const directionBranch = {
+      branchId: "surface.intl-locale-direction.all",
+      observedKey: "native-op:global:Intl.Locale.prototype.textInfo.direction",
+      targetVariant: "all",
+    };
+    const directionRef = "packages/ibex-runtime-js/src/polyfills/intl.ts#get.direction";
+    const direction = resolveRestrictedExactBranchSourceBinding(directionBranch, directionRef);
+    expect(direction.locatorKind).toBe("intl-locale-direction-route");
+    expect(direction.producerPaths).toHaveLength(2);
+    expect(buildRestrictedExactBranchSourceRoute(directionBranch, [directionRef]).status)
+      .toBe("executable");
   });
 
   test("binds module-level global assignments and C++ supporting symbols", () => {

@@ -2175,6 +2175,83 @@ function legacyReturnedPrototypeMemberBinding({ branch, sourceRef, sourcePath, l
   });
 }
 
+function intlLocaleDirectionBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (sourcePath !== "packages/ibex-runtime-js/src/polyfills/intl.ts"
+    || locator !== "get.direction"
+    || branch?.observedKey !== "native-op:global:Intl.Locale.prototype.textInfo.direction") {
+    return null;
+  }
+  const ast = parse(text, {
+    sourceType: "module",
+    plugins: ["typescript", "decorators-legacy"],
+  });
+  const directions = [];
+  const textInfoMethods = [];
+  const localePublications = [];
+  const textInfoPublications = [];
+  const guards = [];
+  walkJavaScript(ast.program, (node, parent) => {
+    if (node.type === "ObjectProperty" && propertyName(node.key) === "direction") {
+      directions.push(node);
+    }
+    if (node.type === "ClassMethod"
+      && node.kind === "get"
+      && propertyName(node.key) === "textInfo") textInfoMethods.push(node);
+    if (node.type === "IfStatement") {
+      const testText = text.slice(node.test.start, node.test.end);
+      if (testText.includes("Intl.Locale")) guards.push(node.test);
+    }
+    if (node.type === "CallExpression"
+      && JSON.stringify(memberSegments(node.callee)) === JSON.stringify(["Object", "defineProperty"])) {
+      const target = memberSegments(node.arguments[0]);
+      const property = propertyName(node.arguments[1]);
+      const row = parent?.type === "ExpressionStatement" ? parent : node;
+      if (JSON.stringify(target) === JSON.stringify(["Intl"])
+        && property === "Locale") localePublications.push(row);
+      if (JSON.stringify(target) === JSON.stringify(["Intl", "Locale", "prototype"])
+        && property === "textInfo") textInfoPublications.push(row);
+    }
+  });
+  if (directions.length !== 2
+    || textInfoMethods.length !== 1
+    || localePublications.length !== 1
+    || textInfoPublications.length !== 1
+    || guards.length !== 2) return null;
+  const classDirection = directions.find((node) =>
+    node.start > textInfoMethods[0].start && node.end < textInfoMethods[0].end);
+  const descriptorDirection = directions.find((node) =>
+    node.start > textInfoPublications[0].start && node.end < textInfoPublications[0].end);
+  if (!classDirection || !descriptorDirection) return null;
+  const routeSpecs = [
+    { kind: "polyfill-class", direction: classDirection, definition: textInfoMethods[0], publication: localePublications[0], guard: guards[0] },
+    { kind: "native-prototype-extension", direction: descriptorDirection, definition: textInfoPublications[0], publication: textInfoPublications[0], guard: guards[1] },
+  ];
+  const sites = [];
+  const producerPaths = [];
+  for (const [indexValue, route] of routeSpecs.entries()) {
+    const pathSites = [
+      sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `Intl.Locale.textInfo.direction.${indexValue}`, range: { startByte: route.direction.start, endByte: route.direction.end }, text, bytes }),
+      sourceSite({ sourceRef, path: sourcePath, role: "definition", siteKey: `Intl.Locale.textInfo.definition.${indexValue}`, range: { startByte: route.definition.start, endByte: route.definition.end }, text, bytes }),
+      sourceSite({ sourceRef, path: sourcePath, role: "guard", siteKey: `Intl.Locale.textInfo.guard.${indexValue}`, range: { startByte: route.guard.start, endByte: route.guard.end }, text, bytes }),
+      sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `Intl.Locale.textInfo.publication.${indexValue}`, range: { startByte: route.publication.start, endByte: route.publication.end }, text, bytes }),
+    ];
+    sites.push(...pathSites);
+    producerPaths.push({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0intl-direction\0${indexValue}`),
+      conditionId: `intl-locale:${route.kind}`,
+      requiredSiteIds: pathSites.map((site) => site.siteId),
+    });
+  }
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "intl-locale-direction-route",
+    targetGlobalPath: "Intl.Locale.prototype.textInfo.direction",
+    resolutionPolicy: "conditioned-alternatives",
+    sites,
+    producerPaths,
+  });
+}
+
 function legacyJavascriptGlobalRouteBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
   if (!branch?.observedKey?.startsWith("native-op:global:")
     || !sourcePath.startsWith("src/engine/bootstrap/")
@@ -3817,6 +3894,125 @@ function jsiProcessEnvBinding({ branch, sourceRef, sourcePath, locator, text, by
       conditionId: "runtime:unarmed+shared-bundle-env",
       requiredSiteIds: guardSites.map((site) => site.siteId),
     }],
+  });
+}
+
+function jsiProcessEnvDynamicTableBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (sourcePath !== "src/engine/hermes_runtime_process_setup.cc"
+    || locator !== "jsi-global:process.env.[[dynamic-table:env-obj-properties]]"
+    || branch?.observedKey
+      !== "native-op:global:process.env.[[dynamic-table:env-obj-properties]]") return null;
+  const rootCalls = setPropertyCalls(text, "process").filter(
+    (call) => ["rt.global()", "runtime.global()"].includes(call.caller),
+  );
+  const memberCalls = setPropertyCalls(text, "env").filter((call) =>
+    call.caller === "processObj" && movedIdentifier(call.value) === "envObj");
+  const writes = callExpressionRangesWithin(
+    text,
+    "envObj.setProperty",
+    { startByte: 0, endByte: text.length },
+  );
+  const copyGuard = uniqueTokenRange(text, ["} else if (!skipEnvCopy) {"]);
+  const loop = uniqueTokenRange(text, ["for (char** ep = envp; *ep; ++ep) {"]);
+  if (rootCalls.length !== 1
+    || memberCalls.length !== 1
+    || writes.length !== 1
+    || !copyGuard
+    || !loop) return null;
+  const key = cppValueProducerRange(text, "key", writes[0].startByte);
+  const value = cppValueProducerRange(text, "val", writes[0].startByte);
+  if (!key || !value) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "guard", siteKey: "process.env.dynamic.copy-guard", range: copyGuard, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "definition", siteKey: "process.env.dynamic.entry-loop", range: loop, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: "process.env.dynamic.key", range: key, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: "process.env.dynamic.value", range: value, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: "process.env.dynamic.property", range: writes[0], text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: "process.env.dynamic.env-publication", range: memberCalls[0].range, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: "process.env.dynamic.process-publication", range: rootCalls[0].range, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "jsi-process-env-dynamic-table-route",
+    targetGlobalPath: "process.env.[[dynamic-table:env-obj-properties]]",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0process-env-dynamic-table`),
+      conditionId: "runtime:unarmed+copy-host-env+environment-entry",
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function jsiStructuredDynamicGlobalBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (sourcePath !== "src/engine/hermes_runtime.cc"
+    || locator !== "jsi-global:[[dynamic-table:native-global-name]]"
+    || branch?.observedKey !== "native-op:global:[[dynamic-table:native-global-name]]") {
+    return null;
+  }
+  const definition = robustFunctionDeclarationRange(text, "writeStructuredSessionName");
+  const hostObject = typeDeclarationRange(text, "StructuredSessionReferenceHostObject");
+  if (!definition || !hostObject) return null;
+  const direct = callExpressionRangesWithin(text, "global.setProperty", definition);
+  const reflected = callExpressionRangesWithin(
+    text,
+    "handle->structured_reflect_set->call",
+    definition,
+  );
+  const dispatch = callExpressionRangesWithin(text, "writeStructuredSessionName", hostObject);
+  const guards = tokenRangesWithin(
+    text,
+    "if (!global.hasProperty(rt, name.c_str())) {",
+    definition,
+  );
+  if (direct.length !== 1
+    || reflected.length !== 1
+    || dispatch.length !== 1
+    || guards.length !== 1) return null;
+  const commonSites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "definition", siteKey: "structured-global.write-definition", range: definition, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "guard", siteKey: "structured-global.existence-guard", range: guards[0], text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: "structured-global.host-object-dispatch", range: dispatch[0], text, bytes }),
+  ];
+  const directSite = sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "publication",
+    siteKey: "structured-global.create-publication",
+    range: direct[0],
+    text,
+    bytes,
+  });
+  const reflectedSite = sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "publication",
+    siteKey: "structured-global.reflect-publication",
+    range: reflected[0],
+    text,
+    bytes,
+  });
+  const sites = [...commonSites, directSite, reflectedSite];
+  const commonSiteIds = commonSites.map((site) => site.siteId);
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "jsi-structured-dynamic-global-route",
+    targetGlobalPath: "[[dynamic-table:native-global-name]]",
+    resolutionPolicy: "conditioned-alternatives",
+    sites,
+    producerPaths: [
+      {
+        pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0structured-global-create`),
+        conditionId: "structured-session:global-missing",
+        requiredSiteIds: [...commonSiteIds, directSite.siteId],
+      },
+      {
+        pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0structured-global-update`),
+        conditionId: "structured-session:global-present",
+        requiredSiteIds: [...commonSiteIds, reflectedSite.siteId],
+      },
+    ],
   });
 }
 
@@ -5764,7 +5960,9 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? legacyEvaluatorRunnerBinding({ branch, sourceRef, ...loaded })
     ?? nativeDefinitionBinding({ branch, sourceRef, ...loaded })
     ?? preprocessorBranchBinding({ branch, sourceRef, ...loaded })
+    ?? jsiProcessEnvDynamicTableBinding({ branch, sourceRef, ...loaded })
     ?? jsiProcessEnvBinding({ branch, sourceRef, ...loaded })
+    ?? jsiStructuredDynamicGlobalBinding({ branch, sourceRef, ...loaded })
     ?? jsiConditionalRootMemberBinding({ branch, sourceRef, ...loaded })
     ?? exactCapabilityDefinitionBinding({ branch, sourceRef, ...loaded })
     ?? jsiGlobalBranchBinding({ branch, sourceRef, ...loaded })
@@ -5798,6 +5996,7 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? typescriptGlobalInstallerBinding({ branch, sourceRef, ...loaded })
     ?? bootstrapGlobalBinding({ branch, sourceRef, ...loaded })
     ?? legacyBootstrapGlobalBinding({ branch, sourceRef, ...loaded })
+    ?? intlLocaleDirectionBinding({ branch, sourceRef, ...loaded })
     ?? typescriptStaticDescriptorBinding({ branch, sourceRef, ...loaded })
     ?? typescriptClassMemberBinding({ branch, sourceRef, ...loaded })
     ?? typescriptObjectMemberBinding({ branch, sourceRef, ...loaded })
@@ -6193,20 +6392,32 @@ export function auditRestrictedExactBranchSourceBindings() {
   return { bindings, unresolved, total: bindings.length + unresolved.length };
 }
 
-export function auditRestrictedExactBranchSourceRoutes() {
+export function auditRestrictedExactBranchSourceRoutes({
+  retainExecutableRoutes = true,
+  startIndex = 0,
+  endIndex = Number.POSITIVE_INFINITY,
+} = {}) {
   const implementation = readJsonStrict(
     path.join(capsecRoot, "generated/implementation-manifest.json"),
   );
   const routes = [];
+  let executable = 0;
   const incomplete = [];
-  for (const branch of implementation.surfaces) {
+  const selected = implementation.surfaces.slice(
+    Math.max(0, startIndex),
+    Math.min(implementation.surfaces.length, endIndex),
+  );
+  for (const branch of selected) {
     const refs = [...new Set([
       ...branch.sourceRefs,
       ...branch.enforcementRoute.sourceRefs,
       ...branch.enforcementRoute.proofSourceRefs,
     ])].sort();
     const route = buildRestrictedExactBranchSourceRoute(branch, refs);
-    if (route.status === "executable") routes.push(route);
+    if (route.status === "executable") {
+      executable += 1;
+      if (retainExecutableRoutes) routes.push(route);
+    }
     else incomplete.push({
       branchId: branch.branchId,
       edgeId: branch.edgeId,
@@ -6215,7 +6426,13 @@ export function auditRestrictedExactBranchSourceRoutes() {
       ...route,
     });
   }
-  return { routes, incomplete, total: implementation.surfaces.length };
+  return {
+    routes,
+    executable,
+    incomplete,
+    scanned: selected.length,
+    total: implementation.surfaces.length,
+  };
 }
 
 function main() {
