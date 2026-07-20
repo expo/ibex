@@ -319,7 +319,7 @@ describe("loaded module-loader output invocation harness", () => {
     });
 
     const invocations = await currentExecutableInvocations();
-    expect(invocations).toHaveLength(119);
+    expect(invocations).toHaveLength(118);
     for (const config of invocations) {
       expect(await execute(config)).toMatchObject({
         kind: "return",

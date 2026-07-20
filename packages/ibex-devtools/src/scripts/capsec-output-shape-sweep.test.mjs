@@ -1202,9 +1202,9 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         "ibex/capsec-output-shape-execution-partition/1",
       completeCatalogKeyDigest: completeCatalog.catalogKeyDigest,
     });
-    expect(completeCatalog.rows).toHaveLength(6397);
-    expect(executionPartition.genericCatalog.rows).toHaveLength(5875);
-    expect(executionPartition.genericProbes).toHaveLength(5875);
+    expect(completeCatalog.rows).toHaveLength(6429);
+    expect(executionPartition.genericCatalog.rows).toHaveLength(5907);
+    expect(executionPartition.genericProbes).toHaveLength(5907);
     expect(
       executionPartition.genericCatalog.rows.some(
         (row) => row.key.sourceKind === "host-abi",
@@ -1235,7 +1235,7 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         structuralFeatures: [...target.features],
       },
     });
-    expect(completePlan.rows).toHaveLength(6397);
+    expect(completePlan.rows).toHaveLength(6429);
 
     const androidRows = [
       ...executionPartition.hostAbi.targetAbsenceBindings,
@@ -1360,12 +1360,12 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         effectKeys.has(JSON.stringify(Object.values(row.key))),
       ),
     );
-    expect(effects).toHaveLength(605);
+    expect(effects).toHaveLength(607);
     expect(
       effects.filter(
         (row) => row.probe.sourceDescriptor.invocation.cohort === "registrar",
       ),
-    ).toHaveLength(605);
+    ).toHaveLength(607);
     expect(
       effects.filter(
         (row) =>

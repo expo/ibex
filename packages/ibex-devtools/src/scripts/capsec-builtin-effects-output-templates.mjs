@@ -28,7 +28,7 @@ export const BUILTIN_EFFECTS_REGISTRAR_FAMILY_COUNTS = Object.freeze({
   node_tls: 50,
   node_readline: 48,
   exact_sqlite: 35,
-  node_dns: 30,
+  node_dns: 32,
   ws: 28,
   node_http2: 18,
   node_fs_promises: 16,

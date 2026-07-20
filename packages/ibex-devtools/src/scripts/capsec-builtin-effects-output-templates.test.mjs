@@ -91,17 +91,17 @@ function countFamilies(rows) {
 }
 
 describe("builtin effects output recipes", () => {
-  test("accounts for the exact 605 callable-return rows", async () => {
+  test("accounts for the exact 607 callable-return rows", async () => {
     const { selected, missing } = await loaded;
     expect(missing).toEqual([]);
-    expect(selected).toHaveLength(605);
+    expect(selected).toHaveLength(607);
     const registrar = selected.filter(
       (row) => row.invocation.cohort === "registrar",
     );
     const descriptorResidual = selected.filter(
       (row) => row.invocation.cohort === "descriptor-residual",
     );
-    expect(registrar).toHaveLength(605);
+    expect(registrar).toHaveLength(607);
     expect(descriptorResidual).toHaveLength(0);
     expect(countFamilies(registrar)).toEqual(
       BUILTIN_EFFECTS_REGISTRAR_FAMILY_COUNTS,
@@ -114,8 +114,8 @@ describe("builtin effects output recipes", () => {
         selected.map((row) => row.invocation),
       ),
     ).toMatchObject({
-      total: 605,
-      cohorts: { registrar: 605 },
+      total: 607,
+      cohorts: { registrar: 607 },
     });
   }, 30_000);
 
