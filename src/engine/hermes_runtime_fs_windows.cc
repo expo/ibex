@@ -1,5 +1,10 @@
 #include "hermes_runtime_internal.h"
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
 #include <algorithm>
 #include <cerrno>
 #include <condition_variable>
@@ -1336,11 +1341,23 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           if (!isAllowAll() && !principalMayUseProcessStdio(principal)) {
             throw facebook::jsi::JSError(runtime, "Permission denied");
           }
-          auto count = static_cast<unsigned int>(std::min<size_t>(
-              bytes.size(), std::numeric_limits<unsigned int>::max()));
-          int written = _write(fd, bytes.data(), count);
-          if (written < 0) {
+          // CRT text mode translates LF bytes on process stdout/stderr. Write
+          // through the inherited OS handle so the requested chunk is exact.
+          // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+          auto rawHandle = _get_osfhandle(fd);
+          if (rawHandle == -1) {
             throw facebook::jsi::JSError(runtime, "write: bad file descriptor");
+          }
+          auto count = static_cast<DWORD>(std::min<size_t>(
+              bytes.size(), std::numeric_limits<DWORD>::max()));
+          DWORD written = 0;
+          if (!WriteFile(
+                  reinterpret_cast<HANDLE>(rawHandle),
+                  bytes.data(),
+                  count,
+                  &written,
+                  nullptr)) {
+            throw facebook::jsi::JSError(runtime, "write: output handle failed");
           }
           return facebook::jsi::Value(static_cast<double>(written));
         }

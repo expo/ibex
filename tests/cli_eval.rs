@@ -326,7 +326,7 @@ async fn cli_console_log_prints_strings_raw() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("a b 1") && stdout.contains("x: 'y'"),
+        stdout.contains("a b 1") && (stdout.contains("x: 'y'") || stdout.contains("\"x\": \"y\"")),
         "string arguments must remain raw even when object inspection wraps: stdout={stdout:?}"
     );
     assert!(

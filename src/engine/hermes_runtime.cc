@@ -4217,11 +4217,19 @@ extern "C" int ex_hermes_eval(
     }
 #endif
 
-    // If the result is a thenable/Promise, resolve it before returning.
-    // This makes top-level await work in the REPL and eval contexts. The
-    // unwrap helper itself uses only ordinary functions, so it is portable to
-    // the Windows source-bootstrap profile as well. (ENG-24933)
-    if (result.isObject()) {
+    // If the result is a thenable/Promise, resolve it before returning. On the
+    // Windows source-bootstrap profile, ordinary file execution already uses
+    // an async wrapper for module bindings; unwrapping every such result turns
+    // handled floating rejections into entry failures and overwrites a user's
+    // exitCode. Only the trusted TLA entry route opts into completion-Promise
+    // unwrapping there. Other desktop targets retain the REPL/eval behavior.
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+    // (ENG-24933)
+    bool shouldUnwrapPromiseResult = true;
+#if defined(_WIN32)
+    shouldUnwrapPromiseResult = source == "ibex:awaited-entry";
+#endif
+    if (shouldUnwrapPromiseResult && result.isObject()) {
       auto& rt = *runtime->runtime;
       // Stash the result as a temp global so JS can inspect it
       rt.global().setProperty(rt, "__ex_p",

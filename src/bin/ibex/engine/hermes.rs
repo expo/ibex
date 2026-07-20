@@ -2205,6 +2205,13 @@ impl Engine for HermesEngine {
         Ok(result)
     }
 
+    async fn eval_awaited_entry(&self, code: &str) -> Result<Option<String>> {
+        self.maybe_enable_debugger().await?;
+        let result = self.eval_str(code, "ibex:awaited-entry").await?;
+        self.drive_event_loop().await?;
+        Ok(result)
+    }
+
     async fn eval_immediate(&self, code: &str) -> Result<Option<String>> {
         self.maybe_enable_debugger().await?;
         self.eval_str(code, "<eval>").await

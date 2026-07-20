@@ -32,6 +32,15 @@ pub trait Engine: Send + Sync {
     /// Evaluate JavaScript code and return the result
     async fn eval(&self, code: &str) -> Result<Option<String>>;
 
+    /// Evaluate a trusted entry wrapper whose returned Promise is the entry's
+    /// completion contract (for example, lowered top-level await). Engines may
+    /// use this distinction to avoid treating an ordinary script's incidental
+    /// Promise result as a fatal entry rejection. (ENG-24933)
+    /// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+    async fn eval_awaited_entry(&self, code: &str) -> Result<Option<String>> {
+        self.eval(code).await
+    }
+
     /// Evaluate JavaScript code without driving the event loop afterwards.
     /// Use this for setup code that should not trigger timer-based side effects.
     async fn eval_immediate(&self, code: &str) -> Result<Option<String>> {

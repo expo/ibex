@@ -8,6 +8,9 @@ const WINDOWS_FS: &str = include_str!("../src/engine/hermes_runtime_fs_windows.c
 const POSIX_FS: &str = include_str!("../src/engine/hermes_runtime_fs.cc");
 const HOST_ABI: &str = include_str!("../src/host/abi.rs");
 const HERMES_RUNTIME: &str = include_str!("../src/engine/hermes_runtime.cc");
+const ENGINE_TRAIT: &str = include_str!("../src/bin/ibex/engine/mod.rs");
+const HERMES_ENGINE: &str = include_str!("../src/bin/ibex/engine/hermes.rs");
+const CLI_RUNTIME: &str = include_str!("../src/bin/ibex/runtime.rs");
 const PROCESS_RUNTIME: &str = include_str!("../packages/ibex-runtime-js/src/node/process.ts");
 const RUNTIME_BOOTSTRAP: &str = include_str!("../packages/ibex-runtime-js/src/bootstrap.ts");
 
@@ -41,7 +44,9 @@ fn windows_sync_write_preserves_process_owned_stdout_and_stderr() {
         .unwrap();
     assert!(write.contains("if (fd == 1 || fd == 2)"));
     assert!(write.contains("principalMayUseProcessStdio(principal)"));
-    assert!(write.contains("_write(fd, bytes.data(), count)"));
+    assert!(WINDOWS_FS.contains("#define NOMINMAX"));
+    assert!(write.contains("_get_osfhandle(fd)"));
+    assert!(write.contains("WriteFile("));
     assert!(
         write.find("if (fd == 1 || fd == 2)") < write.find("getFileEntry(runtime, fd)"),
         "process stdio must not be rejected by the filesystem-handle registry"
@@ -54,10 +59,11 @@ fn windows_cli_runtime_reconciles_async_and_compatibility_state() {
     assert!(PROCESS_RUNTIME.contains("self.emit('uncaughtException', error)"));
     assert!(RUNTIME_BOOTSTRAP.contains("enableBunCompatibilityIdentity();"));
     assert!(PROCESS_RUNTIME.contains("value: BUN_COMPAT_VERSION"));
-    assert!(
-        !HERMES_RUNTIME.contains("#if !defined(_WIN32)\n    if (result.isObject())"),
-        "Windows eval must inspect the async entry Promise instead of silently accepting rejection"
-    );
+    assert!(ENGINE_TRAIT.contains("async fn eval_awaited_entry"));
+    assert!(HERMES_ENGINE.contains("eval_str(code, \"ibex:awaited-entry\")"));
+    assert!(CLI_RUNTIME.contains("self.engine.eval_awaited_entry(&wrapped)"));
+    assert!(HERMES_RUNTIME.contains("source == \"ibex:awaited-entry\""));
+    assert!(HERMES_RUNTIME.contains("shouldUnwrapPromiseResult && result.isObject()"));
 }
 
 #[test]

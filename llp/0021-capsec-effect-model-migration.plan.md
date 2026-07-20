@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-19 (ENG-24933 narrows Windows Promise-result inspection to trusted awaited-entry evaluation and writes process stdio through raw Win32 handles after physical run 29714547951 advanced the CLI suite to 15 of 19 passing)
 **Revised:** 2026-07-19 (ENG-24933 refreshes all four checked example policies after physical run 29714351921 correctly refused the reviewed Promise-evaluator registry identity change before product execution)
 **Revised:** 2026-07-19 (ENG-24933 carries process stdio, async entry rejection/handler, and opt-in Bun identity contracts through the Windows source-bootstrap profile after physical run 29711984665 cleared child-process integration and exposed six CLI gaps)
 **Revised:** 2026-07-19 (ENG-24933 removes the POSIX-only lazy net installer from the Windows native-backend smoke test after physical run 29704246482 passed 316 library tests and isolated that final failure)
@@ -2104,6 +2105,22 @@ All four policies are regenerated from their unchanged entries, preserving
 their authority rows while updating the vocabulary/registry and policy digests.
 The refusal is therefore a successful stale-authority tripwire, not Windows
 conformance evidence.
+Physical run
+[`29714547951`](https://github.com/ccheever/ibex/actions/runs/29714547951)
+passed generated-policy preflight, all seven public-fixture batches, 317 library
+tests, 169 binary unit tests, and all six Windows child-process integrations.
+The CLI evaluation suite advanced from 13 to 15 of 19 passing: Bun identity,
+top-level-await rejection, and asynchronous stdout callbacks were repaired.
+Its four remaining failures showed that the portable Promise inspector was too
+broad for Windows, where ordinary lowered files also return an async module-
+binding wrapper: it converted a handled floating rejection into failure and
+overrode a user-authored exit code. The engine now receives a distinct trusted
+awaited-entry source route and inspects completion Promises only for that route
+on Windows. Raw stdout/stderr writes now bypass CRT text translation through
+the inherited Win32 handle, preserving requested LF bytes; the console test
+continues to require raw string arguments while accepting the target's JSON-
+style object inspection. Another complete physical run is required before
+crediting any later product layer or changing advertisements.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked

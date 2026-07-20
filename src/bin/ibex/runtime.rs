@@ -1349,8 +1349,13 @@ impl Runtime {
     pub async fn eval(&self, code: &str) -> Result<Option<String>> {
         if cfg!(windows) {
             let code = normalize_hashbang_for_eval(code);
+            let awaited_entry = source_needs_tla_shim(code.as_ref());
             let code = wrap_source_for_tla_eval(code, true);
-            return self.engine.eval(&code).await;
+            return if awaited_entry {
+                self.engine.eval_awaited_entry(&code).await
+            } else {
+                self.engine.eval(&code).await
+            };
         }
 
         let exec_path = resolve_exec_path(&[]);
@@ -1729,9 +1734,14 @@ impl Runtime {
                 .await
                 .with_context(|| format!("Failed to read file {}", entry_path.display()))?;
             let source = normalize_hashbang_for_eval(&source);
+            let awaited_entry = source_needs_tla_shim(source.as_ref());
             let source = wrap_source_for_tla_eval(source, true);
             let code = format!("{argv_code}\n{source}");
-            return self.engine.eval(&code).await;
+            return if awaited_entry {
+                self.engine.eval_awaited_entry(&code).await
+            } else {
+                self.engine.eval(&code).await
+            };
         }
 
         // For .hbc bytecode files, set up argv then use engine.run_file() directly
@@ -1938,8 +1948,13 @@ impl Runtime {
             return self.engine.run_file(&entry_str).await;
         }
 
+        let awaited_entry = source_needs_tla_shim(source.as_ref());
         let wrapped = wrap_entry_source_for_eval(source, is_main_file, needs_lowering);
-        self.engine.eval(&wrapped).await
+        if awaited_entry {
+            self.engine.eval_awaited_entry(&wrapped).await
+        } else {
+            self.engine.eval(&wrapped).await
+        }
     }
 
     pub async fn start_inspector(&self, host: &str, port: u16) -> Result<()> {
