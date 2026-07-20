@@ -476,6 +476,81 @@ extern "C" int32_t ex_host_random_fill(uint8_t* buf, uint32_t len);
 
 namespace {
 
+template <typename Error, typename = void>
+struct HasJsiTypeErrorFactory : std::false_type {};
+
+template <typename Error>
+struct HasJsiTypeErrorFactory<
+    Error,
+    std::void_t<decltype(Error::createTypeError(
+        std::declval<facebook::jsi::Runtime&>(),
+        std::declval<std::string>()))>> : std::true_type {};
+
+template <typename Error, typename = void>
+struct HasJsiReferenceErrorFactory : std::false_type {};
+
+template <typename Error>
+struct HasJsiReferenceErrorFactory<
+    Error,
+    std::void_t<decltype(Error::createReferenceError(
+        std::declval<facebook::jsi::Runtime&>(),
+        std::declval<std::string>()))>> : std::true_type {};
+
+template <typename Error, typename = void>
+struct HasJsiSyntaxErrorFactory : std::false_type {};
+
+template <typename Error>
+struct HasJsiSyntaxErrorFactory<
+    Error,
+    std::void_t<decltype(Error::createSyntaxError(
+        std::declval<facebook::jsi::Runtime&>(),
+        std::declval<std::string>()))>> : std::true_type {};
+
+template <typename Error = facebook::jsi::JSError>
+Error exactCreateTypeError(
+    facebook::jsi::Runtime& runtime,
+    const std::string& message) {
+  if constexpr (HasJsiTypeErrorFactory<Error>::value) {
+    return Error::createTypeError(runtime, message);
+  }
+  auto value = runtime.global()
+                   .getPropertyAsFunction(runtime, "TypeError")
+                   .callAsConstructor(
+                       runtime,
+                       facebook::jsi::String::createFromUtf8(runtime, message));
+  return Error(runtime, std::move(value));
+}
+
+template <typename Error = facebook::jsi::JSError>
+Error exactCreateReferenceError(
+    facebook::jsi::Runtime& runtime,
+    const std::string& message) {
+  if constexpr (HasJsiReferenceErrorFactory<Error>::value) {
+    return Error::createReferenceError(runtime, message);
+  }
+  auto value = runtime.global()
+                   .getPropertyAsFunction(runtime, "ReferenceError")
+                   .callAsConstructor(
+                       runtime,
+                       facebook::jsi::String::createFromUtf8(runtime, message));
+  return Error(runtime, std::move(value));
+}
+
+template <typename Error = facebook::jsi::JSError>
+Error exactCreateSyntaxError(
+    facebook::jsi::Runtime& runtime,
+    const std::string& message) {
+  if constexpr (HasJsiSyntaxErrorFactory<Error>::value) {
+    return Error::createSyntaxError(runtime, message);
+  }
+  auto value = runtime.global()
+                   .getPropertyAsFunction(runtime, "SyntaxError")
+                   .callAsConstructor(
+                       runtime,
+                       facebook::jsi::String::createFromUtf8(runtime, message));
+  return Error(runtime, std::move(value));
+}
+
 std::string takeVfsBytes(uint8_t* data, uint64_t length) {
   std::string value;
   if (data != nullptr && length != 0) {
@@ -1026,7 +1101,7 @@ int32_t normalizeLifecycleExitCode(
           : runtime.global().getPropertyAsFunction(runtime, "Number").call(
                 runtime, value);
   if (!numeric.isNumber()) {
-    throw facebook::jsi::JSError::createTypeError(
+    throw exactCreateTypeError(
         runtime, "lifecycle exit code did not coerce to a number");
   }
   double number = numeric.asNumber();
@@ -4134,7 +4209,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
             if (count != 1 || !args[0].isObject() ||
                 !args[0].asObject(callbackRuntime).isFunction(
                     callbackRuntime)) {
-              throw facebook::jsi::JSError::createTypeError(
+              throw exactCreateTypeError(
                   callbackRuntime,
                   "unhandled rejection checkpoint handler must be a function");
             }
@@ -4161,7 +4236,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
             if (count != 1 || !args[0].isObject() ||
                 !args[0].asObject(callbackRuntime).isFunction(
                     callbackRuntime)) {
-              throw facebook::jsi::JSError::createTypeError(
+              throw exactCreateTypeError(
                   callbackRuntime,
                   "rejectionhandled checkpoint handler must be a function");
             }
@@ -4249,7 +4324,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                  size_t count) -> facebook::jsi::Value {
           if (count != 2 || !args[0].isString() ||
               (!args[1].isString() && !args[1].isUndefined())) {
-            throw facebook::jsi::JSError::createTypeError(
+            throw exactCreateTypeError(
                 runtime,
                 "environment overlay mutation requires a name and string or undefined value");
           }
@@ -4950,13 +5025,13 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         uint32_t resolutionKind = 0;
         if (count > 2) {
           if (!args[2].isNumber()) {
-            throw facebook::jsi::JSError::createTypeError(
+            throw exactCreateTypeError(
                 runtime, "module resolution kind must be an integer from 0 through 3");
           }
           auto value = args[2].asNumber();
           if (!(value >= 0 && value <= 3) ||
               value != static_cast<double>(static_cast<uint32_t>(value))) {
-            throw facebook::jsi::JSError::createTypeError(
+            throw exactCreateTypeError(
                 runtime, "module resolution kind must be an integer from 0 through 3");
           }
           resolutionKind = static_cast<uint32_t>(value);
@@ -4998,7 +5073,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
               if (count != 1 || !args[0].isObject() ||
                   !args[0].getObject(runtime).isFunction(runtime) ||
                   handle->structured_session_import_materializer) {
-                throw facebook::jsi::JSError::createTypeError(
+                throw exactCreateTypeError(
                     runtime, "invalid session static-import materializer capture");
               }
               handle->structured_session_import_materializer =
@@ -5019,7 +5094,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                                        size_t count) -> facebook::jsi::Value {
                           if (count != 3 || !args[0].isString() ||
                               !args[1].isString() || !args[2].isNumber()) {
-                            throw facebook::jsi::JSError::createTypeError(
+                            throw exactCreateTypeError(
                                 runtime,
                                 "session-root resolution requires a specifier, logical referrer, and typed resolution kind");
                           }
@@ -5031,7 +5106,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                           if (!(kindValue >= 0 && kindValue <= 3) ||
                               kindValue != static_cast<double>(
                                   static_cast<uint32_t>(kindValue))) {
-                            throw facebook::jsi::JSError::createTypeError(
+                            throw exactCreateTypeError(
                                 runtime,
                                 "session-root resolution kind must be an integer from 0 through 3");
                           }
@@ -5143,13 +5218,13 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         uint32_t resolutionKind = 0;
         if (count > 2) {
           if (!args[2].isNumber()) {
-            throw facebook::jsi::JSError::createTypeError(
+            throw exactCreateTypeError(
                 runtime, "module resolution kind must be an integer from 0 through 3");
           }
           auto value = args[2].asNumber();
           if (!(value >= 0 && value <= 3) ||
               value != static_cast<double>(static_cast<uint32_t>(value))) {
-            throw facebook::jsi::JSError::createTypeError(
+            throw exactCreateTypeError(
                 runtime, "module resolution kind must be an integer from 0 through 3");
           }
           resolutionKind = static_cast<uint32_t>(value);
@@ -8481,7 +8556,7 @@ StructuredOwnDescriptor structuredOwnDescriptor(
       facebook::jsi::String::createFromUtf8(rt, name));
   if (descriptorValue.isUndefined()) return {};
   if (!descriptorValue.isObject()) {
-    throw facebook::jsi::JSError::createTypeError(
+    throw exactCreateTypeError(
         rt, "session descriptor intrinsic returned a non-object");
   }
   auto descriptor = descriptorValue.asObject(rt);
@@ -8613,7 +8688,7 @@ facebook::jsi::Value readStructuredSessionName(
   auto cell = handle->structured_session_cells.find(name);
   if (cell != handle->structured_session_cells.end()) {
     if (!cell->second->initialized || !cell->second->value) {
-      throw facebook::jsi::JSError::createReferenceError(
+      throw exactCreateReferenceError(
           rt, "Cannot access '" + name + "' before initialization");
     }
     return facebook::jsi::Value(rt, *cell->second->value);
@@ -8622,7 +8697,7 @@ facebook::jsi::Value readStructuredSessionName(
   if (global.hasProperty(rt, name.c_str())) {
     return global.getProperty(rt, name.c_str());
   }
-  throw facebook::jsi::JSError::createReferenceError(
+  throw exactCreateReferenceError(
       rt, name + " is not defined");
 }
 
@@ -8650,7 +8725,7 @@ void writeStructuredSessionName(
   if (cell != handle->structured_session_cells.end()) {
     if (initialize) {
       if (cell->second->initialized) {
-        throw facebook::jsi::JSError::createReferenceError(
+        throw exactCreateReferenceError(
             rt, "Binding '" + name + "' has already been initialized");
       }
       cell->second->value =
@@ -8660,12 +8735,12 @@ void writeStructuredSessionName(
       return;
     }
     if (!cell->second->initialized) {
-      throw facebook::jsi::JSError::createReferenceError(
+      throw exactCreateReferenceError(
           rt, "Cannot access '" + name + "' before initialization");
     }
     if (cell->second->kind == StructuredSessionCellKind::Const ||
         cell->second->kind == StructuredSessionCellKind::Import) {
-      throw facebook::jsi::JSError::createTypeError(
+      throw exactCreateTypeError(
           rt, "Assignment to constant binding '" + name + "'");
     }
     cell->second->value =
@@ -8673,14 +8748,14 @@ void writeStructuredSessionName(
     return;
   }
   if (initialize) {
-    throw facebook::jsi::JSError::createReferenceError(
+    throw exactCreateReferenceError(
         rt, "No pending lexical binding named '" + name + "'");
   }
 
   auto global = rt.global();
   if (!global.hasProperty(rt, name.c_str())) {
     if (strict) {
-      throw facebook::jsi::JSError::createReferenceError(
+      throw exactCreateReferenceError(
           rt, name + " is not defined");
     }
     global.setProperty(rt, name.c_str(), value);
@@ -8693,7 +8768,7 @@ void writeStructuredSessionName(
       value,
       global);
   if ((!written.isBool() || !written.getBool()) && strict) {
-    throw facebook::jsi::JSError::createTypeError(
+    throw exactCreateTypeError(
         rt, "Cannot assign to global binding '" + name + "'");
   }
 }
@@ -8725,7 +8800,7 @@ class StructuredSessionReferenceHostObject final
       const facebook::jsi::PropNameID& property,
       const facebook::jsi::Value& value) override {
     if (property.utf8(rt) != "value") {
-      throw facebook::jsi::JSError::createTypeError(
+      throw exactCreateTypeError(
           rt, "invalid checked-cell property");
     }
     writeStructuredSessionName(
@@ -8751,7 +8826,7 @@ std::string structuredNameArgument(
     const facebook::jsi::Value* args,
     size_t count) {
   if (count == 0 || !args[0].isString()) {
-    throw facebook::jsi::JSError::createTypeError(
+    throw exactCreateTypeError(
         rt, "checked-cell operation requires a string name");
   }
   return args[0].getString(rt).utf8(rt);
@@ -8864,7 +8939,7 @@ facebook::jsi::Object makeStructuredSessionHooks(
             handle->structured_session_terminated ||
             !handle->structured_session_import_materializer ||
             logicalReferrer.empty()) {
-          throw facebook::jsi::JSError::createTypeError(
+          throw exactCreateTypeError(
               runtime, "authenticated session dynamic import is unavailable");
         }
         // The trusted JS dispatcher converts invalid specifiers and resolver
@@ -8892,7 +8967,7 @@ facebook::jsi::Object makeStructuredSessionHooks(
             !args[1].getObject(runtime).isFunction(runtime) ||
             handle->structured_session_var_declared_names.count(name) == 0 ||
             handle->structured_session_cells.count(name) != 0) {
-          throw facebook::jsi::JSError::createTypeError(
+          throw exactCreateTypeError(
               runtime, "invalid session function hoist");
         }
         defineStructuredGlobal(handle, name, args[1]);
@@ -8909,7 +8984,7 @@ facebook::jsi::Object makeStructuredSessionHooks(
                const facebook::jsi::Value* args,
                size_t count) -> facebook::jsi::Value {
         if (count < 2 || !args[0].isBool()) {
-          throw facebook::jsi::JSError::createTypeError(
+          throw exactCreateTypeError(
               runtime, "invalid session completion");
         }
         handle->structured_session_completion_has_value = args[0].getBool();
@@ -9763,8 +9838,8 @@ void structuredDeclarationRefusal(
       : "session declaration '" + feasibility.name + "' is not permitted";
   const auto refusal = feasibility.refusal ==
           StructuredDeclarationRefusalKind::RestrictedGlobal
-      ? facebook::jsi::JSError::createSyntaxError(rt, message)
-      : facebook::jsi::JSError::createTypeError(rt, message);
+      ? exactCreateSyntaxError(rt, message)
+      : exactCreateTypeError(rt, message);
   structuredThrowValue(
       handle, refusal.value(), capabilityFlags, result);
 }
@@ -11635,7 +11710,7 @@ extern "C" int ex_hermes_eval_lowered_session(
   std::unique_ptr<ScopedStructuredEvaluation> evaluation;
   try {
     if (!declarationCollision.empty()) {
-      const auto collision = facebook::jsi::JSError::createSyntaxError(
+      const auto collision = exactCreateSyntaxError(
           *runtime->runtime, declarationCollision);
       structuredThrowValue(
           runtime,

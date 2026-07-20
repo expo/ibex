@@ -798,7 +798,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "structured-session-ingress",
       'extern "C" uint32_t ex_hermes_structured_session_bind(',
       'extern "C" int ex_hermes_resume_structured_session(',
-      "sha256-8PkiqqixfxIe_neGw62No1g2DB34ExNKm8sMUwEm0SM",
+      "sha256-WbA5fEcEl_c29Qx-X8Vc4P6mLXVn8DldcT_yrVxF37I",
     ),
     freezeReviewedRange(
       "sealed-bare-evaluator",

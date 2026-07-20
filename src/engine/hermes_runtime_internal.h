@@ -1071,6 +1071,13 @@ extern "C" int32_t ex_host_authorize_typed_print_stack(
     size_t module_ids_len,
     uint32_t stage);
 
+// Reserved principals are part of the runtime's fallback attribution contract
+// too, so they must remain available when an embedder uses an unpatched Hermes
+// without frame-attribution symbols. Keep these values in sync with Hermes'
+// kRuntimePackageId and the Rust NO_USER_PRINCIPAL constant.
+constexpr uint32_t kRuntimePrincipalId = 0xFFFFFFFFu;
+constexpr uint32_t kNoUserPrincipalId = 0xFFFFFFFEu;
+
 // @ref LLP 0013#mechanism-3 — frame-derived capability attribution. The bridge
 // symbols are exported by the carried Hermes patch stack (patches/hermes/0003)
 // and are only referenced when EXACT_HAVE_FRAME_ATTRIBUTION is defined (build.rs
@@ -1117,16 +1124,6 @@ extern "C" int ex_hermes_vm_take_failed_job_context(
 // clobber or free the pointer this thread's attribution walk reads. The extern
 // is declared above with the other runtime-bound TLS so construction and
 // teardown scopes can select it too. (ENG-23011)
-// The reserved principal for runtime-internal code (bootstrap, module loader,
-// lockdown/compartment installers). Domains stamped with it are transparent to
-// frame attribution — the walk skips them so the nearest user frame is charged.
-// Kept in sync with kRuntimePackageId in Hermes' CapabilityAttribution.cpp.
-constexpr uint32_t kRuntimePrincipalId = 0xFFFFFFFFu;
-// Mirror of the Rust NO_USER_PRINCIPAL / engine kNoUserPrincipal: a principal
-// with no grants that fails closed. Used as a fail-closed sentinel when the
-// deputy-stack collector may have truncated (see checkCapability). (ENG-22643)
-constexpr uint32_t kNoUserPrincipalId = 0xFFFFFFFEu;
-
 // A thread may drive more than one Hermes runtime, including re-entrantly when
 // an embedder host call evaluates a nested runtime. Capability attribution must
 // follow the runtime currently being driven, then restore the outer runtime on
