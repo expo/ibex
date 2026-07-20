@@ -155,7 +155,7 @@
       "forbiddenExportsDigest": "sha256-G6na1GxcH7We85UABZue45W9cR3_L3qnYDZYF0pwKzM",
       "contractFeatures": [
         "direct-jsi-objects",
-        "hermes-bytecode-v96"
+        "hermes-bytecode-v99"
       ]
     },
     "hostToolCompatibilityDocuments": [
@@ -239,7 +239,7 @@
             "bytecodeOutputs": [
               {
                 "path": "output/smoke.hbc",
-                "bytecodeVersion": 96,
+                "bytecodeVersion": 99,
                 "sourcePath": "input/smoke.js",
                 "sourceDigest": "sha256-9d8310ca22e8e9f0eba32a5a77ed8a99db909c09b4fe2a8bcd248b04254bc712"
               }
@@ -250,7 +250,7 @@
     ],
     "manifest": {
       "schema": "ibex/portable-engine-manifest/1",
-      "artifactId": "sha256-fzMJqhRusNtpFiMlE8W8ds4O-XlKB9CqIBuE-V74Aq0",
+      "artifactId": "sha256-b5iVIJrfSBCvqvwzmNG5x731WfaLQ6P7mZt7v_zPado",
       "artifactKind": "hermes",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -264,7 +264,7 @@
         "targetVariant": "default",
         "configuration": "Release",
         "debugger": false,
-        "hermesBytecodeVersion": 96,
+        "hermesBytecodeVersion": 99,
         "reviewedProfileIdentityDigest": "sha256-u5dQA6qdaF5TB9N52neD2EJyN2HPt3KGNbSI1HUkb-Q"
       },
       "source": {
@@ -304,7 +304,7 @@
         ]
       },
       "interface": {
-        "abiContractDigest": "sha256-VsyncF8slqj2nQMkLP6FagrtlnrlVJVl9TBXFWUx14U",
+        "abiContractDigest": "sha256-mpzVuvXlIDK1GfWSyqegqxfSqsEcaWeo8H0KeKOVU7Q",
         "requiredExportsDigest": "sha256-EvrGZwNqtELoyAMVLQr0Ua0bqtFed3S5RAYweXUxfTc",
         "forbiddenExportsDigest": "sha256-G6na1GxcH7We85UABZue45W9cR3_L3qnYDZYF0pwKzM",
         "headerSetDigest": "sha256-GksPjeIK6XReCSpoDtVon44CwuwDDk7AAx2kEbs4u54",
@@ -313,7 +313,7 @@
             "role": "host-tool",
             "path": "bin/hermesc",
             "digest": "sha256-4444444444444444444444444444444444444444444444444444444444444444",
-            "compatibilityDigest": "sha256-x3onVVYqCwXHP9_RxwkHJWW5VC59EoObUNPDIkBNHuQ"
+            "compatibilityDigest": "sha256-XvKRec7BASABYkkX9ZM7wUrbU4ol7Qmefb_XPXHuJcI"
           }
         ],
         "loadableComponents": [
@@ -345,7 +345,7 @@
           "kind": "regular",
           "role": "metadata",
           "path": "META-INF/authority/abi-contract.json",
-          "digest": "sha256-d6bcabed732d7eaf242124a9879004024231f1b15f1ad312ab4231d646b5f4ba",
+          "digest": "sha256-4d1b09ce6c849052102e9c3c327bc55e3af79e7480526ca60222a8776b955336",
           "size": 674,
           "executable": false
         },
@@ -373,8 +373,8 @@
         {
           "kind": "regular",
           "role": "metadata",
-          "path": "META-INF/authority/host-tools/sha256-x3onVVYqCwXHP9_RxwkHJWW5VC59EoObUNPDIkBNHuQ.json",
-          "digest": "sha256-9bef48c5bbb20984deb03af2ecf3c668ecb0caacd46c72edd8af9b44f9f560b0",
+          "path": "META-INF/authority/host-tools/sha256-XvKRec7BASABYkkX9ZM7wUrbU4ol7Qmefb_XPXHuJcI.json",
+          "digest": "sha256-1598d78806dc7a8d50b9ac6b29f173235550769542f66aef7a2a301e5c85baed",
           "size": 1809,
           "executable": false
         },
@@ -519,11 +519,11 @@
     },
     "installationReceipt": {
       "schema": "ibex/portable-engine-installation-receipt/1",
-      "artifactId": "sha256-fzMJqhRusNtpFiMlE8W8ds4O-XlKB9CqIBuE-V74Aq0",
-      "manifestDigest": "sha256-izRCqo9iujDWF4cqEFAddrGvHiLLigH44xpqzN7Sguk",
+      "artifactId": "sha256-b5iVIJrfSBCvqvwzmNG5x731WfaLQ6P7mZt7v_zPado",
+      "manifestDigest": "sha256-DuUKbGFKOiYpO2Ka2wCqyt0THlQqCgOck-bvBHvDawA",
       "archiveDigest": "sha256-7777777777777777777777777777777777777777777777777777777777777777",
       "provenanceBundleDigest": "sha256-29b353204eebcc86637cb251e5e515b9033d4bbdd24ee181b3ed2d8b935c30e4",
-      "verificationPolicyDigest": "sha256-QEmw9v8kRZ3OegFPkRJEAuo1urUUL6fqEuBb87NbQEs",
+      "verificationPolicyDigest": "sha256-0WNI_OZbgQ74L-_gHGrvlRfbZ3wz0o8a0YULs6TVv8Q",
       "repository": "ccheever/ibex",
       "publisherWorkflow": ".github/workflows/hermes-artifacts.yml",
       "sourceRef": "refs/heads/main",
@@ -532,7 +532,7 @@
     },
     "portableIdentity": {
       "schema": "ibex/portable-engine-artifact-identity/1",
-      "artifactId": "sha256-fzMJqhRusNtpFiMlE8W8ds4O-XlKB9CqIBuE-V74Aq0",
+      "artifactId": "sha256-b5iVIJrfSBCvqvwzmNG5x731WfaLQ6P7mZt7v_zPado",
       "artifactKind": "hermes",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -546,17 +546,17 @@
         "targetVariant": "default",
         "configuration": "Release",
         "debugger": false,
-        "hermesBytecodeVersion": 96
+        "hermesBytecodeVersion": 99
       },
       "runtimeComponentDigest": "sha256-5555555555555555555555555555555555555555555555555555555555555555",
       "reviewedProfileIdentityDigest": "sha256-u5dQA6qdaF5TB9N52neD2EJyN2HPt3KGNbSI1HUkb-Q",
-      "interfaceContractDigest": "sha256-1zlC2WCWPhBVR_VdtqDqbNMHUTuh3mDgte5cH7q6fBQ"
+      "interfaceContractDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
     },
     "mappedInstance": {
       "schema": "ibex/mapped-engine-instance-identity/1",
       "portable": {
         "schema": "ibex/portable-engine-artifact-identity/1",
-        "artifactId": "sha256-fzMJqhRusNtpFiMlE8W8ds4O-XlKB9CqIBuE-V74Aq0",
+        "artifactId": "sha256-b5iVIJrfSBCvqvwzmNG5x731WfaLQ6P7mZt7v_zPado",
         "artifactKind": "hermes",
         "target": {
           "triple": "aarch64-apple-darwin",
@@ -570,11 +570,11 @@
           "targetVariant": "default",
           "configuration": "Release",
           "debugger": false,
-          "hermesBytecodeVersion": 96
+          "hermesBytecodeVersion": 99
         },
         "runtimeComponentDigest": "sha256-5555555555555555555555555555555555555555555555555555555555555555",
         "reviewedProfileIdentityDigest": "sha256-u5dQA6qdaF5TB9N52neD2EJyN2HPt3KGNbSI1HUkb-Q",
-        "interfaceContractDigest": "sha256-1zlC2WCWPhBVR_VdtqDqbNMHUTuh3mDgte5cH7q6fBQ"
+        "interfaceContractDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
       },
       "canonicalLocalRuntimePath": "/private/var/tmp/ibex/target/hermes-artifacts/example/payload/lib/libhermes.dylib",
       "localObject": {
@@ -614,7 +614,7 @@
         }
       },
       "processArchitecture": "aarch64",
-      "observationDigest": "sha256-Ezy-vQcgspsiUoAAvLIRwOukLfAe2sfq4ChW2pgnBj4"
+      "observationDigest": "sha256-Ug6M7G2nkDAeBUm8nKUka6GY7u9_nEPeSKohATHAc78"
     },
     "suite": {
       "schema": "ibex/portable-engine-suite-lineage/1",
@@ -629,7 +629,7 @@
           "framework"
         ]
       },
-      "portableArtifactId": "sha256-fzMJqhRusNtpFiMlE8W8ds4O-XlKB9CqIBuE-V74Aq0",
+      "portableArtifactId": "sha256-b5iVIJrfSBCvqvwzmNG5x731WfaLQ6P7mZt7v_zPado",
       "expectedShardIds": [
         "macos-arm64-diagnostic"
       ],
@@ -654,7 +654,7 @@
     "assignment": {
       "schema": "ibex/portable-engine-shard-assignment/1",
       "suiteLineageId": "suite-2026-07-19-macos-arm64",
-      "suiteDescriptorDigest": "sha256-xI9EVSYTXqwfrmZv-1Qs7rap6cn1z43OsSvwCH8P-Lg",
+      "suiteDescriptorDigest": "sha256-nZe_Fp7f9kzpUv7S-amObaM_066OXWGIcmyr6qbim7g",
       "shardId": "macos-arm64-diagnostic",
       "expectedCommandIds": [
         "capsec-conformance",
@@ -691,7 +691,7 @@
             "framework"
           ]
         },
-        "portableArtifactId": "sha256-fzMJqhRusNtpFiMlE8W8ds4O-XlKB9CqIBuE-V74Aq0",
+        "portableArtifactId": "sha256-b5iVIJrfSBCvqvwzmNG5x731WfaLQ6P7mZt7v_zPado",
         "expectedShardIds": [
           "macos-arm64-diagnostic"
         ],
@@ -717,7 +717,7 @@
         {
           "schema": "ibex/portable-engine-shard-assignment/1",
           "suiteLineageId": "suite-2026-07-19-macos-arm64",
-          "suiteDescriptorDigest": "sha256-xI9EVSYTXqwfrmZv-1Qs7rap6cn1z43OsSvwCH8P-Lg",
+          "suiteDescriptorDigest": "sha256-nZe_Fp7f9kzpUv7S-amObaM_066OXWGIcmyr6qbim7g",
           "shardId": "macos-arm64-diagnostic",
           "expectedCommandIds": [
             "capsec-conformance",
@@ -743,10 +743,10 @@
     },
     "diagnosticManifest": {
       "schema": "ibex/portable-engine-diagnostic-shard-manifest/1",
-      "manifestDigest": "sha256-2PBtrkmscPhEb59Hwgma9mvehiEis1u5-NmCX9rSNKE",
+      "manifestDigest": "sha256-c7XyX69JtbAwXgpugCzRESesFTklEB9FPtMb8CHVhbk",
       "suiteLineageId": "suite-2026-07-19-macos-arm64",
       "suitePlanDigest": "sha256-ccccccccccccccccccccccccccccccccccccccccccc",
-      "assignmentDigest": "sha256-_Nm24gM-s7X2xukkRenn2ezURUJofddDK0loMcc2uVA",
+      "assignmentDigest": "sha256-ZO5-_3zWVnotK_9Hs1AxHrxhDnES43ILW1nFkHu9z4k",
       "sourceRevision": "f9a90c7222738de8b7a7abdd6c7c58c866fa5437",
       "sourceTreeDigest": "sha256-D5P8efHp8UXI1XIq0hTx-Ab6HLJBOD60iVnQErAyi90",
       "target": {
@@ -769,7 +769,7 @@
       "recipeCatalogDigest": "sha256-8888888888888888888888888888888888888888888",
       "portableEngine": {
         "schema": "ibex/portable-engine-artifact-identity/1",
-        "artifactId": "sha256-fzMJqhRusNtpFiMlE8W8ds4O-XlKB9CqIBuE-V74Aq0",
+        "artifactId": "sha256-b5iVIJrfSBCvqvwzmNG5x731WfaLQ6P7mZt7v_zPado",
         "artifactKind": "hermes",
         "target": {
           "triple": "aarch64-apple-darwin",
@@ -783,17 +783,17 @@
           "targetVariant": "default",
           "configuration": "Release",
           "debugger": false,
-          "hermesBytecodeVersion": 96
+          "hermesBytecodeVersion": 99
         },
         "runtimeComponentDigest": "sha256-5555555555555555555555555555555555555555555555555555555555555555",
         "reviewedProfileIdentityDigest": "sha256-u5dQA6qdaF5TB9N52neD2EJyN2HPt3KGNbSI1HUkb-Q",
-        "interfaceContractDigest": "sha256-1zlC2WCWPhBVR_VdtqDqbNMHUTuh3mDgte5cH7q6fBQ"
+        "interfaceContractDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
       },
       "mappedEngine": {
         "schema": "ibex/mapped-engine-instance-identity/1",
         "portable": {
           "schema": "ibex/portable-engine-artifact-identity/1",
-          "artifactId": "sha256-fzMJqhRusNtpFiMlE8W8ds4O-XlKB9CqIBuE-V74Aq0",
+          "artifactId": "sha256-b5iVIJrfSBCvqvwzmNG5x731WfaLQ6P7mZt7v_zPado",
           "artifactKind": "hermes",
           "target": {
             "triple": "aarch64-apple-darwin",
@@ -807,11 +807,11 @@
             "targetVariant": "default",
             "configuration": "Release",
             "debugger": false,
-            "hermesBytecodeVersion": 96
+            "hermesBytecodeVersion": 99
           },
           "runtimeComponentDigest": "sha256-5555555555555555555555555555555555555555555555555555555555555555",
           "reviewedProfileIdentityDigest": "sha256-u5dQA6qdaF5TB9N52neD2EJyN2HPt3KGNbSI1HUkb-Q",
-          "interfaceContractDigest": "sha256-1zlC2WCWPhBVR_VdtqDqbNMHUTuh3mDgte5cH7q6fBQ"
+          "interfaceContractDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
         },
         "canonicalLocalRuntimePath": "/private/var/tmp/ibex/target/hermes-artifacts/example/payload/lib/libhermes.dylib",
         "localObject": {
@@ -851,7 +851,7 @@
           }
         },
         "processArchitecture": "aarch64",
-        "observationDigest": "sha256-Ezy-vQcgspsiUoAAvLIRwOukLfAe2sfq4ChW2pgnBj4"
+        "observationDigest": "sha256-Ug6M7G2nkDAeBUm8nKUka6GY7u9_nEPeSKohATHAc78"
       },
       "shardId": "macos-arm64-diagnostic",
       "authorityClass": "diagnostic",
@@ -907,7 +907,7 @@
               "framework"
             ]
           },
-          "portableArtifactId": "sha256-fzMJqhRusNtpFiMlE8W8ds4O-XlKB9CqIBuE-V74Aq0",
+          "portableArtifactId": "sha256-b5iVIJrfSBCvqvwzmNG5x731WfaLQ6P7mZt7v_zPado",
           "expectedShardIds": [
             "macos-arm64-diagnostic"
           ],
@@ -933,7 +933,7 @@
           {
             "schema": "ibex/portable-engine-shard-assignment/1",
             "suiteLineageId": "suite-2026-07-19-macos-arm64",
-            "suiteDescriptorDigest": "sha256-xI9EVSYTXqwfrmZv-1Qs7rap6cn1z43OsSvwCH8P-Lg",
+            "suiteDescriptorDigest": "sha256-nZe_Fp7f9kzpUv7S-amObaM_066OXWGIcmyr6qbim7g",
             "shardId": "macos-arm64-diagnostic",
             "expectedCommandIds": [
               "capsec-conformance",
@@ -960,7 +960,7 @@
       "coordinatorProvenance": {
         "schema": "ibex/portable-engine-provenance-verification/1",
         "authority": "coordinator",
-        "subjectDigest": "sha256-apGcbnsym7exYSINL8eLydjMNWldWIXpNguj0x1RAo0",
+        "subjectDigest": "sha256-ItmYa47kjZBXS8Wty7ZdtTACFPqSxiascC_BzYTrYc0",
         "provenanceBundleDigest": "sha256-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
         "repository": "ccheever/ibex",
         "workflowPath": ".github/workflows/capsec-diagnostic-coordinator.yml",
@@ -981,10 +981,10 @@
       },
       "manifest": {
         "schema": "ibex/portable-engine-diagnostic-shard-manifest/1",
-        "manifestDigest": "sha256-2PBtrkmscPhEb59Hwgma9mvehiEis1u5-NmCX9rSNKE",
+        "manifestDigest": "sha256-c7XyX69JtbAwXgpugCzRESesFTklEB9FPtMb8CHVhbk",
         "suiteLineageId": "suite-2026-07-19-macos-arm64",
         "suitePlanDigest": "sha256-ccccccccccccccccccccccccccccccccccccccccccc",
-        "assignmentDigest": "sha256-_Nm24gM-s7X2xukkRenn2ezURUJofddDK0loMcc2uVA",
+        "assignmentDigest": "sha256-ZO5-_3zWVnotK_9Hs1AxHrxhDnES43ILW1nFkHu9z4k",
         "sourceRevision": "f9a90c7222738de8b7a7abdd6c7c58c866fa5437",
         "sourceTreeDigest": "sha256-D5P8efHp8UXI1XIq0hTx-Ab6HLJBOD60iVnQErAyi90",
         "target": {
@@ -1007,7 +1007,7 @@
         "recipeCatalogDigest": "sha256-8888888888888888888888888888888888888888888",
         "portableEngine": {
           "schema": "ibex/portable-engine-artifact-identity/1",
-          "artifactId": "sha256-fzMJqhRusNtpFiMlE8W8ds4O-XlKB9CqIBuE-V74Aq0",
+          "artifactId": "sha256-b5iVIJrfSBCvqvwzmNG5x731WfaLQ6P7mZt7v_zPado",
           "artifactKind": "hermes",
           "target": {
             "triple": "aarch64-apple-darwin",
@@ -1021,17 +1021,17 @@
             "targetVariant": "default",
             "configuration": "Release",
             "debugger": false,
-            "hermesBytecodeVersion": 96
+            "hermesBytecodeVersion": 99
           },
           "runtimeComponentDigest": "sha256-5555555555555555555555555555555555555555555555555555555555555555",
           "reviewedProfileIdentityDigest": "sha256-u5dQA6qdaF5TB9N52neD2EJyN2HPt3KGNbSI1HUkb-Q",
-          "interfaceContractDigest": "sha256-1zlC2WCWPhBVR_VdtqDqbNMHUTuh3mDgte5cH7q6fBQ"
+          "interfaceContractDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
         },
         "mappedEngine": {
           "schema": "ibex/mapped-engine-instance-identity/1",
           "portable": {
             "schema": "ibex/portable-engine-artifact-identity/1",
-            "artifactId": "sha256-fzMJqhRusNtpFiMlE8W8ds4O-XlKB9CqIBuE-V74Aq0",
+            "artifactId": "sha256-b5iVIJrfSBCvqvwzmNG5x731WfaLQ6P7mZt7v_zPado",
             "artifactKind": "hermes",
             "target": {
               "triple": "aarch64-apple-darwin",
@@ -1045,11 +1045,11 @@
               "targetVariant": "default",
               "configuration": "Release",
               "debugger": false,
-              "hermesBytecodeVersion": 96
+              "hermesBytecodeVersion": 99
             },
             "runtimeComponentDigest": "sha256-5555555555555555555555555555555555555555555555555555555555555555",
             "reviewedProfileIdentityDigest": "sha256-u5dQA6qdaF5TB9N52neD2EJyN2HPt3KGNbSI1HUkb-Q",
-            "interfaceContractDigest": "sha256-1zlC2WCWPhBVR_VdtqDqbNMHUTuh3mDgte5cH7q6fBQ"
+            "interfaceContractDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
           },
           "canonicalLocalRuntimePath": "/private/var/tmp/ibex/target/hermes-artifacts/example/payload/lib/libhermes.dylib",
           "localObject": {
@@ -1089,7 +1089,7 @@
             }
           },
           "processArchitecture": "aarch64",
-          "observationDigest": "sha256-Ezy-vQcgspsiUoAAvLIRwOukLfAe2sfq4ChW2pgnBj4"
+          "observationDigest": "sha256-Ug6M7G2nkDAeBUm8nKUka6GY7u9_nEPeSKohATHAc78"
         },
         "shardId": "macos-arm64-diagnostic",
         "authorityClass": "diagnostic",
@@ -1188,7 +1188,7 @@
     },
     "diagnosticProvenance": {
       "schema": "ibex/portable-engine-diagnostic-shard-provenance/1",
-      "subjectDigest": "sha256-eABxSaPGTQNnkmGuxrfjVO-CdTz8gOcnpmrisISM7cc",
+      "subjectDigest": "sha256-4fcJQR2ODzXBmKNmDG0SHUTsfaURi4M4XOZsjQ_Rysw",
       "provenanceBundleDigest": "sha256-f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0",
       "repository": "ccheever/ibex",
       "workflowPath": ".github/workflows/capsec-diagnostic-shard.yml",
@@ -1217,7 +1217,7 @@
             "targetVariant": "default",
             "configuration": "Release",
             "debugger": false,
-            "hermesBytecodeVersion": 96
+            "hermesBytecodeVersion": 99
           },
           "sourceTreeGitObjectFormat": "sha1",
           "reviewedProfileOriginKind": "source-patched-cache",
@@ -1311,7 +1311,7 @@
             "allocationBoundary": "cxx-allocator-compatible",
             "contractFeatures": [
               "direct-jsi-objects",
-              "hermes-bytecode-v96"
+              "hermes-bytecode-v99"
             ]
           }
         }
@@ -1459,14 +1459,14 @@
       "documentPath": "abiContract",
       "domain": "ibex.portable-engine-abi-contract.v1",
       "omitFields": [],
-      "expectedDigest": "sha256-VsyncF8slqj2nQMkLP6FagrtlnrlVJVl9TBXFWUx14U"
+      "expectedDigest": "sha256-mpzVuvXlIDK1GfWSyqegqxfSqsEcaWeo8H0KeKOVU7Q"
     },
     {
       "id": "host-tool-compatibility-digest:bin/hermesc",
       "documentPath": "hostToolCompatibilityDocuments.0",
       "domain": "ibex.portable-engine-host-tool-compatibility.v1",
       "omitFields": [],
-      "expectedDigest": "sha256-x3onVVYqCwXHP9_RxwkHJWW5VC59EoObUNPDIkBNHuQ"
+      "expectedDigest": "sha256-XvKRec7BASABYkkX9ZM7wUrbU4ol7Qmefb_XPXHuJcI"
     },
     {
       "id": "portable-artifact-id",
@@ -1475,28 +1475,28 @@
       "omitFields": [
         "artifactId"
       ],
-      "expectedDigest": "sha256-fzMJqhRusNtpFiMlE8W8ds4O-XlKB9CqIBuE-V74Aq0"
+      "expectedDigest": "sha256-b5iVIJrfSBCvqvwzmNG5x731WfaLQ6P7mZt7v_zPado"
     },
     {
       "id": "portable-manifest-digest",
       "documentPath": "manifest",
       "domain": "ibex.portable-engine-manifest-digest.v1",
       "omitFields": [],
-      "expectedDigest": "sha256-izRCqo9iujDWF4cqEFAddrGvHiLLigH44xpqzN7Sguk"
+      "expectedDigest": "sha256-DuUKbGFKOiYpO2Ka2wCqyt0THlQqCgOck-bvBHvDawA"
     },
     {
       "id": "trust-policy-digest",
       "documentPath": "trustPolicy",
       "domain": "ibex.portable-engine-provenance-trust-policy.v1",
       "omitFields": [],
-      "expectedDigest": "sha256-QEmw9v8kRZ3OegFPkRJEAuo1urUUL6fqEuBb87NbQEs"
+      "expectedDigest": "sha256-0WNI_OZbgQ74L-_gHGrvlRfbZ3wz0o8a0YULs6TVv8Q"
     },
     {
       "id": "interface-contract-digest",
       "documentPath": "manifest.interface",
       "domain": "ibex.portable-engine-interface.v1",
       "omitFields": [],
-      "expectedDigest": "sha256-1zlC2WCWPhBVR_VdtqDqbNMHUTuh3mDgte5cH7q6fBQ"
+      "expectedDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
     },
     {
       "id": "mapped-observation-digest",
@@ -1505,28 +1505,28 @@
       "omitFields": [
         "observationDigest"
       ],
-      "expectedDigest": "sha256-Ezy-vQcgspsiUoAAvLIRwOukLfAe2sfq4ChW2pgnBj4"
+      "expectedDigest": "sha256-Ug6M7G2nkDAeBUm8nKUka6GY7u9_nEPeSKohATHAc78"
     },
     {
       "id": "suite-descriptor-digest",
       "documentPath": "suite",
       "domain": "ibex.portable-engine-suite-lineage.v1",
       "omitFields": [],
-      "expectedDigest": "sha256-xI9EVSYTXqwfrmZv-1Qs7rap6cn1z43OsSvwCH8P-Lg"
+      "expectedDigest": "sha256-nZe_Fp7f9kzpUv7S-amObaM_066OXWGIcmyr6qbim7g"
     },
     {
       "id": "shard-assignment-digest",
       "documentPath": "assignment",
       "domain": "ibex.portable-engine-shard-assignment.v1",
       "omitFields": [],
-      "expectedDigest": "sha256-_Nm24gM-s7X2xukkRenn2ezURUJofddDK0loMcc2uVA"
+      "expectedDigest": "sha256-ZO5-_3zWVnotK_9Hs1AxHrxhDnES43ILW1nFkHu9z4k"
     },
     {
       "id": "assignment-bundle-digest",
       "documentPath": "assignmentBundle",
       "domain": "ibex.portable-engine-assignment-bundle.v1",
       "omitFields": [],
-      "expectedDigest": "sha256-apGcbnsym7exYSINL8eLydjMNWldWIXpNguj0x1RAo0"
+      "expectedDigest": "sha256-ItmYa47kjZBXS8Wty7ZdtTACFPqSxiascC_BzYTrYc0"
     },
     {
       "id": "diagnostic-manifest-digest",
@@ -1535,14 +1535,14 @@
       "omitFields": [
         "manifestDigest"
       ],
-      "expectedDigest": "sha256-2PBtrkmscPhEb59Hwgma9mvehiEis1u5-NmCX9rSNKE"
+      "expectedDigest": "sha256-c7XyX69JtbAwXgpugCzRESesFTklEB9FPtMb8CHVhbk"
     },
     {
       "id": "diagnostic-shard-bundle-digest",
       "documentPath": "diagnosticBundle",
       "domain": "ibex.portable-engine-diagnostic-shard-bundle.v1",
       "omitFields": [],
-      "expectedDigest": "sha256-eABxSaPGTQNnkmGuxrfjVO-CdTz8gOcnpmrisISM7cc"
+      "expectedDigest": "sha256-4fcJQR2ODzXBmKNmDG0SHUTsfaURi4M4XOZsjQ_Rysw"
     }
   ],
   "canonicalizationCases": [

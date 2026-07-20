@@ -90,7 +90,7 @@
         "contractFeatures": {
           "const": [
             "direct-jsi-objects",
-            "hermes-bytecode-v96"
+            "hermes-bytecode-v99"
           ]
         }
       }

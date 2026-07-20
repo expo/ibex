@@ -15,7 +15,7 @@
         "targetVariant": "default",
         "configuration": "Release",
         "debugger": false,
-        "hermesBytecodeVersion": 96
+        "hermesBytecodeVersion": 99
       },
       "sourceTreeGitObjectFormat": "sha1",
       "reviewedProfileOriginKind": "source-patched-cache",
@@ -109,7 +109,7 @@
         "allocationBoundary": "cxx-allocator-compatible",
         "contractFeatures": [
           "direct-jsi-objects",
-          "hermes-bytecode-v96"
+          "hermes-bytecode-v99"
         ]
       }
     }

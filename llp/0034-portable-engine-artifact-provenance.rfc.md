@@ -833,15 +833,18 @@ runner, retains same-runner-only conformance authority, explicitly disables
 portable artifact acceptance, and disables cross-runner assignment, diagnostic
 transport, promotion authority, retry, and resumption. Its admitted-target
 table contains exactly `aarch64-apple-darwin`; that row joins structural
-features, the exact `source-patched/default/Release` debugger-off bytecode-v96
+features, the exact `source-patched/default/Release` debugger-off bytecode-v99
 profile, SHA-1 source-object format, profile origin, the exact required and
 forbidden export matcher policy, complete build-authority path membership
 (for the currently existing Hermes build inputs), the required `bin/hermesc`
 behavior proof, the runtime-only non-system loadable-component topology, export extractor,
 mapping proof, dependency policy, receipt architecture, exact direct-JSI ABI
 dimensions, and the hermetic host-tool execution contract. Unknown triples
-have no default family. The
-policy also fixes finite archive and detached-bundle limits, the versioned
+have no default family. The HBC-v99 value is the version physically reported
+by both the pinned Release
+runtime and its bundled `hermesc`; the producer must rejoin those observations
+rather than treating the checked policy value as evidence.
+The policy also fixes finite archive and detached-bundle limits, the versioned
 payload-path equivalence policy, symlink containment rules, and the empirically
 observed macOS Release runtime's Apple system dependency set.
 
