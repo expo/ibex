@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-19 (ENG-24933 removes the Windows-only bootstrap crypto shadow after physical run 29719448744 cleared CLI runtime execution and exposed 17 missing-or-weakened crypto exports)
 **Revised:** 2026-07-19 (ENG-24933 routes raw standalone Windows entries through the in-process lowering pipeline after physical run 29717165944 passed all 19 CLI evaluation tests and exposed two script-mode static-import failures)
 **Revised:** 2026-07-19 (ENG-24933 narrows Windows Promise-result inspection to trusted awaited-entry evaluation and writes process stdio through raw Win32 handles after physical run 29714547951 advanced the CLI suite to 15 of 19 passing)
 **Revised:** 2026-07-19 (ENG-24933 refreshes all four checked example policies after physical run 29714351921 correctly refused the reviewed Promise-evaluator registry identity change before product execution)
@@ -2135,6 +2136,20 @@ installs its argv prelude separately and reuses the same in-process lowering
 and entry-wrapper path as the portable fallback; already prepared Windows
 bundles keep their existing direct source-bootstrap path. This is a later
 physical frontier, not target conformance, and advertisements remain empty.
+Physical run
+[`29719448744`](https://github.com/ccheever/ibex/actions/runs/29719448744)
+then passed generated-policy preflight, all seven public-fixture batches, 317
+library tests, 169 binary unit tests, all six Windows child-process
+integrations, all 19 CLI evaluation tests, and all three standalone CLI runtime
+tests. The default Rust matrix advanced to 519 of 536 executed tests passing
+with three ignored before `crypto_node_builtin` exposed 17 failures. Windows
+was shadowing the canonical manifest-owned `crypto.js` with a bootstrap-local
+hash/HMAC/random subset that omitted constants and most APIs and weakened hash
+lifecycle validation. Windows now resolves the canonical JavaScript surface;
+its BCrypt/CNG file remains the owner of available native primitives, while
+unsupported operations use the shared explicit failure semantics. This change
+does not credit a target cell: a rebuilt physical report must prove the next
+frontier, and advertisements remain empty.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked

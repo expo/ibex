@@ -1508,65 +1508,12 @@ const NONCAP_GENERIC_EXPORT_EXCLUSIONS = new Set([
   "node_os",
 ]);
 
-// Windows installs the deliberately smaller crypto module authored by
-// makeWindowsCryptoModule() in the bootstrap loader; it does not evaluate the
-// full src/builtins/crypto.js export object. Keep source-union exports residual
-// unless their root is present in that target implementation.
-// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
-const WINDOWS_CRYPTO_EXPORT_ROOTS = new Set([
-  "Hash",
-  "Hmac",
-  "createHash",
-  "createHmac",
-  "default",
-  "getHashes",
-  "getRandomValues",
-  "hash",
-  "randomBytes",
-  "randomFill",
-  "randomFillSync",
-  "randomUUID",
-  "subtle",
-  "timingSafeEqual",
-  "webcrypto",
-]);
-const WINDOWS_CRYPTO_MEMBER_EXPORTS = new Set([
-  "Hash.constructor",
-  "Hash.copy",
-  "Hash.digest",
-  "Hash.update",
-  "Hmac.constructor",
-  "Hmac.digest",
-  "Hmac.update",
-]);
 const WINDOWS_ZLIB_CONSTRUCTION_EXPORTS = new Set([
   "crc32",
   ...ZLIB_OWNER_NAMES,
   ...ZLIB_OWNER_NAMES.map((owner) => `create${owner}`),
   ...ZLIB_OWNER_NAMES.map((owner) => `${owner}.constructor`),
 ]);
-
-function targetSourceUnavailableReason(surface, target) {
-  const triple =
-    typeof target === "string"
-      ? target
-      : typeof target?.triple === "string"
-        ? target.triple
-        : null;
-  const metadata = surface?.metadata;
-  if (
-    !triple?.includes("-windows-") ||
-    metadata?.sourceKey !== "exact_crypto" ||
-    typeof metadata.exportName !== "string"
-  ) {
-    return null;
-  }
-  const rootExportName = metadata.exportName.split(".")[0];
-  const installed = metadata.exportName.includes(".")
-    ? WINDOWS_CRYPTO_MEMBER_EXPORTS.has(metadata.exportName)
-    : WINDOWS_CRYPTO_EXPORT_ROOTS.has(rootExportName);
-  return installed ? null : "builtin-export-not-installed-on-target";
-}
 
 function targetCallUnavailableReason(surface, target) {
   const triple =
@@ -1754,10 +1701,7 @@ export function authoredNonCapabilityBuiltinProbe({
   if (!surfaceObservedKey.startsWith("builtin:export:")) {
     return null;
   }
-  if (
-    targetSourceUnavailableReason(surface, target) ||
-    targetCallUnavailableReason(surface, target)
-  ) {
+  if (targetCallUnavailableReason(surface, target)) {
     return null;
   }
   const availability = platformAvailability(surface?.metadata);
@@ -1857,8 +1801,6 @@ export function nonCapabilityBuiltinProbeResidualReason({
   ) {
     return "builtin-export-not-publicly-importable";
   }
-  const targetUnavailable = targetSourceUnavailableReason(surface, target);
-  if (targetUnavailable) return targetUnavailable;
   const targetCallUnavailable = targetCallUnavailableReason(surface, target);
   if (targetCallUnavailable) return targetCallUnavailable;
   const availability = platformAvailability(surface?.metadata);

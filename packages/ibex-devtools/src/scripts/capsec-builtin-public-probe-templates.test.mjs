@@ -558,7 +558,7 @@ describe("source-bound builtin public probes", () => {
         target: "x86_64-pc-windows-msvc",
         valueShape: "callable",
       }),
-    ).toBeNull();
+    ).not.toBeNull();
     expect(
       probeFor({
         sourceKey: "exact_crypto",
@@ -579,7 +579,7 @@ describe("source-bound builtin public probes", () => {
           target: "x86_64-pc-windows-msvc",
           valueShape: "callable",
         }),
-      ).toBeNull();
+      ).not.toBeNull();
     }
     for (const exportName of ["Hash._flush", "Hash.end", "randomUUID"]) {
       expect(

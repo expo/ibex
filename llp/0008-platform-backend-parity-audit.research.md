@@ -192,7 +192,10 @@ Crypto remains a two-profile Linux surface:
 
 Apple uses CommonCrypto/Security in the non-Windows shim. Android currently
 requires `openssl-crypto` with vendored OpenSSL. Windows uses the
-Windows-specific crypto file and BCrypt/CNG.
+Windows-specific native crypto file and BCrypt/CNG. Those platform files own
+only the native primitives: every target resolves the same manifest-owned
+`src/builtins/crypto.js` JavaScript surface so reduced profiles retain the
+canonical exports, validation, and explicit unsupported-operation errors.
 
 ## HTTP Server, SQLite, Console, Timers, and IPC
 
