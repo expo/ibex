@@ -37178,6 +37178,17 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.begin.gpu.canvas.app.bundle.v1.1ny5zud",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_begin_gpu_canvas_app_bundle_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.bytecode.version.1ay7fmv",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -37463,6 +37474,17 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.deliver.gpu.canvas.attachment.receipt.v1.0v946lb",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_deliver_gpu_canvas_attachment_receipt_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.destroy.0m27uxn",
       "status": "structural-only",
       "reasonCode": "source-derived-void-all-input-abi",
@@ -37729,6 +37751,17 @@
       "reasonCode": "source-derived-host-abi-output",
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#ex_hermes_finish_bootstrap"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.finish.gpu.canvas.app.bundle.v1.1xpcpkd",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_finish_gpu_canvas_app_bundle_v1"
       ],
       "outputKinds": [
         "[[return]]"
@@ -80494,6 +80527,18 @@
       ]
     },
     {
+      "surfaceId": "surface.native.op.ibexcapturegpucanvasruntimeintegration.0suajp6",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/runtime-internal.ts#beginExactGpuCanvasAppBundle:globals:__ibexCaptureGpuCanvasRuntimeIntegration",
+        "src/engine/hermes_runtime_gpu_v2.cc#__ibexCaptureGpuCanvasRuntimeIntegration"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
       "surfaceId": "surface.native.op.ibexcapturegpunativebridge.1no4kru",
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
@@ -84310,15 +84355,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-aTcszgPsfJclNwRL-OO72-vFYkmdAxNTxnlGXD-4uDE",
+  "catalogKeyDigest": "sha256-p-SEzturDOIOavf977dt36Pb6aNxzTzriwbl9vh1kPo",
   "counts": {
-    "coverageSurfaces": 7412,
-    "outputBearingSurfaces": 5783,
+    "coverageSurfaces": 7416,
+    "outputBearingSurfaces": 5787,
     "structuralOnlySurfaces": 1556,
     "unresolvedSurfaces": 73,
-    "catalogRows": 6454,
+    "catalogRows": 6458,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6047,
+    "sourceInventoryRows": 6051,
     "structuredRows": 407
   },
   "rows": [
@@ -146428,6 +146473,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.begin.gpu.canvas.app.bundle.v1.1ny5zud",
+        "output": "[[return]]",
+        "alias": "ex_hermes_begin_gpu_canvas_app_bundle_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_begin_gpu_canvas_app_bundle_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_begin_gpu_canvas_app_bundle_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.bytecode.version.1ay7fmv",
         "output": "[[return]]",
         "alias": "ex_hermes_bytecode_version",
@@ -147037,6 +147103,27 @@
         "sourceRefs": [
           "src/engine/hermes_runtime_debugger.cc#ex_hermes_debugger_set_breakpoint",
           "src/engine/hermes_runtime_platform_windows.cc#ex_hermes_debugger_set_breakpoint"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.deliver.gpu.canvas.attachment.receipt.v1.0v946lb",
+        "output": "[[return]]",
+        "alias": "ex_hermes_deliver_gpu_canvas_attachment_receipt_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_deliver_gpu_canvas_attachment_receipt_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_deliver_gpu_canvas_attachment_receipt_v1"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -149200,6 +149287,27 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime.cc#ex_hermes_finish_bootstrap"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.finish.gpu.canvas.app.bundle.v1.1xpcpkd",
+        "output": "[[return]]",
+        "alias": "ex_hermes_finish_gpu_canvas_app_bundle_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_finish_gpu_canvas_app_bundle_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_finish_gpu_canvas_app_bundle_v1"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -220546,6 +220654,28 @@
           "src/bin/ibex/engine/hermes.rs#install_capsec_context_test_observer",
           "src/engine/hermes_runtime.cc#__ibexCapsecContextObserver_",
           "src/engine/hermes_runtime.cc#ibex_test_install_capsec_context_observer"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.ibexcapturegpucanvasruntimeintegration.0suajp6",
+        "output": "[[return]]",
+        "alias": "__ibexCaptureGpuCanvasRuntimeIntegration",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:__ibexCaptureGpuCanvasRuntimeIntegration"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/runtime-internal.ts#beginExactGpuCanvasAppBundle:globals:__ibexCaptureGpuCanvasRuntimeIntegration",
+          "src/engine/hermes_runtime_gpu_v2.cc#__ibexCaptureGpuCanvasRuntimeIntegration"
         ]
       },
       "requiredValueProof": "live-value-observation"

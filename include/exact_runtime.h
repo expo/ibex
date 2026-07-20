@@ -95,6 +95,12 @@ typedef enum ExactEmbedderCapabilitiesStatus {
 #define EXACT_GPU_DECODED_IMAGE_ORIENTATION_TOP_LEFT_V1 UINT32_C(1)
 #define EXACT_GPU_DECODED_IMAGE_ORIGIN_SCRIPT_OWNED_BLOB_V1 UINT32_C(1)
 
+/// Construction-private Exact native Canvas attachment receipt. This ABI
+/// delivers semantic identities only: no component identity, physical
+/// endpoint, drawable, device, queue, texture, or provider handle crosses it.
+#define EXACT_GPU_CANVAS_ATTACHMENT_RECEIPT_ABI_VERSION_V1 \
+    UINT32_C(0x00010000)
+
 typedef enum ExactGpuProviderStatus {
     EXACT_GPU_PROVIDER_OK = 0,
     EXACT_GPU_PROVIDER_INVALID_ARGUMENT = -1,
@@ -108,6 +114,51 @@ typedef enum ExactGpuProviderStatus {
     EXACT_GPU_PROVIDER_INVALID_STATE = -9,
     EXACT_GPU_PROVIDER_OPEN_FAILED = -10,
 } ExactGpuProviderStatus;
+
+typedef enum ExactGpuCanvasAttachmentReceiptOutcomeV1 {
+    EXACT_GPU_CANVAS_ATTACHMENT_ATTACHED_V1 = 1,
+    EXACT_GPU_CANVAS_ATTACHMENT_REJECTED_V1 = 2,
+} ExactGpuCanvasAttachmentReceiptOutcomeV1;
+
+/// Values match Exact's native-runtime Canvas attachment failure vocabulary.
+typedef enum ExactGpuCanvasAttachmentFailureV1 {
+    EXACT_GPU_CANVAS_ATTACHMENT_STALE_GENERATION_V1 = 1,
+    EXACT_GPU_CANVAS_ATTACHMENT_AUTHORITY_DENIED_V1 = 2,
+    EXACT_GPU_CANVAS_ATTACHMENT_PROVIDER_LOST_V1 = 3,
+    EXACT_GPU_CANVAS_ATTACHMENT_SUPERSEDED_BEFORE_ATTACH_V1 = 4,
+    EXACT_GPU_CANVAS_ATTACHMENT_ROOT_GENERATION_CLOSED_V1 = 5,
+    EXACT_GPU_CANVAS_ATTACHMENT_INTERNAL_V1 = 6,
+} ExactGpuCanvasAttachmentFailureV1;
+
+/// Delivery otherwise returns the existing EXACT_RUNTIME_DRIVE_* statuses:
+/// INVALID for malformed input, STALE for a stale pointer/nonce pair,
+/// OFF_OWNER, REENTRANT, and ENGINE_ERROR when the retained JS sink throws.
+typedef enum ExactGpuCanvasReceiptDeliveryStatusV1 {
+    EXACT_GPU_CANVAS_RECEIPT_SINK_UNAVAILABLE_V1 = -6,
+} ExactGpuCanvasReceiptDeliveryStatusV1;
+
+/// Result of one native-delimited Exact app-bundle Canvas handoff. Begin
+/// returns OK when the temporary capture is armed. Finish returns OK when the
+/// bundle consumed and installed the exact integration, or UNUSED after it
+/// safely closed an untouched handoff. Negative values supplement the shared
+/// EXACT_RUNTIME_DRIVE_* statuses returned by the owner/liveness gate.
+typedef enum ExactGpuCanvasAppBundleStatusV1 {
+    EXACT_GPU_CANVAS_APP_BUNDLE_OK_V1 = 0,
+    EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_V1 = 1,
+    EXACT_GPU_CANVAS_APP_BUNDLE_UNAVAILABLE_V1 = -6,
+    EXACT_GPU_CANVAS_APP_BUNDLE_INVALID_STATE_V1 = -7,
+    EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1 = -8,
+    EXACT_GPU_CANVAS_APP_BUNDLE_CLEANUP_FAILED_V1 = -9,
+    EXACT_GPU_CANVAS_APP_BUNDLE_REQUIRED_NOT_CONSUMED_V1 = -10,
+} ExactGpuCanvasAppBundleStatusV1;
+
+/// Trusted bundle-manifest disposition for one app evaluation. REQUIRED arms
+/// the one-shot hook and requires the trusted prelude to consume it before raw
+/// evaluation returns. UNUSED_VALID never publishes the hook at all.
+typedef enum ExactGpuCanvasAppBundleExpectationV1 {
+    EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1 = 1,
+    EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_VALID_V1 = 2,
+} ExactGpuCanvasAppBundleExpectationV1;
 
 typedef enum ExactGpuClientEventReceipt {
     EXACT_GPU_CLIENT_EVENT_DISCARDED = 0,
@@ -801,6 +852,39 @@ typedef struct ExactHermesGpuProviderDescriptorV2 {
     const ExactGpuServiceApiV2* api;
 } ExactHermesGpuProviderDescriptorV2;
 
+/// Exact-size, flat discriminated receipt copied synchronously by the runtime.
+/// `runtime_generation` is the exact Hermes runtime nonce used by the host/root
+/// registry, not an independent Canvas counter. `protocol_root_id` alone may
+/// be zero; every other common identity/generation is positive.
+///
+/// ATTACHED requires failure == 0 and every attached-only field below to be
+/// nonzero (including at least one nonzero digest byte). REJECTED requires a
+/// declared failure and zeros every attached-only field and digest byte.
+typedef struct ExactGpuCanvasAttachmentReceiptV1 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t outcome;
+    uint32_t failure;
+    uint32_t protocol_root_id;
+    uint32_t view_id;
+    uint64_t runtime_generation;
+    uint64_t root_instance_id;
+    uint64_t root_generation;
+    uint64_t commit_sequence;
+    uint64_t view_generation;
+    uint64_t handle_id;
+    uint64_t handle_generation;
+    uint64_t attachment_id;
+    uint64_t attachment_generation;
+    uint64_t context_id;
+    uint64_t context_generation;
+    uint32_t drawing_buffer_width;
+    uint32_t drawing_buffer_height;
+    uint8_t target_authority_digest[32];
+    uint64_t surface_account_token;
+    uint64_t surface_account_generation;
+} ExactGpuCanvasAttachmentReceiptV1;
+
 /// Full source identity minted by the runtime-private ImageBitmap factory.
 /// Every word is nonzero and is compared again when native completion arrives.
 typedef struct ExactGpuDecodedImageIdentityV1 {
@@ -992,6 +1076,47 @@ int32_t ex_hermes_set_gpu_provider_v1(
 int32_t ex_hermes_set_gpu_provider_v2(
     ExactHermesRuntime* runtime,
     const ExactHermesGpuProviderDescriptorV2* descriptor);
+
+/// Open one owner-thread app-bundle Canvas integration transaction immediately
+/// before the host evaluates that Exact bundle. A successful begin revokes the
+/// preceding bundle's integration. CONSUME_REQUIRED then exposes exactly one
+/// non-enumerable, configurable
+/// `__ibexCaptureGpuCanvasRuntimeIntegration` data function;
+/// UNUSED_VALID proves the same root absent and never publishes it.
+/// The host MUST pair begin/finish around a raw, no-pump evaluation: no event
+/// loop, debugger, callback, or other untrusted ingress may run before finish.
+/// Reentrant begin, a pre-existing root property, an AGENT runtime, or an
+/// unavailable authenticated V2 provider fails without exposing a new hook.
+int32_t ex_hermes_begin_gpu_canvas_app_bundle_v1(
+    ExactHermesRuntime* runtime,
+    uint32_t expectation);
+
+/// Close the transaction immediately after the host-controlled bundle eval.
+/// `evaluation_succeeded` must be 0 or 1. Both outcomes remove the temporary
+/// root. A successful eval returns OK when the trusted app prelude consumed the
+/// exact handoff. A required but unconsumed prelude is a negative refusal;
+/// UNUSED is valid only for an UNUSED_VALID transaction. A failed eval revokes
+/// any captured integration and reports only whether cleanup observed consumption.
+/// Cleanup failure makes the runtime fail closed and requires destruction.
+int32_t ex_hermes_finish_gpu_canvas_app_bundle_v1(
+    ExactHermesRuntime* runtime,
+    uint32_t evaluation_succeeded);
+
+/// Deliver one Exact native Canvas attachment terminal to the construction-
+/// captured runtime-js sink. The caller retains the record; Ibex converts it
+/// synchronously into a frozen exact-shape JS object and retains no C pointer.
+///
+/// Validation is deliberately ordered: null/exact-size/version/complete
+/// discriminant validation occurs before runtime entry; then
+/// ExactRuntimeDriveGuard validates `runtime_generation` as this exact Hermes
+/// runtime nonce and enforces owner-thread/non-reentrant delivery. Returns an
+/// EXACT_RUNTIME_DRIVE_* status, or
+/// EXACT_GPU_CANVAS_RECEIPT_SINK_UNAVAILABLE_V1 when no authenticated V2
+/// app-bundle transaction is currently committed (including legacy capture,
+/// an open/reloading bundle, an unused/failed bundle, and detach).
+int32_t ex_hermes_deliver_gpu_canvas_attachment_receipt_v1(
+    ExactHermesRuntime* runtime,
+    const ExactGpuCanvasAttachmentReceiptV1* receipt);
 
 /// Irreversibly seal the armed runtime's phase-limited bare bootstrap
 /// evaluator after the trusted runtime bundle and compartment baseline are

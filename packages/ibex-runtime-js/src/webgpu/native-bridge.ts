@@ -239,8 +239,65 @@ export interface NativeGpuBridgeV2 {
 
 export type NativeGpuBridge = NativeGpuBridgeV1 | NativeGpuBridgeV2;
 
+/** Exact construction result understood by the native V2 capture. */
+export interface NativeGpuCanvasCaptureInstallation {
+  readonly revoke: () => void;
+  readonly canvasReceiptSink: (receipt: unknown) => void;
+  readonly beginCanvasAppBundle: (
+    expectation: 1 | 2,
+  ) => ((candidate: unknown) => void) | undefined;
+  readonly finishCanvasAppBundle: (evaluationSucceeded: boolean) => boolean;
+}
+
+export type NativeGpuBridgeCaptureInstallation =
+  | (() => void)
+  | Readonly<NativeGpuCanvasCaptureInstallation>;
+
 let capturedBridge: NativeGpuBridge | undefined;
 let captureClosed = false;
+
+function isExactCanvasCaptureInstallation(
+  value: unknown,
+): value is Readonly<NativeGpuCanvasCaptureInstallation> {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    Object.getPrototypeOf(value) !== Object.prototype ||
+    !Object.isFrozen(value)
+  ) {
+    return false;
+  }
+  const keys = Reflect.ownKeys(value);
+  if (
+    keys.length !== 4 ||
+    !keys.includes('revoke') ||
+    !keys.includes('canvasReceiptSink') ||
+    !keys.includes('beginCanvasAppBundle') ||
+    !keys.includes('finishCanvasAppBundle')
+  ) {
+    return false;
+  }
+  for (
+    const key of [
+      'revoke',
+      'canvasReceiptSink',
+      'beginCanvasAppBundle',
+      'finishCanvasAppBundle',
+    ] as const
+  ) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (
+      !descriptor ||
+      typeof descriptor.value !== 'function' ||
+      descriptor.writable !== false ||
+      descriptor.enumerable !== true ||
+      descriptor.configurable !== false
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /** Internal validation hook used by the construction handoff and its tests. */
 export function isNativeGpuBridge(value: unknown): value is NativeGpuBridge {
@@ -269,13 +326,17 @@ export function isNativeGpuBridge(value: unknown): value is NativeGpuBridge {
 /** Install the one-shot construction handoff before any untrusted code runs. */
 export function installNativeGpuBridgeCapture(
   globalObject: typeof globalThis,
-  onCapture?: (bridge: NativeGpuBridge) => (() => void) | undefined,
+  onCapture?: (
+    bridge: NativeGpuBridge,
+  ) => NativeGpuBridgeCaptureInstallation | undefined,
 ): void {
   if (captureClosed) return;
   if (Object.prototype.hasOwnProperty.call(globalObject, CAPTURE_NAME)) {
     throw new TypeError('Native GPU bridge capture name is already occupied');
   }
-  const capture = (candidate?: unknown): (() => void) | undefined => {
+  const capture = (
+    candidate?: unknown,
+  ): NativeGpuBridgeCaptureInstallation | undefined => {
     if (candidate === undefined) {
       captureClosed = true;
       Reflect.deleteProperty(globalObject, CAPTURE_NAME);
@@ -296,17 +357,39 @@ export function installNativeGpuBridgeCapture(
       revoke();
       throw new TypeError('Native GPU bridge capture could not delete its handoff');
     }
-    let revokeInstalledSurface: (() => void) | undefined;
+    let installedSurface: NativeGpuBridgeCaptureInstallation | undefined;
     try {
-      revokeInstalledSurface = onCapture?.(candidate);
+      installedSurface = onCapture?.(candidate);
+      if (
+        installedSurface !== undefined &&
+        typeof installedSurface !== 'function' &&
+        !isExactCanvasCaptureInstallation(installedSurface)
+      ) {
+        throw new TypeError('Invalid native GPU bridge capture installation');
+      }
     } catch (error) {
       revoke();
       throw error;
     }
-    return () => {
-      revokeInstalledSurface?.();
+    let captureRevoked = false;
+    const revokeCapture = () => {
+      if (captureRevoked) return;
+      captureRevoked = true;
+      if (typeof installedSurface === 'function') {
+        installedSurface();
+      } else {
+        installedSurface?.revoke();
+      }
       revoke();
     };
+    return isExactCanvasCaptureInstallation(installedSurface)
+      ? Object.freeze({
+        revoke: revokeCapture,
+        canvasReceiptSink: installedSurface.canvasReceiptSink,
+        beginCanvasAppBundle: installedSurface.beginCanvasAppBundle,
+        finishCanvasAppBundle: installedSurface.finishCanvasAppBundle,
+      })
+      : revokeCapture;
   };
   Object.defineProperty(globalObject, CAPTURE_NAME, {
     value: capture,
@@ -325,4 +408,10 @@ export function closeNativeGpuBridgeCapture(globalObject: typeof globalThis): vo
 /** Internal-only accessor shared with the production-private WebGPU wrapper. */
 export function getNativeGpuBridge(): NativeGpuBridge | undefined {
   return capturedBridge;
+}
+
+/** Test-only reset for exercising both construction orderings in one realm. */
+export function resetNativeGpuBridgeCaptureForTests(): void {
+  capturedBridge = undefined;
+  captureClosed = false;
 }

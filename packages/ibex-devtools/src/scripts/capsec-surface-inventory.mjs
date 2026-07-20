@@ -11847,20 +11847,25 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
   let processNode;
   const processObjectDefineCall = (call, environment) => {
     const callee = tsUnwrapExpression(call.expression);
-    if (
-      !ts.isPropertyAccessExpression(callee) ||
-      !ts.isIdentifier(callee.expression) ||
-      callee.expression.text !== "Object"
-    ) {
-      return false;
-    }
-    const method = callee.name.text;
+    const sourcePath = relativeSourcePath(call);
+    const capturedRuntimeDefineProperty =
+      ts.isIdentifier(callee) &&
+      callee.text === "objectDefineProperty" &&
+      sourcePath ===
+        "packages/ibex-runtime-js/src/webgpu/runtime-internal.ts";
+    const method = capturedRuntimeDefineProperty
+      ? "defineProperty"
+      : ts.isPropertyAccessExpression(callee) &&
+          ts.isIdentifier(callee.expression) &&
+          callee.expression.text === "Object"
+        ? callee.name.text
+        : null;
+    if (!method) return false;
     if (!new Set(["defineProperty", "defineProperties", "assign"]).has(method))
       return false;
     const target = call.arguments[0];
     const bases = target ? globalPaths(target, environment) : [];
     if (bases.length === 0) return false;
-    const sourcePath = relativeSourcePath(call);
 
     if (method === "defineProperty") {
       const names = registrationNames(call.arguments[1], environment);
@@ -12004,6 +12009,53 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
   processNode = (node, environment) => {
     if (!node) return;
     observeReviewedPrefixRead(node, environment);
+    // Native retains these two callbacks from the exact frozen V2
+    // construction result and invokes them around a later app-bundle eval.
+    // Follow that returned controller object just as we follow the original
+    // construction capture, otherwise its phase-limited root mutation would
+    // disappear from the authored source inventory.
+    if (
+      ts.isReturnStatement(node) &&
+      relativeSourcePath(node) ===
+        "packages/ibex-runtime-js/src/webgpu/runtime-internal.ts"
+    ) {
+      const returned = tsUnwrapExpression(node.expression);
+      const frozenObject =
+        ts.isCallExpression(returned) &&
+        ts.isIdentifier(tsUnwrapExpression(returned.expression)) &&
+        tsUnwrapExpression(returned.expression).text === "objectFreeze"
+          ? tsUnwrapExpression(returned.arguments[0])
+          : null;
+      if (frozenObject && ts.isObjectLiteralExpression(frozenObject)) {
+        for (const property of frozenObject.properties) {
+          const names = propertyNames(
+            property.name,
+            environment,
+            relativeSourcePath(property),
+          );
+          if (
+            !names.some((name) =>
+              new Set([
+                "beginCanvasAppBundle",
+                "finishCanvasAppBundle",
+              ]).has(name),
+            )
+          ) {
+            continue;
+          }
+          if (ts.isMethodDeclaration(property)) {
+            enqueueFunction(property, environment);
+          } else if (ts.isPropertyAssignment(property)) {
+            for (const declaration of callableDeclarations(
+              property.initializer,
+              environment,
+            )) {
+              enqueueFunction(declaration, environment);
+            }
+          }
+        }
+      }
+    }
     if (
       ts.isFunctionLike(node) ||
       ts.isClassDeclaration(node) ||

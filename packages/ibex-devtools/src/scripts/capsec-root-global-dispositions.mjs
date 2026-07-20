@@ -52,6 +52,10 @@ const PRIVATE_CONSUMERS = new Map([
   ["__exactStdinRead", "runtime-process-stdin-adapter"],
   ["__ibexBarePackageName", "trusted-module-loader"],
   [
+    "__ibexCaptureGpuCanvasRuntimeIntegration",
+    "exact-app-bundle-evaluation-transaction",
+  ],
+  [
     "__ibexCaptureGpuNativeBridge",
     "authenticated-webgpu-provider-construction-handoff",
   ],

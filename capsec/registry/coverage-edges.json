@@ -140935,6 +140935,16 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
+      "id": "surface.host.abi.ex.hermes.begin.gpu.canvas.app.bundle.v1.1ny5zud",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_begin_gpu_canvas_app_bundle_v1"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.bytecode.version.1ay7fmv",
       "classification": "closed",
       "surface": {
@@ -141185,6 +141195,16 @@
       "rationale": "Debugger ABI access is closed in the initial profile."
     },
     {
+      "id": "surface.host.abi.ex.hermes.deliver.gpu.canvas.attachment.receipt.v1.0v946lb",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_deliver_gpu_canvas_attachment_receipt_v1"
+      },
+      "rationaleId": "callback-attribution-carrier",
+      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.destroy.0m27uxn",
       "classification": "non-capability",
       "surface": {
@@ -141353,6 +141373,16 @@
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.finish.gpu.canvas.app.bundle.v1.1xpcpkd",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_finish_gpu_canvas_app_bundle_v1"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.host.abi.ex.hermes.free.string.123yf3v",
@@ -257984,6 +258014,16 @@
       },
       "rationaleId": "callback-attribution-carrier",
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+    },
+    {
+      "id": "surface.native.op.ibexcapturegpucanvasruntimeintegration.0suajp6",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__ibexCaptureGpuCanvasRuntimeIntegration"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.native.op.ibexcapturegpunativebridge.1no4kru",

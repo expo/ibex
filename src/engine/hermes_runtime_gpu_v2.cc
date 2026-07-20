@@ -72,9 +72,70 @@ bool closeGpuV2ConstructionCapture(ExactHermesRuntime* runtime) noexcept {
   }
 }
 
+bool nonzeroCanvasReceiptDigestV1(const uint8_t digest[32]) noexcept {
+  uint8_t aggregate = 0;
+  for (size_t index = 0; index < 32; ++index) aggregate |= digest[index];
+  return aggregate != 0;
+}
+
+bool zeroCanvasReceiptDigestV1(const uint8_t digest[32]) noexcept {
+  uint8_t aggregate = 0;
+  for (size_t index = 0; index < 32; ++index) aggregate |= digest[index];
+  return aggregate == 0;
+}
+
+bool validCanvasAttachmentFailureV1(uint32_t failure) noexcept {
+  switch (failure) {
+    case EXACT_GPU_CANVAS_ATTACHMENT_STALE_GENERATION_V1:
+    case EXACT_GPU_CANVAS_ATTACHMENT_AUTHORITY_DENIED_V1:
+    case EXACT_GPU_CANVAS_ATTACHMENT_PROVIDER_LOST_V1:
+    case EXACT_GPU_CANVAS_ATTACHMENT_SUPERSEDED_BEFORE_ATTACH_V1:
+    case EXACT_GPU_CANVAS_ATTACHMENT_ROOT_GENERATION_CLOSED_V1:
+    case EXACT_GPU_CANVAS_ATTACHMENT_INTERNAL_V1:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool validCanvasAttachmentReceiptV1(
+    const ExactGpuCanvasAttachmentReceiptV1& receipt) noexcept {
+  if (receipt.struct_size != sizeof(ExactGpuCanvasAttachmentReceiptV1) ||
+      receipt.abi_version !=
+          EXACT_GPU_CANVAS_ATTACHMENT_RECEIPT_ABI_VERSION_V1 ||
+      receipt.runtime_generation == 0 || receipt.root_instance_id == 0 ||
+      receipt.root_generation == 0 || receipt.commit_sequence == 0 ||
+      receipt.view_id == 0 || receipt.view_generation == 0 ||
+      receipt.handle_id == 0 || receipt.handle_generation == 0 ||
+      receipt.attachment_id == 0 || receipt.attachment_generation == 0) {
+    return false;
+  }
+  if (receipt.outcome == EXACT_GPU_CANVAS_ATTACHMENT_ATTACHED_V1) {
+    return receipt.failure == 0 && receipt.context_id != 0 &&
+        receipt.context_generation != 0 &&
+        receipt.drawing_buffer_width != 0 &&
+        receipt.drawing_buffer_height != 0 &&
+        nonzeroCanvasReceiptDigestV1(receipt.target_authority_digest) &&
+        receipt.surface_account_token != 0 &&
+        receipt.surface_account_generation != 0;
+  }
+  if (receipt.outcome != EXACT_GPU_CANVAS_ATTACHMENT_REJECTED_V1 ||
+      !validCanvasAttachmentFailureV1(receipt.failure)) {
+    return false;
+  }
+  return receipt.context_id == 0 && receipt.context_generation == 0 &&
+      receipt.drawing_buffer_width == 0 &&
+      receipt.drawing_buffer_height == 0 &&
+      zeroCanvasReceiptDigestV1(receipt.target_authority_digest) &&
+      receipt.surface_account_token == 0 &&
+      receipt.surface_account_generation == 0;
+}
+
 #if defined(IBEX_ENABLE_WEBGPU_BINDING)
 
 constexpr char kGpuCaptureGlobalNameV2[] = "__ibexCaptureGpuNativeBridge";
+constexpr char kGpuCanvasAppBundleCaptureGlobalNameV1[] =
+    "__ibexCaptureGpuCanvasRuntimeIntegration";
 constexpr size_t kMaxGpuOperationCountV2 = 4096;
 constexpr size_t kMaxGpuProfileIdBytesV2 = 256;
 constexpr size_t kMaxGpuPayloadBytesV2 = 16 * 1024 * 1024;
@@ -1584,6 +1645,7 @@ std::atomic<uint64_t> gGpuV2RejectCalls{0};
 std::atomic<uint64_t> gGpuV2DeviceLossCalls{0};
 std::atomic<uint64_t> gGpuV2RealmReductionCalls{0};
 std::atomic<uint64_t> gGpuV2WrapperEventCalls{0};
+std::atomic<uint64_t> gGpuV2CanvasReceiptObserverCalls{0};
 std::atomic<uint64_t> gGpuV2LastRejectedPromiseId{0};
 std::atomic<uint64_t> gGpuV2ObserverOrderClock{0};
 std::atomic<uint64_t> gGpuV2LastRawEventOrder{0};
@@ -1664,6 +1726,20 @@ struct ExactGpuRuntimeBindingV2 {
   uint64_t next_promise_id{1};
   std::shared_ptr<facebook::jsi::Object> private_bridge;
   std::shared_ptr<facebook::jsi::Function> revoke_capture;
+  // Optional typed Exact Canvas terminal sink returned together with the
+  // revoker by runtime-js. Like every JSI root here it is realm-bound,
+  // owner-thread-only, and cleared before Hermes teardown.
+  std::shared_ptr<facebook::jsi::Function> canvas_receipt_sink;
+  // Frozen construction-result identities which native invokes around each
+  // host-controlled Exact app-bundle evaluation. The temporary root capture
+  // itself exists only between those two calls.
+  std::shared_ptr<facebook::jsi::Function> canvas_app_bundle_begin;
+  std::shared_ptr<facebook::jsi::Function> canvas_app_bundle_finish;
+  std::shared_ptr<facebook::jsi::Function> canvas_app_bundle_capture;
+  uint64_t canvas_app_bundle_generation{0};
+  uint32_t canvas_app_bundle_expectation{0};
+  bool canvas_app_bundle_open{false};
+  bool canvas_app_bundle_committed{false};
   bool service_retained{false};
   bool realm_open{false};
   bool bridge_captured{false};
@@ -2072,6 +2148,280 @@ void defineGpuV2Property(
           descriptor);
 }
 
+const char* canvasAttachmentFailureStringV1(uint32_t failure) noexcept {
+  switch (failure) {
+    case EXACT_GPU_CANVAS_ATTACHMENT_STALE_GENERATION_V1:
+      return "stale-generation";
+    case EXACT_GPU_CANVAS_ATTACHMENT_AUTHORITY_DENIED_V1:
+      return "authority-denied";
+    case EXACT_GPU_CANVAS_ATTACHMENT_PROVIDER_LOST_V1:
+      return "provider-lost";
+    case EXACT_GPU_CANVAS_ATTACHMENT_SUPERSEDED_BEFORE_ATTACH_V1:
+      return "superseded-before-attach";
+    case EXACT_GPU_CANVAS_ATTACHMENT_ROOT_GENERATION_CLOSED_V1:
+      return "root-generation-closed";
+    case EXACT_GPU_CANVAS_ATTACHMENT_INTERNAL_V1:
+      return "internal";
+    default:
+      return nullptr;
+  }
+}
+
+std::string canvasAuthorityDigestHexV1(const uint8_t digest[32]) {
+  static constexpr char kHex[] = "0123456789abcdef";
+  std::string result(64, '0');
+  for (size_t index = 0; index < 32; ++index) {
+    result[index * 2] = kHex[digest[index] >> 4];
+    result[index * 2 + 1] = kHex[digest[index] & 0x0f];
+  }
+  return result;
+}
+
+facebook::jsi::Object makeCanvasAttachmentReceiptValueV1(
+    facebook::jsi::Runtime& rt,
+    const ExactGpuCanvasAttachmentReceiptV1& receipt) {
+  facebook::jsi::Object value(rt);
+  value.setProperty(
+      rt,
+      "kind",
+      facebook::jsi::String::createFromAscii(
+          rt, "exact-gpu-canvas-attachment-v1"));
+  value.setProperty(
+      rt,
+      "outcome",
+      facebook::jsi::String::createFromAscii(
+          rt,
+          receipt.outcome == EXACT_GPU_CANVAS_ATTACHMENT_ATTACHED_V1
+              ? "attached"
+              : "rejected"));
+  value.setProperty(
+      rt, "protocolRootId", static_cast<double>(receipt.protocol_root_id));
+  value.setProperty(
+      rt,
+      "runtimeGeneration",
+      gpuV2Uint64String(rt, receipt.runtime_generation));
+  value.setProperty(
+      rt, "rootInstanceId", gpuV2Uint64String(rt, receipt.root_instance_id));
+  value.setProperty(
+      rt, "rootGeneration", gpuV2Uint64String(rt, receipt.root_generation));
+  value.setProperty(
+      rt, "commitSequence", gpuV2Uint64String(rt, receipt.commit_sequence));
+  value.setProperty(rt, "viewId", static_cast<double>(receipt.view_id));
+  value.setProperty(
+      rt, "viewGeneration", gpuV2Uint64String(rt, receipt.view_generation));
+  value.setProperty(rt, "handleId", gpuV2Uint64String(rt, receipt.handle_id));
+  value.setProperty(
+      rt,
+      "handleGeneration",
+      gpuV2Uint64String(rt, receipt.handle_generation));
+  value.setProperty(
+      rt, "attachmentId", gpuV2Uint64String(rt, receipt.attachment_id));
+  value.setProperty(
+      rt,
+      "attachmentGeneration",
+      gpuV2Uint64String(rt, receipt.attachment_generation));
+  if (receipt.outcome == EXACT_GPU_CANVAS_ATTACHMENT_ATTACHED_V1) {
+    value.setProperty(
+        rt, "contextId", gpuV2Uint64String(rt, receipt.context_id));
+    value.setProperty(
+        rt,
+        "contextGeneration",
+        gpuV2Uint64String(rt, receipt.context_generation));
+    value.setProperty(
+        rt,
+        "drawingBufferWidth",
+        static_cast<double>(receipt.drawing_buffer_width));
+    value.setProperty(
+        rt,
+        "drawingBufferHeight",
+        static_cast<double>(receipt.drawing_buffer_height));
+    value.setProperty(
+        rt,
+        "targetAuthorityDigest",
+        facebook::jsi::String::createFromAscii(
+            rt,
+            canvasAuthorityDigestHexV1(receipt.target_authority_digest)));
+    value.setProperty(
+        rt,
+        "surfaceAccountToken",
+        gpuV2Uint64String(rt, receipt.surface_account_token));
+    value.setProperty(
+        rt,
+        "surfaceAccountGeneration",
+        gpuV2Uint64String(rt, receipt.surface_account_generation));
+  } else {
+    value.setProperty(
+        rt,
+        "failure",
+        facebook::jsi::String::createFromAscii(
+            rt, canvasAttachmentFailureStringV1(receipt.failure)));
+  }
+  rt.global()
+      .getPropertyAsObject(rt, "Object")
+      .getPropertyAsFunction(rt, "freeze")
+      .call(rt, value);
+  return value;
+}
+
+#ifdef IBEX_GPU_BRIDGE_TEST_HOOKS
+bool canvasReceiptValueMatchesV1(
+    ExactHermesRuntime* runtime,
+    facebook::jsi::Runtime& rt,
+    const facebook::jsi::Value& value,
+    const ExactGpuCanvasAttachmentReceiptV1& receipt) {
+  if (!runtime || !value.isObject() ||
+      !runtime->root_global_get_own_property_names ||
+      !runtime->root_global_get_own_property_symbols ||
+      !runtime->root_global_get_own_property_descriptor ||
+      !runtime->root_global_get_prototype_of) {
+    return false;
+  }
+  auto object = value.asObject(rt);
+  if (object.isFunction(rt)) return false;
+
+  std::unordered_set<std::string> expectedNames = {
+      "kind",
+      "outcome",
+      "protocolRootId",
+      "runtimeGeneration",
+      "rootInstanceId",
+      "rootGeneration",
+      "commitSequence",
+      "viewId",
+      "viewGeneration",
+      "handleId",
+      "handleGeneration",
+      "attachmentId",
+      "attachmentGeneration",
+  };
+  if (receipt.outcome == EXACT_GPU_CANVAS_ATTACHMENT_ATTACHED_V1) {
+    expectedNames.insert("contextId");
+    expectedNames.insert("contextGeneration");
+    expectedNames.insert("drawingBufferWidth");
+    expectedNames.insert("drawingBufferHeight");
+    expectedNames.insert("targetAuthorityDigest");
+    expectedNames.insert("surfaceAccountToken");
+    expectedNames.insert("surfaceAccountGeneration");
+  } else {
+    expectedNames.insert("failure");
+  }
+
+  auto namesValue = runtime->root_global_get_own_property_names->call(
+      rt, object);
+  auto symbolsValue = runtime->root_global_get_own_property_symbols->call(
+      rt, object);
+  if (!namesValue.isObject() || !namesValue.asObject(rt).isArray(rt) ||
+      !symbolsValue.isObject() || !symbolsValue.asObject(rt).isArray(rt)) {
+    return false;
+  }
+  auto names = namesValue.asObject(rt).asArray(rt);
+  auto symbols = symbolsValue.asObject(rt).asArray(rt);
+  if (names.size(rt) != expectedNames.size() || symbols.size(rt) != 0) {
+    return false;
+  }
+  for (size_t index = 0; index < names.size(rt); ++index) {
+    auto nameValue = names.getValueAtIndex(rt, index);
+    if (!nameValue.isString()) return false;
+    auto name = nameValue.asString(rt).utf8(rt);
+    if (expectedNames.erase(name) != 1) return false;
+
+    auto key = facebook::jsi::String::createFromUtf8(rt, name);
+    auto descriptorValue =
+        runtime->root_global_get_own_property_descriptor->call(
+            rt, object, key);
+    if (!descriptorValue.isObject()) return false;
+    auto descriptor = descriptorValue.asObject(rt);
+    auto writable = descriptor.getProperty(rt, "writable");
+    auto enumerable = descriptor.getProperty(rt, "enumerable");
+    auto configurable = descriptor.getProperty(rt, "configurable");
+    auto getter = descriptor.getProperty(rt, "get");
+    auto setter = descriptor.getProperty(rt, "set");
+    if (!writable.isBool() || writable.getBool() ||
+        !enumerable.isBool() || !enumerable.getBool() ||
+        !configurable.isBool() || configurable.getBool() ||
+        !getter.isUndefined() || !setter.isUndefined()) {
+      return false;
+    }
+  }
+  if (!expectedNames.empty()) return false;
+
+  auto frozen = rt.global()
+                    .getPropertyAsObject(rt, "Object")
+                    .getPropertyAsFunction(rt, "isFrozen")
+                    .call(rt, object);
+  if (!frozen.isBool() || !frozen.getBool()) return false;
+  auto prototypeValue = runtime->root_global_get_prototype_of->call(
+      rt, object);
+  if (!prototypeValue.isObject()) return false;
+  auto expectedPrototype = rt.global()
+                               .getPropertyAsObject(rt, "Object")
+                               .getPropertyAsObject(rt, "prototype");
+  if (!facebook::jsi::Object::strictEquals(
+          rt, prototypeValue.asObject(rt), expectedPrototype)) {
+    return false;
+  }
+
+  auto stringProperty = [&](const char* name, const std::string& expected) {
+    auto property = object.getProperty(rt, name);
+    return property.isString() &&
+        property.asString(rt).utf8(rt) == expected;
+  };
+  auto numberProperty = [&](const char* name, uint32_t expected) {
+    auto property = object.getProperty(rt, name);
+    return property.isNumber() &&
+        property.asNumber() == static_cast<double>(expected);
+  };
+  if (!stringProperty("kind", "exact-gpu-canvas-attachment-v1") ||
+      !stringProperty(
+          "outcome",
+          receipt.outcome == EXACT_GPU_CANVAS_ATTACHMENT_ATTACHED_V1
+              ? "attached"
+              : "rejected") ||
+      !numberProperty("protocolRootId", receipt.protocol_root_id) ||
+      !stringProperty(
+          "runtimeGeneration", std::to_string(receipt.runtime_generation)) ||
+      !stringProperty(
+          "rootInstanceId", std::to_string(receipt.root_instance_id)) ||
+      !stringProperty(
+          "rootGeneration", std::to_string(receipt.root_generation)) ||
+      !stringProperty(
+          "commitSequence", std::to_string(receipt.commit_sequence)) ||
+      !numberProperty("viewId", receipt.view_id) ||
+      !stringProperty(
+          "viewGeneration", std::to_string(receipt.view_generation)) ||
+      !stringProperty("handleId", std::to_string(receipt.handle_id)) ||
+      !stringProperty(
+          "handleGeneration", std::to_string(receipt.handle_generation)) ||
+      !stringProperty(
+          "attachmentId", std::to_string(receipt.attachment_id)) ||
+      !stringProperty(
+          "attachmentGeneration",
+          std::to_string(receipt.attachment_generation))) {
+    return false;
+  }
+  if (receipt.outcome == EXACT_GPU_CANVAS_ATTACHMENT_ATTACHED_V1) {
+    return stringProperty("contextId", std::to_string(receipt.context_id)) &&
+        stringProperty(
+            "contextGeneration", std::to_string(receipt.context_generation)) &&
+        numberProperty(
+            "drawingBufferWidth", receipt.drawing_buffer_width) &&
+        numberProperty(
+            "drawingBufferHeight", receipt.drawing_buffer_height) &&
+        stringProperty(
+            "targetAuthorityDigest",
+            canvasAuthorityDigestHexV1(receipt.target_authority_digest)) &&
+        stringProperty(
+            "surfaceAccountToken",
+            std::to_string(receipt.surface_account_token)) &&
+        stringProperty(
+            "surfaceAccountGeneration",
+            std::to_string(receipt.surface_account_generation));
+  }
+  const char* failure = canvasAttachmentFailureStringV1(receipt.failure);
+  return failure && stringProperty("failure", failure);
+}
+#endif
+
 std::vector<uint8_t> parseGpuV2Bytes(
     facebook::jsi::Runtime& rt,
     const facebook::jsi::Value& value,
@@ -2393,6 +2743,13 @@ void revokeGpuV2BridgeCapture(
     }
   }
   binding.revoke_capture.reset();
+  binding.canvas_receipt_sink.reset();
+  binding.canvas_app_bundle_begin.reset();
+  binding.canvas_app_bundle_finish.reset();
+  binding.canvas_app_bundle_capture.reset();
+  binding.canvas_app_bundle_expectation = 0;
+  binding.canvas_app_bundle_open = false;
+  binding.canvas_app_bundle_committed = false;
   binding.private_bridge.reset();
   binding.bridge_captured = false;
 }
@@ -4010,6 +4367,13 @@ void ExactGpuRuntimeBindingV2::detach(
     }
   }
   revoke_capture.reset();
+  canvas_receipt_sink.reset();
+  canvas_app_bundle_begin.reset();
+  canvas_app_bundle_finish.reset();
+  canvas_app_bundle_capture.reset();
+  canvas_app_bundle_expectation = 0;
+  canvas_app_bundle_open = false;
+  canvas_app_bundle_committed = false;
   private_bridge.reset();
   wrapper_event_sink.reset();
 #ifdef IBEX_GPU_BRIDGE_TEST_HOOKS
@@ -4538,6 +4902,300 @@ extern "C" int32_t ex_hermes_set_gpu_provider_v2(
 #endif
 }
 
+#if defined(IBEX_ENABLE_WEBGPU_BINDING)
+namespace {
+
+facebook::jsi::Value gpuCanvasDescriptorFieldV1(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::Object& descriptor,
+    const char* field) {
+  auto& rt = *runtime->runtime;
+  auto namesValue = runtime->root_global_get_own_property_names->call(
+      rt, descriptor);
+  if (!namesValue.isObject() || !namesValue.asObject(rt).isArray(rt)) {
+    throw std::runtime_error(
+        "GPU Canvas descriptor reflection returned a non-array");
+  }
+  auto names = namesValue.asObject(rt).asArray(rt);
+  for (size_t index = 0; index < names.size(rt); ++index) {
+    auto name = names.getValueAtIndex(rt, index);
+    if (!name.isString()) {
+      throw std::runtime_error(
+          "GPU Canvas descriptor reflection returned a non-string");
+    }
+    if (name.asString(rt).utf8(rt) == field) {
+      return descriptor.getProperty(rt, field);
+    }
+  }
+  return facebook::jsi::Value::undefined();
+}
+
+facebook::jsi::Value gpuCanvasAppBundleCaptureDescriptorV1(
+    ExactHermesRuntime* runtime) {
+  auto& rt = *runtime->runtime;
+  return runtime->root_global_get_own_property_descriptor->call(
+      rt,
+      rt.global(),
+      facebook::jsi::String::createFromAscii(
+          rt, kGpuCanvasAppBundleCaptureGlobalNameV1));
+}
+
+bool gpuCanvasAppBundleCaptureAbsentV1(ExactHermesRuntime* runtime) {
+  return gpuCanvasAppBundleCaptureDescriptorV1(runtime).isUndefined();
+}
+
+bool gpuCanvasAppBundleCaptureMatchesV1(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::Function& expected) {
+  auto& rt = *runtime->runtime;
+  auto descriptorValue = gpuCanvasAppBundleCaptureDescriptorV1(runtime);
+  if (!descriptorValue.isObject()) return false;
+  auto descriptor = descriptorValue.asObject(rt);
+  auto value = gpuCanvasDescriptorFieldV1(runtime, descriptor, "value");
+  auto writable = gpuCanvasDescriptorFieldV1(
+      runtime, descriptor, "writable");
+  auto enumerable = gpuCanvasDescriptorFieldV1(
+      runtime, descriptor, "enumerable");
+  auto configurable = gpuCanvasDescriptorFieldV1(
+      runtime, descriptor, "configurable");
+  auto getter = gpuCanvasDescriptorFieldV1(runtime, descriptor, "get");
+  auto setter = gpuCanvasDescriptorFieldV1(runtime, descriptor, "set");
+  return value.isObject() && value.asObject(rt).isFunction(rt) &&
+      facebook::jsi::Object::strictEquals(
+          rt, value.asObject(rt), expected) &&
+      writable.isBool() && !writable.getBool() && enumerable.isBool() &&
+      !enumerable.getBool() && configurable.isBool() &&
+      configurable.getBool() && getter.isUndefined() && setter.isUndefined();
+}
+
+bool closeGpuCanvasAppBundleCaptureRootV1(
+    ExactHermesRuntime* runtime) noexcept {
+  try {
+    auto descriptor = gpuCanvasAppBundleCaptureDescriptorV1(runtime);
+    if (descriptor.isUndefined()) return true;
+    auto& rt = *runtime->runtime;
+    auto deleted = runtime->root_global_reflect_delete_property->call(
+        rt,
+        rt.global(),
+        facebook::jsi::String::createFromAscii(
+            rt, kGpuCanvasAppBundleCaptureGlobalNameV1));
+    return deleted.isBool() && deleted.getBool() &&
+        gpuCanvasAppBundleCaptureAbsentV1(runtime);
+  } catch (...) {
+    return false;
+  }
+}
+
+void failGpuCanvasAppBundleCleanupV1(ExactHermesRuntime* runtime) noexcept {
+  if (!runtime) return;
+  runtime->root_global_disposition_verified_for_user_execution = false;
+  runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
+  exactGpuRollbackInstall(runtime);
+}
+
+bool gpuCanvasAppBundleControllerAvailableV1(
+    ExactHermesRuntime* runtime,
+    const std::shared_ptr<ExactGpuRuntimeBindingV2>& binding) {
+  return runtime && runtime->runtime && !runtime->restricted &&
+      runtime->exact_host_context != EXACT_EMBEDDER_CONTEXT_AGENT && binding &&
+      !binding->detached && binding->realm_open && binding->bridge_captured &&
+      binding->bridge_sealed && binding->canvas_receipt_sink &&
+      binding->canvas_app_bundle_begin && binding->canvas_app_bundle_finish;
+}
+
+}  // namespace
+#endif
+
+extern "C" int32_t ex_hermes_begin_gpu_canvas_app_bundle_v1(
+    ExactHermesRuntime* runtime,
+    uint32_t expectation) {
+  if (!runtime ||
+      (expectation != EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1 &&
+       expectation != EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_VALID_V1)) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return drive.status();
+#if !defined(IBEX_ENABLE_WEBGPU_BINDING)
+  return EXACT_GPU_CANVAS_APP_BUNDLE_UNAVAILABLE_V1;
+#else
+  auto binding = runtime->gpu_binding_v2;
+  if (!gpuCanvasAppBundleControllerAvailableV1(runtime, binding)) {
+    return EXACT_GPU_CANVAS_APP_BUNDLE_UNAVAILABLE_V1;
+  }
+  if (binding->canvas_app_bundle_open ||
+      binding->canvas_app_bundle_generation == UINT64_MAX) {
+    return EXACT_GPU_CANVAS_APP_BUNDLE_INVALID_STATE_V1;
+  }
+  try {
+    if (!gpuCanvasAppBundleCaptureAbsentV1(runtime)) {
+      return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
+    }
+  } catch (...) {
+    return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
+  }
+
+  binding->canvas_app_bundle_committed = false;
+  binding->canvas_app_bundle_expectation = expectation;
+  try {
+    auto captureValue = binding->canvas_app_bundle_begin->call(
+        *runtime->runtime, static_cast<double>(expectation));
+    binding->canvas_app_bundle_open = true;
+    if (expectation == EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1) {
+      if (!captureValue.isObject() ||
+          !captureValue.asObject(*runtime->runtime).isFunction(
+              *runtime->runtime)) {
+        throw std::runtime_error(
+            "GPU Canvas app-bundle begin returned no capture function");
+      }
+      auto capture = std::make_shared<facebook::jsi::Function>(
+          captureValue.asObject(*runtime->runtime).asFunction(
+              *runtime->runtime));
+      if (!gpuCanvasAppBundleCaptureMatchesV1(runtime, *capture)) {
+        throw std::runtime_error(
+            "GPU Canvas app-bundle capture descriptor mismatch");
+      }
+      binding->canvas_app_bundle_capture = std::move(capture);
+    } else {
+      if (!captureValue.isUndefined() ||
+          !gpuCanvasAppBundleCaptureAbsentV1(runtime)) {
+        throw std::runtime_error(
+            "GPU Canvas unused app-bundle transaction exposed a capture");
+      }
+      binding->canvas_app_bundle_capture.reset();
+    }
+    binding->canvas_app_bundle_generation += 1;
+    return EXACT_GPU_CANVAS_APP_BUNDLE_OK_V1;
+  } catch (...) {
+    if (binding->canvas_app_bundle_open) {
+      try {
+        binding->canvas_app_bundle_finish->call(
+            *runtime->runtime, false);
+      } catch (...) {
+      }
+    }
+    binding->canvas_app_bundle_capture.reset();
+    binding->canvas_app_bundle_expectation = 0;
+    binding->canvas_app_bundle_open = false;
+    binding->canvas_app_bundle_committed = false;
+    if (!closeGpuCanvasAppBundleCaptureRootV1(runtime)) {
+      failGpuCanvasAppBundleCleanupV1(runtime);
+      return EXACT_GPU_CANVAS_APP_BUNDLE_CLEANUP_FAILED_V1;
+    }
+    return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
+  }
+#endif
+}
+
+extern "C" int32_t ex_hermes_finish_gpu_canvas_app_bundle_v1(
+    ExactHermesRuntime* runtime,
+    uint32_t evaluation_succeeded) {
+  if (!runtime || evaluation_succeeded > 1) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return drive.status();
+#if !defined(IBEX_ENABLE_WEBGPU_BINDING)
+  return EXACT_GPU_CANVAS_APP_BUNDLE_UNAVAILABLE_V1;
+#else
+  auto binding = runtime->gpu_binding_v2;
+  if (!gpuCanvasAppBundleControllerAvailableV1(runtime, binding)) {
+    return EXACT_GPU_CANVAS_APP_BUNDLE_UNAVAILABLE_V1;
+  }
+  if (!binding->canvas_app_bundle_open ||
+      (binding->canvas_app_bundle_expectation !=
+           EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1 &&
+       binding->canvas_app_bundle_expectation !=
+           EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_VALID_V1) ||
+      (binding->canvas_app_bundle_expectation ==
+           EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1 &&
+       !binding->canvas_app_bundle_capture)) {
+    return EXACT_GPU_CANVAS_APP_BUNDLE_INVALID_STATE_V1;
+  }
+
+  const uint32_t expectation = binding->canvas_app_bundle_expectation;
+  bool consumed = false;
+  bool controllerFailed = false;
+  try {
+    auto result = binding->canvas_app_bundle_finish->call(
+        *runtime->runtime, evaluation_succeeded != 0);
+    if (!result.isBool()) {
+      throw std::runtime_error(
+          "GPU Canvas app-bundle finish returned a non-boolean result");
+    }
+    consumed = result.getBool();
+  } catch (...) {
+    controllerFailed = true;
+  }
+  binding->canvas_app_bundle_capture.reset();
+  binding->canvas_app_bundle_expectation = 0;
+  binding->canvas_app_bundle_open = false;
+  binding->canvas_app_bundle_committed =
+      !controllerFailed && evaluation_succeeded != 0 &&
+      expectation == EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1 &&
+      consumed;
+
+  if (!closeGpuCanvasAppBundleCaptureRootV1(runtime)) {
+    binding->canvas_app_bundle_committed = false;
+    failGpuCanvasAppBundleCleanupV1(runtime);
+    return EXACT_GPU_CANVAS_APP_BUNDLE_CLEANUP_FAILED_V1;
+  }
+  if (controllerFailed) {
+    binding->canvas_app_bundle_committed = false;
+    return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
+  }
+  if (evaluation_succeeded != 0 &&
+      expectation == EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1 &&
+      !consumed) {
+    return EXACT_GPU_CANVAS_APP_BUNDLE_REQUIRED_NOT_CONSUMED_V1;
+  }
+  if (evaluation_succeeded != 0 &&
+      expectation == EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_VALID_V1 &&
+      consumed) {
+    return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
+  }
+  return consumed ? EXACT_GPU_CANVAS_APP_BUNDLE_OK_V1
+                  : EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_V1;
+#endif
+}
+
+extern "C" int32_t ex_hermes_deliver_gpu_canvas_attachment_receipt_v1(
+    ExactHermesRuntime* runtime,
+    const ExactGpuCanvasAttachmentReceiptV1* receipt) {
+  // No malformed caller input is allowed to enter a runtime drive. In
+  // particular the nonce is trusted by the registry gate only after the
+  // complete exact-size discriminant has been validated.
+  if (!runtime || !receipt || !validCanvasAttachmentReceiptV1(*receipt)) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  ExactRuntimeDriveGuard drive(runtime, receipt->runtime_generation);
+  if (!drive) return drive.status();
+#if !defined(IBEX_ENABLE_WEBGPU_BINDING)
+  return EXACT_GPU_CANVAS_RECEIPT_SINK_UNAVAILABLE_V1;
+#else
+  auto binding = runtime->gpu_binding_v2;
+  if (!binding || binding->detached || !binding->realm_open ||
+      !binding->bridge_captured || !binding->bridge_sealed ||
+      !binding->canvas_receipt_sink || binding->canvas_app_bundle_open ||
+      !binding->canvas_app_bundle_committed) {
+    return EXACT_GPU_CANVAS_RECEIPT_SINK_UNAVAILABLE_V1;
+  }
+  if (binding->realm.runtime.runtime_address !=
+          static_cast<uint64_t>(reinterpret_cast<uintptr_t>(runtime)) ||
+      binding->realm.runtime.runtime_nonce != receipt->runtime_generation) {
+    return EXACT_RUNTIME_DRIVE_STALE;
+  }
+  try {
+    auto value = makeCanvasAttachmentReceiptValueV1(
+        *runtime->runtime, *receipt);
+    binding->canvas_receipt_sink->call(*runtime->runtime, value);
+    return EXACT_RUNTIME_DRIVE_OK;
+  } catch (...) {
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+#endif
+}
+
 int32_t exactGpuV2ActivateInstall(ExactHermesRuntime* runtime) {
 #if !defined(IBEX_ENABLE_WEBGPU_BINDING)
   (void)runtime;
@@ -4626,6 +5284,121 @@ int32_t exactGpuV2ActivateInstall(ExactHermesRuntime* runtime) {
   }
   return EXACT_GPU_PROVIDER_OK;
 #endif
+}
+
+bool exactGpuV2CaptureResultFunctions(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::Value& result,
+    std::shared_ptr<facebook::jsi::Function>* outRevoke,
+    std::shared_ptr<facebook::jsi::Function>* outCanvasReceiptSink,
+    std::shared_ptr<facebook::jsi::Function>* outCanvasAppBundleBegin,
+    std::shared_ptr<facebook::jsi::Function>* outCanvasAppBundleFinish) {
+  if (!runtime || !runtime->runtime || !outRevoke ||
+      !outCanvasReceiptSink || !outCanvasAppBundleBegin ||
+      !outCanvasAppBundleFinish || !result.isObject() ||
+      !runtime->root_global_get_own_property_names ||
+      !runtime->root_global_get_own_property_symbols ||
+      !runtime->root_global_get_own_property_descriptor ||
+      !runtime->root_global_get_prototype_of) {
+    return false;
+  }
+  auto& rt = *runtime->runtime;
+  auto object = result.asObject(rt);
+  if (object.isFunction(rt)) return false;
+
+  auto frozen = rt.global()
+                    .getPropertyAsObject(rt, "Object")
+                    .getPropertyAsFunction(rt, "isFrozen")
+                    .call(rt, object);
+  if (!frozen.isBool() || !frozen.getBool()) return false;
+
+  auto namesValue = runtime->root_global_get_own_property_names->call(
+      rt, object);
+  auto symbolsValue = runtime->root_global_get_own_property_symbols->call(
+      rt, object);
+  if (!namesValue.isObject() || !namesValue.asObject(rt).isArray(rt) ||
+      !symbolsValue.isObject() || !symbolsValue.asObject(rt).isArray(rt)) {
+    return false;
+  }
+  auto names = namesValue.asObject(rt).asArray(rt);
+  auto symbols = symbolsValue.asObject(rt).asArray(rt);
+  if (names.size(rt) != 4 || symbols.size(rt) != 0) return false;
+  bool sawRevoke = false;
+  bool sawCanvasReceiptSink = false;
+  bool sawCanvasAppBundleBegin = false;
+  bool sawCanvasAppBundleFinish = false;
+  for (size_t index = 0; index < names.size(rt); ++index) {
+    auto name = names.getValueAtIndex(rt, index);
+    if (!name.isString()) return false;
+    const auto text = name.asString(rt).utf8(rt);
+    if (text == "revoke" && !sawRevoke) {
+      sawRevoke = true;
+    } else if (text == "canvasReceiptSink" && !sawCanvasReceiptSink) {
+      sawCanvasReceiptSink = true;
+    } else if (text == "beginCanvasAppBundle" &&
+               !sawCanvasAppBundleBegin) {
+      sawCanvasAppBundleBegin = true;
+    } else if (text == "finishCanvasAppBundle" &&
+               !sawCanvasAppBundleFinish) {
+      sawCanvasAppBundleFinish = true;
+    } else {
+      return false;
+    }
+  }
+  if (!sawRevoke || !sawCanvasReceiptSink || !sawCanvasAppBundleBegin ||
+      !sawCanvasAppBundleFinish) {
+    return false;
+  }
+
+  auto prototypeValue = runtime->root_global_get_prototype_of->call(
+      rt, object);
+  if (!prototypeValue.isObject()) return false;
+  auto expectedPrototype = rt.global()
+                               .getPropertyAsObject(rt, "Object")
+                               .getPropertyAsObject(rt, "prototype");
+  if (!facebook::jsi::Object::strictEquals(
+          rt, prototypeValue.asObject(rt), expectedPrototype)) {
+    return false;
+  }
+
+  auto readFrozenFunction = [&](const char* name)
+      -> std::shared_ptr<facebook::jsi::Function> {
+    auto key = facebook::jsi::String::createFromAscii(rt, name);
+    auto descriptorValue =
+        runtime->root_global_get_own_property_descriptor->call(
+            rt, object, key);
+    if (!descriptorValue.isObject()) return nullptr;
+    auto descriptor = descriptorValue.asObject(rt);
+    auto value = descriptor.getProperty(rt, "value");
+    auto writable = descriptor.getProperty(rt, "writable");
+    auto enumerable = descriptor.getProperty(rt, "enumerable");
+    auto configurable = descriptor.getProperty(rt, "configurable");
+    auto getter = descriptor.getProperty(rt, "get");
+    auto setter = descriptor.getProperty(rt, "set");
+    if (!value.isObject() || !value.asObject(rt).isFunction(rt) ||
+        !writable.isBool() || writable.getBool() ||
+        !enumerable.isBool() || !enumerable.getBool() ||
+        !configurable.isBool() || configurable.getBool() ||
+        !getter.isUndefined() || !setter.isUndefined()) {
+      return nullptr;
+    }
+    return std::make_shared<facebook::jsi::Function>(
+        value.asObject(rt).asFunction(rt));
+  };
+
+  auto revoke = readFrozenFunction("revoke");
+  auto canvasReceiptSink = readFrozenFunction("canvasReceiptSink");
+  auto canvasAppBundleBegin = readFrozenFunction("beginCanvasAppBundle");
+  auto canvasAppBundleFinish = readFrozenFunction("finishCanvasAppBundle");
+  if (!revoke || !canvasReceiptSink || !canvasAppBundleBegin ||
+      !canvasAppBundleFinish) {
+    return false;
+  }
+  *outRevoke = std::move(revoke);
+  *outCanvasReceiptSink = std::move(canvasReceiptSink);
+  *outCanvasAppBundleBegin = std::move(canvasAppBundleBegin);
+  *outCanvasAppBundleFinish = std::move(canvasAppBundleFinish);
+  return true;
 }
 
 bool exactGpuV2PublishPrivateBridge(ExactHermesRuntime* runtime) {
@@ -4809,13 +5582,33 @@ bool exactGpuV2PublishPrivateBridge(ExactHermesRuntime* runtime) {
         std::move(gpuNativeBridgeV2));
     auto revokeValue = capture.call(rt, *captured);
     runtime->gpu_construction_capture.reset();
-    if (!closeGpuV2ConstructionCapture(runtime) || !revokeValue.isObject() ||
-        !revokeValue.getObject(rt).isFunction(rt) ||
+    if (!closeGpuV2ConstructionCapture(runtime) ||
         rt.global().hasProperty(rt, kGpuCaptureGlobalNameV2)) {
       return false;
     }
-    binding.revoke_capture = std::make_shared<facebook::jsi::Function>(
-        revokeValue.getObject(rt).asFunction(rt));
+    std::shared_ptr<facebook::jsi::Function> revokeCapture;
+    std::shared_ptr<facebook::jsi::Function> canvasReceiptSink;
+    std::shared_ptr<facebook::jsi::Function> canvasAppBundleBegin;
+    std::shared_ptr<facebook::jsi::Function> canvasAppBundleFinish;
+    if (revokeValue.isObject() &&
+        revokeValue.getObject(rt).isFunction(rt)) {
+      // Compatibility with the original construction capture. It remains
+      // revocable but deliberately has no typed Canvas delivery route.
+      revokeCapture = std::make_shared<facebook::jsi::Function>(
+          revokeValue.getObject(rt).asFunction(rt));
+    } else if (!exactGpuV2CaptureResultFunctions(
+                   runtime,
+                   revokeValue,
+                   &revokeCapture,
+                   &canvasReceiptSink,
+                   &canvasAppBundleBegin,
+                   &canvasAppBundleFinish)) {
+      return false;
+    }
+    binding.revoke_capture = std::move(revokeCapture);
+    binding.canvas_receipt_sink = std::move(canvasReceiptSink);
+    binding.canvas_app_bundle_begin = std::move(canvasAppBundleBegin);
+    binding.canvas_app_bundle_finish = std::move(canvasAppBundleFinish);
     binding.private_bridge = std::move(captured);
     binding.bridge_captured = true;
     return true;
@@ -4923,6 +5716,7 @@ extern "C" void ibex_test_gpu_v2_reset_observer(void) {
   gGpuV2DeviceLossCalls.store(0, std::memory_order_seq_cst);
   gGpuV2RealmReductionCalls.store(0, std::memory_order_seq_cst);
   gGpuV2WrapperEventCalls.store(0, std::memory_order_seq_cst);
+  gGpuV2CanvasReceiptObserverCalls.store(0, std::memory_order_seq_cst);
   gGpuV2LastRejectedPromiseId.store(0, std::memory_order_seq_cst);
   gGpuV2ObserverOrderClock.store(0, std::memory_order_seq_cst);
   gGpuV2LastRawEventOrder.store(0, std::memory_order_seq_cst);
@@ -5161,6 +5955,127 @@ extern "C" void ibex_test_gpu_v2_resume_detach_cleanup(void) {
   gGpuV2DetachCleanupPauseState.store(3, std::memory_order_seq_cst);
 }
 
+extern "C" int32_t ibex_test_gpu_v2_install_canvas_receipt_observer(
+    ExactHermesRuntime* runtime,
+    const ExactGpuCanvasAttachmentReceiptV1* expected_receipt) {
+  if (!runtime || !runtime->runtime || !expected_receipt ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      !validCanvasAttachmentReceiptV1(*expected_receipt) ||
+      !runtime->gpu_binding_v2 || runtime->gpu_binding_v2->detached ||
+      !runtime->gpu_binding_v2->realm_open ||
+      !runtime->gpu_binding_v2->bridge_captured ||
+      !runtime->gpu_binding_v2->bridge_sealed ||
+      !runtime->gpu_binding_v2->canvas_receipt_sink ||
+      runtime->gpu_binding_v2->realm.runtime.runtime_nonce !=
+          expected_receipt->runtime_generation) {
+    return 0;
+  }
+  try {
+    const auto expected = *expected_receipt;
+    auto observer = facebook::jsi::Function::createFromHostFunction(
+        *runtime->runtime,
+        facebook::jsi::PropNameID::forAscii(
+            *runtime->runtime, "observeGpuCanvasAttachmentReceipt"),
+        1,
+        [runtime, expected](facebook::jsi::Runtime& rt,
+            const facebook::jsi::Value&,
+            const facebook::jsi::Value* args,
+            size_t count) -> facebook::jsi::Value {
+          gGpuV2CanvasReceiptObserverCalls.fetch_add(
+              1, std::memory_order_seq_cst);
+          if (count != 1 ||
+              !canvasReceiptValueMatchesV1(
+                  runtime, rt, args[0], expected)) {
+            throw facebook::jsi::JSError(
+                rt, "GPU Canvas attachment receipt shape mismatch");
+          }
+          return facebook::jsi::Value::undefined();
+        });
+    runtime->gpu_binding_v2->canvas_receipt_sink =
+        std::make_shared<facebook::jsi::Function>(std::move(observer));
+    return 1;
+  } catch (...) {
+    return 0;
+  }
+}
+
+extern "C" uint64_t ibex_test_gpu_v2_canvas_receipt_observer_calls(void) {
+  return gGpuV2CanvasReceiptObserverCalls.load(std::memory_order_seq_cst);
+}
+
+extern "C" int32_t
+ibex_test_gpu_v2_consume_canvas_app_bundle_integration(
+    ExactHermesRuntime* runtime) {
+  if (!runtime || !runtime->runtime ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->gpu_binding_v2 ||
+      !runtime->gpu_binding_v2->canvas_app_bundle_open ||
+      runtime->gpu_binding_v2->canvas_app_bundle_expectation !=
+          EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1 ||
+      !runtime->gpu_binding_v2->canvas_app_bundle_capture) {
+    return 0;
+  }
+  try {
+    auto& rt = *runtime->runtime;
+    facebook::jsi::Object integration(rt);
+    auto install = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(
+            rt, "installCanvasContextMinter"),
+        1,
+        [](facebook::jsi::Runtime& rt,
+           const facebook::jsi::Value&,
+           const facebook::jsi::Value* args,
+           size_t count) -> facebook::jsi::Value {
+          if (count != 1 || !args[0].isObject()) {
+            throw facebook::jsi::JSError(
+                rt, "Canvas minter test integration received no object");
+          }
+          auto minter = args[0].asObject(rt);
+          auto mint = minter.getProperty(rt, "mintCanvasContext");
+          if (!mint.isObject() || !mint.asObject(rt).isFunction(rt)) {
+            throw facebook::jsi::JSError(
+                rt, "Canvas minter test integration received no mint function");
+          }
+          return facebook::jsi::Function::createFromHostFunction(
+              rt,
+              facebook::jsi::PropNameID::forAscii(
+                  rt, "releaseCanvasContextMinter"),
+              0,
+              [](facebook::jsi::Runtime&,
+                 const facebook::jsi::Value&,
+                 const facebook::jsi::Value*,
+                 size_t) -> facebook::jsi::Value {
+                return facebook::jsi::Value::undefined();
+              });
+        });
+    auto deliver = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(
+            rt, "deliverCanvasAttachmentReceipt"),
+        1,
+        [](facebook::jsi::Runtime&,
+           const facebook::jsi::Value&,
+           const facebook::jsi::Value*,
+           size_t) -> facebook::jsi::Value {
+          return facebook::jsi::Value::undefined();
+        });
+    integration.setProperty(
+        rt, "installCanvasContextMinter", std::move(install));
+    integration.setProperty(
+        rt, "deliverCanvasAttachmentReceipt", std::move(deliver));
+    rt.global()
+        .getPropertyAsObject(rt, "Object")
+        .getPropertyAsFunction(rt, "freeze")
+        .call(rt, integration);
+    runtime->gpu_binding_v2->canvas_app_bundle_capture->call(
+        rt, integration);
+    return 1;
+  } catch (...) {
+    return 0;
+  }
+}
+
 static bool attachGpuV2TestEventObserver(
     ExactHermesRuntime* runtime,
     facebook::jsi::Runtime& rt,
@@ -5331,6 +6246,15 @@ extern "C" int32_t ibex_test_gpu_v2_private_bridge_present(
   return runtime && runtime->runtime_thread == std::this_thread::get_id() &&
           runtime->gpu_binding_v2 && runtime->gpu_binding_v2->private_bridge &&
           runtime->gpu_binding_v2->bridge_captured
+      ? 1
+      : 0;
+}
+
+extern "C" int32_t ibex_test_gpu_v2_canvas_receipt_sink_present(
+    ExactHermesRuntime* runtime) {
+  return runtime && runtime->runtime_thread == std::this_thread::get_id() &&
+          runtime->gpu_binding_v2 &&
+          runtime->gpu_binding_v2->canvas_receipt_sink
       ? 1
       : 0;
 }

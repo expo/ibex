@@ -390,6 +390,15 @@ export interface ProductionWebGpuPrivateBindingExtensions {
   readonly decodedImageAuthority?: ProductionGpuDecodedImageAuthorityV1;
 }
 
+/**
+ * Construction-private authority handed only to Exact's native Canvas
+ * integration. It deliberately delegates one operation instead of exposing
+ * the complete wrapper binding or its public-surface installation state.
+ */
+export interface ProductionGpuCanvasContextMinter {
+  readonly mintCanvasContext: ProductionWebGpuPrivateBinding['mintCanvasContext'];
+}
+
 const TYPEGPU_WORKLOAD_STAGING = Object.freeze({
   scopeId: WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.scopeId,
   status: WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.status,
@@ -450,6 +459,7 @@ export type ProductionWebGpuInstallResult =
   | Readonly<{
     status: 'installed';
     revoke: () => void;
+    canvasContextMinter: Readonly<ProductionGpuCanvasContextMinter>;
   }>;
 
 const U64_MAX_DECIMAL = '18446744073709551615';
@@ -6308,8 +6318,16 @@ export function installProductionWebGpu(
   }
 
   let revoked = false;
+  const canvasContextMinter = Object.freeze({
+    mintCanvasContext(
+      identity: Parameters<ProductionWebGpuPrivateBinding['mintCanvasContext']>[0],
+    ): object {
+      return binding.mintCanvasContext(identity);
+    },
+  });
   return Object.freeze({
     status: 'installed',
+    canvasContextMinter,
     revoke() {
       if (revoked) return;
       revoked = true;

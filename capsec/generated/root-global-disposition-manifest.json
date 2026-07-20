@@ -2,7 +2,7 @@
   "rootGlobalDispositionManifestSchema": "ibex/root-global-disposition-manifest/1",
   "profile": "ibex/capsec/1",
   "status": "enforced-by-armed-live-sweep",
-  "sourceDigest": "sha256-ZJkgbPYKQfX_UTYi1laFDh4oHkhqQdxz-WujvsMoet8",
+  "sourceDigest": "sha256-HAjzwRaErRjIZ4a3aaMu-3la1RhpX3pMc5raEZNAKbc",
   "sweep": {
     "roots": [
       "globalThis"
@@ -2615,6 +2615,7 @@
       "surface.native.op.hostcall.0q81rao",
       "surface.native.op.hostcallasync.0sg4x10",
       "surface.native.op.ibexbarepackagename.0duyjc3",
+      "surface.native.op.ibexcapturegpucanvasruntimeintegration.0suajp6",
       "surface.native.op.ibexcapturegpunativebridge.1no4kru",
       "surface.native.op.ibexcompartmentbaselinefinalized.124fmzn",
       "surface.native.op.ibexcompartmentregistryready.09cm8o6",
@@ -52155,6 +52156,37 @@
       "liveExpectation": "absent",
       "resolution": "static",
       "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.ibexcapturegpucanvasruntimeintegration.c28b61a390d47f30",
+      "observedKey": "native-op:__ibexCaptureGpuCanvasRuntimeIntegration",
+      "registryEdgeId": "surface.native.op.ibexcapturegpucanvasruntimeintegration.0suajp6",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/runtime-internal.ts#beginExactGpuCanvasAppBundle:globals:__ibexCaptureGpuCanvasRuntimeIntegration"
+        ],
+        "targetVariant": "all",
+        "activation": "shared-runtime-bundle"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__ibexCaptureGpuCanvasRuntimeIntegration"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": "exact-app-bundle-evaluation-transaction",
+      "disposition": "private",
+      "traversal": "descend",
+      "liveExpectation": "absent",
+      "resolution": "static",
+      "nativeImplementation": false
     },
     {
       "installId": "root-global.ibexcapturegpunativebridge.8b602be668decc92",
@@ -103403,10 +103435,10 @@
     }
   ],
   "counts": {
-    "installBranches": 2755,
-    "logicalGlobals": 2608,
-    "registryEdges": 2608,
-    "sealedOrPrivate": 347,
+    "installBranches": 2756,
+    "logicalGlobals": 2609,
+    "registryEdges": 2609,
+    "sealedOrPrivate": 348,
     "permittedReachable": 2408
   }
 }

@@ -345,6 +345,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__hostCallAsync",
   "__ibex",
   "__ibexBarePackageName",
+  "__ibexCaptureGpuCanvasRuntimeIntegration",
   "__ibexCaptureGpuNativeBridge",
   "__ibexCompartmentBaselineFinalized",
   "__ibexCompartmentRegistryReady",
@@ -5128,6 +5129,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
   [
     "ex_android_initialize",
     "ex_hermes_begin_embedder_capabilities_v1",
+    "ex_hermes_begin_gpu_canvas_app_bundle_v1",
     "ex_hermes_bytecode_version",
     "ex_hermes_callback_backlog",
     "ex_hermes_cancel_structured_work_target",
@@ -5153,6 +5155,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_debugger_remove_breakpoint",
     "ex_hermes_debugger_resume",
     "ex_hermes_debugger_set_breakpoint",
+    "ex_hermes_deliver_gpu_canvas_attachment_receipt_v1",
     "ex_hermes_destroy",
     "ex_hermes_dispatch_event",
     "ex_hermes_dispatch_motion_rated_publish",
@@ -5170,6 +5173,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_evaluation_result_init",
     "ex_hermes_finalize_embedder_capabilities_v1",
     "ex_hermes_finish_bootstrap",
+    "ex_hermes_finish_gpu_canvas_app_bundle_v1",
     "ex_hermes_free_string",
     "ex_hermes_gc",
     "ex_hermes_get_gc_stats",
@@ -12752,7 +12756,9 @@ function embedderAbiClassification(name) {
     if (
       new Set([
         "exhermesbeginembeddercapabilitiesv1",
+        "exhermesbegingpucanvasappbundlev1",
         "exhermesfinalizeembeddercapabilitiesv1",
+        "exhermesfinishgpucanvasappbundlev1",
         "exhermessetexacthostcallasync",
         "exhermessetgpudecodedimageproviderv1",
         "exhermessetgpuproviderv1",
@@ -12777,6 +12783,9 @@ function embedderAbiClassification(name) {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");
     }
     if (name === "exhermescompletegpudecodedimagev1") {
+      return nonCapabilitySpec("callback-attribution-carrier", "WP8");
+    }
+    if (name === "exhermesdelivergpucanvasattachmentreceiptv1") {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");
     }
     if (
@@ -13732,6 +13741,9 @@ function classifyConcreteSurface(surface) {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");
     }
     if (surface.name === "__ibexCaptureGpuNativeBridge") {
+      return nonCapabilitySpec("authority-control-plane", "WP4");
+    }
+    if (surface.name === "__ibexCaptureGpuCanvasRuntimeIntegration") {
       return nonCapabilitySpec("authority-control-plane", "WP4");
     }
     if (surface.name === "__exactFsMutationGuard") {

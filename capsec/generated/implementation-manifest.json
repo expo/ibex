@@ -115809,6 +115809,40 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.begin.gpu.canvas.app.bundle.v1.1ny5zud",
+      "observedKey": "host-abi:ex_hermes_begin_gpu_canvas_app_bundle_v1",
+      "branchId": "surface.host.abi.ex.hermes.begin.gpu.canvas.app.bundle.v1.1ny5zud.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.begin.gpu.canvas.app.bundle.v1.1ny5zud.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_begin_gpu_canvas_app_bundle_v1"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_begin_gpu_canvas_app_bundle_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_begin_gpu_canvas_app_bundle_v1"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_begin_gpu_canvas_app_bundle_v1"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_begin_gpu_canvas_app_bundle_v1"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.begin.gpu.canvas.app.bundle.v1.1ny5zud.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.begin.gpu.canvas.app.bundle.v1.1ny5zud.default.non-capability",
+        "surface.host.abi.ex.hermes.begin.gpu.canvas.app.bundle.v1.1ny5zud.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.bytecode.version.1ay7fmv",
       "observedKey": "host-abi:ex_hermes_bytecode_version",
       "branchId": "surface.host.abi.ex.hermes.bytecode.version.1ay7fmv.default",
@@ -116930,6 +116964,42 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.deliver.gpu.canvas.attachment.receipt.v1.0v946lb",
+      "observedKey": "host-abi:ex_hermes_deliver_gpu_canvas_attachment_receipt_v1",
+      "branchId": "surface.host.abi.ex.hermes.deliver.gpu.canvas.attachment.receipt.v1.0v946lb.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.deliver.gpu.canvas.attachment.receipt.v1.0v946lb.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_deliver_gpu_canvas_attachment_receipt_v1"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_deliver_gpu_canvas_attachment_receipt_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_deliver_gpu_canvas_attachment_receipt_v1"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_deliver_gpu_canvas_attachment_receipt_v1"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_deliver_gpu_canvas_attachment_receipt_v1"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.deliver.gpu.canvas.attachment.receipt.v1.0v946lb.default.attribution-missing-deny",
+        "surface.host.abi.ex.hermes.deliver.gpu.canvas.attachment.receipt.v1.0v946lb.default.generation-recheck",
+        "surface.host.abi.ex.hermes.deliver.gpu.canvas.attachment.receipt.v1.0v946lb.default.non-capability",
+        "surface.host.abi.ex.hermes.deliver.gpu.canvas.attachment.receipt.v1.0v946lb.default.principal-restore",
+        "surface.host.abi.ex.hermes.deliver.gpu.canvas.attachment.receipt.v1.0v946lb.default.snapshot-mismatch-deny"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.destroy.0m27uxn",
       "observedKey": "host-abi:ex_hermes_destroy",
       "branchId": "surface.host.abi.ex.hermes.destroy.0m27uxn.default",
@@ -117476,6 +117546,40 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.host.abi.ex.hermes.finish.bootstrap.11ahb91.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.finish.gpu.canvas.app.bundle.v1.1xpcpkd",
+      "observedKey": "host-abi:ex_hermes_finish_gpu_canvas_app_bundle_v1",
+      "branchId": "surface.host.abi.ex.hermes.finish.gpu.canvas.app.bundle.v1.1xpcpkd.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.finish.gpu.canvas.app.bundle.v1.1xpcpkd.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_finish_gpu_canvas_app_bundle_v1"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_finish_gpu_canvas_app_bundle_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_finish_gpu_canvas_app_bundle_v1"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_finish_gpu_canvas_app_bundle_v1"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_finish_gpu_canvas_app_bundle_v1"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.finish.gpu.canvas.app.bundle.v1.1xpcpkd.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.finish.gpu.canvas.app.bundle.v1.1xpcpkd.default.non-capability",
+        "surface.host.abi.ex.hermes.finish.gpu.canvas.app.bundle.v1.1xpcpkd.default.post-lockdown-invariant"
       ]
     },
     {
@@ -256505,6 +256609,42 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.ibexcapturegpucanvasruntimeintegration.0suajp6",
+      "observedKey": "native-op:__ibexCaptureGpuCanvasRuntimeIntegration",
+      "branchId": "surface.native.op.ibexcapturegpucanvasruntimeintegration.0suajp6.all",
+      "enforcementBranchId": "surface.native.op.ibexcapturegpucanvasruntimeintegration.0suajp6.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__ibexCaptureGpuCanvasRuntimeIntegration"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/runtime-internal.ts#beginExactGpuCanvasAppBundle:globals:__ibexCaptureGpuCanvasRuntimeIntegration",
+          "src/engine/hermes_runtime_gpu_v2.cc#__ibexCaptureGpuCanvasRuntimeIntegration"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/runtime-internal.ts#beginExactGpuCanvasAppBundle:globals:__ibexCaptureGpuCanvasRuntimeIntegration",
+          "src/engine/hermes_runtime_gpu_v2.cc#__ibexCaptureGpuCanvasRuntimeIntegration"
+        ],
+        "terminalObservedKey": "native-op:__ibexCaptureGpuCanvasRuntimeIntegration"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/runtime-internal.ts#beginExactGpuCanvasAppBundle:globals:__ibexCaptureGpuCanvasRuntimeIntegration",
+        "src/engine/hermes_runtime_gpu_v2.cc#__ibexCaptureGpuCanvasRuntimeIntegration"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.ibexcapturegpucanvasruntimeintegration.0suajp6.all.cannot-widen-authority",
+        "surface.native.op.ibexcapturegpucanvasruntimeintegration.0suajp6.all.non-capability",
+        "surface.native.op.ibexcapturegpucanvasruntimeintegration.0suajp6.all.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.ibexcapturegpunativebridge.1no4kru",
       "observedKey": "native-op:__ibexCaptureGpuNativeBridge",
       "branchId": "surface.native.op.ibexcapturegpunativebridge.1no4kru.all",
@@ -275470,59 +275610,59 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-aAv7rmNj2hazCpZzwSmHWtCUTkh01IJYeYJwBew2q3s"
+      "rawContentDigest": "sha256-st3ADV9-NzkWqZ0t-DwmhlEvDyDnfP650FQ5cAZVFGQ"
     },
     {
       "kind": "output-disposition-dataset",
       "path": "capsec/generated/output-dispositions.json",
-      "rawContentDigest": "sha256-mO0WoV9HFhK6jgnZHYIeTX06kboVGA728BCKWZ53Zpc"
+      "rawContentDigest": "sha256-hbfUFjcSAKvs845sabTbxxH1GvTK-Av6A9v2nDQyK2o"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/output-dispositions.md",
-      "rawContentDigest": "sha256-prixSw2hVTYzNJUmp5dZ66WNXrSCytbPyRAbXOVg0xk"
+      "rawContentDigest": "sha256-wl70wWq90nogZ7SWKm5MLMTB1rlgrrqaUs6QdBKs6MU"
     },
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-V_b7GmHeKuU9EZKe8iFmeeuPLGX8VGxLzj9HB8rmEE8"
+      "rawContentDigest": "sha256-5goXHw5yuEvEaExpAe2IxLJ1ib8y_vKdbnP5iIc3QmM"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-1a6iydsDXfvyW462U0BMaUDhHe26YRgi-a93Bd1Tjcs"
+      "rawContentDigest": "sha256-RuwPPeG2-aG2E3EPiQDNoZSQdFDq-QzvMq1fbhpwvA0"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-X-fOJNvH-gQ9I1zyk76WqvACheMN2kqQWs2VTmU3cxs"
+      "rawContentDigest": "sha256-qH6daN69e2LJOJr0FH-Zw3yXkc4vnf1-hIAtQbE69U0"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-lAGsaJHMXJOzQ0OxmsVG8_RsXnZ6olEBVUmp8zuaoVk"
+      "rawContentDigest": "sha256-kUCcFL5aoCOlD3jkjn-kAwh3EDdDEPMRqk145H089aM"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-M4n1Nm9E5mf59m8nlQ1Dnxx4vo_DXGmBuiKA2feO5zI"
+      "rawContentDigest": "sha256-YMOI6BUGY4MQHLnW2Ab3jLT8qlOClXPfLu0-GrVe9nw"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-oDX6igiYKd7STGNij4e_f9Cg9cZ0t1nSKXYFB83371U"
+      "rawContentDigest": "sha256-Kn8w60wiu3JBfPjR_zKG-z0PhX7ZOTuQVPLRWFfcw3w"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-gHDseg6FtxOp4rcPk1o9luVq1L3VNsVNusFbC1LfFdA"
+      "rawContentDigest": "sha256-mA-kQE7c6YAs8tGEFQoSjGwyNL-9sUEJdfU9VfliPWc"
     }
   ],
   "counts": {
-    "observedReferences": 12988,
-    "logicalSurfaces": 7412,
-    "enforcementBranches": 7631,
-    "coverageEdges": 7412,
-    "targetCells": 14824
+    "observedReferences": 12993,
+    "logicalSurfaces": 7416,
+    "enforcementBranches": 7635,
+    "coverageEdges": 7416,
+    "targetCells": 14832
   }
 }

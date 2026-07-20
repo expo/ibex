@@ -885,6 +885,45 @@ describe('production-private WebGPU wrapper gate', () => {
     expect('createImageBitmap' in globalObject).toBe(false);
   });
 
+  test('returns only a frozen construction-private Canvas minter', () => {
+    const globalObject = isolatedGlobal();
+    const installation = installProductionWebGpu(
+      globalObject,
+      createFakeBridge(),
+      createFakeCodecs(),
+    );
+    if (installation.status !== 'installed') throw new Error('installation failed');
+
+    expect(Object.isFrozen(installation)).toBe(true);
+    expect(Object.isFrozen(installation.canvasContextMinter)).toBe(true);
+    expect(Reflect.ownKeys(installation.canvasContextMinter)).toEqual([
+      'mintCanvasContext',
+    ]);
+    const context = installation.canvasContextMinter.mintCanvasContext({
+      objectId: '401',
+      objectGeneration: '1',
+      drawingBufferWidth: 640,
+      drawingBufferHeight: 480,
+      authority: CANVAS_AUTHORITY,
+    });
+    expect(Object.getPrototypeOf(context)).toBe(
+      (globalObject.GPUCanvasContext as { prototype: object }).prototype,
+    );
+    expect(Reflect.ownKeys(globalObject)).not.toContain('canvasContextMinter');
+
+    installation.revoke();
+    expect(() => installation.canvasContextMinter.mintCanvasContext({
+      objectId: '402',
+      objectGeneration: '1',
+      drawingBufferWidth: 640,
+      drawingBufferHeight: 480,
+      authority: Object.freeze({
+        ...CANVAS_AUTHORITY,
+        surfaceAccountToken: '42',
+      }),
+    })).toThrow('WebGPU realm is revoked');
+  });
+
   test('increments private u64 counters exactly and rejects overflow before wrap', () => {
     expect(incrementCanonicalU64Decimal('18446744073709551614')).toBe(
       '18446744073709551615',

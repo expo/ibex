@@ -1,7 +1,7 @@
 {
   "outputDispositionDatasetSchema": "ibex/capsec-output-dispositions/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256-aTcszgPsfJclNwRL-OO72-vFYkmdAxNTxnlGXD-4uDE",
+  "catalogKeyDigest": "sha256-p-SEzturDOIOavf977dt36Pb6aNxzTzriwbl9vh1kPo",
   "evidence": {
     "status": "unpromotable",
     "reason": "The output corpus remains unpromotable: one native module-marker surface account and three inherited-intrinsic alias surface accounts are unresolved; the construction-private WebGPU program contributes 54 additional unresolved accounts (two callback ingresses, seven private bridge methods, and 45 operation routes) while public installation and platform support remain absent; and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes these account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations."
@@ -50359,6 +50359,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.begin.gpu.canvas.app.bundle.v1.1ny5zud",
+        "output": "[[return]]",
+        "alias": "ex_hermes_begin_gpu_canvas_app_bundle_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.bytecode.version.1ay7fmv",
         "output": "[[return]]",
         "alias": "ex_hermes_bytecode_version",
@@ -50838,6 +50855,23 @@
         "surfaceId": "surface.host.abi.ex.hermes.debugger.set.breakpoint.1dotu6v",
         "output": "[[return]]",
         "alias": "ex_hermes_debugger_set_breakpoint",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.deliver.gpu.canvas.attachment.receipt.v1.0v946lb",
+        "output": "[[return]]",
+        "alias": "ex_hermes_deliver_gpu_canvas_attachment_receipt_v1",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -52589,6 +52623,23 @@
         "surfaceId": "surface.host.abi.ex.hermes.finish.bootstrap.11ahb91",
         "output": "[[return]]",
         "alias": "ex_hermes_finish_bootstrap",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.finish.gpu.canvas.app.bundle.v1.1xpcpkd",
+        "output": "[[return]]",
+        "alias": "ex_hermes_finish_gpu_canvas_app_bundle_v1",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -108584,6 +108635,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.native.op.ibexcapturegpucanvasruntimeintegration.0suajp6",
+        "output": "[[return]]",
+        "alias": "__ibexCaptureGpuCanvasRuntimeIntegration",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.native.op.ibexcapturegpunativebridge.1no4kru",
         "output": "[[return]]",
         "alias": "__ibexCaptureGpuNativeBridge",
@@ -109740,12 +109808,12 @@
     }
   ],
   "counts": {
-    "catalogRows": 6454,
-    "dispositionRows": 6454,
+    "catalogRows": 6458,
+    "dispositionRows": 6458,
     "byDisposition": {
       "absent": 152,
       "closed": 28,
-      "non-path": 6126,
+      "non-path": 6130,
       "private-native-path": 5,
       "refused": 12,
       "reserved-constant": 1,
