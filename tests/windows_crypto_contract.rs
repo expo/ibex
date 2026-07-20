@@ -26,6 +26,7 @@ fn windows_native_crypto_remains_a_primitive_backend() {
         "__exactHkdf",
         "__exactAesCbcEncrypt",
         "__exactAesCbcDecrypt",
+        "__exactGenerateKeyPairSync",
     ] {
         assert!(
             WINDOWS_CRYPTO.contains(primitive),
@@ -52,5 +53,12 @@ fn windows_native_crypto_remains_a_primitive_backend() {
         WINDOWS_CRYPTO.contains("BCRYPT_CHAIN_MODE_CBC")
             && WINDOWS_CRYPTO.contains("BCRYPT_BLOCK_PADDING"),
         "Windows AES-CBC must use CNG CBC mode with native block padding"
+    );
+    assert!(
+        WINDOWS_CRYPTO.contains("BCryptGenerateKeyPair")
+            && WINDOWS_CRYPTO.contains("BCRYPT_ECCPRIVATE_BLOB")
+            && WINDOWS_CRYPTO.contains("PRIVATE KEY")
+            && WINDOWS_CRYPTO.contains("PUBLIC KEY"),
+        "Windows EC key generation must use CNG and export PKCS#8/SPKI PEM"
     );
 }

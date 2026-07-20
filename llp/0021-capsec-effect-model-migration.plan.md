@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-20 (ENG-24933 physically clears the Windows KDF/AES frontier and narrows 23 crypto product tests to missing CNG EC key generation/export)
 **Revised:** 2026-07-20 (ENG-24933 physically verifies Windows HKDF and advances the full public matrix to the missing CNG PBKDF2 backend)
 **Revised:** 2026-07-20 (ENG-24933 physically verifies Windows callback attribution and startup-environment evidence, then implements the RFC 5869 HKDF backend exposed as the next full-matrix frontier)
 **Revised:** 2026-07-19 (ENG-24933 refreshes the four checked example policies after physical run 29722972483 correctly refused the reviewed removal of the Windows crypto shadow before product execution)
@@ -2204,6 +2205,20 @@ Node UTF-8 cipher golden and WebCrypto IV validation. Windows now supplies
 those encrypt/decrypt hooks through CNG CBC mode with native block padding;
 this adjacent repair remains uncredited until the same physical matrix reaches
 and passes those product tests.
+Focused physical run
+[`29729576265`](https://github.com/ccheever/ibex/actions/runs/29729576265)
+compiled the combined PBKDF2, scrypt, and AES-CBC checkpoint, passed the
+callback-principal invariant, and retained nine of nine passing startup
+environment executions. Full run
+[`29730674973`](https://github.com/ccheever/ibex/actions/runs/29730674973)
+then passed all seven public-fixture batches and 22 of 23
+`crypto_node_builtin` product tests, including the HKDF, PBKDF2, and scrypt
+vectors and both AES-CBC tests. Its sole product failure was EC
+`generateKeyPairSync` with DER public-key encoding because Windows did not
+install `__exactGenerateKeyPairSync`. Windows now generates P-256, P-384, and
+P-521 key pairs through CNG and serializes the result as PKCS#8 private and
+SPKI public PEM for the canonical JavaScript encoding layer. This repair still
+requires physical execution; no target cell or advertisement is promoted.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked

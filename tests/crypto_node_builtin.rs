@@ -625,8 +625,10 @@ async fn ecdh_curves_primes_dh_encoding_and_cipher_validation() {
         out.primeAb = (ab instanceof ArrayBuffer) && ab.byteLength === 2; \
         out.dhHexPrime = c.createDiffieHellman('bb', 'hex').getPrime().toString('hex'); \
         try { \
-          var kp = c.generateKeyPairSync('ec', { namedCurve: 'P-256', publicKeyEncoding: { type: 'spki', format: 'der' } }); \
-          out.der = Buffer.isBuffer(kp.publicKey) ? 'buffer' : typeof kp.publicKey; \
+          var kp = c.generateKeyPairSync('ec', { namedCurve: 'P-256', publicKeyEncoding: { type: 'spki', format: 'der' }, privateKeyEncoding: { type: 'pkcs8', format: 'der' } }); \
+          out.der = Buffer.isBuffer(kp.publicKey) && Buffer.isBuffer(kp.privateKey) \
+            ? { publicKey: Array.from(kp.publicKey), privateKey: Array.from(kp.privateKey) } \
+            : typeof kp.publicKey; \
         } catch (e) { out.der = 'ERR:' + (e.code || e.message); } \
         try { c.createDecipheriv('aes-128-cbc', Buffer.alloc(24), Buffer.alloc(16)); out.badKey = 'no-throw'; } \
         catch (e) { out.badKey = e.code; } \
@@ -662,9 +664,44 @@ async fn ecdh_curves_primes_dh_encoding_and_cipher_validation() {
         parsed["dhHexPrime"], "bb",
         "createDiffieHellman must decode the prime encoding: {result}"
     );
+    let der = parsed["der"]
+        .as_object()
+        .unwrap_or_else(|| panic!("der-format key encoding must return Buffers: {result}"));
+    let decode_bytes = |name: &str| {
+        der[name]
+            .as_array()
+            .unwrap_or_else(|| panic!("{name} must be a byte array: {result}"))
+            .iter()
+            .map(|value| {
+                value
+                    .as_u64()
+                    .and_then(|byte| u8::try_from(byte).ok())
+                    .unwrap_or_else(|| panic!("{name} contains a non-byte value: {result}"))
+            })
+            .collect::<Vec<_>>()
+    };
+    let public_der = decode_bytes("publicKey");
+    let private_der = decode_bytes("privateKey");
+    let public_key = openssl::pkey::PKey::public_key_from_der(&public_der)
+        .unwrap_or_else(|error| panic!("SPKI public key must parse: {error}: {result}"));
+    let private_key = openssl::pkey::PKey::private_key_from_der(&private_der)
+        .unwrap_or_else(|error| panic!("PKCS#8 private key must parse: {error}: {result}"));
     assert_eq!(
-        parsed["der"], "buffer",
-        "der-format key encoding must return a Buffer: {result}"
+        public_key.id(),
+        openssl::pkey::Id::EC,
+        "generated public key must be EC: {result}"
+    );
+    assert_eq!(
+        private_key.id(),
+        openssl::pkey::Id::EC,
+        "generated private key must be EC: {result}"
+    );
+    assert_eq!(
+        private_key
+            .public_key_to_der()
+            .expect("derive generated public SPKI"),
+        public_der,
+        "generated public and private keys must be one pair: {result}"
     );
     assert_eq!(
         parsed["badKey"], "ERR_CRYPTO_INVALID_KEYLEN",

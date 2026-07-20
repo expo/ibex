@@ -146596,7 +146596,9 @@
         ]
       },
       "disposition": "unsupported",
-      "implementationBranchIds": [],
+      "implementationBranchIds": [
+        "surface.native.op.exactgeneratekeypairsync.18brh0u.windows"
+      ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },

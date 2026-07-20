@@ -5,7 +5,7 @@
 **Systems:** Engine, Runtime, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-15 (ENG-25061 links indirect/star/namespace exports to native live cells and adds the synchronous graph lifecycle driver); 2026-07-15 (ENG-25060 implements the common runtime-drive gate and native module factory/context/record capabilities); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized eval, poll, runner, and destroy entry); 2026-07-15 (ENG-25006: native fetch completion publishes its runtime callback before releasing the pending-fetch keepalive); 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
+**Revised:** 2026-07-20 (ENG-24933 expands the Windows CNG crypto backend through EC key generation and standards-shaped PKCS#8/SPKI export); 2026-07-15 (ENG-25061 links indirect/star/namespace exports to native live cells and adds the synchronous graph lifecycle driver); 2026-07-15 (ENG-25060 implements the common runtime-drive gate and native module factory/context/record capabilities); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized eval, poll, runner, and destroy entry); 2026-07-15 (ENG-25006: native fetch completion publishes its runtime callback before releasing the pending-fetch keepalive); 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0004 (Module loading); LLP 0005 (Build pipeline); LLP 0026 (module runner)
 
 ## Summary
@@ -435,10 +435,12 @@ Crypto is split between the non-Windows crypto shim and a Windows-specific file:
   `[observed]` (`src/engine/hermes_runtime_crypto.cc`). AES and asymmetric key
   import/export remain outside the reduced profile.
 - **Windows:** `build.rs` compiles `hermes_runtime_crypto_windows.cc` and
-  defines `EXACT_NO_OPENSSL` `[observed]` (`build.rs:729-765`). That file
-  registers Windows BCrypt-backed hash/hashRaw/HMAC functions plus stdin/signal
-  noops; it does not register the non-Windows asymmetric throwing stubs
-  `[observed]` (`src/engine/hermes_runtime_crypto_windows.cc:1-8, 141-221`).
+  defines `EXACT_NO_OPENSSL` `[observed]` (`build.rs`). That file registers
+  Windows CNG/BCrypt hash, HMAC, PBKDF2, portable scrypt, HKDF, padded AES-CBC,
+  and EC key-generation primitives plus stdin/signal noops. EC keys are
+  exported as standards-shaped PKCS#8 private and SPKI public PEM; unsupported
+  asymmetric operations retain the canonical JavaScript surface's explicit
+  failure behavior `[observed]` (`src/engine/hermes_runtime_crypto_windows.cc`).
 
 The crypto profile axis and the platform matrix are owned by
 [LLP 0001](./0001-target-platforms-and-ci-matrix.rfc.md); this section only maps

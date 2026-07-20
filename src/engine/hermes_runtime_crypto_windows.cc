@@ -10,6 +10,7 @@ void unregisterSignalRuntime(ExactHermesRuntime*) {}
 // Windows is a no-OpenSSL crypto profile backed by CNG/BCrypt.
 #include <windows.h>
 #include <bcrypt.h>
+#include <wincrypt.h>
 #include <zlib.h>
 
 #include <algorithm>
@@ -21,6 +22,7 @@ void unregisterSignalRuntime(ExactHermesRuntime*) {}
 #include <optional>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -418,6 +420,224 @@ std::vector<uint8_t> aesCbcCrypt(
   }
   output.resize(output_length);
   return output;
+}
+
+void appendDerLength(std::vector<uint8_t>& output, size_t length) {
+  if (length < 128) {
+    output.push_back(static_cast<uint8_t>(length));
+    return;
+  }
+
+  uint8_t encoded[sizeof(size_t)];
+  size_t count = 0;
+  while (length > 0) {
+    encoded[count++] = static_cast<uint8_t>(length & 0xff);
+    length >>= 8;
+  }
+  output.push_back(static_cast<uint8_t>(0x80 | count));
+  while (count > 0) output.push_back(encoded[--count]);
+}
+
+std::vector<uint8_t> derWrap(uint8_t tag, const std::vector<uint8_t>& contents) {
+  std::vector<uint8_t> encoded;
+  encoded.reserve(1 + sizeof(size_t) + contents.size());
+  encoded.push_back(tag);
+  appendDerLength(encoded, contents.size());
+  encoded.insert(encoded.end(), contents.begin(), contents.end());
+  return encoded;
+}
+
+void appendBytes(std::vector<uint8_t>& output, const std::vector<uint8_t>& bytes) {
+  output.insert(output.end(), bytes.begin(), bytes.end());
+}
+
+std::string pemEncode(
+    facebook::jsi::Runtime& runtime,
+    const char* label,
+    const std::vector<uint8_t>& der) {
+  if (der.empty() || der.size() > std::numeric_limits<DWORD>::max()) {
+    throw facebook::jsi::JSError(runtime, "invalid DER key material");
+  }
+
+  DWORD encoded_length = 0;
+  const DWORD flags = CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF;
+  if (!CryptBinaryToStringA(
+          der.data(),
+          static_cast<DWORD>(der.size()),
+          flags,
+          nullptr,
+          &encoded_length) ||
+      encoded_length == 0) {
+    throw facebook::jsi::JSError(runtime, "CryptBinaryToStringA failed for generated key");
+  }
+
+  std::string base64(encoded_length, '\0');
+  if (!CryptBinaryToStringA(
+          der.data(),
+          static_cast<DWORD>(der.size()),
+          flags,
+          base64.data(),
+          &encoded_length)) {
+    throw facebook::jsi::JSError(runtime, "CryptBinaryToStringA failed for generated key");
+  }
+  base64.resize(encoded_length);
+  if (!base64.empty() && base64.back() == '\0') base64.pop_back();
+
+  std::string pem = "-----BEGIN ";
+  pem += label;
+  pem += "-----\n";
+  for (size_t offset = 0; offset < base64.size(); offset += 64) {
+    pem.append(base64, offset, std::min<size_t>(64, base64.size() - offset));
+    pem.push_back('\n');
+  }
+  pem += "-----END ";
+  pem += label;
+  pem += "-----\n";
+  return pem;
+}
+
+struct EcCurveConfig {
+  const wchar_t* algorithm;
+  ULONG bits;
+  ULONG private_magic;
+  std::vector<uint8_t> oid;
+};
+
+std::optional<EcCurveConfig> ecCurveConfig(std::string name) {
+  auto normalized = normalizeAlgorithm(std::move(name));
+  if (normalized == "p256" || normalized == "prime256v1" || normalized == "secp256r1") {
+    return EcCurveConfig{
+        BCRYPT_ECDSA_P256_ALGORITHM,
+        256,
+        BCRYPT_ECDSA_PRIVATE_P256_MAGIC,
+        {0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07}};
+  }
+  if (normalized == "p384" || normalized == "secp384r1") {
+    return EcCurveConfig{
+        BCRYPT_ECDSA_P384_ALGORITHM,
+        384,
+        BCRYPT_ECDSA_PRIVATE_P384_MAGIC,
+        {0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x22}};
+  }
+  if (normalized == "p521" || normalized == "secp521r1") {
+    return EcCurveConfig{
+        BCRYPT_ECDSA_P521_ALGORITHM,
+        521,
+        BCRYPT_ECDSA_PRIVATE_P521_MAGIC,
+        {0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x23}};
+  }
+  return std::nullopt;
+}
+
+std::pair<std::string, std::string> generateEcKeyPairPem(
+    facebook::jsi::Runtime& runtime,
+    const EcCurveConfig& curve) {
+  BCRYPT_ALG_HANDLE algorithm_handle = nullptr;
+  BCRYPT_KEY_HANDLE key_handle = nullptr;
+  auto close_handles = [&]() {
+    if (key_handle) {
+      BCryptDestroyKey(key_handle);
+      key_handle = nullptr;
+    }
+    if (algorithm_handle) {
+      BCryptCloseAlgorithmProvider(algorithm_handle, 0);
+      algorithm_handle = nullptr;
+    }
+  };
+
+  if (!ntSuccess(BCryptOpenAlgorithmProvider(
+          &algorithm_handle,
+          curve.algorithm,
+          nullptr,
+          0)) ||
+      !ntSuccess(BCryptGenerateKeyPair(
+          algorithm_handle,
+          &key_handle,
+          curve.bits,
+          0)) ||
+      !ntSuccess(BCryptFinalizeKeyPair(key_handle, 0))) {
+    close_handles();
+    throw facebook::jsi::JSError(runtime, "CNG EC key generation failed");
+  }
+
+  ULONG blob_length = 0;
+  if (!ntSuccess(BCryptExportKey(
+          key_handle,
+          nullptr,
+          BCRYPT_ECCPRIVATE_BLOB,
+          nullptr,
+          0,
+          &blob_length,
+          0)) ||
+      blob_length < sizeof(BCRYPT_ECCKEY_BLOB)) {
+    close_handles();
+    throw facebook::jsi::JSError(runtime, "CNG EC private-key sizing failed");
+  }
+
+  std::vector<uint8_t> blob(blob_length);
+  if (!ntSuccess(BCryptExportKey(
+          key_handle,
+          nullptr,
+          BCRYPT_ECCPRIVATE_BLOB,
+          blob.data(),
+          static_cast<ULONG>(blob.size()),
+          &blob_length,
+          0))) {
+    close_handles();
+    throw facebook::jsi::JSError(runtime, "CNG EC private-key export failed");
+  }
+  close_handles();
+  blob.resize(blob_length);
+
+  BCRYPT_ECCKEY_BLOB header{};
+  std::memcpy(&header, blob.data(), sizeof(header));
+  const size_t coordinate_length = header.cbKey;
+  const size_t expected_length = sizeof(header) + coordinate_length * 3;
+  if (header.dwMagic != curve.private_magic || coordinate_length == 0 ||
+      expected_length != blob.size()) {
+    throw facebook::jsi::JSError(runtime, "CNG EC private-key blob is malformed");
+  }
+
+  const auto coordinate = [&](size_t index) {
+    const auto begin = blob.begin() +
+        static_cast<std::vector<uint8_t>::difference_type>(sizeof(header) + index * coordinate_length);
+    return std::vector<uint8_t>(begin, begin + coordinate_length);
+  };
+  const auto x = coordinate(0);
+  const auto y = coordinate(1);
+  const auto private_scalar = coordinate(2);
+
+  // id-ecPublicKey (1.2.840.10045.2.1) plus the named-curve OID.
+  std::vector<uint8_t> algorithm_identifier_contents = {
+      0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01};
+  appendBytes(algorithm_identifier_contents, curve.oid);
+  const auto algorithm_identifier = derWrap(0x30, algorithm_identifier_contents);
+
+  std::vector<uint8_t> public_point = {0x00, 0x04};
+  appendBytes(public_point, x);
+  appendBytes(public_point, y);
+  const auto public_bit_string = derWrap(0x03, public_point);
+
+  std::vector<uint8_t> spki_contents;
+  appendBytes(spki_contents, algorithm_identifier);
+  appendBytes(spki_contents, public_bit_string);
+  const auto spki = derWrap(0x30, spki_contents);
+
+  // RFC 5915 ECPrivateKey embedded in RFC 5208 PrivateKeyInfo. The public
+  // point is included so consumers never have to reconstruct it from d.
+  std::vector<uint8_t> ec_private_contents = {0x02, 0x01, 0x01};
+  appendBytes(ec_private_contents, derWrap(0x04, private_scalar));
+  appendBytes(ec_private_contents, derWrap(0xa1, public_bit_string));
+  const auto ec_private_key = derWrap(0x30, ec_private_contents);
+
+  std::vector<uint8_t> pkcs8_contents = {0x02, 0x01, 0x00};
+  appendBytes(pkcs8_contents, algorithm_identifier);
+  appendBytes(pkcs8_contents, derWrap(0x04, ec_private_key));
+  const auto pkcs8 = derWrap(0x30, pkcs8_contents);
+
+  return {
+      pemEncode(runtime, "PRIVATE KEY", pkcs8),
+      pemEncode(runtime, "PUBLIC KEY", spki)};
 }
 
 std::string hexEncode(const std::vector<uint8_t>& bytes) {
@@ -877,6 +1097,65 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
                 false));
       });
   rt.global().setProperty(rt, "__exactAesCbcDecrypt", std::move(aesCbcDecryptFn));
+
+  // @ref LLP 0008#crypto — Windows EC key generation uses CNG and exports
+  // standards-shaped PKCS#8 private and SPKI public PEM values.
+  auto generateKeyPairSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactGenerateKeyPairSync"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isString()) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactGenerateKeyPairSync: key type required");
+        }
+        const auto key_type = args[0].asString(runtime).utf8(runtime);
+        if (key_type != "ec" && key_type != "ecdsa") {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactGenerateKeyPairSync: unsupported Windows key type " + key_type);
+        }
+
+        std::string named_curve = "P-256";
+        if (count >= 2 && args[1].isObject()) {
+          auto options = args[1].asObject(runtime);
+          if (options.hasProperty(runtime, "namedCurve")) {
+            const auto value = options.getProperty(runtime, "namedCurve");
+            if (!value.isString()) {
+              throw facebook::jsi::JSError(
+                  runtime,
+                  "__exactGenerateKeyPairSync: namedCurve must be a string");
+            }
+            named_curve = value.asString(runtime).utf8(runtime);
+          }
+        }
+
+        auto curve = ecCurveConfig(named_curve);
+        if (!curve.has_value()) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactGenerateKeyPairSync: unsupported Windows EC curve " + named_curve);
+        }
+        auto pair = generateEcKeyPairPem(runtime, *curve);
+        facebook::jsi::Object result(runtime);
+        result.setProperty(
+            runtime,
+            "privateKey",
+            facebook::jsi::String::createFromUtf8(runtime, pair.first));
+        result.setProperty(
+            runtime,
+            "publicKey",
+            facebook::jsi::String::createFromUtf8(runtime, pair.second));
+        return result;
+      });
+  rt.global().setProperty(
+      rt,
+      "__exactGenerateKeyPairSync",
+      std::move(generateKeyPairSyncFn));
 
   // @ref LLP 0008#crypto — Windows keeps the canonical JavaScript crypto
   // surface and supplies its available native primitives through BCrypt/CNG.
