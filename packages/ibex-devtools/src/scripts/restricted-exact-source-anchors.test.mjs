@@ -1459,6 +1459,33 @@ void install(Runtime& rt) {
       .toBe("executable");
   });
 
+  test("binds helper publications, conditional aliases, and symbol descriptors", () => {
+    for (const [observedKey, sourceRef] of [
+      [
+        "native-op:global:Bun.file",
+        "packages/ibex-runtime-js/src/fs/ExactFile.ts#defineGlobalValue:globals:Bun.file",
+      ],
+      [
+        "native-op:global:Exact.unsafe.segfault",
+        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:Exact.unsafe.segfault",
+      ],
+      [
+        "native-op:global:Iterator.prototype.[[Symbol.iterator]]",
+        "packages/ibex-runtime-js/src/polyfills/iterator.ts#installIteratorPolyfills:globals:Iterator.prototype.[[Symbol.iterator]]",
+      ],
+    ]) {
+      const branch = {
+        branchId: `surface.${observedKey}`,
+        observedKey,
+        targetVariant: "all",
+      };
+      const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+      expect(binding.locatorKind).toBe("typescript-global-installer-route");
+      expect(binding.sites.map((site) => site.role)).toEqual(["value-producer", "publication"]);
+      expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status).toBe("executable");
+    }
+  });
+
   test("binds module-level global assignments and exact C++ terminal symbols", () => {
     const moduleBinding = resolveRestrictedExactBranchSourceBinding({
       branchId: "surface.native.op.android.dispatch.all",

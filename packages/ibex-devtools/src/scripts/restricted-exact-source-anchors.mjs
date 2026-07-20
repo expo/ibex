@@ -1185,6 +1185,12 @@ function propertyName(node) {
   if (!node) return null;
   if (node.type === "Identifier" || node.type === "PrivateName") return node.name ?? node.id?.name ?? null;
   if (["StringLiteral", "NumericLiteral"].includes(node.type)) return String(node.value);
+  if (["MemberExpression", "OptionalMemberExpression"].includes(node.type)) {
+    const segments = memberSegments(node);
+    if (segments?.length === 2 && segments[0] === "Symbol") {
+      return `[[Symbol.${segments[1]}]]`;
+    }
+  }
   return null;
 }
 
@@ -1225,10 +1231,14 @@ function typescriptGlobalInstallerBinding({ branch, sourceRef, sourcePath, locat
   if (markerIndex < 1) return null;
   const installerName = locator.slice(0, markerIndex);
   const getterInstaller = installerName === "get";
-  const moduleInstaller = installerName === "<module>" || getterInstaller;
+  const helperInstaller = installerName === "defineGlobalValue";
+  const moduleInstaller = installerName === "<module>" || getterInstaller || helperInstaller;
   if (!moduleInstaller && !/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(installerName)) return null;
-  const logicalPath = locator.slice(markerIndex + marker.length).split(".");
-  if (logicalPath.some((part) => !part || part.includes("[["))) return null;
+  const logicalPath = locator.slice(markerIndex + marker.length)
+    .replace(/\.\[\[Symbol\.([^\]]+)\]\]/gu, ".[[Symbol:$1]]")
+    .split(".")
+    .map((part) => part.replace(/^\[\[Symbol:([^\]]+)\]\]$/u, "[[Symbol.$1]]"));
+  if (logicalPath.some((part) => !part)) return null;
   const ast = parse(text, {
     sourceType: "module",
     plugins: ["typescript", "decorators-legacy"],
@@ -1265,7 +1275,10 @@ function typescriptGlobalInstallerBinding({ branch, sourceRef, sourcePath, locat
   const candidates = [];
   walkJavaScript(moduleInstaller ? installer : installer.body, (node, parent) => {
     if (node.type === "VariableDeclarator" && node.id?.type === "Identifier") {
-      const segments = memberSegments(node.init);
+      const segments = memberSegments(node.init)
+        ?? (node.init?.type === "ConditionalExpression"
+          ? memberSegments(node.init.consequent) ?? memberSegments(node.init.alternate)
+          : null);
       if (segments && segments.length > 0) aliases.set(node.id.name, segments);
     }
     if (!getterInstaller && node.type === "AssignmentExpression") {
@@ -1286,6 +1299,18 @@ function typescriptGlobalInstallerBinding({ branch, sourceRef, sourcePath, locat
         if (getterInstaller && !getter) return;
         candidates.push({
           producer: getter ?? node.arguments[2] ?? node,
+          publication: parent?.type === "ExpressionStatement" ? parent : node,
+        });
+      }
+    }
+    if (node.type === "CallExpression"
+      && node.callee?.type === "Identifier"
+      && node.callee.name === "defineGlobalValue") {
+      const target = memberSegments(node.arguments[0]);
+      const property = propertyName(node.arguments[1]);
+      if (property !== null && installerPathMatches([...(target ?? []), property])) {
+        candidates.push({
+          producer: node.arguments[2] ?? node,
           publication: parent?.type === "ExpressionStatement" ? parent : node,
         });
       }
