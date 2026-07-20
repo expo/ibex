@@ -50,8 +50,10 @@ const schemaFiles = [
   "portable-engine-manifest-v1.schema.json",
   "portable-engine-installation-receipt-v1.schema.json",
   "portable-engine-artifact-identity-v1.schema.json",
+  "portable-engine-cargo-executable-set-v1.schema.json",
   "portable-engine-build-consumption-v1.schema.json",
   "portable-engine-post-link-verification-v1.schema.json",
+  "portable-engine-post-link-verification-set-v1.schema.json",
   "mapped-engine-instance-identity-v1.schema.json",
   "portable-engine-suite-lineage-v1.schema.json",
   "portable-engine-shard-assignment-v1.schema.json",
@@ -72,9 +74,13 @@ const documentSchemas = {
   manifest: "portable-engine-manifest-v1.schema.json",
   installationReceipt: "portable-engine-installation-receipt-v1.schema.json",
   portableIdentity: "portable-engine-artifact-identity-v1.schema.json",
+  cargoExecutableSet:
+    "portable-engine-cargo-executable-set-v1.schema.json",
   buildConsumption: "portable-engine-build-consumption-v1.schema.json",
   postLinkVerification:
     "portable-engine-post-link-verification-v1.schema.json",
+  postLinkVerificationSet:
+    "portable-engine-post-link-verification-set-v1.schema.json",
   mappedInstance: "mapped-engine-instance-identity-v1.schema.json",
   suite: "portable-engine-suite-lineage-v1.schema.json",
   assignment: "portable-engine-shard-assignment-v1.schema.json",
@@ -154,6 +160,73 @@ if (
 if (!Object.hasOwn(documents.postLinkVerification.audit, "dyldEnvironment")) {
   documents.postLinkVerification.audit.dyldEnvironment = [];
 }
+documents.cargoExecutableSet = {
+  schema: "ibex/portable-engine-cargo-executable-set/1",
+  mode: "cargo-test-no-run-all-targets",
+  package: {
+    name: "ibex-runtime",
+    version: "0.1.0",
+    manifestPath: "Cargo.toml",
+  },
+  targetTriple: "aarch64-apple-darwin",
+  ibexFeatures: structuredClone(documents.buildConsumption.ibexFeatures),
+  cargoArguments: [
+    "test",
+    "--locked",
+    "--no-run",
+    "--all-targets",
+    "--features",
+    documents.buildConsumption.ibexFeatures.join(","),
+    "--message-format=json",
+  ],
+  targets: [
+    {
+      cargoTargetKind: "bin",
+      cargoTargetKinds: ["bin"],
+      cargoTargetName: "ibex",
+      logicalName: "bin/ibex",
+      profileTest: false,
+      targetKind: "bin",
+    },
+  ],
+};
+const rebuildPostLinkSet = () => {
+  const evidenceBytes = Buffer.from(
+    canonicalJson(documents.postLinkVerification),
+    "utf8",
+  );
+  const result = {
+    schema: "ibex/portable-engine-post-link-verification-set/1",
+    portable: structuredClone(documents.postLinkVerification.portable),
+    buildConsumptionDigest:
+      documents.postLinkVerification.buildConsumptionDigest,
+    enumerationDigest: computeDomainDigest(
+      "ibex.portable-engine-cargo-executable-set.v1",
+      documents.cargoExecutableSet,
+    ),
+    results: [
+      {
+        logicalName: documents.postLinkVerification.executable.logicalName,
+        targetKind: documents.postLinkVerification.executable.targetKind,
+        evidenceFile: "0000.json",
+        evidenceDigest: `sha256-${createHash("sha256")
+          .update(evidenceBytes)
+          .digest("hex")}`,
+        verificationDigest:
+          documents.postLinkVerification.verificationDigest,
+      },
+    ],
+    outcome: "verified",
+    setDigest: "",
+  };
+  result.setDigest = computeDomainDigest(
+    "ibex.portable-engine-post-link-verification-set.v1",
+    result,
+    ["setDigest"],
+  );
+  documents.postLinkVerificationSet = result;
+};
+rebuildPostLinkSet();
 
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 for (const schemaFile of schemaFiles) {
@@ -965,6 +1038,7 @@ postLinkVerification.verificationDigest = digest(
   postLinkVerification,
   ["verificationDigest"],
 );
+rebuildPostLinkSet();
 
 documents.mappedInstance.portable = clone(documents.portableIdentity);
 documents.mappedInstance.before.digest = runtime.digest;
@@ -1124,6 +1198,12 @@ const projections = [
     [],
   ],
   [
+    "cargo-executable-set-digest",
+    "cargoExecutableSet",
+    "ibex.portable-engine-cargo-executable-set.v1",
+    [],
+  ],
+  [
     "build-consumption-digest",
     "buildConsumption",
     "ibex.portable-engine-build-consumption.v1",
@@ -1134,6 +1214,12 @@ const projections = [
     "postLinkVerification",
     "ibex.portable-engine-post-link-verification.v1",
     ["verificationDigest"],
+  ],
+  [
+    "post-link-verification-set-digest",
+    "postLinkVerificationSet",
+    "ibex.portable-engine-post-link-verification-set.v1",
+    ["setDigest"],
   ],
   [
     "mapped-observation-digest",

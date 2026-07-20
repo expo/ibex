@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-cargo-executable-set-v1.schema.json",
+  "title": "Ibex checked Cargo final-executable set v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "mode",
+    "package",
+    "targetTriple",
+    "ibexFeatures",
+    "cargoArguments",
+    "targets"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/portable-engine-cargo-executable-set/1" },
+    "mode": { "const": "cargo-test-no-run-all-targets" },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "manifestPath"],
+      "properties": {
+        "name": { "const": "ibex-runtime" },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "manifestPath": { "const": "Cargo.toml" }
+      }
+    },
+    "targetTriple": { "const": "aarch64-apple-darwin" },
+    "ibexFeatures": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "portable-engine-common-v1.schema.json#/$defs/stableId"
+      }
+    },
+    "cargoArguments": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": { "type": "string", "minLength": 1, "maxLength": 1024 }
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/target" }
+    }
+  },
+  "$defs": {
+    "targetName": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "cargoTargetKind": { "enum": ["bench", "bin", "example", "lib", "test"] },
+    "cargoTargetKinds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "bench",
+          "bin",
+          "cdylib",
+          "dylib",
+          "example",
+          "lib",
+          "rlib",
+          "staticlib",
+          "test"
+        ]
+      }
+    },
+    "evidenceTargetKind": { "enum": ["bench", "bin", "example", "test"] },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cargoTargetKind",
+        "cargoTargetKinds",
+        "cargoTargetName",
+        "profileTest",
+        "targetKind",
+        "logicalName"
+      ],
+      "properties": {
+        "cargoTargetKind": { "$ref": "#/$defs/cargoTargetKind" },
+        "cargoTargetKinds": { "$ref": "#/$defs/cargoTargetKinds" },
+        "cargoTargetName": { "$ref": "#/$defs/targetName" },
+        "profileTest": { "type": "boolean" },
+        "targetKind": { "$ref": "#/$defs/evidenceTargetKind" },
+        "logicalName": { "type": "string", "maxLength": 136 }
+      }
+    }
+  }
+}

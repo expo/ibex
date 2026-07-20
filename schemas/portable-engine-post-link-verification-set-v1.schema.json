@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-post-link-verification-set-v1.schema.json",
+  "title": "Ibex complete portable engine post-link verification set v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "portable",
+    "buildConsumptionDigest",
+    "enumerationDigest",
+    "results",
+    "outcome",
+    "setDigest"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/portable-engine-post-link-verification-set/1" },
+    "portable": { "$ref": "portable-engine-artifact-identity-v1.schema.json" },
+    "buildConsumptionDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+    },
+    "enumerationDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+    },
+    "results": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/result" }
+    },
+    "outcome": { "const": "verified" },
+    "setDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest",
+      "$comment": "SHA-256 over JCS(set without setDigest), domain ibex.portable-engine-post-link-verification-set.v1 followed by one NUL byte."
+    }
+  },
+  "$defs": {
+    "targetKind": { "enum": ["bench", "bin", "example", "test"] },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "logicalName",
+        "targetKind",
+        "evidenceFile",
+        "evidenceDigest",
+        "verificationDigest"
+      ],
+      "properties": {
+        "logicalName": {
+          "type": "string",
+          "pattern": "^(?:bench|bin|example|test)/[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+        },
+        "targetKind": { "$ref": "#/$defs/targetKind" },
+        "evidenceFile": { "type": "string", "pattern": "^[0-9]{4}\\.json$" },
+        "evidenceDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "verificationDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "targetKind": { "const": "bin" } },
+            "required": ["targetKind"]
+          },
+          "then": {
+            "properties": {
+              "logicalName": {
+                "type": "string",
+                "pattern": "^bin/[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "targetKind": { "const": "test" } },
+            "required": ["targetKind"]
+          },
+          "then": {
+            "properties": {
+              "logicalName": {
+                "type": "string",
+                "pattern": "^test/[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "targetKind": { "const": "example" } },
+            "required": ["targetKind"]
+          },
+          "then": {
+            "properties": {
+              "logicalName": {
+                "type": "string",
+                "pattern": "^example/[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "targetKind": { "const": "bench" } },
+            "required": ["targetKind"]
+          },
+          "then": {
+            "properties": {
+              "logicalName": {
+                "type": "string",
+                "pattern": "^bench/[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

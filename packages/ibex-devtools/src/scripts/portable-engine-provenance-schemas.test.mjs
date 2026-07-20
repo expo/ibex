@@ -41,8 +41,10 @@ const schemaFiles = [
   "portable-engine-manifest-v1.schema.json",
   "portable-engine-installation-receipt-v1.schema.json",
   "portable-engine-artifact-identity-v1.schema.json",
+  "portable-engine-cargo-executable-set-v1.schema.json",
   "portable-engine-build-consumption-v1.schema.json",
   "portable-engine-post-link-verification-v1.schema.json",
+  "portable-engine-post-link-verification-set-v1.schema.json",
   "mapped-engine-instance-identity-v1.schema.json",
   "portable-engine-suite-lineage-v1.schema.json",
   "portable-engine-shard-assignment-v1.schema.json",
@@ -64,9 +66,13 @@ const documentSchemas = {
   manifest: "portable-engine-manifest-v1.schema.json",
   installationReceipt: "portable-engine-installation-receipt-v1.schema.json",
   portableIdentity: "portable-engine-artifact-identity-v1.schema.json",
+  cargoExecutableSet:
+    "portable-engine-cargo-executable-set-v1.schema.json",
   buildConsumption: "portable-engine-build-consumption-v1.schema.json",
   postLinkVerification:
     "portable-engine-post-link-verification-v1.schema.json",
+  postLinkVerificationSet:
+    "portable-engine-post-link-verification-set-v1.schema.json",
   mappedInstance: "mapped-engine-instance-identity-v1.schema.json",
   suite: "portable-engine-suite-lineage-v1.schema.json",
   assignment: "portable-engine-shard-assignment-v1.schema.json",
@@ -159,6 +165,13 @@ const baseProjectionContract = [
     boundPath: "portableIdentity.interfaceContractDigest",
   },
   {
+    id: "cargo-executable-set-digest",
+    documentPath: "cargoExecutableSet",
+    domain: "ibex.portable-engine-cargo-executable-set.v1",
+    omitFields: [],
+    boundPath: "postLinkVerificationSet.enumerationDigest",
+  },
+  {
     id: "build-consumption-digest",
     documentPath: "buildConsumption",
     domain: "ibex.portable-engine-build-consumption.v1",
@@ -171,6 +184,13 @@ const baseProjectionContract = [
     domain: "ibex.portable-engine-post-link-verification.v1",
     omitFields: ["verificationDigest"],
     boundPath: "postLinkVerification.verificationDigest",
+  },
+  {
+    id: "post-link-verification-set-digest",
+    documentPath: "postLinkVerificationSet",
+    domain: "ibex.portable-engine-post-link-verification-set.v1",
+    omitFields: ["setDigest"],
+    boundPath: "postLinkVerificationSet.setDigest",
   },
   {
     id: "mapped-observation-digest",
@@ -242,6 +262,12 @@ function loadInvalidVectors() {
 
 const validVectors = readStrict(
   path.join(vectorsDir, "portable-engine-provenance-v1.valid.json"),
+);
+const checkedCargoExecutableSet = readStrict(
+  path.join(
+    repoRoot,
+    "config/portable-engine-cargo-executables-authenticated-v1.json",
+  ),
 );
 const checkedFinalExecutableParserFixture = readStrict(
   path.join(
@@ -2392,6 +2418,12 @@ describe("LLP 0035 portable engine authority schemas", () => {
         );
       },
     );
+    assertSchemaValid(
+      ajv,
+      "portable-engine-cargo-executable-set-v1.schema.json",
+      checkedCargoExecutableSet,
+      "checked Cargo executable set",
+    );
     bundleSemantics(validVectors.documents);
   });
 
@@ -2839,6 +2871,42 @@ describe("LLP 0035 portable engine authority schemas", () => {
       );
       expect(() => postLinkVerificationSemantics(documents)).toThrow(error);
     }
+  });
+
+  test("post-link completion binds checked enumeration and exact evidence bytes", () => {
+    const documents = validVectors.documents;
+    const completion = documents.postLinkVerificationSet;
+    expect(completion.enumerationDigest).toBe(
+      computeDomainDigest(
+        "ibex.portable-engine-cargo-executable-set.v1",
+        documents.cargoExecutableSet,
+      ),
+    );
+    expect(completion.results).toHaveLength(1);
+    expect(completion.results[0]).toEqual({
+      logicalName: documents.postLinkVerification.executable.logicalName,
+      targetKind: documents.postLinkVerification.executable.targetKind,
+      evidenceFile: "0000.json",
+      evidenceDigest: `sha256-${createHash("sha256")
+        .update(Buffer.from(canonicalJson(documents.postLinkVerification), "utf8"))
+        .digest("hex")}`,
+      verificationDigest: documents.postLinkVerification.verificationDigest,
+    });
+    expect(completion.setDigest).toBe(
+      computeDomainDigest(
+        "ibex.portable-engine-post-link-verification-set.v1",
+        completion,
+        ["setDigest"],
+      ),
+    );
+
+    const mismatch = structuredClone(completion);
+    mismatch.results[0].targetKind = "test";
+    const validate = validatorFor(
+      buildAjv(),
+      "portable-engine-post-link-verification-set-v1.schema.json",
+    );
+    expect(validate(mismatch)).toBe(false);
   });
 
   test("Cargo identity path smuggling stays invalid after coherent self-rehash", () => {

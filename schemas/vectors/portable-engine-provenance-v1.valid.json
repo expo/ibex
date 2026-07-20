@@ -1779,6 +1779,80 @@
           "ws2_32.dll"
         ]
       }
+    },
+    "cargoExecutableSet": {
+      "schema": "ibex/portable-engine-cargo-executable-set/1",
+      "mode": "cargo-test-no-run-all-targets",
+      "package": {
+        "name": "ibex-runtime",
+        "version": "0.1.0",
+        "manifestPath": "Cargo.toml"
+      },
+      "targetTriple": "aarch64-apple-darwin",
+      "ibexFeatures": [
+        "capsec-conformance-observer",
+        "cli-notify",
+        "host-http-server"
+      ],
+      "cargoArguments": [
+        "test",
+        "--locked",
+        "--no-run",
+        "--all-targets",
+        "--features",
+        "capsec-conformance-observer,cli-notify,host-http-server",
+        "--message-format=json"
+      ],
+      "targets": [
+        {
+          "cargoTargetKind": "bin",
+          "cargoTargetKinds": [
+            "bin"
+          ],
+          "cargoTargetName": "ibex",
+          "logicalName": "bin/ibex",
+          "profileTest": false,
+          "targetKind": "bin"
+        }
+      ]
+    },
+    "postLinkVerificationSet": {
+      "schema": "ibex/portable-engine-post-link-verification-set/1",
+      "portable": {
+        "schema": "ibex/portable-engine-artifact-identity/1",
+        "artifactId": "sha256-1Zn4fxnACSTUiCG0_DpVyy0jXAajBFjYV9st5X9i0Pw",
+        "artifactKind": "hermes",
+        "target": {
+          "triple": "aarch64-apple-darwin",
+          "structuralFeatures": [
+            "dynamic-library",
+            "framework"
+          ]
+        },
+        "profile": {
+          "id": "source-patched",
+          "targetVariant": "default",
+          "configuration": "Release",
+          "debugger": false,
+          "hermesBytecodeVersion": 99
+        },
+        "runtimeComponentDigest": "sha256-5555555555555555555555555555555555555555555555555555555555555555",
+        "reviewedProfileIdentityDigest": "sha256-u5dQA6qdaF5TB9N52neD2EJyN2HPt3KGNbSI1HUkb-Q",
+        "interfaceContractDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
+      },
+      "buildConsumptionDigest": "sha256-_EkNABw23FsL9P3YI0pICzQ33HGVK7fdMO8XJnBzcM4",
+      "enumerationDigest": "sha256-ulywbonM1f7sbfeGg5RcaPyazTAFLW3dQL3JDW_nbl8",
+      "results": [
+        {
+          "logicalName": "bin/ibex",
+          "targetKind": "bin",
+          "evidenceFile": "0000.json",
+          "evidenceDigest": "sha256-b00917195a7aeb4afe591342b20590d32267811d9295ee8936a02d3b4d2e092c",
+          "verificationDigest": "sha256-DLga7wc0v4nYIPeF-C4Uq2gJBV7PL1C3VKzChe8Eqeg"
+        }
+      ],
+      "outcome": "verified",
+      "setDigest": "sha256-lm8UVInMad9Ebz_IRpUa_ZuU11RM9zGqv6m_PBC5reM"
     }
   },
   "projections": [
@@ -1869,6 +1943,13 @@
       "expectedDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
     },
     {
+      "id": "cargo-executable-set-digest",
+      "documentPath": "cargoExecutableSet",
+      "domain": "ibex.portable-engine-cargo-executable-set.v1",
+      "omitFields": [],
+      "expectedDigest": "sha256-ulywbonM1f7sbfeGg5RcaPyazTAFLW3dQL3JDW_nbl8"
+    },
+    {
       "id": "build-consumption-digest",
       "documentPath": "buildConsumption",
       "domain": "ibex.portable-engine-build-consumption.v1",
@@ -1885,6 +1966,15 @@
         "verificationDigest"
       ],
       "expectedDigest": "sha256-bFoEhNVazTSKmITVV6I8gvlpxOWsm_lBEPIv3OGz18M"
+    },
+    {
+      "id": "post-link-verification-set-digest",
+      "documentPath": "postLinkVerificationSet",
+      "domain": "ibex.portable-engine-post-link-verification-set.v1",
+      "omitFields": [
+        "setDigest"
+      ],
+      "expectedDigest": "sha256-lm8UVInMad9Ebz_IRpUa_ZuU11RM9zGqv6m_PBC5reM"
     },
     {
       "id": "mapped-observation-digest",

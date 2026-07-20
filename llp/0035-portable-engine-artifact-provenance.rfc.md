@@ -803,6 +803,33 @@ hyphen, or underscore characters beginning with an alphanumeric character.
 The prefix must equal `targetKind`; dots, percent escapes, separators, and
 local output paths are unrepresentable.
 
+Completeness is established from the JSON message stream of one successful
+Cargo `--no-run` invocation plus a canonical, bounded expected-target manifest,
+not by scanning `target/` or guessing from filenames. The manifest fixes one
+exact root package name, version, checked manifest path, and a strictly sorted
+set of `(cargo target kind, cargo target-kind set, cargo target name,
+test-profile flag, evidence target kind, logical name)` rows. The verifier
+derives the checkout-local Cargo package ID from that checked package identity
+and requires one consistent ID across all selected messages.
+`bin`, `test`, `example`, and `bench` targets retain their closed evidence
+kind; a `lib` or `bin` unit-test harness maps to `test`. The verifier rejects a
+missing expected row, an extra final-executable artifact for the selected
+package, a duplicate identity, a failed or absent terminal `build-finished`
+message, and any executable outside the checkout's `target/` directory. Thus
+the per-executable result schema stays path-free while the local gate still
+proves that it covered the complete declared build output set.
+The expected manifest is itself checked-revision authority at
+`config/portable-engine-cargo-executables-authenticated-v1.json`; production
+callers cannot substitute its bytes or path. Its feature set and fixed
+`cargo test --locked --no-run --all-targets --message-format=json` arguments
+define the complete target set, while its feature set must equal the build
+record. The listed features are the sorted active root-package closure,
+including Cargo's `default` feature and its local feature edges, and the
+command names that closure explicitly. A metadata-only generator derives the
+closure and exact target/profile rows from the root package, and a checked
+drift test fails whenever `Cargo.toml` features or target membership change
+without a manifest update.
+
 `payloadRevalidation` has exact fields `artifactId, buildConsumptionDigest,
 manifestDigest, installationReceiptDigest, verificationPolicyDigest,
 manifestEntryCount, regularEntryCount, regularByteCount,
@@ -840,6 +867,21 @@ undeclared, or path-resolved local dylibs fail. Windows final-PE evidence
 requires its separately frozen loader/import-graph contract and may not be
 represented as this Mach-O v1 result.
 
+For the portable runtime's `@rpath` install name, the verifier expands every
+recorded loader-relative rpath against the final executable location using
+Mach-O executable semantics. The recorded set itself must be exactly one
+canonical `@loader_path` value computed from the checked target-kind output
+directory (`target/debug`, `target/debug/deps`, or `target/debug/examples`) to
+the selected artifact's `payload/lib`; an executable in another directory and
+a wrong-depth or otherwise unused alternate are forbidden even when the
+alternate candidate does not yet exist. Exactly one existing candidate must
+be the regular runtime component at
+`target/hermes-artifacts/<artifactId>/payload/lib/...`, with the manifest-bound
+size and digest. A second spelling that reaches the same file, an existing
+candidate in another artifact or local directory, a redirected candidate, or
+no matching candidate is an ambiguous or wrong resolution and fails without
+evidence.
+
 The result digest is:
 
 ```text
@@ -848,6 +890,32 @@ The result digest is:
           JCS(result without verificationDigest))
 )
 ```
+
+Because one valid row cannot prove batch completeness,
+`ibex/portable-engine-post-link-verification-set/1` is the atomic completion
+record for the whole Cargo invocation. Its exact fields are `schema, portable,
+buildConsumptionDigest, enumerationDigest, results, outcome, setDigest`.
+`enumerationDigest` is the tagged semantic digest of the complete checked
+Cargo executable-set manifest. `results` is the strictly sorted exact target
+set; each row binds `logicalName, targetKind, evidenceFile, evidenceDigest,
+verificationDigest`, where `evidenceDigest` hashes the complete canonical
+per-executable result bytes. `outcome` is exactly `verified`. The set digest is:
+
+```text
+"sha256-" || base64url(
+  SHA-256("ibex.portable-engine-post-link-verification-set.v1\0" ||
+          JCS(set without setDigest))
+)
+```
+
+The gate writes every numbered per-executable result plus `COMPLETE.json` into
+one private sibling directory, fsyncs it, makes it read-only, and renames that
+directory atomically to
+`target/portable-engine-post-link/<buildConsumptionDigest>`. The destination
+is derived, never caller-selected, and must not already exist. Downstream
+conformance must verify `COMPLETE.json`, exact directory membership, every raw
+evidence digest, every verification digest, and equality to the checked
+enumeration before treating the set as complete.
 
 For an authoritative Cargo build, `build.rs` accepts an artifact ID or a
 validated store root, selects the exact declared runtime/link/header
@@ -1261,8 +1329,10 @@ The golden vectors freeze these semantic digest purposes and projections:
 | Trust-policy digest | `ibex.portable-engine-provenance-trust-policy.v1` | complete checked policy |
 | Installation-receipt digest | `ibex.portable-engine-installation-receipt.v1` | complete installation receipt |
 | Interface-contract digest | `ibex.portable-engine-interface.v1` | complete manifest `interface` object |
+| Checked Cargo executable-set digest | `ibex.portable-engine-cargo-executable-set.v1` | complete checked executable-set manifest |
 | Build-consumption digest | `ibex.portable-engine-build-consumption.v1` | build-consumption record without `consumptionDigest` |
 | Post-link verification digest | `ibex.portable-engine-post-link-verification.v1` | post-link result without `verificationDigest` |
+| Post-link verification-set digest | `ibex.portable-engine-post-link-verification-set.v1` | atomic completion record without `setDigest` |
 | Mapped observation digest | `ibex.mapped-engine-instance-identity.v1` | mapped identity without `observationDigest` |
 | Suite-descriptor digest | `ibex.portable-engine-suite-lineage.v1` | complete suite descriptor |
 | Shard-assignment digest | `ibex.portable-engine-shard-assignment.v1` | complete assignment descriptor |
@@ -1292,13 +1362,15 @@ consumption, and the accepted RFC switch remain absent. Reports and
 advertisements therefore stay unchanged and empty.
 
 The checked schema checkpoint additionally freezes the authoritative
-build-consumption record and macOS arm64 final-executable post-link result.
+build-consumption record, checked Cargo executable set, macOS arm64
+final-executable post-link result, and atomic post-link result-set record.
 Their golden DAG joins the complete installation receipt, manifest, policy,
 portable identity, header set, runtime/link/tool/dependency inputs, final
 executable byte digest and size, loader-relative rpaths, and complete direct
-Mach-O dependency inventory. This is a contract and adversarial vector
-checkpoint only:
-`build.rs` does not yet emit the record and no post-link verifier consumes it.
+Mach-O dependency inventory. At the initial freeze this was a contract and
+adversarial-vector checkpoint only; the independently reviewed verifier and
+the still-required producer are tracked by the later checkpoint below and do
+not themselves activate portable authority.
 The valid golden is derived only by replaying the complete base64 bytes of the
 checked admitted synthetic Mach-O fixture through the production parser. The
 parser records exact sorted `(load command, install name)` rows, complete
@@ -1309,6 +1381,28 @@ verbatim into the post-link result. Mutation tests coherently recompute result
 digests and still reject command, environment, rpath, executable-byte,
 Cargo-identity, build-input, and full-payload-count changes at their semantic
 joins.
+
+Implementation checkpoint (2026-07-20):
+`scripts/portable-engine-post-link.mjs` and its production/test-only core now
+consume the frozen build and post-link schemas. The production boundary first
+invokes the fixed checkout-local store verifier, which repeats complete
+payload graph and retained-transport provenance validation; it then rejoins
+the canonical build record, checked manifest, receipt, policy, headers, tools,
+link inputs, and runtime topology. An exact checked-revision Cargo target-set
+manifest closes final-executable enumeration over a successful JSON `--no-run`
+stream.
+The gate reads each final Mach-O through a no-follow pinned file descriptor,
+rejects loader/environment/dependency drift, proves one unambiguous selected
+Hermes resolution, schema-validates every result from checked-revision schema
+bytes, binds exact membership in a schema-valid `COMPLETE.json` set record,
+and atomically renames the derived complete read-only evidence directory.
+Focused tests cover missing and concurrently changed executables, absolute,
+wrong, and duplicate rpath resolution, artifact substitution, duplicate
+Hermes load commands, and omitted, extra, duplicate, and ambiguous Cargo
+targets. This implementation does not change the trust-policy acceptance
+switch, reports, or advertisements; its production store-verifier and
+build-record producer seams become runnable only when independently accepted
+installer and build-consumption changes are integrated.
 
 A separate checked diagnostic observation records those same fields for the
 current arm64 debug executable used to review the Apple allowlist. It grants
