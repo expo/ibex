@@ -192,6 +192,7 @@ struct ExactHostCallAsyncEntry {
 struct ExactHermesRuntime;
 struct ExactGpuRuntimeBinding;
 struct ExactGpuRuntimeBindingV2;
+struct ExactGpuDecodedImageRuntimeBindingV1;
 
 enum class EmbedderCapabilityState : uint8_t {
   LegacyAutoFinalize,
@@ -722,6 +723,11 @@ struct ExactHermesRuntime {
   // may be populated; keeping distinct types makes the V1 ABI and behavior
   // mechanically unchanged while V2 is staged behind the same feature gate.
   std::shared_ptr<ExactGpuRuntimeBindingV2> gpu_binding_v2;
+  // Construction-private, subordinate decoded-image callback. It contributes
+  // no capability-set bit and is consumed only while publishing a live V2
+  // private bridge. Teardown generation-fences and cancels it independently.
+  std::shared_ptr<ExactGpuDecodedImageRuntimeBindingV1>
+      gpu_decoded_image_binding_v1;
 };
 
 // Replace the captured typed-filesystem principal constraint for the current
@@ -1959,6 +1965,14 @@ bool exactGpuV2OwnerDrainPending(const ExactHermesRuntime* runtime);
 int exactGpuV2DrainOwnerFallback(ExactHermesRuntime* runtime);
 void exactGpuV2RollbackInstall(ExactHermesRuntime* runtime);
 void exactGpuV2BeginRuntimeTeardown(ExactHermesRuntime* runtime);
+
+bool exactGpuDecodedImageAttachAuthorityV1(
+    ExactHermesRuntime* runtime,
+    facebook::jsi::Runtime& rt,
+    facebook::jsi::Object& bridge);
+void exactGpuDecodedImageDiscardIfUnusedV1(ExactHermesRuntime* runtime);
+void exactGpuDecodedImageRollbackInstallV1(ExactHermesRuntime* runtime);
+void exactGpuDecodedImageBeginRuntimeTeardownV1(ExactHermesRuntime* runtime);
 
 void exactRequireFdReadable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
 void exactRequireFdWritable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);

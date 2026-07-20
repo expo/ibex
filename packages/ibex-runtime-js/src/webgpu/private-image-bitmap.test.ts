@@ -245,4 +245,25 @@ describe('construction-private ImageBitmap carrier', () => {
       revoked.createImageBitmap(new Blob([ENCODED])),
     ).rejects.toMatchObject({ name: 'SecurityError' });
   });
+
+  test('propagates one-way construction revocation to the native authority', async () => {
+    let revokeCalls = 0;
+    const base = authority();
+    const decoder: ProductionGpuDecodedImageAuthorityV1 = Object.freeze({
+      decodePng: base.decodePng,
+      revoke() {
+        revokeCalls += 1;
+        throw new Error('host cleanup failure is not a revocation veto');
+      },
+    });
+    const images = factory(decoder);
+    await images.createImageBitmap(new Blob([ENCODED]));
+
+    expect(() => images.revoke()).not.toThrow();
+    images.revoke();
+    expect(revokeCalls).toBe(1);
+    await expect(
+      images.createImageBitmap(new Blob([ENCODED])),
+    ).rejects.toMatchObject({ name: 'SecurityError' });
+  });
 });

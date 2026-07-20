@@ -14,6 +14,7 @@ import type {
   NativeGpuCallMetadataV2,
   NativeGpuEventV2,
 } from './native-bridge';
+import type { ProductionGpuDecodedImageRequestV1 } from './private-image-bitmap';
 import type {
   ExecutableWebGpuCodecBundle,
   ProductionGpuBufferLifecycleEncoding,
@@ -957,6 +958,46 @@ describe('production-private WebGPU wrapper factory', () => {
       ),
     ).toThrow('Invalid private WebGPU binding extensions');
     expect(extensionGetterRuns).toBe(0);
+  });
+
+  test('consumes a bridge-carried decoder without installing a global ImageBitmap API', async () => {
+    let decodeCalls = 0;
+    const bridge = Object.assign(createFakeBridge(), {
+      decodedImageAuthority: Object.freeze({
+        async decodePng(request: ProductionGpuDecodedImageRequestV1) {
+          decodeCalls += 1;
+          return Object.freeze({
+            runtimeAddress: request.runtimeAddress,
+            runtimeNonce: request.runtimeNonce,
+            sourceId: request.sourceId,
+            sourceGeneration: request.sourceGeneration,
+            width: 1,
+            height: 1,
+            bytesPerRow: 4,
+            encodedBytes: request.encodedBytes,
+            decodedPremultipliedRgba8: new Uint8Array([9, 8, 7, 6]),
+            encodedContentSha256: '12'.repeat(32),
+            decodedContentSha256: '34'.repeat(32),
+            originClean: true as const,
+            colorSpace: 'srgb' as const,
+            alphaMode: 'premultiplied' as const,
+            orientation: 'top-left' as const,
+          });
+        },
+      }),
+    });
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+    );
+    const bitmap = await binding.createImageBitmap!(
+      new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' }),
+    );
+    expect(binding.snapshotImageBitmapForCopy!(bitmap)
+      .decodedPremultipliedRgba8).toEqual(new Uint8Array([9, 8, 7, 6]));
+    expect(decodeCalls).toBe(1);
+    expect('createImageBitmap' in globalThis).toBe(false);
+    binding.revoke();
   });
 
   test('snapshots only an attenuating mapped allocation guard data option', () => {

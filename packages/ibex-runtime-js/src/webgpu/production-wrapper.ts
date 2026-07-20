@@ -1182,16 +1182,22 @@ export function createProductionWebGpuPrivateBinding(
   bridge: NativeGpuBridgeV2,
   codecs: ExecutableWebGpuCodecBundle,
   testOptions: ProductionWebGpuPrivateBindingTestOptions = {},
-  extensions: ProductionWebGpuPrivateBindingExtensions = {},
+  extensions: ProductionWebGpuPrivateBindingExtensions | undefined = undefined,
 ): ProductionWebGpuPrivateBinding {
   if (!validateExecutableWebGpuCodecs(codecs)) {
     throw new TypeError('WebGPU executable codec authority is invalid');
   }
   const capturedTestOptions = capturePrivateBindingTestOptions(testOptions);
-  if (typeof extensions !== 'object' || extensions === null) {
+  const effectiveExtensions = extensions ??
+    (bridge.decodedImageAuthority === undefined
+      ? Object.freeze({})
+      : Object.freeze({
+        decodedImageAuthority: bridge.decodedImageAuthority,
+      }));
+  if (typeof effectiveExtensions !== 'object' || effectiveExtensions === null) {
     throw new TypeError('Invalid private WebGPU binding extensions');
   }
-  const extensionDescriptors = Object.getOwnPropertyDescriptors(extensions);
+  const extensionDescriptors = Object.getOwnPropertyDescriptors(effectiveExtensions);
   const extensionKeys = Reflect.ownKeys(extensionDescriptors);
   if (
     extensionKeys.length > 1 ||

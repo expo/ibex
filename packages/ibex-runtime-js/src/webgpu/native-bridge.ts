@@ -2,6 +2,8 @@
 // bridge is captured during the embedder construction transaction and never
 // becomes an app-visible global or navigator property.
 
+import type { ProductionGpuDecodedImageAuthorityV1 } from './private-image-bitmap';
+
 const CAPTURE_NAME = '__ibexCaptureGpuNativeBridge';
 
 export interface NativeGpuBridgeV1 {
@@ -197,6 +199,8 @@ export interface NativeGpuBridgeV2 {
   readonly rootAccountId: string;
   readonly rootAccountGeneration: string;
   readonly rootAuthorityDigest: ArrayBufferView;
+  /** Optional construction-private Apple decoded-image callback authority. */
+  readonly decodedImageAuthority?: ProductionGpuDecodedImageAuthorityV1;
   readonly submit: (
     operationId: number,
     wantsPromise: boolean,

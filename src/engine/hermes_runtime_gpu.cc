@@ -1655,6 +1655,7 @@ bool exactGpuPublishPrivateBridge(ExactHermesRuntime* runtime) {
   (void)runtime;
   return true;
 #else
+  exactGpuDecodedImageDiscardIfUnusedV1(runtime);
   if (runtime && runtime->gpu_binding_v2) {
     return exactGpuV2PublishPrivateBridge(runtime);
   }
@@ -1829,6 +1830,7 @@ int exactGpuDrainOwnerFallback(ExactHermesRuntime* runtime) {
 
 void exactGpuRollbackInstall(ExactHermesRuntime* runtime) {
   if (!runtime) return;
+  exactGpuDecodedImageRollbackInstallV1(runtime);
   if (runtime->gpu_binding_v2) {
     exactGpuV2RollbackInstall(runtime);
   }
@@ -1844,6 +1846,7 @@ void exactGpuRollbackInstall(ExactHermesRuntime* runtime) {
 
 void exactGpuBeginRuntimeTeardown(ExactHermesRuntime* runtime) {
   if (!runtime) return;
+  exactGpuDecodedImageBeginRuntimeTeardownV1(runtime);
   if (runtime->gpu_binding_v2) {
     exactGpuV2BeginRuntimeTeardown(runtime);
   }

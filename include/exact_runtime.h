@@ -85,6 +85,16 @@ typedef enum ExactEmbedderCapabilitiesStatus {
 /// closed rather than evicting an exactly-once tombstone.
 #define EXACT_GPU_MAX_LIFECYCLE_TERMINALS_PER_REALM_V2 UINT32_C(1024)
 
+/// Construction-private decoded-image callback ABI. This is subordinate to
+/// the authenticated V2 WebGPU bridge: registering it does not add an
+/// embedder capability bit, publish a global, or make a WebGPU support claim.
+#define EXACT_GPU_DECODED_IMAGE_ABI_VERSION_V1 UINT32_C(0x00010000)
+#define EXACT_GPU_DECODED_IMAGE_MIME_PNG_V1 UINT32_C(1)
+#define EXACT_GPU_DECODED_IMAGE_COLOR_SPACE_SRGB_V1 UINT32_C(1)
+#define EXACT_GPU_DECODED_IMAGE_ALPHA_PREMULTIPLIED_V1 UINT32_C(1)
+#define EXACT_GPU_DECODED_IMAGE_ORIENTATION_TOP_LEFT_V1 UINT32_C(1)
+#define EXACT_GPU_DECODED_IMAGE_ORIGIN_SCRIPT_OWNED_BLOB_V1 UINT32_C(1)
+
 typedef enum ExactGpuProviderStatus {
     EXACT_GPU_PROVIDER_OK = 0,
     EXACT_GPU_PROVIDER_INVALID_ARGUMENT = -1,
@@ -791,6 +801,78 @@ typedef struct ExactHermesGpuProviderDescriptorV2 {
     const ExactGpuServiceApiV2* api;
 } ExactHermesGpuProviderDescriptorV2;
 
+/// Full source identity minted by the runtime-private ImageBitmap factory.
+/// Every word is nonzero and is compared again when native completion arrives.
+typedef struct ExactGpuDecodedImageIdentityV1 {
+  uint64_t runtime_address;
+  uint64_t runtime_nonce;
+  uint64_t source_id;
+  uint64_t source_generation;
+} ExactGpuDecodedImageIdentityV1;
+
+/// Borrowed call-time request. The host must copy encoded_bytes before
+/// begin_decode returns. Admission is bounded by Ibex before this callback.
+typedef struct ExactGpuDecodedImageRequestV1 {
+  uint32_t struct_size;
+  uint32_t abi_version;
+  uint32_t mime_type;
+  uint32_t reserved;
+  uint64_t request_id;
+  ExactGpuDecodedImageIdentityV1 identity;
+  const uint8_t *encoded_bytes;
+  size_t encoded_len;
+} ExactGpuDecodedImageRequestV1;
+
+/// Borrowed completion plane. Ibex validates the exact identity and canonical
+/// metadata, compares encoded_bytes with its retained request snapshot, and
+/// copies both byte ranges before the completion call returns.
+typedef struct ExactGpuDecodedImagePlaneV1 {
+  uint32_t struct_size;
+  uint32_t abi_version;
+  uint32_t width;
+  uint32_t height;
+  uint32_t bytes_per_row;
+  uint32_t color_space;
+  uint32_t alpha_mode;
+  uint32_t orientation;
+  uint32_t origin_clean_class;
+  uint32_t reserved;
+  uint64_t request_id;
+  ExactGpuDecodedImageIdentityV1 identity;
+  const uint8_t *encoded_bytes;
+  size_t encoded_len;
+  const uint8_t *decoded_bytes;
+  size_t decoded_len;
+  uint8_t encoded_sha256[32];
+  uint8_t decoded_sha256[32];
+} ExactGpuDecodedImagePlaneV1;
+
+typedef enum ExactGpuDecodedImageCompletionStatusV1 {
+  EXACT_GPU_DECODED_IMAGE_COMPLETE_V1 = 0,
+  EXACT_GPU_DECODED_IMAGE_DECODE_FAILED_V1 = 1,
+  EXACT_GPU_DECODED_IMAGE_CANCELLED_V1 = 2,
+} ExactGpuDecodedImageCompletionStatusV1;
+
+typedef struct ExactGpuDecodedImageHostApiV1 {
+  uint32_t struct_size;
+  uint32_t abi_version;
+  void *host_context;
+  void (*retain_context)(void *host_context);
+  void (*release_context)(void *host_context);
+  int32_t (*begin_decode)(void *host_context,
+                          const ExactGpuDecodedImageRequestV1 *request);
+  void (*cancel_decode)(void *host_context,
+                        const ExactGpuDecodedImageIdentityV1 *identity,
+                        uint64_t request_id);
+} ExactGpuDecodedImageHostApiV1;
+
+typedef struct ExactHermesGpuDecodedImageDescriptorV1 {
+  uint32_t struct_size;
+  uint32_t abi_version;
+  uint64_t flags;
+  const ExactGpuDecodedImageHostApiV1 *api;
+} ExactHermesGpuDecodedImageDescriptorV1;
+
 /// Version-1 discriminants shared by every authenticated virtual-filesystem
 /// result. Functions return the fixed-width `uint32_t` representation rather
 /// than this C enum type so the ABI width cannot vary by compiler. Output
@@ -854,6 +936,24 @@ size_t ex_hermes_gpu_provider_descriptor_size_v1(void);
 /// report V1 so existing embedders do not silently switch layouts.
 uint32_t ex_hermes_gpu_provider_abi_version_v2(void);
 size_t ex_hermes_gpu_provider_descriptor_size_v2(void);
+
+/// Query/register the construction-private decoded-image callback adapter.
+/// Registration is owner-thread-only and valid only inside the additive
+/// embedder construction transaction. The callback is retained only when the
+/// library was built with `webgpu-binding`; otherwise registration reports
+/// EXACT_GPU_PROVIDER_UNSUPPORTED without retaining caller state.
+uint32_t ex_hermes_gpu_decoded_image_abi_version_v1(void);
+size_t ex_hermes_gpu_decoded_image_descriptor_size_v1(void);
+int32_t ex_hermes_set_gpu_decoded_image_provider_v1(
+    ExactHermesRuntime *runtime,
+    const ExactHermesGpuDecodedImageDescriptorV1 *descriptor);
+
+/// Arbitrary-thread, one-shot completion ingress. request_id resolves through
+/// a generation-qualified native registry before any runtime pointer is
+/// dereferenced. All records and bytes are copied before this call returns.
+int32_t ex_hermes_complete_gpu_decoded_image_v1(
+    uint64_t request_id, uint32_t status,
+    const ExactGpuDecodedImagePlaneV1 *plane);
 
 /// Register one authenticated provider-independent Exact GPU service. The
 /// descriptor and function table are copied. The function returns

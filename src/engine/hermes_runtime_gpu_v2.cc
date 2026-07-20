@@ -1644,6 +1644,34 @@ std::atomic<uint32_t> gGpuV2ServiceEntryPauseState{0};
 }  // namespace
 
 #if defined(IBEX_ENABLE_WEBGPU_BINDING)
+struct DecodedImagePromiseResolversV1 {
+  std::shared_ptr<facebook::jsi::Function> resolve;
+  std::shared_ptr<facebook::jsi::Function> reject;
+};
+
+struct PendingDecodedImageV1 {
+  uint64_t request_id{0};
+  ExactGpuDecodedImageIdentityV1 identity{};
+  std::vector<uint8_t> encoded;
+  std::shared_ptr<DecodedImagePromiseResolversV1> resolvers;
+  bool completion_queued{false};
+  size_t queued_decoded_bytes{0};
+};
+
+struct ExactGpuDecodedImageRuntimeBindingV1 {
+  ExactGpuDecodedImageHostApiV1 api{};
+  RuntimeCallbackTarget target{};
+  std::mutex mutex;
+  std::unordered_map<uint64_t, PendingDecodedImageV1> pending;
+  size_t pending_encoded_bytes{0};
+  size_t queued_decoded_bytes{0};
+  bool context_retained{false};
+  bool active{true};
+
+  ~ExactGpuDecodedImageRuntimeBindingV1();
+  void detach(ExactHermesRuntime* runtime, const char* reason) noexcept;
+};
+
 struct ExactGpuRuntimeBindingV2 {
   ExactGpuServiceApiV2 api{};
   ExactGpuClientMailboxV2* mailbox{nullptr};
@@ -1675,12 +1703,208 @@ struct ExactGpuRuntimeBindingV2 {
   void detach(ExactHermesRuntime* runtime, const char* reason) noexcept;
 };
 #else
+struct ExactGpuDecodedImageRuntimeBindingV1 {};
 struct ExactGpuRuntimeBindingV2 {};
 #endif
 
 namespace {
 
 #if defined(IBEX_ENABLE_WEBGPU_BINDING)
+
+constexpr size_t kMaxDecodedImageEncodedBytesV1 = 16 * 1024 * 1024;
+constexpr size_t kMaxDecodedImageBytesV1 = 64 * 1024 * 1024;
+constexpr size_t kMaxDecodedImageDimensionV1 = 8192;
+constexpr size_t kMaxPendingDecodedImagesV1 = 8;
+constexpr size_t kMaxPendingDecodedImageEncodedBytesV1 = 32 * 1024 * 1024;
+constexpr size_t kMaxQueuedDecodedImageBytesV1 = 64 * 1024 * 1024;
+
+struct DecodedImageRequestTargetV1 {
+  RuntimeCallbackTarget target{};
+  std::weak_ptr<ExactGpuDecodedImageRuntimeBindingV1> binding;
+};
+
+struct CopiedDecodedImagePlaneV1 {
+  uint32_t width{0};
+  uint32_t height{0};
+  uint32_t bytes_per_row{0};
+  std::vector<uint8_t> encoded;
+  std::vector<uint8_t> decoded;
+  std::array<uint8_t, 32> encoded_sha256{};
+  std::array<uint8_t, 32> decoded_sha256{};
+};
+
+std::atomic<uint64_t> gNextDecodedImageRequestIdV1{1};
+std::mutex gDecodedImageRequestTargetsMutexV1;
+std::unordered_map<uint64_t, DecodedImageRequestTargetV1>
+    gDecodedImageRequestTargetsV1;
+
+bool equalDecodedImageIdentityV1(const ExactGpuDecodedImageIdentityV1 &left,
+                                 const ExactGpuDecodedImageIdentityV1 &right) {
+  return left.runtime_address == right.runtime_address &&
+         left.runtime_nonce == right.runtime_nonce &&
+         left.source_id == right.source_id &&
+         left.source_generation == right.source_generation;
+}
+
+bool validDecodedImageIdentityV1(
+    const ExactGpuDecodedImageIdentityV1 &identity) {
+  return identity.runtime_address != 0 && identity.runtime_nonce != 0 &&
+         identity.source_id != 0 && identity.source_generation != 0;
+}
+
+void forgetDecodedImageRequestTargetV1(uint64_t requestId) {
+  std::lock_guard<std::mutex> lock(gDecodedImageRequestTargetsMutexV1);
+  gDecodedImageRequestTargetsV1.erase(requestId);
+}
+
+std::optional<DecodedImageRequestTargetV1>
+takeDecodedImageRequestTargetV1(uint64_t requestId) {
+  std::lock_guard<std::mutex> lock(gDecodedImageRequestTargetsMutexV1);
+  auto found = gDecodedImageRequestTargetsV1.find(requestId);
+  if (found == gDecodedImageRequestTargetsV1.end())
+    return std::nullopt;
+  auto target = found->second;
+  gDecodedImageRequestTargetsV1.erase(found);
+  return target;
+}
+
+facebook::jsi::Object makeDecodedImagePromiseV1(
+    facebook::jsi::Runtime &rt,
+    const std::shared_ptr<DecodedImagePromiseResolversV1> &resolvers) {
+  auto executor = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "decodedImagePromiseExecutor"), 2,
+      [resolvers](facebook::jsi::Runtime &rt, const facebook::jsi::Value &,
+                  const facebook::jsi::Value *args,
+                  size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isObject() || !args[1].isObject() ||
+            !args[0].asObject(rt).isFunction(rt) ||
+            !args[1].asObject(rt).isFunction(rt)) {
+          throw facebook::jsi::JSError(
+              rt, "Malformed decoded-image Promise executor");
+        }
+        resolvers->resolve = std::make_shared<facebook::jsi::Function>(
+            args[0].asObject(rt).asFunction(rt));
+        resolvers->reject = std::make_shared<facebook::jsi::Function>(
+            args[1].asObject(rt).asFunction(rt));
+        return facebook::jsi::Value::undefined();
+      });
+  auto promise = rt.global()
+                     .getPropertyAsFunction(rt, "Promise")
+                     .callAsConstructor(rt, executor)
+                     .getObject(rt);
+  if (!resolvers->resolve || !resolvers->reject) {
+    throw facebook::jsi::JSError(
+        rt, "Decoded-image Promise executor did not initialize");
+  }
+  return promise;
+}
+
+facebook::jsi::Object makeDecodedImageErrorV1(facebook::jsi::Runtime &rt,
+                                              const char *message) {
+  auto error = rt.global()
+                   .getPropertyAsFunction(rt, "Error")
+                   .callAsConstructor(
+                       rt, facebook::jsi::String::createFromUtf8(rt, message))
+                   .getObject(rt);
+  error.setProperty(
+      rt, "name", facebook::jsi::String::createFromAscii(rt, "OperationError"));
+  return error;
+}
+
+void rejectDecodedImageV1(
+    facebook::jsi::Runtime &rt,
+    const std::shared_ptr<DecodedImagePromiseResolversV1> &resolvers,
+    const char *message) noexcept {
+  if (!resolvers || !resolvers->reject)
+    return;
+  try {
+    resolvers->reject->call(rt, makeDecodedImageErrorV1(rt, message));
+  } catch (...) {
+    try {
+      resolvers->reject->call(rt, facebook::jsi::Value::undefined());
+    } catch (...) {
+    }
+  }
+}
+
+std::string decodedImageDigestHexV1(const std::array<uint8_t, 32> &digest) {
+  static constexpr char kHex[] = "0123456789abcdef";
+  std::string result(64, '0');
+  for (size_t index = 0; index < digest.size(); ++index) {
+    result[index * 2] = kHex[digest[index] >> 4];
+    result[index * 2 + 1] = kHex[digest[index] & 0x0f];
+  }
+  return result;
+}
+
+void settleDecodedImageV1(
+    const std::shared_ptr<ExactGpuDecodedImageRuntimeBindingV1> &binding,
+    facebook::jsi::Runtime &rt, uint64_t requestId, uint32_t status,
+    std::shared_ptr<CopiedDecodedImagePlaneV1> plane) noexcept {
+  std::shared_ptr<DecodedImagePromiseResolversV1> resolvers;
+  ExactGpuDecodedImageIdentityV1 identity{};
+  {
+    std::lock_guard<std::mutex> lock(binding->mutex);
+    auto found = binding->pending.find(requestId);
+    if (found == binding->pending.end() || !found->second.completion_queued) {
+      return;
+    }
+    identity = found->second.identity;
+    resolvers = std::move(found->second.resolvers);
+    binding->pending_encoded_bytes -= found->second.encoded.size();
+    binding->queued_decoded_bytes -= found->second.queued_decoded_bytes;
+    binding->pending.erase(found);
+  }
+  if (status != EXACT_GPU_DECODED_IMAGE_COMPLETE_V1 || !plane) {
+    rejectDecodedImageV1(rt, resolvers,
+                         status == EXACT_GPU_DECODED_IMAGE_CANCELLED_V1
+                             ? "Decoded-image request was cancelled"
+                             : "Native PNG decode failed");
+    return;
+  }
+  try {
+    facebook::jsi::Object result(rt);
+    result.setProperty(rt, "runtimeAddress",
+                       facebook::jsi::String::createFromAscii(
+                           rt, std::to_string(identity.runtime_address)));
+    result.setProperty(rt, "runtimeNonce",
+                       facebook::jsi::String::createFromAscii(
+                           rt, std::to_string(identity.runtime_nonce)));
+    result.setProperty(rt, "sourceId",
+                       facebook::jsi::String::createFromAscii(
+                           rt, std::to_string(identity.source_id)));
+    result.setProperty(rt, "sourceGeneration",
+                       facebook::jsi::String::createFromAscii(
+                           rt, std::to_string(identity.source_generation)));
+    result.setProperty(rt, "width", static_cast<double>(plane->width));
+    result.setProperty(rt, "height", static_cast<double>(plane->height));
+    result.setProperty(rt, "bytesPerRow",
+                       static_cast<double>(plane->bytes_per_row));
+    result.setProperty(rt, "encodedBytes",
+                       makeUint8Array(rt, std::move(plane->encoded)));
+    result.setProperty(rt, "decodedPremultipliedRgba8",
+                       makeUint8Array(rt, std::move(plane->decoded)));
+    result.setProperty(rt, "encodedContentSha256",
+                       facebook::jsi::String::createFromAscii(
+                           rt, decodedImageDigestHexV1(plane->encoded_sha256)));
+    result.setProperty(rt, "decodedContentSha256",
+                       facebook::jsi::String::createFromAscii(
+                           rt, decodedImageDigestHexV1(plane->decoded_sha256)));
+    result.setProperty(rt, "originClean", true);
+    result.setProperty(rt, "colorSpace",
+                       facebook::jsi::String::createFromAscii(rt, "srgb"));
+    result.setProperty(
+        rt, "alphaMode",
+        facebook::jsi::String::createFromAscii(rt, "premultiplied"));
+    result.setProperty(rt, "orientation",
+                       facebook::jsi::String::createFromAscii(rt, "top-left"));
+    resolvers->resolve->call(rt, std::move(result));
+  } catch (...) {
+    rejectDecodedImageV1(rt, resolvers,
+                         "Decoded-image result materialization failed");
+  }
+}
 
 bool pauseReservedGpuV2ServiceEntryForTest(
     ExactGpuClientMailboxV2* mailbox,
@@ -1841,6 +2065,139 @@ std::vector<uint8_t> parseGpuV2Bytes(
   }
   return length == 0 ? std::vector<uint8_t>()
                      : std::vector<uint8_t>(data, data + length);
+}
+
+facebook::jsi::Value
+decodeGpuImageV1BridgeCall(ExactHermesRuntime *runtime,
+                           facebook::jsi::Runtime &rt,
+                           const facebook::jsi::Value *args, size_t count) {
+  if (!runtime || !runtime->gpu_decoded_image_binding_v1 || count != 1 ||
+      !args[0].isObject()) {
+    throw facebook::jsi::JSError(
+        rt, "Decoded-image authority requires one canonical request");
+  }
+  auto binding = runtime->gpu_decoded_image_binding_v1;
+  auto requestObject = args[0].asObject(rt);
+  ExactGpuDecodedImageIdentityV1 identity{};
+  identity.runtime_address = parseCanonicalGpuV2Uint64(
+      rt, requestObject.getProperty(rt, "runtimeAddress"), "runtimeAddress",
+      false);
+  identity.runtime_nonce = parseCanonicalGpuV2Uint64(
+      rt, requestObject.getProperty(rt, "runtimeNonce"), "runtimeNonce", false);
+  identity.source_id = parseCanonicalGpuV2Uint64(
+      rt, requestObject.getProperty(rt, "sourceId"), "sourceId", false);
+  identity.source_generation = parseCanonicalGpuV2Uint64(
+      rt, requestObject.getProperty(rt, "sourceGeneration"), "sourceGeneration",
+      false);
+  auto mimeValue = requestObject.getProperty(rt, "mimeType");
+  if (!mimeValue.isString() || mimeValue.asString(rt).utf8(rt) != "image/png") {
+    throw facebook::jsi::JSError(rt, "Decoded-image source must be PNG");
+  }
+  auto encoded =
+      parseGpuV2Bytes(rt, requestObject.getProperty(rt, "encodedBytes"),
+                      "encodedBytes", kMaxDecodedImageEncodedBytesV1);
+  if (encoded.empty() ||
+      identity.runtime_address !=
+          static_cast<uint64_t>(reinterpret_cast<uintptr_t>(runtime)) ||
+      identity.runtime_nonce != runtime->runtime_nonce) {
+    throw facebook::jsi::JSError(
+        rt, "Decoded-image request has stale runtime identity");
+  }
+  const uint64_t requestId =
+      gNextDecodedImageRequestIdV1.fetch_add(1, std::memory_order_relaxed);
+  if (requestId == 0) {
+    throw facebook::jsi::JSError(
+        rt, "Decoded-image request identity space is exhausted");
+  }
+  auto resolvers = std::make_shared<DecodedImagePromiseResolversV1>();
+  auto promise = makeDecodedImagePromiseV1(rt, resolvers);
+  {
+    std::lock_guard<std::mutex> lock(binding->mutex);
+    if (!binding->active) {
+      throw facebook::jsi::JSError(rt, "Decoded-image authority is revoked");
+    }
+    if (binding->pending.size() >= kMaxPendingDecodedImagesV1 ||
+        encoded.size() > kMaxPendingDecodedImageEncodedBytesV1 -
+                             binding->pending_encoded_bytes) {
+      throw facebook::jsi::JSError(rt,
+                                   "Decoded-image pending budget is exhausted");
+    }
+    PendingDecodedImageV1 pending;
+    pending.request_id = requestId;
+    pending.identity = identity;
+    pending.encoded = std::move(encoded);
+    pending.resolvers = resolvers;
+    binding->pending_encoded_bytes += pending.encoded.size();
+    binding->pending.emplace(requestId, std::move(pending));
+  }
+  try {
+    std::lock_guard<std::mutex> lock(gDecodedImageRequestTargetsMutexV1);
+    auto inserted = gDecodedImageRequestTargetsV1.emplace(
+        requestId, DecodedImageRequestTargetV1{binding->target, binding});
+    if (!inserted.second)
+      throw std::bad_alloc();
+  } catch (...) {
+    std::lock_guard<std::mutex> lock(binding->mutex);
+    auto found = binding->pending.find(requestId);
+    if (found != binding->pending.end()) {
+      binding->pending_encoded_bytes -= found->second.encoded.size();
+      binding->pending.erase(found);
+    }
+    throw facebook::jsi::JSError(
+        rt, "Decoded-image request registry is unavailable");
+  }
+
+  ExactGpuDecodedImageRequestV1 request{};
+  request.struct_size = sizeof(request);
+  request.abi_version = EXACT_GPU_DECODED_IMAGE_ABI_VERSION_V1;
+  request.mime_type = EXACT_GPU_DECODED_IMAGE_MIME_PNG_V1;
+  request.request_id = requestId;
+  request.identity = identity;
+  {
+    std::lock_guard<std::mutex> lock(binding->mutex);
+    auto found = binding->pending.find(requestId);
+    request.encoded_bytes = found->second.encoded.data();
+    request.encoded_len = found->second.encoded.size();
+  }
+  int32_t admission = EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION;
+  try {
+    admission = binding->api.begin_decode(binding->api.host_context, &request);
+  } catch (...) {
+    admission = EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION;
+  }
+  if (admission != 0) {
+    forgetDecodedImageRequestTargetV1(requestId);
+    std::shared_ptr<DecodedImagePromiseResolversV1> rejected;
+    {
+      std::lock_guard<std::mutex> lock(binding->mutex);
+      auto found = binding->pending.find(requestId);
+      if (found != binding->pending.end() && !found->second.completion_queued) {
+        rejected = std::move(found->second.resolvers);
+        binding->pending_encoded_bytes -= found->second.encoded.size();
+        binding->pending.erase(found);
+      }
+    }
+    if (rejected) {
+      rejectDecodedImageV1(rt, rejected,
+                           "Native decoded-image queue rejected the request");
+    }
+  }
+  return facebook::jsi::Value(rt, std::move(promise));
+}
+
+facebook::jsi::Value revokeGpuImageV1BridgeCall(ExactHermesRuntime *runtime,
+                                                facebook::jsi::Runtime &,
+                                                size_t count) {
+  if (!runtime || count != 0)
+    return facebook::jsi::Value::undefined();
+  auto binding = runtime->gpu_decoded_image_binding_v1;
+  if (binding) {
+    binding->detach(runtime, "Decoded-image authority was revoked");
+    if (runtime->gpu_decoded_image_binding_v1 == binding) {
+      runtime->gpu_decoded_image_binding_v1.reset();
+    }
+  }
+  return facebook::jsi::Value::undefined();
 }
 
 facebook::jsi::Object makeGpuV2Promise(
@@ -3549,6 +3906,58 @@ facebook::jsi::Value detachGpuV2MappedRangeBridgeCall(
 }  // namespace
 
 #if defined(IBEX_ENABLE_WEBGPU_BINDING)
+ExactGpuDecodedImageRuntimeBindingV1::~ExactGpuDecodedImageRuntimeBindingV1() {
+  detach(nullptr, "Decoded-image binding destroyed");
+}
+
+void ExactGpuDecodedImageRuntimeBindingV1::detach(ExactHermesRuntime *runtime,
+                                                  const char *reason) noexcept {
+  std::vector<std::pair<ExactGpuDecodedImageIdentityV1, uint64_t>>
+      cancellations;
+  std::vector<std::shared_ptr<DecodedImagePromiseResolversV1>> rejections;
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    if (!active && !context_retained)
+      return;
+    active = false;
+    cancellations.reserve(pending.size());
+    rejections.reserve(pending.size());
+    for (auto &entry : pending) {
+      if (!entry.second.completion_queued) {
+        cancellations.emplace_back(entry.second.identity, entry.first);
+      }
+      rejections.push_back(std::move(entry.second.resolvers));
+    }
+    pending.clear();
+    pending_encoded_bytes = 0;
+    queued_decoded_bytes = 0;
+  }
+  for (const auto &cancellation : cancellations) {
+    forgetDecodedImageRequestTargetV1(cancellation.second);
+    try {
+      api.cancel_decode(api.host_context, &cancellation.first,
+                        cancellation.second);
+    } catch (...) {
+      ex_host_console_log(1,
+                          "Decoded-image host cancel threw across its C ABI");
+    }
+  }
+  if (runtime && runtime->runtime) {
+    for (const auto &resolvers : rejections) {
+      rejectDecodedImageV1(*runtime->runtime, resolvers, reason);
+    }
+  }
+  if (context_retained && api.release_context) {
+    try {
+      api.release_context(api.host_context);
+    } catch (...) {
+      ex_host_console_log(1,
+                          "Decoded-image host release threw across its C ABI");
+    }
+    context_retained = false;
+  }
+}
+
 ExactGpuRuntimeBindingV2::~ExactGpuRuntimeBindingV2() {
   detach(nullptr, "Exact GPU V2 binding destroyed");
 }
@@ -3655,6 +4064,281 @@ void ExactGpuRuntimeBindingV2::detach(
   }
 }
 #endif
+
+extern "C" uint32_t ex_hermes_gpu_decoded_image_abi_version_v1(void) {
+  return EXACT_GPU_DECODED_IMAGE_ABI_VERSION_V1;
+}
+
+extern "C" size_t ex_hermes_gpu_decoded_image_descriptor_size_v1(void) {
+  return sizeof(ExactHermesGpuDecodedImageDescriptorV1);
+}
+
+extern "C" int32_t ex_hermes_set_gpu_decoded_image_provider_v1(
+    ExactHermesRuntime *runtime,
+    const ExactHermesGpuDecodedImageDescriptorV1 *descriptor) {
+  if (!runtime || !runtime->runtime)
+    return EXACT_GPU_PROVIDER_INVALID_ARGUMENT;
+  if (runtime->runtime_thread != std::this_thread::get_id()) {
+    return EXACT_GPU_PROVIDER_WRONG_THREAD;
+  }
+  if (runtime->restricted)
+    return EXACT_GPU_PROVIDER_RESTRICTED_RUNTIME;
+#if !defined(IBEX_ENABLE_WEBGPU_BINDING)
+  (void)descriptor;
+  return EXACT_GPU_PROVIDER_UNSUPPORTED;
+#else
+  if (runtime->embedder_capability_state !=
+      EmbedderCapabilityState::Configuring) {
+    return EXACT_GPU_PROVIDER_INVALID_STATE;
+  }
+  if (runtime->gpu_decoded_image_binding_v1) {
+    return EXACT_GPU_PROVIDER_ALREADY_INSTALLED;
+  }
+  if (!descriptor || descriptor->struct_size !=
+                         sizeof(ExactHermesGpuDecodedImageDescriptorV1)) {
+    return EXACT_GPU_PROVIDER_INVALID_ARGUMENT;
+  }
+  if (descriptor->abi_version != EXACT_GPU_DECODED_IMAGE_ABI_VERSION_V1) {
+    return EXACT_GPU_PROVIDER_ABI_MISMATCH;
+  }
+  if (descriptor->flags != 0 || !descriptor->api ||
+      descriptor->api->struct_size != sizeof(ExactGpuDecodedImageHostApiV1) ||
+      descriptor->api->abi_version != EXACT_GPU_DECODED_IMAGE_ABI_VERSION_V1 ||
+      !descriptor->api->host_context || !descriptor->api->retain_context ||
+      !descriptor->api->release_context || !descriptor->api->begin_decode ||
+      !descriptor->api->cancel_decode) {
+    return EXACT_GPU_PROVIDER_INVALID_ARGUMENT;
+  }
+  try {
+    auto binding = std::make_shared<ExactGpuDecodedImageRuntimeBindingV1>();
+    binding->api = *descriptor->api;
+    binding->target = exactRuntimeCallbackTarget(runtime);
+    binding->api.retain_context(binding->api.host_context);
+    binding->context_retained = true;
+    runtime->gpu_decoded_image_binding_v1 = std::move(binding);
+  } catch (...) {
+    return EXACT_GPU_PROVIDER_OPEN_FAILED;
+  }
+  return EXACT_GPU_PROVIDER_OK;
+#endif
+}
+
+extern "C" int32_t ex_hermes_complete_gpu_decoded_image_v1(
+    uint64_t request_id, uint32_t status,
+    const ExactGpuDecodedImagePlaneV1 *plane) {
+#if !defined(IBEX_ENABLE_WEBGPU_BINDING)
+  (void)request_id;
+  (void)status;
+  (void)plane;
+  return EXACT_GPU_PROVIDER_UNSUPPORTED;
+#else
+  if (request_id == 0 || (status != EXACT_GPU_DECODED_IMAGE_COMPLETE_V1 &&
+                          status != EXACT_GPU_DECODED_IMAGE_DECODE_FAILED_V1 &&
+                          status != EXACT_GPU_DECODED_IMAGE_CANCELLED_V1)) {
+    return EXACT_GPU_PROVIDER_INVALID_ARGUMENT;
+  }
+  auto targetEntry = takeDecodedImageRequestTargetV1(request_id);
+  if (!targetEntry)
+    return EXACT_GPU_PROVIDER_INVALID_STATE;
+  auto binding = targetEntry->binding.lock();
+  if (!binding)
+    return EXACT_GPU_PROVIDER_INVALID_STATE;
+  if (!exactPinRuntimeNativeWorker(targetEntry->target)) {
+    return EXACT_GPU_PROVIDER_INVALID_STATE;
+  }
+
+  uint32_t terminalStatus = status;
+  size_t decodedLength = 0;
+  bool protocolViolation = false;
+  bool structurallyValid = status != EXACT_GPU_DECODED_IMAGE_COMPLETE_V1;
+  if (status == EXACT_GPU_DECODED_IMAGE_COMPLETE_V1 && plane &&
+      plane->struct_size == sizeof(ExactGpuDecodedImagePlaneV1) &&
+      plane->abi_version == EXACT_GPU_DECODED_IMAGE_ABI_VERSION_V1 &&
+      plane->reserved == 0 && plane->request_id == request_id &&
+      validDecodedImageIdentityV1(plane->identity) && plane->width != 0 &&
+      plane->height != 0 && plane->width <= kMaxDecodedImageDimensionV1 &&
+      plane->height <= kMaxDecodedImageDimensionV1 &&
+      plane->bytes_per_row == plane->width * 4 &&
+      plane->color_space == EXACT_GPU_DECODED_IMAGE_COLOR_SPACE_SRGB_V1 &&
+      plane->alpha_mode == EXACT_GPU_DECODED_IMAGE_ALPHA_PREMULTIPLIED_V1 &&
+      plane->orientation == EXACT_GPU_DECODED_IMAGE_ORIENTATION_TOP_LEFT_V1 &&
+      plane->origin_clean_class ==
+          EXACT_GPU_DECODED_IMAGE_ORIGIN_SCRIPT_OWNED_BLOB_V1 &&
+      plane->encoded_bytes && plane->encoded_len != 0 &&
+      plane->encoded_len <= kMaxDecodedImageEncodedBytesV1 &&
+      plane->decoded_bytes) {
+    decodedLength = static_cast<size_t>(plane->bytes_per_row) * plane->height;
+    structurallyValid = decodedLength != 0 &&
+                        decodedLength <= kMaxDecodedImageBytesV1 &&
+                        plane->decoded_len == decodedLength;
+  }
+
+  bool admitted = false;
+  {
+    std::lock_guard<std::mutex> lock(binding->mutex);
+    auto found = binding->pending.find(request_id);
+    if (found != binding->pending.end() && binding->active &&
+        !found->second.completion_queued) {
+      if (status == EXACT_GPU_DECODED_IMAGE_COMPLETE_V1 &&
+          (!structurallyValid || !plane ||
+           !equalDecodedImageIdentityV1(found->second.identity,
+                                        plane->identity) ||
+           found->second.encoded.size() != plane->encoded_len ||
+           decodedLength >
+               kMaxQueuedDecodedImageBytesV1 - binding->queued_decoded_bytes)) {
+        terminalStatus = EXACT_GPU_DECODED_IMAGE_DECODE_FAILED_V1;
+        decodedLength = 0;
+        protocolViolation = true;
+      }
+      found->second.completion_queued = true;
+      found->second.queued_decoded_bytes =
+          terminalStatus == EXACT_GPU_DECODED_IMAGE_COMPLETE_V1 ? decodedLength
+                                                                : 0;
+      binding->queued_decoded_bytes += found->second.queued_decoded_bytes;
+      admitted = true;
+    }
+  }
+  if (!admitted) {
+    exactUnpinRuntimeNativeWorker(targetEntry->target);
+    return EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION;
+  }
+
+  std::shared_ptr<CopiedDecodedImagePlaneV1> copied;
+  if (terminalStatus == EXACT_GPU_DECODED_IMAGE_COMPLETE_V1) {
+    try {
+      copied = std::make_shared<CopiedDecodedImagePlaneV1>();
+      copied->width = plane->width;
+      copied->height = plane->height;
+      copied->bytes_per_row = plane->bytes_per_row;
+      copied->encoded.assign(plane->encoded_bytes,
+                             plane->encoded_bytes + plane->encoded_len);
+      copied->decoded.assign(plane->decoded_bytes,
+                             plane->decoded_bytes + plane->decoded_len);
+      std::copy(std::begin(plane->encoded_sha256),
+                std::end(plane->encoded_sha256),
+                copied->encoded_sha256.begin());
+      std::copy(std::begin(plane->decoded_sha256),
+                std::end(plane->decoded_sha256),
+                copied->decoded_sha256.begin());
+      std::lock_guard<std::mutex> lock(binding->mutex);
+      auto found = binding->pending.find(request_id);
+      if (found == binding->pending.end() ||
+          found->second.encoded != copied->encoded) {
+        terminalStatus = EXACT_GPU_DECODED_IMAGE_DECODE_FAILED_V1;
+        copied.reset();
+        if (found != binding->pending.end()) {
+          binding->queued_decoded_bytes -= found->second.queued_decoded_bytes;
+          found->second.queued_decoded_bytes = 0;
+        }
+      }
+    } catch (...) {
+      terminalStatus = EXACT_GPU_DECODED_IMAGE_DECODE_FAILED_V1;
+      copied.reset();
+      std::lock_guard<std::mutex> lock(binding->mutex);
+      auto found = binding->pending.find(request_id);
+      if (found != binding->pending.end()) {
+        binding->queued_decoded_bytes -= found->second.queued_decoded_bytes;
+        found->second.queued_decoded_bytes = 0;
+      }
+    }
+  }
+
+  bool accepted = false;
+  pushRuntimeCallback(
+      targetEntry->target,
+      [binding, request_id, terminalStatus,
+       copied](facebook::jsi::Runtime &rt) mutable {
+        settleDecodedImageV1(binding, rt, request_id, terminalStatus,
+                             std::move(copied));
+      },
+      &accepted);
+  exactUnpinRuntimeNativeWorker(targetEntry->target);
+  if (!accepted)
+    return EXACT_GPU_PROVIDER_INVALID_STATE;
+  return protocolViolation ? EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION
+                           : EXACT_GPU_PROVIDER_OK;
+#endif
+}
+
+bool exactGpuDecodedImageAttachAuthorityV1(ExactHermesRuntime *runtime,
+                                           facebook::jsi::Runtime &rt,
+                                           facebook::jsi::Object &bridge) {
+#if !defined(IBEX_ENABLE_WEBGPU_BINDING)
+  (void)runtime;
+  (void)rt;
+  (void)bridge;
+  return true;
+#else
+  if (!runtime || !runtime->gpu_decoded_image_binding_v1)
+    return true;
+  auto binding = runtime->gpu_decoded_image_binding_v1;
+  {
+    std::lock_guard<std::mutex> lock(binding->mutex);
+    if (!binding->active)
+      return false;
+  }
+  try {
+    facebook::jsi::Object authority(rt);
+    auto decode = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "decodePng"), 1,
+        [runtime](facebook::jsi::Runtime &rt, const facebook::jsi::Value &,
+                  const facebook::jsi::Value *args,
+                  size_t count) -> facebook::jsi::Value {
+          return decodeGpuImageV1BridgeCall(runtime, rt, args, count);
+        });
+    auto revoke = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "revoke"), 0,
+        [runtime](facebook::jsi::Runtime &rt, const facebook::jsi::Value &,
+                  const facebook::jsi::Value *,
+                  size_t count) -> facebook::jsi::Value {
+          return revokeGpuImageV1BridgeCall(runtime, rt, count);
+        });
+    authority.setProperty(rt, "decodePng", std::move(decode));
+    authority.setProperty(rt, "revoke", std::move(revoke));
+    rt.global()
+        .getPropertyAsObject(rt, "Object")
+        .getPropertyAsFunction(rt, "freeze")
+        .call(rt, authority);
+    defineGpuV2Property(rt, bridge, "decodedImageAuthority",
+                        std::move(authority));
+    return true;
+  } catch (...) {
+    return false;
+  }
+#endif
+}
+
+void exactGpuDecodedImageDiscardIfUnusedV1(ExactHermesRuntime *runtime) {
+  if (!runtime || runtime->gpu_binding_v2 ||
+      !runtime->gpu_decoded_image_binding_v1) {
+    return;
+  }
+#if defined(IBEX_ENABLE_WEBGPU_BINDING)
+  runtime->gpu_decoded_image_binding_v1->detach(
+      runtime, "Decoded-image authority had no authenticated V2 consumer");
+#endif
+  runtime->gpu_decoded_image_binding_v1.reset();
+}
+
+void exactGpuDecodedImageRollbackInstallV1(ExactHermesRuntime *runtime) {
+  if (!runtime || !runtime->gpu_decoded_image_binding_v1)
+    return;
+#if defined(IBEX_ENABLE_WEBGPU_BINDING)
+  runtime->gpu_decoded_image_binding_v1->detach(
+      runtime, "Decoded-image capability installation rolled back");
+#endif
+  runtime->gpu_decoded_image_binding_v1.reset();
+}
+
+void exactGpuDecodedImageBeginRuntimeTeardownV1(ExactHermesRuntime *runtime) {
+  if (!runtime || !runtime->gpu_decoded_image_binding_v1)
+    return;
+#if defined(IBEX_ENABLE_WEBGPU_BINDING)
+  runtime->gpu_decoded_image_binding_v1->detach(
+      runtime, "Decoded-image runtime was destroyed");
+#endif
+  runtime->gpu_decoded_image_binding_v1.reset();
+}
 
 extern "C" uint32_t ex_hermes_gpu_provider_abi_version_v2(void) {
   return EXACT_GPU_SERVICE_ABI_VERSION_V2;
@@ -3998,6 +4682,10 @@ bool exactGpuV2PublishPrivateBridge(ExactHermesRuntime* runtime) {
         gpuNativeBridgeV2,
         "rootAuthorityDigest",
         makeUint8Array(rt, std::move(digest)));
+    if (!exactGpuDecodedImageAttachAuthorityV1(runtime, rt,
+                                               gpuNativeBridgeV2)) {
+      return false;
+    }
     rt.global()
         .getPropertyAsObject(rt, "Object")
         .getPropertyAsFunction(rt, "preventExtensions")

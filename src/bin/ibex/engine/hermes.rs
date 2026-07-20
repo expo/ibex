@@ -896,6 +896,52 @@ struct ExactHermesGpuProviderDescriptorV2 {
     api: *const ExactGpuServiceApiV2,
 }
 
+#[cfg(test)]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct ExactGpuDecodedImageIdentityV1 {
+    runtime_address: u64,
+    runtime_nonce: u64,
+    source_id: u64,
+    source_generation: u64,
+}
+
+#[cfg(test)]
+#[repr(C)]
+struct ExactGpuDecodedImageRequestV1 {
+    struct_size: u32,
+    abi_version: u32,
+    mime_type: u32,
+    reserved: u32,
+    request_id: u64,
+    identity: ExactGpuDecodedImageIdentityV1,
+    encoded_bytes: *const u8,
+    encoded_len: usize,
+}
+
+#[cfg(test)]
+#[repr(C)]
+struct ExactGpuDecodedImageHostApiV1 {
+    struct_size: u32,
+    abi_version: u32,
+    host_context: *mut std::ffi::c_void,
+    retain_context: Option<extern "C" fn(*mut std::ffi::c_void)>,
+    release_context: Option<extern "C" fn(*mut std::ffi::c_void)>,
+    begin_decode:
+        Option<extern "C" fn(*mut std::ffi::c_void, *const ExactGpuDecodedImageRequestV1) -> i32>,
+    cancel_decode:
+        Option<extern "C" fn(*mut std::ffi::c_void, *const ExactGpuDecodedImageIdentityV1, u64)>,
+}
+
+#[cfg(test)]
+#[repr(C)]
+struct ExactHermesGpuDecodedImageDescriptorV1 {
+    struct_size: u32,
+    abi_version: u32,
+    flags: u64,
+    api: *const ExactGpuDecodedImageHostApiV1,
+}
+
 #[cfg(all(test, feature = "module-runner"))]
 #[repr(C)]
 #[derive(Default)]
@@ -976,6 +1022,15 @@ extern "C" {
     fn ex_hermes_gpu_provider_abi_version_v2() -> u32;
     #[cfg(test)]
     fn ex_hermes_gpu_provider_descriptor_size_v2() -> usize;
+    #[cfg(test)]
+    fn ex_hermes_gpu_decoded_image_abi_version_v1() -> u32;
+    #[cfg(test)]
+    fn ex_hermes_gpu_decoded_image_descriptor_size_v1() -> usize;
+    #[cfg(test)]
+    fn ex_hermes_set_gpu_decoded_image_provider_v1(
+        runtime: *mut HermesRuntimeOpaque,
+        descriptor: *const ExactHermesGpuDecodedImageDescriptorV1,
+    ) -> i32;
     #[cfg(test)]
     fn ex_hermes_set_gpu_provider_v1(
         runtime: *mut HermesRuntimeOpaque,
@@ -8378,6 +8433,7 @@ module.exports = JSON.stringify({
     }
 
     const EXACT_GPU_SERVICE_ABI_VERSION_V1: u32 = 0x0001_0000;
+    const EXACT_GPU_DECODED_IMAGE_ABI_VERSION_V1: u32 = 0x0001_0000;
     const EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION: i32 = -8;
     const EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE: i32 = -3;
     const EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED: i32 = -4;
@@ -8391,6 +8447,39 @@ module.exports = JSON.stringify({
     const EXACT_GPU_EVENT_DEVICE_LOST: u32 = 3;
     #[cfg(feature = "webgpu-binding")]
     const EXACT_GPU_EVENT_REALM_CLOSED: u32 = 4;
+
+    #[cfg(feature = "webgpu-binding")]
+    static DECODED_IMAGE_RETAIN_CALLS: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
+    #[cfg(feature = "webgpu-binding")]
+    static DECODED_IMAGE_RELEASE_CALLS: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
+
+    #[cfg(feature = "webgpu-binding")]
+    extern "C" fn fake_decoded_image_retain(_context: *mut std::ffi::c_void) {
+        DECODED_IMAGE_RETAIN_CALLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    #[cfg(feature = "webgpu-binding")]
+    extern "C" fn fake_decoded_image_release(_context: *mut std::ffi::c_void) {
+        DECODED_IMAGE_RELEASE_CALLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    #[cfg(feature = "webgpu-binding")]
+    extern "C" fn fake_decoded_image_begin(
+        _context: *mut std::ffi::c_void,
+        _request: *const ExactGpuDecodedImageRequestV1,
+    ) -> i32 {
+        0
+    }
+
+    #[cfg(feature = "webgpu-binding")]
+    extern "C" fn fake_decoded_image_cancel(
+        _context: *mut std::ffi::c_void,
+        _identity: *const ExactGpuDecodedImageIdentityV1,
+        _request_id: u64,
+    ) {
+    }
 
     #[cfg(feature = "webgpu-binding")]
     #[derive(Clone, Copy)]
@@ -10514,6 +10603,81 @@ module.exports = JSON.stringify({
             .unwrap();
     }
 
+    #[cfg(feature = "webgpu-binding")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn decoded_image_registration_is_exact_sized_retained_and_dormant_without_v2() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        DECODED_IMAGE_RETAIN_CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
+        DECODED_IMAGE_RELEASE_CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(
+                    ex_hermes_gpu_decoded_image_abi_version_v1(),
+                    EXACT_GPU_DECODED_IMAGE_ABI_VERSION_V1
+                );
+                assert_eq!(
+                    ex_hermes_gpu_decoded_image_descriptor_size_v1(),
+                    std::mem::size_of::<ExactHermesGpuDecodedImageDescriptorV1>()
+                );
+                assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
+                let api = ExactGpuDecodedImageHostApiV1 {
+                    struct_size: std::mem::size_of::<ExactGpuDecodedImageHostApiV1>() as u32,
+                    abi_version: EXACT_GPU_DECODED_IMAGE_ABI_VERSION_V1,
+                    host_context: std::ptr::NonNull::<u8>::dangling().as_ptr().cast(),
+                    retain_context: Some(fake_decoded_image_retain),
+                    release_context: Some(fake_decoded_image_release),
+                    begin_decode: Some(fake_decoded_image_begin),
+                    cancel_decode: Some(fake_decoded_image_cancel),
+                };
+                let mut descriptor = ExactHermesGpuDecodedImageDescriptorV1 {
+                    struct_size: std::mem::size_of::<ExactHermesGpuDecodedImageDescriptorV1>()
+                        as u32,
+                    abi_version: EXACT_GPU_DECODED_IMAGE_ABI_VERSION_V1,
+                    flags: 0,
+                    api: &api,
+                };
+                descriptor.struct_size -= 1;
+                assert_eq!(
+                    ex_hermes_set_gpu_decoded_image_provider_v1(raw, &descriptor),
+                    -1
+                );
+                descriptor.struct_size =
+                    std::mem::size_of::<ExactHermesGpuDecodedImageDescriptorV1>() as u32;
+                assert_eq!(
+                    ex_hermes_set_gpu_decoded_image_provider_v1(raw, &descriptor),
+                    0
+                );
+                assert_eq!(
+                    DECODED_IMAGE_RETAIN_CALLS.load(std::sync::atomic::Ordering::SeqCst),
+                    1
+                );
+                assert_eq!(
+                    ex_hermes_set_gpu_decoded_image_provider_v1(raw, &descriptor),
+                    -4
+                );
+                assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                assert_eq!(
+                    DECODED_IMAGE_RELEASE_CALLS.load(std::sync::atomic::Ordering::SeqCst),
+                    1
+                );
+            })
+            .unwrap();
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "[typeof navigator.gpu, typeof createImageBitmap, \
+                      typeof globalThis.__ibexCaptureGpuNativeBridge].join('/')",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("undefined/undefined/undefined")
+        );
+    }
+
     #[cfg(not(feature = "webgpu-binding"))]
     #[tokio::test(flavor = "current_thread")]
     async fn gpu_registration_abi_is_stably_unsupported_when_feature_is_off() {
@@ -10536,9 +10700,21 @@ module.exports = JSON.stringify({
                     ex_hermes_gpu_provider_descriptor_size_v2(),
                     std::mem::size_of::<ExactHermesGpuProviderDescriptorV2>()
                 );
+                assert_eq!(
+                    ex_hermes_gpu_decoded_image_abi_version_v1(),
+                    EXACT_GPU_DECODED_IMAGE_ABI_VERSION_V1
+                );
+                assert_eq!(
+                    ex_hermes_gpu_decoded_image_descriptor_size_v1(),
+                    std::mem::size_of::<ExactHermesGpuDecodedImageDescriptorV1>()
+                );
                 assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
                 assert_eq!(ex_hermes_set_gpu_provider_v1(raw, std::ptr::null()), -3);
                 assert_eq!(ex_hermes_set_gpu_provider_v2(raw, std::ptr::null()), -3);
+                assert_eq!(
+                    ex_hermes_set_gpu_decoded_image_provider_v1(raw, std::ptr::null()),
+                    -3
+                );
                 assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
             })
             .unwrap();

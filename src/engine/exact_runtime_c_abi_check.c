@@ -92,6 +92,10 @@ IBEX_C_ABI_ASSERT(vfs_result_input_too_large_value,
                   EX_HOST_VFS_RESULT_INPUT_TOO_LARGE == 12u);
 IBEX_C_ABI_ASSERT(vfs_result_host_error_value,
                   EX_HOST_VFS_RESULT_HOST_ERROR == 13u);
+IBEX_C_ABI_ASSERT(decoded_image_version,
+                  EXACT_GPU_DECODED_IMAGE_ABI_VERSION_V1 == 0x00010000u);
+IBEX_C_ABI_ASSERT(decoded_image_png_value,
+                  EXACT_GPU_DECODED_IMAGE_MIME_PNG_V1 == 1u);
 IBEX_C_ABI_ASSERT(owned_bytes_data_first,
                   offsetof(ExHermesOwnedBytes, data) == 0u);
 IBEX_C_ABI_ASSERT(value_handle_nonce_first,
@@ -243,6 +247,28 @@ IBEX_C_ABI_ASSERT(result_position_count_offset_64,
                   offsetof(ExHermesEvaluationResult, position_count) == 104u);
 IBEX_C_ABI_ASSERT(result_size_64,
                   sizeof(ExHermesEvaluationResult) == 112u);
+IBEX_C_ABI_ASSERT(decoded_image_identity_size_64,
+                  sizeof(ExactGpuDecodedImageIdentityV1) == 32u);
+IBEX_C_ABI_ASSERT(decoded_image_request_identity_offset_64,
+                  offsetof(ExactGpuDecodedImageRequestV1, identity) == 24u);
+IBEX_C_ABI_ASSERT(decoded_image_request_bytes_offset_64,
+                  offsetof(ExactGpuDecodedImageRequestV1, encoded_bytes) ==
+                      56u);
+IBEX_C_ABI_ASSERT(decoded_image_request_size_64,
+                  sizeof(ExactGpuDecodedImageRequestV1) == 72u);
+IBEX_C_ABI_ASSERT(decoded_image_plane_identity_offset_64,
+                  offsetof(ExactGpuDecodedImagePlaneV1, identity) == 48u);
+IBEX_C_ABI_ASSERT(decoded_image_plane_decoded_offset_64,
+                  offsetof(ExactGpuDecodedImagePlaneV1, decoded_bytes) == 96u);
+IBEX_C_ABI_ASSERT(decoded_image_plane_hash_offset_64,
+                  offsetof(ExactGpuDecodedImagePlaneV1, encoded_sha256) ==
+                      112u);
+IBEX_C_ABI_ASSERT(decoded_image_plane_size_64,
+                  sizeof(ExactGpuDecodedImagePlaneV1) == 176u);
+IBEX_C_ABI_ASSERT(decoded_image_host_api_size_64,
+                  sizeof(ExactGpuDecodedImageHostApiV1) == 48u);
+IBEX_C_ABI_ASSERT(decoded_image_descriptor_size_64,
+                  sizeof(ExactHermesGpuDecodedImageDescriptorV1) == 24u);
 IBEX_C_ABI_ASSERT(gpu_authority_facts_session_offset_64,
                   offsetof(ExactGpuAuthoritySessionFactsV2,
                            authority_session_id) == 16u);

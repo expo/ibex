@@ -86,6 +86,8 @@ export interface ProductionGpuDecodedImageAuthorityV1 {
   readonly decodePng: (
     request: ProductionGpuDecodedImageRequestV1,
   ) => Promise<ProductionGpuDecodedImagePlaneV1>;
+  /** Construction revocation cancels native work without waiting for it. */
+  readonly revoke?: () => void;
 }
 
 export interface ProductionGpuExternalImageSnapshotV1 extends ProductionGpuDecodedImageIdentityV1 {
@@ -288,17 +290,26 @@ export function createProductionGpuPrivateImageBitmapFactoryV1(
   const authorityDescriptors = Object.getOwnPropertyDescriptors(authority);
   const authorityKeys = Reflect.ownKeys(authorityDescriptors);
   const decodeDescriptor = authorityDescriptors.decodePng;
+  const revokeDescriptor = authorityDescriptors.revoke;
   if (
-    authorityKeys.length !== 1 ||
-    authorityKeys[0] !== 'decodePng' ||
+    authorityKeys.length < 1 ||
+    authorityKeys.length > 2 ||
+    authorityKeys.some((key) => key !== 'decodePng' && key !== 'revoke') ||
     !decodeDescriptor?.enumerable ||
     !('value' in decodeDescriptor) ||
-    typeof decodeDescriptor.value !== 'function'
+    typeof decodeDescriptor.value !== 'function' ||
+    (revokeDescriptor !== undefined &&
+      (!revokeDescriptor.enumerable ||
+        !('value' in revokeDescriptor) ||
+        typeof revokeDescriptor.value !== 'function'))
   ) {
     throw new TypeError('Invalid private decoded-image construction authority');
   }
   const decodePng =
     decodeDescriptor.value as ProductionGpuDecodedImageAuthorityV1['decodePng'];
+  const revokeAuthority = revokeDescriptor?.value as
+    | NonNullable<ProductionGpuDecodedImageAuthorityV1['revoke']>
+    | undefined;
   const runtimeAddress = runtime.runtimeAddress;
   const runtimeNonce = runtime.runtimeNonce;
   const states = new WeakMap<object, BitmapState>();
@@ -608,6 +619,13 @@ export function createProductionGpuPrivateImageBitmapFactoryV1(
     revoke(): void {
       if (!active) return;
       active = false;
+      if (revokeAuthority !== undefined) {
+        try {
+          INTRINSIC_REFLECT_APPLY(revokeAuthority, authority, []);
+        } catch {
+          // Revocation is one-way even if a host cleanup callback misbehaves.
+        }
+      }
       for (const state of liveStates) state.closed = true;
       liveStates.clear();
       liveDecodedBytes = 0;
