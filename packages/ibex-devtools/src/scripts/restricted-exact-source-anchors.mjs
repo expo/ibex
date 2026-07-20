@@ -2593,7 +2593,7 @@ function legacyJavascriptGlobalRouteBinding({ branch, sourceRef, sourcePath, loc
   const ast = parse(text, { sourceType: "script", allowReturnOutsideFunction: true });
   const normalize = (segments) => {
     if (!segments) return null;
-    return ["globalThis", "__global", "g", "self", "window"].includes(segments[0])
+    return ["globalThis", "globalObject", "__global", "g", "self", "window"].includes(segments[0])
       ? segments.slice(1)
       : segments;
   };
@@ -2682,7 +2682,7 @@ function legacyJavascriptTerminalRouteBinding({
   if (logicalPath.some((part) => !/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(part))) return null;
   const normalize = (segments) => {
     if (!segments) return null;
-    return ["globalThis", "__global", "g", "self", "window"].includes(segments[0])
+    return ["globalThis", "globalObject", "__global", "g", "self", "window"].includes(segments[0])
       ? segments.slice(1)
       : segments;
   };
@@ -2764,7 +2764,7 @@ function legacyJavascriptAliasRouteBinding({
   if (logicalPath.length < 2) return null;
   const normalize = (segments) => {
     if (!segments) return null;
-    return ["globalThis", "__global", "g", "self", "window"].includes(segments[0])
+    return ["globalThis", "globalObject", "__global", "g", "self", "window"].includes(segments[0])
       ? segments.slice(1)
       : segments;
   };
@@ -2776,7 +2776,11 @@ function legacyJavascriptAliasRouteBinding({
     let range = null;
     if (node.type === "VariableDeclarator" && node.id?.type === "Identifier") {
       alias = node.id.name;
-      value = normalize(memberSegments(node.init));
+      value = normalize(memberSegments(node.init)
+        ?? (["LogicalExpression", "ConditionalExpression"].includes(node.init?.type)
+          ? memberSegments(node.init.right ?? node.init.consequent)
+            ?? memberSegments(node.init.alternate)
+          : null));
       range = { startByte: node.start, endByte: node.end };
     } else if (node.type === "AssignmentExpression" && node.left?.type === "Identifier") {
       alias = node.left.name;
@@ -2789,6 +2793,25 @@ function legacyJavascriptAliasRouteBinding({
   });
   const candidates = [];
   walkJavaScript(ast.program, (node, parent) => {
+    if (node.type === "CallExpression"
+      && JSON.stringify(memberSegments(node.callee)) === JSON.stringify(["Object", "defineProperty"])) {
+      const target = memberSegments(node.arguments[0]);
+      const property = propertyName(node.arguments[1]);
+      for (const alias of aliases) {
+        const remaining = logicalPath.slice(alias.value.length);
+        if (alias.range.endByte >= node.start
+          || JSON.stringify(target) !== JSON.stringify([alias.alias])
+          || JSON.stringify(remaining) !== JSON.stringify([property])) continue;
+        candidates.push({
+          alias,
+          terminal: { startByte: node.start, endByte: node.end },
+          statement: parent?.type === "ExpressionStatement"
+            ? { startByte: parent.start, endByte: parent.end }
+            : lineRange(text, node.start),
+          publication: true,
+        });
+      }
+    }
     const segments = memberSegments(node);
     if (!segments || segments.length < 2) return;
     for (const alias of aliases) {

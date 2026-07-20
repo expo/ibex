@@ -1486,6 +1486,33 @@ void install(Runtime& rt) {
     }
   });
 
+  test("traces legacy global aliases through assignments and descriptors", () => {
+    for (const [observedKey, sourceRef] of [
+      [
+        "native-op:global:ReadableStream.prototype.__exactReadableStreamIteratorPatched",
+        "src/engine/bootstrap/web-streams-polyfill.js#ReadableStream.prototype.__exactReadableStreamIteratorPatched",
+      ],
+      [
+        "native-op:global:Request.prototype.formData",
+        "src/engine/bootstrap/compat-polyfills.js#Request.prototype.formData",
+      ],
+      [
+        "native-op:global:URL.prototype.pathname",
+        "src/engine/bootstrap/compat-polyfills.js#URL.prototype.pathname",
+      ],
+    ]) {
+      const branch = {
+        branchId: `surface.${observedKey}`,
+        observedKey,
+        targetVariant: "default",
+      };
+      const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+      expect(binding.locatorKind).toBe("javascript-alias-terminal-route");
+      expect(binding.targetGlobalPath).toBe(observedKey.slice("native-op:global:".length));
+      expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status).toBe("executable");
+    }
+  });
+
   test("binds module-level global assignments and exact C++ terminal symbols", () => {
     const moduleBinding = resolveRestrictedExactBranchSourceBinding({
       branchId: "surface.native.op.android.dispatch.all",
