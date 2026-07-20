@@ -109,11 +109,11 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
     "dictionary": "u8-value-tag-plus-u32-count-plus-unique-well-formed-utf8-key-and-canonical-value-pairs-sorted-by-unsigned-utf8-bytes-shorter-prefix-first"
   },
   "digests": {
-    "operationSet": "7260930fae40730dae2d9c2bd2f6f94194612fca5085a9df7ef43fc27d886e4a",
-    "semanticProgramSet": "01f485e67db22f05cc75219f769343c3b9efa75005f86d6e0336cf2008f0ec5f",
-    "runtimeRouting": "ee296f4c11ebefee2829b60b98cb1219a4cfdb0c197d7ec1ac7c62c8628f9b4b",
-    "webgpuCVocabulary": "3ef431bceccbb3633353351de534317a435bc0d3a0f9ba6533e41414ad2cec99",
-    "projection": "068f019ffa52f1727c94a139e7812c4e88c0020eb4d21d6312fa95e2c5ceabfc"
+    "operationSet": "54695d036b1e460efa2ccb1e45447de7046892b97d4d0ed6c20ecfb60d865f37",
+    "semanticProgramSet": "db92e5dd36d33450c96e19c202319ccbb820202d861ebaf372162fdfcc21b7ba",
+    "runtimeRouting": "62b7af1c32e8611340e7f61b343c5cc4803045033e3b51f1fed45daf4a1d119e",
+    "webgpuCVocabulary": "2b4f91ca7d179058e1c748114bfc059db337ec1a710998a5790b527177039007",
+    "projection": "a0922b3fdbe355137dc91f0c3864f41379d3d52eff6dafd05c1b4bfa65797974"
   },
   "layout": {
     "requestMagic": "IBGQ",
@@ -5841,7 +5841,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
       },
       {
         "operationId": "GPUDevice.createComputePipeline",
-        "wireId": 797909431,
+        "wireId": 3202875898,
         "request": {
           "payloadRole": "service-request-payload-decoder-plus-operation-specific-call-joins",
           "catalog": {
@@ -5859,7 +5859,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
                   "magic": "IBGQ",
                   "version": 1,
                   "codecTag": 25,
-                  "operationWireId": 797909431
+                  "operationWireId": 3202875898
                 }
               },
               {
@@ -5998,7 +5998,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             {
               "carrierPath": "operation_id",
               "operator": "equal",
-              "value": 797909431
+              "value": 3202875898
             },
             {
               "carrierPath": "flags",
@@ -6147,7 +6147,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             {
               "carrierPath": "record.operation_result.operation.operation_id",
               "operator": "equal",
-              "value": 797909431
+              "value": 3202875898
             },
             {
               "carrierPath": "record.operation_result.operation.device_transition",
@@ -12725,7 +12725,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
       },
       {
         "operationId": "GPUQueue.copyExternalImageToTexture",
-        "wireId": 2735509416,
+        "wireId": 1909541119,
         "request": {
           "payloadRole": "service-request-payload-decoder-plus-operation-specific-call-joins",
           "catalog": {
@@ -12743,7 +12743,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
                   "magic": "IBGQ",
                   "version": 1,
                   "codecTag": 27,
-                  "operationWireId": 2735509416
+                  "operationWireId": 1909541119
                 }
               },
               {
@@ -12847,7 +12847,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             {
               "carrierPath": "operation_id",
               "operator": "equal",
-              "value": 2735509416
+              "value": 1909541119
             },
             {
               "carrierPath": "flags",
@@ -12980,7 +12980,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             {
               "carrierPath": "record.operation_result.operation.operation_id",
               "operator": "equal",
-              "value": 2735509416
+              "value": 1909541119
             },
             {
               "carrierPath": "record.operation_result.operation.device_transition",

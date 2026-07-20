@@ -64,9 +64,9 @@ describe("test-only WebGPU wrapper generator", () => {
         "26b046d57388a595abc66ac3c96e2722ea737b5f80fce67f6a34c8a79d77d590",
     });
     expect(active).toMatchObject({
-      wireId: 797909431,
+      wireId: 3202875898,
       semanticSha256:
-        "c9fa6574c6833ebcec767bdda2aa7e045fd1090270648c718a555d398590d5a0",
+        "a4b0baea0678797cb768225755bf4a88a61266cd34936d244ddb17ba2403e2a6",
     });
     expect(active.wireId).not.toBe(promotion.sourceOperationWireId);
   });

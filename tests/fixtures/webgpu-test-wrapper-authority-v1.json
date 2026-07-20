@@ -138,11 +138,11 @@
   },
   "authentication": {
     "canonicalization": "utf8-domain-line-plus-lexicographic-object-keys-arrays-preserved-v1",
-    "operationSetSha256": "7260930fae40730dae2d9c2bd2f6f94194612fca5085a9df7ef43fc27d886e4a",
-    "semanticProgramSetSha256": "01f485e67db22f05cc75219f769343c3b9efa75005f86d6e0336cf2008f0ec5f",
-    "runtimeRoutingSha256": "ee296f4c11ebefee2829b60b98cb1219a4cfdb0c197d7ec1ac7c62c8628f9b4b",
-    "webgpuCVocabularySha256": "3ef431bceccbb3633353351de534317a435bc0d3a0f9ba6533e41414ad2cec99",
-    "projectionPayloadSha256": "068f019ffa52f1727c94a139e7812c4e88c0020eb4d21d6312fa95e2c5ceabfc"
+    "operationSetSha256": "54695d036b1e460efa2ccb1e45447de7046892b97d4d0ed6c20ecfb60d865f37",
+    "semanticProgramSetSha256": "db92e5dd36d33450c96e19c202319ccbb820202d861ebaf372162fdfcc21b7ba",
+    "runtimeRoutingSha256": "62b7af1c32e8611340e7f61b343c5cc4803045033e3b51f1fed45daf4a1d119e",
+    "webgpuCVocabularySha256": "2b4f91ca7d179058e1c748114bfc059db337ec1a710998a5790b527177039007",
+    "projectionPayloadSha256": "a0922b3fdbe355137dc91f0c3864f41379d3d52eff6dafd05c1b4bfa65797974"
   },
   "payload": {
     "profileId": "exact-webgpu-v1-draft",
@@ -6311,7 +6311,7 @@
           },
           {
             "operationId": "GPUDevice.createComputePipeline",
-            "wireId": 797909431,
+            "wireId": 3202875898,
             "request": {
               "payloadRole": "service-request-payload-decoder-plus-operation-specific-call-joins",
               "catalog": {
@@ -6329,7 +6329,7 @@
                       "magic": "IBGQ",
                       "version": 1,
                       "codecTag": 25,
-                      "operationWireId": 797909431
+                      "operationWireId": 3202875898
                     }
                   },
                   {
@@ -6468,7 +6468,7 @@
                 {
                   "carrierPath": "operation_id",
                   "operator": "equal",
-                  "value": 797909431
+                  "value": 3202875898
                 },
                 {
                   "carrierPath": "flags",
@@ -6617,7 +6617,7 @@
                 {
                   "carrierPath": "record.operation_result.operation.operation_id",
                   "operator": "equal",
-                  "value": 797909431
+                  "value": 3202875898
                 },
                 {
                   "carrierPath": "record.operation_result.operation.device_transition",
@@ -13195,7 +13195,7 @@
           },
           {
             "operationId": "GPUQueue.copyExternalImageToTexture",
-            "wireId": 2735509416,
+            "wireId": 1909541119,
             "request": {
               "payloadRole": "service-request-payload-decoder-plus-operation-specific-call-joins",
               "catalog": {
@@ -13213,7 +13213,7 @@
                       "magic": "IBGQ",
                       "version": 1,
                       "codecTag": 27,
-                      "operationWireId": 2735509416
+                      "operationWireId": 1909541119
                     }
                   },
                   {
@@ -13317,7 +13317,7 @@
                 {
                   "carrierPath": "operation_id",
                   "operator": "equal",
-                  "value": 2735509416
+                  "value": 1909541119
                 },
                 {
                   "carrierPath": "flags",
@@ -13450,7 +13450,7 @@
                 {
                   "carrierPath": "record.operation_result.operation.operation_id",
                   "operator": "equal",
-                  "value": 2735509416
+                  "value": 1909541119
                 },
                 {
                   "carrierPath": "record.operation_result.operation.device_transition",
@@ -15247,8 +15247,8 @@
       },
       {
         "operationId": "GPUCommandEncoder.beginComputePass",
-        "wireId": 3523244499,
-        "semanticSha256": "13b522e0e53f0e3ec593f681976e5849fe0f5b440c8c8011382b5b6d05f2d4b6",
+        "wireId": 703389977,
+        "semanticSha256": "a3c5d46009ff1b1c24fcc73244af583d71574bf692cf18324e7e18bf775e46e8",
         "memberKind": "method",
         "dispatchClass": "wrapper-recording",
         "logicalExecutionKind": "wrapper-recording",
@@ -15310,8 +15310,8 @@
       },
       {
         "operationId": "GPUCommandEncoder.clearBuffer",
-        "wireId": 1800194111,
-        "semanticSha256": "c765a9ad2d0cd6e05e4e20eeed43a81976b76e3e0d39698f9c330ce805601d3c",
+        "wireId": 2307697425,
+        "semanticSha256": "cd20fcfd14f49a0d7df7e178a9768932213d9e82363103ce081c532e362945fc",
         "memberKind": "method",
         "dispatchClass": "wrapper-recording",
         "logicalExecutionKind": "wrapper-recording",
@@ -15342,8 +15342,8 @@
       },
       {
         "operationId": "GPUCommandEncoder.copyBufferToBuffer",
-        "wireId": 3143150371,
-        "semanticSha256": "39aa54b39284dd1526b75a188beb0189c77a4166d172c5001ce3b216087af6c4",
+        "wireId": 4157082988,
+        "semanticSha256": "cc094c8cf06e190f3467cc25c22e9c68400c7464b09bd1b910d337ecdbdee93f",
         "memberKind": "method",
         "dispatchClass": "wrapper-recording",
         "logicalExecutionKind": "wrapper-recording",
@@ -15374,8 +15374,8 @@
       },
       {
         "operationId": "GPUCommandEncoder.copyTextureToTexture",
-        "wireId": 225996500,
-        "semanticSha256": "59bb7dd7740964678662578f1c14f25b34a2d507f651c8787afff91c480847e5",
+        "wireId": 3703840263,
+        "semanticSha256": "0994ea8d5d192c90b3f539813bbac4ae97d03dccfd9c73a2ab7b0de83d37b890",
         "memberKind": "method",
         "dispatchClass": "wrapper-recording",
         "logicalExecutionKind": "wrapper-recording",
@@ -15842,8 +15842,8 @@
       },
       {
         "operationId": "GPUDevice.createComputePipeline",
-        "wireId": 797909431,
-        "semanticSha256": "c9fa6574c6833ebcec767bdda2aa7e045fd1090270648c718a555d398590d5a0",
+        "wireId": 3202875898,
+        "semanticSha256": "a4b0baea0678797cb768225755bf4a88a61266cd34936d244ddb17ba2403e2a6",
         "memberKind": "method",
         "dispatchClass": "service-submit",
         "logicalExecutionKind": "service-enqueue",
@@ -16214,8 +16214,8 @@
       },
       {
         "operationId": "GPUQueue.copyExternalImageToTexture",
-        "wireId": 2735509416,
-        "semanticSha256": "e36d98def0f964b9c1926f198199d22f43272c60f0691ed4caa5a6b8eb2839e9",
+        "wireId": 1909541119,
+        "semanticSha256": "53d1dfabad782fd5d977713d2cac8bd791519efb3719c9666d960c7975448ca2",
         "memberKind": "method",
         "dispatchClass": "service-submit",
         "logicalExecutionKind": "service-enqueue",
@@ -16287,8 +16287,8 @@
       },
       {
         "operationId": "GPUComputePassEncoder.dispatchWorkgroups",
-        "wireId": 453877330,
-        "semanticSha256": "5bd8f2de191542eb5540f65a9bc3084f3194f3041c1330e60a1748be0fd4f3fd",
+        "wireId": 2306328927,
+        "semanticSha256": "71ecc54ce11391ae6209638d605faca8ce1bd7f27a044b2d9456f5a8916347cf",
         "memberKind": "method",
         "dispatchClass": "wrapper-recording",
         "logicalExecutionKind": "wrapper-recording",
@@ -16319,8 +16319,8 @@
       },
       {
         "operationId": "GPUComputePassEncoder.end",
-        "wireId": 1169790793,
-        "semanticSha256": "3b3bcdbebc95e8573d3016a97465899be246b0b74d41cae2e9ee771f5f7b147c",
+        "wireId": 2768132602,
+        "semanticSha256": "071b4a5d0e6a29e7da5cd8f98975136df3364d6a633081f478fd69759e6baa9e",
         "memberKind": "method",
         "dispatchClass": "wrapper-recording",
         "logicalExecutionKind": "wrapper-recording",
@@ -16350,8 +16350,8 @@
       },
       {
         "operationId": "GPUComputePassEncoder.setBindGroup",
-        "wireId": 1974548886,
-        "semanticSha256": "81a524e236477b9d9ea2854fa6511f819e1cf6f5fab77c761f2be0ff25a93fc6",
+        "wireId": 142093524,
+        "semanticSha256": "0ce81e049e0e63504a64bc14564b3b2cb860be25363b4ea3c7618c33660e25f4",
         "memberKind": "method",
         "dispatchClass": "wrapper-recording",
         "logicalExecutionKind": "wrapper-recording",
@@ -16383,8 +16383,8 @@
       },
       {
         "operationId": "GPUComputePassEncoder.setPipeline",
-        "wireId": 2044185398,
-        "semanticSha256": "e43c310c36373551207e65e6476098a253308c12375d2629f1a693f22ac71868",
+        "wireId": 1600872137,
+        "semanticSha256": "994bda7d856d72102b28ea3b4c9271bfb87c70adb70eb9ca41b87f064c8833cd",
         "memberKind": "method",
         "dispatchClass": "wrapper-recording",
         "logicalExecutionKind": "wrapper-recording",
@@ -16474,8 +16474,8 @@
       },
       {
         "operationId": "GPURenderPassEncoder.setBindGroup",
-        "wireId": 2241984974,
-        "semanticSha256": "d5d02af3e2f8f301034a23a07a690408526809f11e332d253c52f4e5b8a0a6fa",
+        "wireId": 314403009,
+        "semanticSha256": "a1caee2a239f6d3388b564a7edf594a183732c7d05740bf731f9b95cdcd84ac8",
         "memberKind": "method",
         "dispatchClass": "wrapper-recording",
         "logicalExecutionKind": "wrapper-recording",
@@ -16537,8 +16537,8 @@
       },
       {
         "operationId": "GPURenderPassEncoder.setVertexBuffer",
-        "wireId": 2527622801,
-        "semanticSha256": "9c1949822cec7eed7b2f4781c1aa4f8913b35ce6514c00807b9923a7c12730cd",
+        "wireId": 699569388,
+        "semanticSha256": "38c1d657ebf79dbd90bbeaa5ec9b76a37a8883a26b3de3a0918d5176cc49f02d",
         "memberKind": "method",
         "dispatchClass": "wrapper-recording",
         "logicalExecutionKind": "wrapper-recording",
@@ -16813,68 +16813,68 @@
         "wedgedProviderDisposition": "force-loss-and-quarantine-generation",
         "redactedDiagnostic": "gpu-provider-shutdown-deadline-exceeded-v1"
       },
-      "webgpuCVocabularyDigest": "3ef431bceccbb3633353351de534317a435bc0d3a0f9ba6533e41414ad2cec99",
-      "operationSetDigest": "7260930fae40730dae2d9c2bd2f6f94194612fca5085a9df7ef43fc27d886e4a",
-      "semanticProgramDigest": "01f485e67db22f05cc75219f769343c3b9efa75005f86d6e0336cf2008f0ec5f",
-      "runtimeRoutingDigest": "ee296f4c11ebefee2829b60b98cb1219a4cfdb0c197d7ec1ac7c62c8628f9b4b",
+      "webgpuCVocabularyDigest": "2b4f91ca7d179058e1c748114bfc059db337ec1a710998a5790b527177039007",
+      "operationSetDigest": "54695d036b1e460efa2ccb1e45447de7046892b97d4d0ed6c20ecfb60d865f37",
+      "semanticProgramDigest": "db92e5dd36d33450c96e19c202319ccbb820202d861ebaf372162fdfcc21b7ba",
+      "runtimeRoutingDigest": "62b7af1c32e8611340e7f61b343c5cc4803045033e3b51f1fed45daf4a1d119e",
       "sortedOperationIds": [
         31670442,
         56177326,
+        142093524,
         194635792,
         206890944,
-        225996500,
         308839175,
+        314403009,
         404589710,
-        453877330,
         551383281,
         599085487,
-        797909431,
+        699569388,
+        703389977,
         892795326,
         935342475,
-        1169790793,
         1199806466,
         1228615721,
         1277060789,
         1287763171,
         1311136574,
+        1600872137,
         1660448199,
         1724778411,
         1760273919,
-        1800194111,
         1829554013,
         1853125118,
         1869756926,
         1899341095,
         1908549907,
+        1909541119,
         1914447212,
         1925415872,
         1949537636,
-        1974548886,
         2040228619,
-        2044185398,
         2239053141,
-        2241984974,
+        2306328927,
+        2307697425,
         2407151159,
         2481184390,
-        2527622801,
         2544948076,
         2687703037,
-        2735509416,
+        2768132602,
         2816646327,
         2933046788,
         3054695767,
         3114133342,
-        3143150371,
         3157634281,
+        3202875898,
         3285037552,
         3293775739,
         3310230093,
         3314731466,
         3373402978,
-        3523244499,
+        3703840263,
         3810427763,
         4055478657,
         4094543821,
+        4157082988,
         4177957718
       ]
     }

@@ -127,7 +127,7 @@ describe("construction-private WebGPU CapSec operation registry", () => {
       ).toBe(true);
       expect(generated.operations).toContainEqual(expect.objectContaining({
         operationId: "GPUDevice.createComputePipeline",
-        wireId: 797909431,
+        wireId: 3202875898,
         edgeClassification: "closed",
         authoritySession: {
           decisionKind: "typed-positive",
@@ -161,7 +161,7 @@ describe("construction-private WebGPU CapSec operation registry", () => {
       });
       expect(generated.operations).toContainEqual(expect.objectContaining({
         operationId: "GPUQueue.copyExternalImageToTexture",
-        wireId: 2735509416,
+        wireId: 1909541119,
         edgeClassification: "closed",
         authoritySession: {
           decisionKind: "typed-positive",
