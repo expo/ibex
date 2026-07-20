@@ -68,6 +68,7 @@
 #include <direct.h>
 #include <malloc.h>
 #include <windows.h>
+#include <tlhelp32.h>
 #else
 #include <dlfcn.h>
 #include <sys/poll.h>
@@ -6004,6 +6005,56 @@ void runNextTickQueue(ExactHermesRuntime* runtime) {
 
 } // namespace
 
+#if defined(_WIN32)
+static HMODULE exactHermesRuntimeImageModule() {
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // retain Windows pathname-reopen evidence without claiming mapped-image
+  // provenance.
+  // Taking the address of an imported C++ function may identify the executable's
+  // import thunk rather than the DLL implementation on MSVC. A bare
+  // GetModuleHandle basename is also ambiguous when duplicate basenames are
+  // loaded. Snapshot the actual loader module set, require exactly one linked
+  // Hermes DLL, then pin that exact mapping by an address inside it. Rust
+  // subsequently requires its canonical path and digest to match the authored
+  // engine artifact; this remains current-path evidence rather than a claim
+  // about immutable mapped image pages.
+  HANDLE snapshot = INVALID_HANDLE_VALUE;
+  for (unsigned attempt = 0; attempt < 8; ++attempt) {
+    snapshot = CreateToolhelp32Snapshot(
+        TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, GetCurrentProcessId());
+    if (snapshot != INVALID_HANDLE_VALUE) break;
+    if (GetLastError() != ERROR_BAD_LENGTH) return nullptr;
+  }
+  if (snapshot == INVALID_HANDLE_VALUE) return nullptr;
+
+  MODULEENTRY32W entry = {};
+  entry.dwSize = sizeof(entry);
+  HMODULE selected = nullptr;
+  if (Module32FirstW(snapshot, &entry)) {
+    do {
+      if (lstrcmpiW(entry.szModule, L"hermesvm.dll") != 0) continue;
+      if (selected != nullptr) {
+        selected = nullptr;
+        break;
+      }
+      selected = entry.hModule;
+    } while (Module32NextW(snapshot, &entry));
+  }
+  CloseHandle(snapshot);
+  if (selected == nullptr) return nullptr;
+
+  HMODULE pinned = nullptr;
+  if (!GetModuleHandleExA(
+          GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+              GET_MODULE_HANDLE_EX_FLAG_PIN,
+          reinterpret_cast<LPCSTR>(selected), &pinned) ||
+      pinned != selected) {
+    return nullptr;
+  }
+  return pinned;
+}
+#endif
+
 #if EXACT_HAS_HERMES_ASYNC_DEBUGGER
 void emitNewScripts(ExactHermesRuntime* runtime,
                     facebook::hermes::debugger::Debugger& debugger) {
@@ -6023,18 +6074,14 @@ void emitNewScripts(ExactHermesRuntime* runtime,
 
 extern "C" int32_t ex_hermes_engine_binary_path(char* out, size_t out_len) {
   if (out == nullptr || out_len == 0) return -1;
+#if !defined(_WIN32)
   using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
       const ::hermes::vm::RuntimeConfig&);
   auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
+#endif
 #if defined(_WIN32)
-  HMODULE module = nullptr;
-  if (!GetModuleHandleExA(
-          GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-              GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-          reinterpret_cast<LPCSTR>(factory),
-          &module)) {
-    return -1;
-  }
+  HMODULE module = exactHermesRuntimeImageModule();
+  if (module == nullptr) return -1;
   DWORD written = GetModuleFileNameA(module, out, static_cast<DWORD>(out_len));
   return written > 0 && written < out_len ? static_cast<int32_t>(written) : -1;
 #else
@@ -6052,22 +6099,19 @@ extern "C" int32_t ex_hermes_engine_binary_path(char* out, size_t out_len) {
 extern "C" int32_t ex_hermes_engine_mapped_object(
     uint64_t* out_device, uint64_t* out_inode) {
   if (out_device == nullptr || out_inode == nullptr) return -1;
+#if !defined(_WIN32)
   using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
       const ::hermes::vm::RuntimeConfig&);
   auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
+#endif
 #if defined(_WIN32)
   // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
   // derive current-file identity from the loader-reported DLL pathname
   // independently of the Rust handle used to hash the named artifact. Windows
   // does not expose the loader's image-section handle here, so this remains
   // diagnostic pathname-reopen evidence and cannot authenticate mapped code.
-  HMODULE module = nullptr;
-  if (!GetModuleHandleExA(
-          GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-              GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-          reinterpret_cast<LPCSTR>(factory), &module)) {
-    return -1;
-  }
+  HMODULE module = exactHermesRuntimeImageModule();
+  if (module == nullptr) return -1;
   std::vector<char> path(32768, '\0');
   DWORD written =
       GetModuleFileNameA(module, path.data(), static_cast<DWORD>(path.size()));

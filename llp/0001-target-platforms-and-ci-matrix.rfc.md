@@ -200,16 +200,20 @@ old NuGet installer is replaced by a download-first, source-build fallback for
 the same pinned commit and patch digest as Apple/Linux; the artifact workflow
 builds a no-debugger Release `hermesvm.dll`, checks the patched attribution
 export, records its binary digest/profile, and publishes the exact x64 bundle.
-The runtime separately derives the loader-reported module DLL pathname, reopens
-that pathname, and compares its current Windows volume serial/file index with
-the pinned file handle used for hashing. That detects ordinary named-file
-substitution but does not authenticate the image section that supplied already
-mapped code: a replacement after load can make both reopened handles name the
-same different file. This closes ordinary pathname-only and mismatched-file
-substitution but not mapped-image provenance, so the conformance ledger retains
-that explicit Windows blocker. Windows x64 is nevertheless an explicit CapSec
-candidate, and the complete-matrix workflow consumes the pinned bundle to
-produce target-, source-, catalog-, and loaded-DLL-bound evidence. The target
+The runtime separately snapshots the loader module set, requires exactly one
+loaded module with the authored `hermesvm.dll` basename, and pins that module
+by its mapped base address before deriving its loader-reported pathname. This
+avoids both an executable-side MSVC import thunk and ambiguous basename lookup.
+Rust reopens that pathname and compares its current Windows volume serial/file
+index with the pinned file handle used for hashing. That detects ordinary
+named-file substitution but does not authenticate the image section that
+supplied already mapped code: a replacement after load can make both reopened
+handles name the same different file. This closes ordinary pathname-only and
+mismatched-file substitution but not mapped-image provenance, so the
+conformance ledger retains that explicit Windows blocker. Windows x64 is
+nevertheless an explicit CapSec candidate, and the complete-matrix workflow
+consumes the pinned bundle to produce target-, source-, catalog-, and
+loaded-DLL-bound evidence. The target
 remains compatibility-only while the report is incomplete and mapped-image
 provenance is unresolved; no advertisement follows from the implementation,
 candidate declaration, or report execution alone `[observed]`
