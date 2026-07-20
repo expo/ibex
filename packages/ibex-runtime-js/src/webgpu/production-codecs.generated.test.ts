@@ -1821,7 +1821,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'ibex/webgpu-render-pipeline-conversion-fixtures/1',
     );
     expect(renderPipelineConversionFixtures.source.exactSemanticJoinSha256).toBe(
-      '3a4f9df11b928d03097e994fcc6aa005c3bbde5898aca2bb0fa49772587249d3',
+      'bb69afa17dabd7c7d7508d077d4c8fe4b1e19344d8b86518b696f4076d638713',
     );
     expect(renderPipelineConversionFixtures.source.projectionCanonicalization).toBe(
       'recursive-key-sorted-json-utf8',
@@ -1926,7 +1926,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
     expect(computePipelineConversionFixtures.source).toEqual({
       typegpuVersion: '0.11.9',
       exactSemanticJoinSha256:
-        '3a4f9df11b928d03097e994fcc6aa005c3bbde5898aca2bb0fa49772587249d3',
+        'bb69afa17dabd7c7d7508d077d4c8fe4b1e19344d8b86518b696f4076d638713',
       projectionSha256:
         'ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe',
       projectionCanonicalization: 'recursive-key-sorted-json-utf8',
