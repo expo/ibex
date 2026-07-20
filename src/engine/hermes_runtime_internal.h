@@ -671,6 +671,13 @@ struct ExactHermesRuntime {
   bool restricted_exact_activation_configured = false;
   bool restricted_exact_checkpoint_consumed = false;
   uint64_t restricted_exact_checkpoint_publication_count = 0;
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+  // Test-only exact-engine trace. Each bit binds a restricted-profile startup
+  // registry edge to the production constructor/install/evaluation path. It is
+  // intentionally unavailable to JavaScript and absent from production builds.
+  // @ref LLP 0033#8-generated-authority-and-conformance
+  uint64_t restricted_exact_conformance_trace = 0;
+#endif
   uint64_t restricted_exact_wall_clock_ms = 0;
   uint64_t restricted_exact_rng_state_0 = 0;
   uint64_t restricted_exact_rng_state_1 = 0;

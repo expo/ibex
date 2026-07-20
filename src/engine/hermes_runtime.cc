@@ -350,6 +350,12 @@ extern "C" int ibex_test_exact_host_completion_observation(
       g_exact_host_completion_callbacks_delivered.load(std::memory_order_seq_cst);
   return 1;
 }
+
+extern "C" uint64_t ibex_test_restricted_exact_conformance_trace(
+    ExactHermesRuntime* runtime) {
+  if (runtime == nullptr || !runtime->restricted_exact) return 0;
+  return runtime->restricted_exact_conformance_trace;
+}
 #endif
 
 void requireArmedStartupStage(ExactHermesRuntime* handle, const char* stage) {
@@ -4032,8 +4038,16 @@ void populateDiagnosticProcessEnvironment(
 // compatibility global to the full Ibex runtime must never silently add it to
 // the restricted profile. @ref LLP 0033#5-closed-world-surface-projection
 void installRestrictedExactGlobals(struct ExactHermesRuntime* handle) {
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+  // installer:installRestrictedExactGlobals
+  handle->restricted_exact_conformance_trace |= 1ull << 2;
+#endif
   auto& rt = *handle->runtime;
   ensureExactEmbedderObject(handle);
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+  // install-route + installer:installTimerGlobals
+  handle->restricted_exact_conformance_trace |= (1ull << 3) | (1ull << 4);
+#endif
   installTimerGlobals(handle, false);
 
   auto exactObject = rt.global().getPropertyAsObject(rt, "exact");
@@ -4152,6 +4166,10 @@ void installRestrictedExactGlobals(struct ExactHermesRuntime* handle) {
   )JS";
   auto buffer =
       std::make_shared<facebook::jsi::StringBuffer>(kRestrictedLockdown);
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+  // script + evaluation:<restricted-exact-lockdown>
+  handle->restricted_exact_conformance_trace |= (1ull << 5) | (1ull << 6);
+#endif
   auto lockdownFactory =
       rt.evaluateJavaScript(buffer, "<restricted-exact-lockdown>");
   if (!lockdownFactory.isObject() ||
@@ -7343,6 +7361,12 @@ static ExactHermesRuntime* ex_hermes_create_impl(
   handle->host_context_id = host_context_id;
   handle->armed = armed;
   handle->restricted_exact = restrictedExact;
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+  if (restrictedExact) {
+    // startup:runtime-create
+    handle->restricted_exact_conformance_trace |= 1ull << 0;
+  }
+#endif
   // Both production and the explicitly named foreground diagnostic constructor
   // use structural isolation. Only production seals dynamic self-grant and
   // consumes authenticated endowments.
@@ -7474,6 +7498,10 @@ static ExactHermesRuntime* ex_hermes_create_impl(
   TRACE_START(install_globals);
   try {
     if (restrictedExact) {
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+      // install route:ex_hermes_create_impl -> installRestrictedExactGlobals
+      handle->restricted_exact_conformance_trace |= 1ull << 1;
+#endif
       installRestrictedExactGlobals(handle);
     } else {
       requireArmedStartupStage(handle, "install-globals");
@@ -12600,6 +12628,10 @@ extern "C" int ex_hermes_run_restricted_exact_bundle(
       sourceBuffer = std::make_shared<MemoryBuffer>(
           bundleBytes.data(), bundleBytes.size());
     }
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+    // script + evaluation:<authenticated-restricted-exact-bundle>
+    runtime->restricted_exact_conformance_trace |= (1ull << 7) | (1ull << 8);
+#endif
     rt.evaluateJavaScript(
         sourceBuffer, "<authenticated-restricted-exact-bundle>");
     runNextTickQueue(runtime);

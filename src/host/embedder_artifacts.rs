@@ -1450,6 +1450,20 @@ mod tests {
             runtime: *mut HermesRuntimeOpaque,
             path: *const std::ffi::c_char,
         ) -> u32;
+        fn ibex_test_reset_exact_host_completion_observer();
+        fn ibex_test_exact_host_completion_observation(
+            targets_consumed: *mut u64,
+            callbacks_queued: *mut u64,
+            callbacks_delivered: *mut u64,
+        ) -> i32;
+        fn ibex_test_restricted_exact_conformance_trace(runtime: *mut HermesRuntimeOpaque) -> u64;
+        fn ex_hermes_resolve_exact_host_call(
+            runtime: *mut HermesRuntimeOpaque,
+            call_id: u64,
+            status: i32,
+            payload: *const u8,
+            payload_len: usize,
+        );
         fn ex_hermes_free_string(value: *mut std::ffi::c_char);
         fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
     }
@@ -1468,6 +1482,38 @@ mod tests {
         _: *mut std::ffi::c_void,
     ) {
         panic!("restricted fixture made an unexpected host call");
+    }
+
+    #[derive(Default)]
+    struct RestrictedHostCallCapture {
+        calls: Vec<(u64, u32, Vec<u8>)>,
+    }
+
+    extern "C" fn resolve_restricted_host_call(
+        runtime: *mut HermesRuntimeOpaque,
+        call_id: u64,
+        operation_id: u32,
+        data: *const u8,
+        len: usize,
+        context: *mut std::ffi::c_void,
+    ) {
+        let capture = unsafe { &mut *context.cast::<RestrictedHostCallCapture>() };
+        let payload = if data.is_null() || len == 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(data, len) }.to_vec()
+        };
+        capture.calls.push((call_id, operation_id, payload));
+        const COMPLETION: &[u8] = b"restricted-conformance-completion";
+        unsafe {
+            ex_hermes_resolve_exact_host_call(
+                runtime,
+                call_id,
+                0,
+                COMPLETION.as_ptr(),
+                COMPLETION.len(),
+            );
+        }
     }
 
     struct RealEmbedderFixture {
@@ -1731,8 +1777,13 @@ mod tests {
         .unwrap()
     }
 
-    unsafe fn configured_restricted_exact_runtime(
+    type ExactHostCallCallback =
+        extern "C" fn(*mut HermesRuntimeOpaque, u64, u32, *const u8, usize, *mut std::ffi::c_void);
+
+    unsafe fn configured_restricted_exact_runtime_with_host_callback(
         bundle: &[u8],
+        host_callback: ExactHostCallCallback,
+        host_context: *mut std::ffi::c_void,
     ) -> (*mut HermesRuntimeOpaque, Box<Vec<u8>>, Box<Vec<u8>>) {
         let artifact = build_restricted_exact_embedder_artifact(
             &exact_manifest(),
@@ -1779,8 +1830,8 @@ mod tests {
                     operations.as_ptr(),
                     operations.len(),
                     manifest_digest.as_ptr(),
-                    reject_unexpected_host_call,
-                    std::ptr::null_mut(),
+                    host_callback,
+                    host_context,
                 )
             },
             0
@@ -1805,6 +1856,18 @@ mod tests {
             0
         );
         (runtime, dispatch, checkpoints)
+    }
+
+    unsafe fn configured_restricted_exact_runtime(
+        bundle: &[u8],
+    ) -> (*mut HermesRuntimeOpaque, Box<Vec<u8>>, Box<Vec<u8>>) {
+        unsafe {
+            configured_restricted_exact_runtime_with_host_callback(
+                bundle,
+                reject_unexpected_host_call,
+                std::ptr::null_mut(),
+            )
+        }
     }
 
     fn prepare_exact_through_abi(fixture: &RealEmbedderFixture) -> serde_json::Value {
@@ -2427,6 +2490,322 @@ mod tests {
             "restricted Exact projection marks live root paths structurally absent:\n{}",
             serde_json::to_string_pretty(&mismatches).unwrap()
         );
+    }
+
+    #[test]
+    fn restricted_exact_reachable_edges_execute_on_the_bound_engine() {
+        let _guard = crate::host::abi::host_test_lock();
+        if crate::engine::loaded_engine_structural_features()
+            != [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown",
+            ]
+        {
+            return;
+        }
+
+        let projection: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/generated/restricted-exact-profile-projection.json"
+        )))
+        .unwrap();
+        let reachable_ids = projection["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|row| {
+                let row = row.as_array().unwrap();
+                (row[1].as_str() == Some("reachable")).then(|| row[0].as_str().unwrap().to_owned())
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        let native_ids = reachable_ids
+            .iter()
+            .filter(|id| id.starts_with("surface.native.op."))
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>();
+        let startup_ids = reachable_ids
+            .iter()
+            .filter(|id| id.starts_with("surface.startup."))
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>();
+        let callback_ids = reachable_ids
+            .iter()
+            .filter(|id| id.starts_with("surface.callback."))
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(native_ids.len(), 115);
+        let startup_trace_edges = [
+            "surface.startup.runtime.create.09gd22j",
+            "surface.startup.install.route.ex.hermes.create.impl.installrestrictedexactglobals.17p1el8",
+            "surface.startup.installer.installrestrictedexactglobals.17llg9x",
+            "surface.startup.install.route.installrestrictedexactglobals.installtimerglobals.1kww2tg",
+            "surface.startup.installer.installtimerglobals.1qth84q",
+            "surface.startup.script.restricted.exact.lockdown.1wpbysw",
+            "surface.startup.evaluation.installrestrictedexactglobals.restricted.exact.lockdown.0xlst78",
+            "surface.startup.script.authenticated.restricted.exact.bundle.1v2bh2d",
+            "surface.startup.evaluation.ex.hermes.run.restricted.exact.bundle.authenticated.restricte.1e57hbx",
+        ];
+        assert_eq!(
+            startup_ids,
+            startup_trace_edges
+                .into_iter()
+                .map(str::to_owned)
+                .collect::<std::collections::BTreeSet<_>>()
+        );
+        assert_eq!(
+            callback_ids,
+            [
+                "surface.callback.exact.host.call.async.resolve.0f9z2o3",
+                "surface.callback.producer.src.engine.hermes.runtime.cc.ex.hermes.resolve.exact.host.call.0n49v9x",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<std::collections::BTreeSet<_>>()
+        );
+
+        let root_manifest: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/generated/root-global-disposition-manifest.json"
+        )))
+        .unwrap();
+        let mut probes = std::collections::BTreeMap::<String, serde_json::Value>::new();
+        for row in root_manifest["rows"].as_array().unwrap() {
+            let edge_id = row["registryEdgeId"].as_str().unwrap();
+            if !native_ids.contains(edge_id) || probes.contains_key(edge_id) {
+                continue;
+            }
+            let root = &row["property"]["root"];
+            assert_eq!(root["kind"].as_str(), Some("string"), "{edge_id}");
+            let path = row["property"]["path"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|segment| {
+                    assert_eq!(segment["kind"].as_str(), Some("string"), "{edge_id}");
+                    segment["value"].as_str().unwrap().to_owned()
+                })
+                .collect::<Vec<_>>();
+            probes.insert(
+                edge_id.to_owned(),
+                serde_json::json!({
+                    "edgeId": edge_id,
+                    "root": root["value"].as_str().unwrap(),
+                    "path": path,
+                }),
+            );
+        }
+        assert_eq!(probes.len(), native_ids.len());
+
+        let mut bundle = br#"((specs) => {
+          'use strict';
+          const results = [];
+          const ingress = exact.takeCheckpointBytes();
+          if (!(ingress instanceof Uint8Array)) throw new Error('checkpoint ingress was not bytes');
+
+          const keyFor = (segment) => {
+            if (segment === '[[Symbol.iterator]]') return Symbol.iterator;
+            if (segment === '[[Symbol.toStringTag]]') return Symbol.toStringTag;
+            return segment;
+          };
+          const descriptorFor = (object, key) => {
+            for (let cursor = object; cursor !== null; cursor = Object.getPrototypeOf(cursor)) {
+              const descriptor = Object.getOwnPropertyDescriptor(cursor, key);
+              if (descriptor !== undefined) return descriptor;
+            }
+            return undefined;
+          };
+          const resolve = (spec) => {
+            const segments = [spec.root, ...spec.path];
+            let receiver = globalThis;
+            let value = globalThis;
+            for (let index = 0; index < segments.length; index += 1) {
+              receiver = value;
+              if ((typeof receiver !== 'object' || receiver === null) && typeof receiver !== 'function') {
+                throw new Error(`non-object receiver before ${segments[index]}`);
+              }
+              const key = keyFor(segments[index]);
+              const descriptor = descriptorFor(receiver, key);
+              if (descriptor === undefined) throw new Error(`missing ${segments[index]}`);
+              if ('value' in descriptor) {
+                value = descriptor.value;
+              } else {
+                if (typeof descriptor.get !== 'function') {
+                  return {receiver, value: undefined, accessor: 'observed-no-getter'};
+                }
+                try {
+                  value = Reflect.apply(descriptor.get, receiver, []);
+                } catch (error) {
+                  return {receiver, value: descriptor.get, accessor: 'invoked-threw', error};
+                }
+                if (index === segments.length - 1) {
+                  return {receiver, value, accessor: 'invoked-returned'};
+                }
+              }
+            }
+            return {receiver, value, accessor: null};
+          };
+          const logicalPath = (spec) => [spec.root, ...spec.path].join('.');
+          const invoke = (spec, value, defaultReceiver) => {
+            const path = logicalPath(spec);
+            let receiver = defaultReceiver;
+            let args = [];
+            if (path === 'exact.invokeHostAsync') {
+              const promise = Reflect.apply(value, receiver, [1000, new Uint8Array([1, 2, 3])]);
+              promise.then(() => {}, () => {});
+              return;
+            }
+            if (path === 'exact.dispatch') args = [new Uint8Array([9])];
+            else if (path === 'atob' || path === 'btoa') args = [''];
+            else if (path === 'clearInterval' || path === 'clearTimeout') args = [0];
+            else if (path === 'setInterval' || path === 'setTimeout' || path === 'queueMicrotask') args = [null, 0];
+            else if (path === 'Intl.getCanonicalLocales') args = [[]];
+            else if (path.endsWith('.supportedLocalesOf')) args = [[]];
+            else if (path === 'Promise.reject') {
+              const promise = Reflect.apply(value, Promise, ['restricted-conformance']);
+              promise.catch(() => {});
+              return;
+            } else if (path.startsWith('Promise.prototype.')) {
+              receiver = Promise.resolve(1);
+              args = path.endsWith('.then')
+                ? [() => {}, () => {}]
+                : [() => {}];
+            } else if (path === 'Intl.DateTimeFormat.prototype.formatToParts') {
+              receiver = new Intl.DateTimeFormat('en-US');
+              args = [new Date(0)];
+            } else if (path.endsWith('.prototype.subarray')) {
+              receiver = new globalThis[spec.root](0);
+              args = [0, 0];
+            } else if (path === 'Iterator.from') {
+              args = [[]];
+            } else if (path.startsWith('Iterator.prototype.')) {
+              receiver = Iterator.from([]);
+              if (path.endsWith('.map') || path.endsWith('.filter') || path.endsWith('.flatMap')) args = [(value) => [value]];
+              else if (path.endsWith('.every') || path.endsWith('.some') || path.endsWith('.find') || path.endsWith('.forEach')) args = [() => true];
+              else if (path.endsWith('.reduce')) args = [(left) => left, 0];
+              else if (path.endsWith('.drop') || path.endsWith('.take')) args = [0];
+            }
+            Reflect.apply(value, receiver, args);
+          };
+
+          let publishEdge = null;
+          for (const spec of specs) {
+            const path = logicalPath(spec);
+            if (path === 'exact.takeCheckpointBytes') {
+              results.push({edgeId: spec.edgeId, status: 'invoked-returned'});
+              continue;
+            }
+            if (path === 'exact.publishCheckpoint') {
+              publishEdge = spec.edgeId;
+              continue;
+            }
+            try {
+              const resolved = resolve(spec);
+              if (resolved.accessor !== null) {
+                results.push({
+                  edgeId: spec.edgeId,
+                  status: resolved.accessor,
+                  valueType: typeof resolved.value,
+                });
+              } else if (typeof resolved.value === 'function') {
+                try {
+                  invoke(spec, resolved.value, resolved.receiver);
+                  results.push({edgeId: spec.edgeId, status: 'invoked-returned'});
+                } catch (error) {
+                  results.push({edgeId: spec.edgeId, status: 'invoked-threw', errorName: error?.name ?? 'Error'});
+                }
+              } else {
+                results.push({edgeId: spec.edgeId, status: 'observed-noncallable', valueType: typeof resolved.value});
+              }
+            } catch (error) {
+              results.push({edgeId: spec.edgeId, status: 'unresolved', errorName: error?.name ?? 'Error'});
+            }
+          }
+          if (publishEdge === null) throw new Error('publishCheckpoint edge missing from probe plan');
+          results.push({edgeId: publishEdge, status: 'invoked-returned'});
+          const payload = new TextEncoder().encode(JSON.stringify(results));
+          exact.publishCheckpoint(payload);
+        })("#
+            .to_vec();
+        bundle.extend_from_slice(
+            serde_json::to_string(&probes.values().collect::<Vec<_>>())
+                .unwrap()
+                .as_bytes(),
+        );
+        bundle.extend_from_slice(b");");
+
+        let mut host_calls = Box::<RestrictedHostCallCapture>::default();
+        unsafe { ibex_test_reset_exact_host_completion_observer() };
+        let (runtime, dispatch, checkpoints) = unsafe {
+            configured_restricted_exact_runtime_with_host_callback(
+                &bundle,
+                resolve_restricted_host_call,
+                (&mut *host_calls as *mut RestrictedHostCallCapture).cast(),
+            )
+        };
+        unsafe {
+            let mut error = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_run_restricted_exact_bundle(runtime, &mut error),
+                0,
+                "{}",
+                if error.is_null() {
+                    String::new()
+                } else {
+                    std::ffi::CStr::from_ptr(error)
+                        .to_string_lossy()
+                        .into_owned()
+                }
+            );
+            if !error.is_null() {
+                ex_hermes_free_string(error);
+            }
+            assert_eq!(ibex_test_restricted_exact_conformance_trace(runtime), 0x1ff);
+            assert_eq!(dispatch.as_slice(), [9]);
+            assert_eq!(host_calls.calls.len(), 1);
+            assert_eq!(host_calls.calls[0].1, 1000);
+            assert_eq!(host_calls.calls[0].2, [1, 2, 3]);
+
+            let results: Vec<serde_json::Value> = serde_json::from_slice(&checkpoints).unwrap();
+            assert_eq!(results.len(), native_ids.len());
+            let result_ids = results
+                .iter()
+                .map(|row| row["edgeId"].as_str().unwrap().to_owned())
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(result_ids, native_ids);
+            let unresolved = results
+                .iter()
+                .filter(|row| row["status"].as_str() == Some("unresolved"))
+                .collect::<Vec<_>>();
+            assert!(
+                unresolved.is_empty(),
+                "reachable native edges failed exact resolution: {}",
+                serde_json::to_string_pretty(&unresolved).unwrap()
+            );
+
+            assert!(ex_hermes_poll(runtime, 1234) >= 1);
+            let mut targets_consumed = 0;
+            let mut callbacks_queued = 0;
+            let mut callbacks_delivered = 0;
+            assert_eq!(
+                ibex_test_exact_host_completion_observation(
+                    &mut targets_consumed,
+                    &mut callbacks_queued,
+                    &mut callbacks_delivered,
+                ),
+                1
+            );
+            assert_eq!(
+                (targets_consumed, callbacks_queued, callbacks_delivered),
+                (1, 1, 1)
+            );
+            ex_hermes_destroy(runtime);
+        }
+
+        // The real engine observations above cover every reachable projection
+        // class: 115 JS/native identities, nine startup edges, and the two
+        // native completion callback edges.
+        assert_eq!(native_ids.len() + 9 + 2, reachable_ids.len());
     }
 
     #[test]
