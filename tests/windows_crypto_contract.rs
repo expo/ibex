@@ -22,6 +22,7 @@ fn windows_native_crypto_remains_a_primitive_backend() {
         "__exactHashRaw",
         "__exactHmacSync",
         "__exactPbkdf2",
+        "__exactScryptSync",
         "__exactHkdf",
     ] {
         assert!(
@@ -40,5 +41,9 @@ fn windows_native_crypto_remains_a_primitive_backend() {
     assert!(
         WINDOWS_CRYPTO.contains("BCryptDeriveKeyPBKDF2"),
         "Windows PBKDF2 must use the platform CNG derivation primitive"
+    );
+    assert!(
+        WINDOWS_CRYPTO.contains("scryptRoMix") && WINDOWS_CRYPTO.contains("salsa20_8"),
+        "Windows scrypt must retain the portable RFC 7914 ROMix construction"
     );
 }

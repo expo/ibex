@@ -15,6 +15,7 @@ void unregisterSignalRuntime(ExactHermesRuntime*) {}
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstring>
 #include <iomanip>
 #include <limits>
 #include <optional>
@@ -142,6 +143,141 @@ std::vector<uint8_t> computeDigest(
 
   close_algorithm();
   return digest;
+}
+
+std::vector<uint8_t> derivePbkdf2(
+    facebook::jsi::Runtime& runtime,
+    const std::vector<uint8_t>& password,
+    const std::vector<uint8_t>& salt,
+    ULONGLONG iterations,
+    size_t length,
+    const std::string& algorithm) {
+  const wchar_t* algorithm_id = bcryptAlgorithmId(algorithm);
+  if (!algorithm_id) {
+    throw facebook::jsi::JSError(
+        runtime,
+        "__exactPbkdf2: unsupported hash algorithm: " + algorithm);
+  }
+  if (password.size() > std::numeric_limits<ULONG>::max() ||
+      salt.size() > std::numeric_limits<ULONG>::max() ||
+      length > std::numeric_limits<ULONG>::max()) {
+    throw facebook::jsi::JSError(runtime, "__exactPbkdf2: input or output is too large");
+  }
+  if (length == 0) return {};
+
+  BCRYPT_ALG_HANDLE algorithm_handle = nullptr;
+  if (!ntSuccess(BCryptOpenAlgorithmProvider(
+          &algorithm_handle,
+          algorithm_id,
+          nullptr,
+          BCRYPT_ALG_HANDLE_HMAC_FLAG))) {
+    throw facebook::jsi::JSError(runtime, "BCryptOpenAlgorithmProvider failed for PBKDF2");
+  }
+
+  std::vector<uint8_t> derived_key(length);
+  UCHAR empty_input = 0;
+  NTSTATUS status = BCryptDeriveKeyPBKDF2(
+      algorithm_handle,
+      password.empty() ? &empty_input : const_cast<PUCHAR>(password.data()),
+      static_cast<ULONG>(password.size()),
+      salt.empty() ? &empty_input : const_cast<PUCHAR>(salt.data()),
+      static_cast<ULONG>(salt.size()),
+      iterations,
+      derived_key.data(),
+      static_cast<ULONG>(derived_key.size()),
+      0);
+  BCryptCloseAlgorithmProvider(algorithm_handle, 0);
+  if (!ntSuccess(status)) {
+    throw facebook::jsi::JSError(runtime, "BCryptDeriveKeyPBKDF2 failed");
+  }
+  return derived_key;
+}
+
+uint32_t rotateLeft32(uint32_t value, uint32_t bits) {
+  return (value << bits) | (value >> (32 - bits));
+}
+
+void salsa20_8(uint32_t block[16]) {
+  uint32_t x[16];
+  std::memcpy(x, block, sizeof(x));
+  for (int round = 0; round < 8; round += 2) {
+    x[4] ^= rotateLeft32(x[0] + x[12], 7);
+    x[8] ^= rotateLeft32(x[4] + x[0], 9);
+    x[12] ^= rotateLeft32(x[8] + x[4], 13);
+    x[0] ^= rotateLeft32(x[12] + x[8], 18);
+    x[9] ^= rotateLeft32(x[5] + x[1], 7);
+    x[13] ^= rotateLeft32(x[9] + x[5], 9);
+    x[1] ^= rotateLeft32(x[13] + x[9], 13);
+    x[5] ^= rotateLeft32(x[1] + x[13], 18);
+    x[14] ^= rotateLeft32(x[10] + x[6], 7);
+    x[2] ^= rotateLeft32(x[14] + x[10], 9);
+    x[6] ^= rotateLeft32(x[2] + x[14], 13);
+    x[10] ^= rotateLeft32(x[6] + x[2], 18);
+    x[3] ^= rotateLeft32(x[15] + x[11], 7);
+    x[7] ^= rotateLeft32(x[3] + x[15], 9);
+    x[11] ^= rotateLeft32(x[7] + x[3], 13);
+    x[15] ^= rotateLeft32(x[11] + x[7], 18);
+    x[1] ^= rotateLeft32(x[0] + x[3], 7);
+    x[2] ^= rotateLeft32(x[1] + x[0], 9);
+    x[3] ^= rotateLeft32(x[2] + x[1], 13);
+    x[0] ^= rotateLeft32(x[3] + x[2], 18);
+    x[6] ^= rotateLeft32(x[5] + x[4], 7);
+    x[7] ^= rotateLeft32(x[6] + x[5], 9);
+    x[4] ^= rotateLeft32(x[7] + x[6], 13);
+    x[5] ^= rotateLeft32(x[4] + x[7], 18);
+    x[11] ^= rotateLeft32(x[10] + x[9], 7);
+    x[8] ^= rotateLeft32(x[11] + x[10], 9);
+    x[9] ^= rotateLeft32(x[8] + x[11], 13);
+    x[10] ^= rotateLeft32(x[9] + x[8], 18);
+    x[12] ^= rotateLeft32(x[15] + x[14], 7);
+    x[13] ^= rotateLeft32(x[12] + x[15], 9);
+    x[14] ^= rotateLeft32(x[13] + x[12], 13);
+    x[15] ^= rotateLeft32(x[14] + x[13], 18);
+  }
+  for (size_t index = 0; index < 16; ++index) block[index] += x[index];
+}
+
+void scryptBlockMix(uint32_t* block, uint32_t* scratch, uint32_t r) {
+  const uint32_t block_count = 2 * r;
+  uint32_t x[16];
+  std::memcpy(x, &block[(block_count - 1) * 16], sizeof(x));
+  for (uint32_t index = 0; index < block_count; ++index) {
+    for (size_t word = 0; word < 16; ++word) x[word] ^= block[index * 16 + word];
+    salsa20_8(x);
+    std::memcpy(&scratch[index * 16], x, sizeof(x));
+  }
+
+  std::vector<uint32_t> reordered(static_cast<size_t>(block_count) * 16);
+  uint32_t destination = 0;
+  for (uint32_t index = 0; index < block_count; index += 2, ++destination) {
+    std::memcpy(&reordered[destination * 16], &scratch[index * 16], sizeof(x));
+  }
+  for (uint32_t index = 1; index < block_count; index += 2, ++destination) {
+    std::memcpy(&reordered[destination * 16], &scratch[index * 16], sizeof(x));
+  }
+  std::memcpy(scratch, reordered.data(), reordered.size() * sizeof(uint32_t));
+}
+
+void scryptRoMix(uint32_t* block, uint64_t n, uint32_t r) {
+  const size_t block_words = 2 * static_cast<size_t>(r) * 16;
+  const size_t block_bytes = block_words * sizeof(uint32_t);
+  std::vector<uint32_t> history(static_cast<size_t>(n) * block_words);
+  std::vector<uint32_t> scratch(block_words);
+
+  for (uint64_t iteration = 0; iteration < n; ++iteration) {
+    std::memcpy(&history[static_cast<size_t>(iteration) * block_words], block, block_bytes);
+    scryptBlockMix(block, scratch.data(), r);
+    std::memcpy(block, scratch.data(), block_bytes);
+  }
+  for (uint64_t iteration = 0; iteration < n; ++iteration) {
+    const size_t last_block_start = (2 * static_cast<size_t>(r) - 1) * 16;
+    const uint64_t selected = block[last_block_start] % n;
+    for (size_t word = 0; word < block_words; ++word) {
+      block[word] ^= history[static_cast<size_t>(selected) * block_words + word];
+    }
+    scryptBlockMix(block, scratch.data(), r);
+    std::memcpy(block, scratch.data(), block_bytes);
+  }
 }
 
 std::string hexEncode(const std::vector<uint8_t>& bytes) {
@@ -479,53 +615,82 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         }
 
         auto algorithm = args[4].asString(runtime).utf8(runtime);
-        const wchar_t* algorithm_id = bcryptAlgorithmId(algorithm);
-        if (!algorithm_id) {
+        auto password = extractBytes(runtime, args[0]);
+        auto salt = extractBytes(runtime, args[1]);
+        auto length = static_cast<size_t>(requested_length);
+        return makeUint8Array(
+            runtime,
+            derivePbkdf2(
+                runtime,
+                password,
+                salt,
+                static_cast<ULONGLONG>(requested_iterations),
+                length,
+                algorithm));
+      });
+  rt.global().setProperty(rt, "__exactPbkdf2", std::move(pbkdf2Fn));
+
+  // @ref LLP 0008#crypto — CNG supplies scrypt's PBKDF2-HMAC-SHA256
+  // stages while this portable Salsa20/8 ROMix preserves RFC 7914 behavior.
+  auto scryptFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactScryptSync"),
+      6,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 6 || !args[2].isNumber() || !args[3].isNumber() ||
+            !args[4].isNumber() || !args[5].isNumber()) {
           throw facebook::jsi::JSError(
               runtime,
-              "__exactPbkdf2: unsupported hash algorithm: " + algorithm);
+              "__exactScryptSync: password, salt, N, r, p, and length required");
+        }
+
+        const double requested_n = args[2].asNumber();
+        const double requested_r = args[3].asNumber();
+        const double requested_p = args[4].asNumber();
+        const double requested_length = args[5].asNumber();
+        constexpr uint64_t kMaxScryptMemory = 1073741824ULL;
+        for (double value : {requested_n, requested_r, requested_p, requested_length}) {
+          if (!std::isfinite(value) || value < 0 || std::floor(value) != value) {
+            throw facebook::jsi::JSError(runtime, "__exactScryptSync: invalid numeric argument");
+          }
+        }
+        if (requested_n > static_cast<double>(kMaxScryptMemory) ||
+            requested_r > static_cast<double>(std::numeric_limits<uint32_t>::max()) ||
+            requested_p > static_cast<double>(std::numeric_limits<uint32_t>::max()) ||
+            requested_length > static_cast<double>(std::numeric_limits<ULONG>::max())) {
+          throw facebook::jsi::JSError(runtime, "__exactScryptSync: numeric argument is too large");
+        }
+
+        const uint64_t n = static_cast<uint64_t>(requested_n);
+        const uint32_t r = static_cast<uint32_t>(requested_r);
+        const uint32_t p = static_cast<uint32_t>(requested_p);
+        const size_t length = static_cast<size_t>(requested_length);
+        if (n <= 1 || (n & (n - 1)) != 0 || r == 0 || p == 0) {
+          throw facebook::jsi::JSError(runtime, "__exactScryptSync: invalid scrypt parameters");
+        }
+
+        if (n > kMaxScryptMemory / 128 / r ||
+            static_cast<uint64_t>(p) > kMaxScryptMemory / 128 / r) {
+          throw facebook::jsi::JSError(runtime, "__exactScryptSync: parameters are too large");
         }
 
         auto password = extractBytes(runtime, args[0]);
         auto salt = extractBytes(runtime, args[1]);
-        if (password.size() > std::numeric_limits<ULONG>::max() ||
-            salt.size() > std::numeric_limits<ULONG>::max()) {
-          throw facebook::jsi::JSError(runtime, "__exactPbkdf2: input is too large");
+        const size_t mixed_length = static_cast<size_t>(128) * r * p;
+        auto mixed = derivePbkdf2(runtime, password, salt, 1, mixed_length, "sha256");
+        for (uint32_t lane = 0; lane < p; ++lane) {
+          auto* block = reinterpret_cast<uint32_t*>(
+              &mixed[static_cast<size_t>(lane) * 128 * r]);
+          scryptRoMix(block, n, r);
         }
-
-        auto length = static_cast<size_t>(requested_length);
-        if (length == 0) {
-          return makeUint8Array(runtime, {});
-        }
-
-        BCRYPT_ALG_HANDLE algorithm_handle = nullptr;
-        if (!ntSuccess(BCryptOpenAlgorithmProvider(
-                &algorithm_handle,
-                algorithm_id,
-                nullptr,
-                BCRYPT_ALG_HANDLE_HMAC_FLAG))) {
-          throw facebook::jsi::JSError(runtime, "BCryptOpenAlgorithmProvider failed for PBKDF2");
-        }
-
-        std::vector<uint8_t> derived_key(length);
-        NTSTATUS status = BCryptDeriveKeyPBKDF2(
-            algorithm_handle,
-            password.empty() ? nullptr : password.data(),
-            static_cast<ULONG>(password.size()),
-            salt.empty() ? nullptr : salt.data(),
-            static_cast<ULONG>(salt.size()),
-            static_cast<ULONGLONG>(requested_iterations),
-            derived_key.data(),
-            static_cast<ULONG>(derived_key.size()),
-            0);
-        BCryptCloseAlgorithmProvider(algorithm_handle, 0);
-        if (!ntSuccess(status)) {
-          throw facebook::jsi::JSError(runtime, "BCryptDeriveKeyPBKDF2 failed");
-        }
-
-        return makeUint8Array(runtime, std::move(derived_key));
+        return makeUint8Array(
+            runtime,
+            derivePbkdf2(runtime, password, mixed, 1, length, "sha256"));
       });
-  rt.global().setProperty(rt, "__exactPbkdf2", std::move(pbkdf2Fn));
+  rt.global().setProperty(rt, "__exactScryptSync", std::move(scryptFn));
 
   // @ref LLP 0008#crypto — Windows keeps the canonical JavaScript crypto
   // surface and supplies its available native primitives through BCrypt/CNG.

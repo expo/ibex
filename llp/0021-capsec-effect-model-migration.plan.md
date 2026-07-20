@@ -2194,7 +2194,11 @@ non-capability builtin batch to `pbkdf2Sync`, where the canonical surface found
 no `__exactPbkdf2` host primitive. Windows now registers the platform CNG
 `BCryptDeriveKeyPBKDF2` operation with strict native-boundary validation and a
 SHA-256 reference vector. This next repair also awaits physical evidence; no
-target cell or advertisement is promoted.
+target cell or advertisement is promoted. The adjacent authored `scryptSync`
+call would otherwise encounter the same target-backend gap, so Windows also
+installs the existing portable RFC 7914 Salsa20/8 ROMix construction with CNG
+PBKDF2-HMAC-SHA256 for its initial and final derivations. Its RFC vector is a
+separate gate; it likewise earns no target credit before physical execution.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked

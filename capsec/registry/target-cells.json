@@ -151406,7 +151406,9 @@
         ]
       },
       "disposition": "unsupported",
-      "implementationBranchIds": [],
+      "implementationBranchIds": [
+        "surface.native.op.exactscryptsync.0u89mot.windows"
+      ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },

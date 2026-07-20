@@ -549,6 +549,19 @@ async fn pbkdf2_matches_sha256_reference_vector() {
     );
 }
 
+/// RFC 7914 test vector 1 covers the portable Salsa20/8 ROMix used by the
+/// Windows backend, including empty password and salt handling.
+#[tokio::test]
+async fn scrypt_matches_rfc7914_test_vector_1() {
+    let js = "(function(){ var c = require('crypto'); \
+        return c.scryptSync('', '', 64, { N:16, r:1, p:1 }).toString('hex'); })()";
+    let result = eval(js).await;
+    assert_eq!(
+        result,
+        "77d6576238657b203b19ca42c18a0497f16b4844e3074ae8dfdffa3fede21442fcd0069ded0948f8326a753a0fc81f17e8d3e0fb2e0d3628cf35e20c38d18906"
+    );
+}
+
 /// ENG-23465 findings 7+8: second digest() throws ERR_CRYPTO_HASH_FINALIZED
 /// (never a cached value), update(number) throws ERR_INVALID_ARG_TYPE, and
 /// the Transform lifecycle completes — 'finish' fires so stream.pipeline on a
