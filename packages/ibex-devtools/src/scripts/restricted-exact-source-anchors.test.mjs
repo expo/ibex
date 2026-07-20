@@ -805,6 +805,34 @@ void install(Runtime& rt) {
     }
   });
 
+  test("traces ExactBundle members through module object declarations", () => {
+    for (const pathValue of [
+      "ExactBundle.installGlobals",
+      "ExactBundle.runtimeInfo",
+      "ExactBundle.runtimeInfo.engine",
+    ]) {
+      const leaf = pathValue.split(".").at(-1);
+      const sourceRef = `packages/ibex-runtime-js/src/bootstrap.ts#<module>.${leaf}`;
+      const branch = {
+        branchId: `surface.${pathValue}`,
+        observedKey: `native-op:global:${pathValue}`,
+        targetVariant: "all",
+      };
+      const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+      expect(binding.locatorKind).toBe("typescript-bundle-member-route");
+      expect(binding.targetGlobalPath).toBe(pathValue);
+      expect(binding.sites.map((site) => site.role)).toEqual(["value-producer", "publication"]);
+      expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status).toBe("executable");
+    }
+    const supporting = resolveRestrictedExactBranchSourceBinding({
+      branchId: "surface.exact.runtime.info.engine",
+      observedKey: "native-op:global:exact.runtime.info.engine",
+      targetVariant: "all",
+    }, "packages/ibex-runtime-js/src/bootstrap.ts#<module>.engine");
+    expect(supporting.locatorKind).toBe("typescript-module-object-member-provenance");
+    expect(supporting.producerPaths).toEqual([]);
+  });
+
   test("resolves installer-local aliases for nested Intl publications", () => {
     const sourceRef = "packages/ibex-runtime-js/src/polyfills/intl.ts#installIntlPolyfills:globals:Intl.DateTimeFormat.prototype.formatToParts";
     const memberBranch = {

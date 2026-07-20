@@ -1880,6 +1880,97 @@ function typescriptModuleGlobalMemberBinding({ branch, sourceRef, sourcePath, lo
   });
 }
 
+function typescriptBundleMemberBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (sourcePath !== "packages/ibex-runtime-js/src/bootstrap.ts"
+    || !branch?.observedKey?.startsWith("native-op:global:ExactBundle")
+    || !locator.startsWith("<module>.")) return null;
+  const observedPath = branch.observedKey.slice("native-op:global:".length).split(".");
+  const memberPath = observedPath.slice(1);
+  const locatorMember = locator.slice("<module>.".length);
+  if (memberPath.length === 0 || memberPath.at(-1) !== locatorMember) return null;
+  const ast = parse(text, {
+    sourceType: "module",
+    plugins: ["typescript", "decorators-legacy"],
+  });
+  const declarations = new Map();
+  const publications = [];
+  walkJavaScript(ast.program, (node, parent) => {
+    if (node.type === "VariableDeclarator" && node.id?.type === "Identifier") {
+      declarations.set(node.id.name, node.init);
+    }
+    if (node.type === "AssignmentExpression") {
+      const segments = memberSegments(node.left);
+      if (segments?.at(-1) === "ExactBundle") {
+        publications.push(parent?.type === "ExpressionStatement" ? parent : node);
+      }
+    }
+  });
+  if (publications.length !== 1) return null;
+  let object = declarations.get("runtimeBundle");
+  if (object?.type !== "ObjectExpression") return null;
+  let producer = object;
+  for (const member of memberPath) {
+    const property = objectProperty(object, member);
+    if (!property) return null;
+    producer = property;
+    const value = property.value;
+    if (member !== memberPath.at(-1)) {
+      object = value?.type === "Identifier" ? declarations.get(value.name) : value;
+      if (object?.type !== "ObjectExpression") return null;
+    }
+  }
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `ExactBundle.${memberPath.join(".")}.producer`, range: { startByte: producer.start, endByte: producer.end }, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: "ExactBundle.publication", range: { startByte: publications[0].start, endByte: publications[0].end }, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "typescript-bundle-member-route",
+    targetGlobalPath: observedPath.join("."),
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0exact-bundle-member`),
+      conditionId: `target-branch:${branch.targetVariant}`,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function typescriptModuleObjectMemberProvenanceBinding({ sourceRef, sourcePath, locator, text, bytes }) {
+  if (!/\.tsx?$/u.test(sourcePath) || !locator.startsWith("<module>.")) return null;
+  const member = locator.slice("<module>.".length);
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(member)) return null;
+  const ast = parse(text, {
+    sourceType: "module",
+    plugins: ["typescript", "decorators-legacy"],
+  });
+  const properties = [];
+  walkJavaScript(ast.program, (node) => {
+    if (["ObjectProperty", "ObjectMethod"].includes(node.type)
+      && !node.computed
+      && propertyName(node.key) === member) properties.push(node);
+  });
+  const unique = [...new Map(properties.map((node) => [`${node.start}:${node.end}`, node])).values()];
+  if (unique.length !== 1) return null;
+  const sites = [sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "symbol-provenance",
+    siteKey: `<module>.${member}`,
+    range: { startByte: unique[0].start, endByte: unique[0].end },
+    text,
+    bytes,
+  })];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "typescript-module-object-member-provenance",
+    resolutionPolicy: "provenance-only",
+    sites,
+    producerPaths: [],
+  });
+}
+
 function legacyJavascriptGlobalRouteBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
   if (!branch?.observedKey?.startsWith("native-op:global:")
     || !sourcePath.startsWith("src/engine/bootstrap/")
@@ -5297,7 +5388,9 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? legacyBootstrapGlobalBinding({ branch, sourceRef, ...loaded })
     ?? typescriptClassMemberBinding({ branch, sourceRef, ...loaded })
     ?? typescriptObjectMemberBinding({ branch, sourceRef, ...loaded })
+    ?? typescriptBundleMemberBinding({ branch, sourceRef, ...loaded })
     ?? typescriptModuleGlobalMemberBinding({ branch, sourceRef, ...loaded })
+    ?? typescriptModuleObjectMemberProvenanceBinding({ branch, sourceRef, ...loaded })
     ?? exactGlobalAliasBinding({ branch, sourceRef, ...loaded })
     ?? evaluatedCppGlobalBinding({ branch, sourceRef, ...loaded })
     ?? cppSymbolProvenanceBinding({ branch, sourceRef, ...loaded })
@@ -5346,6 +5439,7 @@ function selectGlobalProducerEntry(observedPath, entries) {
 }
 
 function entryTargetsGlobalPath(entry, observedPath) {
+  if (entry.binding.targetGlobalPath) return entry.binding.targetGlobalPath === observedPath;
   const locator = locatorOf(entry.sourceRef);
   if (locator.startsWith("jsi-global:")) return locator.slice("jsi-global:".length) === observedPath;
   if (entry.binding.locatorKind === "jsi-root-global-route") return locator === observedPath;
