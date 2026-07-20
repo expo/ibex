@@ -33,8 +33,8 @@ const POLICY_PATH = "schemas/portable-engine-provenance-trust-policy-v1.json";
 const POLICY_SCHEMA_PATH = "schemas/portable-engine-provenance-trust-policy-v1.schema.json";
 const MANIFEST_PATH = "META-INF/portable-engine-manifest.json";
 const RECEIPT_PATH = "share/hermes/profile-provenance.json";
-const EXPECTATIONS_SCHEMA = "ibex/portable-engine-installer-attestation-expectations/1";
-const VERIFICATION_SCHEMA = "ibex/github-private-artifact-attestation-verification/1";
+const EXPECTATIONS_SCHEMA = "ibex/github-private-artifact-attestation-expectations/2";
+const VERIFICATION_SCHEMA = "ibex/github-private-artifact-attestation-verification/2";
 const RECEIPT_SCHEMA = "ibex/portable-engine-installation-receipt/1";
 const COMPLETION_SCHEMA = "ibex/portable-engine-local-completion/1";
 const TRANSPORT_COMPLETION_SCHEMA = "ibex/portable-engine-local-transport-completion/1";
@@ -42,13 +42,6 @@ const TEST_RECEIPT_SCHEMA = "ibex/test-only-portable-engine-installation-receipt
 const TEST_COMPLETION_SCHEMA = "ibex/test-only-portable-engine-local-completion/1";
 const TEST_TRANSPORT_COMPLETION_SCHEMA = "ibex/test-only-portable-engine-local-transport-completion/1";
 const BUNDLE_MEDIA_TYPE = "application/vnd.dev.sigstore.bundle.v0.3+json";
-const GITHUB_OIDC_ISSUER = "https://token.actions.githubusercontent.com";
-const PRIVATE_ROOT_SHA256 = "484cdfe1a7c65479c5ba2a22193d1be90f0020db1997de696ab207434c62fbb7";
-const PRIVATE_ROOT_SIZE = 31_645;
-const LEGACY_BUILD_TYPE = "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1";
-const CURRENT_BUILD_TYPE = "https://actions.github.io/buildtypes/workflow/v1";
-const LEGACY_BUILDER = "https://github.com/actions/runner/github-hosted";
-const ALLOWED_TRIGGERS = Object.freeze(["push", "workflow_dispatch"]);
 const MAX_SCHEMA_BYTES = 2 * 1024 * 1024;
 const MAX_AUTHORITY_JSON_BYTES = 16 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 16 * 1024 * 1024;
@@ -913,12 +906,18 @@ function buildFixedVerifierExpectations(policy, sourceRevision, subjectName) {
     schema: EXPECTATIONS_SCHEMA,
     subjectName,
     repository: publisher.repository,
+    repositoryId: publisher.repositoryId,
+    repositoryOwnerId: publisher.repositoryOwnerId,
     workflowPath: publisher.workflowPath,
+    workflowName: publisher.workflowName,
     sourceRef: publisher.sourceRef,
     sourceRevision,
+    allowedTriggers: [...publisher.allowedTriggers],
     runnerEnvironment: publisher.runnerClass,
-    provenanceRoot: publisher.provenanceRoot,
-    allowedTriggers: [...ALLOWED_TRIGGERS],
+    repositoryVisibility: publisher.repositoryVisibility,
+    certificateIssuer: publisher.certificateIssuer,
+    buildType: publisher.buildType,
+    trustedRoot: { ...publisher.trustedRoot },
   };
 }
 
@@ -932,35 +931,27 @@ function validateCanonicalVerificationResult(resultBytes, { expectationsBytes, e
   assertExactKeys(result, ["schema", "trustRoot", "expectationsDigest", "bundle", "subject", "signer", "provenance", "timestamp"], "verification result");
   assert(result.schema === VERIFICATION_SCHEMA, "offline verifier returned an unexpected result schema");
   assertExactKeys(result.trustRoot, ["profile", "sha256", "size"], "verification trust root");
-  assertSame(result.trustRoot, { profile: "github-private-signed-timestamp-v1", sha256: PRIVATE_ROOT_SHA256, size: PRIVATE_ROOT_SIZE }, "verification trust root");
+  assertSame(result.trustRoot, expectations.trustedRoot, "verification trust root");
   assert(result.expectationsDigest === sha256Hex(expectationsBytes), "verification result does not bind the fixed expectations bytes");
   assertExactKeys(result.bundle, ["mediaType", "sha256", "size"], "verification bundle");
   assertSame(result.bundle, { mediaType: BUNDLE_MEDIA_TYPE, sha256: bundle.digest.slice("sha256-".length), size: bundle.size }, "verified bundle bytes");
   assertExactKeys(result.subject, ["name", "sha256", "size"], "verification subject");
   assertSame(result.subject, { name: expectations.subjectName, sha256: archive.digest.slice("sha256-".length), size: archive.size }, "verified archive subject");
   assertExactKeys(result.signer, ["issuer", "san", "repository", "repositoryId", "repositoryOwnerId", "workflowPath", "workflowName", "sourceRef", "sourceRevision", "trigger", "runnerEnvironment", "repositoryVisibility", "runId", "runAttempt"], "verification signer");
-  assert(result.signer.issuer === GITHUB_OIDC_ISSUER, "verified signer issuer is not GitHub OIDC");
+  assert(result.signer.issuer === expectations.certificateIssuer, "verified signer issuer differs from fixed policy");
   const san = `https://github.com/${expectations.repository}/${expectations.workflowPath}@${expectations.sourceRef}`;
   assert(result.signer.san === san, "verified signer SAN does not join policy repository/workflow/ref");
-  for (const field of ["repository", "workflowPath", "sourceRef", "sourceRevision", "runnerEnvironment"]) {
+  for (const field of ["repository", "repositoryId", "repositoryOwnerId", "workflowPath", "workflowName", "sourceRef", "sourceRevision", "runnerEnvironment", "repositoryVisibility"]) {
     assert(result.signer[field] === expectations[field], `verified signer ${field} differs from fixed expectations`);
   }
-  assert(result.signer.repositoryVisibility === "private", "verified repository visibility is not private");
   assert(expectations.allowedTriggers.includes(result.signer.trigger), "verified trigger is outside the checked allowed set");
-  assert(typeof result.signer.workflowName === "string" && result.signer.workflowName.length > 0, "verified workflow name is empty");
-  assertPositiveDecimal(result.signer.repositoryId, "verified repository ID");
-  assertPositiveDecimal(result.signer.repositoryOwnerId, "verified repository owner ID");
   assertPositiveDecimal(result.signer.runId, "verified run ID");
   assertPositiveDecimal(result.signer.runAttempt, "verified run attempt");
   assertExactKeys(result.provenance, ["statementType", "predicateType", "buildType", "builderId", "invocationId"], "verification provenance");
   assert(result.provenance.statementType === "https://in-toto.io/Statement/v1" && result.provenance.predicateType === "https://slsa.dev/provenance/v1", "verified statement has the wrong in-toto/SLSA types");
   const invocation = `https://github.com/${expectations.repository}/actions/runs/${result.signer.runId}/attempts/${result.signer.runAttempt}`;
   assert(result.provenance.invocationId === invocation, "verified invocation does not join signer run/attempt");
-  if (result.provenance.buildType === LEGACY_BUILD_TYPE) {
-    assert(result.provenance.builderId === LEGACY_BUILDER, "legacy GitHub build type has the wrong builder ID");
-  } else {
-    assert(result.provenance.buildType === CURRENT_BUILD_TYPE && result.provenance.builderId === san, "current GitHub build type has the wrong workflow builder ID");
-  }
+  assert(result.provenance.buildType === expectations.buildType && result.provenance.builderId === san, "verified build type/builder differs from fixed current workflow policy");
   assertExactKeys(result.timestamp, ["type", "uri", "value"], "verification timestamp");
   assert(result.timestamp.type === "TimestampAuthority" && typeof result.timestamp.uri === "string" && result.timestamp.uri.length > 0, "verification result lacks one timestamp-authority observation");
   assert(typeof result.timestamp.value === "string" && Number.isFinite(Date.parse(result.timestamp.value)), "verification timestamp is not RFC3339-like");

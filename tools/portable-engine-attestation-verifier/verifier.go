@@ -37,8 +37,10 @@ const (
 	maximumSignatureBytes    = 16 * 1024
 	bundleMediaType          = "application/vnd.dev.sigstore.bundle.v0.3+json"
 	trustedRootMediaType     = "application/vnd.dev.sigstore.trustedroot+json;version=0.1"
-	expectationsSchema       = "ibex/github-private-artifact-attestation-expectations/1"
-	verificationSchema       = "ibex/github-private-artifact-attestation-verification/1"
+	expectationsSchemaV1     = "ibex/github-private-artifact-attestation-expectations/1"
+	expectationsSchemaV2     = "ibex/github-private-artifact-attestation-expectations/2"
+	verificationSchemaV1     = "ibex/github-private-artifact-attestation-verification/1"
+	verificationSchemaV2     = "ibex/github-private-artifact-attestation-verification/2"
 	statementType            = "https://in-toto.io/Statement/v1"
 	predicateType            = "https://slsa.dev/provenance/v1"
 	payloadType              = "application/vnd.in-toto+json"
@@ -80,6 +82,28 @@ type expectations struct {
 	CertificateIssuer    string
 	BuildType            string
 	BuilderID            string
+}
+
+// v2 carries only stable admission policy. Run identity and the selected
+// allowed trigger are derived from the signed certificate, then required to
+// join the signed SLSA statement. This prevents an artifact channel from
+// supplying its own repository/workflow authority while avoiding a circular
+// requirement for callers to know signed run-specific observations first.
+type stableExpectations struct {
+	Schema               string
+	SubjectName          string
+	Repository           string
+	RepositoryID         string
+	RepositoryOwnerID    string
+	WorkflowPath         string
+	WorkflowName         string
+	SourceRef            string
+	SourceRevision       string
+	AllowedTriggers      []string
+	RunnerEnvironment    string
+	RepositoryVisibility string
+	CertificateIssuer    string
+	BuildType            string
 }
 
 type derivedClaims struct {
@@ -160,10 +184,6 @@ func verifyFiles(bundlePath, artifactPath, expectationsPath string) ([]byte, err
 	if err != nil {
 		return nil, fmt.Errorf("read expectations: %w", err)
 	}
-	expected, claims, err := parseExpectations(expectationsRaw)
-	if err != nil {
-		return nil, fmt.Errorf("invalid expectations: %w", err)
-	}
 
 	bundleRaw, bundleSize, err := readExactRegular(bundlePath, maximumBundleBytes)
 	if err != nil {
@@ -172,6 +192,30 @@ func verifyFiles(bundlePath, artifactPath, expectationsPath string) ([]byte, err
 	profile, err := parsePrivateBundleProfile(bundleRaw)
 	if err != nil {
 		return nil, fmt.Errorf("invalid GitHub-private bundle profile: %w", err)
+	}
+
+	expectationSchema, err := parseExpectationSchema(expectationsRaw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid expectations: %w", err)
+	}
+	var expected expectations
+	var claims derivedClaims
+	resultSchema := verificationSchemaV1
+	switch expectationSchema {
+	case expectationsSchemaV1:
+		expected, claims, err = parseExpectations(expectationsRaw)
+	case expectationsSchemaV2:
+		var stable stableExpectations
+		stable, err = parseStableExpectations(expectationsRaw)
+		if err == nil {
+			expected, claims, err = deriveSignedExpectations(stable, profile)
+		}
+		resultSchema = verificationSchemaV2
+	default:
+		err = fmt.Errorf("schema: unsupported expectations schema %q", expectationSchema)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("invalid expectations: %w", err)
 	}
 
 	artifactDigest, artifactSize, err := digestExactRegular(artifactPath)
@@ -225,7 +269,7 @@ func verifyFiles(bundlePath, artifactPath, expectationsPath string) ([]byte, err
 	bundleDigest := sha256.Sum256(bundleRaw)
 	expectationsDigest := sha256.Sum256(expectationsRaw)
 	result := canonicalResult{
-		Schema: verificationSchema,
+		Schema: resultSchema,
 		TrustRoot: canonicalTrustRoot{
 			Profile: "github-private-signed-timestamp-v1",
 			SHA256:  trustedRootSHA256,
@@ -282,6 +326,218 @@ func verifyFiles(bundlePath, artifactPath, expectationsPath string) ([]byte, err
 	return canonical, nil
 }
 
+func parseExpectationSchema(raw []byte) (string, error) {
+	value, err := parseStrictJSON(raw)
+	if err != nil {
+		return "", err
+	}
+	object, err := objectAt(value, "$")
+	if err != nil {
+		return "", err
+	}
+	return stringAt(object["schema"], "$.schema")
+}
+
+func parseStableExpectations(raw []byte) (stableExpectations, error) {
+	value, err := parseStrictJSON(raw)
+	if err != nil {
+		return stableExpectations{}, err
+	}
+	object, err := objectAt(value, "$")
+	if err != nil {
+		return stableExpectations{}, err
+	}
+	fields := []string{
+		"schema", "subjectName", "repository", "repositoryId", "repositoryOwnerId",
+		"workflowPath", "workflowName", "sourceRef", "sourceRevision", "allowedTriggers",
+		"runnerEnvironment", "repositoryVisibility", "certificateIssuer", "buildType", "trustedRoot",
+	}
+	if err := exactFields(object, "$", fields...); err != nil {
+		return stableExpectations{}, err
+	}
+	get := func(field string) (string, error) { return stringAt(object[field], "$."+field) }
+	s := stableExpectations{}
+	stringFields := []struct {
+		name string
+		dest *string
+	}{
+		{"schema", &s.Schema},
+		{"subjectName", &s.SubjectName},
+		{"repository", &s.Repository},
+		{"repositoryId", &s.RepositoryID},
+		{"repositoryOwnerId", &s.RepositoryOwnerID},
+		{"workflowPath", &s.WorkflowPath},
+		{"workflowName", &s.WorkflowName},
+		{"sourceRef", &s.SourceRef},
+		{"sourceRevision", &s.SourceRevision},
+		{"runnerEnvironment", &s.RunnerEnvironment},
+		{"repositoryVisibility", &s.RepositoryVisibility},
+		{"certificateIssuer", &s.CertificateIssuer},
+		{"buildType", &s.BuildType},
+	}
+	for _, field := range stringFields {
+		*field.dest, err = get(field.name)
+		if err != nil {
+			return stableExpectations{}, err
+		}
+	}
+	if s.Schema != expectationsSchemaV2 {
+		return stableExpectations{}, fmt.Errorf("schema: expected %q, got %q", expectationsSchemaV2, s.Schema)
+	}
+	if !regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9_.-]{1,100}$`).MatchString(s.Repository) {
+		return stableExpectations{}, fmt.Errorf("repository must be one exact owner/name pair")
+	}
+	if repositoryName := strings.SplitN(s.Repository, "/", 2)[1]; repositoryName == "." || repositoryName == ".." {
+		return stableExpectations{}, fmt.Errorf("repository name must not be a path pseudo-component")
+	}
+	if s.SubjectName == "" || len(s.SubjectName) > 255 || s.SubjectName == "." || s.SubjectName == ".." || path.Base(s.SubjectName) != s.SubjectName || strings.Contains(s.SubjectName, "\\") || hasControlCharacter(s.SubjectName) {
+		return stableExpectations{}, fmt.Errorf("subjectName must be one non-empty basename")
+	}
+	if s.WorkflowPath == "" || len(s.WorkflowPath) > 1024 || !strings.HasPrefix(s.WorkflowPath, ".github/workflows/") || path.Clean(s.WorkflowPath) != s.WorkflowPath || !regexp.MustCompile(`^[A-Za-z0-9_./-]+\.ya?ml$`).MatchString(s.WorkflowPath) {
+		return stableExpectations{}, fmt.Errorf("workflowPath must be a normalized .github/workflows/ path")
+	}
+	if s.WorkflowName == "" || len(s.WorkflowName) > 256 || hasControlCharacter(s.WorkflowName) {
+		return stableExpectations{}, fmt.Errorf("workflowName must not be empty")
+	}
+	if err := requireCanonicalGitRef(s.SourceRef); err != nil {
+		return stableExpectations{}, err
+	}
+	if !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(s.SourceRevision) {
+		return stableExpectations{}, fmt.Errorf("sourceRevision must be exactly 40 lowercase hexadecimal digits")
+	}
+	if err := requireCanonicalPositiveDecimal("repositoryId", s.RepositoryID); err != nil {
+		return stableExpectations{}, err
+	}
+	if err := requireCanonicalPositiveDecimal("repositoryOwnerId", s.RepositoryOwnerID); err != nil {
+		return stableExpectations{}, err
+	}
+	triggerValues, err := arrayAt(object["allowedTriggers"], "$.allowedTriggers")
+	if err != nil {
+		return stableExpectations{}, err
+	}
+	if len(triggerValues) == 0 || len(triggerValues) > 16 {
+		return stableExpectations{}, fmt.Errorf("allowedTriggers must contain 1..16 exact events")
+	}
+	for index, value := range triggerValues {
+		trigger, err := stringAt(value, fmt.Sprintf("$.allowedTriggers[%d]", index))
+		if err != nil {
+			return stableExpectations{}, err
+		}
+		if !regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`).MatchString(trigger) {
+			return stableExpectations{}, fmt.Errorf("allowedTriggers contains a non-canonical GitHub event")
+		}
+		if index > 0 && s.AllowedTriggers[index-1] >= trigger {
+			return stableExpectations{}, fmt.Errorf("allowedTriggers must be UTF-8 sorted and unique")
+		}
+		s.AllowedTriggers = append(s.AllowedTriggers, trigger)
+	}
+	if s.RunnerEnvironment != githubHostedRunner {
+		return stableExpectations{}, fmt.Errorf("runnerEnvironment must be %q", githubHostedRunner)
+	}
+	if s.RepositoryVisibility != privateVisibility {
+		return stableExpectations{}, fmt.Errorf("repositoryVisibility must be %q for this private profile", privateVisibility)
+	}
+	if s.CertificateIssuer != githubOIDCIssuer {
+		return stableExpectations{}, fmt.Errorf("certificateIssuer must be %q", githubOIDCIssuer)
+	}
+	if s.BuildType != legacyGitHubBuildType && s.BuildType != currentGitHubBuildType {
+		return stableExpectations{}, fmt.Errorf("buildType is not one of the two closed GitHub workflow/v1 layouts")
+	}
+	trustedRoot, err := objectAt(object["trustedRoot"], "$.trustedRoot")
+	if err != nil {
+		return stableExpectations{}, err
+	}
+	if err := exactFields(trustedRoot, "$.trustedRoot", "profile", "sha256", "size"); err != nil {
+		return stableExpectations{}, err
+	}
+	if err := exactString(trustedRoot, "profile", "github-private-signed-timestamp-v1", "$.trustedRoot"); err != nil {
+		return stableExpectations{}, err
+	}
+	if err := exactString(trustedRoot, "sha256", trustedRootSHA256, "$.trustedRoot"); err != nil {
+		return stableExpectations{}, err
+	}
+	rootSize, ok := trustedRoot["size"].(strictJSONNumber)
+	if !ok || string(rootSize) != strconv.Itoa(trustedRootSize) {
+		return stableExpectations{}, fmt.Errorf("$.trustedRoot.size must equal the embedded root size %d", trustedRootSize)
+	}
+	return s, nil
+}
+
+func deriveSignedExpectations(stable stableExpectations, profile rawBundleProfile) (expectations, derivedClaims, error) {
+	values, err := exactSigstoreExtensions(profile.cert)
+	if err != nil {
+		return expectations{}, derivedClaims{}, err
+	}
+	trigger := values["2"]
+	allowed := false
+	for _, candidate := range stable.AllowedTriggers {
+		if candidate == trigger {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return expectations{}, derivedClaims{}, fmt.Errorf("signed trigger %q is outside allowedTriggers", trigger)
+	}
+	runID, runAttempt, err := parseInvocationIdentity(values["21"], stable.Repository)
+	if err != nil {
+		return expectations{}, derivedClaims{}, err
+	}
+	owner := strings.SplitN(stable.Repository, "/", 2)[0]
+	claims := derivedClaims{
+		repositoryURL: "https://github.com/" + stable.Repository,
+		ownerURL:      "https://github.com/" + owner,
+		workflowURI:   "https://github.com/" + stable.Repository + "/" + stable.WorkflowPath + "@" + stable.SourceRef,
+		invocationURI: values["21"],
+		dependencyURI: "git+https://github.com/" + stable.Repository + "@" + stable.SourceRef,
+	}
+	builderID := claims.workflowURI
+	if stable.BuildType == legacyGitHubBuildType {
+		builderID = legacyGitHubBuilderID
+	}
+	return expectations{
+		Schema:               stable.Schema,
+		SubjectName:          stable.SubjectName,
+		Repository:           stable.Repository,
+		RepositoryID:         stable.RepositoryID,
+		RepositoryOwnerID:    stable.RepositoryOwnerID,
+		WorkflowPath:         stable.WorkflowPath,
+		WorkflowName:         stable.WorkflowName,
+		SourceRef:            stable.SourceRef,
+		SourceRevision:       stable.SourceRevision,
+		Trigger:              trigger,
+		RunnerEnvironment:    stable.RunnerEnvironment,
+		RepositoryVisibility: stable.RepositoryVisibility,
+		RunID:                runID,
+		RunAttempt:           runAttempt,
+		CertificateSAN:       claims.workflowURI,
+		CertificateIssuer:    stable.CertificateIssuer,
+		BuildType:            stable.BuildType,
+		BuilderID:            builderID,
+	}, claims, nil
+}
+
+func parseInvocationIdentity(invocation, repository string) (string, string, error) {
+	prefix := "https://github.com/" + repository + "/actions/runs/"
+	if !strings.HasPrefix(invocation, prefix) {
+		return "", "", fmt.Errorf("signed invocation URI is outside the expected repository")
+	}
+	parts := strings.Split(strings.TrimPrefix(invocation, prefix), "/attempts/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", fmt.Errorf("signed invocation URI has no exact run/attempt identity")
+	}
+	if err := requireCanonicalPositiveDecimal("runId", parts[0]); err != nil {
+		return "", "", err
+	}
+	if err := requireCanonicalPositiveDecimal("runAttempt", parts[1]); err != nil {
+		return "", "", err
+	}
+	if prefix+parts[0]+"/attempts/"+parts[1] != invocation {
+		return "", "", fmt.Errorf("signed invocation URI is not canonical")
+	}
+	return parts[0], parts[1], nil
+}
+
 func parseExpectations(raw []byte) (expectations, derivedClaims, error) {
 	value, err := parseStrictJSON(raw)
 	if err != nil {
@@ -314,8 +570,8 @@ func parseExpectations(raw []byte) (expectations, derivedClaims, error) {
 			return expectations{}, derivedClaims{}, err
 		}
 	}
-	if e.Schema != expectationsSchema {
-		return expectations{}, derivedClaims{}, fmt.Errorf("schema: expected %q, got %q", expectationsSchema, e.Schema)
+	if e.Schema != expectationsSchemaV1 {
+		return expectations{}, derivedClaims{}, fmt.Errorf("schema: expected %q, got %q", expectationsSchemaV1, e.Schema)
 	}
 	if !regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9_.-]{1,100}$`).MatchString(e.Repository) {
 		return expectations{}, derivedClaims{}, fmt.Errorf("repository must be one exact owner/name pair")

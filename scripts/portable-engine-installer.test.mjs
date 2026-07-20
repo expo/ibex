@@ -476,31 +476,31 @@ function mockVerificationResult({ archivePath, bundlePath, expectations, expecta
   const bundle = fs.readFileSync(bundlePath);
   const san = `https://github.com/${expectations.repository}/${expectations.workflowPath}@${expectations.sourceRef}`;
   return Buffer.from(`${canonicalJson({
-    schema: "ibex/github-private-artifact-attestation-verification/1",
-    trustRoot: { profile: "github-private-signed-timestamp-v1", sha256: "484cdfe1a7c65479c5ba2a22193d1be90f0020db1997de696ab207434c62fbb7", size: 31645 },
+    schema: "ibex/github-private-artifact-attestation-verification/2",
+    trustRoot: expectations.trustedRoot,
     expectationsDigest: sha256(expectationsBytes),
     bundle: { mediaType: "application/vnd.dev.sigstore.bundle.v0.3+json", sha256: sha256(bundle), size: bundle.length },
     subject: { name: expectations.subjectName, sha256: sha256(archive), size: archive.length },
     signer: {
-      issuer: "https://token.actions.githubusercontent.com",
+      issuer: expectations.certificateIssuer,
       san,
       repository: expectations.repository,
-      repositoryId: "1268046138",
-      repositoryOwnerId: "56719",
+      repositoryId: expectations.repositoryId,
+      repositoryOwnerId: expectations.repositoryOwnerId,
       workflowPath: expectations.workflowPath,
-      workflowName: "Hermes artifact cache",
+      workflowName: expectations.workflowName,
       sourceRef: expectations.sourceRef,
       sourceRevision: expectations.sourceRevision,
       trigger: "push",
       runnerEnvironment: expectations.runnerEnvironment,
-      repositoryVisibility: "private",
+      repositoryVisibility: expectations.repositoryVisibility,
       runId: "123456789",
       runAttempt: "1",
     },
     provenance: {
       statementType: "https://in-toto.io/Statement/v1",
       predicateType: "https://slsa.dev/provenance/v1",
-      buildType: "https://actions.github.io/buildtypes/workflow/v1",
+      buildType: expectations.buildType,
       builderId: san,
       invocationId: `https://github.com/${expectations.repository}/actions/runs/123456789/attempts/1`,
     },
@@ -632,15 +632,25 @@ describe("portable engine installer core", () => {
     const fixture = buildFixture();
     const expectations = buildFixedVerifierExpectations(fixture.policy, fixture.revision, "artifact.tar.gz");
     assert.deepEqual(expectations, {
-      schema: "ibex/portable-engine-installer-attestation-expectations/1",
+      schema: "ibex/github-private-artifact-attestation-expectations/2",
       subjectName: "artifact.tar.gz",
       repository: "ccheever/ibex",
+      repositoryId: "1268046138",
+      repositoryOwnerId: "56719",
       workflowPath: ".github/workflows/hermes-artifacts.yml",
+      workflowName: "Hermes artifact cache",
       sourceRef: "refs/heads/main",
       sourceRevision: fixture.revision,
-      runnerEnvironment: "github-hosted",
-      provenanceRoot: "github-oidc-artifact-attestations",
       allowedTriggers: ["push", "workflow_dispatch"],
+      runnerEnvironment: "github-hosted",
+      repositoryVisibility: "private",
+      certificateIssuer: "https://token.actions.githubusercontent.com",
+      buildType: "https://actions.github.io/buildtypes/workflow/v1",
+      trustedRoot: {
+        profile: "github-private-signed-timestamp-v1",
+        sha256: "484cdfe1a7c65479c5ba2a22193d1be90f0020db1997de696ab207434c62fbb7",
+        size: 31645,
+      },
     });
     assert.equal("runId" in expectations, false);
     assert.equal("runAttempt" in expectations, false);

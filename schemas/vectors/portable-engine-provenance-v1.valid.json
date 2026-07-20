@@ -579,7 +579,7 @@
       "manifestDigest": "sha256-R2FtpDYsLxAQ-BpnHLNS8eUijYVZLwWYQVdWeToGptY",
       "archiveDigest": "sha256-7777777777777777777777777777777777777777777777777777777777777777",
       "provenanceBundleDigest": "sha256-29b353204eebcc86637cb251e5e515b9033d4bbdd24ee181b3ed2d8b935c30e4",
-      "verificationPolicyDigest": "sha256-D_QuS-OQBzpcLffZaESGGuCga3oKp0KUC0tDmXbWUU4",
+      "verificationPolicyDigest": "sha256-nu3xcTe2yBCDilnBuhlGmpBBRjfjMbOtJ2iXkXFU2c8",
       "repository": "ccheever/ibex",
       "publisherWorkflow": ".github/workflows/hermes-artifacts.yml",
       "sourceRef": "refs/heads/main",
@@ -1387,12 +1387,27 @@
         }
       ],
       "enginePublisher": {
+        "allowedTriggers": [
+          "push",
+          "workflow_dispatch"
+        ],
+        "buildType": "https://actions.github.io/buildtypes/workflow/v1",
+        "certificateIssuer": "https://token.actions.githubusercontent.com",
         "enabled": true,
         "repository": "ccheever/ibex",
+        "repositoryId": "1268046138",
+        "repositoryOwnerId": "56719",
+        "repositoryVisibility": "private",
         "workflowPath": ".github/workflows/hermes-artifacts.yml",
+        "workflowName": "Hermes artifact cache",
         "sourceRef": "refs/heads/main",
         "runnerClass": "github-hosted",
-        "provenanceRoot": "github-oidc-artifact-attestations"
+        "provenanceRoot": "github-oidc-artifact-attestations",
+        "trustedRoot": {
+          "profile": "github-private-signed-timestamp-v1",
+          "sha256": "484cdfe1a7c65479c5ba2a22193d1be90f0020db1997de696ab207434c62fbb7",
+          "size": 31645
+        }
       },
       "provenanceBundleBytes": {
         "container": "single-json-document",
@@ -1559,7 +1574,7 @@
       "documentPath": "trustPolicy",
       "domain": "ibex.portable-engine-provenance-trust-policy.v1",
       "omitFields": [],
-      "expectedDigest": "sha256-D_QuS-OQBzpcLffZaESGGuCga3oKp0KUC0tDmXbWUU4"
+      "expectedDigest": "sha256-nu3xcTe2yBCDilnBuhlGmpBBRjfjMbOtJ2iXkXFU2c8"
     },
     {
       "id": "interface-contract-digest",

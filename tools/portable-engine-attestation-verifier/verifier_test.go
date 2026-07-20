@@ -58,6 +58,56 @@ func TestGitHubPrivateOracleOnlyVerifiesOffline(t *testing.T) {
 	}
 }
 
+func TestStableV2ExpectationsDeriveOnlySignedRunObservations(t *testing.T) {
+	t.Parallel()
+
+	artifact := materializeOracleArtifact(t)
+	bundle := filepath.Join(githubPrivateOracleDirectory, "bundle.json")
+	stable := oracleStableExpectations(t)
+	raw := mustMarshalJSON(t, stable)
+	expected := writeTempFile(t, "stable-expectations.json", raw)
+
+	result, err := verifyFiles(bundle, artifact, expected)
+	if err != nil {
+		t.Fatalf("verifyFiles with stable expectations: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(result, &decoded); err != nil {
+		t.Fatalf("decode v2 result: %v", err)
+	}
+	if decoded["schema"] != verificationSchemaV2 {
+		t.Fatalf("verification schema: %#v", decoded["schema"])
+	}
+	digest := sha256.Sum256(raw)
+	if decoded["expectationsDigest"] != hex.EncodeToString(digest[:]) {
+		t.Fatalf("v2 result does not bind the stable expectations bytes")
+	}
+	signer := objectMember(t, decoded, "signer")
+	if signer["trigger"] != "workflow_dispatch" || signer["runId"] != "8788389601" || signer["runAttempt"] != "1" {
+		t.Fatalf("signed run observations were not derived exactly: %#v", signer)
+	}
+
+	mutations := []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{"repository id", func(value map[string]any) { value["repositoryId"] = "763287533" }},
+		{"trigger set", func(value map[string]any) { value["allowedTriggers"] = []any{"push"} }},
+		{"build type", func(value map[string]any) { value["buildType"] = currentGitHubBuildType }},
+		{"trusted root", func(value map[string]any) { objectMember(t, value, "trustedRoot")["sha256"] = strings.Repeat("0", 64) }},
+	}
+	for _, mutation := range mutations {
+		t.Run(mutation.name, func(t *testing.T) {
+			changed := cloneJSONObject(t, stable)
+			mutation.mutate(changed)
+			changedPath := writeTempFile(t, "changed-expectations.json", mustMarshalJSON(t, changed))
+			if _, err := verifyFiles(bundle, artifact, changedPath); err == nil {
+				t.Fatal("mutated stable authority unexpectedly verified")
+			}
+		})
+	}
+}
+
 func TestPinnedGitHubPrivateRoot(t *testing.T) {
 	t.Parallel()
 
@@ -557,6 +607,32 @@ func oracleBundleObject(t *testing.T) map[string]any {
 func oracleExpectationsObject(t *testing.T) map[string]any {
 	t.Helper()
 	return decodeJSONObject(t, mustReadFile(t, filepath.Join(githubPrivateOracleDirectory, "expectations.json")))
+}
+
+func oracleStableExpectations(t *testing.T) map[string]any {
+	t.Helper()
+	full := oracleExpectationsObject(t)
+	return map[string]any{
+		"schema":               expectationsSchemaV2,
+		"subjectName":          full["subjectName"],
+		"repository":           full["repository"],
+		"repositoryId":         full["repositoryId"],
+		"repositoryOwnerId":    full["repositoryOwnerId"],
+		"workflowPath":         full["workflowPath"],
+		"workflowName":         full["workflowName"],
+		"sourceRef":            full["sourceRef"],
+		"sourceRevision":       full["sourceRevision"],
+		"allowedTriggers":      []any{"push", "workflow_dispatch"},
+		"runnerEnvironment":    full["runnerEnvironment"],
+		"repositoryVisibility": full["repositoryVisibility"],
+		"certificateIssuer":    full["certificateIssuer"],
+		"buildType":            full["buildType"],
+		"trustedRoot": map[string]any{
+			"profile": "github-private-signed-timestamp-v1",
+			"sha256":  trustedRootSHA256,
+			"size":    trustedRootSize,
+		},
+	}
 }
 
 func decodeJSONObject(t *testing.T, raw []byte) map[string]any {
