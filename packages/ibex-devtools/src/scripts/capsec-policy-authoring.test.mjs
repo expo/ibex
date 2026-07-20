@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import {
   buildCanonicalPolicy,
+  canonicalPolicySourcePath,
   classifyPolicyDrift,
   compareCanonicalBytes,
   intersectAuthorities,
@@ -8,6 +9,12 @@ import {
   resolveTypedDelegations,
   withV1CwdObserveFloor,
 } from './capsec-policy-authoring.mjs';
+
+test('policy provenance paths are portable across host separators', () => {
+  expect(
+    canonicalPolicySourcePath('examples\\llp0013-supply-chain\\app.mjs'),
+  ).toBe('examples/llp0013-supply-chain/app.mjs');
+});
 
 const authority = {
   cap: 'fs:read',
