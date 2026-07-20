@@ -1235,10 +1235,43 @@ the already uploaded, attested portable set. The shared legacy identity release
 is not absolutely bounded across future builder or installer authority changes;
 choosing authority-scoped legacy releases versus a retention policy is
 follow-up work because deleting old sets would break cold installs from
-historical checkouts. No installer, local store, selector, `build.rs` consumer,
-post-link audit, runtime identity migration, or advertisement change is
-implemented by this checkpoint, and
-`portableArtifactAcceptanceEnabled` remains false.
+historical checkouts.
+
+The additive `build.rs` consumer now implements the next isolated Phase 1
+slice. An opt-in macOS arm64 selector names one artifact ID and one retained
+archive digest in the current checkout's `target/hermes-artifacts` store; it
+refuses legacy engine/JSI path overrides, revalidates the canonical manifest,
+selected installation receipt, checked policy binding, retained archive and
+bundle, complete header set, exact runtime/link/tool/non-system component
+bytes, and the reviewed profile receipt. It derives the include root, exact
+framework binary, `hermesc`, and profile-receipt paths without exporting local
+paths into semantic identity, then writes the canonical
+`ibex/portable-engine-build-consumption/1` record to `OUT_DIR` and exposes it as
+compile-time build evidence with the actual sorted Cargo feature set. This does
+not assert that an unused `include_str!` survives final-link dead stripping.
+Every portable compiler version probe and compilation replays the selected
+host-tool compatibility contract through one bounded runner: it clears the
+ambient environment, installs only the reviewed replacement variables, closes
+stdin, fixes `argv[0]` to the selected tool path, uses and removes a fresh
+private working directory, and fails closed on timeout or stdout, stderr, and
+declared-output bounds. Portable bytecode validation reads the bounded output's
+fixed HBC header directly, so no dump invocation bypasses that runner.
+The reviewed 1 MiB output bound is smaller than the current optional
+shared-runtime HBC. This slice therefore removes any stale output and
+deterministically uses the generated source bundle in portable mode while
+continuing to compile the smaller bootstrap HBCs under the contract. Raising
+the bound and enabling that optimization requires separately reviewed physical
+evidence and a new compatibility/artifact identity.
+Its macOS link directives use only loader-relative paths from Cargo's direct
+and nested output locations back into that canonical store. Authoritative mode
+therefore refuses Cargo output roots outside the checkout
+or beneath an explicit target-triple layer. Legacy non-authoritative builds
+retain their existing absolute development rpath. This slice does not
+integrate the installer/verifier, perform the final-executable post-link audit,
+migrate runtime/mapped identity, make any binary promotable, or change any
+report, attestation, or advertisement.
+Consequently `portableArtifactAcceptanceEnabled` remains false and target
+authority remains empty.
 
 Exit: a clean checkout can install and run the reviewed Release engine without
 another worktree, and archive/manifest/path/profile tampering fails before

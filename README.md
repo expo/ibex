@@ -68,6 +68,34 @@ cargo run --bin ibex -- --version
 the source ref passed to the build scripts; `scripts/hermes-version.sh` holds
 the repo default.
 
+The opt-in portable macOS arm64 build path consumes an already verified
+checkout-local store instead of those legacy path overrides. Select one exact
+artifact and one retained authenticated transport with
+`IBEX_PORTABLE_HERMES_ARTIFACT_ID` and
+`IBEX_PORTABLE_HERMES_ARCHIVE_DIGEST`. The store defaults to
+`target/hermes-artifacts`; `IBEX_PORTABLE_HERMES_STORE_ROOT` may spell that
+same checkout-local directory explicitly, but cannot redirect the build to a
+shared or external store. Portable selection refuses the legacy Hermes/JSI
+build overrides, revalidates the selected bytes, and writes the canonical
+build-consumption record to `OUT_DIR` as compile-time build evidence. This
+slice does not claim that unused `include_str!` constants survive final-link
+dead stripping. Every portable `hermesc` version probe and compilation runs
+through the selected compatibility contract: an empty inherited environment,
+only the reviewed replacement variables, empty stdin, the exact tool path as
+`argv[0]`, a fresh private working directory, and enforced time and byte
+bounds. The reviewed 1 MiB declared-output ceiling is smaller than the current
+optional shared-runtime HBC, so portable builds deterministically omit that
+optimization and use the generated source bundle; bootstrap HBC compilation
+remains bounded. Raising the ceiling is a separate reviewed performance and
+artifact-identity change. Portable macOS link rpaths remain loader-relative to Cargo's
+direct and nested target output locations; they never embed the checkout/store
+absolute path. Authoritative mode therefore requires Cargo's output profile to
+live directly below this checkout's `target` directory; a custom target
+directory or explicit target-triple output layer is refused. This is only the
+Phase 1 build-input slice: until the post-link and runtime-mapping gates land,
+it does not enable production REPL, conformance promotion, target attestations,
+or advertisements.
+
 Linux native networking requires `pkg-config` and libcurl >= 7.86 so Fetch and
 WebSocket use libcurl. For constrained local builds only,
 `IBEX_ALLOW_CURL_CLI_FALLBACK=1` enables a degraded fetch-only fallback that
