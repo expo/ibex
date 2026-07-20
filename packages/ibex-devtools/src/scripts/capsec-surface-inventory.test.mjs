@@ -1706,6 +1706,21 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         ),
       ),
     ).toBe(true);
+
+    const cyclicFactoryRows = scanStaticBuiltinExports(
+      "function first() { return second(); } function second() { return first(); } module.exports.Public = first();",
+      {
+        sourceKey: "node_cyclic_factory",
+        sourcePath: "src/builtins/cyclic-factory.js",
+      },
+    );
+    expect(
+      cyclicFactoryRows.some((row) =>
+        /^Public\.\[\[dynamic-table:inherited-[a-f0-9]{12}-properties\]\]$/u.test(
+          row.metadata.exportName,
+        ),
+      ),
+    ).toBe(true);
   });
 
   test("direct public class expressions and util inheritance retain their complete shape", () => {

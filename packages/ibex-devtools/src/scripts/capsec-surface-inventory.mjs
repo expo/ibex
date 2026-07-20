@@ -5350,6 +5350,7 @@ export function scanStaticBuiltinExports(
     }
     return owner;
   };
+  const activeClassFactoryDefinitions = new Set();
   const bindClassExpression = (
     target,
     exportNames,
@@ -5424,38 +5425,49 @@ export function scanStaticBuiltinExports(
         return false;
       }
       const definition = definitions[0].node;
-      const localValues = new Map();
-      walkDirectFunctionBody(definition, (node) => {
-        if (
-          node.type === "VariableDeclarator" &&
-          node.id?.type === "Identifier" &&
-          node.init
-        ) {
-          localValues.set(node.id.name, node.init);
-        }
-      });
-      const bindReturnedValue = (value, seen = new Set()) => {
-        if (value?.type === "Identifier" && localValues.has(value.name)) {
-          if (seen.has(value.name)) return false;
-          const nextSeen = new Set(seen);
-          nextSeen.add(value.name);
-          return bindReturnedValue(localValues.get(value.name), nextSeen);
-        }
-        return bindClassExpression(target, exportNames, value, substitutions);
-      };
-      let bound = false;
-      if (
-        definition.type === "ArrowFunctionExpression" &&
-        definition.body?.type !== "BlockStatement"
-      ) {
-        bound = bindReturnedValue(definition.body);
-      } else {
+      if (activeClassFactoryDefinitions.has(definition)) return false;
+      activeClassFactoryDefinitions.add(definition);
+      try {
+        const localValues = new Map();
         walkDirectFunctionBody(definition, (node) => {
-          if (node.type !== "ReturnStatement") return;
-          bound = bindReturnedValue(node.argument) || bound;
+          if (
+            node.type === "VariableDeclarator" &&
+            node.id?.type === "Identifier" &&
+            node.init
+          ) {
+            localValues.set(node.id.name, node.init);
+          }
         });
+        const bindReturnedValue = (value, seen = new Set()) => {
+          if (value?.type === "Identifier" && localValues.has(value.name)) {
+            if (seen.has(value.name)) return false;
+            const nextSeen = new Set(seen);
+            nextSeen.add(value.name);
+            return bindReturnedValue(localValues.get(value.name), nextSeen);
+          }
+          return bindClassExpression(
+            target,
+            exportNames,
+            value,
+            substitutions,
+          );
+        };
+        let bound = false;
+        if (
+          definition.type === "ArrowFunctionExpression" &&
+          definition.body?.type !== "BlockStatement"
+        ) {
+          bound = bindReturnedValue(definition.body);
+        } else {
+          walkDirectFunctionBody(definition, (node) => {
+            if (node.type !== "ReturnStatement") return;
+            bound = bindReturnedValue(node.argument) || bound;
+          });
+        }
+        return bound;
+      } finally {
+        activeClassFactoryDefinitions.delete(definition);
       }
-      return bound;
     }
     return false;
   };
@@ -7976,6 +7988,7 @@ export function scanStaticGlobalApiSurfaces(
     substitutions = staticBindings,
   ) => {
     const owners = new Set();
+    const activeCallableDefinitions = new Set();
     const visit = (candidate) => {
       if (!candidate) return;
       if (candidate.type === "ClassExpression") {
@@ -8038,36 +8051,42 @@ export function scanStaticGlobalApiSurfaces(
           return;
         }
         const definition = definitions[0].node;
-        const localValues = new Map();
-        walkDirectFunctionBody(definition, (node) => {
-          if (
-            node.type === "VariableDeclarator" &&
-            node.id?.type === "Identifier" &&
-            node.init
-          ) {
-            localValues.set(node.id.name, node.init);
-          }
-        });
-        const visitReturnedValue = (value, seen = new Set()) => {
-          if (value?.type === "Identifier" && localValues.has(value.name)) {
-            if (seen.has(value.name)) return;
-            const nextSeen = new Set(seen);
-            nextSeen.add(value.name);
-            visitReturnedValue(localValues.get(value.name), nextSeen);
-            return;
-          }
-          visit(value);
-        };
-        if (
-          definition.type === "ArrowFunctionExpression" &&
-          definition.body?.type !== "BlockStatement"
-        ) {
-          visitReturnedValue(definition.body);
-        } else {
+        if (activeCallableDefinitions.has(definition)) return;
+        activeCallableDefinitions.add(definition);
+        try {
+          const localValues = new Map();
           walkDirectFunctionBody(definition, (node) => {
-            if (node.type === "ReturnStatement")
-              visitReturnedValue(node.argument);
+            if (
+              node.type === "VariableDeclarator" &&
+              node.id?.type === "Identifier" &&
+              node.init
+            ) {
+              localValues.set(node.id.name, node.init);
+            }
           });
+          const visitReturnedValue = (value, seen = new Set()) => {
+            if (value?.type === "Identifier" && localValues.has(value.name)) {
+              if (seen.has(value.name)) return;
+              const nextSeen = new Set(seen);
+              nextSeen.add(value.name);
+              visitReturnedValue(localValues.get(value.name), nextSeen);
+              return;
+            }
+            visit(value);
+          };
+          if (
+            definition.type === "ArrowFunctionExpression" &&
+            definition.body?.type !== "BlockStatement"
+          ) {
+            visitReturnedValue(definition.body);
+          } else {
+            walkDirectFunctionBody(definition, (node) => {
+              if (node.type === "ReturnStatement")
+                visitReturnedValue(node.argument);
+            });
+          }
+        } finally {
+          activeCallableDefinitions.delete(definition);
         }
       }
     };
