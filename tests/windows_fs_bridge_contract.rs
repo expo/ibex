@@ -62,6 +62,15 @@ fn windows_cli_runtime_reconciles_async_and_compatibility_state() {
     assert!(ENGINE_TRAIT.contains("async fn eval_awaited_entry"));
     assert!(HERMES_ENGINE.contains("eval_str(code, \"ibex:awaited-entry\")"));
     assert!(CLI_RUNTIME.contains("self.engine.eval_awaited_entry(&wrapped)"));
+    let standalone_entry = CLI_RUNTIME
+        .split("if entry_path == absolute_path {")
+        .nth(1)
+        .expect("Windows standalone-entry branch")
+        .split("let source = tokio::fs::read_to_string(&entry_path)")
+        .next()
+        .unwrap();
+    assert!(standalone_entry.contains("self.engine.eval_immediate(&argv_code)"));
+    assert!(standalone_entry.contains("self.run_entry_with_tla_shim(&entry_path, true)"));
     assert!(HERMES_RUNTIME.contains("source == \"ibex:awaited-entry\""));
     assert!(HERMES_RUNTIME.contains("shouldUnwrapPromiseResult && result.isObject()"));
 }

@@ -1730,6 +1730,15 @@ impl Runtime {
         }
 
         if cfg!(windows) {
+            // A standalone entry is raw application source, not an already
+            // prepared bundle. Lower it before script-mode evaluation even
+            // when it has no TLA; otherwise static imports reach Hermes
+            // unchanged. Keep the existing prepared-bundle path below.
+            // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+            if entry_path == absolute_path {
+                self.engine.eval_immediate(&argv_code).await?;
+                return self.run_entry_with_tla_shim(&entry_path, true).await;
+            }
             let source = tokio::fs::read_to_string(&entry_path)
                 .await
                 .with_context(|| format!("Failed to read file {}", entry_path.display()))?;

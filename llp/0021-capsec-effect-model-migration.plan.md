@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-19 (ENG-24933 routes raw standalone Windows entries through the in-process lowering pipeline after physical run 29717165944 passed all 19 CLI evaluation tests and exposed two script-mode static-import failures)
 **Revised:** 2026-07-19 (ENG-24933 narrows Windows Promise-result inspection to trusted awaited-entry evaluation and writes process stdio through raw Win32 handles after physical run 29714547951 advanced the CLI suite to 15 of 19 passing)
 **Revised:** 2026-07-19 (ENG-24933 refreshes all four checked example policies after physical run 29714351921 correctly refused the reviewed Promise-evaluator registry identity change before product execution)
 **Revised:** 2026-07-19 (ENG-24933 carries process stdio, async entry rejection/handler, and opt-in Bun identity contracts through the Windows source-bootstrap profile after physical run 29711984665 cleared child-process integration and exposed six CLI gaps)
@@ -2121,6 +2122,19 @@ the inherited Win32 handle, preserving requested LF bytes; the console test
 continues to require raw string arguments while accepting the target's JSON-
 style object inspection. Another complete physical run is required before
 crediting any later product layer or changing advertisements.
+Physical run
+[`29717165944`](https://github.com/ccheever/ibex/actions/runs/29717165944)
+passed generated-policy preflight, all seven public-fixture batches, 317
+library tests, 169 binary unit tests, all six Windows child-process
+integrations, and all 19 CLI evaluation tests. The default Rust matrix advanced
+to 514 of 516 executed tests passing before the next integration target found
+two raw standalone entries with static imports reaching Hermes script mode
+without in-process lowering: a no-TLA `.mjs` entry and a `.js` entry whose
+regex literal contained the word `await`. The Windows standalone route now
+installs its argv prelude separately and reuses the same in-process lowering
+and entry-wrapper path as the portable fallback; already prepared Windows
+bundles keep their existing direct source-bootstrap path. This is a later
+physical frontier, not target conformance, and advertisements remain empty.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked
