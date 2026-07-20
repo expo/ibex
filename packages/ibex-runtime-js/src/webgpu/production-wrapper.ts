@@ -24,6 +24,11 @@ import { WEBGPU_PRODUCTION_PLAN } from './production-plan.generated';
 import { WEBGPU_OBJECT_KIND_TAGS } from './production-codecs.generated';
 import { EventTarget } from '../events/EventTarget';
 import { markNonTransferableArrayBuffer } from '../arraybuffer-detach';
+import {
+  createProductionGpuPrivateImageBitmapFactoryV1,
+  type ProductionGpuDecodedImageAuthorityV1,
+  type ProductionGpuExternalImageSnapshotV1,
+} from './private-image-bitmap';
 
 type ProductionRoute = (typeof WEBGPU_PRODUCTION_PLAN.routes)[number];
 type ProductionGpuAllocatedWrapperKind = Exclude<
@@ -359,6 +364,12 @@ export interface ProductionWebGpuPrivateBinding {
   readonly gpu: object;
   readonly interfaceObjects: Readonly<Record<string, object>>;
   readonly constantObjects: Readonly<Record<string, object>>;
+  readonly createImageBitmap?: (
+    source: import('../blob/Blob').Blob,
+  ) => Promise<object>;
+  readonly snapshotImageBitmapForCopy?: (
+    bitmap: unknown,
+  ) => ProductionGpuExternalImageSnapshotV1;
   readonly mintCanvasContext: (
     identity: Readonly<{
       objectId: string;
@@ -373,6 +384,10 @@ export interface ProductionWebGpuPrivateBinding {
     current: ProductionWebGpuPrivateBindingInspection;
     lastClose: ProductionWebGpuPrivateBindingInspection | undefined;
   }>;
+}
+
+export interface ProductionWebGpuPrivateBindingExtensions {
+  readonly decodedImageAuthority?: ProductionGpuDecodedImageAuthorityV1;
 }
 
 const TYPEGPU_WORKLOAD_STAGING = Object.freeze({
@@ -1167,11 +1182,40 @@ export function createProductionWebGpuPrivateBinding(
   bridge: NativeGpuBridgeV2,
   codecs: ExecutableWebGpuCodecBundle,
   testOptions: ProductionWebGpuPrivateBindingTestOptions = {},
+  extensions: ProductionWebGpuPrivateBindingExtensions = {},
 ): ProductionWebGpuPrivateBinding {
   if (!validateExecutableWebGpuCodecs(codecs)) {
     throw new TypeError('WebGPU executable codec authority is invalid');
   }
   const capturedTestOptions = capturePrivateBindingTestOptions(testOptions);
+  if (typeof extensions !== 'object' || extensions === null) {
+    throw new TypeError('Invalid private WebGPU binding extensions');
+  }
+  const extensionDescriptors = Object.getOwnPropertyDescriptors(extensions);
+  const extensionKeys = Reflect.ownKeys(extensionDescriptors);
+  if (
+    extensionKeys.length > 1 ||
+    extensionKeys.some((key) => key !== 'decodedImageAuthority')
+  ) {
+    throw new TypeError('Invalid private WebGPU binding extensions');
+  }
+  const decodedImageAuthority = extensionDescriptors.decodedImageAuthority;
+  if (
+    decodedImageAuthority !== undefined &&
+    (!decodedImageAuthority.enumerable || !('value' in decodedImageAuthority))
+  ) {
+    throw new TypeError('Invalid private WebGPU binding extensions');
+  }
+  const privateImageBitmaps =
+    decodedImageAuthority?.value === undefined
+      ? undefined
+      : createProductionGpuPrivateImageBitmapFactoryV1(
+        {
+          runtimeAddress: bridge.runtimeAddress,
+          runtimeNonce: bridge.runtimeNonce,
+        },
+        decodedImageAuthority.value as ProductionGpuDecodedImageAuthorityV1,
+      );
 
   const mutablePrototypes = createPrototypeTable();
   if (Object.getPrototypeOf(mutablePrototypes.GPUDevice) !== EventTarget.prototype) {
@@ -5917,6 +5961,12 @@ export function createProductionWebGpuPrivateBinding(
     gpu: gpuState.wrapper,
     interfaceObjects: Object.freeze(interfaceObjects),
     constantObjects,
+    ...(privateImageBitmaps
+      ? {
+        createImageBitmap: privateImageBitmaps.createImageBitmap,
+        snapshotImageBitmapForCopy: privateImageBitmaps.snapshotForCopy,
+      }
+      : {}),
     ...(capturedTestOptions.enableStateInspection
       ? {
         inspectForTest: () => Object.freeze({
@@ -6093,6 +6143,7 @@ export function createProductionWebGpuPrivateBinding(
     revoke() {
       if (revoked) return;
       revoked = true;
+      privateImageBitmaps?.revoke();
       closeRealmCounterIndependently(
         'realm-revoked',
         'The WebGPU realm was revoked',

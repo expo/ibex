@@ -6,6 +6,7 @@ import {
   markDetachedArrayBuffer,
 } from '../arraybuffer-detach';
 import { structuredClone as ibexStructuredClone } from '../clone/structuredClone';
+import { Blob } from '../blob/Blob';
 import { Event } from '../events/Event';
 import { EventTarget } from '../events/EventTarget';
 import type {
@@ -872,6 +873,90 @@ describe('production-private WebGPU wrapper gate', () => {
 });
 
 describe('production-private WebGPU wrapper factory', () => {
+  test('admits decoded-image authority only through private construction', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+      {},
+      {
+        decodedImageAuthority: Object.freeze({
+          async decodePng(request) {
+            return Object.freeze({
+              runtimeAddress: request.runtimeAddress,
+              runtimeNonce: request.runtimeNonce,
+              sourceId: request.sourceId,
+              sourceGeneration: request.sourceGeneration,
+              width: 1,
+              height: 1,
+              bytesPerRow: 4,
+              encodedBytes: request.encodedBytes,
+              decodedPremultipliedRgba8: new Uint8Array([1, 2, 3, 4]),
+              encodedContentSha256: 'ab'.repeat(32),
+              decodedContentSha256: 'cd'.repeat(32),
+              originClean: true as const,
+              colorSpace: 'srgb' as const,
+              alphaMode: 'premultiplied' as const,
+              orientation: 'top-left' as const,
+            });
+          },
+        }),
+      },
+    );
+    expect(typeof binding.createImageBitmap).toBe('function');
+    expect(typeof binding.snapshotImageBitmapForCopy).toBe('function');
+
+    const bitmap = await binding.createImageBitmap!(
+      new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' }),
+    );
+    const snapshot = binding.snapshotImageBitmapForCopy!(bitmap);
+    expect(snapshot).toMatchObject({
+      runtimeAddress: bridge.runtimeAddress,
+      runtimeNonce: bridge.runtimeNonce,
+      sourceId: '1',
+      sourceGeneration: '1',
+      width: 1,
+      height: 1,
+      bytesPerRow: 4,
+      originClean: true,
+    });
+    expect([...snapshot.decodedPremultipliedRgba8]).toEqual([1, 2, 3, 4]);
+
+    binding.revoke();
+    expect(() => binding.snapshotImageBitmapForCopy!(bitmap))
+      .toThrow('Decoded-image realm is revoked');
+
+    const withoutAuthority = createProductionWebGpuPrivateBinding(
+      createFakeBridge(),
+      createFakeCodecs(),
+    );
+    expect(withoutAuthority.createImageBitmap).toBeUndefined();
+    expect(withoutAuthority.snapshotImageBitmapForCopy).toBeUndefined();
+    withoutAuthority.revoke();
+
+    let extensionGetterRuns = 0;
+    const accessorExtension = Object.defineProperty(
+      {},
+      'decodedImageAuthority',
+      {
+        enumerable: true,
+        get() {
+          extensionGetterRuns += 1;
+          return Object.freeze({ decodePng: async () => Promise.reject() });
+        },
+      },
+    );
+    expect(() =>
+      createProductionWebGpuPrivateBinding(
+        createFakeBridge(),
+        createFakeCodecs(),
+        {},
+        accessorExtension,
+      ),
+    ).toThrow('Invalid private WebGPU binding extensions');
+    expect(extensionGetterRuns).toBe(0);
+  });
+
   test('snapshots only an attenuating mapped allocation guard data option', () => {
     const options = {
       privateMappedAllocationGuardLimitBytes: 4,
