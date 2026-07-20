@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-20 (ENG-24933 physically verifies Windows HKDF and advances the full public matrix to the missing CNG PBKDF2 backend)
 **Revised:** 2026-07-20 (ENG-24933 physically verifies Windows callback attribution and startup-environment evidence, then implements the RFC 5869 HKDF backend exposed as the next full-matrix frontier)
 **Revised:** 2026-07-19 (ENG-24933 refreshes the four checked example policies after physical run 29722972483 correctly refused the reviewed removal of the Windows crypto shadow before product execution)
 **Revised:** 2026-07-19 (ENG-24933 removes the Windows-only bootstrap crypto shadow after physical run 29719448744 cleared CLI runtime execution and exposed 17 missing-or-weakened crypto exports)
@@ -2182,6 +2183,18 @@ backend had not installed `__exactHkdf`. Windows now implements RFC 5869
 extract-and-expand over its byte-preserving BCrypt HMAC primitive, guarded by
 an RFC test vector. This is a repair awaiting a rebuilt physical report, not
 conformance credit, and advertisements remain empty.
+Focused physical run
+[`29725446225`](https://github.com/ccheever/ibex/actions/runs/29725446225)
+passed the callback-principal invariant again and retained nine of nine passing
+startup-environment executions after MSVC compiled the Windows HKDF change.
+Full run
+[`29726396558`](https://github.com/ccheever/ibex/actions/runs/29726396558)
+then passed the prior `hkdfSync` public probe and advanced the same
+non-capability builtin batch to `pbkdf2Sync`, where the canonical surface found
+no `__exactPbkdf2` host primitive. Windows now registers the platform CNG
+`BCryptDeriveKeyPBKDF2` operation with strict native-boundary validation and a
+SHA-256 reference vector. This next repair also awaits physical evidence; no
+target cell or advertisement is promoted.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked

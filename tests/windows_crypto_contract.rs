@@ -21,6 +21,7 @@ fn windows_native_crypto_remains_a_primitive_backend() {
         "__exactHashSync",
         "__exactHashRaw",
         "__exactHmacSync",
+        "__exactPbkdf2",
         "__exactHkdf",
     ] {
         assert!(
@@ -35,5 +36,9 @@ fn windows_native_crypto_remains_a_primitive_backend() {
     assert!(
         WINDOWS_CRYPTO.contains("RFC 5869 extract") && WINDOWS_CRYPTO.contains("RFC 5869 expand"),
         "Windows HKDF must remain a real RFC 5869 construction over BCrypt HMAC"
+    );
+    assert!(
+        WINDOWS_CRYPTO.contains("BCryptDeriveKeyPBKDF2"),
+        "Windows PBKDF2 must use the platform CNG derivation primitive"
     );
 }

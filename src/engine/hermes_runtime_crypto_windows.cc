@@ -16,6 +16,7 @@ void unregisterSignalRuntime(ExactHermesRuntime*) {}
 #include <cctype>
 #include <cmath>
 #include <iomanip>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -447,6 +448,84 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         return facebook::jsi::String::createFromUtf8(runtime, hexEncode(digest));
       });
   rt.global().setProperty(rt, "__exactHmacSync", std::move(hmacSyncFn));
+
+  // @ref LLP 0008#crypto — the no-OpenSSL Windows profile uses CNG for the
+  // native primitives exposed through the canonical JavaScript crypto API.
+  auto pbkdf2Fn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactPbkdf2"),
+      5,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 5 || !args[2].isNumber() || !args[3].isNumber() ||
+            !args[4].isString()) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactPbkdf2: password, salt, iterations, length, and hash required");
+        }
+
+        double requested_iterations = args[2].asNumber();
+        double requested_length = args[3].asNumber();
+        if (!std::isfinite(requested_iterations) || requested_iterations < 1 ||
+            std::floor(requested_iterations) != requested_iterations) {
+          throw facebook::jsi::JSError(runtime, "__exactPbkdf2: invalid iteration count");
+        }
+        if (!std::isfinite(requested_length) || requested_length < 0 ||
+            std::floor(requested_length) != requested_length ||
+            requested_length > static_cast<double>(std::numeric_limits<ULONG>::max())) {
+          throw facebook::jsi::JSError(runtime, "__exactPbkdf2: invalid output length");
+        }
+
+        auto algorithm = args[4].asString(runtime).utf8(runtime);
+        const wchar_t* algorithm_id = bcryptAlgorithmId(algorithm);
+        if (!algorithm_id) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactPbkdf2: unsupported hash algorithm: " + algorithm);
+        }
+
+        auto password = extractBytes(runtime, args[0]);
+        auto salt = extractBytes(runtime, args[1]);
+        if (password.size() > std::numeric_limits<ULONG>::max() ||
+            salt.size() > std::numeric_limits<ULONG>::max()) {
+          throw facebook::jsi::JSError(runtime, "__exactPbkdf2: input is too large");
+        }
+
+        auto length = static_cast<size_t>(requested_length);
+        if (length == 0) {
+          return makeUint8Array(runtime, {});
+        }
+
+        BCRYPT_ALG_HANDLE algorithm_handle = nullptr;
+        if (!ntSuccess(BCryptOpenAlgorithmProvider(
+                &algorithm_handle,
+                algorithm_id,
+                nullptr,
+                BCRYPT_ALG_HANDLE_HMAC_FLAG))) {
+          throw facebook::jsi::JSError(runtime, "BCryptOpenAlgorithmProvider failed for PBKDF2");
+        }
+
+        std::vector<uint8_t> derived_key(length);
+        NTSTATUS status = BCryptDeriveKeyPBKDF2(
+            algorithm_handle,
+            password.empty() ? nullptr : password.data(),
+            static_cast<ULONG>(password.size()),
+            salt.empty() ? nullptr : salt.data(),
+            static_cast<ULONG>(salt.size()),
+            static_cast<ULONGLONG>(requested_iterations),
+            derived_key.data(),
+            static_cast<ULONG>(derived_key.size()),
+            0);
+        BCryptCloseAlgorithmProvider(algorithm_handle, 0);
+        if (!ntSuccess(status)) {
+          throw facebook::jsi::JSError(runtime, "BCryptDeriveKeyPBKDF2 failed");
+        }
+
+        return makeUint8Array(runtime, std::move(derived_key));
+      });
+  rt.global().setProperty(rt, "__exactPbkdf2", std::move(pbkdf2Fn));
 
   // @ref LLP 0008#crypto — Windows keeps the canonical JavaScript crypto
   // surface and supplies its available native primitives through BCrypt/CNG.

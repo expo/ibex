@@ -536,6 +536,19 @@ async fn hkdf_matches_rfc5869_sha256_test_case_1() {
     );
 }
 
+/// RFC 7914's PBKDF2-HMAC-SHA256 seed vector proves byte-exact PBKDF2 on
+/// platform backends, including Windows CNG.
+#[tokio::test]
+async fn pbkdf2_matches_sha256_reference_vector() {
+    let js = "(function(){ var c = require('crypto'); \
+        return c.pbkdf2Sync('password', 'salt', 1, 32, 'sha256').toString('hex'); })()";
+    let result = eval(js).await;
+    assert_eq!(
+        result,
+        "120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b"
+    );
+}
+
 /// ENG-23465 findings 7+8: second digest() throws ERR_CRYPTO_HASH_FINALIZED
 /// (never a cached value), update(number) throws ERR_INVALID_ARG_TYPE, and
 /// the Transform lifecycle completes — 'finish' fires so stream.pipeline on a
