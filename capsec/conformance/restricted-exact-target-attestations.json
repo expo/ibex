@@ -1,0 +1,5 @@
+{
+  "attestationSchema": "ibex/restricted-profile-target-attestations/1",
+  "profile": "ibex/exact-embedder-contract/1",
+  "attestations": []
+}

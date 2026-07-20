@@ -20,7 +20,10 @@
     "schema/restricted-exact-artifact.schema.json",
     "schema/restricted-profile-advertisements.schema.json",
     "schema/restricted-profile-definition.schema.json",
+    "schema/restricted-profile-fixture-plan.schema.json",
     "schema/restricted-profile-projection.schema.json",
+    "schema/restricted-profile-target-attestations.schema.json",
+    "schema/restricted-profile-target-report.schema.json",
     "schema/target-advertisements.schema.json",
     "schema/target-attestations.schema.json",
     "schema/target-cell.schema.json"
@@ -30,6 +33,7 @@
     "registry/coverage-edges.json",
     "registry/legacy-capability-reconciliation.json",
     "registry/policy-rules.json",
+    "registry/restricted-exact-fixture-plan.json",
     "registry/restricted-exact-profile-definition.json",
     "registry/target-cells.json"
   ],

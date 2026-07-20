@@ -5,7 +5,10 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-19 (r7 — makes restricted timer ref/unref absence an
+**Revised:** 2026-07-20 (r8 — adds the late-but-pre-per-edge locked fixture
+plan, target-report and content-addressed attestation schemas, exact
+edge/evidence fixture joining, independent-review gate, and report-derived
+advertisement ingestion while keeping evidence and advertisements empty; r7 — makes restricted timer ref/unref absence an
 install-plan property and adds hostile startup/event checkpoint, malformed
 payload, missing-handler, post-poison, ambient-global, and dynamic-constructor
 fixtures without opening advertisement; r6 — adds the immutable activation-scoped checkpoint
@@ -342,8 +345,20 @@ startup checkpoint output; missing, duplicate, malformed, and throwing event
 checkpoint transitions; malformed event JSON; missing event dispatch;
 post-poison poll/event/callback/replay refusal; the forbidden ambient-global
 set; and `Function`, `AsyncFunction`, and `GeneratorFunction` construction.
-These fixtures still require exact-target execution and per-obligation report
-materialization before they count as conformance evidence. A strict activation-artifact schema
+These fixtures pass on the pinned exact-engine Apple target but still require
+per-obligation report materialization before they count as conformance
+evidence. The fixture plan is now explicitly recorded as late after that
+positive mechanism/hostile pilot but before any per-edge source-install,
+reachability, or invocation execution. The target-report builder requires a
+deterministic fixture ID for every exact `(edge, evidence-kind)` observation,
+requires both source-install and live-reachability evidence for each structural
+absence, re-derives all 7,129 rows and summary counts, binds exact authority and
+engine bytes, and refuses duplicate, wrong-engine, identity-drifted, generic,
+or synthesized credit. Content-addressed attestations reopen conformant reports
+and may derive only the separately identified restricted advertisement; an
+incomplete report, missing independent review, or unresolved critical/high
+finding cannot advertise. Every evidence row and advertisement remains empty.
+A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full
 vocabulary/registry/source-edge identities; mapped Hermes binary, object, and
@@ -372,10 +387,11 @@ Host artifact, freezes the final `exact` object, requires checkpoint
 consumption, rejects replay/general eval, and poisons the runtime on any failed
 post-consumption attempt. A target-local native test proves successful source
 ingress, deterministic activation, frame and checkpoint output, callback
-replacement refusal, replay refusal, and raw eval refusal. Complete
-source-install/live-reachability evidence, the self-contained Contract-bundle
-fresh-realm fixture on an eligible exact-engine build, the remaining hostile
-lifecycle corpus, Linux evidence, and target advertisement are still pending.
+replacement refusal, replay refusal, and raw eval refusal. The real
+self-contained Contract bundle and hostile lifecycle corpus now pass on the
+eligible exact-engine Apple build. Complete per-edge source-install/live-
+reachability/invocation evidence, teardown/supervisor evidence, independent
+review, Linux evidence, and target advertisements are still pending.
 
 ### Phase 1 — Apple vertical slice
 

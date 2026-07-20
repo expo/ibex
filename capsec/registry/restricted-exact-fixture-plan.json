@@ -1,0 +1,73 @@
+{
+  "fixturePlanSchema": "ibex/restricted-profile-fixture-plan/1",
+  "profile": "ibex/exact-embedder-contract/1",
+  "registrationStatus": "late-after-positive-pilot-before-per-edge-execution",
+  "evidenceKinds": [
+    {
+      "id": "live-invocation",
+      "disposition": "reachable",
+      "perEdge": true,
+      "requiredForConformant": true,
+      "executor": "exact-engine-observer",
+      "requirement": "Invoke or observe the exact reachable surface identity on the bound restricted runtime and record its edge-specific result; presence-only retrieval cannot prove a callable."
+    },
+    {
+      "id": "control-plane-negative",
+      "disposition": "trusted-control-plane",
+      "perEdge": true,
+      "requiredForConformant": true,
+      "executor": "native-abi-observer",
+      "requirement": "Exercise the exact native lifecycle operation and its applicable wrong-thread, wrong-runtime, wrong-generation, wrong-profile, replay, replacement, or post-destroy refusal."
+    },
+    {
+      "id": "source-install",
+      "disposition": "structurally-absent",
+      "perEdge": true,
+      "requiredForConformant": true,
+      "executor": "source-install-closure",
+      "requirement": "Bind the edge source identity to the generated restricted install plan and prove that no selected bootstrap, lazy installer, callback, resolver, alias, or retained closure installs it."
+    },
+    {
+      "id": "live-reachability",
+      "disposition": "structurally-absent",
+      "perEdge": true,
+      "requiredForConformant": true,
+      "executor": "exact-engine-observer",
+      "requirement": "Probe every source-derived attacker reachability root for the exact edge and prove that the surface cannot be resolved or invoked after restricted bootstrap."
+    }
+  ],
+  "globalCorpora": [
+    {
+      "id": "artifact-tamper",
+      "requiredForConformant": true,
+      "requirement": "Reject stale, mutated, wrong-format, wrong-engine, wrong-profile, and wrong-protected-object activation artifacts before code execution."
+    },
+    {
+      "id": "hostile-lifecycle",
+      "requiredForConformant": true,
+      "requirement": "Pass missing, duplicate, malformed, oversized, throwing, replay, and post-poison activation/event cases on the bound exact engine."
+    },
+    {
+      "id": "loader-and-bridge-absence",
+      "requiredForConformant": true,
+      "requirement": "Prove generic eval, module loaders, host bridges, CLI, debugger, inspector, and compatibility globals remain unreachable."
+    },
+    {
+      "id": "profile-confusion",
+      "requiredForConformant": true,
+      "requirement": "Reject full, diagnostic, and restricted Host/artifact confusion before engine allocation or JSI mutation."
+    },
+    {
+      "id": "teardown",
+      "requiredForConformant": true,
+      "requirement": "Destroy the runtime and prove no callback, completion, event binding, Host context, timer, or native handle remains callable or reusable."
+    }
+  ],
+  "invalidRunRules": [
+    "Any dirty source tree outside the report, attestation, and generated publication outputs invalidates the run.",
+    "Any source revision, tree, projection, fixture-plan, target, feature, or engine identity mismatch invalidates the run.",
+    "Any missing, duplicate, generic, stale, cross-target, or cross-profile per-edge observation invalidates the affected row.",
+    "Any process timeout, crash without an expected marker, truncated evidence artifact, or nonzero command exit invalidates that execution unless the fixture explicitly expects and binds that exact failure mode.",
+    "An invalid run may be repeated only with unchanged authorities and a fresh run identity; its failed artifact remains recorded and cannot be overwritten."
+  ]
+}

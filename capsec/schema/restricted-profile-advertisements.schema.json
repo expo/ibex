@@ -8,7 +8,58 @@
     "advertisementSchema": { "const": "ibex/restricted-profile-advertisements/1" },
     "profile": { "const": "ibex/exact-embedder-contract/1" },
     "projectionRawContentDigest": { "type": "string", "pattern": "^sha256-[A-Za-z0-9_-]{43}$" },
-    "advertisements": { "type": "array", "maxItems": 0 }
+    "advertisements": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": [
+          "target",
+          "reportDigest",
+          "reportRawContentDigest",
+          "sourceRevision",
+          "sourceTreeDigest",
+          "engineBinaryDigest",
+          "projectionRawContentDigest",
+          "fixturePlanRawContentDigest"
+        ],
+        "properties": {
+          "target": { "$ref": "#/$defs/target" },
+          "reportDigest": { "$ref": "#/$defs/digest" },
+          "reportRawContentDigest": { "$ref": "#/$defs/digest" },
+          "sourceRevision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+          "sourceTreeDigest": { "$ref": "#/$defs/digest" },
+          "engineBinaryDigest": { "$ref": "#/$defs/digest" },
+          "projectionRawContentDigest": { "$ref": "#/$defs/digest" },
+          "fixturePlanRawContentDigest": { "$ref": "#/$defs/digest" }
+        },
+        "additionalProperties": false
+      }
+    }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256-[A-Za-z0-9_-]{43}$" },
+    "stableId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[._/-][a-z0-9]+)*$"
+    },
+    "target": {
+      "type": "object",
+      "required": ["triple", "features"],
+      "properties": {
+        "triple": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+){2,}$"
+        },
+        "features": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
 }

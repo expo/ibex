@@ -29,11 +29,21 @@
     "implementationManifestRawContentDigest": { "$ref": "#/$defs/digest" },
     "schemaRawContentDigests": {
       "type": "object",
-      "required": ["advertisements", "definition", "projection"],
+      "required": [
+        "advertisements",
+        "definition",
+        "fixturePlan",
+        "projection",
+        "targetAttestations",
+        "targetReport"
+      ],
       "properties": {
         "advertisements": { "$ref": "#/$defs/digest" },
         "definition": { "$ref": "#/$defs/digest" },
-        "projection": { "$ref": "#/$defs/digest" }
+        "fixturePlan": { "$ref": "#/$defs/digest" },
+        "projection": { "$ref": "#/$defs/digest" },
+        "targetAttestations": { "$ref": "#/$defs/digest" },
+        "targetReport": { "$ref": "#/$defs/digest" }
       },
       "additionalProperties": false
     },

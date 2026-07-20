@@ -18,12 +18,22 @@ const definitionPath = path.join(
   capsecRoot,
   "registry/restricted-exact-profile-definition.json",
 );
+const fixturePlanPath = path.join(
+  capsecRoot,
+  "registry/restricted-exact-fixture-plan.json",
+);
+const targetAttestationsPath = path.join(
+  capsecRoot,
+  "conformance/restricted-exact-target-attestations.json",
+);
 
 function inputs() {
   return {
     coverage: structuredClone(readJsonStrict(coveragePath)),
     definition: structuredClone(readJsonStrict(definitionPath)),
+    fixturePlan: structuredClone(readJsonStrict(fixturePlanPath)),
     implementationManifest: structuredClone(readJsonStrict(implementationManifestPath)),
+    targetAttestations: structuredClone(readJsonStrict(targetAttestationsPath)),
   };
 }
 
@@ -89,6 +99,24 @@ describe("LLP 0026 restricted Exact profile projection", () => {
     const advertised = inputs();
     advertised.definition.advertisements = [{ target: "forbidden" }];
     expect(() => buildRestrictedExactProfile(advertised)).toThrow("violates schema");
+
+    const unattested = inputs();
+    const digest = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    unattested.targetAttestations.attestations = [{
+      target: unattested.definition.candidateTargets[0],
+      reportPath: "capsec/conformance/restricted-exact-missing-report.json",
+      reportRawContentDigest: digest,
+      reportDigest: digest,
+      sourceRevision: "0000000000000000000000000000000000000000",
+      sourceTreeDigest: digest,
+      engineBinaryDigest: digest,
+      projectionRawContentDigest: digest,
+      fixturePlanRawContentDigest: digest,
+      independentReviewArtifactDigest: digest,
+    }];
+    expect(() => buildRestrictedExactProfile(unattested)).toThrow(
+      "attested report is unavailable",
+    );
   });
 
   test("rejects supplied raw authority bytes that do not match parsed objects", () => {

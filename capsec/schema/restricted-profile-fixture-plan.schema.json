@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/restricted-profile-fixture-plan.schema.json",
+  "title": "Restricted Exact target conformance fixture plan",
+  "type": "object",
+  "required": [
+    "fixturePlanSchema",
+    "profile",
+    "registrationStatus",
+    "evidenceKinds",
+    "globalCorpora",
+    "invalidRunRules"
+  ],
+  "properties": {
+    "fixturePlanSchema": { "const": "ibex/restricted-profile-fixture-plan/1" },
+    "profile": { "const": "ibex/exact-embedder-contract/1" },
+    "registrationStatus": {
+      "const": "late-after-positive-pilot-before-per-edge-execution"
+    },
+    "evidenceKinds": {
+      "type": "array",
+      "minItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "disposition",
+          "perEdge",
+          "requiredForConformant",
+          "executor",
+          "requirement"
+        ],
+        "properties": {
+          "id": { "$ref": "#/$defs/stableId" },
+          "disposition": {
+            "enum": [
+              "reachable",
+              "structurally-absent",
+              "trusted-control-plane"
+            ]
+          },
+          "perEdge": { "const": true },
+          "requiredForConformant": { "const": true },
+          "executor": { "$ref": "#/$defs/stableId" },
+          "requirement": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "globalCorpora": {
+      "type": "array",
+      "minItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": ["id", "requiredForConformant", "requirement"],
+        "properties": {
+          "id": { "$ref": "#/$defs/stableId" },
+          "requiredForConformant": { "const": true },
+          "requirement": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "invalidRunRules": {
+      "type": "array",
+      "minItems": 5,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[._/-][a-z0-9]+)*$"
+    }
+  }
+}

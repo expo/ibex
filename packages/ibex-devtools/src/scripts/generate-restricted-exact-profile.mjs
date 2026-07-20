@@ -28,6 +28,10 @@ import {
   assertConfinedGeneratedFile,
   writeGeneratedFilesTransactionally,
 } from "./generated-output-io.mjs";
+import {
+  deriveRestrictedTargetAdvertisements,
+  validateRestrictedFixturePlan,
+} from "./restricted-exact-target-report.mjs";
 
 const definitionPath = path.join(
   capsecRoot,
@@ -49,6 +53,26 @@ const projectionSchemaPath = path.join(
 const advertisementSchemaPath = path.join(
   capsecRoot,
   "schema/restricted-profile-advertisements.schema.json",
+);
+const fixturePlanPath = path.join(
+  capsecRoot,
+  "registry/restricted-exact-fixture-plan.json",
+);
+const fixturePlanSchemaPath = path.join(
+  capsecRoot,
+  "schema/restricted-profile-fixture-plan.schema.json",
+);
+const targetAttestationsPath = path.join(
+  capsecRoot,
+  "conformance/restricted-exact-target-attestations.json",
+);
+const targetAttestationsSchemaPath = path.join(
+  capsecRoot,
+  "schema/restricted-profile-target-attestations.schema.json",
+);
+const targetReportSchemaPath = path.join(
+  capsecRoot,
+  "schema/restricted-profile-target-report.schema.json",
 );
 const projectionPath = path.join(
   capsecRoot,
@@ -131,7 +155,14 @@ function assertRawMatches(rawBytes, value, label) {
   }
 }
 
-export function buildRestrictedExactProfile({ coverage, definition, implementationManifest, raw = {} }) {
+export function buildRestrictedExactProfile({
+  coverage,
+  definition,
+  implementationManifest,
+  fixturePlan,
+  targetAttestations,
+  raw = {},
+}) {
   assertRawMatches(raw.definition, definition, "restricted profile definition");
   assertRawMatches(raw.coverage, coverage, "restricted profile coverage");
   assertRawMatches(
@@ -139,8 +170,20 @@ export function buildRestrictedExactProfile({ coverage, definition, implementati
     implementationManifest,
     "restricted profile implementation manifest",
   );
+  assertRawMatches(raw.fixturePlan, fixturePlan, "restricted fixture plan");
+  assertRawMatches(
+    raw.targetAttestations,
+    targetAttestations,
+    "restricted target attestations",
+  );
   const validateDefinition = schemaValidator(definitionSchemaPath);
   assertSchema(validateDefinition, definition, "restricted profile definition");
+  validateRestrictedFixturePlan(fixturePlan);
+  assertSchema(
+    schemaValidator(targetAttestationsSchemaPath),
+    targetAttestations,
+    "restricted target attestations",
+  );
   if (coverage.coverageSchema !== "ibex/capsec-coverage/1" || coverage.profile !== definition.fullProfile) {
     throw new Error("restricted profile coverage authority mismatch");
   }
@@ -220,7 +263,12 @@ export function buildRestrictedExactProfile({ coverage, definition, implementati
     schemaRawContentDigests: {
       advertisements: sha256(raw.advertisementSchema ?? fs.readFileSync(advertisementSchemaPath)),
       definition: sha256(raw.definitionSchema ?? fs.readFileSync(definitionSchemaPath)),
+      fixturePlan: sha256(raw.fixturePlanSchema ?? fs.readFileSync(fixturePlanSchemaPath)),
       projection: sha256(raw.projectionSchema ?? fs.readFileSync(projectionSchemaPath)),
+      targetAttestations: sha256(
+        raw.targetAttestationsSchema ?? fs.readFileSync(targetAttestationsSchemaPath),
+      ),
+      targetReport: sha256(raw.targetReportSchema ?? fs.readFileSync(targetReportSchemaPath)),
     },
     sourceEdgeSet: {
       count: edgeIds.length,
@@ -231,19 +279,37 @@ export function buildRestrictedExactProfile({ coverage, definition, implementati
     rows,
     promotionReady: false,
     blockers: [
-      "authenticated single-use Contract bundle ingress is not implemented",
-      "profile-specific restricted bootstrap/install plan is not implemented",
+      "no conformant content-addressed target report and attestation are committed",
       "reachable and trusted-control-plane executable evidence is pending",
       "structural-absence source-install and live-reachability evidence is pending",
-      "target-specific conformance reports and independent security review are pending",
+      "external-supervisor teardown evidence and independent security review are pending",
     ].sort(),
   };
   const projectionText = renderProjection(projection);
+  const derivedAdvertisements = deriveRestrictedTargetAdvertisements({
+    targetAttestations,
+    authorities: {
+      projection,
+      coverage,
+      implementationManifest,
+      fixturePlan,
+      rawAuthorities: {
+        definition: raw.definition ?? Buffer.from(canonicalJson(definition), "utf8"),
+        projection: Buffer.from(projectionText, "utf8"),
+        coverage: raw.coverage ?? Buffer.from(canonicalJson(coverage), "utf8"),
+        implementationManifest:
+          raw.implementationManifest
+          ?? Buffer.from(canonicalJson(implementationManifest), "utf8"),
+        fixturePlan: raw.fixturePlan ?? Buffer.from(canonicalJson(fixturePlan), "utf8"),
+        reportSchema: raw.targetReportSchema ?? fs.readFileSync(targetReportSchemaPath),
+      },
+    },
+  });
   const advertisements = {
     advertisementSchema: "ibex/restricted-profile-advertisements/1",
     profile: definition.profile,
     projectionRawContentDigest: sha256(Buffer.from(projectionText, "utf8")),
-    advertisements: definition.advertisements,
+    advertisements: derivedAdvertisements,
   };
 
   assertSchema(schemaValidator(projectionSchemaPath), projection, "restricted profile projection");
@@ -269,9 +335,15 @@ export function validateRestrictedExactProfile(projection, advertisements, cover
   if (projection.counts.evidenced !== 0 || projection.rows.some((row) => row[2] !== "pending")) {
     throw new Error("Phase 0 restricted projection falsely claims evidence");
   }
-  if (projection.promotionReady || advertisements.advertisements.length !== 0) {
-    throw new Error("Phase 0 restricted profile must remain unadvertised");
+  if (projection.promotionReady) {
+    throw new Error("restricted source projection cannot itself claim target evidence");
   }
+  assertSortedUnique(
+    advertisements.advertisements.map(
+      (row) => `${row.target.triple}\0${row.target.features.join("\0")}`,
+    ),
+    "restricted target advertisements",
+  );
   const expectedProjectionDigest = sha256(Buffer.from(renderProjection(projection), "utf8"));
   if (advertisements.projectionRawContentDigest !== expectedProjectionDigest) {
     throw new Error("restricted advertisements do not bind exact projection bytes");
@@ -282,17 +354,26 @@ export function loadAndBuildRestrictedExactProfile() {
   const definitionBytes = fs.readFileSync(definitionPath);
   const coverageBytes = fs.readFileSync(coveragePath);
   const implementationManifestBytes = fs.readFileSync(implementationManifestPath);
+  const fixturePlanBytes = fs.readFileSync(fixturePlanPath);
+  const targetAttestationsBytes = fs.readFileSync(targetAttestationsPath);
   return buildRestrictedExactProfile({
     definition: readJsonStrict(definitionPath),
     coverage: readJsonStrict(coveragePath),
     implementationManifest: readJsonStrict(implementationManifestPath),
+    fixturePlan: readJsonStrict(fixturePlanPath),
+    targetAttestations: readJsonStrict(targetAttestationsPath),
     raw: {
       definition: definitionBytes,
       coverage: coverageBytes,
       implementationManifest: implementationManifestBytes,
+      fixturePlan: fixturePlanBytes,
+      targetAttestations: targetAttestationsBytes,
       advertisementSchema: fs.readFileSync(advertisementSchemaPath),
       definitionSchema: fs.readFileSync(definitionSchemaPath),
+      fixturePlanSchema: fs.readFileSync(fixturePlanSchemaPath),
       projectionSchema: fs.readFileSync(projectionSchemaPath),
+      targetAttestationsSchema: fs.readFileSync(targetAttestationsSchemaPath),
+      targetReportSchema: fs.readFileSync(targetReportSchemaPath),
     },
   });
 }

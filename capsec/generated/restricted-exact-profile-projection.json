@@ -7,9 +7,12 @@
   "coverageRawContentDigest": "sha256-AY6IELM-FbDf8G4KF3gPMohnLoIjHadqSSOrw_lnXT4",
   "implementationManifestRawContentDigest": "sha256-SVSpHFpK3VeVOk7BMzu_Rj-Qlxgp_P4HLWAFwmrB2wA",
   "schemaRawContentDigests": {
-    "advertisements": "sha256-9leFLXi4ezI8AfRqcP7L6zgQ1rto_TT5oBH2mBxJB3c",
+    "advertisements": "sha256-4S5Zx8dROCgs71PSwf8veVy5RsHY89KAejOL_8pAzZ4",
     "definition": "sha256-XhhtwCROf1zqhnAYRz80T2CkzRJAPkfT1xR2sL0xCOE",
-    "projection": "sha256-0A18tkQi75RBb4bgL9Ieu6ZdfmTZVcXXfCXV87FeHDs"
+    "fixturePlan": "sha256-3ShJTkD0ybskvhOcVl17EZspu7rqNe_nQtCN7ov3Gsc",
+    "projection": "sha256-B-sLCq2nRnOw9TLtbl3Escshfa1oOefWaU-261BNSTc",
+    "targetAttestations": "sha256-xB9rzCqaYGbEdOLjWTUTrle1QEcjmC2XNqOlrdVOO_E",
+    "targetReport": "sha256-9pfYln-aIXfsTb7fXDhCB6PY_8E-aV91wmyIEdgrH5w"
   },
   "sourceEdgeSet": {
     "count": 7129,
@@ -7173,10 +7176,9 @@
   ],
   "promotionReady": false,
   "blockers": [
-    "authenticated single-use Contract bundle ingress is not implemented",
-    "profile-specific restricted bootstrap/install plan is not implemented",
+    "external-supervisor teardown evidence and independent security review are pending",
+    "no conformant content-addressed target report and attestation are committed",
     "reachable and trusted-control-plane executable evidence is pending",
-    "structural-absence source-install and live-reachability evidence is pending",
-    "target-specific conformance reports and independent security review are pending"
+    "structural-absence source-install and live-reachability evidence is pending"
   ]
 }
