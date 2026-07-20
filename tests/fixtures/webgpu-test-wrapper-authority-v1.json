@@ -28,11 +28,11 @@
   },
   "authentication": {
     "canonicalization": "utf8-domain-line-plus-lexicographic-object-keys-arrays-preserved-v1",
-    "operationSetSha256": "efc39ed749006917e4b09ab456dcb1a97b2b2b58503899b45ac4dfa46f5aed2f",
-    "semanticProgramSetSha256": "0cfa7d2a96069b7a446a0341e8a4d81118aa8c22268756c27a07645b60a4d3d6",
-    "runtimeRoutingSha256": "8138875093498556fe26e0c3aa806242288ab9ccda0db2f0885de81239e39f28",
-    "webgpuCVocabularySha256": "b6a4ace3cf4ff8c67d099c6d947c61cc0fe6d0afab0c5cc711de6d2a06e7d7f0",
-    "projectionPayloadSha256": "be87dddac695811653fae355c88fad40a445bd28cc0e785b3b9c64457183fc6c"
+    "operationSetSha256": "fb12107ac42d8495067e50f096b4d6c4aed9e3f2af64d6d147f9c99efcaa6687",
+    "semanticProgramSetSha256": "a9b9703d59b3b906ba888ff33fac85313fafc2785f0dd364e6b5648a6ef46ad6",
+    "runtimeRoutingSha256": "d7cf4c201fb58a0a05cd65cd50b0eb3eb2a64cc17c4724e0079e8359b3e63bf7",
+    "webgpuCVocabularySha256": "cfc2607b87939ddc180a9e6359ee55ec5f8f934ab095af14b197290d687fe7ef",
+    "projectionPayloadSha256": "e77c1c5c622cda33eac713b9a746bd2c459d055829f2ded1dc99f90ca12f3f44"
   },
   "payload": {
     "profileId": "exact-webgpu-v1-draft",
@@ -44,7 +44,7 @@
       "publicGlobalStatus": "not-installed",
       "nativeBindingStatus": "not-installed",
       "wrapperCodeStatus": "private-generated-not-publicly-installed",
-      "wireCodecStatus": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed",
+      "wireCodecStatus": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-native-codec-not-installed",
       "webIdlConversionStatus": "generated-injection-only-not-installed",
       "nativeServiceDecoderStatus": "not-installed",
       "semanticServiceStatus": "not-installed",
@@ -224,8 +224,8 @@
     "wireEnvelope": {
       "serviceCall": "ExactGpuSemanticCallV2",
       "serviceEvent": "ExactGpuServiceEventV2",
-      "payloadEncoding": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-operation-selected-tagged-binary-v1",
-      "layoutStatus": "authenticated-abi-v2-carrier-with-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed",
+      "payloadEncoding": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-operation-selected-tagged-binary-v1",
+      "layoutStatus": "authenticated-abi-v2-carrier-with-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-native-codec-not-installed",
       "currentAbiReadiness": "abi-v2-carrier-installed-runtime-install-still-blocked",
       "graduationTarget": "native-decoder-semantic-service-embedded-codec-arming-capsec-and-global-install-required",
       "carrierStatus": {
@@ -2079,7 +2079,7 @@
                 "tag": 0,
                 "identityClass": "active-route",
                 "recordRole": "timeline-only",
-                "argumentShape": "null"
+                "argumentShape": "closed-canvas-current-origin-record"
               },
               {
                 "name": "GPUCommandEncoder.beginComputePass",
@@ -2196,7 +2196,8 @@
               "receiver-command-encoder-pass-and-target-full-references-join-one-logical-device-and-provider-generation",
               "receiver-command-encoder-pass-and-target-shapes-match-the-selected-operation-variant",
               "logical-errors-remain-device-timeline-record-data-and-do-not-become-synchronous-wrapper-throws",
-              "unknown-identity-class-operation-kind-error-tag-reserved-bit-or-trailing-record-byte-fails-closed"
+              "unknown-identity-class-operation-kind-error-tag-reserved-bit-or-trailing-record-byte-fails-closed",
+              "canvas-current-records-carry-a-complete-source-affine-origin-whose-digest-binds-the-wrapper-allocated-texture-target"
             ]
           },
           "queueSubmitRequestBodyV1": {
@@ -3152,11 +3153,19 @@
                 "type": "u32le"
               },
               {
+                "name": "viewFormats",
+                "type": "canvasViewFormatSequenceV1"
+              },
+              {
                 "name": "alphaMode",
                 "type": "u8"
               },
               {
                 "name": "colorSpace",
+                "type": "u8"
+              },
+              {
+                "name": "toneMappingMode",
                 "type": "u8"
               },
               {
@@ -3176,7 +3185,8 @@
               "receiverContextRef-exactly-equals-the-carried-GPUCanvasContext-reference",
               "configuredDeviceRef-is-current-generation-and-device-provenance-equals-receiver-ingress-device",
               "attachment-context-configuration-and-surface-account-generations-are-positive-source-affine-wrapper-values",
-              "format-usage-alphaMode-and-colorSpace-exactly-equal-the-post-WebIDL-converted-configuration",
+              "format-usage-viewFormats-alphaMode-colorSpace-and-toneMappingMode-exactly-equal-the-post-WebIDL-converted-configuration",
+              "toneMappingMode-is-the-phase-1a-profile-value-standard",
               "targetAuthorityDigest-is-the-construction-private-current-target-authority-digest",
               "body-is-wrapper-derived-and-cannot-be-supplied-by-the-public-GPUCanvasConfiguration"
             ]
@@ -3307,6 +3317,16 @@
               "device-created-origin-is-distinct-and-generation-fenced-by-the-full-receiver-reference",
               "canvas-current-origin-carries-complete-mint-provenance-and-never-causes-ambient-materialization",
               "body-is-wrapper-derived-and-cannot-be-supplied-by-public-arguments"
+            ]
+          },
+          "canvasViewFormatSequenceV1": {
+            "kind": "sequence",
+            "countType": "u32le",
+            "elementType": "utf8",
+            "maxCountFrom": "codecLayout.sequenceMaxCount",
+            "constraints": [
+              "preserve-WebIDL-order-and-duplicates",
+              "each-entry-is-a-pinned-GPUTextureFormat"
             ]
           }
         },
@@ -10757,7 +10777,7 @@
           },
           {
             "operationId": "GPUCanvasContext.configure",
-            "wireId": 3865035710,
+            "wireId": 56177326,
             "request": {
               "payloadRole": "service-request-payload-decoder-plus-operation-specific-call-joins",
               "catalog": {
@@ -10775,7 +10795,7 @@
                       "magic": "IBGQ",
                       "version": 1,
                       "codecTag": 4,
-                      "operationWireId": 3865035710
+                      "operationWireId": 56177326
                     }
                   },
                   {
@@ -10883,7 +10903,7 @@
                 {
                   "carrierPath": "operation_id",
                   "operator": "equal",
-                  "value": 3865035710
+                  "value": 56177326
                 },
                 {
                   "carrierPath": "flags",
@@ -11012,7 +11032,7 @@
                 {
                   "carrierPath": "record.operation_result.operation.operation_id",
                   "operator": "equal",
-                  "value": 3865035710
+                  "value": 56177326
                 },
                 {
                   "carrierPath": "record.operation_result.operation.device_transition",
@@ -11077,6 +11097,17 @@
                   {
                     "terminalId": "webidl-rejection",
                     "errorTiming": "synchronous-webidl",
+                    "resultDisposition": "throw",
+                    "providerTokenCount": 0,
+                    "physicalSequenceCount": 0,
+                    "event": {
+                      "kind": "no-service-call",
+                      "completionPayloadEncoderEligibility": "excluded-before-service-ingress"
+                    }
+                  },
+                  {
+                    "terminalId": "content-rejection",
+                    "errorTiming": "content-timeline",
                     "resultDisposition": "throw",
                     "providerTokenCount": 0,
                     "physicalSequenceCount": 0,
@@ -12930,18 +12961,20 @@
         },
         {
           "tag": "gpu-canvas-configure-service-request-v1",
-          "wireShape": "canvas-context receiver plus converted configuration and complete current target/account authority",
+          "wireShape": "canvas-context receiver plus the complete copied WebIDL configuration (including configured device, canonical view-format sequence, and normalized tone-mapping mode) and complete current target/account authority",
           "ownership": "owned-copy",
           "requiredSemanticFields": [
             "receiverContextRef",
             "attachmentGeneration",
             "contextGeneration",
             "configurationGeneration",
-            "deviceRef",
+            "configuredDeviceRef",
             "format",
             "usage",
+            "viewFormats",
             "alphaMode",
             "colorSpace",
+            "toneMappingMode",
             "targetAuthorityDigest",
             "surfaceAccountToken",
             "surfaceAccountGeneration"
@@ -13043,7 +13076,9 @@
           "ownership": "authority-reducing",
           "requiredSemanticFields": [
             "receiverTextureRef",
+            "terminalIntent",
             "materializationState",
+            "originClass",
             "contextRef",
             "attachmentGeneration",
             "contextGeneration",
@@ -13062,6 +13097,7 @@
             "attachmentGeneration",
             "contextGeneration",
             "configurationGeneration",
+            "terminalIntent",
             "targetAuthorityDigest",
             "surfaceAccountToken",
             "surfaceAccountGeneration"
@@ -13767,8 +13803,8 @@
       },
       {
         "operationId": "GPUCanvasContext.configure",
-        "wireId": 3865035710,
-        "semanticSha256": "8965fb28ce2c571a2c0dbc5f6483111fc8ea5b1e91f8eb4557857535344e0340",
+        "wireId": 56177326,
+        "semanticSha256": "8e68a6f1345c7194308452b14a9988efadd791e8634d40106209222773454afc",
         "memberKind": "method",
         "dispatchClass": "wrapper-local-service-enqueue",
         "logicalExecutionKind": "wrapper-local-service-enqueue",
@@ -13783,6 +13819,7 @@
           "operation-error-device-timeline-v1",
           "out-of-memory-device-timeline-v1",
           "security-error-device-timeline-v1",
+          "type-error-content-timeline-v1",
           "type-error-synchronous-webidl-v1",
           "validation-error-device-timeline-v1"
         ],
@@ -15061,12 +15098,13 @@
         "wedgedProviderDisposition": "force-loss-and-quarantine-generation",
         "redactedDiagnostic": "gpu-provider-shutdown-deadline-exceeded-v1"
       },
-      "webgpuCVocabularyDigest": "b6a4ace3cf4ff8c67d099c6d947c61cc0fe6d0afab0c5cc711de6d2a06e7d7f0",
-      "operationSetDigest": "efc39ed749006917e4b09ab456dcb1a97b2b2b58503899b45ac4dfa46f5aed2f",
-      "semanticProgramDigest": "0cfa7d2a96069b7a446a0341e8a4d81118aa8c22268756c27a07645b60a4d3d6",
-      "runtimeRoutingDigest": "8138875093498556fe26e0c3aa806242288ab9ccda0db2f0885de81239e39f28",
+      "webgpuCVocabularyDigest": "cfc2607b87939ddc180a9e6359ee55ec5f8f934ab095af14b197290d687fe7ef",
+      "operationSetDigest": "fb12107ac42d8495067e50f096b4d6c4aed9e3f2af64d6d147f9c99efcaa6687",
+      "semanticProgramDigest": "a9b9703d59b3b906ba888ff33fac85313fafc2785f0dd364e6b5648a6ef46ad6",
+      "runtimeRoutingDigest": "d7cf4c201fb58a0a05cd65cd50b0eb3eb2a64cc17c4724e0079e8359b3e63bf7",
       "sortedOperationIds": [
         31670442,
+        56177326,
         194635792,
         206890944,
         308839175,
@@ -15108,7 +15146,6 @@
         3314731466,
         3373402978,
         3810427763,
-        3865035710,
         4055478657,
         4094543821,
         4177957718
