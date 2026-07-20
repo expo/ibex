@@ -3301,6 +3301,19 @@ impl Host {
         Some(context.authority().generations)
     }
 
+    /// Independent pre-invocation binding for conformance evidence. Runtime
+    /// decision rows must repeat this exact armed semantic identity; accepting
+    /// self-consistent values copied only from the observation would let a
+    /// rewritten policy or snapshot masquerade as the installed Host.
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
+    pub fn typed_semantic_identity_for_conformance(
+        &self,
+    ) -> Option<capsec_semantics::decision::SemanticIdentity> {
+        let context = self.decision_context.as_deref()?.read().ok()?;
+        Some(context.identity().clone())
+    }
+
     pub fn grant_typed_dynamic(
         &self,
         grant_id: capsec_semantics::model::NonEmptyString,

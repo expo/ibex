@@ -41,6 +41,18 @@ const coverage = {
       surface: { kind: "native-op", name: "__exactPublic" },
     },
     {
+      id: "edge.builtin-node-util",
+      classification: "effects",
+      surface: { kind: "builtin", name: "node:util" },
+      effects: [{ cap: "env:read", stages: ["requested", "commit"] }],
+    },
+    {
+      id: "edge.builtin-node-util-types",
+      classification: "effects",
+      surface: { kind: "builtin", name: "node:util/types" },
+      effects: [{ cap: "env:read", stages: ["requested", "commit"] }],
+    },
+    {
       id: "edge.mkdir-worker",
       surface: { kind: "native-op", name: "__exactMkdir" },
     },
@@ -243,6 +255,206 @@ function runtimeObservation(recipe) {
         evidence: { outcome: "allow" },
       },
     ],
+  };
+}
+
+function effectBuiltinModuleImportRecipe(
+  scenario = "allow",
+  moduleSpecifier = "node:util",
+) {
+  const expectation = new Map([
+    [
+      "node:util",
+      {
+        edgeId: "edge.builtin-node-util",
+        sourceKey: "node_util",
+        bundleExternal: true,
+        moduleBuiltin: true,
+        actionId: "env:read",
+      },
+    ],
+    [
+      "node:util/types",
+      {
+        edgeId: "edge.builtin-node-util-types",
+        sourceKey: "node_util_types_alias",
+        bundleExternal: true,
+        moduleBuiltin: true,
+        actionId: "env:read",
+      },
+    ],
+  ]).get(moduleSpecifier);
+  if (!expectation) throw new Error(`unknown test alias ${moduleSpecifier}`);
+  const surfaceObservedKey = `builtin:${moduleSpecifier}`;
+  const denial = scenario === "deny";
+  const sourceDescriptor = {
+    kind: "builtin-module-alias",
+    moduleSpecifier,
+    sourceKey: expectation.sourceKey,
+    sourceRef: `modules.ts#specifiers:${expectation.sourceKey}`,
+    sourceMetadata: {
+      sourceKey: expectation.sourceKey,
+      bundleExternal: expectation.bundleExternal,
+      importReachability: "public",
+      moduleBuiltin: expectation.moduleBuiltin,
+    },
+    carrierEdgeId: expectation.edgeId,
+    auxiliaryDecisionEdgeId: "edge.callback-terminal",
+  };
+  const requiredAuthority = [
+    {
+      cap: "env:read",
+      resource: {
+        kind: "environment-name",
+        target: "principal-overlay",
+        name: "NODE_DEBUG",
+      },
+    },
+  ];
+  return {
+    fixtureId: `fixture.builtin-module-import.${moduleSpecifier}.${scenario}`,
+    planDigest: "sha256-IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII",
+    classification: "effects",
+    scenario,
+    edgeIds: [expectation.edgeId],
+    implementationBranchIds: [`${expectation.edgeId}.main`],
+    enforcementBranchIds: [`${expectation.edgeId}.main`],
+    actionIds: [expectation.actionId],
+    terminalObservedKey: surfaceObservedKey,
+    expectedObservation: {
+      kind: "enforcement-branch",
+      branchId: `${expectation.edgeId}.main`,
+    },
+    route: {
+      surfaceObservedKeys: [surfaceObservedKey],
+      alternatives: [
+        {
+          terminalObservedKey: surfaceObservedKey,
+          proofPaths: [surfaceObservedKey],
+        },
+      ],
+      ambiguousCallees: [],
+    },
+    adapterProbe: null,
+    publicSurfaceProbe: {
+      kind: "public-surface-invocation",
+      surfaceObservedKey,
+      command: ["cargo", "test", "capsec_public_builtin_recipe_batch"],
+      invocation: {
+        invocationSchema:
+          "ibex/capsec-builtin-module-import-invocation/1",
+        kind: "builtin-module-import",
+        moduleSpecifier,
+        sourceDescriptor,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        arguments: [],
+        setup: { kind: "none" },
+        requiredAuthority,
+        expectedResult: "return",
+        expectedTypedDecisionCount: denial ? 1 : 2,
+        expectedTypedStages: denial
+          ? ["requested"]
+          : ["requested", "commit"],
+        allowedCoverageEdgeIds: ["edge.callback-terminal"],
+        expectedActionIds: [expectation.actionId],
+      },
+    },
+    status: "fully-executable",
+    residualReasons: [],
+  };
+}
+
+function effectBuiltinModuleImportObservation(recipe) {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  const denial = recipe.scenario === "deny";
+  const edgeId = invocation.allowedCoverageEdgeIds[0];
+  const actionId = recipe.actionIds[0];
+  const actor = { kind: "root", identity: "project-root" };
+  const decisionIdentity = {
+    profile: "ibex/capsec/1",
+    semanticCore: "capsec/semantics/1",
+    vocabDigest: "sha256-4AXYSBt6dvdLGoapYQXk9TUWUg0BTIBXGQICovWXfm0",
+    registryDigest: "sha256-LyxfUqgfQxZkXRhz12Iw29ftXeROWtT7Il9FCnY4o-k",
+    policyDigest: `sha256-${"P".repeat(43)}`,
+    armedSnapshotDigest: `sha256-${"S".repeat(43)}`,
+  };
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      moduleSpecifier: invocation.moduleSpecifier,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      decisionIdentity: { ...decisionIdentity },
+      result: {
+        kind: "return",
+        moduleSpecifier: invocation.moduleSpecifier,
+        valueType: "object",
+      },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: invocation.expectedTypedStages.map((stage) => {
+      const operationId =
+        'environment-read:0:{"kind":"environment-name","target":"principal-overlay","name":"NODE_DEBUG"}';
+      return {
+        decisionSet: {
+          decisionSetSchema: "ibex/capsec-decision-set/1",
+          operationId,
+          atomicityGroup: `${edgeId}.decision`,
+          combination: "conjunction",
+          context: {
+            stage,
+            actor,
+            constrainedPrincipals: [actor],
+            presentedHandleIds: [],
+          },
+          effects: [
+            {
+              cap: actionId,
+              effectOwner: actor,
+              resource: {
+                kind: "environment-occurrence",
+                requested: {
+                  kind: "environment-name",
+                  target: "principal-overlay",
+                  name: "NODE_DEBUG",
+                },
+                valueOrigin: "principal-overlay",
+              },
+            },
+          ],
+        },
+        gates: [
+          {
+            coverageEdgeId: edgeId,
+            targetCell: "complete",
+            definitionAndEdgePredicatesSatisfied: true,
+          },
+        ],
+        evidence: {
+          identity: { ...decisionIdentity },
+          generations: { negative: 0, dynamic: 0, handle: 0 },
+          operationId,
+          stage,
+          actor,
+          effectOwners: [actor],
+          constrainedPrincipals: [actor],
+          outcome: denial ? "deny" : "allow",
+          evidence: [
+            {
+              effectIndex: 0,
+              principal: actor,
+              stratum: denial ? "principal-denial" : "static-floor",
+              reason: denial ? "principal-denial" : "static-floor",
+              sourceId: denial
+                ? "principal.000000.denial.000000"
+                : "principal.000000.floor.000000",
+            },
+          ],
+        },
+      };
+    }),
   };
 }
 
@@ -2220,6 +2432,285 @@ describe("CapSec public-surface promotion evidence", () => {
     ).not.toThrow();
   });
 
+  test("accepts only source-bound fresh-engine effect builtin imports", () => {
+    for (const [scenario, moduleSpecifier] of [
+      ["allow", "node:util"],
+      ["deny", "node:util"],
+      ["allow", "node:util/types"],
+    ]) {
+      const recipe = effectBuiltinModuleImportRecipe(
+        scenario,
+        moduleSpecifier,
+      );
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: effectBuiltinModuleImportObservation(recipe),
+          coverage,
+        }),
+      ).not.toThrow();
+    }
+
+    const recipe = effectBuiltinModuleImportRecipe();
+    const observed = effectBuiltinModuleImportObservation(recipe);
+    const rebindDescriptor = (value, authoredRecipe) => {
+      const invocation = authoredRecipe.publicSurfaceProbe.invocation;
+      invocation.sourceDescriptorDigest = taggedDigest(
+        invocation.sourceDescriptor,
+      );
+      value.invocation.sourceDescriptorDigest =
+        invocation.sourceDescriptorDigest;
+    };
+    for (const [label, mutate, expected] of [
+      [
+        "runtime export field",
+        (value) => {
+          value.invocation.exportName = null;
+        },
+        /unknown or missing fields/,
+      ],
+      [
+        "source family",
+        (value, authoredRecipe) => {
+          authoredRecipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey =
+            "node_fs";
+          rebindDescriptor(value, authoredRecipe);
+        },
+        /module-import invocation descriptor drift/,
+      ],
+      [
+        "live metadata",
+        (value, authoredRecipe) => {
+          authoredRecipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata.bundleExternal =
+            false;
+          rebindDescriptor(value, authoredRecipe);
+        },
+        /module-import invocation descriptor drift/,
+      ],
+      [
+        "carrier edge",
+        (value, authoredRecipe) => {
+          authoredRecipe.publicSurfaceProbe.invocation.sourceDescriptor.carrierEdgeId =
+            "edge.builtin-node-util-types";
+          rebindDescriptor(value, authoredRecipe);
+        },
+        /module-import invocation descriptor drift/,
+      ],
+      [
+        "auxiliary decision edge",
+        (value, authoredRecipe) => {
+          const invocation = authoredRecipe.publicSurfaceProbe.invocation;
+          invocation.sourceDescriptor.auxiliaryDecisionEdgeId =
+            "edge.terminal";
+          invocation.allowedCoverageEdgeIds = ["edge.terminal"];
+          value.typedDecisions.forEach((decision) => {
+            decision.decisionSet.atomicityGroup = "edge.terminal.decision";
+            decision.gates[0].coverageEdgeId = "edge.terminal";
+          });
+          rebindDescriptor(value, authoredRecipe);
+        },
+        /auxiliary decision is not coverage-bound/,
+      ],
+      [
+        "route proof",
+        (_value, authoredRecipe) => {
+          authoredRecipe.route.alternatives[0].proofPaths = [
+            "builtin:node:fs",
+          ];
+        },
+        /module-import invocation descriptor drift/,
+      ],
+      [
+        "authority resource",
+        (_value, authoredRecipe) => {
+          authoredRecipe.publicSurfaceProbe.invocation.requiredAuthority[0].resource.name =
+            "architecture";
+        },
+        /module-import invocation descriptor drift/,
+      ],
+      [
+        "result module",
+        (value) => {
+          value.invocation.result.moduleSpecifier = "node:fs";
+        },
+        /returned the wrong module/,
+      ],
+      [
+        "result type",
+        (value) => {
+          value.invocation.result.valueType = "function";
+        },
+        /returned the wrong module/,
+      ],
+      [
+        "extra result field",
+        (value) => {
+          value.invocation.result.exportName = null;
+        },
+        /unknown or missing fields/,
+      ],
+      [
+        "resource target",
+        (value) => {
+          value.typedDecisions[0].decisionSet.effects[0].resource.requested.target =
+            "broker-base";
+        },
+        /exact NODE_DEBUG authority binding/,
+      ],
+      [
+        "resource name",
+        (value) => {
+          value.typedDecisions[0].decisionSet.effects[0].resource.requested.name =
+            "PATH";
+        },
+        /exact NODE_DEBUG authority binding/,
+      ],
+      [
+        "resource origin",
+        (value) => {
+          value.typedDecisions[0].decisionSet.effects[0].resource.valueOrigin =
+            "broker-base";
+        },
+        /exact NODE_DEBUG authority binding/,
+      ],
+      [
+        "decision actor",
+        (value) => {
+          value.typedDecisions[0].decisionSet.context.actor = {
+            kind: "root",
+            identity: "another-root",
+          };
+        },
+        /exact NODE_DEBUG authority binding/,
+      ],
+      [
+        "decisive reason",
+        (value) => {
+          value.typedDecisions[0].evidence.evidence[0].reason =
+            "dynamic-grant";
+        },
+        /exact NODE_DEBUG authority binding/,
+      ],
+      [
+        "decisive source",
+        (value) => {
+          value.typedDecisions[0].evidence.evidence[0].sourceId =
+            "principal.000000.grant.000000";
+        },
+        /exact NODE_DEBUG authority binding/,
+      ],
+      [
+        "decision-set schema",
+        (value) => {
+          delete value.typedDecisions[0].decisionSet.decisionSetSchema;
+        },
+        /exact typed envelope/,
+      ],
+      [
+        "decision combination",
+        (value) => {
+          value.typedDecisions[0].decisionSet.combination = "disjunction";
+        },
+        /exact typed envelope/,
+      ],
+      [
+        "evidence operation",
+        (value) => {
+          value.typedDecisions[0].evidence.operationId = "another-operation";
+        },
+        /exact typed envelope/,
+      ],
+      [
+        "coordinated operation rewrite",
+        (value) => {
+          value.typedDecisions[0].decisionSet.operationId =
+            "another-operation";
+          value.typedDecisions[0].evidence.operationId = "another-operation";
+        },
+        /exact typed envelope/,
+      ],
+      [
+        "evidence identity",
+        (value) => {
+          value.typedDecisions[0].evidence.identity.vocabDigest = "sha256-bad";
+        },
+        /exact typed envelope/,
+      ],
+      [
+        "valid but wrong evidence identity",
+        (value) => {
+          value.typedDecisions.forEach((decision) => {
+            decision.evidence.identity.vocabDigest =
+              `sha256-${"A".repeat(43)}`;
+          });
+        },
+        /exact typed envelope/,
+      ],
+      [
+        "coordinated registry identity rewrite",
+        (value) => {
+          value.invocation.decisionIdentity.registryDigest =
+            `sha256-${"A".repeat(43)}`;
+          value.typedDecisions.forEach((decision) => {
+            decision.evidence.identity.registryDigest =
+              `sha256-${"A".repeat(43)}`;
+          });
+        },
+        /invocation descriptor drift/,
+      ],
+      [
+        "evidence generations",
+        (value) => {
+          value.typedDecisions[0].evidence.generations.dynamic = 1;
+        },
+        /exact typed envelope/,
+      ],
+      [
+        "evidence stage",
+        (value) => {
+          value.typedDecisions[0].evidence.stage = "delivery";
+        },
+        /exact typed envelope/,
+      ],
+      [
+        "evidence actor",
+        (value) => {
+          value.typedDecisions[0].evidence.actor.identity = "another-root";
+        },
+        /exact typed envelope/,
+      ],
+      [
+        "evidence owners",
+        (value) => {
+          value.typedDecisions[0].evidence.effectOwners = [];
+        },
+        /exact typed envelope/,
+      ],
+      [
+        "evidence constrained principals",
+        (value) => {
+          value.typedDecisions[0].evidence.constrainedPrincipals = [];
+        },
+        /exact typed envelope/,
+      ],
+    ]) {
+      const tampered = structuredClone(observed);
+      const tamperedRecipe = structuredClone(recipe);
+      mutate(tampered, tamperedRecipe);
+      expect(
+        () =>
+          buildPublicFixtureEvidence({
+            recipe: tamperedRecipe,
+            engineBinaryDigest: engine.binaryDigest,
+            runtimeObservation: tampered,
+            coverage,
+          }),
+        label,
+      ).toThrow(expected);
+    }
+  });
+
   test("accepts only the exact zero-decision builtin normal-return proof", () => {
     const catalog = completeNoncapBuiltinCallCatalog();
     const recipe = catalog.recipes[0];
@@ -2345,7 +2836,7 @@ describe("CapSec public-surface promotion evidence", () => {
         runtimeObservation: aliasObservation,
         coverage,
       }),
-    ).toThrow(/unsupported runtime invocation schema/);
+    ).toThrow(/unknown or missing fields|module-import invocation descriptor drift/);
   });
 
   test("accepts source-bound builtin target absence only after a public read", () => {

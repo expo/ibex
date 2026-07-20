@@ -78,6 +78,10 @@ unless the authenticated snapshot opts in.)
 **Revised:** 2026-07-17 (ENG-24933 proves armed whole-environment enumeration selects its empty zero-decision branch without crediting the unreachable legacy wildcard path)
 **Revised:** 2026-07-17 (ENG-24933 closes both public cr-sqlite enablement exports through exact in-memory refusal evidence)
 **Revised:** 2026-07-17 (ENG-24933 closes both public SQLite extension-loading exports through exact in-memory refusal evidence); 2026-07-17 (ENG-24933 closes public messaging roots and executes debugger/shared-runtime/native absence evidence on both exact candidates); 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the Exact-bound artifact preparer while preserving empty advertisements); 2026-07-14 (ENG-24933 introduces the dedicated binary Exact app/agent ingress while preserving the unadvertised Apple target and records the remaining artifact/conformance gate); 2026-07-12 (ENG-24263: the complete exact-engine prerequisite matrix and artifact evidence now run in CI, which requires the incomplete candidate to remain unadvertised rather than treating expected refusal as conformance); 2026-07-12 (ENG-24278 bounds POSIX TCP/UDP repeat work with socket-identity, exact-peer/destination, principal-set, and mutable-generation leases); 2026-07-12 (post-cutover security review hardened WP3–WP5: exact package content/graph roots and import edges, checked digest/set invariants, actual-engine and runtime-scoped arming, complete closed-startup controls, race-safe retained filesystem objects, analysis-byte/package-tree joining, and content-addressed report-derived target advertisements; the current registry still advertises no executable target — ENG-24232 through ENG-24281); 2026-07-12 (ENG-24233/24239/24247/24249–24253 remediate conformance evidence, policy identity, selector constraints, generation publication, atomic evidence, drift classification, package-root ceilings, and descriptor authorization leases); 2026-07-12 (ENG-24267/24268/24273/24276/24278/24280 align canonical ordering and mapped-IP semantics, harden generators, correct RFC 8785 numbers and staged decisions, and bound repeat-stage work); 2026-07-12 (ENG-24462/ENG-24465 bind filesystem occurrences separately to every constrained principal and protect every authenticated package subtree lexically against writes; ENG-24464 makes production run nonces construction-fresh; ENG-24466 explicitly closes diagnostic file execution in the advertised registry pending authenticated ingress); 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule); 2026-07-11 (WP1 generated source-surface inventory, production registry, unsupported target matrix, and cross-language bindings implemented by ENG-24145); 2026-07-11 (WP2 typed Rust policy and decision core implemented by ENG-24146 with strict contract ingestion, canonicalization/digests, typed containment, decision precedence, staged conjunction/intersection, generations, and exact cache identities); 2026-07-11 (WP3 typed ESM/CJS import authoring and integrity-bound canonical generation implemented by ENG-24147); 2026-07-11 (WP4 strict immutable snapshot ingestion, production CLI arming, and explicit host/Hermes digest handshake implemented by ENG-24148); 2026-07-11 (WP5 initial retained checked-object record plus exact logical-branch schema and filesystem branch migration in progress under ENG-24149); 2026-07-11 (WP6 retained verified-peer record, metadata-peer denial, and exact logical network branch migration landed under ENG-24150, with runtime gates and red-team coverage still pending); 2026-07-11 (WP7 deny-only escape/process catalog invariant plus exact loader, process, stdio, environment, and host-default branch migration landed under ENG-24151, with runtime gates and red-team coverage still pending); 2026-07-11 (WP8 structured decision evidence, exact Android media-operation branches, and immutable snapshot-to-verified-decision-context arming landed under ENG-24152, with live handles/grants/deputy gate migration still pending); 2026-07-11 (WP10 exact-target report schema and fail-closed execution-evidence binding introduced by ENG-24154; the macOS candidate remains unadvertised pending complete executed fixtures)
+**Revised:** 2026-07-19 (ENG-24933 executes each reviewed `util`/`sys`
+public spelling in a fresh engine and binds its first-load `NODE_DEBUG` read to
+the independently observed native environment gate; platform and lazy DNS
+aliases remain residual.)
 **Related:** LLP 0002 (host ABI); LLP 0004 (module loading); LLP 0005 (generated build artifacts); LLP 0013 (per-package enforcement mechanics); LLP 0014 (import-site grants and generated policy); LLP 0016 (architecture assessment); LLP 0020 (Oden portability research); LLP 0026 (module-runner authority amendments); LLP 0027 (module artifacts and interop); Oden LLP 0019 (Capability Security, Revision 2); Oden LLP 0020 (Capability Security by Default); ENG-24143
 
 ## Summary
@@ -1576,12 +1580,19 @@ descriptor, and accessor evidence actually invokes the getter. Retrieving a
 function, constructor, or prototype method is presence evidence rather than
 execution evidence, so those surfaces remain residual until a bounded
 call/setup recipe is authored.
-Import-only alias recipes remain residual. Loaded execution showed that the
-first selected alias performs a typed `env:read` of `NODE_DEBUG` during shared
-debug-log initialization, while later aliases only appeared decision-free
-because they reused the module cache. Cache order is not independent execution
-evidence, so no alias is promoted by that result. Export reads and calls remain
-separate obligations: their exact public module is loaded and driven to
+Import-only aliases are not generically executable. An effect-bearing alias is
+eligible only when an authored source-bound template identifies its exact
+first-load effect and each public spelling executes in a fresh armed engine
+whose observer opens before the first `require`. The reviewed `NODE_DEBUG`
+initialization family uses that path. Platform-classified filesystem,
+constants, and OS aliases remain residual because a bare import emits no typed
+decision; conditional DNS aliases remain residual because it does not select
+their modeled resolver-configuration filesystem branch. Non-capability aliases
+also remain residual: a shared-engine zero-decision result cannot establish
+that each spelling has an effect-free first load because later aliases reuse
+the module cache. Cache order is not independent execution evidence. Export
+reads and calls remain separate obligations: their exact public module is
+loaded and driven to
 event-loop quiescence before the per-export observer opens, then the invocation
 still performs the authenticated public `require` and resolves the
 source-derived export from that cache. This isolates both synchronous and

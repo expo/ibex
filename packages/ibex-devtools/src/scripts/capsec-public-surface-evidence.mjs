@@ -9,11 +9,16 @@
  */
 
 import crypto from "node:crypto";
+import path from "node:path";
 import {
   assertRecipeCatalogComplete,
   validateRecipeCatalog,
 } from "./capsec-conformance-recipes.mjs";
-import { canonicalJson } from "./capsec-contract.mjs";
+import {
+  canonicalJson,
+  capsecRoot,
+  readJsonStrict,
+} from "./capsec-contract.mjs";
 
 const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
 const canonicalSet = (values) => [...new Set(values)].sort(compareText);
@@ -22,9 +27,52 @@ const taggedDigest = (value) =>
     .createHash("sha256")
     .update(typeof value === "string" ? value : canonicalJson(value), "utf8")
     .digest("base64url")}`;
+const SEMANTIC_REGISTRY_IDENTITY = (() => {
+  const registryBundle = readJsonStrict(
+    path.join(capsecRoot, "examples/registry-digest-bundle.canonical.json"),
+  );
+  const digestVectors = readJsonStrict(
+    path.join(capsecRoot, "examples/digest-vectors.canonical.json"),
+  );
+  const vocabDigest = registryBundle.members?.find(
+    (member) => member.logicalName === "vocab-digest",
+  )?.document?.digest;
+  const registryDigest = digestVectors.vectors?.find(
+    (vector) => vector.id === "registry",
+  )?.expectedDigest;
+  if (
+    !/^sha256-[A-Za-z0-9_-]{43}$/u.test(vocabDigest ?? "") ||
+    !/^sha256-[A-Za-z0-9_-]{43}$/u.test(registryDigest ?? "")
+  ) {
+    throw new Error("public evidence semantic digest identities are unavailable");
+  }
+  return Object.freeze({ vocabDigest, registryDigest });
+})();
 const BUILTIN_RUNTIME_INVOCATION_SCHEMAS = new Set([
   "ibex/capsec-builtin-export-invocation/1",
   "ibex/capsec-builtin-call-invocation/1",
+]);
+const EFFECT_BUILTIN_MODULE_IMPORT_ALIASES = new Map(
+  [
+    ["node:sys", "node_util", true, true, "env:read"],
+    ["node:util", "node_util", true, true, "env:read"],
+    ["node:util/types", "node_util_types_alias", true, true, "env:read"],
+    ["sys", "node_util", true, true, "env:read"],
+    ["util", "node_util", true, true, "env:read"],
+    ["util/types", "util_types_alias", true, true, "env:read"],
+  ].map(
+    ([moduleSpecifier, sourceKey, bundleExternal, moduleBuiltin, actionId]) => [
+      moduleSpecifier,
+      { sourceKey, bundleExternal, moduleBuiltin, actionId },
+    ],
+  ),
+);
+const EFFECT_BUILTIN_IMPORT_SCENARIOS = new Set([
+  "allow",
+  "deny",
+  "malformed",
+  "missing-attribution",
+  "wrong-principal",
 ]);
 const NORMAL_RETURN_RESULT_TYPES = new Set([
   "bigint",
@@ -269,6 +317,182 @@ function hasExactKeys(value, keys) {
 function exactKeys(value, keys, label) {
   if (!hasExactKeys(value, keys)) {
     throw new Error(`${label} has unknown or missing fields`);
+  }
+}
+
+function effectBuiltinModuleImportAuthority(actionId) {
+  if (actionId === "env:read") {
+    return [
+      {
+        cap: "env:read",
+        resource: {
+          kind: "environment-name",
+          target: "principal-overlay",
+          name: "NODE_DEBUG",
+        },
+      },
+    ];
+  }
+  return null;
+}
+
+function validateEffectBuiltinModuleImportInvocation(
+  invocation,
+  authored,
+  recipe,
+) {
+  const expectation = EFFECT_BUILTIN_MODULE_IMPORT_ALIASES.get(
+    authored.moduleSpecifier,
+  );
+  const surfaceObservedKey = `builtin:${authored.moduleSpecifier}`;
+  const descriptor = authored.sourceDescriptor;
+  const sourceMetadata = descriptor?.sourceMetadata;
+  const decisionIdentity = invocation.decisionIdentity;
+  const denial = recipe.scenario === "deny";
+  const expectedAuthority = expectation
+    ? effectBuiltinModuleImportAuthority(expectation.actionId)
+    : null;
+  const expectedStages = denial ? ["requested"] : ["requested", "commit"];
+
+  exactKeys(
+    invocation,
+    [
+      "invocationSchema",
+      "kind",
+      "surfaceObservedKey",
+      "moduleSpecifier",
+      "sourceDescriptorDigest",
+      "decisionIdentity",
+      "result",
+    ],
+    `${recipe.fixtureId}: builtin module-import runtime invocation`,
+  );
+  exactKeys(
+    authored,
+    [
+      "invocationSchema",
+      "kind",
+      "moduleSpecifier",
+      "sourceDescriptor",
+      "sourceDescriptorDigest",
+      "arguments",
+      "setup",
+      "requiredAuthority",
+      "expectedResult",
+      "expectedTypedDecisionCount",
+      "expectedTypedStages",
+      "allowedCoverageEdgeIds",
+      "expectedActionIds",
+    ],
+    `${recipe.fixtureId}: authored builtin module import`,
+  );
+  exactKeys(
+    descriptor,
+    [
+      "kind",
+      "moduleSpecifier",
+      "sourceKey",
+      "sourceRef",
+      "sourceMetadata",
+      "carrierEdgeId",
+      "auxiliaryDecisionEdgeId",
+    ],
+    `${recipe.fixtureId}: builtin module-import source descriptor`,
+  );
+  exactKeys(
+    sourceMetadata,
+    ["sourceKey", "bundleExternal", "importReachability", "moduleBuiltin"],
+    `${recipe.fixtureId}: builtin module-import source metadata`,
+  );
+  exactKeys(
+    decisionIdentity,
+    [
+      "profile",
+      "semanticCore",
+      "vocabDigest",
+      "registryDigest",
+      "policyDigest",
+      "armedSnapshotDigest",
+    ],
+    `${recipe.fixtureId}: builtin module-import decision identity`,
+  );
+  exactKeys(
+    authored.setup,
+    ["kind"],
+    `${recipe.fixtureId}: builtin module-import setup`,
+  );
+  exactKeys(
+    recipe.route,
+    ["surfaceObservedKeys", "alternatives", "ambiguousCallees"],
+    `${recipe.fixtureId}: builtin module-import route`,
+  );
+  if (recipe.route.alternatives?.length === 1) {
+    exactKeys(
+      recipe.route.alternatives[0],
+      ["terminalObservedKey", "proofPaths"],
+      `${recipe.fixtureId}: builtin module-import route alternative`,
+    );
+  }
+
+  if (
+    recipe.classification !== "effects" ||
+    !EFFECT_BUILTIN_IMPORT_SCENARIOS.has(recipe.scenario) ||
+    expectation === undefined ||
+    expectedAuthority === null ||
+    authored.invocationSchema !==
+      "ibex/capsec-builtin-module-import-invocation/1" ||
+    authored.kind !== "builtin-module-import" ||
+    invocation.kind !== authored.kind ||
+    invocation.moduleSpecifier !== authored.moduleSpecifier ||
+    recipe.publicSurfaceProbe?.surfaceObservedKey !== surfaceObservedKey ||
+    invocation.surfaceObservedKey !== surfaceObservedKey ||
+    recipe.terminalObservedKey !== surfaceObservedKey ||
+    canonicalJson(recipe.route.surfaceObservedKeys) !==
+      canonicalJson([surfaceObservedKey]) ||
+    recipe.route.alternatives?.length !== 1 ||
+    recipe.route.alternatives[0].terminalObservedKey !== surfaceObservedKey ||
+    canonicalJson(recipe.route.alternatives[0].proofPaths) !==
+      canonicalJson([surfaceObservedKey]) ||
+    canonicalJson(recipe.route.ambiguousCallees) !== canonicalJson([]) ||
+    !Array.isArray(recipe.edgeIds) ||
+    recipe.edgeIds.length !== 1 ||
+    descriptor.carrierEdgeId !== recipe.edgeIds[0] ||
+    typeof descriptor.auxiliaryDecisionEdgeId !== "string" ||
+    descriptor.auxiliaryDecisionEdgeId.length === 0 ||
+    canonicalJson(authored.allowedCoverageEdgeIds) !==
+      canonicalJson([descriptor.auxiliaryDecisionEdgeId]) ||
+    canonicalJson(recipe.actionIds) !==
+      canonicalJson([expectation.actionId]) ||
+    canonicalJson(authored.expectedActionIds) !==
+      canonicalJson([expectation.actionId]) ||
+    descriptor.kind !== "builtin-module-alias" ||
+    descriptor.moduleSpecifier !== authored.moduleSpecifier ||
+    descriptor.sourceKey !== expectation.sourceKey ||
+    descriptor.sourceRef !==
+      `modules.ts#specifiers:${expectation.sourceKey}` ||
+    sourceMetadata.sourceKey !== expectation.sourceKey ||
+    sourceMetadata.bundleExternal !== expectation.bundleExternal ||
+    sourceMetadata.importReachability !== "public" ||
+    sourceMetadata.moduleBuiltin !== expectation.moduleBuiltin ||
+    decisionIdentity.profile !== "ibex/capsec/1" ||
+    decisionIdentity.semanticCore !== "capsec/semantics/1" ||
+    decisionIdentity.vocabDigest !== SEMANTIC_REGISTRY_IDENTITY.vocabDigest ||
+    decisionIdentity.registryDigest !==
+      SEMANTIC_REGISTRY_IDENTITY.registryDigest ||
+    !isTaggedDigest(decisionIdentity.policyDigest) ||
+    !isTaggedDigest(decisionIdentity.armedSnapshotDigest) ||
+    canonicalJson(authored.arguments) !== canonicalJson([]) ||
+    authored.setup.kind !== "none" ||
+    canonicalJson(authored.requiredAuthority) !==
+      canonicalJson(expectedAuthority) ||
+    authored.expectedResult !== "return" ||
+    authored.expectedTypedDecisionCount !== expectedStages.length ||
+    canonicalJson(authored.expectedTypedStages) !==
+      canonicalJson(expectedStages)
+  ) {
+    throw new Error(
+      `${recipe.fixtureId}: builtin module-import invocation descriptor drift`,
+    );
   }
 }
 
@@ -1140,6 +1364,11 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: module-loader runtime invocation descriptor drift`,
       );
     }
+  } else if (
+    invocation?.invocationSchema ===
+    "ibex/capsec-builtin-module-import-invocation/1"
+  ) {
+    validateEffectBuiltinModuleImportInvocation(invocation, authored, recipe);
   } else if (
     BUILTIN_RUNTIME_INVOCATION_SCHEMAS.has(invocation?.invocationSchema)
   ) {
@@ -2283,7 +2512,12 @@ function validateRuntimeInvocation(observation, recipe) {
   const startupEnvironment =
     authored.invocationSchema ===
     "ibex/capsec-startup-environment-invocation/1";
-  const auxiliaryCarrier = callbackInvariant || startupEnvironment;
+  const effectBuiltinModuleImport =
+    authored.invocationSchema ===
+    "ibex/capsec-builtin-module-import-invocation/1";
+  const outcomeDeclaredCarrier = callbackInvariant || startupEnvironment;
+  const auxiliaryCarrier =
+    outcomeDeclaredCarrier || effectBuiltinModuleImport;
   if (
     !Number.isSafeInteger(authored.expectedTypedDecisionCount) ||
     authored.expectedTypedDecisionCount < 0 ||
@@ -2317,7 +2551,7 @@ function validateRuntimeInvocation(observation, recipe) {
     );
   }
   if (
-    auxiliaryCarrier &&
+    outcomeDeclaredCarrier &&
     (!Array.isArray(authored.expectedTypedOutcomes) ||
       authored.expectedTypedOutcomes.length !==
         authored.expectedTypedDecisionCount ||
@@ -2402,6 +2636,24 @@ function validateRuntimeInvocation(observation, recipe) {
   } else if (authored.expectedResult === "return") {
     if (invocation.result.kind !== "return") {
       throw new Error(`${recipe.fixtureId}: public invocation did not return`);
+    }
+    if (
+      authored.invocationSchema ===
+      "ibex/capsec-builtin-module-import-invocation/1"
+    ) {
+      exactKeys(
+        invocation.result,
+        ["kind", "moduleSpecifier", "valueType"],
+        `${recipe.fixtureId}: builtin module-import result`,
+      );
+      if (
+        invocation.result.moduleSpecifier !== authored.moduleSpecifier ||
+        invocation.result.valueType !== "object"
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: builtin module import returned the wrong module`,
+        );
+      }
     }
     if (authored.kind === "builtin-export-read") {
       exactKeys(
@@ -2641,6 +2893,25 @@ function validateRuntimeInvocation(observation, recipe) {
       }
     }
   } else if (authored.expectedResult === "permission-denied") {
+    const builtinModuleImport =
+      authored.invocationSchema ===
+      "ibex/capsec-builtin-module-import-invocation/1";
+    if (builtinModuleImport) {
+      exactKeys(
+        invocation.result,
+        ["kind", "moduleSpecifier", "errorName", "errorMessage"],
+        `${recipe.fixtureId}: denied builtin module-import result`,
+      );
+      if (
+        invocation.result.moduleSpecifier !== authored.moduleSpecifier ||
+        typeof invocation.result.errorName !== "string" ||
+        invocation.result.errorName.length === 0
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: builtin module import denied the wrong module`,
+        );
+      }
+    }
     const authoredFragment =
       authored.expectedDenyMessageFragment ??
       authored.publicAccess?.expectedDenyMessageFragment;
@@ -3096,8 +3367,14 @@ export function validatePublicFixtureRuntimeObservation(
   const startupEnvironment =
     authored.invocationSchema ===
     "ibex/capsec-startup-environment-invocation/1";
-  const auxiliaryCarrier = callbackInvariant || startupEnvironment;
+  const effectBuiltinModuleImport =
+    authored.invocationSchema ===
+    "ibex/capsec-builtin-module-import-invocation/1";
+  const outcomeDeclaredCarrier = callbackInvariant || startupEnvironment;
+  const auxiliaryCarrier =
+    outcomeDeclaredCarrier || effectBuiltinModuleImport;
   const nativeWorkerTerminal = nativeAsyncWorkerTerminal(authored);
+  let effectBuiltinModuleImportIdentity = null;
   if (callbackInvariant) {
     // Callback/control surfaces are non-capabilities, but their invariant can
     // exercise one separately reviewed effect edge. Bind that auxiliary
@@ -3189,6 +3466,44 @@ export function validatePublicFixtureRuntimeObservation(
       );
     }
   }
+  if (effectBuiltinModuleImport) {
+    const descriptor = authored.sourceDescriptor;
+    const auxiliaryEdge = coverage?.edges?.find(
+      (edge) => edge.id === descriptor?.auxiliaryDecisionEdgeId,
+    );
+    const carrierEdge = coverage?.edges?.find(
+      (edge) => edge.id === descriptor?.carrierEdgeId,
+    );
+    const auxiliaryActions = canonicalSet(
+      (auxiliaryEdge?.effects ?? []).map((effect) => effect.cap),
+    );
+    const auxiliaryStages = new Set(
+      (auxiliaryEdge?.effects ?? []).flatMap((effect) => effect.stages ?? []),
+    );
+    if (
+      auxiliaryEdge?.classification !== "effects" ||
+      auxiliaryEdge?.surface?.kind !== "native-op" ||
+      auxiliaryEdge?.surface?.name !== "__exactGetEnv" ||
+      canonicalJson(auxiliaryActions) !== canonicalJson(["env:read"]) ||
+      !authored.expectedTypedStages.every((stage) =>
+        auxiliaryStages.has(stage),
+      ) ||
+      canonicalJson(authored.allowedCoverageEdgeIds) !==
+        canonicalJson([descriptor.auxiliaryDecisionEdgeId]) ||
+      canonicalJson(authored.expectedActionIds) !==
+        canonicalJson(["env:read"]) ||
+      carrierEdge?.classification !== "effects" ||
+      carrierEdge?.surface?.kind !== "builtin" ||
+      carrierEdge?.surface?.name !== authored.moduleSpecifier ||
+      carrierEdge?.id !== recipe.edgeIds?.[0] ||
+      descriptor.carrierEdgeId !== carrierEdge.id ||
+      recipe.terminalObservedKey !== `builtin:${authored.moduleSpecifier}`
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: builtin module-import auxiliary decision is not coverage-bound`,
+      );
+    }
+  }
   for (const [
     decisionIndex,
     decision,
@@ -3237,9 +3552,14 @@ export function validatePublicFixtureRuntimeObservation(
       }
       terminals.add(terminal);
     }
-    const expectedOutcome = auxiliaryCarrier
+    const deniedReturningModuleImport =
+      authored.invocationSchema ===
+        "ibex/capsec-builtin-module-import-invocation/1" &&
+      recipe.scenario === "deny";
+    const expectedOutcome = outcomeDeclaredCarrier
       ? authored.expectedTypedOutcomes[decisionIndex]
-      : authored.expectedResult === "permission-denied"
+      : authored.expectedResult === "permission-denied" ||
+          deniedReturningModuleImport
         ? "deny"
         : "allow";
     if (decision.evidence?.outcome !== expectedOutcome) {
@@ -3248,7 +3568,7 @@ export function validatePublicFixtureRuntimeObservation(
       );
     }
     if (
-      auxiliaryCarrier &&
+      outcomeDeclaredCarrier &&
       (!Array.isArray(decision.evidence?.evidence) ||
         decision.evidence.evidence.length === 0 ||
         decision.evidence.evidence.find(
@@ -3298,6 +3618,137 @@ export function validatePublicFixtureRuntimeObservation(
       ) {
         throw new Error(
           `${recipe.fixtureId}: startup environment decision lost its exact resource or principal binding`,
+        );
+      }
+    }
+    if (effectBuiltinModuleImport) {
+      const actor = { kind: "root", identity: "project-root" };
+      const context = set.context;
+      const effect = set.effects[0];
+      const gate = decision.gates[0];
+      const typedEvidence = decision.evidence;
+      const identity = typedEvidence?.identity;
+      const generations = typedEvidence?.generations;
+      const decisiveEvidence = decision.evidence?.evidence;
+      const decisiveEntry = decisiveEvidence?.[0];
+      const denial = recipe.scenario === "deny";
+      const expectedStratum = denial ? "principal-denial" : "static-floor";
+      const expectedSourceKind = denial ? "denial" : "floor";
+      const expectedOperationId =
+        'environment-read:0:{"kind":"environment-name","target":"principal-overlay","name":"NODE_DEBUG"}';
+      const canonicalIdentity = identity ? canonicalJson(identity) : null;
+      if (decisiveEntry !== undefined) {
+        exactKeys(
+          decisiveEntry,
+          ["effectIndex", "principal", "stratum", "reason", "sourceId"],
+          `${recipe.fixtureId}: builtin module-import decisive evidence`,
+        );
+      }
+      if (
+        !hasExactKeys(set, [
+          "decisionSetSchema",
+          "operationId",
+          "atomicityGroup",
+          "combination",
+          "context",
+          "effects",
+        ]) ||
+        !hasExactKeys(context, [
+          "stage",
+          "actor",
+          "constrainedPrincipals",
+          "presentedHandleIds",
+        ]) ||
+        !hasExactKeys(effect, ["cap", "effectOwner", "resource"]) ||
+        !hasExactKeys(gate, [
+          "coverageEdgeId",
+          "targetCell",
+          "definitionAndEdgePredicatesSatisfied",
+        ]) ||
+        !hasExactKeys(typedEvidence, [
+          "identity",
+          "generations",
+          "operationId",
+          "stage",
+          "actor",
+          "effectOwners",
+          "constrainedPrincipals",
+          "outcome",
+          "evidence",
+        ]) ||
+        !hasExactKeys(identity, [
+          "profile",
+          "semanticCore",
+          "vocabDigest",
+          "registryDigest",
+          "policyDigest",
+          "armedSnapshotDigest",
+        ]) ||
+        !hasExactKeys(generations, ["negative", "dynamic", "handle"]) ||
+        set.decisionSetSchema !== "ibex/capsec-decision-set/1" ||
+        set.operationId !== expectedOperationId ||
+        set.combination !== "conjunction" ||
+        typedEvidence.operationId !== set.operationId ||
+        typedEvidence.stage !== context.stage ||
+        canonicalJson(typedEvidence.actor) !== canonicalJson(actor) ||
+        canonicalJson(typedEvidence.effectOwners) !== canonicalJson([actor]) ||
+        canonicalJson(typedEvidence.constrainedPrincipals) !==
+          canonicalJson([actor]) ||
+        identity.profile !== "ibex/capsec/1" ||
+        identity.semanticCore !== "capsec/semantics/1" ||
+        ![
+          identity.vocabDigest,
+          identity.registryDigest,
+          identity.policyDigest,
+          identity.armedSnapshotDigest,
+        ].every(isTaggedDigest) ||
+        canonicalIdentity !==
+          canonicalJson(observation.invocation.decisionIdentity) ||
+        (effectBuiltinModuleImportIdentity !== null &&
+          canonicalIdentity !== effectBuiltinModuleImportIdentity) ||
+        canonicalJson(generations) !==
+          canonicalJson({ negative: 0, dynamic: 0, handle: 0 })
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: builtin module-import decision lost its exact typed envelope`,
+        );
+      }
+      effectBuiltinModuleImportIdentity = canonicalIdentity;
+      if (
+        set.effects.length !== 1 ||
+        decision.gates.length !== 1 ||
+        canonicalJson(context.actor) !== canonicalJson(actor) ||
+        canonicalJson(context.constrainedPrincipals) !==
+          canonicalJson([actor]) ||
+        canonicalJson(context.presentedHandleIds) !== canonicalJson([]) ||
+        canonicalJson(effect?.effectOwner) !== canonicalJson(actor) ||
+        effect?.cap !== "env:read" ||
+        canonicalJson(effect?.resource) !==
+          canonicalJson({
+            kind: "environment-occurrence",
+            requested: {
+              kind: "environment-name",
+              target: "principal-overlay",
+              name: "NODE_DEBUG",
+            },
+            valueOrigin: "principal-overlay",
+          }) ||
+        gate?.coverageEdgeId !==
+          authored.sourceDescriptor.auxiliaryDecisionEdgeId ||
+        !Array.isArray(decisiveEvidence) ||
+        decisiveEvidence.length !== 1 ||
+        decisiveEntry?.effectIndex !== 0 ||
+        canonicalJson(decisiveEntry?.principal) !== canonicalJson(actor) ||
+        decisiveEntry?.stratum !== expectedStratum ||
+        decisiveEntry?.reason !== expectedStratum ||
+        typeof decisiveEntry?.sourceId !== "string" ||
+        !new RegExp(
+          `^principal\\.[0-9]{6}\\.${expectedSourceKind}\\.[0-9]{6}$`,
+          "u",
+        ).test(decisiveEntry.sourceId)
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: builtin module-import decision lost its exact NODE_DEBUG authority binding`,
         );
       }
     }

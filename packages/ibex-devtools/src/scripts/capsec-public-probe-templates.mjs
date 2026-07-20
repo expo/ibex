@@ -61,6 +61,33 @@ const FS_DIRECTORY_PATH = Object.freeze({
   root: "project",
   components: [{ encoding: "utf8", value: "capsec-directory-fixture" }],
 });
+// Module-root effects are intentionally limited to the reviewed util source
+// families whose top-level body performs a typed NODE_DEBUG read. Each public
+// spelling gets its own fresh-engine observation; a cached alias is never
+// accepted as evidence that initialization is pure. Platform-classified and
+// DNS aliases stay residual because a bare import does not execute their
+// modeled effect.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+const BUILTIN_MODULE_ALIAS_SOURCES = new Map(
+  [
+    ["node:sys", "node_util", true, true],
+    ["node:util", "node_util", true, true],
+    ["node:util/types", "node_util_types_alias", true, true],
+    ["sys", "node_util", true, true],
+    ["util", "node_util", true, true],
+    ["util/types", "util_types_alias", true, true],
+  ].map(([moduleSpecifier, sourceKey, bundleExternal, moduleBuiltin]) => [
+    moduleSpecifier,
+    { sourceKey, bundleExternal, moduleBuiltin },
+  ]),
+);
+
+const BUILTIN_MODULE_ENVIRONMENT_READ_SOURCES = new Set([
+  "node_util",
+  "node_util_types_alias",
+  "util_types_alias",
+]);
+const ENVIRONMENT_AUXILIARY_OBSERVED_KEY = "native-op:__exactGetEnv";
 
 const BUILTIN_BATCH_COMMAND = Object.freeze([
   "cargo",
@@ -102,6 +129,61 @@ function sourceDescriptor(surface, sourceKey, exportName, moduleSpecifier) {
   };
 }
 
+function moduleAliasSourceDescriptor(surface, moduleSpecifier) {
+  const expected = BUILTIN_MODULE_ALIAS_SOURCES.get(moduleSpecifier);
+  const metadata = surface?.metadata;
+  if (
+    !expected ||
+    surface?.kind !== "builtin" ||
+    surface.name !== moduleSpecifier ||
+    surface.observedKey !== `builtin:${moduleSpecifier}` ||
+    !Array.isArray(surface.sourceRefs) ||
+    surface.sourceRefs.length !== 1 ||
+    surface.sourceRefs[0] !== `modules.ts#specifiers:${expected.sourceKey}` ||
+    canonicalJson(metadata) !==
+      canonicalJson({
+        sourceKey: expected.sourceKey,
+        bundleExternal: expected.bundleExternal,
+        importReachability: "public",
+        moduleBuiltin: expected.moduleBuiltin,
+      })
+  ) {
+    return null;
+  }
+  return {
+    kind: "builtin-module-alias",
+    moduleSpecifier,
+    sourceKey: expected.sourceKey,
+    sourceRef: surface.sourceRefs[0],
+    sourceMetadata: {
+      sourceKey: metadata.sourceKey,
+      bundleExternal: metadata.bundleExternal,
+      importReachability: metadata.importReachability,
+      moduleBuiltin: metadata.moduleBuiltin,
+    },
+  };
+}
+
+function moduleAliasEffectExpectation(sourceKey) {
+  if (BUILTIN_MODULE_ENVIRONMENT_READ_SOURCES.has(sourceKey)) {
+    return {
+      actionIds: ["env:read"],
+      requiredAuthority: [
+        {
+          cap: "env:read",
+          resource: {
+            kind: "environment-name",
+            target: "principal-overlay",
+            name: "NODE_DEBUG",
+          },
+        },
+      ],
+      allowedStages: ["requested", "commit"],
+    };
+  }
+  return null;
+}
+
 function allowedCoverageEdgeIdsForRoute(route, coverageByObservedKey) {
   const edgeIds = [];
   for (const alternative of route.alternatives) {
@@ -136,6 +218,79 @@ export function authoredBuiltinPublicProbe({
   );
   if (!allowedCoverageEdgeIds) return null;
   const publicDenial = scenario === "deny";
+
+  if (
+    !surfaceObservedKey.startsWith("builtin:export:") &&
+    surfaceObservedKey.startsWith("builtin:") &&
+    route.alternatives.length === 1 &&
+    route.alternatives[0].terminalObservedKey === surfaceObservedKey &&
+    canonicalJson(route.alternatives[0].proofPaths) ===
+      canonicalJson([surfaceObservedKey]) &&
+    route.ambiguousCallees.length === 0 &&
+    canonicalJson(allowedCoverageEdgeIds) ===
+      canonicalJson([...plan.edgeIds].sort())
+  ) {
+    const moduleSpecifier = surfaceObservedKey.slice("builtin:".length);
+    const descriptor = moduleAliasSourceDescriptor(
+      liveByObservedKey.get(surfaceObservedKey),
+      moduleSpecifier,
+    );
+    const expectation = descriptor
+      ? moduleAliasEffectExpectation(descriptor.sourceKey)
+      : null;
+    const carrierEdge = coverageByObservedKey.get(surfaceObservedKey);
+    const auxiliaryEdge = coverageByObservedKey.get(
+      ENVIRONMENT_AUXILIARY_OBSERVED_KEY,
+    );
+    if (
+      descriptor &&
+      expectation &&
+      carrierEdge?.id === plan.edgeIds[0] &&
+      auxiliaryEdge?.classification === "effects" &&
+      canonicalJson(
+        [
+          ...new Set(
+            (auxiliaryEdge.effects ?? []).map((effect) => effect.cap),
+          ),
+        ].sort(),
+      ) === canonicalJson(expectation.actionIds) &&
+      expectation.allowedStages.every((stage) =>
+        auxiliaryEdge.effects?.some((effect) =>
+          effect.stages?.includes(stage),
+        ),
+      ) &&
+      canonicalJson(plan.actionIds) === canonicalJson(expectation.actionIds)
+    ) {
+      descriptor.carrierEdgeId = carrierEdge.id;
+      descriptor.auxiliaryDecisionEdgeId = auxiliaryEdge.id;
+      const expectedTypedStages = publicDenial
+        ? ["requested"]
+        : expectation.allowedStages;
+      return {
+        kind: "public-surface-invocation",
+        surfaceObservedKey,
+        command: [...BUILTIN_BATCH_COMMAND],
+        invocation: {
+          invocationSchema: "ibex/capsec-builtin-module-import-invocation/1",
+          kind: "builtin-module-import",
+          moduleSpecifier,
+          sourceDescriptor: descriptor,
+          sourceDescriptorDigest: taggedDigest(descriptor),
+          arguments: [],
+          setup: { kind: "none" },
+          requiredAuthority: expectation.requiredAuthority,
+          // The armed process.env proxy records a denied exact read and
+          // returns undefined. Initialization completes on both paths; the
+          // requested-stage record is the independent denial evidence.
+          expectedResult: "return",
+          expectedTypedDecisionCount: expectedTypedStages.length,
+          expectedTypedStages,
+          allowedCoverageEdgeIds: [auxiliaryEdge.id],
+          expectedActionIds: expectation.actionIds,
+        },
+      };
+    }
+  }
 
   const osPrefix = "builtin:export:node_os:";
   if (surfaceObservedKey.startsWith(osPrefix)) {

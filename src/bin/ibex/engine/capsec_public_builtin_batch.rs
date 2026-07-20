@@ -20,6 +20,7 @@ struct Recipe {
     plan_digest: String,
     classification: String,
     scenario: String,
+    edge_ids: Vec<String>,
     action_ids: Vec<String>,
     expected_observation: serde_json::Value,
     route: PublicRoute,
@@ -30,13 +31,16 @@ struct Recipe {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PublicRoute {
+    surface_observed_keys: Vec<String>,
     alternatives: Vec<RouteAlternative>,
+    ambiguous_callees: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RouteAlternative {
     terminal_observed_key: String,
+    proof_paths: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -64,7 +68,8 @@ struct BuiltinInvocation {
     invocation_schema: String,
     kind: String,
     module_specifier: String,
-    export_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    export_name: Option<String>,
     source_descriptor: serde_json::Value,
     source_descriptor_digest: String,
     arguments: Vec<serde_json::Value>,
@@ -282,6 +287,103 @@ fn canonical_values(values: impl IntoIterator<Item = serde_json::Value>) -> Vec<
     values.into_iter().map(|(_, value)| value).collect()
 }
 
+fn module_alias_source(
+    module_specifier: &str,
+) -> Option<(&'static str, bool, bool, &'static str)> {
+    Some(match module_specifier {
+        "node:sys" | "node:util" | "sys" | "util" => {
+            ("node_util", true, true, "env:read")
+        }
+        "node:util/types" => ("node_util_types_alias", true, true, "env:read"),
+        "util/types" => ("util_types_alias", true, true, "env:read"),
+        _ => return None,
+    })
+}
+
+fn validate_module_import_probe(
+    recipe: &Recipe,
+    probe: &EffectBuiltinPublicSurfaceProbe,
+    invocation: &BuiltinInvocation,
+) {
+    let (source_key, bundle_external, module_builtin, action_id) =
+        module_alias_source(&invocation.module_specifier).unwrap_or_else(|| {
+            panic!(
+                "{}: unreviewed effect-bearing builtin module alias {}",
+                recipe.fixture_id, invocation.module_specifier
+            )
+        });
+    assert_eq!(invocation.kind, "builtin-module-import");
+    assert!(invocation.export_name.is_none());
+    assert!(invocation.arguments.is_empty());
+    assert_eq!(invocation.setup, serde_json::json!({"kind": "none"}));
+    assert_eq!(
+        probe.surface_observed_key,
+        format!("builtin:{}", invocation.module_specifier)
+    );
+    assert_eq!(recipe.route.surface_observed_keys, [probe.surface_observed_key.as_str()]);
+    assert_eq!(recipe.route.ambiguous_callees, Vec::<String>::new());
+    assert_eq!(recipe.route.alternatives.len(), 1);
+    assert_eq!(
+        recipe.route.alternatives[0].terminal_observed_key,
+        probe.surface_observed_key
+    );
+    assert_eq!(
+        recipe.route.alternatives[0].proof_paths,
+        [probe.surface_observed_key.as_str()]
+    );
+    assert_eq!(recipe.edge_ids.len(), 1);
+    const ENVIRONMENT_AUXILIARY_EDGE_ID: &str = "surface.native.op.exactgetenv.0k6bv7a";
+    assert_eq!(
+        invocation.source_descriptor,
+        serde_json::json!({
+            "kind": "builtin-module-alias",
+            "moduleSpecifier": invocation.module_specifier,
+            "sourceKey": source_key,
+            "sourceRef": format!("modules.ts#specifiers:{source_key}"),
+            "sourceMetadata": {
+                "sourceKey": source_key,
+                "bundleExternal": bundle_external,
+                "importReachability": "public",
+                "moduleBuiltin": module_builtin,
+            },
+            "carrierEdgeId": recipe.edge_ids[0],
+            "auxiliaryDecisionEdgeId": ENVIRONMENT_AUXILIARY_EDGE_ID,
+        })
+    );
+    assert_eq!(invocation.expected_action_ids, [action_id]);
+    assert_eq!(recipe.action_ids, [action_id]);
+    let expected_authority = match action_id {
+        "env:read" => serde_json::json!({
+            "cap": "env:read",
+            "resource": {
+                "kind": "environment-name",
+                "target": "principal-overlay",
+                "name": "NODE_DEBUG",
+            },
+        }),
+        _ => unreachable!(),
+    };
+    assert_eq!(invocation.required_authority, [expected_authority]);
+    assert_eq!(
+        invocation.allowed_coverage_edge_ids,
+        [ENVIRONMENT_AUXILIARY_EDGE_ID]
+    );
+    let public_denial = recipe.scenario == "deny";
+    assert_eq!(invocation.expected_result, "return");
+    assert_eq!(
+        invocation.expected_typed_stages,
+        if public_denial {
+            vec!["requested"]
+        } else {
+            vec!["requested", "commit"]
+        }
+    );
+    assert_eq!(
+        invocation.expected_typed_decision_count,
+        invocation.expected_typed_stages.len()
+    );
+}
+
 fn builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
     catalog
         .recipes
@@ -293,8 +395,11 @@ fn builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
                     matches!(
                         probe,
                         PublicSurfaceProbe::EffectBuiltin(probe)
-                            if probe.invocation.invocation_schema
-                                == "ibex/capsec-builtin-export-invocation/1"
+                            if matches!(
+                                probe.invocation.invocation_schema.as_str(),
+                                "ibex/capsec-builtin-export-invocation/1"
+                                    | "ibex/capsec-builtin-module-import-invocation/1"
+                            )
                     )
                 })
         })
@@ -302,12 +407,27 @@ fn builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
 }
 
 fn invocation_script(invocation: &BuiltinInvocation, arguments: &[serde_json::Value]) -> String {
-    format!(
-        "JSON.stringify((function(){{var m={};var e={};try{{var api=require(m);var f=api[e];if(typeof f!==\"function\")return {{kind:\"missing\",moduleSpecifier:m,exportName:e}};var value=Reflect.apply(f,api,{});return {{kind:\"return\",moduleSpecifier:m,exportName:e,valueType:value===null?\"null\":typeof value}};}}catch(error){{return {{kind:\"throw\",moduleSpecifier:m,exportName:e,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}};}}}})())",
-        serde_json::to_string(&invocation.module_specifier).expect("serialize builtin module"),
-        serde_json::to_string(&invocation.export_name).expect("serialize builtin export"),
-        serde_json::to_string(arguments).expect("serialize builtin arguments")
-    )
+    match invocation.invocation_schema.as_str() {
+        "ibex/capsec-builtin-module-import-invocation/1" => format!(
+            "JSON.stringify((function(){{var m={};try{{var value=require(m);return {{kind:\"return\",moduleSpecifier:m,valueType:value===null?\"null\":typeof value}};}}catch(error){{return {{kind:\"throw\",moduleSpecifier:m,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}};}}}})())",
+            serde_json::to_string(&invocation.module_specifier)
+                .expect("serialize imported builtin module")
+        ),
+        "ibex/capsec-builtin-export-invocation/1" => format!(
+            "JSON.stringify((function(){{var m={};var e={};try{{var api=require(m);var f=api[e];if(typeof f!==\"function\")return {{kind:\"missing\",moduleSpecifier:m,exportName:e}};var value=Reflect.apply(f,api,{});return {{kind:\"return\",moduleSpecifier:m,exportName:e,valueType:value===null?\"null\":typeof value}};}}catch(error){{return {{kind:\"throw\",moduleSpecifier:m,exportName:e,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}};}}}})())",
+            serde_json::to_string(&invocation.module_specifier)
+                .expect("serialize builtin module"),
+            serde_json::to_string(
+                invocation
+                    .export_name
+                    .as_ref()
+                    .expect("builtin export invocation has no export name"),
+            )
+            .expect("serialize builtin export"),
+            serde_json::to_string(arguments).expect("serialize builtin arguments")
+        ),
+        schema => panic!("unsupported effect-builtin invocation schema {schema}"),
+    }
 }
 
 struct PreparedInvocation {
@@ -323,6 +443,26 @@ impl PreparedInvocation {
 }
 
 fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
+    if invocation.invocation_schema == "ibex/capsec-builtin-module-import-invocation/1" {
+        assert_eq!(invocation.kind, "builtin-module-import");
+        assert!(invocation.export_name.is_none());
+        assert_eq!(invocation.setup, serde_json::json!({"kind": "none"}));
+        assert!(invocation.arguments.is_empty());
+        return PreparedInvocation {
+            _fixture_root: None,
+            project_root: None,
+            arguments: Vec::new(),
+        };
+    }
+    assert_eq!(
+        invocation.invocation_schema,
+        "ibex/capsec-builtin-export-invocation/1"
+    );
+    assert_eq!(invocation.kind, "builtin-export-call");
+    let export_name = invocation
+        .export_name
+        .as_deref()
+        .expect("builtin export invocation has no export name");
     match invocation.setup["kind"].as_str() {
         Some("none") => {
             assert_eq!(invocation.module_specifier, "node:os");
@@ -339,7 +479,7 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
             assert_eq!(invocation.module_specifier, "node:fs");
             assert_eq!(invocation.source_descriptor["sourceKey"], "node_fs");
             assert!(matches!(
-                invocation.export_name.as_str(),
+                export_name,
                 "lstatSync" | "statSync"
             ));
             let logical_path = serde_json::json!({
@@ -383,7 +523,7 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
         Some("filesystem-directory") => {
             assert_eq!(invocation.module_specifier, "node:fs");
             assert_eq!(invocation.source_descriptor["sourceKey"], "node_fs");
-            assert_eq!(invocation.export_name, "readdirSync");
+            assert_eq!(export_name, "readdirSync");
             let logical_path = serde_json::json!({
                 "root": "project",
                 "components": [
@@ -461,6 +601,7 @@ fn validate_observation(
     recipe: &Recipe,
     probe: &EffectBuiltinPublicSurfaceProbe,
     invocation_result: &serde_json::Value,
+    expected_decision_identity: &serde_json::Value,
     legacy_count: usize,
     typed_decisions: &[serde_json::Value],
     terminal_by_edge: &BTreeMap<String, String>,
@@ -473,11 +614,16 @@ fn validate_observation(
     ));
     assert_eq!(probe.kind, "public-surface-invocation");
     assert!(!probe.command.is_empty());
-    assert_eq!(
-        invocation.invocation_schema,
-        "ibex/capsec-builtin-export-invocation/1"
-    );
-    assert_eq!(invocation.kind, "builtin-export-call");
+    match invocation.invocation_schema.as_str() {
+        "ibex/capsec-builtin-module-import-invocation/1" => {
+            validate_module_import_probe(recipe, probe, invocation)
+        }
+        "ibex/capsec-builtin-export-invocation/1" => {
+            assert_eq!(invocation.kind, "builtin-export-call");
+            assert!(invocation.export_name.is_some());
+        }
+        schema => panic!("unsupported effect-builtin invocation schema {schema}"),
+    }
     assert_eq!(invocation.expected_action_ids, recipe.action_ids);
     assert!(matches!(
         invocation.setup["kind"].as_str(),
@@ -535,6 +681,11 @@ fn validate_observation(
     let mut observed_actions = BTreeSet::new();
     let mut observed_terminals = BTreeSet::new();
     for decision in typed_decisions {
+        assert_eq!(
+            decision["evidence"]["identity"], *expected_decision_identity,
+            "{}: observed decision identity differs from the installed armed Host",
+            recipe.fixture_id
+        );
         let set = &decision["decisionSet"];
         let effects = set["effects"]
             .as_array()
@@ -607,8 +758,16 @@ fn validate_observation(
                 Some("principal.000000.floor."),
             )
         };
-        assert_eq!(decisive[0]["stratum"], expected_stratum);
-        assert_eq!(decisive[0]["reason"], expected_reason);
+        assert_eq!(
+            decisive[0]["stratum"], expected_stratum,
+            "{}: decisive authority stratum drifted: {}",
+            recipe.fixture_id, decisive[0]
+        );
+        assert_eq!(
+            decisive[0]["reason"], expected_reason,
+            "{}: decisive authority reason drifted: {}",
+            recipe.fixture_id, decisive[0]
+        );
         assert_eq!(
             decisive[0]["principal"],
             serde_json::json!({"kind": "root", "identity": "project-root"})
@@ -634,6 +793,14 @@ fn validate_observation(
     );
     assert_eq!(observed_terminals.len(), 1);
     let terminal = observed_terminals.into_iter().next().unwrap();
+    if invocation.invocation_schema == "ibex/capsec-builtin-module-import-invocation/1" {
+        assert_eq!(
+            terminal, "native-op:__exactGetEnv",
+            "{}: module-import carrier observed the wrong auxiliary terminal",
+            recipe.fixture_id
+        );
+        return probe.surface_observed_key.clone();
+    }
     assert!(
         recipe
             .route
@@ -650,6 +817,7 @@ async fn execute_recipe(
     engine: &mut AuthenticatedBuiltinEngine,
     recipe: &Recipe,
     arguments: &[serde_json::Value],
+    expected_decision_identity: &serde_json::Value,
     terminal_by_edge: &BTreeMap<String, String>,
     engine_binary_digest: &str,
 ) -> serde_json::Value {
@@ -658,25 +826,28 @@ async fn execute_recipe(
         _ => panic!("builtin recipe has no effect-builtin public probe"),
     };
     // The manifest has distinct obligations for importing a builtin root and
-    // invoking each exported operation. Load the exact public module before
-    // opening this export's observer session so import-time effects (for
-    // example, node:fs reading NODE_DEBUG) cannot be misattributed to every
-    // exported function. The invocation below still performs the real public
-    // require and receives the runtime's authenticated cache entry.
+    // invoking each exported operation. Export evidence loads the exact public
+    // module before opening its observer so import-time effects cannot be
+    // misattributed to every exported function. Module-import evidence takes
+    // the opposite path: this is a fresh engine and the observer opens before
+    // its first require, so a cached alias can never masquerade as a
+    // decision-free initialization.
     // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
-    let preload = format!(
-        "require({}); 'loaded'",
-        serde_json::to_string(&probe.invocation.module_specifier)
-            .expect("serialize preloaded builtin module")
-    );
-    assert_eq!(
-        engine
-            .eval_immediate(&preload)
-            .await
-            .expect("preload public builtin module")
-            .as_deref(),
-        Some("loaded")
-    );
+    if probe.invocation.invocation_schema == "ibex/capsec-builtin-export-invocation/1" {
+        let preload = format!(
+            "require({}); 'loaded'",
+            serde_json::to_string(&probe.invocation.module_specifier)
+                .expect("serialize preloaded builtin module")
+        );
+        assert_eq!(
+            engine
+                .eval_immediate(&preload)
+                .await
+                .expect("preload public builtin module")
+                .as_deref(),
+            Some("loaded")
+        );
+    }
     let session_id = format!("public-observation:{}", recipe.plan_digest);
     assert!(
         ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id),
@@ -695,21 +866,40 @@ async fn execute_recipe(
         recipe,
         probe,
         &invocation_result,
+        expected_decision_identity,
         legacy.len(),
         &typed_decisions,
         terminal_by_edge,
     );
+    let mut runtime_invocation = serde_json::json!({
+        "invocationSchema": probe.invocation.invocation_schema,
+        "kind": probe.invocation.kind,
+        "surfaceObservedKey": probe.surface_observed_key,
+        "moduleSpecifier": probe.invocation.module_specifier,
+        "sourceDescriptorDigest": probe.invocation.source_descriptor_digest,
+        "result": invocation_result,
+    });
+    if probe.invocation.invocation_schema == "ibex/capsec-builtin-module-import-invocation/1" {
+        runtime_invocation
+            .as_object_mut()
+            .expect("runtime invocation observation must be an object")
+            .insert(
+                "decisionIdentity".into(),
+                expected_decision_identity.clone(),
+            );
+    }
+    if let Some(export_name) = &probe.invocation.export_name {
+        runtime_invocation
+            .as_object_mut()
+            .expect("runtime invocation observation must be an object")
+            .insert(
+                "exportName".into(),
+                serde_json::Value::String(export_name.clone()),
+            );
+    }
     let runtime_observation = serde_json::json!({
         "observationSchema": "ibex/capsec-runtime-public-observation/1",
-        "invocation": {
-            "invocationSchema": probe.invocation.invocation_schema,
-            "kind": probe.invocation.kind,
-            "surfaceObservedKey": probe.surface_observed_key,
-            "moduleSpecifier": probe.invocation.module_specifier,
-            "exportName": probe.invocation.export_name,
-            "sourceDescriptorDigest": probe.invocation.source_descriptor_digest,
-            "result": invocation_result,
-        },
+        "invocation": runtime_invocation,
         "legacyObservationCount": legacy.len(),
         "typedDecisions": typed_decisions,
     });
@@ -788,6 +978,11 @@ async fn execute_isolated_recipe(
             }
         },
     );
+    let expected_decision_identity = serde_json::to_value(
+        host.typed_semantic_identity_for_conformance()
+            .expect("armed builtin Host has no semantic identity"),
+    )
+    .expect("serialize armed builtin Host semantic identity");
     assert_ne!(crate::host::abi::install_host(host.clone()), 0);
     let _reset = HostResetGuard;
     let engine = HermesEngine::new_with_armed_snapshot(Some(&digest))
@@ -805,6 +1000,7 @@ async fn execute_isolated_recipe(
         &mut engine,
         recipe,
         &prepared.arguments,
+        &expected_decision_identity,
         terminal_by_edge,
         engine_binary_digest,
     )
@@ -830,8 +1026,8 @@ async fn capsec_public_builtin_recipe_batch() {
     let recipes = builtin_recipes(&catalog);
     assert_eq!(
         recipes.len(),
-        105,
-        "expected the authored OS and filesystem builtin recipe slices"
+        135,
+        "expected 105 export recipes plus 30 fresh-engine module-import recipes"
     );
     let _lock = hermes_engine_test_lock().lock().await;
     let identity_before = HermesEngine::loaded_engine_identity()

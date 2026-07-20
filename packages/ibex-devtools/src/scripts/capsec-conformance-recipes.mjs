@@ -72,6 +72,10 @@ const ADAPTER_SCENARIOS = new Set([
   "missing-attribution",
   "wrong-principal",
 ]);
+const EFFECT_BUILTIN_RUNTIME_INVOCATION_SCHEMAS = new Set([
+  "ibex/capsec-builtin-export-invocation/1",
+  "ibex/capsec-builtin-module-import-invocation/1",
+]);
 
 const RATIONALE_ONLY_CALLBACK_SCENARIOS = new Set([
   "attribution-missing-deny",
@@ -3770,8 +3774,9 @@ function residualReasons({
     "ibex/capsec-callback-invariant-invocation/1";
   const effectBuiltinProbe =
     plan.classification === "effects" &&
-    publicSurfaceProbe?.invocation?.invocationSchema ===
-      "ibex/capsec-builtin-export-invocation/1" &&
+    EFFECT_BUILTIN_RUNTIME_INVOCATION_SCHEMAS.has(
+      publicSurfaceProbe?.invocation?.invocationSchema,
+    ) &&
     Number.isSafeInteger(
       publicSurfaceProbe.invocation.expectedTypedDecisionCount,
     ) &&

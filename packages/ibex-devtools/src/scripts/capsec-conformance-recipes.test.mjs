@@ -145,8 +145,8 @@ describe("exact-target CapSec executable recipes", () => {
       "ibex/capsec-executable-recipes/1",
     );
     expect(recipes.summary.requiredFixtures).toBe(23_665);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_469);
-    expect(recipes.summary.unresolvedFixtures).toBe(21_196);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_499);
+    expect(recipes.summary.unresolvedFixtures).toBe(21_166);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -243,8 +243,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(23_550);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_327);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_223);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_357);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_193);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -2819,12 +2819,143 @@ describe("exact-target CapSec executable recipes", () => {
     ).toBe(true);
   });
 
-  test("leaves cache-order-dependent builtin alias initialization residual", () => {
+  test("isolates reviewed effect-bearing module imports and keeps other aliases residual", () => {
     const imports = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.kind === "builtin-module-import",
     );
-    expect(imports).toHaveLength(0);
+    const expectedAliases = new Map([
+      ["node:sys", ["node_util", "surface.builtin.node.sys.1dbdr15"]],
+      ["node:util", ["node_util", "surface.builtin.node.util.170qsxo"]],
+      [
+        "node:util/types",
+        ["node_util_types_alias", "surface.builtin.node.util.types.0iem8dy"],
+      ],
+      ["sys", ["node_util", "surface.builtin.sys.1oe78qz"]],
+      ["util", ["node_util", "surface.builtin.util.1isnyze"]],
+      [
+        "util/types",
+        ["util_types_alias", "surface.builtin.util.types.0v4anl8"],
+      ],
+    ]);
+    const expectedScenarios = [
+      "allow",
+      "deny",
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
+    ];
+    expect(imports).toHaveLength(30);
+    expect(
+      new Set(
+        imports.map(
+          (recipe) => recipe.publicSurfaceProbe.invocation.moduleSpecifier,
+        ),
+      ),
+    ).toEqual(new Set(expectedAliases.keys()));
+    expect(
+      imports
+        .map(
+          (recipe) =>
+            `${recipe.publicSurfaceProbe.invocation.moduleSpecifier}:${recipe.scenario}`,
+        )
+        .sort(),
+    ).toEqual(
+      [...expectedAliases.keys()]
+        .flatMap((moduleSpecifier) =>
+          expectedScenarios.map(
+            (scenario) => `${moduleSpecifier}:${scenario}`,
+          ),
+        )
+        .sort(),
+    );
+    expect(
+      imports.every(
+        (recipe) => {
+          const invocation = recipe.publicSurfaceProbe.invocation;
+          const [sourceKey, carrierEdgeId] = expectedAliases.get(
+            invocation.moduleSpecifier,
+          );
+          const expectedStages =
+            recipe.scenario === "deny"
+              ? ["requested"]
+              : ["requested", "commit"];
+          return (
+            recipe.classification === "effects" &&
+            recipe.status === "fully-executable" &&
+            recipe.residualReasons.length === 0 &&
+            invocation.invocationSchema ===
+              "ibex/capsec-builtin-module-import-invocation/1" &&
+            invocation.exportName === undefined &&
+            invocation.sourceDescriptor.kind === "builtin-module-alias" &&
+            invocation.sourceDescriptor.sourceKey === sourceKey &&
+            invocation.sourceDescriptor.carrierEdgeId === carrierEdgeId &&
+            invocation.sourceDescriptor.auxiliaryDecisionEdgeId ===
+              "surface.native.op.exactgetenv.0k6bv7a" &&
+            invocation.sourceDescriptor.sourceMetadata.importReachability ===
+              "public" &&
+            invocation.expectedResult === "return" &&
+            invocation.expectedTypedDecisionCount === expectedStages.length &&
+            JSON.stringify(invocation.expectedTypedStages) ===
+              JSON.stringify(expectedStages) &&
+            recipe.route.alternatives.length === 1 &&
+            recipe.route.alternatives[0].terminalObservedKey ===
+              recipe.route.surfaceObservedKeys[0] &&
+            recipe.route.ambiguousCallees.length === 0
+          );
+        },
+      ),
+    ).toBe(true);
+    const environmentImports = imports.filter((recipe) =>
+      recipe.actionIds.includes("env:read"),
+    );
+    expect(environmentImports).toHaveLength(30);
+    expect(
+      environmentImports.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.requiredAuthority[0]?.resource
+            ?.name === "NODE_DEBUG",
+      ),
+    ).toBe(true);
+    const lazyOrDecisionFreeEffectAliases = recipes.recipes.filter(
+      (recipe) =>
+        recipe.classification === "effects" &&
+        [
+          "allow",
+          "deny",
+          "malformed",
+          "missing-attribution",
+          "wrong-principal",
+        ].includes(recipe.scenario) &&
+        [
+          "builtin:bun:fs",
+          "builtin:bun:fs/promises",
+          "builtin:constants",
+          "builtin:dns",
+          "builtin:dns/promises",
+          "builtin:fs",
+          "builtin:fs/promises",
+          "builtin:internal/fs/promises",
+          "builtin:node:constants",
+          "builtin:node:dns",
+          "builtin:node:dns/promises",
+          "builtin:node:fs",
+          "builtin:node:fs/promises",
+          "builtin:node:os",
+          "builtin:os",
+        ].includes(recipe.route.surfaceObservedKeys[0]),
+    );
+    expect(lazyOrDecisionFreeEffectAliases).toHaveLength(75);
+    expect(
+      lazyOrDecisionFreeEffectAliases.every(
+        (recipe) =>
+          recipe.status === "unresolved" &&
+          recipe.publicSurfaceProbe === null &&
+          recipe.residualReasons.includes(
+            "public-surface-invocation-not-authored",
+          ),
+      ),
+    ).toBe(true);
     const aliases = recipes.recipes.filter(
       (recipe) =>
         recipe.classification === "non-capability" &&
