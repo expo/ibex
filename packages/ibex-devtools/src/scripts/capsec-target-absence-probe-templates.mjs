@@ -32,6 +32,25 @@ const taggedDigest = (value) =>
 
 const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
 
+const TARGET_VARIANT_BY_TRIPLE = new Map([
+  ["aarch64-apple-darwin", "macos"],
+  ["x86_64-pc-windows-msvc", "windows"],
+]);
+
+const ABSENT_SOURCE_VARIANTS_BY_TARGET = new Map([
+  ["macos", new Set(["android", "ios"])],
+  ["windows", new Set(["android", "ios", "posix"])],
+]);
+
+function sourceVariantsAreTargetAbsent(targetVariant, sourceVariants) {
+  const absentVariants = ABSENT_SOURCE_VARIANTS_BY_TARGET.get(targetVariant);
+  return (
+    absentVariants !== undefined &&
+    sourceVariants.length > 0 &&
+    sourceVariants.every((variant) => absentVariants.has(variant))
+  );
+}
+
 function canonicalStrings(values) {
   return [...new Set(values)].sort(compareText);
 }
@@ -86,6 +105,7 @@ function nativeOperationProbeMode(surfaceName, metadata) {
 }
 
 function authoredNativeOperationAbsenceProbe({ plan, target, edge, live }) {
+  const targetVariant = TARGET_VARIANT_BY_TRIPLE.get(target?.triple);
   const surfaceObservedKey = `native-op:${edge.surface.name}`;
   if (surfaceObservedKey !== plan.terminalObservedKey) return null;
   const metadata = live?.metadata;
@@ -108,8 +128,8 @@ function authoredNativeOperationAbsenceProbe({ plan, target, edge, live }) {
     !Array.isArray(branches) ||
     branches.length === 0 ||
     !sourceKeys.has("native_jsi_global") ||
-    targetVariants.length === 0 ||
-    targetVariants.some((variant) => !["android", "ios"].includes(variant)) ||
+    targetVariant === undefined ||
+    !sourceVariantsAreTargetAbsent(targetVariant, targetVariants) ||
     branches.some(
       (branch) =>
         typeof branch.sourceRefs === "undefined" ||
@@ -163,11 +183,12 @@ export function authoredTargetAbsenceProbe({
   coverageByEdge,
   liveByObservedKey,
 }) {
+  const targetVariant = TARGET_VARIANT_BY_TRIPLE.get(target?.triple);
   if (
     scenario !== "absent" ||
     plan.expectedObservation?.kind !== "target-absence" ||
     plan.edgeIds.length !== 1 ||
-    target?.triple !== "aarch64-apple-darwin"
+    targetVariant === undefined
   ) {
     return null;
   }
@@ -206,8 +227,7 @@ export function authoredTargetAbsenceProbe({
     live.name !== edge.surface.name ||
     !Array.isArray(live.sourceRefs) ||
     live.sourceRefs.length === 0 ||
-    targetVariants.length === 0 ||
-    targetVariants.some((variant) => !["android", "ios"].includes(variant)) ||
+    !sourceVariantsAreTargetAbsent(targetVariant, targetVariants) ||
     (Array.isArray(definitions) &&
       definitions.some(
         (definition) =>

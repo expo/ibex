@@ -2277,6 +2277,17 @@ compiled that Windows path and passed all seven loopback fixtures: SERVFAIL,
 REFUSED, NXDOMAIN, empty NOERROR, timeout, TXT success, and override-backed
 `getServers()`. This is a product checkpoint, not target-cell credit; the next
 complete report must find the later frontier, and advertisements remain empty.
+The target-absence author now treats the Windows candidate as incompatible
+with source-bound Android, iOS, and POSIX-only definitions rather than leaving
+those claims Apple-only. Its physical harness searches every loaded Windows
+module for the named host ABI and walks native-global property paths through
+own descriptors without invoking accessors. The generated Windows catalog
+therefore authors all 125 previously residual absence fixtures: 56 host ABI
+symbols and 69 native globals, including the POSIX-only process stream shape.
+The local catalog contains 22,629 required fixtures, 4,896 executable fixtures,
+and 17,733 residual fixtures. These new absence recipes still await execution
+against the exact Windows Release artifact; they do not credit a target cell or
+change the empty advertisements before that physical evidence exists.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked

@@ -124,3 +124,15 @@ test("Windows conformance can isolate native DNS fidelity evidence", () => {
   expect(windowsJob).toContain("cargo test --test native_dns_rcode");
   expect(windowsJob).toContain('"native-dns-rcode.log"');
 });
+
+test("Windows conformance can isolate target-absence evidence", () => {
+  const windowsJob = conformanceWorkflow.slice(
+    conformanceWorkflow.indexOf("Complete matrix + unadvertised evidence (Windows x64)"),
+  );
+  expect(conformanceWorkflow).toContain("- target-absence");
+  expect(windowsJob).toContain("name: Run focused target-absence evidence");
+  expect(windowsJob).toContain("inputs.scope == 'target-absence'");
+  expect(windowsJob).toContain("capsec_public_target_absence_batch");
+  expect(windowsJob).toContain('"target-absence-evidence.json"');
+  expect(windowsJob).toContain('"target-absence.log"');
+});

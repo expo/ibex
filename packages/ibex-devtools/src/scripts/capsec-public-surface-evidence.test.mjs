@@ -24,6 +24,10 @@ const target = {
   triple: "aarch64-apple-darwin",
   features: ["frame-attribution", "native-lockdown"],
 };
+const windowsTarget = {
+  triple: "x86_64-pc-windows-msvc",
+  features: ["frame-attribution", "native-lockdown"],
+};
 const engine = {
   kind: "hermes",
   engineArtifactPath: "/tmp/hermesvm",
@@ -452,7 +456,7 @@ function noncapBuiltinAbsenceObservation(recipe) {
   };
 }
 
-function completeAbsenceCatalog() {
+function completeAbsenceCatalog(catalogTarget = target) {
   const sourceDescriptor = {
     kind: "target-absent-host-abi",
     surfaceKind: "host-abi",
@@ -497,7 +501,7 @@ function completeAbsenceCatalog() {
         kind: "target-absence",
         surfaceKind: "host-abi",
         surfaceName: "ex_android_initialize",
-        targetTriple: target.triple,
+        targetTriple: catalogTarget.triple,
         sourceDescriptor,
         sourceDescriptorDigest: taggedDigest(sourceDescriptor),
         expectedResult: "absent",
@@ -513,7 +517,7 @@ function completeAbsenceCatalog() {
   const catalog = {
     recipeCatalogSchema: "ibex/capsec-executable-recipes/1",
     profile: "ibex/capsec/1",
-    target,
+    target: catalogTarget,
     recipes: [recipe],
     summary: {
       requiredFixtures: 1,
@@ -531,13 +535,17 @@ function completeAbsenceCatalog() {
 function absenceRuntimeObservation(recipe, symbolPresent = false) {
   const invocation = recipe.publicSurfaceProbe.invocation;
   const probeMode = invocation.sourceDescriptor.probeMode;
+  const compiledTarget =
+    invocation.targetTriple === "x86_64-pc-windows-msvc"
+      ? { os: "windows", arch: "x86_64" }
+      : { os: "macos", arch: "aarch64" };
   const result = {
     kind: "absent",
     surfaceKind: invocation.surfaceKind,
     surfaceName: invocation.surfaceName,
     targetTriple: invocation.targetTriple,
-    compiledTargetOs: "macos",
-    compiledTargetArch: "aarch64",
+    compiledTargetOs: compiledTarget.os,
+    compiledTargetArch: compiledTarget.arch,
     probeMode: probeMode.kind,
     ...(probeMode.kind === "runtime-global-property"
       ? {
@@ -2356,6 +2364,27 @@ describe("CapSec public-surface promotion evidence", () => {
         recipe,
         engineBinaryDigest: engine.binaryDigest,
         runtimeObservation: absenceRuntimeObservation(recipe, true),
+        coverage,
+      }),
+    ).toThrow(/did not prove absence/);
+
+    const windowsCatalog = completeAbsenceCatalog(windowsTarget);
+    const windowsRecipe = windowsCatalog.recipes[0];
+    const windowsObservation = absenceRuntimeObservation(windowsRecipe);
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: windowsRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: windowsObservation,
+        coverage,
+      }),
+    ).not.toThrow();
+    windowsObservation.invocation.result.compiledTargetOs = "macos";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: windowsRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: windowsObservation,
         coverage,
       }),
     ).toThrow(/did not prove absence/);

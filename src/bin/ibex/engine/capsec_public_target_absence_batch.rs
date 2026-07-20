@@ -122,10 +122,6 @@ const TARGET_ABSENCE_BATCH_COMMAND: [&str; 9] = [
     "--",
     "--test-threads=1",
 ];
-const EXPECTED_ABSENT_FIXTURES: usize = 110;
-const EXPECTED_TARGET_ABSENCE_FIXTURES: usize = 102;
-const EXPECTED_NATIVE_GLOBAL_ABSENCE_FIXTURES: usize = 8;
-
 fn tagged_jcs_digest(value: &serde_json::Value) -> String {
     let bytes = capsec_semantics::canonical::to_jcs_bytes(value)
         .expect("target-absence evidence must have canonical JSON bytes");
@@ -236,16 +232,89 @@ fn target_absence_probe(recipe: &Recipe) -> Option<TargetAbsenceProbe> {
     )
 }
 
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — an
+// absence claim inspects the exact loaded process and must fail if any mapped
+// image exports the target-specific ABI.
 fn symbol_present(symbol_name: &str) -> bool {
     let symbol = CString::new(symbol_name).expect("absence symbol cannot contain NUL");
     #[cfg(unix)]
     unsafe {
         !libc::dlsym(libc::RTLD_DEFAULT, symbol.as_ptr()).is_null()
     }
-    #[cfg(not(unix))]
-    {
-        let _ = symbol;
-        panic!("target-absence dynamic lookup is implemented only on Unix targets")
+    #[cfg(windows)]
+    unsafe {
+        use std::mem::size_of;
+        use windows_sys::Win32::Foundation::HMODULE;
+        use windows_sys::Win32::System::LibraryLoader::GetProcAddress;
+        use windows_sys::Win32::System::ProcessStatus::K32EnumProcessModules;
+        use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+        // Match RTLD_DEFAULT's process-wide lookup rather than checking only
+        // the executable: a target-specific ABI exported by any mapped image
+        // makes the claimed absence false.
+        let process = GetCurrentProcess();
+        let mut modules = vec![std::ptr::null_mut::<core::ffi::c_void>(); 64];
+        loop {
+            let byte_capacity = modules
+                .len()
+                .checked_mul(size_of::<HMODULE>())
+                .and_then(|bytes| u32::try_from(bytes).ok())
+                .expect("loaded-module buffer exceeds the Windows API limit");
+            let mut bytes_needed = 0u32;
+            if K32EnumProcessModules(
+                process,
+                modules.as_mut_ptr(),
+                byte_capacity,
+                &mut bytes_needed,
+            ) == 0
+            {
+                panic!(
+                    "enumerate loaded Windows modules for target absence: {}",
+                    std::io::Error::last_os_error()
+                );
+            }
+            if bytes_needed <= byte_capacity {
+                modules.truncate(bytes_needed as usize / size_of::<HMODULE>());
+                break;
+            }
+            let required = (bytes_needed as usize)
+                .div_ceil(size_of::<HMODULE>())
+                .checked_add(16)
+                .expect("loaded-module count overflow");
+            modules.resize(required, std::ptr::null_mut());
+        }
+        modules.into_iter().any(|module| {
+            !module.is_null()
+                && GetProcAddress(module, symbol.as_ptr().cast::<u8>()).is_some()
+        })
+    }
+}
+
+struct ExpectedTargetAbsenceCounts {
+    os: &'static str,
+    arch: &'static str,
+    absent: usize,
+    target_absence: usize,
+    native_global_absence: usize,
+}
+
+fn expected_target_absence_counts(target_triple: &str) -> ExpectedTargetAbsenceCounts {
+    match target_triple {
+        "aarch64-apple-darwin" => ExpectedTargetAbsenceCounts {
+            os: "macos",
+            arch: "aarch64",
+            absent: 110,
+            target_absence: 102,
+            native_global_absence: 8,
+        },
+        "x86_64-pc-windows-msvc" => ExpectedTargetAbsenceCounts {
+            os: "windows",
+            arch: "x86_64",
+            absent: 211,
+            target_absence: 125,
+            native_global_absence: 86,
+        },
+        other => panic!("unsupported target-absence evidence target {other}"),
     }
 }
 
@@ -263,11 +332,17 @@ async fn runtime_global_property_present(
           const member = {member_name};
           if (member === null) return true;
           if (!Object.prototype.hasOwnProperty.call(root, "value")) return true;
-          const value = root.value;
-          if (value === null || (typeof value !== "object" && typeof value !== "function")) {{
-            return false;
+          let value = root.value;
+          for (const segment of member.split('.')) {{
+            if (value === null || (typeof value !== "object" && typeof value !== "function")) {{
+              return false;
+            }}
+            const descriptor = Object.getOwnPropertyDescriptor(value, segment);
+            if (descriptor === undefined) return false;
+            if (!Object.prototype.hasOwnProperty.call(descriptor, "value")) return true;
+            value = descriptor.value;
           }}
-          return Object.prototype.hasOwnProperty.call(value, member);
+          return true;
         }})()"#
     );
     match engine
@@ -312,9 +387,9 @@ async fn execute_target_absence_recipe(
     assert_eq!(invocation.invocation_schema, "ibex/capsec-target-absence-invocation/1");
     assert_eq!(invocation.kind, "target-absence");
     assert_eq!(invocation.target_triple, catalog_target.triple);
-    assert_eq!(invocation.target_triple, "aarch64-apple-darwin");
-    assert_eq!(std::env::consts::OS, "macos");
-    assert_eq!(std::env::consts::ARCH, "aarch64");
+    let expected_counts = expected_target_absence_counts(&invocation.target_triple);
+    assert_eq!(std::env::consts::OS, expected_counts.os);
+    assert_eq!(std::env::consts::ARCH, expected_counts.arch);
     assert_eq!(invocation.expected_result, "absent");
     assert_eq!(invocation.expected_typed_decision_count, 0);
     assert!(invocation.expected_typed_stages.is_empty());
@@ -335,8 +410,10 @@ async fn execute_target_absence_recipe(
         .cloned()
         .collect::<BTreeSet<_>>();
     assert_eq!(descriptor_variants.len(), descriptor.target_variants.len());
-    assert!(descriptor_variants.iter().all(|variant| {
-        matches!(variant.as_str(), "android" | "ios")
+    assert!(descriptor_variants.iter().all(|variant| match expected_counts.os {
+        "macos" => matches!(variant.as_str(), "android" | "ios"),
+        "windows" => matches!(variant.as_str(), "android" | "ios" | "posix"),
+        _ => false,
     }));
     assert_eq!(
         variants
@@ -534,6 +611,7 @@ async fn capsec_public_target_absence_batch() {
     let recipe_path = std::fs::canonicalize(recipe_path)
         .expect("canonicalize CapSec executable recipe catalog path");
     let catalog = load_catalog(&recipe_path);
+    let expected_counts = expected_target_absence_counts(&catalog.target.triple);
     let recipe_indexes = catalog
         .recipes
         .iter()
@@ -556,15 +634,15 @@ async fn capsec_public_target_absence_batch() {
                 })
         })
         .count();
-    assert_eq!(absent_fixtures, EXPECTED_ABSENT_FIXTURES);
+    assert_eq!(absent_fixtures, expected_counts.absent);
     assert_eq!(
         native_global_absence_fixtures,
-        EXPECTED_NATIVE_GLOBAL_ABSENCE_FIXTURES,
+        expected_counts.native_global_absence,
         "native-global absence probes execute in the native public batch"
     );
     assert_eq!(
         recipe_indexes.len(),
-        EXPECTED_TARGET_ABSENCE_FIXTURES,
+        expected_counts.target_absence,
         "expected every target-absence invocation fixture"
     );
     assert_eq!(
@@ -583,7 +661,7 @@ async fn capsec_public_target_absence_batch() {
         eprintln!(
             "CapSec target-absence fixture {}/{}: {}",
             position + 1,
-            EXPECTED_TARGET_ABSENCE_FIXTURES,
+            expected_counts.target_absence,
             recipe.fixture_id
         );
         executions.push(

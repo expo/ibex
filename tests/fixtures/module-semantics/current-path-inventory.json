@@ -44,7 +44,7 @@
       "evidence": [
         { "file": "src/bin/ibex/runtime.rs", "needle": "fn contains_top_level_await" },
         { "file": "src/bin/ibex/runtime.rs", "needle": "async fn run_entry_with_tla_shim" },
-        { "file": "src/engine/hermes_runtime.cc", "needle": "This makes top-level await work in the REPL and eval contexts" }
+        { "file": "src/engine/hermes_runtime.cc", "needle": "Only the trusted TLA entry route opts into completion-Promise" }
       ]
     },
     {

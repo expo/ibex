@@ -109,9 +109,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(22_920);
+    expect(recipes.summary.requiredFixtures).toBe(22_919);
     expect(recipes.summary.fullyExecutableFixtures).toBe(5_214);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_706);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_705);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -198,14 +198,14 @@ describe("exact-target CapSec executable recipes", () => {
     );
   });
 
-  test("accounts for the Windows candidate without borrowing Apple probes", () => {
+  test("accounts for the Windows candidate with target-local absence probes", () => {
     expect(windowsRecipes.target.triple).toBe("x86_64-pc-windows-msvc");
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(22_630);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_728);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_902);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(22_629);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_896);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_733);
     const windowsPosixFsOpenRows = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName ===
@@ -221,9 +221,45 @@ describe("exact-target CapSec executable recipes", () => {
     const windowsAbsenceRecipes = windowsRecipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
-    expect(windowsAbsenceRecipes).toHaveLength(92);
+    expect(windowsAbsenceRecipes).toHaveLength(211);
+    const windowsTargetAbsenceRecipes = windowsAbsenceRecipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.invocationSchema ===
+        "ibex/capsec-target-absence-invocation/1",
+    );
+    const windowsNativeAbsenceRecipes = windowsAbsenceRecipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.invocationSchema ===
+        "ibex/capsec-native-global-invocation/1",
+    );
+    expect(windowsTargetAbsenceRecipes).toHaveLength(125);
+    expect(windowsNativeAbsenceRecipes).toHaveLength(86);
     expect(
-      windowsAbsenceRecipes.every(
+      windowsTargetAbsenceRecipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.surfaceKind === "host-abi",
+      ),
+    ).toHaveLength(56);
+    expect(
+      windowsTargetAbsenceRecipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.surfaceKind === "native-op",
+      ),
+    ).toHaveLength(69);
+    expect(
+      windowsTargetAbsenceRecipes.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.expectedResult === "absent" &&
+          recipe.publicSurfaceProbe.command.includes(
+            "capsec_public_target_absence_batch",
+          ) &&
+          !recipe.publicSurfaceProbe.command.includes(
+            "capsec_public_native_recipe_batch",
+          ),
+      ),
+    ).toBe(true);
+    expect(
+      windowsNativeAbsenceRecipes.every(
         (recipe) =>
           recipe.publicSurfaceProbe.invocation.expectedResult === "absent" &&
           recipe.publicSurfaceProbe.command.includes(
@@ -234,6 +270,48 @@ describe("exact-target CapSec executable recipes", () => {
           ),
       ),
     ).toBe(true);
+    expect(
+      windowsRecipes.summary.residualReasons[
+        "target-absence-probe-not-authored"
+      ] ?? 0,
+    ).toBe(0);
+    expect(
+      windowsTargetAbsenceRecipes.find(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.surfaceName ===
+          "ex_hermes_dispatch_event",
+      )?.publicSurfaceProbe,
+    ).toMatchObject({
+      invocation: {
+        targetTriple: "x86_64-pc-windows-msvc",
+        sourceDescriptor: {
+          targetVariants: ["ios"],
+          probeMode: {
+            kind: "dynamic-symbol",
+            symbolName: "ex_hermes_dispatch_event",
+          },
+        },
+      },
+    });
+    expect(
+      windowsTargetAbsenceRecipes.find(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.surfaceName ===
+          "global:process.stderr.columns",
+      )?.publicSurfaceProbe,
+    ).toMatchObject({
+      invocation: {
+        targetTriple: "x86_64-pc-windows-msvc",
+        sourceDescriptor: {
+          targetVariants: ["posix"],
+          probeMode: {
+            kind: "runtime-global-property",
+            globalName: "process",
+            memberName: "stderr.columns",
+          },
+        },
+      },
+    });
     expect(
       windowsRecipes.recipes.filter((recipe) =>
         recipe.publicSurfaceProbe?.command?.includes(
@@ -262,28 +340,6 @@ describe("exact-target CapSec executable recipes", () => {
           "armed-native-global-absence",
       ),
     ).toHaveLength(13);
-    const unavailableCryptoExports = windowsRecipes.recipes.filter(
-      (recipe) =>
-        recipe.residualReasons.includes(
-          "builtin-export-not-installed-on-target",
-        ),
-    );
-    expect(unavailableCryptoExports).toHaveLength(179);
-    expect(
-      unavailableCryptoExports.every(
-        (recipe) =>
-          recipe.publicSurfaceProbe === null &&
-          recipe.terminalObservedKey.startsWith(
-            "builtin:export:exact_crypto:",
-          ),
-      ),
-    ).toBe(true);
-    expect(
-      unavailableCryptoExports.map((recipe) => recipe.terminalObservedKey),
-    ).toContain("builtin:export:exact_crypto:checkPrimeSync");
-    expect(
-      unavailableCryptoExports.map((recipe) => recipe.terminalObservedKey),
-    ).toContain("builtin:export:exact_crypto:Hash._transform");
     expect(
       windowsRecipes.recipes.find(
         (recipe) =>

@@ -45,10 +45,13 @@ const NORMAL_RETURN_DISPATCH_KINDS = new Map([
   ["stream-owner", "prototype-call"],
   ["zlib-owner", "prototype-call"],
 ]);
-const EXACT_RUNTIME_CANDIDATE_TRIPLES = new Set([
-  "aarch64-apple-darwin",
-  "x86_64-pc-windows-msvc",
+const COMPILED_TARGET_BY_TRIPLE = new Map([
+  ["aarch64-apple-darwin", { os: "macos", arch: "aarch64" }],
+  ["x86_64-pc-windows-msvc", { os: "windows", arch: "x86_64" }],
 ]);
+const EXACT_RUNTIME_CANDIDATE_TRIPLES = new Set(
+  COMPILED_TARGET_BY_TRIPLE.keys(),
+);
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — the
 // dispatcher remains the public surface, while typed evidence must select its
 // exact source-chosen worker or retained-object gate rather than any allowed
@@ -2454,13 +2457,17 @@ function validateRuntimeInvocation(observation, recipe) {
       }
     } else {
       const probeMode = authored.sourceDescriptor?.probeMode;
+      const compiledTarget = COMPILED_TARGET_BY_TRIPLE.get(
+        authored.targetTriple,
+      );
       if (
+        compiledTarget === undefined ||
         invocation.result.kind !== "absent" ||
         invocation.result.surfaceKind !== authored.surfaceKind ||
         invocation.result.surfaceName !== authored.surfaceName ||
         invocation.result.targetTriple !== authored.targetTriple ||
-        invocation.result.compiledTargetOs !== "macos" ||
-        invocation.result.compiledTargetArch !== "aarch64" ||
+        invocation.result.compiledTargetOs !== compiledTarget.os ||
+        invocation.result.compiledTargetArch !== compiledTarget.arch ||
         invocation.result.probeMode !== probeMode?.kind
       ) {
         throw new Error(
