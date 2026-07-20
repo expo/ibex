@@ -1699,6 +1699,7 @@ struct ExactGpuRuntimeBindingV2 {
   bool realm_open{false};
   bool bridge_captured{false};
   bool bridge_sealed{false};
+  bool decoded_image_authority_attached{false};
   bool detached{false};
 
   ~ExactGpuRuntimeBindingV2();
@@ -4044,6 +4045,7 @@ void ExactGpuRuntimeBindingV2::detach(
   deferred_wrapper_events.clear();
   deferred_wrapper_payload_bytes = 0;
   bridge_captured = false;
+  decoded_image_authority_attached = false;
   if (!closeGpuV2ConstructionCapture(runtime) && runtime &&
       !runtime->user_execution_started) {
     runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
@@ -4806,8 +4808,11 @@ bool exactGpuV2PublishPrivateBridge(ExactHermesRuntime* runtime) {
         gpuNativeBridgeV2,
         "rootAuthorityDigest",
         makeUint8Array(rt, std::move(digest)));
+    binding.decoded_image_authority_attached =
+        runtime->gpu_decoded_image_binding_v1 != nullptr;
     if (!exactGpuDecodedImageAttachAuthorityV1(runtime, rt,
                                                gpuNativeBridgeV2)) {
+      binding.decoded_image_authority_attached = false;
       return false;
     }
     rt.global()
@@ -4854,6 +4859,31 @@ bool exactGpuV2SealPrivateBridge(ExactHermesRuntime* runtime) {
   }
   binding.bridge_sealed = true;
   return true;
+#endif
+}
+
+bool exactGpuAuthenticatedV2ProviderGlobalsActive(
+    const ExactHermesRuntime* runtime) {
+#if !defined(IBEX_ENABLE_WEBGPU_BINDING)
+  (void)runtime;
+  return false;
+#else
+  return runtime && runtime->gpu_binding_v2 &&
+      runtime->gpu_binding_v2->realm_open &&
+      runtime->gpu_binding_v2->bridge_captured &&
+      runtime->gpu_binding_v2->bridge_sealed &&
+      !runtime->gpu_binding_v2->detached;
+#endif
+}
+
+bool exactGpuAuthenticatedDecodedImageGlobalActive(
+    const ExactHermesRuntime* runtime) {
+#if !defined(IBEX_ENABLE_WEBGPU_BINDING)
+  (void)runtime;
+  return false;
+#else
+  return exactGpuAuthenticatedV2ProviderGlobalsActive(runtime) &&
+      runtime->gpu_binding_v2->decoded_image_authority_attached;
 #endif
 }
 

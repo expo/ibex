@@ -222830,6 +222830,16 @@
             "rationale": "Transforming already-held bytes or strings carries no independent external authority."
           },
           {
+            "id": "surface.native.op.global.createimagebitmap.0rbailr",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:createImageBitmap"
+            },
+            "rationaleId": "pure-in-memory-compute",
+            "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+          },
+          {
             "id": "surface.native.op.global.crypto.05lvgvq",
             "classification": "non-capability",
             "surface": {
@@ -229912,6 +229922,316 @@
             },
             "rationaleId": "runtime-bootstrap-state",
             "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
+            "id": "surface.native.op.global.gpu.1ui4rqn",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPU"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpuadapter.14eu3zq",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUAdapter"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpubindgrouplayout.0pjs9xd",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUBindGroupLayout"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpubuffer.1vy1rid",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUBuffer"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpubufferusage.1aqx9u0",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUBufferUsage"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpucanvascontext.0mtodaa",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUCanvasContext"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpucolorwrite.0i5fm61",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUColorWrite"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpucommandbuffer.1d4ltly",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUCommandBuffer"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpucommandencoder.07kskj8",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUCommandEncoder"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpucomputepassencoder.1hyirez",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUComputePassEncoder"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpucomputepipeline.1buodqe",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUComputePipeline"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpudevice.0lrubnp",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUDevice"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpudevicelostinfo.1lenyin",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUDeviceLostInfo"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpuerror.0c29ikf",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUError"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpuinternalerror.000fb0w",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUInternalError"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpumapmode.132t0bs",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUMapMode"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpuoutofmemoryerror.1ahnb3r",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUOutOfMemoryError"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpupipelinelayout.0a068mr",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUPipelineLayout"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpuqueue.038r0jq",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUQueue"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpurenderpassencoder.0wzq9oi",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPURenderPassEncoder"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpurenderpipeline.1uzysnh",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPURenderPipeline"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpusampler.1u62ynx",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUSampler"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpushadermodule.0hsy4ja",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUShaderModule"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpushaderstage.1gts084",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUShaderStage"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpusupportedfeatures.1u2zxh0",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUSupportedFeatures"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpusupportedlimits.0vlaq5r",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUSupportedLimits"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gputexture.1cenb66",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUTexture"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gputextureusage.17o0v49",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUTextureUsage"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gputextureview.10piij3",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUTextureView"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpuuncapturederrorevent.08sacdo",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUUncapturedErrorEvent"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.gpuvalidationerror.18jez7a",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:GPUValidationError"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
             "id": "surface.native.op.global.headers.1a963tj",
@@ -243051,6 +243371,16 @@
                 "negative-generation-change"
               ]
             }
+          },
+          {
+            "id": "surface.native.op.global.navigator.gpu.0k3b5ao",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:navigator.gpu"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
             "id": "surface.native.op.global.ok.06w1n7d",

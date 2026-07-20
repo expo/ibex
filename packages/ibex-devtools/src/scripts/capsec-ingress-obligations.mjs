@@ -792,7 +792,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "finish-bootstrap",
       'extern "C" uint32_t ex_hermes_finish_bootstrap(',
       'extern "C" void ex_hermes_destroy(',
-      "sha256-3lFRyEuLpBO2YptCHLec6OQoDNyhOt8VHOCDzAtP6tg",
+      "sha256-xI35krMJ_Y9FO830Yf3MluQgECxDd28K4l0oT1jZuo0",
     ),
     freezeReviewedRange(
       "structured-session-ingress",

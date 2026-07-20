@@ -188992,6 +188992,37 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.global.createimagebitmap.0rbailr",
+      "observedKey": "native-op:global:createImageBitmap",
+      "branchId": "surface.native.op.global.createimagebitmap.0rbailr.all",
+      "enforcementBranchId": "surface.native.op.global.createimagebitmap.0rbailr.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:createImageBitmap"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:createImageBitmap"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:createImageBitmap"
+        ],
+        "terminalObservedKey": "native-op:global:createImageBitmap"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:createImageBitmap"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.native.op.global.createimagebitmap.0rbailr.all.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.global.crypto.05lvgvq",
       "observedKey": "native-op:global:Crypto",
       "branchId": "surface.native.op.global.crypto.05lvgvq.all",
@@ -205619,6 +205650,1029 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.native.op.global.global.1ur9eoc.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpu.1ui4rqn",
+      "observedKey": "native-op:global:GPU",
+      "branchId": "surface.native.op.global.gpu.1ui4rqn.all",
+      "enforcementBranchId": "surface.native.op.global.gpu.1ui4rqn.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPU"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPU"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPU"
+        ],
+        "terminalObservedKey": "native-op:global:GPU"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPU"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpu.1ui4rqn.all.cannot-widen-authority",
+        "surface.native.op.global.gpu.1ui4rqn.all.non-capability",
+        "surface.native.op.global.gpu.1ui4rqn.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpuadapter.14eu3zq",
+      "observedKey": "native-op:global:GPUAdapter",
+      "branchId": "surface.native.op.global.gpuadapter.14eu3zq.all",
+      "enforcementBranchId": "surface.native.op.global.gpuadapter.14eu3zq.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUAdapter"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUAdapter"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUAdapter"
+        ],
+        "terminalObservedKey": "native-op:global:GPUAdapter"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUAdapter"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpuadapter.14eu3zq.all.cannot-widen-authority",
+        "surface.native.op.global.gpuadapter.14eu3zq.all.non-capability",
+        "surface.native.op.global.gpuadapter.14eu3zq.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpubindgrouplayout.0pjs9xd",
+      "observedKey": "native-op:global:GPUBindGroupLayout",
+      "branchId": "surface.native.op.global.gpubindgrouplayout.0pjs9xd.all",
+      "enforcementBranchId": "surface.native.op.global.gpubindgrouplayout.0pjs9xd.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUBindGroupLayout"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBindGroupLayout"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBindGroupLayout"
+        ],
+        "terminalObservedKey": "native-op:global:GPUBindGroupLayout"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBindGroupLayout"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpubindgrouplayout.0pjs9xd.all.cannot-widen-authority",
+        "surface.native.op.global.gpubindgrouplayout.0pjs9xd.all.non-capability",
+        "surface.native.op.global.gpubindgrouplayout.0pjs9xd.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpubuffer.1vy1rid",
+      "observedKey": "native-op:global:GPUBuffer",
+      "branchId": "surface.native.op.global.gpubuffer.1vy1rid.all",
+      "enforcementBranchId": "surface.native.op.global.gpubuffer.1vy1rid.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUBuffer"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBuffer"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBuffer"
+        ],
+        "terminalObservedKey": "native-op:global:GPUBuffer"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBuffer"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpubuffer.1vy1rid.all.cannot-widen-authority",
+        "surface.native.op.global.gpubuffer.1vy1rid.all.non-capability",
+        "surface.native.op.global.gpubuffer.1vy1rid.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpubufferusage.1aqx9u0",
+      "observedKey": "native-op:global:GPUBufferUsage",
+      "branchId": "surface.native.op.global.gpubufferusage.1aqx9u0.all",
+      "enforcementBranchId": "surface.native.op.global.gpubufferusage.1aqx9u0.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUBufferUsage"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBufferUsage"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBufferUsage"
+        ],
+        "terminalObservedKey": "native-op:global:GPUBufferUsage"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBufferUsage"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpubufferusage.1aqx9u0.all.cannot-widen-authority",
+        "surface.native.op.global.gpubufferusage.1aqx9u0.all.non-capability",
+        "surface.native.op.global.gpubufferusage.1aqx9u0.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpucanvascontext.0mtodaa",
+      "observedKey": "native-op:global:GPUCanvasContext",
+      "branchId": "surface.native.op.global.gpucanvascontext.0mtodaa.all",
+      "enforcementBranchId": "surface.native.op.global.gpucanvascontext.0mtodaa.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUCanvasContext"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCanvasContext"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCanvasContext"
+        ],
+        "terminalObservedKey": "native-op:global:GPUCanvasContext"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCanvasContext"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpucanvascontext.0mtodaa.all.cannot-widen-authority",
+        "surface.native.op.global.gpucanvascontext.0mtodaa.all.non-capability",
+        "surface.native.op.global.gpucanvascontext.0mtodaa.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpucolorwrite.0i5fm61",
+      "observedKey": "native-op:global:GPUColorWrite",
+      "branchId": "surface.native.op.global.gpucolorwrite.0i5fm61.all",
+      "enforcementBranchId": "surface.native.op.global.gpucolorwrite.0i5fm61.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUColorWrite"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUColorWrite"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUColorWrite"
+        ],
+        "terminalObservedKey": "native-op:global:GPUColorWrite"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUColorWrite"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpucolorwrite.0i5fm61.all.cannot-widen-authority",
+        "surface.native.op.global.gpucolorwrite.0i5fm61.all.non-capability",
+        "surface.native.op.global.gpucolorwrite.0i5fm61.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpucommandbuffer.1d4ltly",
+      "observedKey": "native-op:global:GPUCommandBuffer",
+      "branchId": "surface.native.op.global.gpucommandbuffer.1d4ltly.all",
+      "enforcementBranchId": "surface.native.op.global.gpucommandbuffer.1d4ltly.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUCommandBuffer"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCommandBuffer"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCommandBuffer"
+        ],
+        "terminalObservedKey": "native-op:global:GPUCommandBuffer"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCommandBuffer"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpucommandbuffer.1d4ltly.all.cannot-widen-authority",
+        "surface.native.op.global.gpucommandbuffer.1d4ltly.all.non-capability",
+        "surface.native.op.global.gpucommandbuffer.1d4ltly.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpucommandencoder.07kskj8",
+      "observedKey": "native-op:global:GPUCommandEncoder",
+      "branchId": "surface.native.op.global.gpucommandencoder.07kskj8.all",
+      "enforcementBranchId": "surface.native.op.global.gpucommandencoder.07kskj8.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUCommandEncoder"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCommandEncoder"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCommandEncoder"
+        ],
+        "terminalObservedKey": "native-op:global:GPUCommandEncoder"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCommandEncoder"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpucommandencoder.07kskj8.all.cannot-widen-authority",
+        "surface.native.op.global.gpucommandencoder.07kskj8.all.non-capability",
+        "surface.native.op.global.gpucommandencoder.07kskj8.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpucomputepassencoder.1hyirez",
+      "observedKey": "native-op:global:GPUComputePassEncoder",
+      "branchId": "surface.native.op.global.gpucomputepassencoder.1hyirez.all",
+      "enforcementBranchId": "surface.native.op.global.gpucomputepassencoder.1hyirez.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUComputePassEncoder"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUComputePassEncoder"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUComputePassEncoder"
+        ],
+        "terminalObservedKey": "native-op:global:GPUComputePassEncoder"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUComputePassEncoder"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpucomputepassencoder.1hyirez.all.cannot-widen-authority",
+        "surface.native.op.global.gpucomputepassencoder.1hyirez.all.non-capability",
+        "surface.native.op.global.gpucomputepassencoder.1hyirez.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpucomputepipeline.1buodqe",
+      "observedKey": "native-op:global:GPUComputePipeline",
+      "branchId": "surface.native.op.global.gpucomputepipeline.1buodqe.all",
+      "enforcementBranchId": "surface.native.op.global.gpucomputepipeline.1buodqe.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUComputePipeline"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUComputePipeline"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUComputePipeline"
+        ],
+        "terminalObservedKey": "native-op:global:GPUComputePipeline"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUComputePipeline"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpucomputepipeline.1buodqe.all.cannot-widen-authority",
+        "surface.native.op.global.gpucomputepipeline.1buodqe.all.non-capability",
+        "surface.native.op.global.gpucomputepipeline.1buodqe.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpudevice.0lrubnp",
+      "observedKey": "native-op:global:GPUDevice",
+      "branchId": "surface.native.op.global.gpudevice.0lrubnp.all",
+      "enforcementBranchId": "surface.native.op.global.gpudevice.0lrubnp.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUDevice"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUDevice"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUDevice"
+        ],
+        "terminalObservedKey": "native-op:global:GPUDevice"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUDevice"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpudevice.0lrubnp.all.cannot-widen-authority",
+        "surface.native.op.global.gpudevice.0lrubnp.all.non-capability",
+        "surface.native.op.global.gpudevice.0lrubnp.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpudevicelostinfo.1lenyin",
+      "observedKey": "native-op:global:GPUDeviceLostInfo",
+      "branchId": "surface.native.op.global.gpudevicelostinfo.1lenyin.all",
+      "enforcementBranchId": "surface.native.op.global.gpudevicelostinfo.1lenyin.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUDeviceLostInfo"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUDeviceLostInfo"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUDeviceLostInfo"
+        ],
+        "terminalObservedKey": "native-op:global:GPUDeviceLostInfo"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUDeviceLostInfo"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpudevicelostinfo.1lenyin.all.cannot-widen-authority",
+        "surface.native.op.global.gpudevicelostinfo.1lenyin.all.non-capability",
+        "surface.native.op.global.gpudevicelostinfo.1lenyin.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpuerror.0c29ikf",
+      "observedKey": "native-op:global:GPUError",
+      "branchId": "surface.native.op.global.gpuerror.0c29ikf.all",
+      "enforcementBranchId": "surface.native.op.global.gpuerror.0c29ikf.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUError"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUError"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUError"
+        ],
+        "terminalObservedKey": "native-op:global:GPUError"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUError"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpuerror.0c29ikf.all.cannot-widen-authority",
+        "surface.native.op.global.gpuerror.0c29ikf.all.non-capability",
+        "surface.native.op.global.gpuerror.0c29ikf.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpuinternalerror.000fb0w",
+      "observedKey": "native-op:global:GPUInternalError",
+      "branchId": "surface.native.op.global.gpuinternalerror.000fb0w.all",
+      "enforcementBranchId": "surface.native.op.global.gpuinternalerror.000fb0w.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUInternalError"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUInternalError"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUInternalError"
+        ],
+        "terminalObservedKey": "native-op:global:GPUInternalError"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUInternalError"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpuinternalerror.000fb0w.all.cannot-widen-authority",
+        "surface.native.op.global.gpuinternalerror.000fb0w.all.non-capability",
+        "surface.native.op.global.gpuinternalerror.000fb0w.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpumapmode.132t0bs",
+      "observedKey": "native-op:global:GPUMapMode",
+      "branchId": "surface.native.op.global.gpumapmode.132t0bs.all",
+      "enforcementBranchId": "surface.native.op.global.gpumapmode.132t0bs.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUMapMode"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUMapMode"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUMapMode"
+        ],
+        "terminalObservedKey": "native-op:global:GPUMapMode"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUMapMode"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpumapmode.132t0bs.all.cannot-widen-authority",
+        "surface.native.op.global.gpumapmode.132t0bs.all.non-capability",
+        "surface.native.op.global.gpumapmode.132t0bs.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpuoutofmemoryerror.1ahnb3r",
+      "observedKey": "native-op:global:GPUOutOfMemoryError",
+      "branchId": "surface.native.op.global.gpuoutofmemoryerror.1ahnb3r.all",
+      "enforcementBranchId": "surface.native.op.global.gpuoutofmemoryerror.1ahnb3r.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUOutOfMemoryError"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUOutOfMemoryError"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUOutOfMemoryError"
+        ],
+        "terminalObservedKey": "native-op:global:GPUOutOfMemoryError"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUOutOfMemoryError"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpuoutofmemoryerror.1ahnb3r.all.cannot-widen-authority",
+        "surface.native.op.global.gpuoutofmemoryerror.1ahnb3r.all.non-capability",
+        "surface.native.op.global.gpuoutofmemoryerror.1ahnb3r.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpupipelinelayout.0a068mr",
+      "observedKey": "native-op:global:GPUPipelineLayout",
+      "branchId": "surface.native.op.global.gpupipelinelayout.0a068mr.all",
+      "enforcementBranchId": "surface.native.op.global.gpupipelinelayout.0a068mr.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUPipelineLayout"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUPipelineLayout"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUPipelineLayout"
+        ],
+        "terminalObservedKey": "native-op:global:GPUPipelineLayout"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUPipelineLayout"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpupipelinelayout.0a068mr.all.cannot-widen-authority",
+        "surface.native.op.global.gpupipelinelayout.0a068mr.all.non-capability",
+        "surface.native.op.global.gpupipelinelayout.0a068mr.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpuqueue.038r0jq",
+      "observedKey": "native-op:global:GPUQueue",
+      "branchId": "surface.native.op.global.gpuqueue.038r0jq.all",
+      "enforcementBranchId": "surface.native.op.global.gpuqueue.038r0jq.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUQueue"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUQueue"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUQueue"
+        ],
+        "terminalObservedKey": "native-op:global:GPUQueue"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUQueue"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpuqueue.038r0jq.all.cannot-widen-authority",
+        "surface.native.op.global.gpuqueue.038r0jq.all.non-capability",
+        "surface.native.op.global.gpuqueue.038r0jq.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpurenderpassencoder.0wzq9oi",
+      "observedKey": "native-op:global:GPURenderPassEncoder",
+      "branchId": "surface.native.op.global.gpurenderpassencoder.0wzq9oi.all",
+      "enforcementBranchId": "surface.native.op.global.gpurenderpassencoder.0wzq9oi.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPURenderPassEncoder"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPURenderPassEncoder"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPURenderPassEncoder"
+        ],
+        "terminalObservedKey": "native-op:global:GPURenderPassEncoder"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPURenderPassEncoder"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpurenderpassencoder.0wzq9oi.all.cannot-widen-authority",
+        "surface.native.op.global.gpurenderpassencoder.0wzq9oi.all.non-capability",
+        "surface.native.op.global.gpurenderpassencoder.0wzq9oi.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpurenderpipeline.1uzysnh",
+      "observedKey": "native-op:global:GPURenderPipeline",
+      "branchId": "surface.native.op.global.gpurenderpipeline.1uzysnh.all",
+      "enforcementBranchId": "surface.native.op.global.gpurenderpipeline.1uzysnh.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPURenderPipeline"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPURenderPipeline"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPURenderPipeline"
+        ],
+        "terminalObservedKey": "native-op:global:GPURenderPipeline"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPURenderPipeline"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpurenderpipeline.1uzysnh.all.cannot-widen-authority",
+        "surface.native.op.global.gpurenderpipeline.1uzysnh.all.non-capability",
+        "surface.native.op.global.gpurenderpipeline.1uzysnh.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpusampler.1u62ynx",
+      "observedKey": "native-op:global:GPUSampler",
+      "branchId": "surface.native.op.global.gpusampler.1u62ynx.all",
+      "enforcementBranchId": "surface.native.op.global.gpusampler.1u62ynx.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUSampler"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSampler"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSampler"
+        ],
+        "terminalObservedKey": "native-op:global:GPUSampler"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSampler"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpusampler.1u62ynx.all.cannot-widen-authority",
+        "surface.native.op.global.gpusampler.1u62ynx.all.non-capability",
+        "surface.native.op.global.gpusampler.1u62ynx.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpushadermodule.0hsy4ja",
+      "observedKey": "native-op:global:GPUShaderModule",
+      "branchId": "surface.native.op.global.gpushadermodule.0hsy4ja.all",
+      "enforcementBranchId": "surface.native.op.global.gpushadermodule.0hsy4ja.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUShaderModule"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUShaderModule"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUShaderModule"
+        ],
+        "terminalObservedKey": "native-op:global:GPUShaderModule"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUShaderModule"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpushadermodule.0hsy4ja.all.cannot-widen-authority",
+        "surface.native.op.global.gpushadermodule.0hsy4ja.all.non-capability",
+        "surface.native.op.global.gpushadermodule.0hsy4ja.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpushaderstage.1gts084",
+      "observedKey": "native-op:global:GPUShaderStage",
+      "branchId": "surface.native.op.global.gpushaderstage.1gts084.all",
+      "enforcementBranchId": "surface.native.op.global.gpushaderstage.1gts084.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUShaderStage"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUShaderStage"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUShaderStage"
+        ],
+        "terminalObservedKey": "native-op:global:GPUShaderStage"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUShaderStage"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpushaderstage.1gts084.all.cannot-widen-authority",
+        "surface.native.op.global.gpushaderstage.1gts084.all.non-capability",
+        "surface.native.op.global.gpushaderstage.1gts084.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpusupportedfeatures.1u2zxh0",
+      "observedKey": "native-op:global:GPUSupportedFeatures",
+      "branchId": "surface.native.op.global.gpusupportedfeatures.1u2zxh0.all",
+      "enforcementBranchId": "surface.native.op.global.gpusupportedfeatures.1u2zxh0.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUSupportedFeatures"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSupportedFeatures"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSupportedFeatures"
+        ],
+        "terminalObservedKey": "native-op:global:GPUSupportedFeatures"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSupportedFeatures"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpusupportedfeatures.1u2zxh0.all.cannot-widen-authority",
+        "surface.native.op.global.gpusupportedfeatures.1u2zxh0.all.non-capability",
+        "surface.native.op.global.gpusupportedfeatures.1u2zxh0.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpusupportedlimits.0vlaq5r",
+      "observedKey": "native-op:global:GPUSupportedLimits",
+      "branchId": "surface.native.op.global.gpusupportedlimits.0vlaq5r.all",
+      "enforcementBranchId": "surface.native.op.global.gpusupportedlimits.0vlaq5r.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUSupportedLimits"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSupportedLimits"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSupportedLimits"
+        ],
+        "terminalObservedKey": "native-op:global:GPUSupportedLimits"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSupportedLimits"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpusupportedlimits.0vlaq5r.all.cannot-widen-authority",
+        "surface.native.op.global.gpusupportedlimits.0vlaq5r.all.non-capability",
+        "surface.native.op.global.gpusupportedlimits.0vlaq5r.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gputexture.1cenb66",
+      "observedKey": "native-op:global:GPUTexture",
+      "branchId": "surface.native.op.global.gputexture.1cenb66.all",
+      "enforcementBranchId": "surface.native.op.global.gputexture.1cenb66.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUTexture"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTexture"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTexture"
+        ],
+        "terminalObservedKey": "native-op:global:GPUTexture"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTexture"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gputexture.1cenb66.all.cannot-widen-authority",
+        "surface.native.op.global.gputexture.1cenb66.all.non-capability",
+        "surface.native.op.global.gputexture.1cenb66.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gputextureusage.17o0v49",
+      "observedKey": "native-op:global:GPUTextureUsage",
+      "branchId": "surface.native.op.global.gputextureusage.17o0v49.all",
+      "enforcementBranchId": "surface.native.op.global.gputextureusage.17o0v49.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUTextureUsage"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTextureUsage"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTextureUsage"
+        ],
+        "terminalObservedKey": "native-op:global:GPUTextureUsage"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTextureUsage"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gputextureusage.17o0v49.all.cannot-widen-authority",
+        "surface.native.op.global.gputextureusage.17o0v49.all.non-capability",
+        "surface.native.op.global.gputextureusage.17o0v49.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gputextureview.10piij3",
+      "observedKey": "native-op:global:GPUTextureView",
+      "branchId": "surface.native.op.global.gputextureview.10piij3.all",
+      "enforcementBranchId": "surface.native.op.global.gputextureview.10piij3.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUTextureView"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTextureView"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTextureView"
+        ],
+        "terminalObservedKey": "native-op:global:GPUTextureView"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTextureView"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gputextureview.10piij3.all.cannot-widen-authority",
+        "surface.native.op.global.gputextureview.10piij3.all.non-capability",
+        "surface.native.op.global.gputextureview.10piij3.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpuuncapturederrorevent.08sacdo",
+      "observedKey": "native-op:global:GPUUncapturedErrorEvent",
+      "branchId": "surface.native.op.global.gpuuncapturederrorevent.08sacdo.all",
+      "enforcementBranchId": "surface.native.op.global.gpuuncapturederrorevent.08sacdo.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUUncapturedErrorEvent"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUUncapturedErrorEvent"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUUncapturedErrorEvent"
+        ],
+        "terminalObservedKey": "native-op:global:GPUUncapturedErrorEvent"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUUncapturedErrorEvent"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpuuncapturederrorevent.08sacdo.all.cannot-widen-authority",
+        "surface.native.op.global.gpuuncapturederrorevent.08sacdo.all.non-capability",
+        "surface.native.op.global.gpuuncapturederrorevent.08sacdo.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpuvalidationerror.18jez7a",
+      "observedKey": "native-op:global:GPUValidationError",
+      "branchId": "surface.native.op.global.gpuvalidationerror.18jez7a.all",
+      "enforcementBranchId": "surface.native.op.global.gpuvalidationerror.18jez7a.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUValidationError"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUValidationError"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUValidationError"
+        ],
+        "terminalObservedKey": "native-op:global:GPUValidationError"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUValidationError"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpuvalidationerror.18jez7a.all.cannot-widen-authority",
+        "surface.native.op.global.gpuvalidationerror.18jez7a.all.non-capability",
+        "surface.native.op.global.gpuvalidationerror.18jez7a.all.post-lockdown-invariant"
       ]
     },
     {
@@ -223373,6 +224427,39 @@
         "enforcement.bex.runtime.js.src.bootstrap.ts.installglobals.globals.navigator.0wpni6l.malformed",
         "enforcement.bex.runtime.js.src.bootstrap.ts.installglobals.globals.navigator.0wpni6l.missing-attribution",
         "enforcement.bex.runtime.js.src.bootstrap.ts.installglobals.globals.navigator.0wpni6l.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.navigator.gpu.0k3b5ao",
+      "observedKey": "native-op:global:navigator.gpu",
+      "branchId": "surface.native.op.global.navigator.gpu.0k3b5ao.all",
+      "enforcementBranchId": "surface.native.op.global.navigator.gpu.0k3b5ao.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:navigator.gpu"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:navigator.gpu"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:navigator.gpu"
+        ],
+        "terminalObservedKey": "native-op:global:navigator.gpu"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:navigator.gpu"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.navigator.gpu.0k3b5ao.all.cannot-widen-authority",
+        "surface.native.op.global.navigator.gpu.0k3b5ao.all.non-capability",
+        "surface.native.op.global.navigator.gpu.0k3b5ao.all.post-lockdown-invariant"
       ]
     },
     {
@@ -274383,59 +275470,59 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256--XZIuKXQxPAsJ5JY-sd8XB1mz1hktqgDudYOrEbOsFI"
+      "rawContentDigest": "sha256-aAv7rmNj2hazCpZzwSmHWtCUTkh01IJYeYJwBew2q3s"
     },
     {
       "kind": "output-disposition-dataset",
       "path": "capsec/generated/output-dispositions.json",
-      "rawContentDigest": "sha256-CN7EtpsuHAp1UkJ_22xCRFwBLiEGfyx0-kBSiph_c_g"
+      "rawContentDigest": "sha256-mO0WoV9HFhK6jgnZHYIeTX06kboVGA728BCKWZ53Zpc"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/output-dispositions.md",
-      "rawContentDigest": "sha256-Tu-61qSuf47AwEm_N_tlzX5FA3ZdWftwiG7GnHu7gZ0"
+      "rawContentDigest": "sha256-prixSw2hVTYzNJUmp5dZ66WNXrSCytbPyRAbXOVg0xk"
     },
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-mjoiOAty2oFpQrdL30Ks1TRlfrpX9DfUyAvCmK4qIaQ"
+      "rawContentDigest": "sha256-V_b7GmHeKuU9EZKe8iFmeeuPLGX8VGxLzj9HB8rmEE8"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-EOtJ3_ILXkAauFG9eJZpmWw9PVn027ILrvIfl_Mc-PY"
+      "rawContentDigest": "sha256-1a6iydsDXfvyW462U0BMaUDhHe26YRgi-a93Bd1Tjcs"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-UMr4oNWSvwe6tp0AeuD0p3_Hr2oBOmsclwYcR6yDJLU"
+      "rawContentDigest": "sha256-X-fOJNvH-gQ9I1zyk76WqvACheMN2kqQWs2VTmU3cxs"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-dqbQ9DjDbC0Q8kGLPNt7VcOYrO8aACzWNRkf5LE86Hg"
+      "rawContentDigest": "sha256-lAGsaJHMXJOzQ0OxmsVG8_RsXnZ6olEBVUmp8zuaoVk"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-4XsajkjaU-H_pduNdQHfl0vn3NyZd8-a644FJ8ugNiA"
+      "rawContentDigest": "sha256-M4n1Nm9E5mf59m8nlQ1Dnxx4vo_DXGmBuiKA2feO5zI"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-rytYRonRHdS83GPAKhyc_3xc-XpwFxniuMLkUUo7utg"
+      "rawContentDigest": "sha256-oDX6igiYKd7STGNij4e_f9Cg9cZ0t1nSKXYFB83371U"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256--A73uxqeHyOhCSqsc-MIaUXZ1s6981CXeUGGyHExB_Y"
+      "rawContentDigest": "sha256-gHDseg6FtxOp4rcPk1o9luVq1L3VNsVNusFbC1LfFdA"
     }
   ],
   "counts": {
-    "observedReferences": 12955,
-    "logicalSurfaces": 7379,
-    "enforcementBranches": 7598,
-    "coverageEdges": 7379,
-    "targetCells": 14758
+    "observedReferences": 12988,
+    "logicalSurfaces": 7412,
+    "enforcementBranches": 7631,
+    "coverageEdges": 7412,
+    "targetCells": 14824
   }
 }

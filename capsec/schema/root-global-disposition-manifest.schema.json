@@ -153,6 +153,8 @@
           "enum": [
             "always",
             "android-platform-state",
+            "authenticated-webgpu-decoded-image",
+            "authenticated-webgpu-provider",
             "baseline-input",
             "bun-compat-shared-or-legacy-fallback",
             "bun-compat-shared-runtime",

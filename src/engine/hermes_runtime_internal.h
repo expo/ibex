@@ -499,6 +499,12 @@ struct ExactHermesRuntime {
   std::unique_ptr<facebook::jsi::Function> root_global_get_prototype_of;
   std::unique_ptr<facebook::jsi::Function> root_global_reflect_delete_property;
   std::vector<std::string> root_global_baseline_keys;
+  // Armed user execution opens only after the descriptor-only sweep has run
+  // against the final authenticated embedder capability projection. A
+  // transaction begun after ordinary bootstrap invalidates the earlier base
+  // sweep until its provider globals are published, sealed, and reverified.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  bool root_global_disposition_verified_for_user_execution{false};
   // Captured exactly once by the trusted loader bootstrap through a temporary
   // host-only rendezvous global. Project code never receives the closure and
   // cannot replace it after bootstrap deletes the rendezvous property.
@@ -784,6 +790,18 @@ inline bool exactRuntimeEnterUserExecution(ExactHermesRuntime* runtime) {
   if (runtime->embedder_capability_state ==
           EmbedderCapabilityState::Configuring ||
       runtime->embedder_capability_state == EmbedderCapabilityState::Failed) {
+    return false;
+  }
+  // The host-controlled bare evaluator remains the phase-limited trusted
+  // loader while armed_bootstrap_eval_open is true. It must neither close the
+  // provider rendezvous nor count as project execution; structured/project
+  // ingress independently refuses until finish_bootstrap closes this phase.
+  if (runtime->armed && runtime->armed_bootstrap_eval_open) {
+    return true;
+  }
+  if (runtime->armed &&
+      !runtime->root_global_disposition_verified_for_user_execution) {
+    runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
     return false;
   }
   // The runtime-js handoff callback is construction-only. Closing it here is
@@ -1944,6 +1962,10 @@ bool pushRuntimeFinalizer(RuntimeCallbackTarget target,
                           std::function<void()> fn);
 
 bool exactGpuBindingInstalled(const ExactHermesRuntime* runtime);
+bool exactGpuAuthenticatedV2ProviderGlobalsActive(
+    const ExactHermesRuntime* runtime);
+bool exactGpuAuthenticatedDecodedImageGlobalActive(
+    const ExactHermesRuntime* runtime);
 bool exactGpuOwnerDrainPending(const ExactHermesRuntime* runtime);
 int exactGpuDrainOwnerFallback(ExactHermesRuntime* runtime);
 int32_t exactGpuActivateInstall(ExactHermesRuntime* runtime);

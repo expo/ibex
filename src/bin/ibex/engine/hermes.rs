@@ -9460,6 +9460,84 @@ module.exports = JSON.stringify({
         feature = "gpu-bridge-test-hooks",
         feature = "capsec-conformance-observer"
     ))]
+    const AUTHENTICATED_WEBGPU_PROVIDER_ROOT_PATHS: &[&str] = &[
+        "GPU",
+        "GPUAdapter",
+        "GPUBindGroupLayout",
+        "GPUBuffer",
+        "GPUBufferUsage",
+        "GPUCanvasContext",
+        "GPUColorWrite",
+        "GPUCommandBuffer",
+        "GPUCommandEncoder",
+        "GPUComputePassEncoder",
+        "GPUComputePipeline",
+        "GPUDevice",
+        "GPUDeviceLostInfo",
+        "GPUError",
+        "GPUInternalError",
+        "GPUMapMode",
+        "GPUOutOfMemoryError",
+        "GPUPipelineLayout",
+        "GPUQueue",
+        "GPURenderPassEncoder",
+        "GPURenderPipeline",
+        "GPUSampler",
+        "GPUShaderModule",
+        "GPUShaderStage",
+        "GPUSupportedFeatures",
+        "GPUSupportedLimits",
+        "GPUTexture",
+        "GPUTextureUsage",
+        "GPUTextureView",
+        "GPUUncapturedErrorEvent",
+        "GPUValidationError",
+        "navigator.gpu",
+    ];
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    unsafe fn assert_root_global_paths_absent(
+        raw: *mut HermesRuntimeOpaque,
+        paths: &[&str],
+        expected_absent: u32,
+    ) {
+        for path in paths {
+            let path = CString::new(*path).unwrap();
+            assert_eq!(
+                ibex_test_root_global_logical_path_absent(raw, path.as_ptr()),
+                expected_absent,
+                "unexpected root-global reachability for {}",
+                path.to_string_lossy()
+            );
+        }
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    fn fake_decoded_image_api() -> ExactGpuDecodedImageHostApiV1 {
+        ExactGpuDecodedImageHostApiV1 {
+            struct_size: std::mem::size_of::<ExactGpuDecodedImageHostApiV1>() as u32,
+            abi_version: EXACT_GPU_DECODED_IMAGE_ABI_VERSION_V1,
+            host_context: std::ptr::NonNull::<u8>::dangling().as_ptr().cast(),
+            retain_context: Some(fake_decoded_image_retain),
+            release_context: Some(fake_decoded_image_release),
+            begin_decode: Some(fake_decoded_image_begin),
+            cancel_decode: Some(fake_decoded_image_cancel),
+        }
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
     fn finalize_fake_gpu_v2_runtime(raw: *mut HermesRuntimeOpaque, mode: u8) {
         reset_fake_gpu_v2(mode);
         let api = fake_gpu_v2_api();
@@ -10741,7 +10819,7 @@ module.exports = JSON.stringify({
         feature = "capsec-conformance-observer"
     ))]
     #[tokio::test(flavor = "current_thread")]
-    async fn gpu_v2_registration_authenticates_exact_descriptor_and_stays_private() {
+    async fn gpu_v2_registration_authenticates_and_publishes_exact_provider_roots() {
         let _lock = hermes_engine_test_lock().lock().await;
         let (_reset, digest) = install_armed_gpu_v2_test_host();
         reset_fake_gpu_v2(0);
@@ -10805,24 +10883,185 @@ module.exports = JSON.stringify({
                 assert_eq!(ibex_test_gpu_v2_private_bridge_present(raw), 1);
             })
             .unwrap();
-
-        assert_eq!(
-            engine
-                .eval_immediate(
-                    "[typeof navigator.gpu, typeof GPUDevice, typeof GPUBufferUsage, \
-                     typeof createImageBitmap, typeof globalThis.__ibexCaptureGpuNativeBridge, \
-                     typeof globalThis.__ibexGpuNativeBridge, \
-                     Reflect.ownKeys(globalThis).some(k => String(k).includes('GpuNativeBridge'))].join('/')",
-                )
-                .await
-                .unwrap()
-                .as_deref(),
-            Some("undefined/undefined/undefined/undefined/undefined/undefined/false")
-        );
+        // Provider finalization precedes the ordinary Rust loader in this
+        // ordering. load_runtime closes bootstrap only after its final
+        // descriptor-only sweep has observed the published exact set.
+        engine.load_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_root_global_paths_absent(raw, AUTHENTICATED_WEBGPU_PROVIDER_ROOT_PATHS, 0);
+                assert_root_global_paths_absent(raw, &["createImageBitmap"], 1);
+                assert_root_global_paths_absent(
+                    raw,
+                    &["__ibexCaptureGpuNativeBridge", "__ibexGpuNativeBridge"],
+                    1,
+                );
+            })
+            .unwrap();
         let state = fake_gpu_v2_state().lock().unwrap();
         assert_eq!(state.retain_service_calls, 1);
         assert_eq!(state.open_calls, 1);
         assert_eq!(state.activate_calls, 1);
+        drop(state);
+        drop(runtime);
+        drop(engine);
+        release_fake_gpu_v2_client();
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_v2_publication_reverifies_after_bootstrap_finished_first() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_gpu_v2_test_host();
+        reset_fake_gpu_v2(0);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let api = fake_gpu_v2_api();
+        let descriptor = fake_gpu_v2_descriptor(&api, &GPU_V2_OPERATION_IDS);
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_root_global_paths_absent(raw, AUTHENTICATED_WEBGPU_PROVIDER_ROOT_PATHS, 1);
+                assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ex_hermes_set_gpu_provider_v2(raw, &descriptor), 0);
+                assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                assert_root_global_paths_absent(raw, AUTHENTICATED_WEBGPU_PROVIDER_ROOT_PATHS, 0);
+                assert_root_global_paths_absent(raw, &["createImageBitmap"], 1);
+            })
+            .unwrap();
+        drop(runtime);
+        drop(engine);
+        release_fake_gpu_v2_client();
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_v2_decoded_authority_conditionally_publishes_create_image_bitmap() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_gpu_v2_test_host();
+        reset_fake_gpu_v2(0);
+        DECODED_IMAGE_RETAIN_CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
+        DECODED_IMAGE_RELEASE_CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let api = fake_gpu_v2_api();
+        let descriptor = fake_gpu_v2_descriptor(&api, &GPU_V2_OPERATION_IDS);
+        let decoded_api = fake_decoded_image_api();
+        let decoded_descriptor = ExactHermesGpuDecodedImageDescriptorV1 {
+            struct_size: std::mem::size_of::<ExactHermesGpuDecodedImageDescriptorV1>() as u32,
+            abi_version: EXACT_GPU_DECODED_IMAGE_ABI_VERSION_V1,
+            flags: 0,
+            api: &decoded_api,
+        };
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ex_hermes_set_gpu_provider_v2(raw, &descriptor), 0);
+                assert_eq!(
+                    ex_hermes_set_gpu_decoded_image_provider_v1(raw, &decoded_descriptor),
+                    0
+                );
+                assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+            })
+            .unwrap();
+        engine.load_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_root_global_paths_absent(raw, AUTHENTICATED_WEBGPU_PROVIDER_ROOT_PATHS, 0);
+                assert_root_global_paths_absent(raw, &["createImageBitmap"], 0);
+            })
+            .unwrap();
+        assert_eq!(
+            DECODED_IMAGE_RETAIN_CALLS.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        drop(runtime);
+        drop(engine);
+        assert_eq!(
+            DECODED_IMAGE_RELEASE_CALLS.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        release_fake_gpu_v2_client();
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn authenticated_webgpu_globals_remain_absent_without_provider() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_root_global_paths_absent(raw, AUTHENTICATED_WEBGPU_PROVIDER_ROOT_PATHS, 1);
+                assert_root_global_paths_absent(raw, &["createImageBitmap"], 1);
+                assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                assert_root_global_paths_absent(raw, AUTHENTICATED_WEBGPU_PROVIDER_ROOT_PATHS, 1);
+                assert_root_global_paths_absent(raw, &["createImageBitmap"], 1);
+            })
+            .unwrap();
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_v2_post_publication_extra_root_rolls_back_without_get() {
+        struct ResetDispositionInjection;
+        impl Drop for ResetDispositionInjection {
+            fn drop(&mut self) {
+                unsafe { ibex_test_set_root_global_disposition_key(std::ptr::null()) };
+            }
+        }
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset_injection = ResetDispositionInjection;
+        let (_reset, digest) = install_armed_gpu_v2_test_host();
+        reset_fake_gpu_v2(0);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let key = CString::new("__ibexUndispositionedAfterWebGpu").unwrap();
+        unsafe { ibex_test_set_root_global_disposition_key(key.as_ptr()) };
+        let api = fake_gpu_v2_api();
+        let descriptor = fake_gpu_v2_descriptor(&api, &GPU_V2_OPERATION_IDS);
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ex_hermes_set_gpu_provider_v2(raw, &descriptor), 0);
+                assert_eq!(
+                    ex_hermes_finalize_embedder_capabilities_v1(raw),
+                    EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED
+                );
+                assert_eq!(ibex_test_root_global_disposition_getter_calls(), 0);
+                assert_eq!(ibex_test_gpu_v2_private_bridge_present(raw), 0);
+                assert_root_global_paths_absent(raw, AUTHENTICATED_WEBGPU_PROVIDER_ROOT_PATHS, 1);
+                assert_root_global_paths_absent(raw, &["createImageBitmap"], 1);
+            })
+            .unwrap();
+        let blocked = engine.eval_immediate("1 + 1").await.unwrap_err();
+        assert!(blocked
+            .to_string()
+            .contains("embedder capability transaction is not finalized"));
+        let state = fake_gpu_v2_state().lock().unwrap();
+        assert_eq!(state.close_calls.len(), 1);
+        assert_eq!(state.release_service_calls, 1);
         drop(state);
         drop(runtime);
         drop(engine);

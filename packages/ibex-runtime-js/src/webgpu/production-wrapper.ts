@@ -404,9 +404,11 @@ const TYPEGPU_WORKLOAD_STAGING = Object.freeze({
   additionalOperationCount:
     WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.additionalOperationCount,
   additionalOperations: Object.freeze(
-    WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.additionalOperations.map(
-      (operation) => Object.freeze({ ...operation }),
-    ),
+    (
+      WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.additionalOperations as readonly Readonly<
+        Record<string, unknown>
+      >[]
+    ).map((operation) => Object.freeze({ ...operation })),
   ),
   localRecordingSubset: Object.freeze({
     ...WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.localRecordingSubset,
@@ -6291,6 +6293,9 @@ export function installProductionWebGpu(
     }
     for (const name of PUBLIC_CONSTANT_NAMES) {
       installValue(globalObject, name, binding.constantObjects[name]);
+    }
+    if (binding.createImageBitmap !== undefined) {
+      installValue(globalObject, 'createImageBitmap', binding.createImageBitmap);
     }
   } catch (error) {
     for (let index = installed.length - 1; index >= 0; index -= 1) {

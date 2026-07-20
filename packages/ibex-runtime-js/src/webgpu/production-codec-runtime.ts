@@ -5610,7 +5610,15 @@ function convertSetBindGroupArguments(
     let byteLength: number;
     try {
       tag = Reflect.apply(TYPED_ARRAY_TAG_GETTER, args[2], []);
-      byteLength = Reflect.apply(TYPED_ARRAY_BYTE_LENGTH_GETTER, args[2], []);
+      const byteLengthValue = Reflect.apply(
+        TYPED_ARRAY_BYTE_LENGTH_GETTER,
+        args[2],
+        [],
+      );
+      if (typeof byteLengthValue !== 'number') {
+        throw new TypeError('dynamicOffsetsData must be a Uint32Array');
+      }
+      byteLength = byteLengthValue;
     } catch {
       throw new TypeError('dynamicOffsetsData must be a Uint32Array');
     }
@@ -10232,7 +10240,7 @@ function buildQueueSubmitRecordSpecs(): Readonly<{
   >(
     WEBGPU_PRODUCTION_PLAN.routes.map((entry) => [entry.operationId, entry] as const),
   );
-  const promoted = new Set(
+  const promoted = new Set<string>(
     WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.authenticatedPromotions.map(
       (entry) => entry.operationId,
     ),

@@ -808,6 +808,7 @@ function parseRustExternFunction(tokens, itemIndex, definitionsByNameIndex) {
   }
   const definition = definitionsByNameIndex.get(cursor + 3);
   return {
+    bodyClose: definition.bodyClose,
     bodyOpen: definition.bodyOpen,
     internalName: tokens[cursor + 3].value,
     isUnsafe,
@@ -2443,8 +2444,26 @@ function annotatedOwnership(value) {
     : { kind: value };
 }
 
-function publicAbiReturnOwnership(functionName, language, returnTokens) {
+function publicAbiReturnOwnership(
+  functionName,
+  language,
+  returnTokens,
+  returnOwnershipProof,
+) {
   const type = abiTypeDescriptor(returnTokens).canonical;
+  if (
+    language === "rust" &&
+    functionName === "ex_host_exact_gpu_authority_session_api_v2" &&
+    type ===
+      "* const super : : gpu_authority : : ExactGpuAuthoritySessionApiV2" &&
+    returnOwnershipProof === "rust-static-reference-to-pointer"
+  ) {
+    // The exact body binds the helper result to an &'static reference before
+    // converting it with ptr::from_ref. Rust therefore rejects a helper drift
+    // to non-static storage, while the structural proof below rejects a body
+    // that returns an unrelated pointer under the same name and signature.
+    return { kind: "borrowed" };
+  }
   const isCharacterPointer =
     type === "char *" ||
     type === "* mut c_char" ||
@@ -2551,6 +2570,7 @@ function buildHostAbiOutputContract({
   language,
   parameters: rawParameters,
   returnTokens,
+  returnOwnershipProof = null,
   sourceRef,
   typeRegistry,
 }) {
@@ -2611,7 +2631,12 @@ function buildHostAbiOutputContract({
   const returnKind = abiTypeKind(language, returnTokens, { isReturn: true });
   const returnOwnership =
     returnKind === "pointer"
-      ? publicAbiReturnOwnership(functionName, language, returnTokens)
+      ? publicAbiReturnOwnership(
+          functionName,
+          language,
+          returnTokens,
+          returnOwnershipProof,
+        )
       : { kind: "not-applicable" };
   const returnContract = {
     kind: returnKind,
@@ -2874,6 +2899,57 @@ export function deriveHostAbiOutputCatalogAccount(surface) {
   };
 }
 
+function rustAbiReturnOwnershipProof(tokens, record) {
+  if (
+    record.name !== "ex_host_exact_gpu_authority_session_api_v2" ||
+    record.bodyClose <= record.bodyOpen
+  ) {
+    return null;
+  }
+  const body = tokens
+    .slice(record.bodyOpen + 1, record.bodyClose)
+    .map((token) => token.value);
+  const expected = [
+    "let",
+    "api",
+    ":",
+    "&",
+    "'",
+    "static",
+    "super",
+    ":",
+    ":",
+    "gpu_authority",
+    ":",
+    ":",
+    "ExactGpuAuthoritySessionApiV2",
+    "=",
+    "super",
+    ":",
+    ":",
+    "gpu_authority",
+    ":",
+    ":",
+    "authority_session_api_v2",
+    "(",
+    ")",
+    ";",
+    "std",
+    ":",
+    ":",
+    "ptr",
+    ":",
+    ":",
+    "from_ref",
+    "(",
+    "api",
+    ")",
+  ];
+  return JSON.stringify(body) === JSON.stringify(expected)
+    ? "rust-static-reference-to-pointer"
+    : null;
+}
+
 function rustHostAbiOutputContract(
   tokens,
   record,
@@ -2903,6 +2979,7 @@ function rustHostAbiOutputContract(
       record.name,
     ),
     returnTokens,
+    returnOwnershipProof: rustAbiReturnOwnershipProof(tokens, record),
     sourceRef,
     typeRegistry: null,
   });
@@ -10246,6 +10323,22 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
   }
 
   const literalArrays = new Map();
+  const literalStringArrayInitializer = (expression) => {
+    const value = tsUnwrapExpression(expression);
+    if (ts.isArrayLiteralExpression(value)) return value;
+    if (
+      ts.isCallExpression(value) &&
+      value.arguments.length === 1 &&
+      ts.isPropertyAccessExpression(tsUnwrapExpression(value.expression)) &&
+      ts.isIdentifier(tsUnwrapExpression(value.expression).expression) &&
+      tsUnwrapExpression(value.expression).expression.text === 'Object' &&
+      tsUnwrapExpression(value.expression).name.text === 'freeze'
+    ) {
+      const argument = tsUnwrapExpression(value.arguments[0]);
+      return ts.isArrayLiteralExpression(argument) ? argument : null;
+    }
+    return null;
+  };
   const arraySymbol = (expression) => {
     const value = tsUnwrapExpression(expression);
     return ts.isIdentifier(value) ? symbolAt(value) : null;
@@ -10255,17 +10348,21 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
       if (
         ts.isVariableDeclaration(node) &&
         ts.isIdentifier(node.name) &&
-        node.initializer &&
-        ts.isArrayLiteralExpression(tsUnwrapExpression(node.initializer))
+        node.initializer
       ) {
+        const initializer = literalStringArrayInitializer(node.initializer);
+        if (!initializer) {
+          ts.forEachChild(node, visit);
+          return;
+        }
         const symbol = symbolAt(node.name);
-        const values = tsUnwrapExpression(node.initializer)
+        const values = initializer
           .elements.map((element) => tsUnwrapExpression(element))
           .filter((element) => ts.isStringLiteralLike(element))
           .map((element) => element.text);
         if (
           symbol &&
-          values.length === tsUnwrapExpression(node.initializer).elements.length
+          values.length === initializer.elements.length
         ) {
           literalArrays.set(symbol, new Set(values));
         }
@@ -11656,6 +11753,21 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
     if (dynamicTable) return;
     if (value) {
       const valueNode = tsUnwrapExpression(value);
+      // This temporary root is not an app-callable API: native capability
+      // finalization invokes it exactly once and then proves it deleted. Its
+      // callback can install authenticated app-realm globals, so include that
+      // helper-driven continuation in the same source-derived inventory as a
+      // direct global write. Without following the registered callable, the
+      // inventory would see only the handoff itself and miss every property
+      // installed during its native invocation.
+      if (
+        segments.length === 1 &&
+        segments[0] === '__ibexCaptureGpuNativeBridge'
+      ) {
+        for (const declaration of callableDeclarations(valueNode, environment)) {
+          enqueueFunction(declaration, environment);
+        }
+      }
       if (
         ts.isNewExpression(valueNode) &&
         ts.isIdentifier(tsUnwrapExpression(valueNode.expression)) &&

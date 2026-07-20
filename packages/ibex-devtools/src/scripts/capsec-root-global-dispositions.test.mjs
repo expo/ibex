@@ -404,6 +404,25 @@ describe("root-global disposition manifest", () => {
         globalName: "process",
         memberName: "stdout.write",
       }),
+      surface("global:GPUDevice", {
+        globalName: "GPUDevice",
+        sourceRefs: [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUDevice",
+        ],
+      }),
+      surface("global:navigator.gpu", {
+        globalName: "navigator",
+        memberName: "gpu",
+        sourceRefs: [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:navigator.gpu",
+        ],
+      }),
+      surface("global:createImageBitmap", {
+        globalName: "createImageBitmap",
+        sourceRefs: [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:createImageBitmap",
+        ],
+      }),
     ];
     const manifest = buildRootGlobalDispositionManifest({
       globals: conditional,
@@ -437,7 +456,31 @@ describe("root-global disposition manifest", () => {
         (row) => row.observedKey === "native-op:global:process.stdout.write",
       ).branch.activation,
     ).toBe("legacy-runtime-fallback");
+    expect(activation("GPUDevice")).toBe("authenticated-webgpu-provider");
+    expect(
+      manifest.rows.find(
+        (row) => row.observedKey === "native-op:global:navigator.gpu",
+      ).branch.activation,
+    ).toBe("authenticated-webgpu-provider");
+    expect(activation("createImageBitmap")).toBe(
+      "authenticated-webgpu-decoded-image",
+    );
     expect(manifest.status).toBe("enforced-by-armed-live-sweep");
+  });
+
+  test("rejects unreviewed helper-driven authenticated root names", () => {
+    const unreviewed = surface("global:WebGpuSurprise", {
+      globalName: "WebGpuSurprise",
+      sourceRefs: [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:WebGpuSurprise",
+      ],
+    });
+    expect(() =>
+      buildRootGlobalDispositionManifest({
+        globals: [unreviewed],
+        coverage: coverage([unreviewed]),
+      }),
+    ).toThrow(/unreviewed authenticated WebGPU root installation/u);
   });
 
   test("missing, extra, and unresolved reachable rows fail closed", () => {

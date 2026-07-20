@@ -60,10 +60,17 @@ describe("generated root-global disposition artifacts", () => {
     expect(rendered.manifest.counts.sealedOrPrivate).toBeGreaterThan(20);
     expect(rendered.cxx).toContain("kRootExpectations");
     expect(rendered.cxx).toContain("kAbsentExpectations");
+    expect(rendered.cxx).toContain("kConditionalLiveSweepExpectations[33]");
     expect(rendered.cxx).toContain("kNativeKeyExpectations");
     expect(rendered.cxx).toContain("kPermittedKeyExpectations");
     expect(rendered.cxx).toContain("__exactExit");
     expect(rendered.cxx).toContain("Ibex.permissions");
+    expect(rendered.cxx).toContain(
+      '"navigator.gpu", "all", "authenticated-webgpu-provider"',
+    );
+    expect(rendered.cxx).toContain(
+      '"createImageBitmap", "all", "authenticated-webgpu-decoded-image"',
+    );
     expect(
       renderRootGlobalDispositionHeader(rendered.manifest, rendered.json),
     ).toBe(rendered.cxx);
@@ -101,9 +108,9 @@ describe("generated root-global disposition artifacts", () => {
       ).toBe(true);
     }
     expect(manifest.counts).toMatchObject({
-      installBranches: 2_722,
+      installBranches: 2_755,
       sealedOrPrivate: 346,
-      permittedReachable: 2_376,
+      permittedReachable: 2_409,
     });
   }, 30_000);
 

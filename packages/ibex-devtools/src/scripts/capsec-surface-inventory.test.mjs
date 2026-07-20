@@ -779,6 +779,38 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       return: { kind: "void", role: "none" },
     });
 
+    const staticTableContract = scanRustPublicAbiDefinitions(
+      String.raw`
+        #[no_mangle]
+        pub extern "C" fn ex_host_exact_gpu_authority_session_api_v2(
+        ) -> *const super::gpu_authority::ExactGpuAuthoritySessionApiV2 {
+          let api: &'static super::gpu_authority::ExactGpuAuthoritySessionApiV2 =
+            super::gpu_authority::authority_session_api_v2();
+          std::ptr::from_ref(api)
+        }
+      `,
+      "static-table.rs",
+    )[0].metadata.outputContract;
+    expect(staticTableContract).toMatchObject({
+      return: { kind: "pointer", ownership: { kind: "borrowed" } },
+      status: "resolved",
+    });
+    const mutatedTableContract = scanRustPublicAbiDefinitions(
+      String.raw`
+        #[no_mangle]
+        pub extern "C" fn ex_host_exact_gpu_authority_session_api_v2(
+        ) -> *const super::gpu_authority::ExactGpuAuthoritySessionApiV2 {
+          std::ptr::null()
+        }
+      `,
+      "mutated-static-table.rs",
+    )[0].metadata.outputContract;
+    expect(mutatedTableContract).toMatchObject({
+      return: { kind: "pointer", ownership: { kind: "unknown" } },
+      status: "unresolved",
+      unresolved: ["return-pointer-ownership"],
+    });
+
     const cpp = String.raw`
       extern "C" char* ex_hermes_signature_contract(
         ExactHermesRuntime* runtime,
@@ -6932,6 +6964,53 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
         PRINCIPAL_ENVIRONMENT_OVERLAY_SURFACE_NAME,
       ]),
     );
+    const authenticatedWebGpuRows = rows.filter((row) =>
+      row.sourceRefs.some((sourceRef) =>
+        sourceRef.startsWith(
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:",
+        ),
+      ),
+    );
+    expect(authenticatedWebGpuRows.map((row) => row.name).sort()).toEqual([
+      "global:GPU",
+      "global:GPUAdapter",
+      "global:GPUBindGroupLayout",
+      "global:GPUBuffer",
+      "global:GPUBufferUsage",
+      "global:GPUCanvasContext",
+      "global:GPUColorWrite",
+      "global:GPUCommandBuffer",
+      "global:GPUCommandEncoder",
+      "global:GPUComputePassEncoder",
+      "global:GPUComputePipeline",
+      "global:GPUDevice",
+      "global:GPUDeviceLostInfo",
+      "global:GPUError",
+      "global:GPUInternalError",
+      "global:GPUMapMode",
+      "global:GPUOutOfMemoryError",
+      "global:GPUPipelineLayout",
+      "global:GPUQueue",
+      "global:GPURenderPassEncoder",
+      "global:GPURenderPipeline",
+      "global:GPUSampler",
+      "global:GPUShaderModule",
+      "global:GPUShaderStage",
+      "global:GPUSupportedFeatures",
+      "global:GPUSupportedLimits",
+      "global:GPUTexture",
+      "global:GPUTextureUsage",
+      "global:GPUTextureView",
+      "global:GPUUncapturedErrorEvent",
+      "global:GPUValidationError",
+      "global:createImageBitmap",
+      "global:navigator.gpu",
+    ].sort());
+    expect(
+      authenticatedWebGpuRows.every(
+        (row) => row.metadata.sourceKey === "shared_runtime",
+      ),
+    ).toBe(true);
     expect(
       rows.find(
         (row) => row.name === PRINCIPAL_ENVIRONMENT_OVERLAY_SURFACE_NAME,
@@ -7352,7 +7431,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     expect(first.hostAbi.some((row) => row.name === "ex_host_fs_open")).toBe(
       true,
     );
-    expect(first.hostAbi).toHaveLength(324);
+    expect(first.hostAbi).toHaveLength(331);
     for (const [name, sourceRef] of [
       [
         "evaluation:installGlobals:native-freeze-conformance-observation",
@@ -7427,7 +7506,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .sort(),
       ),
     ).toEqual({
-      "output-bearing": 274,
+      "output-bearing": 281,
       "structural-only": 50,
     });
     expect(
@@ -7460,7 +7539,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .map(([role, channels]) => [role, channels.length])
           .sort(),
       ),
-    ).toEqual({ callback: 59, out: 206, return: 256 });
+    ).toEqual({ callback: 59, out: 207, return: 263 });
     expect(
       Object.fromEntries(
         [
@@ -7475,8 +7554,8 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     ).toEqual({
       "none:void": 68,
       "value:aggregate": 17,
-      "value:pointer": 49,
-      "value:scalar": 190,
+      "value:pointer": 50,
+      "value:scalar": 196,
     });
     expect(
       Object.fromEntries(
@@ -7492,8 +7571,8 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     ).toEqual({
       "callback-payload": 38,
       inout: 9,
-      input: 804,
-      output: 77,
+      input: 812,
+      output: 78,
     });
 
     const accountFor = (name) =>
@@ -7734,7 +7813,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     ).toEqual(["src/engine/hermes_runtime.cc#ex_hermes_create_armed"]);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")),
-    ).toHaveLength(152);
+    ).toHaveLength(155);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")).length,
     ).toBeGreaterThan(0);
@@ -8066,10 +8145,10 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     const producers = first.callbacks.filter((row) =>
       row.name.startsWith("producer:"),
     );
-    expect(producers).toHaveLength(14);
+    expect(producers).toHaveLength(15);
     expect(
       producers.reduce((count, row) => count + row.metadata.occurrenceCount, 0),
-    ).toBe(19);
+    ).toBe(20);
     expect(
       producers.find(
         (row) =>

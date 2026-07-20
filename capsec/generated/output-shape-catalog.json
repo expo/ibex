@@ -58293,6 +58293,17 @@
       ]
     },
     {
+      "surfaceId": "surface.native.op.global.createimagebitmap.0rbailr",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:createImageBitmap"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
       "surfaceId": "surface.native.op.global.crypto.05lvgvq",
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
@@ -63754,6 +63765,347 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:global",
         "src/engine/bootstrap/compat-polyfills.js#global",
         "src/engine/bootstrap/exact-global.js#global"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpu.1ui4rqn",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPU"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpuadapter.14eu3zq",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUAdapter"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpubindgrouplayout.0pjs9xd",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBindGroupLayout"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpubuffer.1vy1rid",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBuffer"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpubufferusage.1aqx9u0",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBufferUsage"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpucanvascontext.0mtodaa",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCanvasContext"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpucolorwrite.0i5fm61",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUColorWrite"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpucommandbuffer.1d4ltly",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCommandBuffer"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpucommandencoder.07kskj8",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCommandEncoder"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpucomputepassencoder.1hyirez",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUComputePassEncoder"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpucomputepipeline.1buodqe",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUComputePipeline"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpudevice.0lrubnp",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUDevice"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpudevicelostinfo.1lenyin",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUDeviceLostInfo"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpuerror.0c29ikf",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUError"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpuinternalerror.000fb0w",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUInternalError"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpumapmode.132t0bs",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUMapMode"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpuoutofmemoryerror.1ahnb3r",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUOutOfMemoryError"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpupipelinelayout.0a068mr",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUPipelineLayout"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpuqueue.038r0jq",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUQueue"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpurenderpassencoder.0wzq9oi",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPURenderPassEncoder"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpurenderpipeline.1uzysnh",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPURenderPipeline"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpusampler.1u62ynx",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSampler"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpushadermodule.0hsy4ja",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUShaderModule"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpushaderstage.1gts084",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUShaderStage"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpusupportedfeatures.1u2zxh0",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSupportedFeatures"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpusupportedlimits.0vlaq5r",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSupportedLimits"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gputexture.1cenb66",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTexture"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gputextureusage.17o0v49",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTextureUsage"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gputextureview.10piij3",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTextureView"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpuuncapturederrorevent.08sacdo",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUUncapturedErrorEvent"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpuvalidationerror.18jez7a",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUValidationError"
       ],
       "outputKinds": [
         "public-property-read"
@@ -69604,6 +69956,17 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:navigator"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.navigator.gpu.0k3b5ao",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:navigator.gpu"
       ],
       "outputKinds": [
         "public-property-read"
@@ -83947,15 +84310,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-Uyt-0DXWr7ppMAm2hoxVqr_EmT3NFLTkyL8oCKsoGhU",
+  "catalogKeyDigest": "sha256-aTcszgPsfJclNwRL-OO72-vFYkmdAxNTxnlGXD-4uDE",
   "counts": {
-    "coverageSurfaces": 7379,
-    "outputBearingSurfaces": 5750,
+    "coverageSurfaces": 7412,
+    "outputBearingSurfaces": 5783,
     "structuralOnlySurfaces": 1556,
     "unresolvedSurfaces": 73,
-    "catalogRows": 6421,
+    "catalogRows": 6454,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6014,
+    "sourceInventoryRows": 6047,
     "structuredRows": 407
   },
   "rows": [
@@ -179367,6 +179730,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.native.op.global.createimagebitmap.0rbailr",
+        "output": "[[value]]",
+        "alias": "global:createImageBitmap",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:createImageBitmap"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:createImageBitmap"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.native.op.global.crypto.05lvgvq",
         "output": "[[return]]",
         "alias": "global:Crypto",
@@ -189494,6 +189878,657 @@
           "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:global",
           "src/engine/bootstrap/compat-polyfills.js#global",
           "src/engine/bootstrap/exact-global.js#global"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpu.1ui4rqn",
+        "output": "[[value]]",
+        "alias": "global:GPU",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPU"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPU"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuadapter.14eu3zq",
+        "output": "[[value]]",
+        "alias": "global:GPUAdapter",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUAdapter"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUAdapter"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpubindgrouplayout.0pjs9xd",
+        "output": "[[value]]",
+        "alias": "global:GPUBindGroupLayout",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUBindGroupLayout"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBindGroupLayout"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpubuffer.1vy1rid",
+        "output": "[[value]]",
+        "alias": "global:GPUBuffer",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUBuffer"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBuffer"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpubufferusage.1aqx9u0",
+        "output": "[[value]]",
+        "alias": "global:GPUBufferUsage",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUBufferUsage"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBufferUsage"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpucanvascontext.0mtodaa",
+        "output": "[[value]]",
+        "alias": "global:GPUCanvasContext",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUCanvasContext"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCanvasContext"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpucolorwrite.0i5fm61",
+        "output": "[[value]]",
+        "alias": "global:GPUColorWrite",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUColorWrite"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUColorWrite"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpucommandbuffer.1d4ltly",
+        "output": "[[value]]",
+        "alias": "global:GPUCommandBuffer",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUCommandBuffer"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCommandBuffer"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpucommandencoder.07kskj8",
+        "output": "[[value]]",
+        "alias": "global:GPUCommandEncoder",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUCommandEncoder"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCommandEncoder"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpucomputepassencoder.1hyirez",
+        "output": "[[value]]",
+        "alias": "global:GPUComputePassEncoder",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUComputePassEncoder"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUComputePassEncoder"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpucomputepipeline.1buodqe",
+        "output": "[[value]]",
+        "alias": "global:GPUComputePipeline",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUComputePipeline"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUComputePipeline"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpudevice.0lrubnp",
+        "output": "[[value]]",
+        "alias": "global:GPUDevice",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUDevice"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUDevice"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpudevicelostinfo.1lenyin",
+        "output": "[[value]]",
+        "alias": "global:GPUDeviceLostInfo",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUDeviceLostInfo"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUDeviceLostInfo"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuerror.0c29ikf",
+        "output": "[[value]]",
+        "alias": "global:GPUError",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUError"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUError"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuinternalerror.000fb0w",
+        "output": "[[value]]",
+        "alias": "global:GPUInternalError",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUInternalError"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUInternalError"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpumapmode.132t0bs",
+        "output": "[[value]]",
+        "alias": "global:GPUMapMode",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUMapMode"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUMapMode"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuoutofmemoryerror.1ahnb3r",
+        "output": "[[value]]",
+        "alias": "global:GPUOutOfMemoryError",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUOutOfMemoryError"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUOutOfMemoryError"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpupipelinelayout.0a068mr",
+        "output": "[[value]]",
+        "alias": "global:GPUPipelineLayout",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUPipelineLayout"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUPipelineLayout"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuqueue.038r0jq",
+        "output": "[[value]]",
+        "alias": "global:GPUQueue",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUQueue"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUQueue"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpurenderpassencoder.0wzq9oi",
+        "output": "[[value]]",
+        "alias": "global:GPURenderPassEncoder",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPURenderPassEncoder"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPURenderPassEncoder"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpurenderpipeline.1uzysnh",
+        "output": "[[value]]",
+        "alias": "global:GPURenderPipeline",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPURenderPipeline"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPURenderPipeline"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpusampler.1u62ynx",
+        "output": "[[value]]",
+        "alias": "global:GPUSampler",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUSampler"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSampler"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpushadermodule.0hsy4ja",
+        "output": "[[value]]",
+        "alias": "global:GPUShaderModule",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUShaderModule"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUShaderModule"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpushaderstage.1gts084",
+        "output": "[[value]]",
+        "alias": "global:GPUShaderStage",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUShaderStage"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUShaderStage"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpusupportedfeatures.1u2zxh0",
+        "output": "[[value]]",
+        "alias": "global:GPUSupportedFeatures",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUSupportedFeatures"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSupportedFeatures"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpusupportedlimits.0vlaq5r",
+        "output": "[[value]]",
+        "alias": "global:GPUSupportedLimits",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUSupportedLimits"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSupportedLimits"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gputexture.1cenb66",
+        "output": "[[value]]",
+        "alias": "global:GPUTexture",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUTexture"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTexture"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gputextureusage.17o0v49",
+        "output": "[[value]]",
+        "alias": "global:GPUTextureUsage",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUTextureUsage"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTextureUsage"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gputextureview.10piij3",
+        "output": "[[value]]",
+        "alias": "global:GPUTextureView",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUTextureView"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTextureView"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuuncapturederrorevent.08sacdo",
+        "output": "[[value]]",
+        "alias": "global:GPUUncapturedErrorEvent",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUUncapturedErrorEvent"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUUncapturedErrorEvent"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuvalidationerror.18jez7a",
+        "output": "[[value]]",
+        "alias": "global:GPUValidationError",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUValidationError"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUValidationError"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -200223,6 +201258,27 @@
         ],
         "sourceRefs": [
           "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:navigator"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.navigator.gpu.0k3b5ao",
+        "output": "[[value]]",
+        "alias": "global:navigator.gpu",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:navigator.gpu"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:navigator.gpu"
         ]
       },
       "requiredValueProof": "live-value-observation"

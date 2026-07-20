@@ -5,6 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-19 (publishes the source-derived WebGPU provider root set only from an authenticated V2 construction capture, publishes `createImageBitmap` only when decoded-image authority was attached, and requires an exact descriptor-only root-global sweep after publication and sealing but before user execution in either Apple bootstrap order; any mismatch revokes the wrapper and fails the runtime closed, while target advertisements, public grant issuance, and platform-support claims remain absent)
 **Revised:** 2026-07-19 (adds the source-derived construction-private WebGPU CapSec authority session: native-random bounded session identities, exact V2 Requested/Commit/Repeat and retire callbacks, full realm/account/device/object/handle and actor/effect-owner/scheduler/generation binding, typed `gpu:operation` positive decisions over generated private edge/cell mappings, structural authority-reducing decisions without positive grants, fail-closed service-admission enforcement, and teardown purge; `navigator.gpu`, embedded executable codecs, public grant issuance, target advertisement, and platform support claims remain absent)
 **Revised:** 2026-07-19 (composes GPUBuffer mapping with true engine aliases: first aliasing promotes an internal mapped-at-creation source to shared external ownership in place, all aliases are tracked from native mint through one matching-key detach attempt, operation-result bytes have one wrapper carrier while the success receipt resolves undefined, and either compile-time or live-cast engine-capability absence fails finalization closed with rollback; no public issuer, global installation, positive platform edge, or support claim is added)
 **Revised:** 2026-07-19 (hardens the construction-private GPUBuffer lifecycle: retained cleanup, destroyed state, and an existing pending or active mapping fence new maps without service work; all post-WebIDL `mapAsync` failures remain Promise rejections; void cleanup suppresses known non-admission while retaining the exact retry snapshot and closes on ambiguous admission; spontaneous loss discards detached retry snapshots, preserves active views, and makes their later explicit cleanup local-only with private detachment bookkeeping; cleanup moves the existing private MAP_WRITE block without a second full allocation; and Ibex structured clone/ArrayBuffer transfer entry points enforce mapped-range non-transferability through an inaccessible lexical set and captured operations without claiming native Hermes detachment; the embedded codec slot, public issuer, positive CapSec support, ordinary global installation, and support claim remain absent)
@@ -771,8 +772,12 @@ profile, vocabulary, operation-set, semantic-program, routing, and operation
 identities against the generated complete private target cell. Operations
 classified by the source route as authority-reducing validate the same stage
 and identity structure but require no positive grant. This carrier does not
-create a public grant issuer, advertise a target, install `navigator.gpu`, add
-an embedded executable codec, or make a platform-support claim. The
+create a public grant issuer, advertise a target, add an ambient executable
+codec, or make a platform-support claim. Separately, an authenticated V2 app
+realm may consume the construction capture to publish exactly the
+source-derived WebGPU provider globals; decoded-image authority independently
+controls `createImageBitmap`. That conditional projection is neither a grant
+issuer nor a support advertisement. The
 source-classified `GPUDevice.pushErrorScope` semantic-service control route
 uses that same structural, non-capability session discipline without being
 misclassified as either positive authority or authority reduction.
@@ -1207,18 +1212,20 @@ defaulted fields, and reviewed closure language-neutral instead of relying on
 a hand-authored hex example. Unknown
 post-WebIDL `featureLevel` strings remain strings and resolve to `null` locally
 without provider work, as required by the semantic program. The bundled graph
-contains the generated injection codec for conformance and wrapper tests, but
-no executable codec is bound to `EMBEDDED_EXECUTABLE_WEBGPU_CODECS` or otherwise
-installable by production construction. No native request-payload decoder or
-completion-payload encoder is implemented inside Ibex from these programs, and no
-matching semantic provider method is installed, so native construction
-installs no `navigator.gpu`, interface
-globals, constants, or `createImageBitmap`. Tests may explicitly inject a
-digest-matched codec
-bundle into the private factory to verify routing, conversion timing, local
-command recording, receiver projection, identity, revocation, and loss
-settlement. Such injection and the generated corpus are conformance evidence
-for the private boundary only, not native WebGPU support.
+contains the generated executable codec, but it reaches the production wrapper
+only through the authenticated V2 construction capture; the route plan, build
+feature, or an unauthenticated provider cannot install it. No native
+request-payload decoder or completion-payload encoder is synthesized inside
+Ibex from these programs: execution remains behind the separately registered,
+authenticated provider. A successful V2 capture publishes exactly
+`navigator.gpu`, the source-derived interface globals and constants, and no
+other provider roots. It additionally publishes `createImageBitmap` only when
+the native decoded-image authority was attached. Provider absence, V1, failed
+authentication, and missing decoded-image authority leave their corresponding
+conditional globals absent. Tests inject digest-matched codecs to verify
+routing, conversion timing, local command recording, receiver projection,
+identity, revocation, and loss settlement. The generated corpus and conditional
+wrapper publication are boundary evidence, not a platform-support claim.
 
 The pinned TypeGPU Genetic Racing and Jelly Slider source audit is projected
 into the generated private plan as a second, explicitly **staged** inventory.
@@ -1243,9 +1250,11 @@ positive CapSec inventory.
 
 The bridge accepts only an authenticated operation ID, canonical decimal
 uint64 strings for device/queue/account identities, and an ArrayBuffer or view
-bounded to 16 MiB. It publishes no `navigator.gpu`, `createImageBitmap`, global
-bridge, or other app API. Presence of either the C ABI or this private bridge
-is therefore neither WebGPU support nor conformance evidence.
+bounded to 16 MiB. The low-level bridge itself publishes no `navigator.gpu`,
+`createImageBitmap`, global bridge, or other app API. The one-shot capture may
+instead construct the separately reviewed wrapper projection described above;
+presence of either the C ABI or the private bridge alone is therefore neither
+WebGPU support nor conformance evidence.
 
 The V2 construction-private object is separately classified and contains six
 methods: `submit`, `cancel`, `retire`, the one-shot `setEventSink`,
@@ -1389,15 +1398,21 @@ additive owner-thread transaction:
 3. `ex_hermes_finalize_embedder_capabilities_v1` verifies that the installed
    capability set exactly equals the armed snapshot, opens the GPU realm with
    the now-final app/agent context, captures and deletes the construction-only
-   runtime-js bridge handoff, refreshes the compartment baseline once, and
-   seals the Exact method and private bridge. Thus GPU-first and
-   Exact-ingress-first installation cannot select different realm identities.
+   runtime-js bridge handoff, conditionally publishes the source-derived wrapper
+   globals, refreshes the compartment baseline once, and seals the Exact method
+   and private bridge. If trusted bootstrap has already closed, finalization
+   then repeats the exact descriptor-only root-global sweep; otherwise
+   `ex_hermes_finish_bootstrap` performs that sweep after closing the remaining
+   session bridges. Thus GPU-first and Exact-ingress-first installation cannot
+   select different realm identities, and either Apple bootstrap order verifies
+   the same final projection.
 
 Every user-code-driving entry point refuses while the transaction is
-`Configuring` or failed; poll preserves queued callbacks without executing
-them.
-Finalization failure rolls back the provisional Exact method, closes any opened
-GPU realm, and is terminal for that runtime. Existing Exact-only consumers that
+`Configuring` or failed and, once trusted bootstrap closes, until the final
+root-global projection has passed that sweep; poll preserves queued callbacks
+without executing them. A publication, sealing, or sweep failure revokes the
+wrapper globals, rolls back the provisional Exact method, closes any opened GPU
+realm, and is terminal for that runtime. Existing Exact-only consumers that
 do not call `begin` retain the legacy single-setter auto-finalization behavior;
 an armed snapshot that expects more than that Exact ingress cannot use the
 legacy path.
@@ -1422,9 +1437,11 @@ available independently of positive GPU authority.
 These GPU and construction-transaction symbols are provisional extensions for
 the pinned Exact consumer. Registration/finalization are classified as CapSec
 authority-control and the two ABI queries as runtime-bootstrap state; teardown
-continues through the existing runtime release path. Every future public GPU
-operation remains unsupported until generated operation inventory, typed
-effects, fixtures, and target cells are complete.
+continues through the existing runtime release path. Conditional wrapper
+publication synthesizes no target advertisements and makes no platform-support
+claim. Every additional public GPU operation still requires complete generated
+operation inventory, typed effects, fixtures, and target cells before it can
+enter this authenticated projection.
 
 ## The Rust host surface
 

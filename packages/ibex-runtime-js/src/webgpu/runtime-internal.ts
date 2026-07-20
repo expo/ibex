@@ -15,7 +15,10 @@ import { installProductionWebGpu } from './production-wrapper';
  * Register the authenticated construction handoff and bind the app-realm
  * wrapper install to the same native revoker. The generated executable bundle
  * is injected only after Ibex has authenticated and opened a V2 service; a
- * runtime without that native bridge still publishes no WebGPU surface.
+ * crosses only after the authenticated V2 bridge has opened its native service
+ * and realm. Importing the generic wrapper carries no ambient provider or
+ * platform-support authority, and a runtime without that bridge publishes no
+ * WebGPU surface.
  */
 export function installNativeGpuBridgeCapture(
   globalObject: typeof globalThis,

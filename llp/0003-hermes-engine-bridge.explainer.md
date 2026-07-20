@@ -5,6 +5,7 @@
 **Systems:** Engine, Runtime, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-19 (makes authenticated V2 capture publish the exact source-derived WebGPU wrapper roots, gates `createImageBitmap` on attached decoded-image authority, and fences all armed user execution on a post-publication descriptor-only root sweep with revocation and terminal rollback on mismatch; no target advertisement or platform-support claim is added)
 **Revised:** 2026-07-19 (completes construction-private GPU V2 composition: pinned Hermes promotes internal ArrayBuffer storage to shared external ownership in place before aliasing, the two mapping HostFunctions preserve overlap/OOB/source/key/transfer invariants, operation-result bytes get one wrapper backing and an undefined success receipt, and forced compile-time/live-cast capability failures prove finalization rollback)
 **Revised:** 2026-07-17 (projects ASSIGNED_DETACHED requestDevice results while preserving both admission forms); 2026-07-17 (records native-or-absent FinalizationRegistry ownership and persistent-runtime `FsHandle` reclamation coverage); 2026-07-16 (projects self-contained detached-loss requestDevice terminals to the wrapper before outer receipt settlement); 2026-07-16 (adds the additive Exact GPU ABI V2 typed mailbox, lifecycle replay authority, construction-private four-method bridge, and close/service-entry race fences); 2026-07-16 (adds the construction-private low-level GPU bridge, bounded Promise receipt drain, and cancellation/retirement lifecycle without publishing a WebGPU JS API); 2026-07-16 (adds the optional Exact GPU service mailbox and non-waiting detached teardown); 2026-07-15 (ENG-25061 links indirect/star/namespace exports to native ModuleRecords); 2026-07-15 (ENG-25060 implements the common runtime-drive gate and native module factory/context/record capabilities); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized eval, poll, runner, and destroy entry); 2026-07-15 (ENG-25006: native fetch completion publishes its runtime callback before releasing the pending-fetch keepalive); 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
 **Revised:** 2026-07-16 (host-owned REPL/inspector/explicit keep-alive turns now expose their external liveness to native polling without promoting unreferenced timers into runtime liveness); 2026-07-15 (ENG-25061 links indirect/star/namespace exports to native live cells and adds the synchronous graph lifecycle driver); 2026-07-15 (ENG-25060 implements the common runtime-drive gate and native module factory/context/record capabilities); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized eval, poll, runner, and destroy entry); 2026-07-15 (ENG-25006: native fetch completion publishes its runtime callback before releasing the pending-fetch keepalive); 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
@@ -359,9 +360,21 @@ common fence all verify that the construction property is actually absent;
 throwing, non-callable, or non-configurable hostile replacements fail the
 capability transaction and cannot advance the user-execution marker. The
 package exports omit this module and the app loader refuses both deep and
-filesystem paths into its directory. This is private plumbing for a future
-generated wrapper, not `navigator.gpu`, an app global, or a WebGPU support
-claim.
+filesystem paths into its directory. The bridge itself remains private. An
+authenticated V2 capture now feeds it to the generated wrapper, which publishes
+exactly the source-derived provider roots and, only with decoded-image
+authority, `createImageBitmap`; V1, provider absence, or failed authentication
+publishes none of them. Publication still makes no target advertisement or
+WebGPU platform-support claim.
+
+After wrapper publication, package-baseline refresh, and sealing, the engine
+must verify the final root projection with its pristine descriptor-only
+intrinsics before admitting armed user execution. If bootstrap has already
+finished, finalization repeats the sweep immediately; if bootstrap remains
+open, `ex_hermes_finish_bootstrap` runs it after closing the other session
+bridges. An unexpected missing or extra conditional path invokes no getter,
+revokes every wrapper global, closes the GPU realm, and leaves the capability
+transaction terminally failed.
 
 The two V2 mapping methods are present only when the compiled and live pinned
 Hermes runtime exposes `IExactWebGpuArrayBuffer`; otherwise finalization
@@ -490,7 +503,7 @@ functions / globals for one subsystem and carries per-OS implementations behind
 | Console/IPC/timers | `hermes_runtime_console.cc`, `_ipc.cc`, `_timers.cc` | |
 | OS info / iOS | `hermes_runtime_osinfo.cc`, `hermes_runtime_ios.cc` | |
 | Debugger | `hermes_runtime_debugger.cc` | gated on `HERMES_ENABLE_DEBUGGER` |
-| Optional Exact GPU service | `hermes_runtime_gpu.cc`, `hermes_runtime_gpu_v2.cc` | additive V1/V2 service + construction-private bridge/typed receipt mailbox; no public WebGPU JS globals or support claim |
+| Optional Exact GPU service | `hermes_runtime_gpu.cc`, `hermes_runtime_gpu_v2.cc` | additive V1/V2 service + construction-private bridge/typed receipt mailbox; authenticated V2 conditionally publishes the source-derived wrapper roots, without a target advertisement or support claim |
 
 The `native_fetch_*` / `native_websocket_*` files are per-OS. macOS/iOS use
 Foundation/NSURLSession implementations `[observed]`

@@ -2782,10 +2782,14 @@ pub extern "C" fn ex_host_exact_gpu_authority_session_requested_v2(
     ))
 }
 
+/// Returns a borrowed pointer to an immutable process-lifetime table. The
+/// caller must neither mutate nor release it.
 #[no_mangle]
 pub extern "C" fn ex_host_exact_gpu_authority_session_api_v2(
 ) -> *const super::gpu_authority::ExactGpuAuthoritySessionApiV2 {
-    super::gpu_authority::authority_session_api_v2()
+    let api: &'static super::gpu_authority::ExactGpuAuthoritySessionApiV2 =
+        super::gpu_authority::authority_session_api_v2();
+    std::ptr::from_ref(api)
 }
 
 #[no_mangle]

@@ -5,6 +5,7 @@
 **Systems:** CLI Runtime, REPL, Runtime, Module Loader, Security
 **Author:** Charlie Cheever / Codex / Claude
 **Date:** 2026-07-11
+**Revised:** 2026-07-19 (extends the generated three-set root-global join with authenticated conditional WebGPU paths, requires a descriptor-only post-publication sweep before armed user execution in either bootstrap order, and revokes the wrapper plus fails closed on any missing or extra path)
 **Revised:** 2026-07-15 (ENG-25066 switched file-module execution to the
 authenticated runner while preserving this document's script/prompt goals and
 session semantics.)
@@ -803,6 +804,20 @@ bootstrap, or **converted** to typed logical values and cooperative requests.
 Red-team fixtures address bridges by name; an unresolved dynamic sentinel is not
 admissible for a root-reachable global on a conformant target; and a new bridge
 that is neither sealed nor converted fails the check and the build.
+
+Conditional provider projections are part of the same exact join, not an
+exception to it. The manifest names every full logical path installed by the
+authenticated WebGPU wrapper. Its provider paths are required only while the
+authenticated V2 provider session is live; `createImageBitmap` is independently
+required only while decoded-image authority is attached. In all other states
+those paths are forbidden. The engine evaluates presence through pristine
+property descriptors along the complete path (including `navigator.gpu`) and
+never invokes an accessor. Because provider publication may occur before or
+after the ordinary bootstrap sweep, user execution is fenced on a verified
+final-projection flag: finalization re-sweeps an already-closed bootstrap, while
+`finish_bootstrap` sweeps after any earlier publication. Any missing or extra
+conditional path revokes the complete wrapper installation and terminally
+fails the capability transaction before package or project code can run.
 
 **Affordance parity.** No REPL feature — command, completion, hint, banner, or
 error report — may read or disclose runtime state or host information that the

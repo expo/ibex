@@ -1,6 +1,7 @@
 // @ref LLP 0002#the-optional-exact-gpu-service-registration-seam — the native
 // bridge is captured during the embedder construction transaction and never
-// becomes an app-visible global or navigator property.
+// itself becomes an app-visible global or navigator property. An authenticated
+// V2 capture may use it to publish the separately reviewed WebGPU wrapper.
 
 import type { ProductionGpuDecodedImageAuthorityV1 } from './private-image-bitmap';
 

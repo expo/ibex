@@ -140,8 +140,10 @@ host-http-server = []
 capsec-conformance-observer = []
 # Compiles the optional, provider-independent Exact GPU service registration
 # seam. The public version/query/install ABI remains present without this
-# feature and deterministically reports unsupported; no wgpu dependency or JS
-# WebGPU surface is part of this checkpoint. @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
+# feature and deterministically reports unsupported; no wgpu dependency is
+# added. With an authenticated V2 provider, runtime bootstrap may publish only
+# the source-reviewed wrapper globals; this does not advertise platform support.
+# @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
 webgpu-binding = []
 # Test-only visibility into the private GPU bridge and receipt mailbox. This
 # feature is intentionally separate from both `webgpu-binding` and the CapSec

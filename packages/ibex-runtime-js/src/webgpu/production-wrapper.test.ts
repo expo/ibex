@@ -813,6 +813,78 @@ function mintSecondTestCanvasContext(
 }
 
 describe('production-private WebGPU wrapper gate', () => {
+  test('publishes and revokes the exact authenticated provider root set', () => {
+    const providerRoots = [
+      'GPU',
+      'GPUAdapter',
+      'GPUBindGroupLayout',
+      'GPUBuffer',
+      'GPUBufferUsage',
+      'GPUCanvasContext',
+      'GPUColorWrite',
+      'GPUCommandBuffer',
+      'GPUCommandEncoder',
+      'GPUComputePassEncoder',
+      'GPUComputePipeline',
+      'GPUDevice',
+      'GPUDeviceLostInfo',
+      'GPUError',
+      'GPUInternalError',
+      'GPUMapMode',
+      'GPUOutOfMemoryError',
+      'GPUPipelineLayout',
+      'GPUQueue',
+      'GPURenderPassEncoder',
+      'GPURenderPipeline',
+      'GPUSampler',
+      'GPUShaderModule',
+      'GPUShaderStage',
+      'GPUSupportedFeatures',
+      'GPUSupportedLimits',
+      'GPUTexture',
+      'GPUTextureUsage',
+      'GPUTextureView',
+      'GPUUncapturedErrorEvent',
+      'GPUValidationError',
+    ].sort();
+    const globalObject = isolatedGlobal();
+    const installation = installProductionWebGpu(
+      globalObject,
+      createFakeBridge(),
+      createFakeCodecs(),
+    );
+    expect(installation.status).toBe('installed');
+    expect(Reflect.ownKeys(globalObject).sort()).toEqual(
+      ['navigator', ...providerRoots].sort(),
+    );
+    expect(Reflect.ownKeys(globalObject.navigator)).toEqual(['gpu']);
+    expect('createImageBitmap' in globalObject).toBe(false);
+
+    installation.status === 'installed' && installation.revoke();
+    expect(Reflect.ownKeys(globalObject)).toEqual(['navigator']);
+    expect(Reflect.ownKeys(globalObject.navigator)).toEqual([]);
+  });
+
+  test('publishes createImageBitmap only with decoded-image authority', () => {
+    const bridge = Object.assign(createFakeBridge(), {
+      decodedImageAuthority: Object.freeze({
+        async decodePng(): Promise<never> {
+          throw new Error('not exercised by installation');
+        },
+      }),
+    });
+    const globalObject = isolatedGlobal();
+    const installation = installProductionWebGpu(
+      globalObject,
+      bridge,
+      createFakeCodecs(),
+    );
+    expect(installation.status).toBe('installed');
+    expect(typeof globalObject.createImageBitmap).toBe('function');
+    installation.status === 'installed' && installation.revoke();
+    expect('createImageBitmap' in globalObject).toBe(false);
+  });
+
   test('increments private u64 counters exactly and rejects overflow before wrap', () => {
     expect(incrementCanonicalU64Decimal('18446744073709551614')).toBe(
       '18446744073709551615',
@@ -930,13 +1002,38 @@ describe('production-private WebGPU wrapper gate', () => {
       installProductionWebGpu(occupied, createFakeBridge(), codecs),
     ).toEqual({ status: 'not-installed', reason: 'public-surface-conflict' });
 
-    const occupiedFunction = isolatedGlobal();
-    Object.defineProperty(occupiedFunction, 'createImageBitmap', {
-      value: () => Promise.resolve(),
+    const occupiedDecodedFunction = isolatedGlobal();
+    Object.defineProperty(occupiedDecodedFunction, 'createImageBitmap', {
+      value() {},
     });
     expect(
-      installProductionWebGpu(occupiedFunction, createFakeBridge(), codecs),
+      installProductionWebGpu(
+        occupiedDecodedFunction,
+        createFakeBridge(),
+        codecs,
+      ),
     ).toEqual({ status: 'not-installed', reason: 'public-surface-conflict' });
+    expect('gpu' in occupiedDecodedFunction.navigator).toBe(false);
+    expect('GPU' in occupiedDecodedFunction).toBe(false);
+  });
+
+  test('rolls back a partially installed public provider set', () => {
+    const target = isolatedGlobal();
+    const throwingGlobal = new Proxy(target, {
+      defineProperty(inner, key, descriptor) {
+        if (key === 'GPUAdapter') throw new Error('injected publication failure');
+        return Reflect.defineProperty(inner, key, descriptor);
+      },
+    });
+    expect(() =>
+      installProductionWebGpu(
+        throwingGlobal,
+        createFakeBridge(),
+        createFakeCodecs(),
+      ),
+    ).toThrow('injected publication failure');
+    expect(Reflect.ownKeys(target)).toEqual(['navigator']);
+    expect(Reflect.ownKeys(target.navigator)).toEqual([]);
   });
 });
 

@@ -3647,6 +3647,37 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "values",
   ],
   Function: [""],
+  GPU: [""],
+  GPUAdapter: [""],
+  GPUBindGroupLayout: [""],
+  GPUBuffer: [""],
+  GPUBufferUsage: [""],
+  GPUCanvasContext: [""],
+  GPUColorWrite: [""],
+  GPUCommandBuffer: [""],
+  GPUCommandEncoder: [""],
+  GPUComputePassEncoder: [""],
+  GPUComputePipeline: [""],
+  GPUDevice: [""],
+  GPUDeviceLostInfo: [""],
+  GPUError: [""],
+  GPUInternalError: [""],
+  GPUMapMode: [""],
+  GPUOutOfMemoryError: [""],
+  GPUPipelineLayout: [""],
+  GPUQueue: [""],
+  GPURenderPassEncoder: [""],
+  GPURenderPipeline: [""],
+  GPUSampler: [""],
+  GPUShaderModule: [""],
+  GPUShaderStage: [""],
+  GPUSupportedFeatures: [""],
+  GPUSupportedLimits: [""],
+  GPUTexture: [""],
+  GPUTextureUsage: [""],
+  GPUTextureView: [""],
+  GPUUncapturedErrorEvent: [""],
+  GPUValidationError: [""],
   GeneratorFunction: [""],
   Headers: [
     "",
@@ -4699,6 +4730,7 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   console: ["", "debug", "dir", "error", "info", "log", "trace", "warn"],
   createExternalizableString: [""],
   createExternalizableTwoByteString: [""],
+  createImageBitmap: [""],
   crypto: [
     "",
     "getRandomValues",
@@ -4770,7 +4802,7 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   log: [""],
   matchMedia: [""],
   measure: [""],
-  navigator: [""],
+  navigator: ["", "gpu"],
   ok: [""],
   performance: [
     "",
@@ -12508,6 +12540,20 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
   }
   if (/^(?:global|console)$/u.test(globalName) && member === "") {
     return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
+  }
+
+  // These roots are wrapper identity and authority-routing objects. The
+  // source-derived private operation registry classifies every effectful
+  // method separately; merely publishing the authenticated wrapper set does
+  // not itself execute a GPU operation or create a support claim.
+  if (
+    (globalName.startsWith("gpu") && member === "") ||
+    (globalName === "navigator" && member === "gpu")
+  ) {
+    return nonCapabilitySpec("authority-control-plane", "WP4");
+  }
+  if (globalName === "createimagebitmap" && member === "") {
+    return nonCapabilitySpec("pure-in-memory-compute", "WP1");
   }
 
   if (

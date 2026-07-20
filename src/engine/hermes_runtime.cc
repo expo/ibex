@@ -6507,6 +6507,14 @@ static bool rootGlobalActivationApplies(
   if (std::strcmp(activation, "ipc-channel-bootstrap") == 0) {
     return handle->process_ipc_fd >= 0;
   }
+  if (std::strcmp(activation, "authenticated-webgpu-provider") == 0) {
+    return exactGpuAuthenticatedV2ProviderGlobalsActive(handle);
+  }
+  if (
+      std::strcmp(
+          activation, "authenticated-webgpu-decoded-image") == 0) {
+    return exactGpuAuthenticatedDecodedImageGlobalActive(handle);
+  }
   if (std::strcmp(activation, "openssl-crypto") == 0) {
 #if defined(EXACT_NO_OPENSSL)
     return false;
@@ -6569,6 +6577,18 @@ static bool rootGlobalDispositionFailure(const std::string& detail) {
       detail;
   ex_host_console_log(1, message.c_str());
   return false;
+}
+
+static void failRootGlobalDispositionFinalization(
+    ExactHermesRuntime* handle) noexcept {
+  if (!handle) return;
+  handle->root_global_disposition_verified_for_user_execution = false;
+  // The WebGPU publication remains revocable through the native-held capture
+  // result until teardown. A failed final sweep must use that result now so
+  // no provider-created root survives even though the runtime is terminal.
+  rollbackExactHostIngress(handle);
+  exactGpuRollbackInstall(handle);
+  handle->embedder_capability_state = EmbedderCapabilityState::Failed;
 }
 
 static std::vector<std::string> splitRootGlobalLogicalPath(
@@ -6944,6 +6964,34 @@ static bool verifyRootGlobalDisposition(ExactHermesRuntime* handle) {
       if (!rootGlobalLogicalPathAbsent(handle, expectation.logical_path)) {
         return rootGlobalDispositionFailure(
             std::string("sealed/private path remains reachable: ") +
+            expectation.logical_path);
+      }
+    }
+
+    // Provider-finalized public projections are conditional in both
+    // directions. When authenticated, every generated path must exist; when
+    // inactive, none may survive. This explicit logical-path check is needed
+    // for nested publication such as navigator.gpu, which cannot be proven by
+    // root-key cardinality alone. Traversal remains descriptor-only.
+    // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+    for (const auto& expectation :
+         exact::root_global_disposition::
+             kConditionalLiveSweepExpectations) {
+      if (!rootGlobalTargetApplies(handle, expectation.target_variant)) {
+        continue;
+      }
+      const bool active = rootGlobalActivationApplies(
+          handle, expectation.activation, expectation.logical_path);
+      const bool absent = rootGlobalLogicalPathAbsent(
+          handle, expectation.logical_path);
+      if (active && absent) {
+        return rootGlobalDispositionFailure(
+            std::string("authenticated conditional path is missing: ") +
+            expectation.logical_path);
+      }
+      if (!active && !absent) {
+        return rootGlobalDispositionFailure(
+            std::string("inactive conditional path remains reachable: ") +
             expectation.logical_path);
       }
     }
@@ -7697,22 +7745,27 @@ extern "C" uint32_t ex_hermes_finish_bootstrap(
   if (!runtime->armed_bootstrap_eval_open) {
     return EX_HERMES_EVAL_FAULT_NONE;
   }
+  runtime->root_global_disposition_verified_for_user_execution = false;
   if (!verifyArmedBootstrapFinalized(runtime)) {
     rootGlobalDispositionFailure(
         "armed bootstrap posture was not finalized before disposition sweep");
+    failRootGlobalDispositionFinalization(runtime);
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
   if (!captureStructuredSessionIntrinsics(runtime)) {
     rootGlobalDispositionFailure(
         "structured-session intrinsics/private import bridge were not captured");
+    failRootGlobalDispositionFinalization(runtime);
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
   if (!installStructuredLifecycleAccessors(runtime)) {
     rootGlobalDispositionFailure(
         "structured lifecycle accessors could not be installed");
+    failRootGlobalDispositionFinalization(runtime);
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
   if (!capturePrivateBridgeConsumers(runtime)) {
+    failRootGlobalDispositionFinalization(runtime);
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
   // Trusted bootstrap has now captured the only private consumers of the
@@ -7721,15 +7774,22 @@ extern "C" uint32_t ex_hermes_finish_bootstrap(
   // descriptor graph to the generated three-set disposition join.
   // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
   if (!sealRootGlobalSessionBridges(runtime)) {
+    failRootGlobalDispositionFinalization(runtime);
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
   if (!injectRootGlobalDispositionTestAccessor(runtime)) {
+    failRootGlobalDispositionFinalization(runtime);
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
   if (!verifyRootGlobalDisposition(runtime)) {
+    failRootGlobalDispositionFinalization(runtime);
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
   runtime->armed_bootstrap_eval_open = false;
+  runtime->root_global_disposition_verified_for_user_execution =
+      runtime->embedder_capability_state !=
+          EmbedderCapabilityState::Configuring &&
+      runtime->embedder_capability_state != EmbedderCapabilityState::Failed;
   return EX_HERMES_EVAL_FAULT_NONE;
 }
 
@@ -13144,6 +13204,7 @@ extern "C" int32_t ex_hermes_begin_embedder_capabilities_v1(
     return EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE;
   }
   runtime->embedder_capability_state = EmbedderCapabilityState::Configuring;
+  runtime->root_global_disposition_verified_for_user_execution = false;
   return EXACT_EMBEDDER_CAPABILITIES_OK;
 }
 
@@ -13174,6 +13235,7 @@ extern "C" int32_t ex_hermes_finalize_embedder_capabilities_v1(
           runtime->host_context_id, installed) != 1) {
     rollbackExactHostIngress(runtime);
     exactGpuRollbackInstall(runtime);
+    runtime->root_global_disposition_verified_for_user_execution = false;
     runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
     return EXACT_EMBEDDER_CAPABILITIES_AUTHENTICATION_FAILED;
   }
@@ -13183,6 +13245,7 @@ extern "C" int32_t ex_hermes_finalize_embedder_capabilities_v1(
   if (exactGpuActivateInstall(runtime) != EXACT_GPU_PROVIDER_OK) {
     rollbackExactHostIngress(runtime);
     exactGpuRollbackInstall(runtime);
+    runtime->root_global_disposition_verified_for_user_execution = false;
     runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
     return EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED;
   }
@@ -13193,6 +13256,7 @@ extern "C" int32_t ex_hermes_finalize_embedder_capabilities_v1(
   if (!exactGpuPublishPrivateBridge(runtime)) {
     rollbackExactHostIngress(runtime);
     exactGpuRollbackInstall(runtime);
+    runtime->root_global_disposition_verified_for_user_execution = false;
     runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
     return EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED;
   }
@@ -13206,8 +13270,22 @@ extern "C" int32_t ex_hermes_finalize_embedder_capabilities_v1(
   } catch (...) {
     rollbackExactHostIngress(runtime);
     exactGpuRollbackInstall(runtime);
+    runtime->root_global_disposition_verified_for_user_execution = false;
     runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
     return EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED;
+  }
+  // Apple hosts may finish the trusted runtime bootstrap before or after
+  // provider registration. If it is already closed, publication and sealing
+  // changed the live root graph and the descriptor-only exact join must run
+  // again here. Otherwise finish_bootstrap performs the same sweep after it
+  // removes the remaining construction-only session bridges.
+  if (!runtime->armed_bootstrap_eval_open) {
+    if (!injectRootGlobalDispositionTestAccessor(runtime) ||
+        !verifyRootGlobalDisposition(runtime)) {
+      failRootGlobalDispositionFinalization(runtime);
+      return EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED;
+    }
+    runtime->root_global_disposition_verified_for_user_execution = true;
   }
   runtime->embedder_capability_state = EmbedderCapabilityState::Finalized;
   return EXACT_EMBEDDER_CAPABILITIES_OK;
