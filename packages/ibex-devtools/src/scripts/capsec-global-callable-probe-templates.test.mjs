@@ -659,13 +659,14 @@ describe("source-bound global callable recipes", () => {
     // than borrowing non-capability execution evidence.
     // The runtime-authored ArrayBuffer transfer fence adds one ordinary
     // non-capability, unexercisable recipe without publishing WebGPU or CapSec
-    // support.
-    expect(recipes).toHaveLength(849);
+    // support. The authenticated WebGPU operation-identity rebind contributes
+    // one additional unexercisable callable without changing that boundary.
+    expect(recipes).toHaveLength(850);
     expect(counts).toEqual({
       call: 601,
       construct: 9,
       get: 4,
-      unexercisable: 235,
+      unexercisable: 236,
     });
   }, 30_000);
 });
