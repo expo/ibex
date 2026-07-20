@@ -5062,7 +5062,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     );
   });
 
-  test("definition coverage accounts for all 40 frozen definitions", () => {
+  test("definition coverage accounts for all 41 frozen definitions", () => {
     const model = buildCoverageModel(
       [
         surface("native-op", "__exactFsOpen"),
@@ -5071,10 +5071,10 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ],
       context,
     );
-    expect(model.definitionCoverage).toHaveLength(40);
+    expect(model.definitionCoverage).toHaveLength(41);
     expect(
       new Set(model.definitionCoverage.map((row) => row.definitionId)).size,
-    ).toBe(40);
+    ).toBe(41);
     expect(
       model.definitionCoverage.every((row) =>
         ["covered", "closed", "unsupported", "absent"].includes(

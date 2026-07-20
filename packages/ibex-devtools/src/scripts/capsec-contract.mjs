@@ -1083,6 +1083,7 @@ function resourceKindsOfOccurrence(occurrence) {
     case "storage-occurrence":
     case "lifecycle-occurrence":
     case "session-state-occurrence":
+    case "gpu-operation-occurrence":
     case "closed-occurrence":
       return [occurrence.resource.requested?.kind];
     default:
@@ -2027,6 +2028,24 @@ function validateOccurrenceFacts(occurrence, label, rules) {
         );
       }
       break;
+    case "gpu-operation-occurrence": {
+      if (!["requested", "commit", "repeat"].includes(occurrence.stage)) {
+        throw new Error(
+          `${label}: GPU operation occurrence supports only requested, commit, and repeat stages`,
+        );
+      }
+      const presentedHandleIdentities =
+        resource.presentedHandleIdentities ?? [];
+      assertUnique(
+        presentedHandleIdentities,
+        `${label}.resource.presentedHandleIdentities`,
+      );
+      assertSorted(
+        presentedHandleIdentities,
+        `${label}.resource.presentedHandleIdentities`,
+      );
+      break;
+    }
     default:
       break;
   }

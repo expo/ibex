@@ -84,7 +84,7 @@ describe("construction-private WebGPU CapSec operation registry", () => {
   });
 
   test(
-    "keeps private supported cells bijective while WP1 and positive issuance stay closed",
+    "keeps native authority sessions bijective while WP1 and public issuance stay closed",
     async () => {
       const rendered = await renderCapsecRegistry();
       const generated = JSON.parse(
@@ -97,6 +97,17 @@ describe("construction-private WebGPU CapSec operation registry", () => {
       );
       expect(generated.operationCount).toBe(57);
       expect(generated.privateTargetCellCount).toBe(57);
+      expect(
+        generated.operations.filter((operation) => operation.authoritySession),
+      ).toHaveLength(24);
+      expect(generated.providerIdentity).toMatchObject({
+        abiVersion: 0x0002_0000,
+        topologyId: 1,
+        profileId: "exact-webgpu-v1-draft",
+        profileDigest:
+          "eeda83784ff4297760619cb7df54f0e2f227a70562561909c47ecc9dc3232d95",
+      });
+      expect(generated.providerIdentity.sortedOperationIds).toHaveLength(46);
       expect(
         new Set(generated.operations.map((operation) => operation.edgeId)).size,
       ).toBe(57);
@@ -119,7 +130,36 @@ describe("construction-private WebGPU CapSec operation registry", () => {
         operationId: "GPUDevice.createComputePipeline",
         wireId: 2342501516,
         edgeClassification: "closed",
+        authoritySession: {
+          decisionKind: "typed-positive",
+          action: "gpu:operation",
+          stages: ["requested", "commit", "repeat"],
+          targetCellDisposition: "complete",
+        },
       }));
+      expect(generated.operations).toContainEqual(expect.objectContaining({
+        operationId: "GPUDevice.pushErrorScope",
+        edgeClassification: "non-capability",
+        authoritySession: {
+          decisionKind: "structural-control-plane",
+          stages: ["requested", "commit", "repeat"],
+          targetCellDisposition: "non-capability",
+        },
+      }));
+      expect(
+        generated.privateTargetCells.find((cell) =>
+          cell.id.includes("gpu.requestadapter"),
+        ),
+      ).toMatchObject({
+        capsecDisposition: "complete",
+        positiveAuthority: "typed-gpu-operation-no-public-grant-issuer",
+      });
+      expect(generated.publicBoundary).toMatchObject({
+        navigatorGpu: "absent",
+        positiveGrantIssuer: "absent",
+        wp1TargetAdvertisements: "empty",
+        platformSupportClaim: "none",
+      });
       expect(rendered.targetAdvertisements.advertisements).toEqual([]);
       const operationEdgeIds = new Set(
         generated.operations.map((operation) => operation.edgeId),

@@ -142467,6 +142467,36 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.host.abi.ex.host.exact.gpu.authority.session.api.v2.12651ze",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_exact_gpu_authority_session_api_v2"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.host.abi.ex.host.exact.gpu.authority.session.requested.v2.1qhv1j2",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_exact_gpu_authority_session_requested_v2"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.host.abi.ex.host.force.retire.exact.gpu.authority.session.v2.04a1p2h",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_force_retire_exact_gpu_authority_session_v2"
+            },
+            "rationaleId": "authority-release",
+            "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
+          },
+          {
             "id": "surface.host.abi.ex.host.free.buffer.0c4fojc",
             "classification": "non-capability",
             "surface": {
@@ -271616,6 +271646,31 @@
             "description": "Create or mutate the checked filesystem object and required parent entries."
           },
           {
+            "id": "gpu:operation",
+            "lifecycle": "authorable",
+            "stability": "provisional",
+            "globality": "resource",
+            "resourceKinds": [
+              "gpu-operation"
+            ],
+            "selectorSchema": "ibex/capsec-selector/1",
+            "occurrenceSchema": "ibex/capsec-occurrence/1",
+            "normalizationProfile": "gpu.operation.v1",
+            "channels": {
+              "dynamic": false,
+              "handle": false,
+              "synthesis": false
+            },
+            "staticOnly": true,
+            "risk": {
+              "baseTier": 4,
+              "reasons": [
+                "gpu.shared-service-work"
+              ]
+            },
+            "description": "Execute one exact operation from an authenticated WebGPU profile through a generation-fenced GPUAccount session."
+          },
+          {
             "id": "inspector:activate",
             "lifecycle": "deny-only",
             "stability": "stable",
@@ -272983,6 +273038,13 @@
             "occurrence": "fs.path.occurrence.v1",
             "matcher": "fs.path.matcher.v1",
             "subset": "fs.path.subset.v1"
+          },
+          {
+            "id": "gpu.operation.v1",
+            "selector": "gpu.operation.selector.v1",
+            "occurrence": "gpu.operation.occurrence.v1",
+            "matcher": "gpu.operation.matcher.v1",
+            "subset": "gpu.operation.subset.v1"
           },
           {
             "id": "lifecycle.exit.v1",
@@ -274555,6 +274617,9 @@
                 "$ref": "#/$defs/sessionState"
               },
               {
+                "$ref": "#/$defs/gpuOperation"
+              },
+              {
                 "$ref": "#/$defs/closedSurface"
               }
             ]
@@ -275258,6 +275323,48 @@
             },
             "additionalProperties": false
           },
+          "gpuOperation": {
+            "type": "object",
+            "required": [
+              "kind",
+              "profileId",
+              "profileDigest",
+              "webgpuCVocabularyDigest",
+              "operationSetDigest",
+              "semanticProgramDigest",
+              "runtimeRoutingDigest",
+              "operationId"
+            ],
+            "properties": {
+              "kind": {
+                "const": "gpu-operation"
+              },
+              "profileId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "profileDigest": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+              },
+              "webgpuCVocabularyDigest": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+              },
+              "operationSetDigest": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+              },
+              "semanticProgramDigest": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+              },
+              "runtimeRoutingDigest": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+              },
+              "operationId": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          },
           "closedSurface": {
             "type": "object",
             "required": [
@@ -275559,6 +275666,7 @@
                     "environment-name",
                     "executable",
                     "fetch-endpoint",
+                    "gpu-operation",
                     "listen-inet",
                     "listen-unix",
                     "microphone",
@@ -277039,6 +277147,9 @@
                 "$ref": "#/$defs/sessionStateOccurrence"
               },
               {
+                "$ref": "#/$defs/gpuOperationOccurrence"
+              },
+              {
                 "$ref": "#/$defs/closedOccurrence"
               }
             ]
@@ -277795,6 +277906,47 @@
               },
               "requested": {
                 "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/sessionState"
+              }
+            },
+            "additionalProperties": false
+          },
+          "gpuOperationOccurrence": {
+            "type": "object",
+            "required": [
+              "kind",
+              "requested",
+              "realmIdentity",
+              "accountIdentity",
+              "receiverIdentity"
+            ],
+            "properties": {
+              "kind": {
+                "const": "gpu-operation-occurrence"
+              },
+              "requested": {
+                "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/gpuOperation"
+              },
+              "realmIdentity": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+              },
+              "accountIdentity": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+              },
+              "deviceIdentity": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+              },
+              "receiverIdentity": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+              },
+              "targetIdentity": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+              },
+              "presentedHandleIdentities": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+                }
               }
             },
             "additionalProperties": false

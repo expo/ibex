@@ -378,6 +378,85 @@ typedef struct ExactGpuObjectRefV2 {
     uint64_t object_generation;
 } ExactGpuObjectRefV2;
 
+/// Native-only CapSec authority-session stages. The semantic service must
+/// evaluate REQUESTED before provider admission, COMMIT before publishing the
+/// effect, and REPEAT for every later use of retained authority.
+typedef enum ExactGpuAuthorityStageV2 {
+    EXACT_GPU_AUTHORITY_REQUESTED_V2 = 1,
+    EXACT_GPU_AUTHORITY_COMMIT_V2 = 2,
+    EXACT_GPU_AUTHORITY_REPEAT_V2 = 3,
+} ExactGpuAuthorityStageV2;
+
+typedef enum ExactGpuAuthorityDecisionV2Status {
+    EXACT_GPU_AUTHORITY_INVALID_V2 = -1,
+    EXACT_GPU_AUTHORITY_STALE_V2 = -2,
+    EXACT_GPU_AUTHORITY_DENIED_V2 = 0,
+    EXACT_GPU_AUTHORITY_ALLOWED_V2 = 1,
+} ExactGpuAuthorityDecisionV2Status;
+
+/// Full immutable authority-session key. Every callback requires exact struct
+/// size and exact equality with the call captured by Ibex. The opaque session
+/// identity is minted from OS randomness in native code and is never exposed
+/// to JavaScript.
+typedef struct ExactGpuAuthoritySessionFactsV2 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t operation_id;
+    uint32_t topology_id;
+    uint64_t authority_session_id;
+    ExactGpuRealmIdentityV2 realm;
+    ExactGpuAccountIdentityV2 account;
+    ExactGpuDeviceIdentityV2 ingress_device;
+    uint64_t provider_generation;
+    uint64_t operation_instance_id;
+    uint64_t promise_id;
+    uint64_t captured_scope_id;
+    uint64_t adapter_ordinal;
+    uint64_t device_ingress_ordinal;
+    uint64_t queue_ingress_ordinal;
+    uint8_t authority_context_digest[32];
+    ExactGpuObjectRefV2 receiver;
+    ExactGpuObjectRefV2 target;
+} ExactGpuAuthoritySessionFactsV2;
+
+/// One service-decoded handle-lineage fact. Lists must be bounded, sorted by
+/// the complete binary tuple, unique, account-exact, and generation-exact.
+typedef struct ExactGpuAuthorityPresentedHandleV2 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    ExactGpuAccountIdentityV2 account;
+    ExactGpuDeviceIdentityV2 device;
+    ExactGpuObjectRefV2 object;
+} ExactGpuAuthorityPresentedHandleV2;
+
+typedef struct ExactGpuAuthorityDecisionRequestV2 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t stage;
+    uint32_t flags;
+    ExactGpuAuthoritySessionFactsV2 facts;
+    const ExactGpuAuthorityPresentedHandleV2* presented_handles;
+    size_t presented_handle_count;
+} ExactGpuAuthorityDecisionRequestV2;
+
+typedef struct ExactGpuAuthorityRetireV2 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t flags;
+    uint32_t reserved;
+    ExactGpuAuthoritySessionFactsV2 facts;
+} ExactGpuAuthorityRetireV2;
+
+typedef struct ExactGpuAuthoritySessionApiV2 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    void* authority_context;
+    int32_t (*evaluate)(void* authority_context,
+                        const ExactGpuAuthorityDecisionRequestV2* decision);
+    int32_t (*retire)(void* authority_context,
+                      const ExactGpuAuthorityRetireV2* retire);
+} ExactGpuAuthoritySessionApiV2;
+
 typedef struct ExactGpuRealmOpenV2 {
     uint32_t struct_size;
     uint32_t abi_version;
@@ -392,6 +471,10 @@ typedef struct ExactGpuRealmOpenV2 {
     /// public/service codecs, receiver/target kinds, timing, dispatch/provider
     /// mode, result shape, and typed error tags.
     uint8_t runtime_routing_digest[32];
+    /// Exact-size native-only callback table. It is process-lifetime immutable;
+    /// the service borrows it for the realm lifetime and must not retain it
+    /// beyond close. It neither installs a JS API nor issues public grants.
+    const ExactGpuAuthoritySessionApiV2* authority_session_api;
 } ExactGpuRealmOpenV2;
 
 typedef struct ExactGpuSemanticCallV2 {
@@ -430,6 +513,7 @@ typedef struct ExactGpuSemanticCallV2 {
     /// authorize the selected effects, stages, targets, and handle lineage
     /// encoded by the operation-selected payload before provider admission.
     uint8_t authority_context_digest[32];
+    uint64_t authority_session_id;
     /// Receiver is always a full typed service reference. Realm-level public
     /// calls may have no wrapper handle, but their authenticated runtime-routing
     /// record projects that fact to the singleton GPU reference rather than an
@@ -486,6 +570,7 @@ typedef struct ExactGpuOperationProvenanceV2 {
     uint64_t device_ingress_ordinal;
     uint64_t queue_ingress_ordinal;
     uint8_t authority_context_digest[32];
+    uint64_t authority_session_id;
     ExactGpuObjectRefV2 receiver;
     ExactGpuObjectRefV2 target;
 } ExactGpuOperationProvenanceV2;
@@ -515,6 +600,7 @@ typedef struct ExactGpuCancelV2 {
     uint64_t device_ingress_ordinal;
     uint64_t queue_ingress_ordinal;
     uint8_t authority_context_digest[32];
+    uint64_t authority_session_id;
     ExactGpuObjectRefV2 receiver;
     ExactGpuObjectRefV2 target;
 } ExactGpuCancelV2;

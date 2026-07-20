@@ -1,7 +1,7 @@
 {
   "outputDispositionDatasetSchema": "ibex/capsec-output-dispositions/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256-fRkdH7beBrNy08OUoOrQ7ccBxr3CgwsEHfS3R8J_lvk",
+  "catalogKeyDigest": "sha256-l65Zt-iJvmAodrcmM_Ssfr-hI1d5pAv__qzTzPsjg0U",
   "evidence": {
     "status": "unpromotable",
     "reason": "The output corpus remains unpromotable: one native module-marker surface account and three inherited-intrinsic alias surface accounts are unresolved; the construction-private WebGPU program contributes 54 additional unresolved accounts (two callback ingresses, seven private bridge methods, and 45 operation routes) while public installation and platform support remain absent; and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes these account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations."
@@ -55511,6 +55511,23 @@
     {
       "key": {
         "surfaceId": "surface.host.abi.ex.host.capture.exact.gpu.authority.context.v2.1il17lt",
+        "output": "out:authority_session_id",
+        "alias": "ex_host_capture_exact_gpu_authority_context_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.capture.exact.gpu.authority.context.v2.1il17lt",
         "output": "out:digest",
         "alias": "ex_host_capture_exact_gpu_authority_context_v2",
         "mode": "all",
@@ -55717,6 +55734,57 @@
         "surfaceId": "surface.host.abi.ex.host.evaluate.typed.decision.0qfg4sy",
         "output": "[[return]]",
         "alias": "ex_host_evaluate_typed_decision",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.exact.gpu.authority.session.api.v2.12651ze",
+        "output": "[[return]]",
+        "alias": "ex_host_exact_gpu_authority_session_api_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.exact.gpu.authority.session.requested.v2.1qhv1j2",
+        "output": "[[return]]",
+        "alias": "ex_host_exact_gpu_authority_session_requested_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.force.retire.exact.gpu.authority.session.v2.04a1p2h",
+        "output": "[[return]]",
+        "alias": "ex_host_force_retire_exact_gpu_authority_session_v2",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -109043,12 +109111,12 @@
     }
   ],
   "counts": {
-    "catalogRows": 6413,
-    "dispositionRows": 6413,
+    "catalogRows": 6417,
+    "dispositionRows": 6417,
     "byDisposition": {
       "absent": 152,
       "closed": 28,
-      "non-path": 6085,
+      "non-path": 6089,
       "private-native-path": 5,
       "refused": 12,
       "reserved-constant": 1,

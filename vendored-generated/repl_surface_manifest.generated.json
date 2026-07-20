@@ -16,18 +16,18 @@
   "registry": [
     {
       "path": "capsec/registry/capability-definitions.json",
-      "sha256": "2b6ef4accd56e54f3b0a76dfd1df6ce9674f14a986915fed16eb7365db811025"
+      "sha256": "675bca399442b7dba92572d0d2110b79494fa4d9a990443a4c6781c37f518753"
     },
     {
       "path": "capsec/registry/policy-rules.json",
-      "sha256": "97b85018017be3ea6607df8638b9e9618f66f5456ecb939f29958b8217aba414"
+      "sha256": "95c3ed6f1bb70a668b56672406a9f74a7d018fd67829fd3bb9669a2b2e8e2fed"
     }
   ],
   "outputs": [
     {
       "name": "rust",
       "path": "vendored-generated/repl_surface.generated.rs",
-      "sha256": "ba46669118fbc68814acdf9edd7de66a690739a7a4bffc59cc56a6d67aec7759"
+      "sha256": "7efd3095813e88f585a2778465ff5cd5b6521ac06b51c675f4a0f07353e6783c"
     },
     {
       "name": "help",

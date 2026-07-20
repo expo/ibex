@@ -15,6 +15,7 @@ pub mod abi;
 pub mod capability;
 pub mod capability_bits;
 pub mod embedder_artifacts;
+pub(crate) mod gpu_authority;
 pub mod handles;
 // @ref LLP 0005#c-compilation — the hyper-based `ex_host_http_*` server is
 // feature-gated; without it the C++ adapter links no-op stubs.
@@ -1820,6 +1821,11 @@ impl Host {
         let Ok(Some(binding)) = snapshot.exact_gpu_provider_binding() else {
             return false;
         };
+        if abi_version == 0x0002_0000
+            && !gpu_authority::provider_binding_matches_source_registry(&binding)
+        {
+            return false;
+        }
         binding.abi_version == abi_version
             && binding.profile_id == profile_id
             && &binding.profile_digest == profile_digest

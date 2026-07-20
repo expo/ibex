@@ -69,11 +69,11 @@ describe("LLP 0021 capsec contract", () => {
   test("all schemas, registries, examples, and generated output validate", () => {
     const contract = loadAndValidateContract();
     const counts = runContractCheck();
-    expect(counts.capabilityDefinitions).toBe(40);
+    expect(counts.capabilityDefinitions).toBe(41);
     expect(counts.legacyCapabilities).toBe(57);
     expect(counts.schemas).toBe(contract.manifest.schemas.length);
-    expect(counts.selectorExamples).toBe(19);
-    expect(counts.occurrenceExamples).toBe(19);
+    expect(counts.selectorExamples).toBe(20);
+    expect(counts.occurrenceExamples).toBe(20);
     expect(counts.decisionSets).toBe(1);
     expect(counts.containmentVectors).toBe(23);
     expect(counts.digestVectors).toBe(5);

@@ -144,9 +144,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_805);
+    expect(recipes.summary.requiredFixtures).toBe(23_815);
     expect(recipes.summary.fullyExecutableFixtures).toBe(2_469);
-    expect(recipes.summary.unresolvedFixtures).toBe(21_336);
+    expect(recipes.summary.unresolvedFixtures).toBe(21_346);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -242,9 +242,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_690);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_700);
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_327);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_363);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_373);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -504,7 +504,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(2_858);
+    expect(rationaleOnly).toHaveLength(2_862);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -517,8 +517,8 @@ describe("exact-target CapSec executable recipes", () => {
       "generation-recheck": 512,
       "principal-restore": 512,
       "snapshot-mismatch-deny": 512,
-      "cannot-widen-authority": 405,
-      "post-lockdown-invariant": 405,
+      "cannot-widen-authority": 407,
+      "post-lockdown-invariant": 407,
     });
     expect(
       rationaleOnly.every(

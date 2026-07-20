@@ -5235,6 +5235,9 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_enter_context",
     "ex_host_env_get",
     "ex_host_evaluate_typed_decision",
+    "ex_host_exact_gpu_authority_session_api_v2",
+    "ex_host_exact_gpu_authority_session_requested_v2",
+    "ex_host_force_retire_exact_gpu_authority_session_v2",
     "ex_host_free_buffer",
     "ex_host_free_string",
     "ex_host_fs_access",
@@ -12893,6 +12896,17 @@ function hostAbiClassification(name) {
   }
   if (name === "exhostcaptureexactgpuauthoritycontextv2") {
     return nonCapabilitySpec("callback-attribution-carrier", "WP8");
+  }
+  if (
+    new Set([
+      "exhostexactgpuauthoritysessionapiv2",
+      "exhostexactgpuauthoritysessionrequestedv2",
+    ]).has(name)
+  ) {
+    return nonCapabilitySpec("authority-control-plane", "WP4");
+  }
+  if (name === "exhostforceretireexactgpuauthoritysessionv2") {
+    return nonCapabilitySpec("authority-release", "WP8");
   }
   if (new Set(["exhostconsolelog", "exhostconsolelogbytes"]).has(name)) {
     return effectSpec(["stdio:write"], "stdio", "WP7", {

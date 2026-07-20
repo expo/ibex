@@ -291,6 +291,8 @@ pub const CAPSEC_COVERAGE_EDGES_JSON: &str = include_str!("../capsec/registry/co
 pub const CAPSEC_TARGET_CELLS_JSON: &str = include_str!("../capsec/registry/target-cells.json");
 pub const CAPSEC_TARGET_ADVERTISEMENTS_JSON: &str =
     include_str!("../capsec/generated/target-advertisements.json");
+pub const CAPSEC_WEBGPU_PRIVATE_OPERATION_REGISTRY_JSON: &str =
+    include_str!("../capsec/generated/webgpu-private-operation-registry.json");
 pub const CAPSEC_POLICY_RULES_JSON: &str = include_str!("../capsec/registry/policy-rules.json");
 
 #[rustfmt::skip]

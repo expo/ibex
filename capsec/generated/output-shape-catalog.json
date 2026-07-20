@@ -38726,6 +38726,7 @@
       ],
       "outputKinds": [
         "[[return]]",
+        "out:authority_session_id",
         "out:digest"
       ]
     },
@@ -38873,6 +38874,39 @@
       "reasonCode": "source-derived-host-abi-output",
       "sourceRefs": [
         "src/host/abi.rs#ex_host_evaluate_typed_decision"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.exact.gpu.authority.session.api.v2.12651ze",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_exact_gpu_authority_session_api_v2"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.exact.gpu.authority.session.requested.v2.1qhv1j2",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_exact_gpu_authority_session_requested_v2"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.force.retire.exact.gpu.authority.session.v2.04a1p2h",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_force_retire_exact_gpu_authority_session_v2"
       ],
       "outputKinds": [
         "[[return]]"
@@ -83850,15 +83884,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-fRkdH7beBrNy08OUoOrQ7ccBxr3CgwsEHfS3R8J_lvk",
+  "catalogKeyDigest": "sha256-l65Zt-iJvmAodrcmM_Ssfr-hI1d5pAv__qzTzPsjg0U",
   "counts": {
-    "coverageSurfaces": 7370,
-    "outputBearingSurfaces": 5743,
+    "coverageSurfaces": 7373,
+    "outputBearingSurfaces": 5746,
     "structuralOnlySurfaces": 1555,
     "unresolvedSurfaces": 72,
-    "catalogRows": 6413,
+    "catalogRows": 6417,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6006,
+    "sourceInventoryRows": 6010,
     "structuredRows": 407
   },
   "rows": [
@@ -152338,6 +152372,27 @@
     {
       "key": {
         "surfaceId": "surface.host.abi.ex.host.capture.exact.gpu.authority.context.v2.1il17lt",
+        "output": "out:authority_session_id",
+        "alias": "ex_host_capture_exact_gpu_authority_context_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_capture_exact_gpu_authority_context_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_capture_exact_gpu_authority_context_v2"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.capture.exact.gpu.authority.context.v2.1il17lt",
         "output": "out:digest",
         "alias": "ex_host_capture_exact_gpu_authority_context_v2",
         "mode": "all",
@@ -152604,6 +152659,69 @@
         ],
         "sourceRefs": [
           "src/host/abi.rs#ex_host_evaluate_typed_decision"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.exact.gpu.authority.session.api.v2.12651ze",
+        "output": "[[return]]",
+        "alias": "ex_host_exact_gpu_authority_session_api_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_exact_gpu_authority_session_api_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_exact_gpu_authority_session_api_v2"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.exact.gpu.authority.session.requested.v2.1qhv1j2",
+        "output": "[[return]]",
+        "alias": "ex_host_exact_gpu_authority_session_requested_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_exact_gpu_authority_session_requested_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_exact_gpu_authority_session_requested_v2"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.force.retire.exact.gpu.authority.session.v2.04a1p2h",
+        "output": "[[return]]",
+        "alias": "ex_host_force_retire_exact_gpu_authority_session_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_force_retire_exact_gpu_authority_session_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_force_retire_exact_gpu_authority_session_v2"
         ]
       },
       "requiredValueProof": "live-value-observation"

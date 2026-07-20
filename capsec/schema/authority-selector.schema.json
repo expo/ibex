@@ -28,6 +28,7 @@
         { "$ref": "#/$defs/storageNamespace" },
         { "$ref": "#/$defs/sessionLifecycle" },
         { "$ref": "#/$defs/sessionState" },
+        { "$ref": "#/$defs/gpuOperation" },
         { "$ref": "#/$defs/closedSurface" }
       ]
     }
@@ -414,6 +415,40 @@
       "properties": {
         "kind": { "const": "session-state" },
         "name": { "enum": ["cwd"] }
+      },
+      "additionalProperties": false
+    },
+    "gpuOperation": {
+      "type": "object",
+      "required": [
+        "kind",
+        "profileId",
+        "profileDigest",
+        "webgpuCVocabularyDigest",
+        "operationSetDigest",
+        "semanticProgramDigest",
+        "runtimeRoutingDigest",
+        "operationId"
+      ],
+      "properties": {
+        "kind": { "const": "gpu-operation" },
+        "profileId": { "type": "string", "minLength": 1 },
+        "profileDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "webgpuCVocabularyDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "operationSetDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "semanticProgramDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "runtimeRoutingDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "operationId": { "type": "string", "minLength": 1 }
       },
       "additionalProperties": false
     },

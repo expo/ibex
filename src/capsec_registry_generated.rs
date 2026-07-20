@@ -10,6 +10,8 @@ pub const CAPSEC_COVERAGE_EDGES_JSON: &str = include_str!("../capsec/registry/co
 pub const CAPSEC_TARGET_CELLS_JSON: &str = include_str!("../capsec/registry/target-cells.json");
 pub const CAPSEC_TARGET_ADVERTISEMENTS_JSON: &str =
     include_str!("../capsec/generated/target-advertisements.json");
+pub const CAPSEC_WEBGPU_PRIVATE_OPERATION_REGISTRY_JSON: &str =
+    include_str!("../capsec/generated/webgpu-private-operation-registry.json");
 pub const CAPSEC_POLICY_RULES_JSON: &str = include_str!("../capsec/registry/policy-rules.json");
 
 #[rustfmt::skip]
@@ -27,6 +29,7 @@ pub const CAPSEC_ACTION_IDS: &[&str] = &[
     "fs:read",
     "fs:watch",
     "fs:write",
+    "gpu:operation",
     "inspector:activate",
     "ipc:channel",
     "lifecycle:exit",
@@ -3676,6 +3679,9 @@ pub const CAPSEC_COVERAGE_EDGE_IDS: &[&str] = &[
     "surface.host.abi.ex.host.enter.context.15xwr1j",
     "surface.host.abi.ex.host.env.get.11ro4cp",
     "surface.host.abi.ex.host.evaluate.typed.decision.0qfg4sy",
+    "surface.host.abi.ex.host.exact.gpu.authority.session.api.v2.12651ze",
+    "surface.host.abi.ex.host.exact.gpu.authority.session.requested.v2.1qhv1j2",
+    "surface.host.abi.ex.host.force.retire.exact.gpu.authority.session.v2.04a1p2h",
     "surface.host.abi.ex.host.free.buffer.0c4fojc",
     "surface.host.abi.ex.host.free.string.15ftkf3",
     "surface.host.abi.ex.host.fs.access.07ymnn7",
@@ -11059,6 +11065,9 @@ pub const CAPSEC_IMPLEMENTATION_BRANCH_IDS: &[&str] = &[
     "surface.host.abi.ex.host.enter.context.15xwr1j.default",
     "surface.host.abi.ex.host.env.get.11ro4cp.default",
     "surface.host.abi.ex.host.evaluate.typed.decision.0qfg4sy.default",
+    "surface.host.abi.ex.host.exact.gpu.authority.session.api.v2.12651ze.default",
+    "surface.host.abi.ex.host.exact.gpu.authority.session.requested.v2.1qhv1j2.default",
+    "surface.host.abi.ex.host.force.retire.exact.gpu.authority.session.v2.04a1p2h.default",
     "surface.host.abi.ex.host.free.buffer.0c4fojc.default",
     "surface.host.abi.ex.host.free.string.15ftkf3.default",
     "surface.host.abi.ex.host.fs.access.07ymnn7.default",
@@ -19624,6 +19633,9 @@ pub const CAPSEC_ENFORCEMENT_BRANCH_IDS: &[&str] = &[
     "surface.host.abi.ex.host.console.flush.1tisl1d.default",
     "surface.host.abi.ex.host.enter.context.15xwr1j.default",
     "surface.host.abi.ex.host.evaluate.typed.decision.0qfg4sy.default",
+    "surface.host.abi.ex.host.exact.gpu.authority.session.api.v2.12651ze.default",
+    "surface.host.abi.ex.host.exact.gpu.authority.session.requested.v2.1qhv1j2.default",
+    "surface.host.abi.ex.host.force.retire.exact.gpu.authority.session.v2.04a1p2h.default",
     "surface.host.abi.ex.host.free.buffer.0c4fojc.default",
     "surface.host.abi.ex.host.free.string.15ftkf3.default",
     "surface.host.abi.ex.host.fs.close.1gfvldn.default",
@@ -29854,6 +29866,12 @@ pub const CAPSEC_TARGET_KEYS: &[&str] = &[
     "[\"surface.host.abi.ex.host.env.get.11ro4cp\",\"x86_64-pc-windows-msvc\",[\"hermes-frame-attribution\",\"native-compartments\",\"native-lockdown\"]]",
     "[\"surface.host.abi.ex.host.evaluate.typed.decision.0qfg4sy\",\"aarch64-apple-darwin\",[\"hermes-frame-attribution\",\"native-compartments\",\"native-lockdown\"]]",
     "[\"surface.host.abi.ex.host.evaluate.typed.decision.0qfg4sy\",\"x86_64-pc-windows-msvc\",[\"hermes-frame-attribution\",\"native-compartments\",\"native-lockdown\"]]",
+    "[\"surface.host.abi.ex.host.exact.gpu.authority.session.api.v2.12651ze\",\"aarch64-apple-darwin\",[\"hermes-frame-attribution\",\"native-compartments\",\"native-lockdown\"]]",
+    "[\"surface.host.abi.ex.host.exact.gpu.authority.session.api.v2.12651ze\",\"x86_64-pc-windows-msvc\",[\"hermes-frame-attribution\",\"native-compartments\",\"native-lockdown\"]]",
+    "[\"surface.host.abi.ex.host.exact.gpu.authority.session.requested.v2.1qhv1j2\",\"aarch64-apple-darwin\",[\"hermes-frame-attribution\",\"native-compartments\",\"native-lockdown\"]]",
+    "[\"surface.host.abi.ex.host.exact.gpu.authority.session.requested.v2.1qhv1j2\",\"x86_64-pc-windows-msvc\",[\"hermes-frame-attribution\",\"native-compartments\",\"native-lockdown\"]]",
+    "[\"surface.host.abi.ex.host.force.retire.exact.gpu.authority.session.v2.04a1p2h\",\"aarch64-apple-darwin\",[\"hermes-frame-attribution\",\"native-compartments\",\"native-lockdown\"]]",
+    "[\"surface.host.abi.ex.host.force.retire.exact.gpu.authority.session.v2.04a1p2h\",\"x86_64-pc-windows-msvc\",[\"hermes-frame-attribution\",\"native-compartments\",\"native-lockdown\"]]",
     "[\"surface.host.abi.ex.host.free.buffer.0c4fojc\",\"aarch64-apple-darwin\",[\"hermes-frame-attribution\",\"native-compartments\",\"native-lockdown\"]]",
     "[\"surface.host.abi.ex.host.free.buffer.0c4fojc\",\"x86_64-pc-windows-msvc\",[\"hermes-frame-attribution\",\"native-compartments\",\"native-lockdown\"]]",
     "[\"surface.host.abi.ex.host.free.string.15ftkf3\",\"aarch64-apple-darwin\",[\"hermes-frame-attribution\",\"native-compartments\",\"native-lockdown\"]]",

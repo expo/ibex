@@ -1884,6 +1884,7 @@ pub extern "C" fn ex_host_restore_context(previous: u64) {
 
 #[no_mangle]
 pub extern "C" fn ex_host_release_context(context_id: u64) {
+    super::gpu_authority::purge_context(context_id);
     let mut removed_sessions = Vec::new();
     if let Some(sessions) = RUNTIME_VFS_SESSIONS.get() {
         let mut sessions = match sessions.write() {
@@ -2581,27 +2582,43 @@ pub unsafe extern "C" fn ex_host_capture_exact_gpu_authority_context_v2(
     runtime_address: u64,
     runtime_nonce: u64,
     context_kind: u32,
-    operation_id: u32,
-    topology_id: u32,
     actor_principal: u64,
     effect_owner_principal: u64,
     scheduler_principal: u64,
     has_scheduler_principal: u32,
     principals: *const u64,
     principal_count: usize,
+    facts: *const super::gpu_authority::ExactGpuAuthoritySessionFactsV2,
     out_digest: *mut u8,
+    out_authority_session_id: *mut u64,
 ) -> i32 {
+    if !out_authority_session_id.is_null() {
+        unsafe { *out_authority_session_id = 0 };
+    }
     if context_id == 0
         || runtime_address == 0
         || runtime_nonce == 0
         || !matches!(context_kind, 1 | 2)
-        || operation_id == 0
-        || topology_id != 1
         || !matches!(has_scheduler_principal, 0 | 1)
         || principals.is_null()
         || principal_count == 0
         || principal_count > 257
+        || facts.is_null()
         || out_digest.is_null()
+        || out_authority_session_id.is_null()
+    {
+        return 0;
+    }
+    let facts = unsafe { *facts };
+    if facts.struct_size
+        != std::mem::size_of::<super::gpu_authority::ExactGpuAuthoritySessionFactsV2>() as u32
+        || facts.abi_version != 0x0002_0000
+        || facts.authority_session_id != 0
+        || facts.operation_id == 0
+        || facts.topology_id != 1
+        || facts.realm.runtime.runtime_address != runtime_address
+        || facts.realm.runtime.runtime_nonce != runtime_nonce
+        || facts.authority_context_digest != [0; 32]
     {
         return 0;
     }
@@ -2657,23 +2674,32 @@ pub unsafe extern "C" fn ex_host_capture_exact_gpu_authority_context_v2(
     let Some(generations) = host.typed_generations() else {
         return 0;
     };
-    if host
-        .typed_principal_for_module(&actor_principal.to_string())
-        .is_none()
-        || host
-            .typed_principal_for_module(&effect_owner_principal.to_string())
-            .is_none()
-        || (has_scheduler_principal == 1
-            && host
-                .typed_principal_for_module(&scheduler_principal.to_string())
-                .is_none())
-        || principals.iter().any(|principal| {
-            host.typed_principal_for_module(&principal.to_string())
-                .is_none()
-        })
-    {
+    let Some(actor) = host.typed_principal_for_module(&actor_principal.to_string()) else {
         return 0;
-    }
+    };
+    let Some(effect_owner) = host.typed_principal_for_module(&effect_owner_principal.to_string())
+    else {
+        return 0;
+    };
+    let scheduler = if has_scheduler_principal == 1 {
+        let Some(scheduler) = host.typed_principal_for_module(&scheduler_principal.to_string())
+        else {
+            return 0;
+        };
+        Some(scheduler)
+    } else {
+        None
+    };
+    let Some(constrained_principals) = principals
+        .iter()
+        .map(|principal| host.typed_principal_for_module(&principal.to_string()))
+        .collect::<Option<Vec<_>>>()
+        .and_then(|principals| {
+            capsec_semantics::model::canonicalize_principal_set(principals).ok()
+        })
+    else {
+        return 0;
+    };
 
     use sha2::{Digest as _, Sha256};
     let mut digest = Sha256::new();
@@ -2685,8 +2711,8 @@ pub unsafe extern "C" fn ex_host_capture_exact_gpu_authority_context_v2(
     digest.update(runtime_address.to_le_bytes());
     digest.update(runtime_nonce.to_le_bytes());
     digest.update(context_kind.to_le_bytes());
-    digest.update(operation_id.to_le_bytes());
-    digest.update(topology_id.to_le_bytes());
+    digest.update(facts.operation_id.to_le_bytes());
+    digest.update(facts.topology_id.to_le_bytes());
     digest.update(b"actor\0");
     digest.update(actor_principal.to_le_bytes());
     digest.update(b"caller-effect-owner\0");
@@ -2704,8 +2730,73 @@ pub unsafe extern "C" fn ex_host_capture_exact_gpu_authority_context_v2(
     digest.update(generations.dynamic.get().to_le_bytes());
     digest.update(generations.handle.get().to_le_bytes());
     let digest: [u8; 32] = digest.finalize().into();
+    let carrier_facts = super::gpu_authority::GpuAuthorityCarrierFacts {
+        operation_id: facts.operation_id,
+        topology_id: facts.topology_id,
+        realm: facts.realm,
+        account: facts.account,
+        ingress_device: facts.ingress_device,
+        provider_generation: facts.provider_generation,
+        operation_instance_id: facts.operation_instance_id,
+        promise_id: facts.promise_id,
+        captured_scope_id: facts.captured_scope_id,
+        adapter_ordinal: facts.adapter_ordinal,
+        device_ingress_ordinal: facts.device_ingress_ordinal,
+        queue_ingress_ordinal: facts.queue_ingress_ordinal,
+        authority_context_digest: digest,
+        receiver: facts.receiver,
+        target: facts.target,
+    };
+    let attribution = super::gpu_authority::GpuAuthorityAttribution {
+        context_kind,
+        actor,
+        effect_owner,
+        scheduler,
+        constrained_principals,
+        policy_generation: snapshot.generations().policy.get(),
+        negative_generation: generations.negative.get(),
+        dynamic_generation: generations.dynamic.get(),
+        handle_generation: generations.handle.get(),
+    };
+    let Some(authority_session_id) = super::gpu_authority::capture_session(
+        context_id,
+        Arc::clone(&host),
+        attribution,
+        carrier_facts,
+    ) else {
+        return 0;
+    };
     unsafe { std::ptr::copy_nonoverlapping(digest.as_ptr(), out_digest, digest.len()) };
+    unsafe { *out_authority_session_id = authority_session_id };
     1
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_exact_gpu_authority_session_requested_v2(
+    context_id: u64,
+    authority_session_id: u64,
+) -> i32 {
+    i32::from(super::gpu_authority::requested_or_later(
+        context_id,
+        authority_session_id,
+    ))
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_exact_gpu_authority_session_api_v2(
+) -> *const super::gpu_authority::ExactGpuAuthoritySessionApiV2 {
+    super::gpu_authority::authority_session_api_v2()
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_force_retire_exact_gpu_authority_session_v2(
+    context_id: u64,
+    authority_session_id: u64,
+) -> i32 {
+    i32::from(super::gpu_authority::force_retire(
+        context_id,
+        authority_session_id,
+    ))
 }
 
 /// Verify that an explicit construction transaction installed exactly the

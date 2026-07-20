@@ -120739,6 +120739,106 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.host.exact.gpu.authority.session.api.v2.12651ze",
+      "observedKey": "host-abi:ex_host_exact_gpu_authority_session_api_v2",
+      "branchId": "surface.host.abi.ex.host.exact.gpu.authority.session.api.v2.12651ze.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.exact.gpu.authority.session.api.v2.12651ze.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_exact_gpu_authority_session_api_v2"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_exact_gpu_authority_session_api_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_exact_gpu_authority_session_api_v2"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_exact_gpu_authority_session_api_v2"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_exact_gpu_authority_session_api_v2"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.exact.gpu.authority.session.api.v2.12651ze.default.cannot-widen-authority",
+        "surface.host.abi.ex.host.exact.gpu.authority.session.api.v2.12651ze.default.non-capability",
+        "surface.host.abi.ex.host.exact.gpu.authority.session.api.v2.12651ze.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.exact.gpu.authority.session.requested.v2.1qhv1j2",
+      "observedKey": "host-abi:ex_host_exact_gpu_authority_session_requested_v2",
+      "branchId": "surface.host.abi.ex.host.exact.gpu.authority.session.requested.v2.1qhv1j2.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.exact.gpu.authority.session.requested.v2.1qhv1j2.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_exact_gpu_authority_session_requested_v2"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_exact_gpu_authority_session_requested_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_exact_gpu_authority_session_requested_v2"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_exact_gpu_authority_session_requested_v2"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_exact_gpu_authority_session_requested_v2"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.exact.gpu.authority.session.requested.v2.1qhv1j2.default.cannot-widen-authority",
+        "surface.host.abi.ex.host.exact.gpu.authority.session.requested.v2.1qhv1j2.default.non-capability",
+        "surface.host.abi.ex.host.exact.gpu.authority.session.requested.v2.1qhv1j2.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.force.retire.exact.gpu.authority.session.v2.04a1p2h",
+      "observedKey": "host-abi:ex_host_force_retire_exact_gpu_authority_session_v2",
+      "branchId": "surface.host.abi.ex.host.force.retire.exact.gpu.authority.session.v2.04a1p2h.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.force.retire.exact.gpu.authority.session.v2.04a1p2h.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_force_retire_exact_gpu_authority_session_v2"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_force_retire_exact_gpu_authority_session_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_force_retire_exact_gpu_authority_session_v2"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_force_retire_exact_gpu_authority_session_v2"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_force_retire_exact_gpu_authority_session_v2"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.force.retire.exact.gpu.authority.session.v2.04a1p2h.default.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.free.buffer.0c4fojc",
       "observedKey": "host-abi:ex_host_free_buffer",
       "branchId": "surface.host.abi.ex.host.free.buffer.0c4fojc.default",
@@ -271155,6 +271255,12 @@
       "rationale": "Covered by 300 observed effect edges."
     },
     {
+      "definitionId": "gpu:operation",
+      "disposition": "unsupported",
+      "edgeIds": [],
+      "rationale": "No observed surface is classified for this authorable definition."
+    },
+    {
       "definitionId": "inspector:activate",
       "disposition": "closed",
       "edgeIds": [
@@ -274073,59 +274179,59 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-omuXr6K7P4J7CMj9BNeLwKyWXYWg4-jNKCb8AS-B9NQ"
+      "rawContentDigest": "sha256-IXnFzXYQzc27zXq304mz2YP2uvGgMuEevHiCpdEkq90"
     },
     {
       "kind": "output-disposition-dataset",
       "path": "capsec/generated/output-dispositions.json",
-      "rawContentDigest": "sha256-bXRRk5N9ljub2Bqzyt9fOOc_GY4sl_5xuGQOY6X8TGE"
+      "rawContentDigest": "sha256-6tDtZQOkczKAcJgMhwyT-p8f6CAHPfZ6RIjTz9S2OHg"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/output-dispositions.md",
-      "rawContentDigest": "sha256-6kc8zB9WGrl229Gb5C1hUQ1n728f-9q_KlT3_0_XRxY"
+      "rawContentDigest": "sha256-PXUufI8LxlWeytY-iFTYIfBQ584leclN1ft8xJfxm3s"
     },
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-CvymrecE7HB6VDnpndH6zqf1Ak7Niz6UKcyodi3aWTY"
+      "rawContentDigest": "sha256-Zu1gce-nzcrDQdjRmCIGuZSRiTdmr9kcHKM7gXC4mIA"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-owvLwzi6t9LOb4O4P6ttGZy4kfsJ3ZoG98aIHYI4ysU"
+      "rawContentDigest": "sha256-FqFJepn-tM4Uxpsx8kGBc_C38emxhnwdCsjPwgR9zao"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-h8AWhO1RoSzHXUh0S65_YxNpz3RqTh7S0upiltzOBkY"
+      "rawContentDigest": "sha256-Zg542jXCWcu5jgm06ez1JuWt34MPZ16LzISZ6yxBZwg"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-IL8qoLIRpWC_M5tGrv-ilmrZJCFgsRI6hmvOSX4xZbI"
+      "rawContentDigest": "sha256-fjkHGTfuIXFC7vQkfzReJCACt2LG8wns13jh2dsd4aw"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-R7n-ROTZUcfrEaouXQPSHd-m1vBf-uXFBj628OxLMXQ"
+      "rawContentDigest": "sha256-bLObEsZ636Un6ywFw8QUzQ2AqFZigv3VRnlN_QTu7Ns"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-MmPKOlVDUQ-1FG2wfY7i9jSkY5x12lO67SSMJiB4V8U"
+      "rawContentDigest": "sha256-sKXYABMXzQJMH9qz2MghtRYyqb3HsqRBhZDfBvaFpg8"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-vacqD6NNnslIT3BxvMwQkLATKfjZyrwpuOyZsWpYeE4"
+      "rawContentDigest": "sha256-gcZfasDMzB9-IbKvrVRK-0WEGa9Z50q-fL1ryoQCEsY"
     }
   ],
   "counts": {
-    "observedReferences": 12945,
-    "logicalSurfaces": 7370,
-    "enforcementBranches": 7589,
-    "coverageEdges": 7370,
-    "targetCells": 14740
+    "observedReferences": 12948,
+    "logicalSurfaces": 7373,
+    "enforcementBranches": 7592,
+    "coverageEdges": 7373,
+    "targetCells": 14746
   }
 }

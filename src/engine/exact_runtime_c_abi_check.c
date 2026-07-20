@@ -243,6 +243,42 @@ IBEX_C_ABI_ASSERT(result_position_count_offset_64,
                   offsetof(ExHermesEvaluationResult, position_count) == 104u);
 IBEX_C_ABI_ASSERT(result_size_64,
                   sizeof(ExHermesEvaluationResult) == 112u);
+IBEX_C_ABI_ASSERT(gpu_authority_facts_session_offset_64,
+                  offsetof(ExactGpuAuthoritySessionFactsV2,
+                           authority_session_id) == 16u);
+IBEX_C_ABI_ASSERT(gpu_authority_facts_digest_offset_64,
+                  offsetof(ExactGpuAuthoritySessionFactsV2,
+                           authority_context_digest) == 184u);
+IBEX_C_ABI_ASSERT(gpu_authority_facts_size_64,
+                  sizeof(ExactGpuAuthoritySessionFactsV2) == 264u);
+IBEX_C_ABI_ASSERT(gpu_authority_presented_handle_size_64,
+                  sizeof(ExactGpuAuthorityPresentedHandleV2) == 104u);
+IBEX_C_ABI_ASSERT(gpu_authority_decision_facts_offset_64,
+                  offsetof(ExactGpuAuthorityDecisionRequestV2, facts) == 16u);
+IBEX_C_ABI_ASSERT(gpu_authority_decision_size_64,
+                  sizeof(ExactGpuAuthorityDecisionRequestV2) == 296u);
+IBEX_C_ABI_ASSERT(gpu_authority_retire_size_64,
+                  sizeof(ExactGpuAuthorityRetireV2) == 280u);
+IBEX_C_ABI_ASSERT(gpu_authority_api_size_64,
+                  sizeof(ExactGpuAuthoritySessionApiV2) == 32u);
+IBEX_C_ABI_ASSERT(gpu_realm_open_authority_api_offset_64,
+                  offsetof(ExactGpuRealmOpenV2, authority_session_api) == 96u);
+IBEX_C_ABI_ASSERT(gpu_realm_open_size_64,
+                  sizeof(ExactGpuRealmOpenV2) == 104u);
+IBEX_C_ABI_ASSERT(gpu_semantic_call_authority_session_offset_64,
+                  offsetof(ExactGpuSemanticCallV2, authority_session_id) ==
+                      216u);
+IBEX_C_ABI_ASSERT(gpu_semantic_call_size_64,
+                  sizeof(ExactGpuSemanticCallV2) == 288u);
+IBEX_C_ABI_ASSERT(gpu_provenance_authority_session_offset_64,
+                  offsetof(ExactGpuOperationProvenanceV2,
+                           authority_session_id) == 248u);
+IBEX_C_ABI_ASSERT(gpu_provenance_size_64,
+                  sizeof(ExactGpuOperationProvenanceV2) == 304u);
+IBEX_C_ABI_ASSERT(gpu_cancel_authority_session_offset_64,
+                  offsetof(ExactGpuCancelV2, authority_session_id) == 216u);
+IBEX_C_ABI_ASSERT(gpu_cancel_size_64,
+                  sizeof(ExactGpuCancelV2) == 272u);
 #endif
 IBEX_C_ABI_ASSERT(work_unit_target_offset,
                   offsetof(ExHermesWorkUnitEvent, target_id) == 16u);

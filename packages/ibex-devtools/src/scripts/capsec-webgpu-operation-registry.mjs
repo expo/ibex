@@ -215,6 +215,22 @@ export function authenticateWebGpuProductionPlan({
     plan,
     routes: expectedRoutes,
     authenticatedDigests: authenticated.computed,
+    providerIdentity: {
+      abiVersion: authenticated.payload.providerDescriptor.serviceAbiVersion,
+      topologyId: authenticated.payload.providerDescriptor.topologyId,
+      profileId: authenticated.payload.providerDescriptor.profileId,
+      profileDigest: authenticated.payload.providerDescriptor.profileDigest,
+      webgpuCVocabularyDigest:
+        authenticated.payload.providerDescriptor.webgpuCVocabularyDigest,
+      operationSetDigest:
+        authenticated.payload.providerDescriptor.operationSetDigest,
+      semanticProgramDigest:
+        authenticated.payload.providerDescriptor.semanticProgramDigest,
+      runtimeRoutingDigest:
+        authenticated.payload.providerDescriptor.runtimeRoutingDigest,
+      sortedOperationIds:
+        authenticated.payload.providerDescriptor.sortedOperationIds,
+    },
     planRawContentSha256,
     authorityRawContentSha256,
   };
@@ -257,6 +273,11 @@ export function webGpuOperationSemantics(route) {
       privateCellDisposition: "non-capability",
       providerBridge: "submit",
       positiveAuthority: "not-applicable-authority-reducing",
+      authoritySession: {
+        decisionKind: "structural-authority-reducing",
+        stages: ["requested", "commit", "repeat"],
+        targetCellDisposition: "non-capability",
+      },
     };
   }
   if (route.providerSubmission === "semantic-service-timeline") {
@@ -266,6 +287,11 @@ export function webGpuOperationSemantics(route) {
       privateCellDisposition: "non-capability",
       providerBridge: null,
       positiveAuthority: "not-applicable-control-plane",
+      authoritySession: {
+        decisionKind: "structural-control-plane",
+        stages: ["requested", "commit", "repeat"],
+        targetCellDisposition: "non-capability",
+      },
     };
   }
   if (
@@ -281,6 +307,7 @@ export function webGpuOperationSemantics(route) {
       privateCellDisposition: "non-capability",
       providerBridge: null,
       positiveAuthority: "not-applicable-wrapper-local",
+      authoritySession: null,
     };
   }
   if (route.dispatchClass === "wrapper-recording") {
@@ -290,6 +317,7 @@ export function webGpuOperationSemantics(route) {
       privateCellDisposition: "non-capability",
       providerBridge: null,
       positiveAuthority: "not-applicable-wrapper-recording",
+      authoritySession: null,
     };
   }
   if (route.dispatchClass === "wrapper-local-deferred-service") {
@@ -299,6 +327,7 @@ export function webGpuOperationSemantics(route) {
       privateCellDisposition: "closed",
       providerBridge: null,
       positiveAuthority: "absent-closed-deferred-service-edge",
+      authoritySession: null,
     };
   }
   if (
@@ -308,9 +337,18 @@ export function webGpuOperationSemantics(route) {
     return {
       classification: "closed",
       cap: "ipc:channel",
-      privateCellDisposition: "closed",
+      // The public edge remains closed. This separate construction-private
+      // cell is complete only for the native authority-session callback; it
+      // does not advertise a target, mint a grant, or install navigator.gpu.
+      privateCellDisposition: "complete",
       providerBridge: "submit",
-      positiveAuthority: "absent-closed-provider-edge",
+      positiveAuthority: "typed-gpu-operation-no-public-grant-issuer",
+      authoritySession: {
+        decisionKind: "typed-positive",
+        action: "gpu:operation",
+        stages: ["requested", "commit", "repeat"],
+        targetCellDisposition: "complete",
+      },
     };
   }
   throw new Error(
@@ -429,7 +467,13 @@ export function buildWebGpuPrivateOperationRegistry({
       dispatchClass: route.dispatchClass,
       logicalExecutionKind: route.logicalExecutionKind,
       providerSubmission: route.providerSubmission,
+      receiverHandleKind: route.receiverHandleKind,
+      wrapperAllocatedTargetHandleKind:
+        route.wrapperAllocatedTargetHandleKind,
+      operationInstanceIdentity: route.operationInstanceIdentity,
+      promiseIdentity: route.promiseIdentity,
       privateTargetCellId: `${edge.id}.${WEBGPU_PRIVATE_TARGET_ID}`,
+      authoritySession: semantics.authoritySession,
     });
     privateTargetCells.push({
       id: `${edge.id}.${WEBGPU_PRIVATE_TARGET_ID}`,
@@ -446,6 +490,7 @@ export function buildWebGpuPrivateOperationRegistry({
           ? null
           : bridgeEdges[semantics.providerBridge],
       positiveAuthority: semantics.positiveAuthority,
+      authoritySession: semantics.authoritySession,
       publicInstallDisposition: "absent",
       platformSupportClaim: "none",
     });
@@ -465,6 +510,7 @@ export function buildWebGpuPrivateOperationRegistry({
       wrapperAuthorityRawContentSha256: authenticated.authorityRawContentSha256,
       authenticatedDigests: authenticated.authenticatedDigests,
     },
+    providerIdentity: authenticated.providerIdentity,
     publicBoundary: {
       navigatorGpu: "absent",
       embeddedExecutableWebGpuCodecs: "absent",

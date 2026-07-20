@@ -5,6 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-19 (adds the source-derived construction-private WebGPU CapSec authority session: native-random bounded session identities, exact V2 Requested/Commit/Repeat and retire callbacks, full realm/account/device/object/handle and actor/effect-owner/scheduler/generation binding, typed `gpu:operation` positive decisions over generated private edge/cell mappings, structural authority-reducing decisions without positive grants, fail-closed service-admission enforcement, and teardown purge; `navigator.gpu`, embedded executable codecs, public grant issuance, target advertisement, and platform support claims remain absent)
 **Revised:** 2026-07-19 (composes GPUBuffer mapping with true engine aliases: first aliasing promotes an internal mapped-at-creation source to shared external ownership in place, all aliases are tracked from native mint through one matching-key detach attempt, operation-result bytes have one wrapper carrier while the success receipt resolves undefined, and either compile-time or live-cast engine-capability absence fails finalization closed with rollback; no public issuer, global installation, positive platform edge, or support claim is added)
 **Revised:** 2026-07-19 (hardens the construction-private GPUBuffer lifecycle: retained cleanup, destroyed state, and an existing pending or active mapping fence new maps without service work; all post-WebIDL `mapAsync` failures remain Promise rejections; void cleanup suppresses known non-admission while retaining the exact retry snapshot and closes on ambiguous admission; spontaneous loss discards detached retry snapshots, preserves active views, and makes their later explicit cleanup local-only with private detachment bookkeeping; cleanup moves the existing private MAP_WRITE block without a second full allocation; and Ibex structured clone/ArrayBuffer transfer entry points enforce mapped-range non-transferability through an inaccessible lexical set and captured operations without claiming native Hermes detachment; the embedded codec slot, public issuer, positive CapSec support, ordinary global installation, and support claim remain absent)
 **Revised:** 2026-07-19 (materializes construction-private `GPUBuffer.destroy`, `GPUBuffer.getMappedRange`, `GPUBuffer.mapAsync`, and `GPUBuffer.unmap` over the authenticated existing lifecycle codecs and V2 routes, with wrapper-owned mapped bytes, independent positive map/cleanup generations, generation-fenced cancellation and typed completion, bounded nonoverlapping mapped-range leases, exact MAP_WRITE cleanup, MAP_READ discard, and synchronous detachment on owning cleanup; the embedded codec slot, public issuer, positive CapSec support, ordinary global installation, and support claim remain absent)
@@ -729,6 +730,52 @@ table, event envelope, and selected event record all require their exact
 compiled sizes: neither undersized nor oversized prefix compatibility is
 accepted. The armed snapshot carries the routing digest only for ABI V2, and
 the Host authorization comparison includes it before the service is retained.
+
+ABI V2 `open_realm` also borrows one process-lifetime immutable
+`ExactGpuAuthoritySessionApiV2` table. The table is native-only and contains
+exact-size `evaluate` and `retire` callbacks; it is not installed in JavaScript
+and is invalid to retain beyond realm close. After Ibex assigns the operation
+instance and Promise identities, but before it enters provider code, the Host
+mints a nonzero, non-maximum random `uint64_t` authority-session identity from
+OS randomness. The global store admits at most 1,024 live sessions and never
+evicts one to make room. Context release purges all of that context's sessions;
+explicit retirement requires the complete original facts and removes exactly
+one session.
+
+The session treats the caller-attribution digest as provenance only. Its
+positive authority is derived independently from the generated
+`webgpu-private-operation-registry.json`, whose provider identity and complete
+operation set are authenticated from the production route plan and normalized
+wrapper authority. Each admitted service route names one source-derived
+operation, coverage edge, and construction-private target cell. The session
+binds that mapping and its five profile/routing digests together with the armed
+snapshot, exact realm/account/device/provider incarnation, operation and
+Promise identities, receiver and target references, labelled actor/effect
+owner/scheduler, canonical constrained-principal set, and policy, negative,
+dynamic, and handle generations. Realm, account, device, receiver, target, or
+session substitution therefore cannot reuse an otherwise valid digest.
+
+The semantic service calls `evaluate` at `REQUESTED` before returning provider
+admission, at `COMMIT` before publishing the effect, and at `REPEAT` for every
+later use of retained authority. The only legal stage graph is
+`captured -> requested -> commit -> repeat*`. Every request must match the
+compiled structure size and the complete captured facts. Presented handle
+lineage is capped at 256 exact account/device/object tuples, ordered by the
+complete binary tuple, unique, and immutable across stages. Wrong sizes,
+illegal transitions, handle mutation, and stale generations fail closed. A
+service that returns admission without reaching `REQUESTED` causes realm
+quarantine, while rejection and pre-service failures force-retire the session.
+
+Positive routes evaluate a typed `gpu:operation` selector containing the exact
+profile, vocabulary, operation-set, semantic-program, routing, and operation
+identities against the generated complete private target cell. Operations
+classified by the source route as authority-reducing validate the same stage
+and identity structure but require no positive grant. This carrier does not
+create a public grant issuer, advertise a target, install `navigator.gpu`, add
+an embedded executable codec, or make a platform-support claim. The
+source-classified `GPUDevice.pushErrorScope` semantic-service control route
+uses that same structural, non-capability session discipline without being
+misclassified as either positive authority or authority reduction.
 
 The service owns no Hermes or JSI value. `open_realm` receives a ref-counted
 plain-native client sink. It may call `retain_client`/`release_client` while

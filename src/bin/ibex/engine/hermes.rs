@@ -506,6 +506,83 @@ struct ExactGpuObjectRefV2 {
 
 #[cfg(test)]
 #[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct ExactGpuAuthoritySessionFactsV2 {
+    struct_size: u32,
+    abi_version: u32,
+    operation_id: u32,
+    topology_id: u32,
+    authority_session_id: u64,
+    realm: ExactGpuRealmIdentityV2,
+    account: ExactGpuAccountIdentityV2,
+    ingress_device: ExactGpuDeviceIdentityV2,
+    provider_generation: u64,
+    operation_instance_id: u64,
+    promise_id: u64,
+    captured_scope_id: u64,
+    adapter_ordinal: u64,
+    device_ingress_ordinal: u64,
+    queue_ingress_ordinal: u64,
+    authority_context_digest: [u8; 32],
+    receiver: ExactGpuObjectRefV2,
+    target: ExactGpuObjectRefV2,
+}
+
+#[cfg(test)]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct ExactGpuAuthorityPresentedHandleV2 {
+    struct_size: u32,
+    abi_version: u32,
+    account: ExactGpuAccountIdentityV2,
+    device: ExactGpuDeviceIdentityV2,
+    object: ExactGpuObjectRefV2,
+}
+
+#[cfg(test)]
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+struct ExactGpuAuthorityDecisionRequestV2 {
+    struct_size: u32,
+    abi_version: u32,
+    stage: u32,
+    flags: u32,
+    facts: ExactGpuAuthoritySessionFactsV2,
+    presented_handles: *const ExactGpuAuthorityPresentedHandleV2,
+    presented_handle_count: usize,
+}
+
+#[cfg(test)]
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+struct ExactGpuAuthorityRetireV2 {
+    struct_size: u32,
+    abi_version: u32,
+    flags: u32,
+    reserved: u32,
+    facts: ExactGpuAuthoritySessionFactsV2,
+}
+
+#[cfg(test)]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct ExactGpuAuthoritySessionApiV2 {
+    struct_size: u32,
+    abi_version: u32,
+    authority_context: *mut std::ffi::c_void,
+    evaluate: Option<
+        unsafe extern "C" fn(
+            *mut std::ffi::c_void,
+            *const ExactGpuAuthorityDecisionRequestV2,
+        ) -> i32,
+    >,
+    retire: Option<
+        unsafe extern "C" fn(*mut std::ffi::c_void, *const ExactGpuAuthorityRetireV2) -> i32,
+    >,
+}
+
+#[cfg(test)]
+#[repr(C)]
 #[derive(Clone, Copy)]
 struct ExactGpuRealmOpenV2 {
     struct_size: u32,
@@ -515,6 +592,7 @@ struct ExactGpuRealmOpenV2 {
     runtime: ExactGpuRuntimeIdentityV2,
     authority_digest: [u8; 32],
     runtime_routing_digest: [u8; 32],
+    authority_session_api: *const ExactGpuAuthoritySessionApiV2,
 }
 
 #[cfg(test)]
@@ -538,6 +616,7 @@ struct ExactGpuSemanticCallV2 {
     device_ingress_ordinal: u64,
     queue_ingress_ordinal: u64,
     authority_context_digest: [u8; 32],
+    authority_session_id: u64,
     receiver: ExactGpuObjectRefV2,
     target: ExactGpuObjectRefV2,
     payload: *const u8,
@@ -567,6 +646,7 @@ struct ExactGpuOperationProvenanceV2 {
     device_ingress_ordinal: u64,
     queue_ingress_ordinal: u64,
     authority_context_digest: [u8; 32],
+    authority_session_id: u64,
     receiver: ExactGpuObjectRefV2,
     target: ExactGpuObjectRefV2,
 }
@@ -592,6 +672,7 @@ struct ExactGpuCancelV2 {
     device_ingress_ordinal: u64,
     queue_ingress_ordinal: u64,
     authority_context_digest: [u8; 32],
+    authority_session_id: u64,
     receiver: ExactGpuObjectRefV2,
     target: ExactGpuObjectRefV2,
 }
@@ -6845,23 +6926,94 @@ cp \"$input\" \"$out\"\n";
 
     #[cfg(feature = "capsec-conformance-observer")]
     fn install_armed_gpu_v2_test_host() -> (HostResetGuard, String) {
-        let profile_digest = "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA";
-        let vocabulary_digest = "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA";
-        let operation_set_digest = "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA";
-        let routing_digest = "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA";
-        let semantic_program_digest = "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
-        let (host, digest) =
-            build_armed_test_host_custom(None, false, false, false, vec![], None, |value| {
-                value["exactGpuProvider"] = serde_json::json!({
-                    "schema": "exact/webgpu-provider/1",
-                    "abiVersion": 131072,
-                    "profileId": "exact-webgpu-phase1a-draft",
+        let profile_digest = "sha256-7tqDeE_0KXdgYZy331Tw4vInpwViVhkJxH7MncMjLZU";
+        let vocabulary_digest = "sha256-LQX5IbUTGfNs4TdV4mCH0cPfdvS-ozh0Y9pAW82rmD8";
+        let operation_set_digest = "sha256--xIQesQthJUGflDwlrTWxK7Z4_KvZNbRR_nJnvyqZoc";
+        let routing_digest = "sha256-189MIB-1igoFzWXNULDrPrKmTMF8RyTgB56DWbPmO_c";
+        let semantic_program_digest = "sha256-qblwPVmzuQa6iI_zP6yFMT-vwnhfDdNk5rVkim70atY";
+        let gpu_floor = [
+            "GPU.requestAdapter",
+            "GPUAdapter.requestDevice",
+            "GPUBuffer.mapAsync",
+            "GPUDevice.createBuffer",
+        ]
+        .into_iter()
+        .map(|operation_id| {
+            serde_json::json!({
+                "cap": "gpu:operation",
+                "resource": {
+                    "kind": "gpu-operation",
+                    "profileId": "exact-webgpu-v1-draft",
                     "profileDigest": profile_digest,
                     "webgpuCVocabularyDigest": vocabulary_digest,
                     "operationSetDigest": operation_set_digest,
                     "semanticProgramDigest": semantic_program_digest,
                     "runtimeRoutingDigest": routing_digest,
-                    "operationIds": [7, 11, 19],
+                    "operationId": operation_id,
+                }
+            })
+        })
+        .collect();
+        let operation_ids: Vec<u64> = vec![
+            31_670_442,
+            56_177_326,
+            194_635_792,
+            206_890_944,
+            308_839_175,
+            404_589_710,
+            551_383_281,
+            599_085_487,
+            892_795_326,
+            935_342_475,
+            1_199_806_466,
+            1_228_615_721,
+            1_277_060_789,
+            1_287_763_171,
+            1_311_136_574,
+            1_660_448_199,
+            1_724_778_411,
+            1_760_273_919,
+            1_829_554_013,
+            1_853_125_118,
+            1_869_756_926,
+            1_899_341_095,
+            1_908_549_907,
+            1_914_447_212,
+            1_925_415_872,
+            1_949_537_636,
+            2_040_228_619,
+            2_239_053_141,
+            2_342_501_516,
+            2_407_151_159,
+            2_481_184_390,
+            2_544_948_076,
+            2_687_703_037,
+            2_816_646_327,
+            2_933_046_788,
+            3_054_695_767,
+            3_157_634_281,
+            3_285_037_552,
+            3_293_775_739,
+            3_310_230_093,
+            3_314_731_466,
+            3_373_402_978,
+            3_810_427_763,
+            4_055_478_657,
+            4_094_543_821,
+            4_177_957_718,
+        ];
+        let (host, digest) =
+            build_armed_test_host_custom(None, false, false, false, gpu_floor, None, |value| {
+                value["exactGpuProvider"] = serde_json::json!({
+                    "schema": "exact/webgpu-provider/1",
+                    "abiVersion": 131072,
+                    "profileId": "exact-webgpu-v1-draft",
+                    "profileDigest": profile_digest,
+                    "webgpuCVocabularyDigest": vocabulary_digest,
+                    "operationSetDigest": operation_set_digest,
+                    "semanticProgramDigest": semantic_program_digest,
+                    "runtimeRoutingDigest": routing_digest,
+                    "operationIds": operation_ids,
                     "topology": "isolated-per-logical-v1"
                 });
                 value["protectedObjects"]
@@ -8679,6 +8831,68 @@ module.exports = JSON.stringify({
     }
 
     #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    const GPU_V2_REQUEST_DEVICE: u32 = 194_635_792;
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    const GPU_V2_REQUEST_ADAPTER: u32 = 1_660_448_199;
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    const GPU_V2_MAP_ASYNC: u32 = 1_760_273_919;
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    const GPU_V2_CREATE_BUFFER: u32 = 1_869_756_926;
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    const GPU_V2_PUSH_ERROR_SCOPE: u32 = 1_311_136_574;
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    const GPU_V2_DESTROY_BUFFER: u32 = 3_314_731_466;
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    const GPU_V2_OPERATION_IDS: [u32; 46] = [
+        31_670_442,
+        56_177_326,
+        194_635_792,
+        206_890_944,
+        308_839_175,
+        404_589_710,
+        551_383_281,
+        599_085_487,
+        892_795_326,
+        935_342_475,
+        1_199_806_466,
+        1_228_615_721,
+        1_277_060_789,
+        1_287_763_171,
+        1_311_136_574,
+        1_660_448_199,
+        1_724_778_411,
+        1_760_273_919,
+        1_829_554_013,
+        1_853_125_118,
+        1_869_756_926,
+        1_899_341_095,
+        1_908_549_907,
+        1_914_447_212,
+        1_925_415_872,
+        1_949_537_636,
+        2_040_228_619,
+        2_239_053_141,
+        2_342_501_516,
+        2_407_151_159,
+        2_481_184_390,
+        2_544_948_076,
+        2_687_703_037,
+        2_816_646_327,
+        2_933_046_788,
+        3_054_695_767,
+        3_157_634_281,
+        3_285_037_552,
+        3_293_775_739,
+        3_310_230_093,
+        3_314_731_466,
+        3_373_402_978,
+        3_810_427_763,
+        4_055_478_657,
+        4_094_543_821,
+        4_177_957_718,
+    ];
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     #[derive(Clone)]
     struct RecordedGpuTestCallV2 {
         call: ExactGpuSemanticCallV2,
@@ -8705,8 +8919,12 @@ module.exports = JSON.stringify({
         cancel_status: i32,
         close_calls: Vec<ExactGpuRealmIdentityV2>,
         synchronous_callback_statuses: Vec<i32>,
+        authority_decision_statuses: Vec<i32>,
+        authority_retire_statuses: Vec<i32>,
+        retired_authority_sessions: Vec<u64>,
         lost_device_ids: Vec<u64>,
         root_account: Option<ExactGpuAccountIdentityV2>,
+        authority_session_api: Option<usize>,
         retained_client: Option<RetainedGpuTestClientV2>,
     }
 
@@ -8762,6 +8980,16 @@ module.exports = JSON.stringify({
         assert_ne!(open.runtime.runtime_nonce, 0);
         assert!(open.authority_digest.iter().any(|byte| *byte != 0));
         assert!(open.runtime_routing_digest.iter().any(|byte| *byte != 0));
+        assert!(!open.authority_session_api.is_null());
+        let authority_api = unsafe { &*open.authority_session_api };
+        assert_eq!(
+            authority_api.struct_size,
+            std::mem::size_of::<ExactGpuAuthoritySessionApiV2>() as u32
+        );
+        assert_eq!(authority_api.abi_version, 0x0002_0000);
+        assert!(authority_api.authority_context.is_null());
+        assert!(authority_api.evaluate.is_some());
+        assert!(authority_api.retire.is_some());
         let realm = ExactGpuRealmIdentityV2 {
             runtime: open.runtime,
             realm_id: 41,
@@ -8785,6 +9013,7 @@ module.exports = JSON.stringify({
         let mut state = fake_gpu_v2_state().lock().unwrap();
         state.open_calls += 1;
         state.root_account = Some(account);
+        state.authority_session_api = Some(open.authority_session_api as usize);
         state.retained_client = Some(RetainedGpuTestClientV2 {
             sink,
             context: client_context as usize,
@@ -8816,6 +9045,112 @@ module.exports = JSON.stringify({
     }
 
     #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn gpu_v2_authority_facts(call: &ExactGpuSemanticCallV2) -> ExactGpuAuthoritySessionFactsV2 {
+        ExactGpuAuthoritySessionFactsV2 {
+            struct_size: std::mem::size_of::<ExactGpuAuthoritySessionFactsV2>() as u32,
+            abi_version: 0x0002_0000,
+            operation_id: call.operation_id,
+            topology_id: call.topology_id,
+            authority_session_id: call.authority_session_id,
+            realm: call.realm,
+            account: call.account,
+            ingress_device: call.ingress_device,
+            provider_generation: call.provider_generation,
+            operation_instance_id: call.operation_instance_id,
+            promise_id: call.promise_id,
+            captured_scope_id: call.captured_scope_id,
+            adapter_ordinal: call.adapter_ordinal,
+            device_ingress_ordinal: call.device_ingress_ordinal,
+            queue_ingress_ordinal: call.queue_ingress_ordinal,
+            authority_context_digest: call.authority_context_digest,
+            receiver: call.receiver,
+            target: call.target,
+        }
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn fake_gpu_v2_authority_decide(
+        call: &ExactGpuSemanticCallV2,
+        stage: u32,
+        handles: &[ExactGpuAuthorityPresentedHandleV2],
+    ) -> i32 {
+        let api_address = fake_gpu_v2_state()
+            .lock()
+            .unwrap()
+            .authority_session_api
+            .expect("V2 realm open must provide its authority-session API");
+        let api = unsafe { &*(api_address as *const ExactGpuAuthoritySessionApiV2) };
+        let decision = ExactGpuAuthorityDecisionRequestV2 {
+            struct_size: std::mem::size_of::<ExactGpuAuthorityDecisionRequestV2>() as u32,
+            abi_version: 0x0002_0000,
+            stage,
+            flags: 0,
+            facts: gpu_v2_authority_facts(call),
+            presented_handles: if handles.is_empty() {
+                std::ptr::null()
+            } else {
+                handles.as_ptr()
+            },
+            presented_handle_count: handles.len(),
+        };
+        let status = unsafe {
+            api.evaluate.expect("V2 authority evaluate callback")(api.authority_context, &decision)
+        };
+        fake_gpu_v2_state()
+            .lock()
+            .unwrap()
+            .authority_decision_statuses
+            .push(status);
+        status
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn fake_gpu_v2_authority_retire(call: &ExactGpuSemanticCallV2) -> i32 {
+        let api_address = fake_gpu_v2_state()
+            .lock()
+            .unwrap()
+            .authority_session_api
+            .expect("V2 realm open must provide its authority-session API");
+        let api = unsafe { &*(api_address as *const ExactGpuAuthoritySessionApiV2) };
+        let retire = ExactGpuAuthorityRetireV2 {
+            struct_size: std::mem::size_of::<ExactGpuAuthorityRetireV2>() as u32,
+            abi_version: 0x0002_0000,
+            flags: 0,
+            reserved: 0,
+            facts: gpu_v2_authority_facts(call),
+        };
+        let status = unsafe {
+            api.retire.expect("V2 authority retire callback")(api.authority_context, &retire)
+        };
+        let mut state = fake_gpu_v2_state().lock().unwrap();
+        state.authority_retire_statuses.push(status);
+        if status == 1 {
+            state
+                .retired_authority_sessions
+                .push(call.authority_session_id);
+        }
+        status
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn fake_gpu_v2_presented_handle(
+        call: &ExactGpuSemanticCallV2,
+    ) -> ExactGpuAuthorityPresentedHandleV2 {
+        ExactGpuAuthorityPresentedHandleV2 {
+            struct_size: std::mem::size_of::<ExactGpuAuthorityPresentedHandleV2>() as u32,
+            abi_version: 0x0002_0000,
+            account: call.account,
+            device: call.ingress_device,
+            object: ExactGpuObjectRefV2 {
+                kind: 6,
+                flags: 0,
+                object_id: 900 + call.operation_instance_id,
+                object_generation: 1,
+            },
+        }
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     extern "C" fn fake_gpu_v2_submit(
         _context: *mut std::ffi::c_void,
         call: *const ExactGpuSemanticCallV2,
@@ -8829,6 +9164,7 @@ module.exports = JSON.stringify({
         assert_eq!(call.abi_version, 0x0002_0000);
         assert_eq!(call.topology_id, 1);
         assert_ne!(call.operation_instance_id, 0);
+        assert_ne!(call.authority_session_id, 0);
         assert!(call.authority_context_digest.iter().any(|byte| *byte != 0));
         assert!(call.payload_len == 0 || !call.payload.is_null());
         let payload = if call.payload_len == 0 {
@@ -8844,7 +9180,7 @@ module.exports = JSON.stringify({
                 && state
                     .lost_device_ids
                     .contains(&call.ingress_device.logical_device_id)
-                && call.operation_id != 19;
+                && call.operation_id != GPU_V2_DESTROY_BUFFER;
             state
                 .submit_calls
                 .push(RecordedGpuTestCallV2 { call, payload });
@@ -8861,6 +9197,17 @@ module.exports = JSON.stringify({
                 .unwrap()
                 .synchronous_callback_statuses
                 .push(status);
+        }
+        let presented_handles = (mode == 11)
+            .then(|| vec![fake_gpu_v2_presented_handle(&call)])
+            .unwrap_or_default();
+        if mode != 10 {
+            if fake_gpu_v2_authority_decide(&call, 1, &presented_handles) != 1 {
+                return -78;
+            }
+            if mode != 4 && fake_gpu_v2_authority_decide(&call, 2, &presented_handles) != 1 {
+                return -79;
+            }
         }
         if mode == 4 {
             -77
@@ -8981,11 +9328,11 @@ module.exports = JSON.stringify({
     ))]
     fn test_gpu_v2_digests() -> [[u8; 32]; 5] {
         [
-            raw_gpu_digest("sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA"),
-            raw_gpu_digest("sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA"),
-            raw_gpu_digest("sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA"),
-            raw_gpu_digest("sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA"),
-            raw_gpu_digest("sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA"),
+            raw_gpu_digest("sha256-7tqDeE_0KXdgYZy331Tw4vInpwViVhkJxH7MncMjLZU"),
+            raw_gpu_digest("sha256-LQX5IbUTGfNs4TdV4mCH0cPfdvS-ozh0Y9pAW82rmD8"),
+            raw_gpu_digest("sha256--xIQesQthJUGflDwlrTWxK7Z4_KvZNbRR_nJnvyqZoc"),
+            raw_gpu_digest("sha256-qblwPVmzuQa6iI_zP6yFMT-vwnhfDdNk5rVkim70atY"),
+            raw_gpu_digest("sha256-189MIB-1igoFzWXNULDrPrKmTMF8RyTgB56DWbPmO_c"),
         ]
     }
 
@@ -8998,7 +9345,7 @@ module.exports = JSON.stringify({
         api: &ExactGpuServiceApiV2,
         operations: &[u32],
     ) -> ExactHermesGpuProviderDescriptorV2 {
-        static PROFILE: &[u8] = b"exact-webgpu-phase1a-draft";
+        static PROFILE: &[u8] = b"exact-webgpu-v1-draft";
         let digests = test_gpu_v2_digests();
         ExactHermesGpuProviderDescriptorV2 {
             struct_size: std::mem::size_of::<ExactHermesGpuProviderDescriptorV2>() as u32,
@@ -9026,9 +9373,8 @@ module.exports = JSON.stringify({
     ))]
     fn finalize_fake_gpu_v2_runtime(raw: *mut HermesRuntimeOpaque, mode: u8) {
         reset_fake_gpu_v2(mode);
-        let operations = [7_u32, 11_u32, 19_u32];
         let api = fake_gpu_v2_api();
-        let descriptor = fake_gpu_v2_descriptor(&api, &operations);
+        let descriptor = fake_gpu_v2_descriptor(&api, &GPU_V2_OPERATION_IDS);
         unsafe {
             assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
             assert_eq!(ex_hermes_set_gpu_provider_v2(raw, &descriptor), 0);
@@ -9052,6 +9398,23 @@ module.exports = JSON.stringify({
             .unwrap()
             .root_account
             .expect("V2 root account must be opened before submit");
+        let receiver_kind = match operation_id {
+            GPU_V2_REQUEST_ADAPTER => 1,
+            GPU_V2_REQUEST_DEVICE => 2,
+            GPU_V2_CREATE_BUFFER | GPU_V2_PUSH_ERROR_SCOPE => 3,
+            GPU_V2_MAP_ASYNC | GPU_V2_DESTROY_BUFFER => 5,
+            _ => 5,
+        };
+        let target = if operation_id == GPU_V2_CREATE_BUFFER {
+            ExactGpuObjectRefV2 {
+                kind: 5,
+                flags: 0,
+                object_id: 200 + device_id,
+                object_generation: 3,
+            }
+        } else {
+            ExactGpuObjectRefV2::default()
+        };
         ExactGpuSemanticCallV2 {
             struct_size: std::mem::size_of::<ExactGpuSemanticCallV2>() as u32,
             abi_version: 0x0002_0000,
@@ -9078,18 +9441,14 @@ module.exports = JSON.stringify({
             device_ingress_ordinal: 6,
             queue_ingress_ordinal: 7,
             authority_context_digest: [0; 32],
+            authority_session_id: 0,
             receiver: ExactGpuObjectRefV2 {
-                kind: 4,
+                kind: receiver_kind,
                 flags: 0,
                 object_id: 100 + device_id,
                 object_generation: 2,
             },
-            target: ExactGpuObjectRefV2 {
-                kind: 5,
-                flags: 0,
-                object_id: 200 + device_id,
-                object_generation: 3,
-            },
+            target,
             payload: payload.as_ptr(),
             payload_len: payload.len(),
         }
@@ -9145,6 +9504,7 @@ module.exports = JSON.stringify({
             device_ingress_ordinal: call.device_ingress_ordinal,
             queue_ingress_ordinal: call.queue_ingress_ordinal,
             authority_context_digest: call.authority_context_digest,
+            authority_session_id: call.authority_session_id,
             receiver: call.receiver,
             target: call.target,
         }
@@ -9340,6 +9700,30 @@ module.exports = JSON.stringify({
 
     #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     fn deliver_gpu_v2_event(event: &ExactGpuServiceEventV2) -> i32 {
+        let authority_session_id = match event.kind {
+            1 => unsafe { event.record.operation_result.operation.authority_session_id },
+            2 => unsafe { event.record.device_error.operation.authority_session_id },
+            _ => 0,
+        };
+        if authority_session_id != 0 {
+            let call = {
+                let state = fake_gpu_v2_state().lock().unwrap();
+                (!state
+                    .retired_authority_sessions
+                    .contains(&authority_session_id))
+                .then(|| {
+                    state
+                        .submit_calls
+                        .iter()
+                        .find(|record| record.call.authority_session_id == authority_session_id)
+                        .map(|record| record.call)
+                })
+                .flatten()
+            };
+            if let Some(call) = call {
+                let _ = fake_gpu_v2_authority_retire(&call);
+            }
+        }
         let client = fake_gpu_v2_state()
             .lock()
             .unwrap()
@@ -9379,7 +9763,7 @@ module.exports = JSON.stringify({
             result_device: ExactGpuDeviceIdentityV2::default(),
             provider_generation: 9,
             topology_id: 1,
-            operation_id: 7,
+            operation_id: GPU_V2_REQUEST_ADAPTER,
             operation_instance_id: 1,
             promise_id: 1,
             provider_admission: 1,
@@ -9392,6 +9776,7 @@ module.exports = JSON.stringify({
             device_ingress_ordinal: 0,
             queue_ingress_ordinal: 0,
             authority_context_digest: [12; 32],
+            authority_session_id: 13,
             receiver: ExactGpuObjectRefV2 {
                 kind: 1,
                 flags: 0,
@@ -10186,9 +10571,8 @@ module.exports = JSON.stringify({
         reset_fake_gpu_v2(0);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
         let runtime = engine.ensure_runtime().await.unwrap();
-        let operations = [7_u32, 11_u32, 19_u32];
         let mut api = fake_gpu_v2_api();
-        let mut descriptor = fake_gpu_v2_descriptor(&api, &operations);
+        let mut descriptor = fake_gpu_v2_descriptor(&api, &GPU_V2_OPERATION_IDS);
         runtime
             .with_runtime(|raw| unsafe {
                 assert_eq!(
@@ -10281,9 +10665,8 @@ module.exports = JSON.stringify({
         reset_fake_gpu_v2(1);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
         let runtime = engine.ensure_runtime().await.unwrap();
-        let operations = [7_u32, 11_u32, 19_u32];
         let api = fake_gpu_v2_api();
-        let descriptor = fake_gpu_v2_descriptor(&api, &operations);
+        let descriptor = fake_gpu_v2_descriptor(&api, &GPU_V2_OPERATION_IDS);
         runtime
             .with_runtime(|raw| unsafe {
                 assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
@@ -10318,9 +10701,8 @@ module.exports = JSON.stringify({
         reset_fake_gpu_v2(6);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
         let runtime = engine.ensure_runtime().await.unwrap();
-        let operations = [7_u32, 11_u32, 19_u32];
         let api = fake_gpu_v2_api();
-        let descriptor = fake_gpu_v2_descriptor(&api, &operations);
+        let descriptor = fake_gpu_v2_descriptor(&api, &GPU_V2_OPERATION_IDS);
         runtime
             .with_runtime(|raw| unsafe {
                 assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
@@ -10367,7 +10749,7 @@ module.exports = JSON.stringify({
                     assert_eq!(ibex_test_gpu_v2_install_event_observer(raw), 1);
                 }
 
-                let template = gpu_v2_template_call(7, 1, &[]);
+                let template = gpu_v2_template_call(GPU_V2_MAP_ASYNC, 1, &[]);
                 assert_eq!(submit_gpu_v2_test_call(raw, &template, true), (0, 1, 1));
                 let call = fake_gpu_v2_state().lock().unwrap().submit_calls[0].call;
                 let mapped_payload = [1_u8, 2, 3, 4, 5, 6, 7, 8];
@@ -10411,9 +10793,8 @@ module.exports = JSON.stringify({
             reset_fake_gpu_v2(0);
             let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
             let runtime = engine.ensure_runtime().await.unwrap();
-            let operations = [7_u32, 11_u32, 19_u32];
             let api = fake_gpu_v2_api();
-            let descriptor = fake_gpu_v2_descriptor(&api, &operations);
+            let descriptor = fake_gpu_v2_descriptor(&api, &GPU_V2_OPERATION_IDS);
             runtime
                 .with_runtime(|raw| unsafe {
                     assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
@@ -10459,8 +10840,8 @@ module.exports = JSON.stringify({
             .with_runtime(|raw| {
                 finalize_fake_gpu_v2_runtime(raw, 0);
 
-                let plain = gpu_v2_template_call(7, 1, &[1, 2]);
-                let promised = gpu_v2_template_call(11, 2, &[3, 4, 5]);
+                let plain = gpu_v2_template_call(GPU_V2_CREATE_BUFFER, 1, &[1, 2]);
+                let promised = gpu_v2_template_call(GPU_V2_MAP_ASYNC, 2, &[3, 4, 5]);
                 assert_eq!(
                     submit_gpu_v2_test_call(raw, &plain, false),
                     (-1000, 0, 0),
@@ -10479,8 +10860,14 @@ module.exports = JSON.stringify({
                 assert_eq!(calls[0].call.account.account_id, 42);
                 assert_eq!(calls[0].call.ingress_device.logical_device_id, 1);
                 assert_eq!(calls[0].call.provider_generation, 9);
-                assert_eq!(calls[0].call.receiver.kind, 4);
+                assert_eq!(calls[0].call.receiver.kind, 3);
                 assert_eq!(calls[0].call.target.kind, 5);
+                assert_ne!(calls[0].call.authority_session_id, 0);
+                assert_ne!(calls[1].call.authority_session_id, 0);
+                assert_ne!(
+                    calls[0].call.authority_session_id, calls[1].call.authority_session_id,
+                    "each operation receives a native-random authority-session identity"
+                );
                 assert!(calls[0]
                     .call
                     .authority_context_digest
@@ -10559,6 +10946,275 @@ module.exports = JSON.stringify({
         feature = "capsec-conformance-observer"
     ))]
     #[tokio::test(flavor = "current_thread")]
+    async fn gpu_v2_authority_session_repeats_exact_handles_and_retires() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_gpu_v2_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                finalize_fake_gpu_v2_runtime(raw, 11);
+                unsafe { assert_eq!(ibex_test_gpu_v2_install_event_observer(raw), 1) };
+                let template = gpu_v2_template_call(GPU_V2_MAP_ASYNC, 1, &[]);
+                assert_eq!(submit_gpu_v2_test_call(raw, &template, true), (0, 1, 1));
+                let call = fake_gpu_v2_state().lock().unwrap().submit_calls[0].call;
+                let handles = [fake_gpu_v2_presented_handle(&call)];
+
+                assert_eq!(
+                    fake_gpu_v2_state()
+                        .lock()
+                        .unwrap()
+                        .authority_decision_statuses,
+                    vec![1, 1],
+                    "the service must request and commit before provider admission"
+                );
+                assert_eq!(fake_gpu_v2_authority_decide(&call, 3, &handles), 1);
+                assert_eq!(fake_gpu_v2_authority_decide(&call, 3, &handles), 1);
+                assert_eq!(fake_gpu_v2_authority_retire(&call), 1);
+                assert_eq!(fake_gpu_v2_authority_decide(&call, 3, &handles), -2);
+            })
+            .unwrap();
+        drop(runtime);
+        drop(engine);
+        release_fake_gpu_v2_client();
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_v2_authority_session_rejects_mutated_carriers_and_handles() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_gpu_v2_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                finalize_fake_gpu_v2_runtime(raw, 11);
+                unsafe { assert_eq!(ibex_test_gpu_v2_install_event_observer(raw), 1) };
+
+                for mutation in 0_u64..13 {
+                    let template = gpu_v2_template_call(GPU_V2_MAP_ASYNC, mutation + 1, &[]);
+                    assert_eq!(
+                        submit_gpu_v2_test_call(raw, &template, true).0,
+                        0,
+                        "baseline source-derived call {mutation}"
+                    );
+                    let call = fake_gpu_v2_state()
+                        .lock()
+                        .unwrap()
+                        .submit_calls
+                        .last()
+                        .unwrap()
+                        .call;
+                    let mut mutated_call = call;
+                    let original_handle = fake_gpu_v2_presented_handle(&call);
+                    let mut handles = vec![original_handle];
+                    let expected = match mutation {
+                        0 => {
+                            mutated_call.realm.realm_id += 1;
+                            -2
+                        }
+                        1 => {
+                            mutated_call.account.account_generation += 1;
+                            -2
+                        }
+                        2 => {
+                            mutated_call.ingress_device.logical_device_generation += 1;
+                            -2
+                        }
+                        3 => {
+                            mutated_call.receiver.object_generation += 1;
+                            -2
+                        }
+                        4 => {
+                            mutated_call.target = ExactGpuObjectRefV2 {
+                                kind: 5,
+                                flags: 0,
+                                object_id: 44,
+                                object_generation: 1,
+                            };
+                            -2
+                        }
+                        5 => {
+                            mutated_call.authority_session_id = u64::MAX;
+                            -2
+                        }
+                        6 => {
+                            mutated_call.provider_generation += 1;
+                            -2
+                        }
+                        7 => {
+                            mutated_call.authority_context_digest[0] ^= 0x80;
+                            -2
+                        }
+                        8 => {
+                            handles[0].account.account_generation += 1;
+                            -1
+                        }
+                        9 => {
+                            handles[0].device.logical_device_generation += 1;
+                            -1
+                        }
+                        10 => {
+                            handles[0].object.object_generation += 1;
+                            -1
+                        }
+                        11 => {
+                            handles.push(original_handle);
+                            -1
+                        }
+                        12 => {
+                            let mut lower = original_handle;
+                            lower.object.kind = 5;
+                            lower.object.object_id += 1;
+                            handles.push(lower);
+                            -1
+                        }
+                        _ => unreachable!(),
+                    };
+                    assert_eq!(
+                        fake_gpu_v2_authority_decide(&mutated_call, 3, &handles),
+                        expected,
+                        "mutation {mutation} must fail closed"
+                    );
+                    assert_eq!(fake_gpu_v2_authority_retire(&call), 1);
+                }
+            })
+            .unwrap();
+        drop(runtime);
+        drop(engine);
+        release_fake_gpu_v2_client();
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_v2_authority_reducing_operation_needs_no_positive_grant() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_gpu_v2_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                finalize_fake_gpu_v2_runtime(raw, 0);
+                unsafe { assert_eq!(ibex_test_gpu_v2_install_event_observer(raw), 1) };
+                let template = gpu_v2_template_call(GPU_V2_DESTROY_BUFFER, 1, &[]);
+                assert_eq!(submit_gpu_v2_test_call(raw, &template, false), (0, 1, 0));
+                let call = fake_gpu_v2_state().lock().unwrap().submit_calls[0].call;
+                assert_eq!(fake_gpu_v2_authority_decide(&call, 3, &[]), 1);
+                assert_eq!(fake_gpu_v2_authority_retire(&call), 1);
+            })
+            .unwrap();
+        drop(runtime);
+        drop(engine);
+        release_fake_gpu_v2_client();
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_v2_structural_control_plane_needs_no_positive_grant() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_gpu_v2_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                finalize_fake_gpu_v2_runtime(raw, 0);
+                unsafe { assert_eq!(ibex_test_gpu_v2_install_event_observer(raw), 1) };
+                let template = gpu_v2_template_call(GPU_V2_PUSH_ERROR_SCOPE, 1, &[]);
+                assert_eq!(submit_gpu_v2_test_call(raw, &template, false), (0, 1, 0));
+                let call = fake_gpu_v2_state().lock().unwrap().submit_calls[0].call;
+                assert_eq!(fake_gpu_v2_authority_decide(&call, 3, &[]), 1);
+                assert_eq!(fake_gpu_v2_authority_retire(&call), 1);
+            })
+            .unwrap();
+        drop(runtime);
+        drop(engine);
+        release_fake_gpu_v2_client();
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_v2_authority_session_store_is_bounded_without_eviction() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_gpu_v2_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                finalize_fake_gpu_v2_runtime(raw, 0);
+                unsafe { assert_eq!(ibex_test_gpu_v2_install_event_observer(raw), 1) };
+                let template = gpu_v2_template_call(GPU_V2_DESTROY_BUFFER, 1, &[]);
+                for operation in 1_u64..=1_024 {
+                    assert_eq!(
+                        submit_gpu_v2_test_call(raw, &template, false),
+                        (0, operation, 0)
+                    );
+                }
+                assert_eq!(
+                    submit_gpu_v2_test_call(raw, &template, false),
+                    (-1000, 0, 0),
+                    "session exhaustion must fail closed without evicting a live session"
+                );
+            })
+            .unwrap();
+        drop(runtime);
+        drop(engine);
+        release_fake_gpu_v2_client();
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_v2_service_that_skips_requested_is_quarantined() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_gpu_v2_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                finalize_fake_gpu_v2_runtime(raw, 10);
+                unsafe { assert_eq!(ibex_test_gpu_v2_install_event_observer(raw), 1) };
+                let template = gpu_v2_template_call(GPU_V2_MAP_ASYNC, 1, &[]);
+                assert_eq!(
+                    submit_gpu_v2_test_call(raw, &template, true),
+                    (EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION, 1, 1)
+                );
+                assert!(fake_gpu_v2_state()
+                    .lock()
+                    .unwrap()
+                    .authority_decision_statuses
+                    .is_empty());
+            })
+            .unwrap();
+        drop(runtime);
+        drop(engine);
+        release_fake_gpu_v2_client();
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    #[tokio::test(flavor = "current_thread")]
     async fn gpu_v2_request_device_carries_explicit_result_device_transition() {
         let _lock = hermes_engine_test_lock().lock().await;
         let (_reset, digest) = install_armed_gpu_v2_test_host();
@@ -10569,7 +11225,7 @@ module.exports = JSON.stringify({
                 finalize_fake_gpu_v2_runtime(raw, 0);
                 unsafe { assert_eq!(ibex_test_gpu_v2_install_event_observer(raw), 1) };
 
-                let mut request_adapter = gpu_v2_template_call(7, 0, &[]);
+                let mut request_adapter = gpu_v2_template_call(GPU_V2_REQUEST_ADAPTER, 0, &[]);
                 request_adapter.receiver = ExactGpuObjectRefV2 {
                     kind: 1,
                     flags: 0,
@@ -10625,7 +11281,7 @@ module.exports = JSON.stringify({
                     assert_eq!(ibex_test_gpu_v2_resolve_calls(), 2);
                 }
 
-                let mut request_device = gpu_v2_template_call(11, 0, &[]);
+                let mut request_device = gpu_v2_template_call(GPU_V2_REQUEST_DEVICE, 0, &[]);
                 request_device.provider_generation = 9;
                 request_device.receiver = ExactGpuObjectRefV2 {
                     kind: 2,
@@ -10704,7 +11360,7 @@ module.exports = JSON.stringify({
             .with_runtime(|raw| {
                 finalize_fake_gpu_v2_runtime(raw, 0);
                 unsafe { assert_eq!(ibex_test_gpu_v2_install_event_observer(raw), 1) };
-                let mut request_device = gpu_v2_template_call(11, 0, &[]);
+                let mut request_device = gpu_v2_template_call(GPU_V2_REQUEST_DEVICE, 0, &[]);
                 request_device.provider_generation = 9;
                 request_device.receiver = ExactGpuObjectRefV2 {
                     kind: 2,
@@ -10775,7 +11431,7 @@ module.exports = JSON.stringify({
                 let mut identities = std::collections::HashSet::new();
 
                 for index in 0_u64..1_025 {
-                    let mut request_device = gpu_v2_template_call(11, 0, &[]);
+                    let mut request_device = gpu_v2_template_call(GPU_V2_REQUEST_DEVICE, 0, &[]);
                     request_device.provider_generation = 9;
                     request_device.receiver = ExactGpuObjectRefV2 {
                         kind: 2,
@@ -10845,7 +11501,7 @@ module.exports = JSON.stringify({
             .with_runtime(|raw| {
                 finalize_fake_gpu_v2_runtime(raw, 0);
                 unsafe { assert_eq!(ibex_test_gpu_v2_install_event_observer(raw), 1) };
-                let template = gpu_v2_template_call(7, 1, &[]);
+                let template = gpu_v2_template_call(GPU_V2_MAP_ASYNC, 1, &[]);
                 let client = fake_gpu_v2_state().lock().unwrap().retained_client.unwrap();
                 unsafe { ibex_test_gpu_v2_pause_reserved_service_entry(1) };
                 let close_thread = std::thread::spawn(move || {
@@ -10965,7 +11621,7 @@ module.exports = JSON.stringify({
             .with_runtime(|raw| {
                 finalize_fake_gpu_v2_runtime(raw, 0);
                 unsafe { assert_eq!(ibex_test_gpu_v2_install_event_observer(raw), 1) };
-                let template = gpu_v2_template_call(7, 1, &[]);
+                let template = gpu_v2_template_call(GPU_V2_MAP_ASYNC, 1, &[]);
                 assert_eq!(submit_gpu_v2_test_call(raw, &template, true), (0, 1, 1));
                 let client = fake_gpu_v2_state().lock().unwrap().retained_client.unwrap();
                 unsafe { ibex_test_gpu_v2_pause_realm_close_admission() };
@@ -11029,7 +11685,7 @@ module.exports = JSON.stringify({
             .with_runtime(|raw| {
                 finalize_fake_gpu_v2_runtime(raw, 0);
                 unsafe { assert_eq!(ibex_test_gpu_v2_install_event_observer(raw), 1) };
-                let template = gpu_v2_template_call(7, 1, &[]);
+                let template = gpu_v2_template_call(GPU_V2_MAP_ASYNC, 1, &[]);
                 assert_eq!(submit_gpu_v2_test_call(raw, &template, true), (0, 1, 1));
                 let client = fake_gpu_v2_state().lock().unwrap().retained_client.unwrap();
                 unsafe { ibex_test_gpu_v2_pause_detach_cleanup() };
@@ -11123,7 +11779,7 @@ module.exports = JSON.stringify({
                 .with_runtime(|raw| {
                     finalize_fake_gpu_v2_runtime(raw, mode);
                     unsafe { assert_eq!(ibex_test_gpu_v2_install_event_observer(raw), 1) };
-                    let template = gpu_v2_template_call(7, 1, &[]);
+                    let template = gpu_v2_template_call(GPU_V2_MAP_ASYNC, 1, &[]);
                     match mode {
                         7 => {
                             assert_eq!(
@@ -11201,7 +11857,7 @@ module.exports = JSON.stringify({
                 finalize_fake_gpu_v2_runtime(raw, 0);
                 unsafe { assert_eq!(ibex_test_gpu_v2_install_event_observer(raw), 1) };
 
-                let template = gpu_v2_template_call(7, 1, &[]);
+                let template = gpu_v2_template_call(GPU_V2_MAP_ASYNC, 1, &[]);
                 assert_eq!(submit_gpu_v2_test_call(raw, &template, true), (0, 1, 1));
                 let event_wins_call = fake_gpu_v2_state().lock().unwrap().submit_calls[0].call;
                 let event_wins =
@@ -11260,7 +11916,7 @@ module.exports = JSON.stringify({
             .with_runtime(|raw| {
                 finalize_fake_gpu_v2_runtime(raw, 0);
                 unsafe { assert_eq!(ibex_test_gpu_v2_install_event_observer(raw), 1) };
-                let template = gpu_v2_template_call(7, 1, &[]);
+                let template = gpu_v2_template_call(GPU_V2_MAP_ASYNC, 1, &[]);
                 assert_eq!(submit_gpu_v2_test_call(raw, &template, true), (0, 1, 1));
                 let call = fake_gpu_v2_state().lock().unwrap().submit_calls[0].call;
                 let provenance = gpu_v2_provenance(&call, true, 1);
@@ -11311,7 +11967,7 @@ module.exports = JSON.stringify({
             .with_runtime(|raw| {
                 finalize_fake_gpu_v2_runtime(raw, 4);
                 unsafe { assert_eq!(ibex_test_gpu_v2_install_event_observer(raw), 1) };
-                let template = gpu_v2_template_call(7, 1, &[]);
+                let template = gpu_v2_template_call(GPU_V2_MAP_ASYNC, 1, &[]);
                 assert_eq!(submit_gpu_v2_test_call(raw, &template, true), (-77, 1, 1));
                 let rejected_call = fake_gpu_v2_state().lock().unwrap().submit_calls[0].call;
                 let impossible_late =
@@ -11337,7 +11993,7 @@ module.exports = JSON.stringify({
             .with_runtime(|raw| {
                 finalize_fake_gpu_v2_runtime(raw, 0);
                 unsafe { assert_eq!(ibex_test_gpu_v2_install_throwing_event_observer(raw), 1) };
-                let template = gpu_v2_template_call(7, 1, &[]);
+                let template = gpu_v2_template_call(GPU_V2_MAP_ASYNC, 1, &[]);
                 assert_eq!(submit_gpu_v2_test_call(raw, &template, true), (0, 1, 1));
                 let call = fake_gpu_v2_state().lock().unwrap().submit_calls[0].call;
                 let event = gpu_v2_result_event(gpu_v2_provenance(&call, true, 1), &[]);

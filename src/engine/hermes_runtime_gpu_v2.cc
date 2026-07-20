@@ -44,15 +44,23 @@ extern "C" int32_t ex_host_capture_exact_gpu_authority_context_v2(
     uint64_t runtime_address,
     uint64_t runtime_nonce,
     uint32_t context_kind,
-    uint32_t operation_id,
-    uint32_t topology_id,
     uint64_t actor_principal,
     uint64_t effect_owner_principal,
     uint64_t scheduler_principal,
     uint32_t has_scheduler_principal,
     const uint64_t* principals,
     size_t principal_count,
-    uint8_t* out_digest);
+    const ExactGpuAuthoritySessionFactsV2* facts,
+    uint8_t* out_digest,
+    uint64_t* out_authority_session_id);
+extern "C" int32_t ex_host_exact_gpu_authority_session_requested_v2(
+    uint64_t context_id,
+    uint64_t authority_session_id);
+extern "C" int32_t ex_host_force_retire_exact_gpu_authority_session_v2(
+    uint64_t context_id,
+    uint64_t authority_session_id);
+extern "C" const ExactGpuAuthoritySessionApiV2*
+ex_host_exact_gpu_authority_session_api_v2(void);
 
 namespace {
 
@@ -399,14 +407,16 @@ bool validServiceApiV2(const ExactGpuServiceApiV2* api) {
 
 bool captureGpuAuthorityContextV2(
     ExactHermesRuntime* runtime,
-    uint32_t operationId,
-    uint32_t topologyId,
-    uint8_t outDigest[32]) {
+    const ExactGpuSemanticCallV2& call,
+    uint8_t outDigest[32],
+    uint64_t* outAuthoritySessionId) {
   if (!runtime || !runtime->armed ||
       !runtime->typed_authority_generations_initialized ||
-      runtime->runtime_nonce == 0 || operationId == 0 || !outDigest) {
+      runtime->runtime_nonce == 0 || call.operation_id == 0 || !outDigest ||
+      !outAuthoritySessionId) {
     return false;
   }
+  *outAuthoritySessionId = 0;
   auto collectedPrincipals = exactCollectTypedPrincipalStack();
   const uint64_t actor = currentPrincipalId();
   // These values mirror Hermes' reserved package-domain IDs even when this
@@ -462,20 +472,37 @@ bool captureGpuAuthorityContextV2(
   const uint32_t contextKind = runtime->exact_host_context == 0
       ? static_cast<uint32_t>(EXACT_EMBEDDER_CONTEXT_APP)
       : runtime->exact_host_context;
+  ExactGpuAuthoritySessionFactsV2 facts{};
+  facts.struct_size = sizeof(facts);
+  facts.abi_version = EXACT_GPU_SERVICE_ABI_VERSION_V2;
+  facts.operation_id = call.operation_id;
+  facts.topology_id = call.topology_id;
+  facts.realm = call.realm;
+  facts.account = call.account;
+  facts.ingress_device = call.ingress_device;
+  facts.provider_generation = call.provider_generation;
+  facts.operation_instance_id = call.operation_instance_id;
+  facts.promise_id = call.promise_id;
+  facts.captured_scope_id = call.captured_scope_id;
+  facts.adapter_ordinal = call.adapter_ordinal;
+  facts.device_ingress_ordinal = call.device_ingress_ordinal;
+  facts.queue_ingress_ordinal = call.queue_ingress_ordinal;
+  facts.receiver = call.receiver;
+  facts.target = call.target;
   return ex_host_capture_exact_gpu_authority_context_v2(
              runtime->host_context_id,
              static_cast<uint64_t>(reinterpret_cast<uintptr_t>(runtime)),
              runtime->runtime_nonce,
              contextKind,
-             operationId,
-             topologyId,
              actor,
              effectOwner,
              scheduler,
              hasScheduler ? 1u : 0u,
              principals.data(),
              principals.size(),
-             outDigest) == 1;
+             &facts,
+             outDigest,
+             outAuthoritySessionId) == 1;
 }
 
 size_t terminalSlotV2(
@@ -594,6 +621,7 @@ bool equalProvenanceToSubmissionV2(
           event.authority_context_digest,
           call.authority_context_digest,
           sizeof(call.authority_context_digest)) == 0 &&
+      event.authority_session_id == call.authority_session_id &&
       equalObjectV2(event.receiver, call.receiver) &&
       equalObjectV2(event.target, call.target);
 }
@@ -622,6 +650,7 @@ bool emptyOperationProvenanceV2(
       operation.captured_scope_id == 0 && operation.adapter_ordinal == 0 &&
       operation.device_ingress_ordinal == 0 &&
       operation.queue_ingress_ordinal == 0 && contextDigest == 0 &&
+      operation.authority_session_id == 0 &&
       objectAbsentV2(operation.receiver) && objectAbsentV2(operation.target);
 }
 
@@ -670,6 +699,7 @@ bool validOperationProvenanceV2(
        operation.provider_generation ==
            operation.result_device.provider_generation) &&
       nonzeroDigestV2(operation.authority_context_digest) &&
+      operation.authority_session_id != 0 &&
       validObjectV2(operation.receiver, false) &&
       validObjectV2(operation.target, true);
 }
@@ -699,6 +729,7 @@ bool equalOperationProvenanceRecordV2(
           left.authority_context_digest,
           right.authority_context_digest,
           sizeof(left.authority_context_digest)) == 0 &&
+      left.authority_session_id == right.authority_session_id &&
       equalObjectV2(left.receiver, right.receiver) &&
       equalObjectV2(left.target, right.target);
 }
@@ -1939,6 +1970,7 @@ ExactGpuCancelV2 makeGpuCancelV2(const ExactGpuSemanticCallV2& call) {
       std::begin(call.authority_context_digest),
       std::end(call.authority_context_digest),
       cancel.authority_context_digest);
+  cancel.authority_session_id = call.authority_session_id;
   cancel.receiver = call.receiver;
   cancel.target = call.target;
   return cancel;
@@ -2823,14 +2855,7 @@ facebook::jsi::Value submitGpuV2Carrier(
       std::begin(call.authority_context_digest),
       std::end(call.authority_context_digest),
       0);
-  if (!captureGpuAuthorityContextV2(
-          runtime,
-          call.operation_id,
-          binding.topology_id,
-          call.authority_context_digest)) {
-    throw facebook::jsi::JSError(
-        rt, "GPU V2 native authority-context capture failed closed");
-  }
+  call.authority_session_id = 0;
   if (binding.allowed_operations.count(call.operation_id) == 0) {
     throw facebook::jsi::JSError(
         rt, "GPU V2 operation is not in the authenticated profile");
@@ -2845,7 +2870,6 @@ facebook::jsi::Value submitGpuV2Carrier(
       !validObjectV2(call.receiver, false) ||
       !validObjectV2(call.target, true) || call.flags != 0 ||
       call.reserved != 0 || call.topology_id != binding.topology_id ||
-      !nonzeroDigestV2(call.authority_context_digest) ||
       call.payload_len > kMaxGpuPayloadBytesV2 ||
       (call.payload_len > 0 && !call.payload)) {
     throw facebook::jsi::JSError(rt, "GPU V2 call carrier is malformed");
@@ -2898,20 +2922,39 @@ facebook::jsi::Value submitGpuV2Carrier(
   auto protocolCarrier = makeCarrier(EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION);
   uint64_t serviceEntryReservation = 0;
 
+  if (!captureGpuAuthorityContextV2(
+          runtime,
+          call,
+          call.authority_context_digest,
+          &call.authority_session_id) ||
+      !nonzeroDigestV2(call.authority_context_digest) ||
+      call.authority_session_id == 0) {
+    throw facebook::jsi::JSError(
+        rt, "GPU V2 native authority-session capture failed closed");
+  }
+
   if (wantsPromise) {
-    auto [iterator, inserted] = binding.pending_receipts.emplace(
-        call.promise_id,
-        PendingGpuReceiptV2{
-            call.operation_id,
-            call.operation_instance_id,
-            call.promise_id,
-            call.account,
-            call.ingress_device,
-            resolvers->resolve,
-            resolvers->reject});
-    (void)iterator;
-    if (!inserted) {
-      throw facebook::jsi::JSError(rt, "GPU V2 Promise ID is already pending");
+    try {
+      auto [iterator, inserted] = binding.pending_receipts.emplace(
+          call.promise_id,
+          PendingGpuReceiptV2{
+              call.operation_id,
+              call.operation_instance_id,
+              call.promise_id,
+              call.account,
+              call.ingress_device,
+              resolvers->resolve,
+              resolvers->reject});
+      (void)iterator;
+      if (!inserted) {
+        (void)ex_host_force_retire_exact_gpu_authority_session_v2(
+            runtime->host_context_id, call.authority_session_id);
+        throw facebook::jsi::JSError(rt, "GPU V2 Promise ID is already pending");
+      }
+    } catch (...) {
+      (void)ex_host_force_retire_exact_gpu_authority_session_v2(
+          runtime->host_context_id, call.authority_session_id);
+      throw;
     }
   }
   try {
@@ -2944,6 +2987,8 @@ facebook::jsi::Value submitGpuV2Carrier(
   } catch (...) {
     releaseGpuServiceEntryV2(*binding.mailbox, serviceEntryReservation);
     if (wantsPromise) binding.pending_receipts.erase(call.promise_id);
+    (void)ex_host_force_retire_exact_gpu_authority_session_v2(
+        runtime->host_context_id, call.authority_session_id);
     throw;
   }
 
@@ -2951,7 +2996,7 @@ facebook::jsi::Value submitGpuV2Carrier(
   if (pauseReservedGpuV2ServiceEntryForTest(
           binding.mailbox, GpuServiceEntryKindV2::Submit)) {
     try {
-    admission = binding.api.submit(binding.api.service_context, &call);
+      admission = binding.api.submit(binding.api.service_context, &call);
     } catch (...) {
       ex_host_console_log(
           1, "Exact GPU V2 service submit threw across its C ABI");
@@ -2963,9 +3008,22 @@ facebook::jsi::Value submitGpuV2Carrier(
     // A synchronous callback is part of the service call. Its protocol
     // violation dominates both an acceptance and a service rejection; retain
     // the Promise/submission so the owner drain settles it as a realm failure.
+    (void)ex_host_force_retire_exact_gpu_authority_session_v2(
+        runtime->host_context_id, call.authority_session_id);
+    return protocolCarrier;
+  }
+  if (admission == 0 &&
+      ex_host_exact_gpu_authority_session_requested_v2(
+          runtime->host_context_id, call.authority_session_id) != 1) {
+    (void)ex_host_force_retire_exact_gpu_authority_session_v2(
+        runtime->host_context_id, call.authority_session_id);
+    (void)poisonGpuMailboxV2(binding.mailbox);
     return protocolCarrier;
   }
   if (admission == 0) return successCarrier;
+
+  (void)ex_host_force_retire_exact_gpu_authority_session_v2(
+      runtime->host_context_id, call.authority_session_id);
 
   bool callbackThenRejection = false;
   try {
@@ -3722,6 +3780,17 @@ int32_t exactGpuV2ActivateInstall(ExactHermesRuntime* runtime) {
       binding.runtime_routing_digest.begin(),
       binding.runtime_routing_digest.end(),
       open.runtime_routing_digest);
+  open.authority_session_api = ex_host_exact_gpu_authority_session_api_v2();
+  if (!open.authority_session_api ||
+      open.authority_session_api->struct_size !=
+          sizeof(ExactGpuAuthoritySessionApiV2) ||
+      open.authority_session_api->abi_version !=
+          EXACT_GPU_SERVICE_ABI_VERSION_V2 ||
+      open.authority_session_api->authority_context != nullptr ||
+      !open.authority_session_api->evaluate ||
+      !open.authority_session_api->retire) {
+    return EXACT_GPU_PROVIDER_OPEN_FAILED;
+  }
   int32_t status = EXACT_GPU_PROVIDER_OPEN_FAILED;
   try {
     status = binding.api.open_realm(
