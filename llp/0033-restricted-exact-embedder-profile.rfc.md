@@ -5,7 +5,10 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-19 (r16 — specifies the source-bound dominance graph and
+**Revised:** 2026-07-19 (r17 — records the third failed independent review,
+revokes the second attempted absence fan-out, and pins executable-route v2 as
+separate build/applicability, installer-selection, and exact-target live proof;
+r16 — specifies the source-bound dominance graph and
 target-consuming live traversal required to repair categorical absence fan-out;
 r15 — records the second failed independent review,
 invalidates the target-insensitive absence fan-out, retains the cleared
@@ -487,6 +490,77 @@ closure, selected branch, cut-set bypass, missing observation, or executor which
 ignores its target must fail a semantic mutation test. Conformance
 instrumentation is observational only and may not change descriptors,
 selection, retention, or timing.
+
+#### Third-review disposition and executable-route v2
+
+The second repair attempt added five genuine, ordered, generation-bound
+runtime observations at the restricted profile selector, skipped full
+installer, bootstrap posture check, authenticated-bundle posture check, and
+post-poll posture check. Release evidence at commit `d38f3af2` executed all
+planned Apple probes. Independent review nevertheless rejected the resulting
+7,147 structural-absence claims: the generator placed every terminal behind
+those common observations by construction, implementation/source references
+did not contribute graph nodes or edges, most live executors still reduced an
+exact target to a shared surface-kind predicate, and receipts inferred their
+failure boundary from generated path positions. The failed review is recorded
+under `capsec/conformance/reviews/`; the report therefore retains only 131
+reachable and 22 trusted-control-plane rows as conformant, restores all 7,147
+absence rows to incomplete, and advertises nothing.
+
+Executable-route v2 separates three facts which no artifact may conflate:
+
+1. whether the exact implementation branch is compiled for the target;
+2. whether its installer, registry, producer, lazy trigger, or retained slot is
+   selected by the restricted profile; and
+3. whether an attacker can traverse a live route to the exact terminal at each
+   required lifecycle phase.
+
+The v2 graph contains source-anchored attacker-root, profile-selector,
+installer, registry, alias, lazy-trigger, producer, retained-slot, descriptor,
+terminal, and instrumented-cut-set nodes. Edges are typed as call, select,
+register, alias, expose, retain, lazy-activate, descriptor-child, or dispatch;
+each edge binds an exact source anchor, condition when applicable, and route
+family. The generator computes dominators over these edges. It must not create
+a universal path template or insert a cut set merely because a terminal needs
+one. Shared cut sets remain valid only when removing the observed node makes
+the exact terminal unreachable from every declared attacker root.
+
+Every legacy `path#locator` source reference resolves to exactly one non-empty
+byte range using a closed locator grammar for generated table entries,
+manifest rows, C/C++ functions and registrations, Rust items/tables, JS/TS
+declarations/properties, or explicitly paired control-flow markers. Missing,
+ambiguous, duplicate, unsupported, or non-participating locators fail
+generation. Whole-file content digests are supplemental and cannot substitute
+for the range and its executable graph edge.
+
+Target applicability is produced under the real target build conditions. A
+receipt distinguishes platform-excluded, compiled-selected,
+compiled-installer-skipped, compiled-registration-omitted,
+compiled-private-not-exposed, producer-not-created, and retained-slot-empty.
+Fallback/default and applicable Apple/POSIX branches may not be labeled
+runtime-disabled by heuristic. Runtime selection evidence is separate from
+the build receipt.
+
+Live observations record the exact requested target, actual last resolved
+node, descriptor or dispatcher boundary, first missing/refused segment,
+runtime generation, phase, and sequence. They originate at the descriptor,
+registry, installer, producer, callback, or dispatcher boundary, not from a
+generated path array. Builtin aliases and descriptor prefixes execute their
+exact identities; callback, lazy, dynamic-table, retained-reference, getter,
+symbol, prototype, completion, and semantic-event routes execute every
+applicable phase through pre-destruction. Source selection consumes resolved
+anchors, target build receipts, and actual selector/installer observations; it
+does not call or reuse the live predicate.
+
+Observer-enabled and observer-disabled release builds must produce equivalent
+descriptor snapshots, checkpoint bytes, event/poll results, callback
+transcripts, poison state, and teardown result. Recording uses a bounded,
+allocation-free runtime-owned buffer; overflow invalidates evidence without
+changing behavior. Executable Apple mutants must at least detect selecting the
+full installer, installing the module loader from the restricted installer,
+installing one forbidden global, retaining a callback after global deletion,
+and lazy installation after a poll/event. JSON graph mutations remain useful
+but cannot substitute for these source mutants.
 
 ### Phase 1 — Apple vertical slice
 
