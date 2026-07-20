@@ -71,9 +71,6 @@ public static class IbexCapsecJobObject
     [DllImport("kernel32.dll")]
     private static extern IntPtr GetCurrentProcess();
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool CloseHandle(IntPtr handle);
-
     public static void Initialize()
     {
         job = CreateJobObject(IntPtr.Zero, null);
@@ -93,14 +90,6 @@ public static class IbexCapsecJobObject
             throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject failed");
     }
 
-    public static void Close()
-    {
-        if (job != IntPtr.Zero)
-        {
-            CloseHandle(job);
-            job = IntPtr.Zero;
-        }
-    }
 }
 "@
 
@@ -132,6 +121,9 @@ try {
   $child.Dispose()
 }
 finally {
-  [IbexCapsecJobObject]::Close()
+  # The wrapper is itself a member of this kill-on-close job. Keep its only
+  # job handle alive until process teardown: closing it here terminates the
+  # wrapper before PowerShell can preserve the child's exit status. OS process
+  # teardown closes the handle and therefore still kills every descendant.
+  [System.Environment]::Exit([int]$childExitCode)
 }
-[System.Environment]::Exit([int]$childExitCode)
