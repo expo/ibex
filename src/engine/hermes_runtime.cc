@@ -4284,6 +4284,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                const facebook::jsi::Value* args,
                size_t count) -> facebook::jsi::Value {
         auto previous = g_active_module_id;
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
         bool restoresPreviousExactly = false;
         if (count == 4 && args[0].isNumber()) {
           const auto restored = args[0].asNumber();
@@ -4293,6 +4294,10 @@ void installGlobals(struct ExactHermesRuntime* handle) {
               std::trunc(restored) == restored &&
               static_cast<uint64_t>(restored) == previous;
         }
+#else
+        (void)handle;
+        (void)runtime;
+#endif
         if (count > 0 && args[0].isNumber()) {
           auto next = args[0].asNumber();
           g_active_module_id = next < 0.0 ? 0 : static_cast<uint64_t>(next);

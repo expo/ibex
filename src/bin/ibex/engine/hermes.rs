@@ -1855,12 +1855,14 @@ impl HermesEngine {
         ibex_runtime::engine::loaded_engine_binary_identity().map_err(anyhow::Error::msg)
     }
 
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
     pub(crate) fn loaded_engine_portable_identity(
     ) -> Result<ibex_runtime::engine::portable_identity::PortableEngineArtifactIdentity> {
         ibex_runtime::engine::portable_identity::loaded_engine_portable_identity()
             .map_err(anyhow::Error::msg)
     }
 
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
     pub(crate) fn loaded_engine_portable_identity_if_present(
     ) -> Result<Option<ibex_runtime::engine::portable_identity::PortableEngineArtifactIdentity>>
     {
@@ -1868,6 +1870,7 @@ impl HermesEngine {
             .map_err(anyhow::Error::msg)
     }
 
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
     pub(crate) fn begin_loaded_engine_mapped_observation(
     ) -> Result<ibex_runtime::engine::portable_identity::LoadedEngineMappedObservation> {
         ibex_runtime::engine::portable_identity::begin_loaded_engine_mapped_observation()
