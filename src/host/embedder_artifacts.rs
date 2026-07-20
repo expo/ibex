@@ -3280,6 +3280,12 @@ mod tests {
         };
         let barrier_attestation = serde_json::json!({
             "observer": "exact-engine-closed-world-barriers",
+            "rootGlobalManifestRawContentDigest": format!(
+                "sha256-{}",
+                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(
+                    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/capsec/generated/root-global-disposition-manifest.json"))
+                ))
+            ),
             "forbiddenRoots": forbidden_root_results,
             "restrictedStartupTrace": 0x1ff_u64,
             "completionObserver": {
