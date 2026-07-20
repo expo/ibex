@@ -3889,7 +3889,7 @@ mod tests {
                     "cargo", "test", "-p", "ibex-runtime", "--lib", "--release",
                     "--features", "capsec-conformance-observer",
                     "restricted_exact_absence_edges_close_source_and_live_routes",
-                    "--", "--exact", "--nocapture", "--test-threads=1",
+                    "--", "--nocapture", "--test-threads=1",
                 ],
                 "exitCode": 0,
                 "resultMarker": "ibex-restricted-absence-evidence:passed",
