@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-manifest-v1.schema.json",
+  "title": "Ibex portable engine manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "artifactId",
+    "artifactKind",
+    "target",
+    "profile",
+    "source",
+    "build",
+    "interface",
+    "entries",
+    "runtimeComponent"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/portable-engine-manifest/1" },
+    "artifactId": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest",
+      "$comment": "SHA-256 over JCS(manifest without artifactId), domain ibex.portable-engine-manifest.v1 followed by one NUL byte."
+    },
+    "artifactKind": { "const": "hermes" },
+    "target": { "$ref": "portable-engine-common-v1.schema.json#/$defs/target" },
+    "profile": { "$ref": "portable-engine-common-v1.schema.json#/$defs/manifestProfile" },
+    "source": { "$ref": "#/$defs/source" },
+    "build": { "$ref": "#/$defs/build" },
+    "interface": { "$ref": "#/$defs/interface" },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/entry" }
+    },
+    "runtimeComponent": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath"
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact",
+        "sourceCommit",
+        "sourceRef",
+        "sourceVersion",
+        "patchStackDigest"
+      ],
+      "properties": {
+        "artifact": { "$ref": "portable-engine-common-v1.schema.json#/$defs/nonEmptyString" },
+        "sourceCommit": { "$ref": "portable-engine-common-v1.schema.json#/$defs/sourceRevision" },
+        "sourceRef": { "$ref": "portable-engine-common-v1.schema.json#/$defs/nonEmptyString" },
+        "sourceVersion": { "$ref": "portable-engine-common-v1.schema.json#/$defs/nonEmptyString" },
+        "patchStackDigest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest" }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "sourceRevision",
+        "sourceTreeDigest",
+        "sourceRef",
+        "publisherWorkflow",
+        "authorityDigests"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "sourceRevision": { "$ref": "portable-engine-common-v1.schema.json#/$defs/sourceRevision" },
+        "sourceTreeDigest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest" },
+        "sourceRef": {
+          "type": "string",
+          "pattern": "^refs/(?:heads|tags)/[^\\u0000-\\u001F\\u007F]+$"
+        },
+        "publisherWorkflow": {
+          "type": "string",
+          "pattern": "^\\.github/workflows/[A-Za-z0-9_.-]+\\.ya?ml$"
+        },
+        "authorityDigests": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/authorityDigest" }
+        }
+      }
+    },
+    "authorityDigest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "digest"],
+      "properties": {
+        "path": { "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath" },
+        "digest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest" }
+      }
+    },
+    "interface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "abiContractDigest",
+        "requiredExportsDigest",
+        "forbiddenExportsDigest",
+        "headerSetDigest",
+        "hostTools",
+        "loadableComponents"
+      ],
+      "properties": {
+        "abiContractDigest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest" },
+        "requiredExportsDigest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest" },
+        "forbiddenExportsDigest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest" },
+        "headerSetDigest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest" },
+        "hostTools": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/hostTool" }
+        },
+        "loadableComponents": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/loadableComponent" }
+        }
+      }
+    },
+    "hostTool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "path", "digest", "compatibilityDigest"],
+      "properties": {
+        "role": { "const": "host-tool" },
+        "path": { "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath" },
+        "digest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest" },
+        "compatibilityDigest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest" }
+      }
+    },
+    "loadableComponent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["role", "path", "digest", "system"],
+          "properties": {
+            "role": { "enum": ["runtime", "runtime-dependency"] },
+            "path": { "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath" },
+            "digest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest" },
+            "system": { "const": false }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["role", "name", "system"],
+          "properties": {
+            "role": { "const": "runtime-dependency" },
+            "name": { "$ref": "portable-engine-common-v1.schema.json#/$defs/systemDependencyName" },
+            "system": { "const": true }
+          }
+        }
+      ]
+    },
+    "entry": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "role", "path", "digest", "size", "executable"],
+          "properties": {
+            "kind": { "const": "regular" },
+            "role": { "$ref": "portable-engine-common-v1.schema.json#/$defs/payloadRole" },
+            "path": { "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath" },
+            "digest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest" },
+            "size": { "$ref": "portable-engine-common-v1.schema.json#/$defs/safeInteger" },
+            "executable": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "role", "path"],
+          "properties": {
+            "kind": { "const": "directory" },
+            "role": { "$ref": "portable-engine-common-v1.schema.json#/$defs/payloadRole" },
+            "path": { "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "role", "path", "target"],
+          "properties": {
+            "kind": { "const": "symlink" },
+            "role": { "$ref": "portable-engine-common-v1.schema.json#/$defs/payloadRole" },
+            "path": { "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath" },
+            "target": { "$ref": "portable-engine-common-v1.schema.json#/$defs/relativeSymlinkTarget" }
+          }
+        }
+      ]
+    }
+  }
+}

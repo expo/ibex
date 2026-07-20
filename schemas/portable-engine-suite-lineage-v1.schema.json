@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-suite-lineage-v1.schema.json",
+  "title": "Ibex portable engine coordinator suite lineage v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "suiteLineageId",
+    "suitePlanDigest",
+    "sourceRevision",
+    "sourceTreeDigest",
+    "target",
+    "portableArtifactId",
+    "expectedShardIds",
+    "expectedCommandIds",
+    "expectedFixtureIds",
+    "coordinatorWorkflow",
+    "coordinatorRun"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/portable-engine-suite-lineage/1" },
+    "suiteLineageId": { "$ref": "portable-engine-common-v1.schema.json#/$defs/stableId" },
+    "suitePlanDigest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest" },
+    "sourceRevision": { "$ref": "portable-engine-common-v1.schema.json#/$defs/sourceRevision" },
+    "sourceTreeDigest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest" },
+    "target": { "$ref": "portable-engine-common-v1.schema.json#/$defs/target" },
+    "portableArtifactId": { "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest" },
+    "expectedShardIds": { "$ref": "portable-engine-common-v1.schema.json#/$defs/idSet" },
+    "expectedCommandIds": { "$ref": "portable-engine-common-v1.schema.json#/$defs/idSet" },
+    "expectedFixtureIds": { "$ref": "portable-engine-common-v1.schema.json#/$defs/idSet" },
+    "coordinatorWorkflow": { "$ref": "portable-engine-common-v1.schema.json#/$defs/workflowIdentity" },
+    "coordinatorRun": { "$ref": "portable-engine-common-v1.schema.json#/$defs/workflowRun" }
+  }
+}

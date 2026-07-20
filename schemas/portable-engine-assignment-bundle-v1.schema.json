@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-assignment-bundle-v1.schema.json",
+  "title": "Ibex portable engine coordinator assignment bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "suite", "assignments"],
+  "properties": {
+    "schema": { "const": "ibex/portable-engine-assignment-bundle/1" },
+    "suite": { "$ref": "portable-engine-suite-lineage-v1.schema.json" },
+    "assignments": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "portable-engine-shard-assignment-v1.schema.json" }
+    }
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-diagnostic-shard-bundle-v1.schema.json",
+  "title": "Ibex portable engine diagnostic shard bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "assignmentBundle",
+    "coordinatorProvenance",
+    "engineDistributionProvenance",
+    "manifest",
+    "commandEnvelopeRecords",
+    "outputs",
+    "sourceObservation",
+    "toolchainObservations",
+    "fixtureEvidence"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/portable-engine-diagnostic-shard-bundle/1" },
+    "assignmentBundle": { "$ref": "portable-engine-assignment-bundle-v1.schema.json" },
+    "coordinatorProvenance": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/coordinatorProvenanceVerification"
+    },
+    "engineDistributionProvenance": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/engineDistributionProvenanceVerification"
+    },
+    "manifest": { "$ref": "portable-engine-diagnostic-shard-manifest-v1.schema.json" },
+    "commandEnvelopeRecords": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "portable-engine-common-v1.schema.json#/$defs/artifactReference" }
+    },
+    "outputs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "portable-engine-common-v1.schema.json#/$defs/artifactReference" }
+    },
+    "sourceObservation": { "$ref": "#/$defs/sourceObservation" },
+    "toolchainObservations": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/toolchainObservation" }
+    },
+    "fixtureEvidence": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "portable-engine-common-v1.schema.json#/$defs/artifactReference" }
+    }
+  },
+  "$defs": {
+    "sourceObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceRevision", "sourceTreeDigest"],
+      "properties": {
+        "sourceRevision": { "$ref": "portable-engine-common-v1.schema.json#/$defs/sourceRevision" },
+        "sourceTreeDigest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest" }
+      }
+    },
+    "toolchainObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "digest"],
+      "properties": {
+        "name": { "$ref": "portable-engine-common-v1.schema.json#/$defs/stableId" },
+        "version": { "$ref": "portable-engine-common-v1.schema.json#/$defs/nonEmptyString" },
+        "digest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest" }
+      }
+    }
+  }
+}

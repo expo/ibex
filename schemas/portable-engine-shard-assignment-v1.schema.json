@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-shard-assignment-v1.schema.json",
+  "title": "Ibex portable engine coordinator shard assignment v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "suiteLineageId",
+    "suiteDescriptorDigest",
+    "shardId",
+    "expectedCommandIds",
+    "expectedRecipeIds",
+    "expectedFixtureIds",
+    "authorityClass",
+    "assignedShardWorkflow",
+    "shardAttempt"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/portable-engine-shard-assignment/1" },
+    "suiteLineageId": { "$ref": "portable-engine-common-v1.schema.json#/$defs/stableId" },
+    "suiteDescriptorDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest",
+      "$comment": "SHA-256 over the complete suite-lineage JCS, domain ibex.portable-engine-suite-lineage.v1 followed by one NUL byte."
+    },
+    "shardId": { "$ref": "portable-engine-common-v1.schema.json#/$defs/stableId" },
+    "expectedCommandIds": { "$ref": "portable-engine-common-v1.schema.json#/$defs/idSet" },
+    "expectedRecipeIds": { "$ref": "portable-engine-common-v1.schema.json#/$defs/idSet" },
+    "expectedFixtureIds": { "$ref": "portable-engine-common-v1.schema.json#/$defs/idSet" },
+    "authorityClass": { "enum": ["diagnostic", "authoritative"] },
+    "assignedShardWorkflow": { "$ref": "portable-engine-common-v1.schema.json#/$defs/workflowIdentity" },
+    "shardAttempt": { "$ref": "portable-engine-common-v1.schema.json#/$defs/positiveSafeInteger" }
+  }
+}

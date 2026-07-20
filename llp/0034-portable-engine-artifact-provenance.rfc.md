@@ -5,6 +5,10 @@
 **Systems:** Security, Engine, Build, Distribution, CI, Runtime, Host ABI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
+**Revised:** 2026-07-19 (Phase 0 freezes the closed outer authority schemas,
+digest DAG, publisher policy, archive/path constraints, and macOS system
+dependency set while keeping authority disabled pending the remaining
+source/profile/interface digest projections and Sigstore byte contract)
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021; LLP 0032
 
 ## Summary
@@ -696,6 +700,42 @@ engine-using final PE audit and those tests pass on the physical target.
 - inventory every normal/worklet Hermes C++ crossing and prove a versioned C
   function-table feasibility spike on Windows; and
 - keep reports and advertisements unchanged and empty.
+
+Implementation checkpoint (2026-07-19): the checked-in closed schemas,
+trust policy, and valid/invalid vectors now freeze the outer manifest,
+installation receipt, portable and mapped identities, coordinator assignment
+chain, and diagnostic shard DAG. The policy admits only the `ccheever/ibex`
+`hermes-artifacts.yml` publisher on `refs/heads/main` with a GitHub-hosted
+runner, retains same-runner-only conformance authority, and explicitly disables
+cross-runner assignment, diagnostic transport, promotion authority, retry, and
+resumption. It also fixes finite archive limits, the versioned payload-path
+equivalence policy, symlink containment rules, and the empirically observed
+macOS Release runtime's Apple system dependency set.
+
+The golden vectors freeze these semantic digest purposes and projections:
+
+| Purpose | Domain | Projection |
+|---|---|---|
+| Portable artifact ID | `ibex.portable-engine-manifest.v1` | manifest without `artifactId` |
+| Complete manifest digest | `ibex.portable-engine-manifest-digest.v1` | complete manifest |
+| Trust-policy digest | `ibex.portable-engine-provenance-trust-policy.v1` | complete checked policy |
+| Interface-contract digest | `ibex.portable-engine-interface.v1` | complete manifest `interface` object |
+| Mapped observation digest | `ibex.mapped-engine-instance-identity.v1` | mapped identity without `observationDigest` |
+| Suite-descriptor digest | `ibex.portable-engine-suite-lineage.v1` | complete suite descriptor |
+| Shard-assignment digest | `ibex.portable-engine-shard-assignment.v1` | complete assignment descriptor |
+| Assignment-bundle digest | `ibex.portable-engine-assignment-bundle.v1` | complete assignment bundle |
+| Diagnostic-manifest digest | `ibex.portable-engine-diagnostic-shard-manifest.v1` | shard manifest without `manifestDigest` |
+| Diagnostic-bundle digest | `ibex.portable-engine-diagnostic-shard-bundle.v1` | complete diagnostic bundle |
+
+This checkpoint intentionally consumes no new authority and does not complete
+Phase 0. Before a manifest may be accepted, an amendment must freeze or import
+normative input schemas and digest domains for `sourceTreeDigest`,
+`reviewedProfileIdentityDigest`, the ABI/required-export/forbidden-export/header
+set digests, and each host-tool `compatibilityDigest`. It must also choose and
+bind the exact raw or normalized Sigstore/provenance-bundle bytes named by
+`provenanceBundleDigest`. Linux and Windows system dependency allowlists remain
+platform-specific physical blockers. Reports and advertisements therefore stay
+unchanged and empty.
 
 Exit: two paths containing the same validated payload derive the same portable
 ID, every local/provenance field mutation is classified correctly, and no new

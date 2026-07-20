@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/mapped-engine-instance-identity-v1.schema.json",
+  "title": "Ibex mapped engine instance identity v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "portable",
+    "canonicalLocalRuntimePath",
+    "localObject",
+    "mappingProof",
+    "before",
+    "after",
+    "processArchitecture",
+    "observationDigest"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/mapped-engine-instance-identity/1" },
+    "portable": { "$ref": "portable-engine-artifact-identity-v1.schema.json" },
+    "canonicalLocalRuntimePath": { "$ref": "portable-engine-common-v1.schema.json#/$defs/nonEmptyString" },
+    "localObject": { "$ref": "portable-engine-common-v1.schema.json#/$defs/objectIdentity" },
+    "mappingProof": { "$ref": "#/$defs/mappingProof" },
+    "before": { "$ref": "portable-engine-common-v1.schema.json#/$defs/fileObservation" },
+    "after": { "$ref": "portable-engine-common-v1.schema.json#/$defs/fileObservation" },
+    "processArchitecture": { "enum": ["aarch64", "x86_64"] },
+    "observationDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest",
+      "$comment": "SHA-256 over JCS(mapped instance without observationDigest), domain ibex.mapped-engine-instance-identity.v1 followed by one NUL byte."
+    }
+  },
+  "$defs": {
+    "address": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]+$"
+    },
+    "moduleObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "object", "digest"],
+      "properties": {
+        "path": { "$ref": "portable-engine-common-v1.schema.json#/$defs/nonEmptyString" },
+        "object": { "$ref": "portable-engine-common-v1.schema.json#/$defs/objectIdentity" },
+        "digest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest" }
+      }
+    },
+    "mappingProof": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["class", "platformObservation"],
+          "properties": {
+            "class": { "const": "macos-proc-pid-region-path-info" },
+            "platformObservation": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["platform", "regionStart", "regionEnd", "mappedObject"],
+              "properties": {
+                "platform": { "const": "macos" },
+                "regionStart": { "$ref": "#/$defs/address" },
+                "regionEnd": { "$ref": "#/$defs/address" },
+                "mappedObject": { "$ref": "portable-engine-common-v1.schema.json#/$defs/objectIdentity" }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["class", "platformObservation"],
+          "properties": {
+            "class": { "const": "linux-proc-self-maps" },
+            "platformObservation": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "platform",
+                "mappingStart",
+                "mappingEnd",
+                "permissions",
+                "fileOffset",
+                "mappedObject"
+              ],
+              "properties": {
+                "platform": { "const": "linux" },
+                "mappingStart": { "$ref": "#/$defs/address" },
+                "mappingEnd": { "$ref": "#/$defs/address" },
+                "permissions": { "type": "string", "pattern": "^[r-][w-][x-][ps]$" },
+                "fileOffset": { "$ref": "#/$defs/safeHex" },
+                "mappedObject": { "$ref": "portable-engine-common-v1.schema.json#/$defs/objectIdentity" }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["class", "platformObservation"],
+          "properties": {
+            "class": { "const": "windows-locked-module-closure" },
+            "platformObservation": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["platform", "runtimeModule", "dependencies"],
+              "properties": {
+                "platform": { "const": "windows" },
+                "runtimeModule": { "$ref": "#/$defs/moduleObservation" },
+                "dependencies": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": { "$ref": "#/$defs/moduleObservation" }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "safeHex": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]+$"
+    }
+  }
+}

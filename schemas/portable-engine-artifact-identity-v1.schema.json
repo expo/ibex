@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-artifact-identity-v1.schema.json",
+  "title": "Ibex portable engine artifact identity v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "artifactId",
+    "artifactKind",
+    "target",
+    "profile",
+    "runtimeComponentDigest",
+    "reviewedProfileIdentityDigest",
+    "interfaceContractDigest"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/portable-engine-artifact-identity/1" },
+    "artifactId": { "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest" },
+    "artifactKind": { "const": "hermes" },
+    "target": { "$ref": "portable-engine-common-v1.schema.json#/$defs/target" },
+    "profile": { "$ref": "portable-engine-common-v1.schema.json#/$defs/identityProfile" },
+    "runtimeComponentDigest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest" },
+    "reviewedProfileIdentityDigest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest" },
+    "interfaceContractDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest",
+      "$comment": "SHA-256 over the complete manifest interface JCS, domain ibex.portable-engine-interface.v1 followed by one NUL byte."
+    }
+  }
+}

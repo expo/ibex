@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-provenance-trust-policy-v1.schema.json",
+  "title": "Ibex portable engine provenance trust policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "enginePublisher",
+    "authoritativeConformance",
+    "crossRunnerConformance",
+    "archiveLimits",
+    "payloadPathPolicy",
+    "platformSystemDependencies"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/portable-engine-provenance-trust-policy/1" },
+    "enginePublisher": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "repository",
+        "workflowPath",
+        "sourceRef",
+        "runnerClass",
+        "provenanceRoot"
+      ],
+      "properties": {
+        "enabled": { "const": true },
+        "repository": { "const": "ccheever/ibex" },
+        "workflowPath": { "const": ".github/workflows/hermes-artifacts.yml" },
+        "sourceRef": { "const": "refs/heads/main" },
+        "runnerClass": { "const": "github-hosted" },
+        "provenanceRoot": { "const": "github-oidc-artifact-attestations" }
+      }
+    },
+    "authoritativeConformance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runnerClass", "sameRunnerOnly"],
+      "properties": {
+        "runnerClass": { "const": "github-hosted" },
+        "sameRunnerOnly": { "const": true }
+      }
+    },
+    "crossRunnerConformance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coordinatorAssignmentsEnabled",
+        "diagnosticShardTransportEnabled",
+        "promotionAuthorityEnabled",
+        "retryEnabled",
+        "resumptionEnabled"
+      ],
+      "properties": {
+        "coordinatorAssignmentsEnabled": { "const": false },
+        "diagnosticShardTransportEnabled": { "const": false },
+        "promotionAuthorityEnabled": { "const": false },
+        "retryEnabled": { "const": false },
+        "resumptionEnabled": { "const": false }
+      }
+    },
+    "archiveLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxArchiveBytes",
+        "maxMemberCount",
+        "maxRegularFileBytes",
+        "maxExpandedBytes",
+        "maxSymlinkDepth"
+      ],
+      "properties": {
+        "maxArchiveBytes": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "maxMemberCount": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "maxRegularFileBytes": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "maxExpandedBytes": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "maxSymlinkDepth": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+      }
+    },
+    "payloadPathPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unicodeNormalization",
+        "unicodeCaseFolding",
+        "appleCaseFolded",
+        "linuxCaseFolded",
+        "windowsCaseFolded",
+        "windowsTrailingDotSpaceCollapse",
+        "windowsReservedDeviceNames",
+        "windowsAlternateDataStreamsForbidden"
+      ],
+      "properties": {
+        "unicodeNormalization": { "const": "NFC" },
+        "unicodeCaseFolding": { "const": "Unicode-15.1.0-default-case-fold" },
+        "appleCaseFolded": { "const": true },
+        "linuxCaseFolded": { "const": false },
+        "windowsCaseFolded": { "const": true },
+        "windowsTrailingDotSpaceCollapse": { "const": true },
+        "windowsReservedDeviceNames": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "aux", "clock$", "com1", "com2", "com3", "com4", "com5",
+              "com6", "com7", "com8", "com9", "con", "lpt1", "lpt2",
+              "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+              "nul", "prn"
+            ]
+          }
+        },
+        "windowsAlternateDataStreamsForbidden": { "const": true }
+      }
+    },
+    "platformSystemDependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["apple", "linux", "windows"],
+      "properties": {
+        "apple": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+              "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+              "/usr/lib/libSystem.B.dylib",
+              "/usr/lib/libc++.1.dylib",
+              "/usr/lib/libobjc.A.dylib"
+            ]
+          }
+        },
+        "linux": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "libc.so.6", "libdl.so.2", "libgcc_s.so.1", "libm.so.6",
+              "libpthread.so.0", "librt.so.1", "libstdc++.so.6"
+            ]
+          }
+        },
+        "windows": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "advapi32.dll", "bcrypt.dll", "kernel32.dll", "ntdll.dll",
+              "ole32.dll", "ucrtbase.dll", "user32.dll", "vcruntime140.dll",
+              "ws2_32.dll"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

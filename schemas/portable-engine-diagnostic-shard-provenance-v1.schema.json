@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-diagnostic-shard-provenance-v1.schema.json",
+  "title": "Ibex portable engine diagnostic shard detached provenance v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "subjectDigest",
+    "provenanceBundleDigest",
+    "repository",
+    "workflowPath",
+    "sourceRef",
+    "sourceRevision",
+    "runnerClass",
+    "workflowRunId",
+    "workflowRunAttempt",
+    "shardId",
+    "authorityClass"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/portable-engine-diagnostic-shard-provenance/1" },
+    "subjectDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest",
+      "$comment": "Detached shard provenance subject is SHA-256 over the complete shard-bundle JCS, domain ibex.portable-engine-diagnostic-shard-bundle.v1 followed by one NUL byte."
+    },
+    "provenanceBundleDigest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest" },
+    "repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "workflowPath": {
+      "type": "string",
+      "pattern": "^\\.github/workflows/[A-Za-z0-9_.-]+\\.ya?ml$"
+    },
+    "sourceRef": {
+      "type": "string",
+      "pattern": "^refs/(?:heads|tags)/[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "sourceRevision": { "$ref": "portable-engine-common-v1.schema.json#/$defs/sourceRevision" },
+    "runnerClass": { "const": "github-hosted" },
+    "workflowRunId": { "$ref": "portable-engine-common-v1.schema.json#/$defs/positiveSafeInteger" },
+    "workflowRunAttempt": { "$ref": "portable-engine-common-v1.schema.json#/$defs/positiveSafeInteger" },
+    "shardId": { "$ref": "portable-engine-common-v1.schema.json#/$defs/stableId" },
+    "authorityClass": { "const": "diagnostic" }
+  }
+}

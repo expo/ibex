@@ -1,0 +1,547 @@
+{
+  "vectorSchema": "ibex/portable-engine-provenance-mutations/1",
+  "parseCases": [
+    {
+      "id": "duplicate-object-field",
+      "rawJson": "{\"schema\":\"ibex/portable-engine-manifest/1\",\"schema\":\"ibex/portable-engine-manifest/1\"}",
+      "expected": "parse-invalid"
+    },
+    {
+      "id": "lone-unicode-surrogate",
+      "rawJson": "{\"value\":\"\\ud800\"}",
+      "expected": "parse-invalid"
+    },
+    {
+      "id": "invalid-utf8",
+      "rawBytesBase64": "eyJ2YWx1ZSI6Iv8ifQ==",
+      "expected": "parse-invalid"
+    }
+  ],
+  "cases": [
+    {
+      "id": "trust-policy-rejects-unknown-field",
+      "documentPath": "trustPolicy",
+      "schema": "portable-engine-provenance-trust-policy-v1.schema.json",
+      "mutation": {
+        "op": "add",
+        "path": "/localOverride",
+        "value": true
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "trust-policy-rejects-cross-runner-coordinator-enablement",
+      "documentPath": "trustPolicy",
+      "schema": "portable-engine-provenance-trust-policy-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/crossRunnerConformance/coordinatorAssignmentsEnabled",
+        "value": true
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "manifest-rejects-unknown-field",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "add",
+        "path": "/localPath",
+        "value": "/tmp/libhermes.dylib"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "manifest-rejects-raw-digest-in-semantic-field",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/profile/reviewedProfileIdentityDigest",
+        "value": "sha256-0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "manifest-rejects-semantic-digest-in-raw-field",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/entries/1/digest",
+        "value": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "manifest-rejects-noncanonical-base64url-tail-bits",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/artifactId",
+        "value": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "manifest-rejects-unknown-role",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/entries/1/role",
+        "value": "executable"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "manifest-rejects-parent-traversal",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/runtimeComponent",
+        "value": "lib/../libhermes.dylib"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "manifest-rejects-windows-alternate-data-stream-path",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/entries/1/path",
+        "value": "bin/hermesc:payload"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "manifest-rejects-artifact-id-mismatch",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/artifactId",
+        "value": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "manifest-rejects-unsorted-structural-feature-set",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "swap",
+        "path": "/target/structuralFeatures",
+        "indices": [
+          0,
+          1
+        ]
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "manifest-rejects-non-nfc-set-member",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/target/structuralFeatures/0",
+        "value": "é"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "manifest-rejects-unsorted-authority-digests",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "swap",
+        "path": "/build/authorityDigests",
+        "indices": [
+          0,
+          1
+        ]
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "manifest-rejects-unsorted-entries",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "swap",
+        "path": "/entries",
+        "indices": [
+          0,
+          1
+        ]
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "manifest-rejects-target-filesystem-equivalence-collision",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "add",
+        "path": "/entries/8",
+        "value": {
+          "kind": "directory",
+          "role": "runtime",
+          "path": "LIB"
+        }
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "manifest-rejects-windows-trailing-dot-space-collision",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "sequence",
+        "mutations": [
+          {
+            "op": "replace",
+            "path": "/target/triple",
+            "value": "x86_64-pc-windows-msvc"
+          },
+          {
+            "op": "add",
+            "path": "/entries/8",
+            "value": {
+              "kind": "directory",
+              "role": "runtime",
+              "path": "lib. "
+            }
+          }
+        ]
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "manifest-rejects-windows-reserved-device-name",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "sequence",
+        "mutations": [
+          {
+            "op": "replace",
+            "path": "/target/triple",
+            "value": "x86_64-pc-windows-msvc"
+          },
+          {
+            "op": "replace",
+            "path": "/entries/5/path",
+            "value": "CON"
+          }
+        ]
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "manifest-rejects-symlink-escape",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/entries/3/target",
+        "value": "../../../etc/passwd"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "manifest-rejects-symlink-cycle",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/entries/3/target",
+        "value": "libhermes-current.dylib"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "manifest-rejects-undeclared-symlink-target",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/entries/3/target",
+        "value": "missing.dylib"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "manifest-rejects-missing-runtime-component",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/runtimeComponent",
+        "value": "lib/missing.dylib"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "manifest-rejects-component-entry-digest-disagreement",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/interface/loadableComponents/0/digest",
+        "value": "sha256-6666666666666666666666666666666666666666666666666666666666666666"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "manifest-rejects-platform-system-dependency-substitution",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/interface/loadableComponents/1/name",
+        "value": "kernel32.dll"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "manifest-rejects-regular-file-limit-overflow",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/entries/4/size",
+        "value": 536870913
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "receipt-rejects-local-installation-path",
+      "documentPath": "installationReceipt",
+      "schema": "portable-engine-installation-receipt-v1.schema.json",
+      "mutation": {
+        "op": "add",
+        "path": "/installationPath",
+        "value": "/tmp/hermes"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "receipt-rejects-manifest-digest-mismatch",
+      "documentPath": "installationReceipt",
+      "schema": "portable-engine-installation-receipt-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/manifestDigest",
+        "value": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "portable-identity-rejects-local-path",
+      "documentPath": "portableIdentity",
+      "schema": "portable-engine-artifact-identity-v1.schema.json",
+      "mutation": {
+        "op": "add",
+        "path": "/canonicalLocalRuntimePath",
+        "value": "/tmp/libhermes.dylib"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "portable-identity-rejects-interface-projection-mismatch",
+      "documentPath": "portableIdentity",
+      "schema": "portable-engine-artifact-identity-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/interfaceContractDigest",
+        "value": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "mapped-instance-rejects-open-platform-observation",
+      "documentPath": "mappedInstance",
+      "schema": "mapped-engine-instance-identity-v1.schema.json",
+      "mutation": {
+        "op": "add",
+        "path": "/mappingProof/platformObservation/pid",
+        "value": 4242
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "mapped-instance-rejects-observation-digest-mismatch",
+      "documentPath": "mappedInstance",
+      "schema": "mapped-engine-instance-identity-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/observationDigest",
+        "value": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "suite-rejects-portable-artifact-substitution",
+      "documentPath": "suite",
+      "schema": "portable-engine-suite-lineage-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/portableArtifactId",
+        "value": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "assignment-rejects-suite-substitution",
+      "documentPath": "assignment",
+      "schema": "portable-engine-shard-assignment-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/suiteDescriptorDigest",
+        "value": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "assignment-rejects-unsorted-command-set",
+      "documentPath": "assignment",
+      "schema": "portable-engine-shard-assignment-v1.schema.json",
+      "mutation": {
+        "op": "swap",
+        "path": "/expectedCommandIds",
+        "indices": [
+          0,
+          1
+        ]
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "diagnostic-assignment-rejects-authoritative-label",
+      "documentPath": "assignment",
+      "schema": "portable-engine-shard-assignment-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/authorityClass",
+        "value": "authoritative"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "assignment-bundle-rejects-self-digest",
+      "documentPath": "assignmentBundle",
+      "schema": "portable-engine-assignment-bundle-v1.schema.json",
+      "mutation": {
+        "op": "add",
+        "path": "/bundleDigest",
+        "value": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "diagnostic-manifest-rejects-authoritative-label",
+      "documentPath": "diagnosticManifest",
+      "schema": "portable-engine-diagnostic-shard-manifest-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/authorityClass",
+        "value": "authoritative"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "diagnostic-manifest-rejects-self-digest-mismatch",
+      "documentPath": "diagnosticManifest",
+      "schema": "portable-engine-diagnostic-shard-manifest-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/manifestDigest",
+        "value": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "diagnostic-bundle-rejects-own-provenance",
+      "documentPath": "diagnosticBundle",
+      "schema": "portable-engine-diagnostic-shard-bundle-v1.schema.json",
+      "mutation": {
+        "op": "add",
+        "path": "/shardProvenance",
+        "value": {
+          "subjectDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "diagnostic-bundle-rejects-output-substitution",
+      "documentPath": "diagnosticBundle",
+      "schema": "portable-engine-diagnostic-shard-bundle-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/outputs/0/digest",
+        "value": "sha256-5656565656565656565656565656565656565656565656565656565656565656"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "diagnostic-bundle-rejects-coordinator-subject-substitution",
+      "documentPath": "diagnosticBundle",
+      "schema": "portable-engine-diagnostic-shard-bundle-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/coordinatorProvenance/subjectDigest",
+        "value": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "diagnostic-bundle-rejects-source-observation-substitution",
+      "documentPath": "diagnosticBundle",
+      "schema": "portable-engine-diagnostic-shard-bundle-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/sourceObservation/sourceRevision",
+        "value": "cccccccccccccccccccccccccccccccccccccccc"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "diagnostic-bundle-rejects-missing-fixture-evidence",
+      "documentPath": "diagnosticBundle",
+      "schema": "portable-engine-diagnostic-shard-bundle-v1.schema.json",
+      "mutation": {
+        "op": "remove",
+        "path": "/fixtureEvidence/1"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "diagnostic-provenance-rejects-authoritative-label",
+      "documentPath": "diagnosticProvenance",
+      "schema": "portable-engine-diagnostic-shard-provenance-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/authorityClass",
+        "value": "authoritative"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "diagnostic-provenance-rejects-shard-bundle-substitution",
+      "documentPath": "diagnosticProvenance",
+      "schema": "portable-engine-diagnostic-shard-provenance-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/subjectDigest",
+        "value": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "expected": "semantic-invalid"
+    }
+  ]
+}

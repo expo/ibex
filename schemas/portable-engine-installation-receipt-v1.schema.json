@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-installation-receipt-v1.schema.json",
+  "title": "Ibex portable engine installation receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "artifactId",
+    "manifestDigest",
+    "archiveDigest",
+    "provenanceBundleDigest",
+    "verificationPolicyDigest",
+    "repository",
+    "publisherWorkflow",
+    "sourceRef",
+    "sourceRevision",
+    "runnerClass"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/portable-engine-installation-receipt/1" },
+    "artifactId": { "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest" },
+    "manifestDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest",
+      "$comment": "SHA-256 over the complete manifest JCS, domain ibex.portable-engine-manifest-digest.v1 followed by one NUL byte."
+    },
+    "archiveDigest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest" },
+    "provenanceBundleDigest": { "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest" },
+    "verificationPolicyDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest",
+      "$comment": "SHA-256 over the complete trust-policy JCS, domain ibex.portable-engine-provenance-trust-policy.v1 followed by one NUL byte."
+    },
+    "repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "publisherWorkflow": {
+      "type": "string",
+      "pattern": "^\\.github/workflows/[A-Za-z0-9_.-]+\\.ya?ml$"
+    },
+    "sourceRef": {
+      "type": "string",
+      "pattern": "^refs/(?:heads|tags)/[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "sourceRevision": { "$ref": "portable-engine-common-v1.schema.json#/$defs/sourceRevision" },
+    "runnerClass": { "const": "github-hosted" }
+  }
+}

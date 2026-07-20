@@ -1,0 +1,280 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-common-v1.schema.json",
+  "title": "Ibex portable engine provenance v1 common types",
+  "$defs": {
+    "semanticDigest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+    },
+    "rawDigest": {
+      "type": "string",
+      "pattern": "^sha256-[0-9a-f]{64}$"
+    },
+    "safeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "positiveSafeInteger": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+    },
+    "stableId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$"
+    },
+    "sourceRevision": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "normalizedPayloadPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))(?!.*//)(?!.*[\\\\:\\u0000-\\u001F\\u007F])[^/]+(?:/[^/]+)*$"
+    },
+    "relativeSymlinkTarget": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*//)(?!.*[\\\\:\\u0000-\\u001F\\u007F])[^/]+(?:/[^/]+)*$"
+    },
+    "payloadRole": {
+      "enum": [
+        "runtime",
+        "runtime-dependency",
+        "link-input",
+        "header",
+        "host-tool",
+        "profile-receipt",
+        "metadata",
+        "framework-resource"
+      ]
+    },
+    "systemDependencyName": {
+      "enum": [
+        "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+        "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+        "/usr/lib/libSystem.B.dylib",
+        "/usr/lib/libc++.1.dylib",
+        "/usr/lib/libobjc.A.dylib",
+        "advapi32.dll",
+        "bcrypt.dll",
+        "kernel32.dll",
+        "libc.so.6",
+        "libdl.so.2",
+        "libgcc_s.so.1",
+        "libm.so.6",
+        "libpthread.so.0",
+        "librt.so.1",
+        "libstdc++.so.6",
+        "ntdll.dll",
+        "ole32.dll",
+        "ucrtbase.dll",
+        "user32.dll",
+        "vcruntime140.dll",
+        "ws2_32.dll"
+      ]
+    },
+    "stringSet": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/nonEmptyString" }
+    },
+    "idSet": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/stableId" }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["triple", "structuralFeatures"],
+      "properties": {
+        "triple": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+){2,3}$"
+        },
+        "structuralFeatures": { "$ref": "#/$defs/stringSet" }
+      }
+    },
+    "manifestProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "targetVariant",
+        "configuration",
+        "debugger",
+        "hermesBytecodeVersion",
+        "reviewedProfileIdentityDigest"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/stableId" },
+        "targetVariant": { "$ref": "#/$defs/stableId" },
+        "configuration": { "enum": ["Debug", "Release", "RelWithDebInfo"] },
+        "debugger": { "type": "boolean" },
+        "hermesBytecodeVersion": { "$ref": "#/$defs/safeInteger" },
+        "reviewedProfileIdentityDigest": { "$ref": "#/$defs/semanticDigest" }
+      }
+    },
+    "identityProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "targetVariant",
+        "configuration",
+        "debugger",
+        "hermesBytecodeVersion"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/stableId" },
+        "targetVariant": { "$ref": "#/$defs/stableId" },
+        "configuration": { "enum": ["Debug", "Release", "RelWithDebInfo"] },
+        "debugger": { "type": "boolean" },
+        "hermesBytecodeVersion": { "$ref": "#/$defs/safeInteger" }
+      }
+    },
+    "workflowIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "workflowPath", "sourceRef"],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "workflowPath": {
+          "type": "string",
+          "pattern": "^\\.github/workflows/[A-Za-z0-9_.-]+\\.ya?ml$"
+        },
+        "sourceRef": {
+          "type": "string",
+          "pattern": "^refs/(?:heads|tags)/[^\\u0000-\\u001F\\u007F]+$"
+        }
+      }
+    },
+    "workflowRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workflowRunId", "workflowRunAttempt"],
+      "properties": {
+        "workflowRunId": { "$ref": "#/$defs/positiveSafeInteger" },
+        "workflowRunAttempt": { "$ref": "#/$defs/positiveSafeInteger" }
+      }
+    },
+    "objectIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "volume", "file"],
+      "properties": {
+        "platform": { "enum": ["apple", "unix", "windows", "android"] },
+        "volume": { "$ref": "#/$defs/nonEmptyString" },
+        "file": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "fileObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size", "digest", "object"],
+      "properties": {
+        "size": { "$ref": "#/$defs/safeInteger" },
+        "digest": { "$ref": "#/$defs/rawDigest" },
+        "object": { "$ref": "#/$defs/objectIdentity" }
+      }
+    },
+    "artifactReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "digest", "size"],
+      "properties": {
+        "name": { "$ref": "#/$defs/stableId" },
+        "digest": { "$ref": "#/$defs/rawDigest" },
+        "size": { "$ref": "#/$defs/safeInteger" }
+      }
+    },
+    "declaredOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "digest"],
+      "properties": {
+        "name": { "$ref": "#/$defs/stableId" },
+        "digest": { "$ref": "#/$defs/rawDigest" }
+      }
+    },
+    "provenanceVerification": {
+      "oneOf": [
+        { "$ref": "#/$defs/coordinatorProvenanceVerification" },
+        { "$ref": "#/$defs/engineDistributionProvenanceVerification" }
+      ]
+    },
+    "coordinatorProvenanceVerification": {
+      "allOf": [
+        { "$ref": "#/$defs/provenanceVerificationBase" },
+        {
+          "type": "object",
+          "properties": {
+            "authority": { "const": "coordinator" },
+            "subjectDigest": {
+              "$ref": "#/$defs/semanticDigest",
+              "$comment": "Coordinator subject is SHA-256 over the complete assignment-bundle JCS, domain ibex.portable-engine-assignment-bundle.v1 followed by one NUL byte."
+            }
+          }
+        }
+      ]
+    },
+    "engineDistributionProvenanceVerification": {
+      "allOf": [
+        { "$ref": "#/$defs/provenanceVerificationBase" },
+        {
+          "type": "object",
+          "properties": {
+            "authority": { "const": "engine-distribution" },
+            "subjectDigest": { "$ref": "#/$defs/rawDigest" }
+          }
+        }
+      ]
+    },
+    "provenanceVerificationBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "authority",
+        "subjectDigest",
+        "provenanceBundleDigest",
+        "repository",
+        "workflowPath",
+        "sourceRef",
+        "sourceRevision",
+        "runnerClass"
+      ],
+      "properties": {
+        "schema": { "const": "ibex/portable-engine-provenance-verification/1" },
+        "authority": { "enum": ["coordinator", "engine-distribution"] },
+        "subjectDigest": { "type": "string" },
+        "provenanceBundleDigest": { "$ref": "#/$defs/rawDigest" },
+        "repository": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "workflowPath": {
+          "type": "string",
+          "pattern": "^\\.github/workflows/[A-Za-z0-9_.-]+\\.ya?ml$"
+        },
+        "sourceRef": {
+          "type": "string",
+          "pattern": "^refs/(?:heads|tags)/[^\\u0000-\\u001F\\u007F]+$"
+        },
+        "sourceRevision": { "$ref": "#/$defs/sourceRevision" },
+        "runnerClass": { "const": "github-hosted" }
+      }
+    }
+  }
+}
