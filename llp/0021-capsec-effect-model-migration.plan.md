@@ -2053,7 +2053,13 @@ Promise's settled display value, so the portable REPL test retains synchronous
 commit/failure coverage while its additional Promise-display assertion remains
 on targets whose eval result contract unwraps Promises. Windows still requires
 a complete rebuilt physical report before any target cell or advertisement can
-change.
+change. Physical rerun
+[`29708525410`](https://github.com/ccheever/ibex/actions/runs/29708525410)
+confirmed both real bundle publication tests and 168 of 169 binary tests pass.
+Its sole Windows failure was the hand-authored manifest freshness fixture: it
+used Rust's verbatim canonical path instead of the authenticated JavaScript
+producer's ordinary Win32 path. The fixture now follows the production
+producer contract; it does not relax manifest verification.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked

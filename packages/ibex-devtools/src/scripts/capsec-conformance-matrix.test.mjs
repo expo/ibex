@@ -122,6 +122,9 @@ test("Windows binary suites preserve process flags and ordinary tool paths", () 
     "let canonical_dep = normalize_windows_tool_path(canonical_dep);",
   );
   expect(cliRuntime).toMatch(
+    /let canonical_entry =\s*normalize_windows_tool_path\(std::fs::canonicalize\(&entry\)\.unwrap\(\)\);/,
+  );
+  expect(cliRuntime).toMatch(
     /#\[cfg\(windows\)\][\s\S]{0,600}staged\.sync_all\(\)\?;/,
   );
 });

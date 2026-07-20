@@ -6626,8 +6626,10 @@ mod tests {
         std::fs::write(&entry, "import './dep.ts';").expect("write entry");
         std::fs::write(&dep, "export const v = 1;").expect("write dep");
         std::fs::write(&output, "bundled").expect("write output");
-        let canonical_entry = std::fs::canonicalize(&entry).unwrap();
-        let canonical_dep = std::fs::canonicalize(&dep).unwrap();
+        // Match the authenticated JavaScript manifest producer: on Windows it
+        // records canonical files in ordinary Win32 rather than verbatim form.
+        let canonical_entry = normalize_windows_tool_path(std::fs::canonicalize(&entry).unwrap());
+        let canonical_dep = normalize_windows_tool_path(std::fs::canonicalize(&dep).unwrap());
 
         // No dependency manifest → stale (pre-manifest caches rebuild once).
         assert!(!bundle_cache_is_fresh(&output, &entry).await);
