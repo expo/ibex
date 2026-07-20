@@ -2373,10 +2373,7 @@ export function createProductionWebGpuPrivateBinding(
         'device ingress ordinal',
       )
       : undefined;
-    const queuePlan = (
-      operationId === 'GPUQueue.submit' ||
-      operationId === 'GPUQueue.writeBuffer'
-    ) && device
+    const queuePlan = selected.receiverHandleKind === 'GPUQueue' && device
       ? consumeNextCounterOrClose(
         device.nextQueueIngress,
         device.queueIngressExhausted,
@@ -4814,6 +4811,29 @@ export function createProductionWebGpuPrivateBinding(
       error,
     );
     appendCommandRecord(commandTargets, committed.sealedRecord);
+  });
+
+  defineMethod(mutablePrototypes.GPUQueue, 'writeTexture', function (
+    this: object,
+    destination: unknown,
+    data: unknown,
+    dataLayout: unknown,
+    size: unknown,
+  ) {
+    const queue = requireState(this, 'GPUQueue');
+    const converted = convert('GPUQueue.writeTexture', [
+      destination,
+      data,
+      dataLayout,
+      size,
+    ]);
+    submitService(
+      'GPUQueue.writeTexture',
+      queue,
+      undefined,
+      converted,
+      false,
+    );
   });
 
   defineMethod(mutablePrototypes.GPUQueue, 'submit', function (

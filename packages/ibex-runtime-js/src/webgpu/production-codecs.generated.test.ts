@@ -344,6 +344,13 @@ function conversionArguments(operationId: string): readonly unknown[] {
       return [0, bindGroup, []];
     case 'GPUComputePassEncoder.setPipeline':
       return [computePipeline];
+    case 'GPUQueue.writeTexture':
+      return [
+        { texture },
+        new Uint8Array([1, 2, 3, 4]),
+        { bytesPerRow: 256 },
+        { width: 1, height: 1, depthOrArrayLayers: 1 },
+      ];
     case 'GPURenderPassEncoder.draw':
       return [3];
     case 'GPURenderPassEncoder.setPipeline':
@@ -616,6 +623,23 @@ function serviceInput(
       bufferOffset: 0,
       bytes: new Uint8Array([1, 2, 3, 4]),
     })
+    : operationId === 'GPUQueue.writeTexture'
+    ? Object.freeze({
+      destination: Object.freeze({
+        texture: reference('GPUTexture'),
+        mipLevel: 0,
+        origin: Object.freeze({ x: 0, y: 0, z: 0, iterableLength: null }),
+        aspect: 'all',
+      }),
+      dataLayout: Object.freeze({ offset: 0, bytesPerRow: 256 }),
+      size: Object.freeze({
+        width: 1,
+        height: 1,
+        depthOrArrayLayers: 1,
+        iterableLength: null,
+      }),
+      bytes: new Uint8Array([1, 2, 3, 4]),
+    })
     : operationId === 'GPUQueue.submit'
     ? Object.freeze({ commandBuffers: Object.freeze([]) })
     : Object.freeze({ sample: true }),
@@ -654,7 +678,9 @@ function serviceInput(
     queueIngressOrdinal: receiverKind === 'GPUQueue' ? '2' : '0',
     sealedLocalTimeline: requestAdapter || requestDevice || bufferLifecycle ||
         canvasService !== undefined ||
-        operationId === 'GPUQueue.writeBuffer' || operationId === 'GPUQueue.submit'
+        operationId === 'GPUQueue.writeBuffer' ||
+        operationId === 'GPUQueue.writeTexture' ||
+        operationId === 'GPUQueue.submit'
       ? Object.freeze([])
       : deviceDestroy
       ? Object.freeze([
@@ -891,7 +917,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'ibex/webgpu-executable-codec-manifest/2',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.disposition).toBe(
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed-no-support-claim',
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-native-codec-not-installed-no-support-claim',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms).toMatchObject({
       schema: 'ibex/webgpu-native-codec-programs/2',
@@ -927,6 +953,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         { operationId: 'GPUCanvasContext.unconfigure', wireId: 935342475 },
         { operationId: 'GPUTexture.destroy', wireId: 2933046788 },
         { operationId: 'GPUQueue.writeBuffer', wireId: 404589710 },
+        { operationId: 'GPUQueue.writeTexture', wireId: 3114133342 },
         { operationId: 'GPUQueue.submit', wireId: 308839175 },
       ],
     });
@@ -2675,6 +2702,141 @@ describe('generated injection-only WebGPU executable codecs', () => {
     )).toThrow('AllowSharedBufferSource');
   });
 
+  test('converts writeTexture in exact argument order and snapshots the whole BufferSource', () => {
+    const reads: string[] = [];
+    const destination = Object.create(null);
+    for (const [name, value] of [
+      ['aspect', 'stencil-only'],
+      ['mipLevel', 2],
+      ['origin', [3, 4, 5]],
+      ['texture', texture],
+    ] as const) {
+      Object.defineProperty(destination, name, {
+        get() {
+          reads.push(`destination.${name}`);
+          return value;
+        },
+      });
+    }
+    const layout = Object.create(null);
+    for (const [name, value] of [
+      ['bytesPerRow', 256],
+      ['offset', 1],
+      ['rowsPerImage', 2],
+    ] as const) {
+      Object.defineProperty(layout, name, {
+        get() {
+          reads.push(`layout.${name}`);
+          return value;
+        },
+      });
+    }
+    const size = Object.create(null);
+    for (const [name, value] of [
+      ['depthOrArrayLayers', 1],
+      ['height', 1],
+      ['width', 1],
+    ] as const) {
+      Object.defineProperty(size, name, {
+        get() {
+          reads.push(`size.${name}`);
+          return value;
+        },
+      });
+    }
+    const backing = Uint8Array.from([9, 8, 7, 6, 5, 4]);
+    const data = new Uint8Array(backing.buffer, 1, 4);
+    const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(
+        'GPUQueue.writeTexture',
+        [destination, data, layout, size],
+        wrappers,
+      ) as Readonly<Record<string, unknown>>;
+    expect(reads).toEqual([
+      'destination.aspect',
+      'destination.mipLevel',
+      'destination.origin',
+      'destination.texture',
+      'layout.bytesPerRow',
+      'layout.offset',
+      'layout.rowsPerImage',
+      'size.depthOrArrayLayers',
+      'size.height',
+      'size.width',
+    ]);
+    expect(converted).toMatchObject({
+      destination: {
+        texture: { kind: 'GPUTexture' },
+        mipLevel: 2,
+        origin: { x: 3, y: 4, z: 5, iterableLength: 3 },
+        aspect: 'stencil-only',
+      },
+      dataLayout: { bytesPerRow: 256, offset: 1, rowsPerImage: 2 },
+      size: {
+        width: 1,
+        height: 1,
+        depthOrArrayLayers: 1,
+        iterableLength: null,
+      },
+    });
+    expect(Array.from(converted.bytes as Uint8Array)).toEqual([8, 7, 6, 5]);
+    data.fill(99);
+    expect(Array.from(converted.bytes as Uint8Array)).toEqual([8, 7, 6, 5]);
+
+    const deferredReads: string[] = [];
+    const invalidDestination = {
+      get aspect() { deferredReads.push('aspect'); return 'all'; },
+      get mipLevel() { deferredReads.push('mipLevel'); return 0; },
+      get origin() { deferredReads.push('origin'); return [0, 0, 0, 0]; },
+      get texture() { deferredReads.push('texture'); return texture; },
+    };
+    const laterLayout = {
+      get bytesPerRow() { deferredReads.push('bytesPerRow'); return 256; },
+      get offset() { deferredReads.push('offset'); return 0; },
+      get rowsPerImage() { deferredReads.push('rowsPerImage'); return 1; },
+    };
+    const laterSize = {
+      get depthOrArrayLayers() { deferredReads.push('depth'); return 1; },
+      get height() { deferredReads.push('height'); return 1; },
+      get width() { deferredReads.push('width'); return 1; },
+    };
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUQueue.writeTexture',
+      [invalidDestination, new Uint8Array(4), laterLayout, laterSize],
+      wrappers,
+    )).toThrow('at most three');
+    expect(deferredReads).toEqual([
+      'aspect', 'mipLevel', 'origin', 'texture', 'bytesPerRow', 'offset',
+      'rowsPerImage', 'depth', 'height', 'width',
+    ]);
+
+    const oversizeReads: string[] = [];
+    const oversizeLayout = {
+      get bytesPerRow() { oversizeReads.push('bytesPerRow'); return 256; },
+      get offset() { oversizeReads.push('offset'); return 0; },
+      get rowsPerImage() { oversizeReads.push('rowsPerImage'); return 1; },
+    };
+    const oversizeSize = {
+      get depthOrArrayLayers() { oversizeReads.push('depth'); return 1; },
+      get height() { oversizeReads.push('height'); return 1; },
+      get width() { oversizeReads.push('width'); return 1; },
+    };
+    const oversizeSource = new Uint8Array(16_777_025);
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUQueue.writeTexture',
+      [
+        { texture },
+        oversizeSource,
+        oversizeLayout,
+        oversizeSize,
+      ],
+      wrappers,
+    )).toThrow('exact payload bound');
+    expect(oversizeReads).toEqual([
+      'bytesPerRow', 'offset', 'rowsPerImage', 'depth', 'height', 'width',
+    ]);
+  });
+
   test('converts createView in inherited lexicographic order exactly once', () => {
     const reads: string[] = [];
     const descriptor = Object.create(Object.defineProperty({}, 'label', {
@@ -2866,6 +3028,23 @@ describe('generated injection-only WebGPU executable codecs', () => {
             ? {
               buffer: reference('GPUBuffer'),
               bufferOffset: 0,
+              bytes: [1, 2, 3, 4],
+            }
+            : route.operationId === 'GPUQueue.writeTexture'
+            ? {
+              destination: {
+                texture: reference('GPUTexture'),
+                mipLevel: 0,
+                origin: { x: 0, y: 0, z: 0, iterableLength: null },
+                aspect: 'all',
+              },
+              dataLayout: { offset: '0', bytesPerRow: 256 },
+              size: {
+                width: 1,
+                height: 1,
+                depthOrArrayLayers: 1,
+                iterableLength: null,
+              },
               bytes: [1, 2, 3, 4],
             }
             : route.operationId === 'GPUQueue.submit'
@@ -6323,6 +6502,113 @@ describe('generated injection-only WebGPU executable codecs', () => {
           },
         }],
       })).toThrow('digest does not bind');
+  });
+
+  test('encodes one affine GPUQueue.writeTexture snapshot with closed shape tags', () => {
+    const source = Uint8Array.from([1, 2, 3, 4]);
+    const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(
+        'GPUQueue.writeTexture',
+        [
+          {
+            texture,
+            mipLevel: 2,
+            origin: [3, 4, 5],
+            aspect: 'depth-only',
+          },
+          source,
+          { offset: 1, bytesPerRow: 256, rowsPerImage: 2 },
+          [1, 1, 1],
+        ],
+        wrappers,
+      );
+    source.fill(99);
+    const input = serviceInput('GPUQueue.writeTexture', converted);
+    const payload = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .encodeServiceRequest(input) as Uint8Array;
+    expect(payload.byteLength).toBe(196);
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      payload,
+    )).toMatchObject({
+      operationId: 'GPUQueue.writeTexture',
+      codec: 'gpu-queue-write-texture-service-request-v1',
+      receiver: {
+        kind: 'GPUQueue',
+        logicalDeviceId: '17',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      },
+      deviceIngressOrdinal: '3',
+      queueIngressOrdinal: '2',
+      sealedLocalTimeline: [],
+      convertedArguments: {
+        destination: {
+          texture: {
+            kind: 'GPUTexture',
+            logicalDeviceId: '17',
+            logicalDeviceGeneration: '1',
+            providerGeneration: '7',
+          },
+          mipLevel: 2,
+          origin: { x: 3, y: 4, z: 5, iterableLength: 3 },
+          aspect: 'depth-only',
+        },
+        dataLayout: { offset: '1', bytesPerRow: 256, rowsPerImage: 2 },
+        size: {
+          width: 1,
+          height: 1,
+          depthOrArrayLayers: 1,
+          iterableLength: 3,
+        },
+        bytes: [1, 2, 3, 4],
+      },
+    });
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
+      input,
+    )).toThrow('already consumed');
+
+    for (const invalid of [
+      mutateU32(payload, 86, WEBGPU_OBJECT_KIND_TAGS.GPUDevice),
+      mutateU32(payload, 143, 2),
+      mutateU32(payload, 148, 3),
+      mutateU32(payload, 153, 0x0020_0000),
+      mutateU32(payload, 184, 16_777_025),
+    ]) {
+      expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+        invalid,
+      )).toThrow();
+    }
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      mutateU32(payload, 103, 18),
+    )).toMatchObject({
+      convertedArguments: {
+        destination: { texture: { logicalDeviceId: '18' } },
+      },
+    });
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      mutateU32(payload, 119, 8),
+    )).toMatchObject({
+      convertedArguments: {
+        destination: { texture: { providerGeneration: '8' } },
+      },
+    });
+    const absentWithValue = payload.slice();
+    absentWithValue[157] = 0;
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      absentWithValue,
+    )).toThrow('optional layout');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      withTrailingByte(payload),
+    )).toThrow('Trailing');
+    for (const terminal of [
+      'later-predicate-rejection',
+      'operation-success',
+    ] as const) {
+      expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+        'GPUQueue.writeTexture',
+        { kind: 'queue-write-texture', terminal },
+      ).byteLength).toBe(0);
+    }
   });
 
   test('encodes all typed mapAsync completions and rejects carrier, variant, extent, truncation, and trailing-byte drift', () => {

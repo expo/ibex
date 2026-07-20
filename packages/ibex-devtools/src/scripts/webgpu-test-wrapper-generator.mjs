@@ -464,7 +464,7 @@ function validateNativeCodecPrograms(payload) {
   assert(
     program?.schema === "ibex/webgpu-native-codec-programs/2" &&
       program.disposition ===
-        "request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed-no-support-claim",
+        "request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-native-codec-not-installed-no-support-claim",
     "native codec program identity or disposition drifted",
   );
   assertCanonical(
@@ -582,6 +582,7 @@ function validateNativeCodecPrograms(payload) {
       "pipelineLayoutDescriptorV1",
       "queueSubmitRequestBodyV1",
       "queueWriteBufferRequestBodyV1",
+      "queueWriteTextureRequestBodyV1",
       "renderPipelineDescriptorV1",
       "requestAdapterOptionsV1",
       "requestDeviceDescriptorV1",
@@ -825,6 +826,45 @@ function validateNativeCodecPrograms(payload) {
       ],
     },
     "native queue writeBuffer request body type",
+  );
+  assertCanonical(
+    types.queueWriteTextureRequestBodyV1,
+    {
+      kind: "struct",
+      fields: [
+        { name: "destination", type: "objectReferenceV1" },
+        { name: "mipLevel", type: "u32le" },
+        { name: "originX", type: "u32le" },
+        { name: "originY", type: "u32le" },
+        { name: "originZ", type: "u32le" },
+        { name: "originShape", type: "u8" },
+        { name: "originIterableLength", type: "u32le" },
+        { name: "aspect", type: "u8" },
+        { name: "dataLayoutOffset", type: "u64le" },
+        { name: "bytesPerRowPresent", type: "u8" },
+        { name: "bytesPerRow", type: "u32le" },
+        { name: "rowsPerImagePresent", type: "u8" },
+        { name: "rowsPerImage", type: "u32le" },
+        { name: "width", type: "u32le" },
+        { name: "height", type: "u32le" },
+        { name: "depthOrArrayLayers", type: "u32le" },
+        { name: "extentShape", type: "u8" },
+        { name: "extentIterableLength", type: "u32le" },
+        { name: "bytes", type: "ownedBytesV1" },
+      ],
+      invariants: [
+        "destination-is-the-exact-post-WebIDL-GPUTexture-full-reference",
+        "destination-full-reference-preserves-device-and-provider-generations-for-device-timeline-validation",
+        "originShape-zero-is-dictionary-and-one-is-iterable-with-length-at-most-three",
+        "aspect-zero-one-two-encode-all-stencil-only-depth-only-respectively",
+        "optional-layout-presence-zero-requires-the-corresponding-value-zero",
+        "extentShape-zero-is-dictionary-and-one-is-iterable-with-length-one-through-three",
+        "bytes-are-the-complete-synchronously-copied-whole-BufferSource-snapshot",
+        "bytes-are-affine-owned-by-one-operation-instance-until-terminal-settlement",
+        "maximum-bytes-subtract-the-exact-fixed-envelope-and-body-overhead-from-maxPayloadBytes",
+      ],
+    },
+    "native queue writeTexture request body type",
   );
   assertDigest(
     canonicalDigest(
@@ -4132,7 +4172,7 @@ export function validateWebGpuWrapperAuthority(authority) {
   assert(payload.claims?.nativeBindingStatus === "not-installed", "native binding claim changed");
   assert(
     payload.claims?.wireCodecStatus ===
-      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-native-codec-not-installed",
     "wire codec readiness claim drifted",
   );
   assert(

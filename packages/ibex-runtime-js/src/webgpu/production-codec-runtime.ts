@@ -66,6 +66,7 @@ interface NativeCodecField {
     'bufferMapAsyncRequestBodyV1' |
     'bufferMapAsyncCompletionBodyV1' |
     'queueWriteBufferRequestBodyV1' |
+    'queueWriteTextureRequestBodyV1' |
     'queueSubmitRequestBodyV1' |
     'canvasConfigureRequestBodyV1' |
     'canvasViewFormatSequenceV1' |
@@ -115,6 +116,7 @@ interface NativeCodecField {
       | 935342475
       | 2933046788
       | 404589710
+      | 3114133342
       | 308839175;
   }>;
   readonly constant?: 1;
@@ -563,6 +565,13 @@ interface NativeCodecQueueWriteBufferRoute {
   readonly completion: NativeCodecBufferLifecycleRoute['completion'];
 }
 
+interface NativeCodecQueueWriteTextureRoute {
+  readonly operationId: 'GPUQueue.writeTexture';
+  readonly wireId: 3114133342;
+  readonly request: NativeCodecBufferLifecycleRoute['request'];
+  readonly completion: NativeCodecBufferLifecycleRoute['completion'];
+}
+
 interface NativeCodecQueueSubmitRoute {
   readonly operationId: 'GPUQueue.submit';
   readonly wireId: 308839175;
@@ -597,7 +606,7 @@ interface NativeCodecCanvasServiceRoute {
 export interface NativeCodecProgramsV2 {
   readonly schema: 'ibex/webgpu-native-codec-programs/2';
   readonly disposition:
-    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed-no-support-claim';
+    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-native-codec-not-installed-no-support-claim';
   readonly dispatch: Readonly<{
     carrierPath: 'ExactGpuSemanticCallV2.operation_id';
     payloadOperationWireIdRole:
@@ -691,6 +700,7 @@ export interface NativeCodecProgramsV2 {
     canvasCurrentTextureOriginV1: Readonly<Record<string, unknown>>;
     textureDestroyRequestBodyV1: Readonly<Record<string, unknown>>;
     queueWriteBufferRequestBodyV1: Readonly<Record<string, unknown>>;
+    queueWriteTextureRequestBodyV1: Readonly<Record<string, unknown>>;
     commandRecordV1: Readonly<Record<string, unknown>>;
     queueSubmitRequestBodyV1: Readonly<Record<string, unknown>>;
     commandEncoderDescriptorV1: Readonly<Record<string, unknown>>;
@@ -720,6 +730,7 @@ export interface NativeCodecProgramsV2 {
     | NativeCodecBufferLifecycleRoute
     | NativeCodecCanvasServiceRoute
     | NativeCodecQueueWriteBufferRoute
+    | NativeCodecQueueWriteTextureRoute
     | NativeCodecQueueSubmitRoute
   )[];
 }
@@ -1006,6 +1017,13 @@ const QUEUE_WRITE_BUFFER_REQUEST_CODEC =
 const QUEUE_WRITE_BUFFER_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
 const QUEUE_WRITE_BUFFER_FIXED_PAYLOAD_BYTES = 143;
+const QUEUE_WRITE_TEXTURE_OPERATION_ID = 'GPUQueue.writeTexture';
+const QUEUE_WRITE_TEXTURE_WIRE_ID = 3114133342;
+const QUEUE_WRITE_TEXTURE_REQUEST_CODEC =
+  'gpu-queue-write-texture-service-request-v1';
+const QUEUE_WRITE_TEXTURE_COMPLETION_CODEC =
+  'terminal-receipt-service-completion-v1';
+const QUEUE_WRITE_TEXTURE_FIXED_PAYLOAD_BYTES = 192;
 const QUEUE_SUBMIT_OPERATION_ID = 'GPUQueue.submit';
 const QUEUE_SUBMIT_WIRE_ID = 308839175;
 const QUEUE_SUBMIT_REQUEST_CODEC =
@@ -1038,6 +1056,8 @@ const EXPECTED_BUFFER_LIFECYCLE_NATIVE_CODEC_SHA256 =
   '371b04e7963c5e5c62c110134573aa4dae3a804389ea0df021c636ea1ec27063';
 const EXPECTED_QUEUE_WRITE_BUFFER_NATIVE_CODEC_SHA256 =
   'a04a12cd84364bc18fd85f4aa9d786aa89d1a06abb4110c7b794b2d9404cc104';
+const EXPECTED_QUEUE_WRITE_TEXTURE_NATIVE_CODEC_SHA256 =
+  '37c01b30cac6f74185db56c7afbce58c17d772daa8b0147ebffd82b0809c6ad6';
 const EXPECTED_QUEUE_SUBMIT_NATIVE_CODEC_SHA256 =
   '7384eadbb32ba1bdbf6986661155b6fc5ce91804d78c90c85b491c05e5ce1bf6';
 const EXPECTED_CANVAS_NATIVE_CODEC_SHA256 =
@@ -1060,7 +1080,7 @@ type NativeCodecProgramsWithoutQueueSubmitTypes = Omit<
     'sha256DigestV1' | 'canvasConfigureRequestBodyV1' |
     'canvasViewFormatSequenceV1' |
     'canvasUnconfigureRequestBodyV1' | 'canvasCurrentTextureOriginV1' |
-    'textureDestroyRequestBodyV1'
+    'textureDestroyRequestBodyV1' | 'queueWriteTextureRequestBodyV1'
   >;
 };
 
@@ -1115,7 +1135,7 @@ const BIND_GROUP_LAYOUT_VIEW_DIMENSIONS = Object.freeze([
 const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
   schema: 'ibex/webgpu-native-codec-programs/2',
   disposition:
-    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed-no-support-claim',
+    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-native-codec-not-installed-no-support-claim',
   dispatch: {
     carrierPath: 'ExactGpuSemanticCallV2.operation_id',
     payloadOperationWireIdRole:
@@ -3316,6 +3336,7 @@ interface ValidatedNativeCodecProgram {
   readonly canvasUnconfigureRoute: NativeCodecCanvasServiceRoute;
   readonly textureDestroyRoute: NativeCodecCanvasServiceRoute;
   readonly queueWriteBufferRoute: NativeCodecQueueWriteBufferRoute;
+  readonly queueWriteTextureRoute: NativeCodecQueueWriteTextureRoute;
   readonly queueSubmitRoute: NativeCodecQueueSubmitRoute;
   readonly noneResultKind: 0;
   readonly nullResultKind: 2;
@@ -3533,6 +3554,7 @@ function validateNativeCodecProgram(
     canvasUnconfigureRequestBodyV1,
     canvasCurrentTextureOriginV1,
     textureDestroyRequestBodyV1,
+    queueWriteTextureRequestBodyV1,
     ...nativeTypesWithoutQueueSubmit
   } = manifest.nativeCodecPrograms.types;
   void commandRecordV1;
@@ -3543,6 +3565,7 @@ function validateNativeCodecProgram(
   void canvasUnconfigureRequestBodyV1;
   void canvasCurrentTextureOriginV1;
   void textureDestroyRequestBodyV1;
+  void queueWriteTextureRequestBodyV1;
   if (
     sha256HexUtf8(canonicalManifestJson(computePipelineDescriptorV1)) !==
       EXPECTED_CREATE_COMPUTE_PIPELINE_DESCRIPTOR_SHA256
@@ -3578,6 +3601,7 @@ function validateNativeCodecProgram(
         candidate.operationId !== CANVAS_UNCONFIGURE_OPERATION_ID &&
         candidate.operationId !== TEXTURE_DESTROY_OPERATION_ID &&
         candidate.operationId !== QUEUE_WRITE_BUFFER_OPERATION_ID &&
+        candidate.operationId !== QUEUE_WRITE_TEXTURE_OPERATION_ID &&
         candidate.operationId !== QUEUE_SUBMIT_OPERATION_ID,
     ),
   };
@@ -3627,6 +3651,22 @@ function validateNativeCodecProgram(
       EXPECTED_QUEUE_WRITE_BUFFER_NATIVE_CODEC_SHA256
   ) {
     throw new Error('Invalid authenticated GPUQueue.writeBuffer codec program');
+  }
+  const queueWriteTextureProgram = {
+    types: {
+      ownedBytesV1: manifest.nativeCodecPrograms.types.ownedBytesV1,
+      queueWriteTextureRequestBodyV1:
+        manifest.nativeCodecPrograms.types.queueWriteTextureRequestBodyV1,
+    },
+    routes: manifest.nativeCodecPrograms.routes.filter(
+      (candidate) => candidate.operationId === QUEUE_WRITE_TEXTURE_OPERATION_ID,
+    ),
+  };
+  if (
+    sha256HexUtf8(canonicalManifestJson(queueWriteTextureProgram)) !==
+      EXPECTED_QUEUE_WRITE_TEXTURE_NATIVE_CODEC_SHA256
+  ) {
+    throw new Error('Invalid authenticated GPUQueue.writeTexture codec program');
   }
   const queueSubmitProgram = {
     types: {
@@ -3755,6 +3795,10 @@ function validateNativeCodecProgram(
   const queueWriteBufferRoute = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecQueueWriteBufferRoute =>
       candidate.operationId === QUEUE_WRITE_BUFFER_OPERATION_ID,
+  );
+  const queueWriteTextureRoute = manifest.nativeCodecPrograms.routes.find(
+    (candidate): candidate is NativeCodecQueueWriteTextureRoute =>
+      candidate.operationId === QUEUE_WRITE_TEXTURE_OPERATION_ID,
   );
   const queueSubmitRoute = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecQueueSubmitRoute =>
@@ -3918,6 +3962,15 @@ function validateNativeCodecProgram(
   );
   const queueWriteBufferCompletionCodec = manifest.serviceCompletions.find(
     (candidate) => candidate.tag === QUEUE_WRITE_BUFFER_COMPLETION_CODEC,
+  );
+  const queueWriteTexturePlanRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === QUEUE_WRITE_TEXTURE_OPERATION_ID,
+  );
+  const queueWriteTextureRequestCodec = manifest.serviceArguments.find(
+    (candidate) => candidate.tag === QUEUE_WRITE_TEXTURE_REQUEST_CODEC,
+  );
+  const queueWriteTextureCompletionCodec = manifest.serviceCompletions.find(
+    (candidate) => candidate.tag === QUEUE_WRITE_TEXTURE_COMPLETION_CODEC,
   );
   const queueSubmitRequestCodec = manifest.serviceArguments.find(
     (candidate) =>
@@ -4612,10 +4665,10 @@ function validateNativeCodecProgram(
     )
     .replace(`,${contentRejectionTerminalCanonical}`, '');
   if (
-    manifest.nativeCodecPrograms.routes.length !== 22 ||
+    manifest.nativeCodecPrograms.routes.length !== 23 ||
     new Set(
       manifest.nativeCodecPrograms.routes.map((candidate) => candidate.operationId),
-    ).size !== 22 ||
+    ).size !== 23 ||
     !route ||
     !requestDeviceRoute ||
     !createBindGroupRoute ||
@@ -4637,6 +4690,7 @@ function validateNativeCodecProgram(
     !canvasUnconfigureRoute ||
     !textureDestroyRoute ||
     !queueWriteBufferRoute ||
+    !queueWriteTextureRoute ||
     !queueSubmitRoute ||
     canonicalManifestJson(createCommandEncoderRoute) !==
       canonicalManifestJson(expectedCreateCommandEncoderRoute) ||
@@ -4874,6 +4928,19 @@ function validateNativeCodecProgram(
     queueWriteBufferRequestCodec.unavailableSemanticFields.length !== 0 ||
     queueWriteBufferCompletionCodec?.wireTag !==
       queueWriteBufferRoute.completion.catalog.wireTag ||
+    !queueWriteTexturePlanRoute ||
+    queueWriteTexturePlanRoute.wireId !== QUEUE_WRITE_TEXTURE_WIRE_ID ||
+    queueWriteTexturePlanRoute.serviceArgumentCodec !==
+      QUEUE_WRITE_TEXTURE_REQUEST_CODEC ||
+    queueWriteTexturePlanRoute.serviceCompletionCodec !==
+      QUEUE_WRITE_TEXTURE_COMPLETION_CODEC ||
+    queueWriteTextureRequestCodec?.wireTag !==
+      queueWriteTextureRoute.request.catalog.wireTag ||
+    queueWriteTextureRequestCodec?.nativeProgramPrerequisitesRepresented !== true ||
+    queueWriteTextureRequestCodec?.executableFromCurrentAuthenticatedInputs !== true ||
+    queueWriteTextureRequestCodec.unavailableSemanticFields.length !== 0 ||
+    queueWriteTextureCompletionCodec?.wireTag !==
+      queueWriteTextureRoute.completion.catalog.wireTag ||
     !queueSubmitPlanRoute ||
     queueSubmitPlanRoute.wireId !== QUEUE_SUBMIT_WIRE_ID ||
     queueSubmitPlanRoute.serviceArgumentCodec !== QUEUE_SUBMIT_REQUEST_CODEC ||
@@ -4959,6 +5026,8 @@ function validateNativeCodecProgram(
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     queueWriteBufferRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
+    queueWriteTextureRoute.completion.commonCarrierConstraints.at(-1)?.value !==
+      manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     queueSubmitRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2
   ) {
@@ -4986,6 +5055,7 @@ function validateNativeCodecProgram(
     canvasUnconfigureRoute,
     textureDestroyRoute,
     queueWriteBufferRoute,
+    queueWriteTextureRoute,
     queueSubmitRoute,
     noneResultKind: manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2,
     nullResultKind: manifest.carrierConstants.EXACT_GPU_RESULT_NULL_V2,
@@ -6181,7 +6251,10 @@ const TYPED_ARRAY_ELEMENT_SIZES: Readonly<Record<string, number>> =
     BigUint64Array: 8,
   });
 
-function convertedAllowSharedBufferSource(value: unknown): Readonly<{
+function convertedAllowSharedBufferSource(
+  value: unknown,
+  operationLabel = 'GPUQueue.writeBuffer',
+): Readonly<{
   source: ArrayBufferLike;
   byteOffset: number;
   byteLength: number;
@@ -6202,7 +6275,7 @@ function convertedAllowSharedBufferSource(value: unknown): Readonly<{
         : undefined;
       if (elementSize === undefined) {
         throw new TypeError(
-          'GPUQueue.writeBuffer data has an unknown typed-array brand',
+          `${operationLabel} data has an unknown typed-array brand`,
         );
       }
       return Object.freeze({
@@ -6247,7 +6320,7 @@ function convertedAllowSharedBufferSource(value: unknown): Readonly<{
   }
   if (byteLength === undefined) {
     throw new TypeError(
-      'GPUQueue.writeBuffer data must be an AllowSharedBufferSource',
+      `${operationLabel} data must be an AllowSharedBufferSource`,
     );
   }
   const source = value as ArrayBufferLike;
@@ -6305,6 +6378,198 @@ function convertQueueWriteBufferArguments(
   return frozenRecord({
     buffer,
     bufferOffset,
+    bytes,
+  });
+}
+
+function convertWriteTextureOrigin(
+  value: unknown,
+  maximum: number,
+): Readonly<{
+  x: number;
+  y: number;
+  z: number;
+  iterableLength: number | null;
+}> {
+  if (!isObjectLike(value)) {
+    throw new TypeError('GPUQueue.writeTexture destination.origin must be an iterable or dictionary');
+  }
+  const iteratorMethod = value[Symbol.iterator];
+  if (iteratorMethod !== undefined && iteratorMethod !== null) {
+    if (typeof iteratorMethod !== 'function') {
+      throw new TypeError('GPUQueue.writeTexture destination.origin @@iterator must be callable');
+    }
+    const sourceIterator = Reflect.apply(iteratorMethod, value, []);
+    if (!isIteratorObjectForNativeForOf(sourceIterator)) {
+      throw new TypeError('GPUQueue.writeTexture destination.origin iterator must be an object');
+    }
+    const converted: number[] = [];
+    const iterable = { [Symbol.iterator]() { return sourceIterator; } };
+    for (const member of iterable) {
+      if (converted.length >= maximum) {
+        throw new TypeError(
+          'GPUQueue.writeTexture destination.origin sequence exceeds the structural transport bound',
+        );
+      }
+      converted.push(
+        u32(member, `GPUQueue.writeTexture destination.origin[${converted.length}]`),
+      );
+    }
+    return frozenRecord({
+      x: converted[0] ?? 0,
+      y: converted[1] ?? 0,
+      z: converted[2] ?? 0,
+      iterableLength: converted.length,
+    });
+  }
+  const x = u32(value.x, 'GPUQueue.writeTexture destination.origin.x', 0);
+  const y = u32(value.y, 'GPUQueue.writeTexture destination.origin.y', 0);
+  const z = u32(value.z, 'GPUQueue.writeTexture destination.origin.z', 0);
+  return frozenRecord({ x, y, z, iterableLength: null });
+}
+
+function convertWriteTextureExtent(
+  value: unknown,
+  maximum: number,
+): Readonly<{
+  width: number;
+  height: number;
+  depthOrArrayLayers: number;
+  iterableLength: number | null;
+}> {
+  if (!isObjectLike(value)) {
+    throw new TypeError('GPUQueue.writeTexture size must be an iterable or dictionary');
+  }
+  const iteratorMethod = value[Symbol.iterator];
+  if (iteratorMethod !== undefined && iteratorMethod !== null) {
+    if (typeof iteratorMethod !== 'function') {
+      throw new TypeError('GPUQueue.writeTexture size @@iterator must be callable');
+    }
+    const sourceIterator = Reflect.apply(iteratorMethod, value, []);
+    if (!isIteratorObjectForNativeForOf(sourceIterator)) {
+      throw new TypeError('GPUQueue.writeTexture size iterator must be an object');
+    }
+    const converted: number[] = [];
+    const iterable = { [Symbol.iterator]() { return sourceIterator; } };
+    for (const member of iterable) {
+      if (converted.length >= maximum) {
+        throw new TypeError(
+          'GPUQueue.writeTexture size sequence exceeds the structural transport bound',
+        );
+      }
+      converted.push(u32(member, `GPUQueue.writeTexture size[${converted.length}]`));
+    }
+    return frozenRecord({
+      width: converted[0] ?? 0,
+      height: converted[1] ?? 1,
+      depthOrArrayLayers: converted[2] ?? 1,
+      iterableLength: converted.length,
+    });
+  }
+  // Web IDL dictionary conversion observes members lexicographically.
+  const depthOrArrayLayers = u32(
+    value.depthOrArrayLayers,
+    'GPUQueue.writeTexture size.depthOrArrayLayers',
+    1,
+  );
+  const height = u32(value.height, 'GPUQueue.writeTexture size.height', 1);
+  const widthValue = value.width;
+  if (widthValue === undefined) {
+    throw new TypeError('GPUQueue.writeTexture size.width is required');
+  }
+  const width = u32(widthValue, 'GPUQueue.writeTexture size.width');
+  return frozenRecord({ width, height, depthOrArrayLayers, iterableLength: null });
+}
+
+function convertQueueWriteTextureArguments(
+  args: readonly unknown[],
+  wrappers: ProductionGpuCodecWrapperAccess,
+  sequenceMaximum: number,
+  payloadMaximum: number,
+): Readonly<Record<string, unknown>> {
+  const destinationSource = dictionary(
+    args[0],
+    'GPUQueue.writeTexture destination',
+  );
+  const aspectValue = destinationSource.aspect;
+  const aspect = aspectValue === undefined
+    ? 'all'
+    : enumValue(
+        aspectValue,
+        ['all', 'stencil-only', 'depth-only'],
+        'GPUQueue.writeTexture destination.aspect',
+      );
+  const mipLevel = u32(
+    destinationSource.mipLevel,
+    'GPUQueue.writeTexture destination.mipLevel',
+    0,
+  );
+  const originValue = destinationSource.origin;
+  const origin = convertWriteTextureOrigin(
+    originValue === undefined ? Object.create(null) : originValue,
+    sequenceMaximum,
+  );
+  const textureValue = destinationSource.texture;
+  if (textureValue === undefined) {
+    throw new TypeError('GPUQueue.writeTexture destination.texture is required');
+  }
+  const texture = wrappers.reference(textureValue, 'GPUTexture');
+
+  const data = convertedAllowSharedBufferSource(args[1], 'GPUQueue.writeTexture');
+
+  const layoutSource = dictionary(args[2], 'GPUQueue.writeTexture dataLayout');
+  const bytesPerRowValue = layoutSource.bytesPerRow;
+  const bytesPerRow = bytesPerRowValue === undefined
+    ? undefined
+    : u32(bytesPerRowValue, 'GPUQueue.writeTexture dataLayout.bytesPerRow');
+  const offsetValue = layoutSource.offset;
+  const offset = u64Number(
+    offsetValue === undefined ? 0 : offsetValue,
+    'GPUQueue.writeTexture dataLayout.offset',
+  );
+  const rowsPerImageValue = layoutSource.rowsPerImage;
+  const rowsPerImage = rowsPerImageValue === undefined
+    ? undefined
+    : u32(rowsPerImageValue, 'GPUQueue.writeTexture dataLayout.rowsPerImage');
+
+  const size = convertWriteTextureExtent(args[3], sequenceMaximum);
+
+  // These are content-timeline shape checks and therefore run only after all
+  // four argument conversions have completed in Web IDL order.
+  if (origin.iterableLength !== null && origin.iterableLength > 3) {
+    throw new TypeError(
+      'GPUQueue.writeTexture destination.origin sequence must contain at most three members',
+    );
+  }
+  if (
+    size.iterableLength !== null &&
+    (size.iterableLength < 1 || size.iterableLength > 3)
+  ) {
+    throw new TypeError(
+      'GPUQueue.writeTexture size sequence must contain one to three members',
+    );
+  }
+  if (
+    payloadMaximum < QUEUE_WRITE_TEXTURE_FIXED_PAYLOAD_BYTES ||
+    data.byteLength >
+      payloadMaximum - QUEUE_WRITE_TEXTURE_FIXED_PAYLOAD_BYTES
+  ) {
+    throw new TypeError(
+      'GPUQueue.writeTexture source snapshot violates its exact payload bound',
+    );
+  }
+
+  const bytes = new Uint8Array(
+    new Uint8Array(data.source, data.byteOffset, data.byteLength),
+  );
+  return frozenRecord({
+    destination: frozenRecord({ texture, mipLevel, origin, aspect }),
+    dataLayout: frozenRecord({
+      offset,
+      ...(bytesPerRow === undefined ? {} : { bytesPerRow }),
+      ...(rowsPerImage === undefined ? {} : { rowsPerImage }),
+    }),
+    size,
     bytes,
   });
 }
@@ -7511,6 +7776,30 @@ type QueueWriteBufferBody = Readonly<{
   bytes: Uint8Array;
 }>;
 
+type QueueWriteTextureBody = Readonly<{
+  destination: ProductionGpuServiceEncodingInput['receiver'];
+  mipLevel: number;
+  origin: Readonly<{
+    x: number;
+    y: number;
+    z: number;
+    iterableLength: number | null;
+  }>;
+  aspect: 'all' | 'stencil-only' | 'depth-only';
+  dataLayout: Readonly<{
+    offset: string;
+    bytesPerRow?: number;
+    rowsPerImage?: number;
+  }>;
+  size: Readonly<{
+    width: number;
+    height: number;
+    depthOrArrayLayers: number;
+    iterableLength: number | null;
+  }>;
+  bytes: Uint8Array;
+}>;
+
 function arrayBufferViewBytes(value: ArrayBufferView, label: string): Uint8Array {
   if (!ArrayBuffer.isView(value)) {
     throw new TypeError(`${label} must be an owned byte view`);
@@ -8435,6 +8724,343 @@ function readQueueWriteBufferBody(
     );
   }
   return Object.freeze({ destination, destinationOffset, bytes });
+}
+
+function validateQueueWriteTextureRequestFields(
+  input: ProductionGpuServiceEncodingInput,
+  maximum: number,
+): QueueWriteTextureBody {
+  if (
+    input.receiver.kind !== 'GPUQueue' ||
+    input.target !== undefined ||
+    input.adapterOrdinal !== '0' ||
+    !Array.isArray(input.sealedLocalTimeline) ||
+    input.sealedLocalTimeline.length !== 0 ||
+    input.bufferLifecycle !== undefined
+  ) {
+    throw new TypeError(
+      'GPUQueue.writeTexture request violates its carrier projection',
+    );
+  }
+  positiveIdentity(input.receiver.objectId, 'GPUQueue.objectId');
+  positiveIdentity(input.receiver.objectGeneration, 'GPUQueue.objectGeneration');
+  positiveIdentity(input.receiver.logicalDeviceId, 'GPUQueue.logicalDeviceId');
+  positiveIdentity(
+    input.receiver.logicalDeviceGeneration,
+    'GPUQueue.logicalDeviceGeneration',
+  );
+  positiveIdentity(input.receiver.providerGeneration, 'GPUQueue.providerGeneration');
+  parseU64Decimal(input.capturedScopeId);
+  positiveIdentity(input.deviceIngressOrdinal, 'GPUQueue.deviceIngressOrdinal');
+  positiveIdentity(input.queueIngressOrdinal, 'GPUQueue.queueIngressOrdinal');
+  if (
+    typeof input.convertedArguments !== 'object' ||
+    input.convertedArguments === null ||
+    Array.isArray(input.convertedArguments)
+  ) {
+    throw new TypeError('GPUQueue.writeTexture converted arguments are missing');
+  }
+  const converted = input.convertedArguments as Readonly<Record<string, unknown>>;
+  exactLifecycleKeys(
+    converted,
+    ['destination', 'dataLayout', 'size', 'bytes'],
+    'GPUQueue.writeTexture converted arguments',
+  );
+  if (
+    typeof converted.destination !== 'object' ||
+    converted.destination === null ||
+    Array.isArray(converted.destination)
+  ) {
+    throw new TypeError('GPUQueue.writeTexture destination is missing');
+  }
+  const destinationDictionary = converted.destination as Readonly<Record<string, unknown>>;
+  exactLifecycleKeys(
+    destinationDictionary,
+    ['texture', 'mipLevel', 'origin', 'aspect'],
+    'GPUQueue.writeTexture destination',
+  );
+  if (
+    typeof destinationDictionary.texture !== 'object' ||
+    destinationDictionary.texture === null ||
+    Array.isArray(destinationDictionary.texture)
+  ) {
+    throw new TypeError('GPUQueue.writeTexture texture reference is missing');
+  }
+  const destination = destinationDictionary.texture as Readonly<Record<string, unknown>>;
+  exactLifecycleKeys(
+    destination,
+    [
+      'kind',
+      'objectId',
+      'objectGeneration',
+      'logicalDeviceId',
+      'logicalDeviceGeneration',
+      'providerGeneration',
+    ],
+    'GPUQueue.writeTexture texture reference',
+  );
+  if (
+    destination.kind !== 'GPUTexture' ||
+    typeof destination.objectId !== 'string' ||
+    typeof destination.objectGeneration !== 'string' ||
+    typeof destination.logicalDeviceId !== 'string' ||
+    typeof destination.logicalDeviceGeneration !== 'string' ||
+    typeof destination.providerGeneration !== 'string'
+  ) {
+    throw new TypeError(
+      'GPUQueue.writeTexture destination is not a full GPUTexture reference',
+    );
+  }
+  positiveIdentity(destination.objectId, 'GPUTexture.objectId');
+  positiveIdentity(destination.objectGeneration, 'GPUTexture.objectGeneration');
+  positiveIdentity(destination.logicalDeviceId, 'GPUTexture.logicalDeviceId');
+  positiveIdentity(
+    destination.logicalDeviceGeneration,
+    'GPUTexture.logicalDeviceGeneration',
+  );
+  positiveIdentity(destination.providerGeneration, 'GPUTexture.providerGeneration');
+  const mipLevel = destinationDictionary.mipLevel;
+  if (!isConvertedU32(mipLevel)) {
+    throw new TypeError('GPUQueue.writeTexture mipLevel is not a converted u32');
+  }
+  if (
+    typeof destinationDictionary.origin !== 'object' ||
+    destinationDictionary.origin === null ||
+    Array.isArray(destinationDictionary.origin)
+  ) {
+    throw new TypeError('GPUQueue.writeTexture origin is missing');
+  }
+  const origin = destinationDictionary.origin as Readonly<Record<string, unknown>>;
+  exactLifecycleKeys(
+    origin,
+    ['x', 'y', 'z', 'iterableLength'],
+    'GPUQueue.writeTexture origin',
+  );
+  if (
+    !isConvertedU32(origin.x) ||
+    !isConvertedU32(origin.y) ||
+    !isConvertedU32(origin.z) ||
+    (origin.iterableLength !== null &&
+      (!isConvertedU32(origin.iterableLength) || origin.iterableLength > 3))
+  ) {
+    throw new TypeError('GPUQueue.writeTexture origin has an invalid closed shape');
+  }
+  const aspect = destinationDictionary.aspect;
+  if (
+    aspect !== 'all' && aspect !== 'stencil-only' && aspect !== 'depth-only'
+  ) {
+    throw new TypeError('GPUQueue.writeTexture aspect is invalid');
+  }
+  if (
+    typeof converted.dataLayout !== 'object' ||
+    converted.dataLayout === null ||
+    Array.isArray(converted.dataLayout)
+  ) {
+    throw new TypeError('GPUQueue.writeTexture dataLayout is missing');
+  }
+  const dataLayout = converted.dataLayout as Readonly<Record<string, unknown>>;
+  const dataLayoutKeys = [
+    'offset',
+    ...(Object.hasOwn(dataLayout, 'bytesPerRow') ? ['bytesPerRow'] : []),
+    ...(Object.hasOwn(dataLayout, 'rowsPerImage') ? ['rowsPerImage'] : []),
+  ];
+  exactLifecycleKeys(dataLayout, dataLayoutKeys, 'GPUQueue.writeTexture dataLayout');
+  const offset = u64Number(dataLayout.offset, 'GPUQueue.writeTexture dataLayout.offset');
+  if (
+    (Object.hasOwn(dataLayout, 'bytesPerRow') &&
+      !isConvertedU32(dataLayout.bytesPerRow)) ||
+    (Object.hasOwn(dataLayout, 'rowsPerImage') &&
+      !isConvertedU32(dataLayout.rowsPerImage))
+  ) {
+    throw new TypeError('GPUQueue.writeTexture dataLayout is not canonical');
+  }
+  if (
+    typeof converted.size !== 'object' ||
+    converted.size === null ||
+    Array.isArray(converted.size)
+  ) {
+    throw new TypeError('GPUQueue.writeTexture size is missing');
+  }
+  const size = converted.size as Readonly<Record<string, unknown>>;
+  exactLifecycleKeys(
+    size,
+    ['width', 'height', 'depthOrArrayLayers', 'iterableLength'],
+    'GPUQueue.writeTexture size',
+  );
+  if (
+    !isConvertedU32(size.width) ||
+    !isConvertedU32(size.height) ||
+    !isConvertedU32(size.depthOrArrayLayers) ||
+    (size.iterableLength !== null &&
+      (!isConvertedU32(size.iterableLength) ||
+        size.iterableLength < 1 ||
+        size.iterableLength > 3))
+  ) {
+    throw new TypeError('GPUQueue.writeTexture size has an invalid closed shape');
+  }
+  if (!(converted.bytes instanceof Uint8Array)) {
+    throw new TypeError('GPUQueue.writeTexture source snapshot must be owned bytes');
+  }
+  if (
+    maximum < QUEUE_WRITE_TEXTURE_FIXED_PAYLOAD_BYTES ||
+    converted.bytes.byteLength >
+      maximum - QUEUE_WRITE_TEXTURE_FIXED_PAYLOAD_BYTES
+  ) {
+    throw new TypeError(
+      'GPUQueue.writeTexture source snapshot violates its exact payload bound',
+    );
+  }
+  return Object.freeze({
+    destination: destination as QueueWriteTextureBody['destination'],
+    mipLevel,
+    origin: Object.freeze({
+      x: origin.x as number,
+      y: origin.y as number,
+      z: origin.z as number,
+      iterableLength: origin.iterableLength as number | null,
+    }),
+    aspect,
+    dataLayout: Object.freeze({
+      offset: String(offset),
+      ...(Object.hasOwn(dataLayout, 'bytesPerRow')
+        ? { bytesPerRow: dataLayout.bytesPerRow as number }
+        : {}),
+      ...(Object.hasOwn(dataLayout, 'rowsPerImage')
+        ? { rowsPerImage: dataLayout.rowsPerImage as number }
+        : {}),
+    }),
+    size: Object.freeze({
+      width: size.width as number,
+      height: size.height as number,
+      depthOrArrayLayers: size.depthOrArrayLayers as number,
+      iterableLength: size.iterableLength as number | null,
+    }),
+    bytes: converted.bytes,
+  });
+}
+
+function writeQueueWriteTextureBody(
+  writer: Writer,
+  body: QueueWriteTextureBody,
+  maximum: number,
+  objectKinds: Readonly<Record<ProductionGpuWrapperKind, number>>,
+): void {
+  writeReference(writer, body.destination, objectKinds);
+  writer.u32(body.mipLevel);
+  writer.u32(body.origin.x);
+  writer.u32(body.origin.y);
+  writer.u32(body.origin.z);
+  writer.u8(body.origin.iterableLength === null ? 0 : 1);
+  writer.u32(body.origin.iterableLength ?? 0);
+  writer.u8({ all: 0, 'stencil-only': 1, 'depth-only': 2 }[body.aspect]);
+  writer.u64(body.dataLayout.offset);
+  writer.u8(body.dataLayout.bytesPerRow === undefined ? 0 : 1);
+  writer.u32(body.dataLayout.bytesPerRow ?? 0);
+  writer.u8(body.dataLayout.rowsPerImage === undefined ? 0 : 1);
+  writer.u32(body.dataLayout.rowsPerImage ?? 0);
+  writer.u32(body.size.width);
+  writer.u32(body.size.height);
+  writer.u32(body.size.depthOrArrayLayers);
+  writer.u8(body.size.iterableLength === null ? 0 : 1);
+  writer.u32(body.size.iterableLength ?? 0);
+  writeOwnedBytes(
+    writer,
+    body.bytes,
+    maximum - QUEUE_WRITE_TEXTURE_FIXED_PAYLOAD_BYTES,
+    'GPUQueue.writeTexture source snapshot',
+  );
+}
+
+function readQueueWriteTextureBody(
+  reader: Reader,
+  maximum: number,
+  objectKindsByTag: ReadonlyMap<number, ProductionGpuWrapperKind>,
+): QueueWriteTextureBody {
+  const destination = readReference(reader, objectKindsByTag);
+  if (destination.kind !== 'GPUTexture') {
+    throw new TypeError('GPUQueue.writeTexture destination kind is not GPUTexture');
+  }
+  positiveIdentity(destination.objectId, 'GPUTexture.objectId');
+  positiveIdentity(destination.objectGeneration, 'GPUTexture.objectGeneration');
+  positiveIdentity(destination.logicalDeviceId, 'GPUTexture.logicalDeviceId');
+  positiveIdentity(
+    destination.logicalDeviceGeneration,
+    'GPUTexture.logicalDeviceGeneration',
+  );
+  positiveIdentity(destination.providerGeneration, 'GPUTexture.providerGeneration');
+  const mipLevel = reader.u32();
+  const originX = reader.u32();
+  const originY = reader.u32();
+  const originZ = reader.u32();
+  const originShape = reader.u8();
+  const originIterableLength = reader.u32();
+  if (
+    (originShape === 0 && originIterableLength !== 0) ||
+    (originShape === 1 && originIterableLength > 3) ||
+    (originShape !== 0 && originShape !== 1)
+  ) {
+    throw new TypeError('GPUQueue.writeTexture origin shape is invalid');
+  }
+  const aspectTag = reader.u8();
+  const aspect = (['all', 'stencil-only', 'depth-only'] as const)[aspectTag];
+  if (aspect === undefined) {
+    throw new TypeError('GPUQueue.writeTexture aspect tag is invalid');
+  }
+  const dataLayoutOffset = reader.u64();
+  u64Number(dataLayoutOffset, 'GPUQueue.writeTexture dataLayout.offset');
+  const bytesPerRowPresent = reader.u8();
+  const bytesPerRow = reader.u32();
+  const rowsPerImagePresent = reader.u8();
+  const rowsPerImage = reader.u32();
+  if (
+    (bytesPerRowPresent !== 0 && bytesPerRowPresent !== 1) ||
+    (bytesPerRowPresent === 0 && bytesPerRow !== 0) ||
+    (rowsPerImagePresent !== 0 && rowsPerImagePresent !== 1) ||
+    (rowsPerImagePresent === 0 && rowsPerImage !== 0)
+  ) {
+    throw new TypeError('GPUQueue.writeTexture optional layout shape is invalid');
+  }
+  const width = reader.u32();
+  const height = reader.u32();
+  const depthOrArrayLayers = reader.u32();
+  const extentShape = reader.u8();
+  const extentIterableLength = reader.u32();
+  if (
+    (extentShape === 0 && extentIterableLength !== 0) ||
+    (extentShape === 1 &&
+      (extentIterableLength < 1 || extentIterableLength > 3)) ||
+    (extentShape !== 0 && extentShape !== 1)
+  ) {
+    throw new TypeError('GPUQueue.writeTexture extent shape is invalid');
+  }
+  const bytes = readOwnedBytes(
+    reader,
+    maximum - QUEUE_WRITE_TEXTURE_FIXED_PAYLOAD_BYTES,
+    'GPUQueue.writeTexture source snapshot',
+  );
+  return Object.freeze({
+    destination,
+    mipLevel,
+    origin: Object.freeze({
+      x: originX,
+      y: originY,
+      z: originZ,
+      iterableLength: originShape === 0 ? null : originIterableLength,
+    }),
+    aspect,
+    dataLayout: Object.freeze({
+      offset: dataLayoutOffset,
+      ...(bytesPerRowPresent === 1 ? { bytesPerRow } : {}),
+      ...(rowsPerImagePresent === 1 ? { rowsPerImage } : {}),
+    }),
+    size: Object.freeze({
+      width,
+      height,
+      depthOrArrayLayers,
+      iterableLength: extentShape === 0 ? null : extentIterableLength,
+    }),
+    bytes,
+  });
 }
 
 function writeReference(
@@ -12236,6 +12862,11 @@ export interface WebGpuCodecTestCanvasTerminalResult {
     | 'first-cleanup-provider';
 }
 
+export interface WebGpuCodecTestQueueWriteTextureResult {
+  readonly kind: 'queue-write-texture';
+  readonly terminal: 'later-predicate-rejection' | 'operation-success';
+}
+
 export type WebGpuCodecTestServiceResult =
   | Readonly<{ kind: 'none' }>
   | Readonly<{ kind: 'null' }>
@@ -12245,7 +12876,8 @@ export type WebGpuCodecTestServiceResult =
   | WebGpuCodecTestBufferCleanupResult
   | WebGpuCodecTestBufferMapResult
   | WebGpuCodecTestCanvasTerminalResult
-  | WebGpuCodecTestQueueWriteBufferResult;
+  | WebGpuCodecTestQueueWriteBufferResult
+  | WebGpuCodecTestQueueWriteTextureResult;
 
 export function createExecutableWebGpuCodecs(
   manifest: ExecutableWebGpuCodecManifest,
@@ -12276,7 +12908,7 @@ export function createExecutableWebGpuCodecs(
   if (
     manifest.schema !== 'ibex/webgpu-executable-codec-manifest/2' ||
     manifest.disposition !==
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed-no-support-claim' ||
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-native-codec-not-installed-no-support-claim' ||
     manifest.operationCount !== WEBGPU_PRODUCTION_PLAN.routes.length ||
     manifest.byteOrder !== 'little-endian' ||
     manifest.digests.operationSet !==
@@ -12435,6 +13067,7 @@ export function createExecutableWebGpuCodecs(
     manifest.serviceCompletions.map((codec) => [codec.tag, codec]),
   );
   const consumedQueueWriteBufferSnapshots = new WeakSet<Uint8Array>();
+  const consumedQueueWriteTextureSnapshots = new WeakSet<Uint8Array>();
   if (
     routes.size !== WEBGPU_PRODUCTION_PLAN.routes.length ||
     manifest.authenticatedPromotions.length !==
@@ -12524,6 +13157,13 @@ export function createExecutableWebGpuCodecs(
         return convertBufferMapAsyncArguments(args);
       case 'gpu-queue-write-buffer-arguments-v1':
         return convertQueueWriteBufferArguments(args, wrappers);
+      case 'gpu-queue-write-texture-arguments-v1':
+        return convertQueueWriteTextureArguments(
+          args,
+          wrappers,
+          manifest.layout.sequenceMaxCount,
+          manifest.maxPayloadBytes,
+        );
       case 'gpu-sampler-descriptor-v1':
         return convertSamplerDescriptor(args[0], manifest.webIdlVocabulary);
       case 'gpu-texture-descriptor-v1':
@@ -12613,6 +13253,7 @@ export function createExecutableWebGpuCodecs(
     let bufferLifecycleBody: BufferLifecycleBody | undefined;
     let canvasServiceBody: CanvasServiceBody | undefined;
     let queueWriteBufferBody: QueueWriteBufferBody | undefined;
+    let queueWriteTextureBody: QueueWriteTextureBody | undefined;
     let queueSubmitBody: QueueSubmitEncodedBody | undefined;
     if (route.operationId === requestAdapterNativeProgram.route.operationId) {
       validateRequestAdapterRequestFields(
@@ -12846,6 +13487,19 @@ export function createExecutableWebGpuCodecs(
       }
     } else if (
       route.operationId ===
+        requestAdapterNativeProgram.queueWriteTextureRoute.operationId
+    ) {
+      queueWriteTextureBody = validateQueueWriteTextureRequestFields(
+        input,
+        manifest.maxPayloadBytes,
+      );
+      if (consumedQueueWriteTextureSnapshots.has(queueWriteTextureBody.bytes)) {
+        throw new TypeError(
+          'GPUQueue.writeTexture source snapshot was already consumed',
+        );
+      }
+    } else if (
+      route.operationId ===
         requestAdapterNativeProgram.queueSubmitRoute.operationId
     ) {
       queueSubmitBody = validateQueueSubmitRequestFields(
@@ -12902,6 +13556,17 @@ export function createExecutableWebGpuCodecs(
       );
       const payload = writer.finish();
       consumedQueueWriteBufferSnapshots.add(queueWriteBufferBody.bytes);
+      return payload;
+    }
+    if (queueWriteTextureBody) {
+      writeQueueWriteTextureBody(
+        writer,
+        queueWriteTextureBody,
+        manifest.maxPayloadBytes,
+        objectKinds,
+      );
+      const payload = writer.finish();
+      consumedQueueWriteTextureSnapshots.add(queueWriteTextureBody.bytes);
       return payload;
     }
     if (queueSubmitBody) {
@@ -12990,6 +13655,8 @@ export function createExecutableWebGpuCodecs(
         requestAdapterNativeProgram.canvasUnconfigureRoute.operationId &&
       input.operationId !==
         requestAdapterNativeProgram.textureDestroyRoute.operationId &&
+      input.operationId !==
+        requestAdapterNativeProgram.queueWriteTextureRoute.operationId &&
       input.operationId !==
         requestAdapterNativeProgram.queueSubmitRoute.operationId
     ) {
@@ -13343,6 +14010,8 @@ export function createExecutableWebGpuCodecs(
       route.operationId === BUFFER_UNMAP_OPERATION_ID;
     const queueWriteBufferRoute =
       route.operationId === QUEUE_WRITE_BUFFER_OPERATION_ID;
+    const queueWriteTextureRoute =
+      route.operationId === QUEUE_WRITE_TEXTURE_OPERATION_ID;
     const queueSubmitRoute = route.operationId === QUEUE_SUBMIT_OPERATION_ID;
     const canvasServiceRoute =
       route.operationId === CANVAS_CONFIGURE_OPERATION_ID ||
@@ -13357,6 +14026,13 @@ export function createExecutableWebGpuCodecs(
       : undefined;
     const queueWriteBuffer = queueWriteBufferRoute
       ? readQueueWriteBufferBody(
+          reader,
+          manifest.maxPayloadBytes,
+          objectKindsByTag,
+        )
+      : undefined;
+    const queueWriteTexture = queueWriteTextureRoute
+      ? readQueueWriteTextureBody(
           reader,
           manifest.maxPayloadBytes,
           objectKindsByTag,
@@ -13377,7 +14053,7 @@ export function createExecutableWebGpuCodecs(
     const closedBodyTimeline: readonly unknown[] = Object.freeze([]);
     const sealedLocalTimeline = queueSubmit
       ? queueSubmit.pendingTimeline
-      : bufferLifecycleRoute || queueWriteBufferRoute
+      : bufferLifecycleRoute || queueWriteBufferRoute || queueWriteTextureRoute
       ? closedBodyTimeline
       : reader.value(manifest.layout);
     const canvasService = canvasServiceRoute
@@ -13413,6 +14089,18 @@ export function createExecutableWebGpuCodecs(
             'GPUQueue.writeBuffer destination offset',
           ),
           bytes: queueWriteBuffer.bytes,
+        })
+      : queueWriteTexture
+      ? Object.freeze({
+          destination: Object.freeze({
+            texture: queueWriteTexture.destination,
+            mipLevel: queueWriteTexture.mipLevel,
+            origin: queueWriteTexture.origin,
+            aspect: queueWriteTexture.aspect,
+          }),
+          dataLayout: queueWriteTexture.dataLayout,
+          size: queueWriteTexture.size,
+          bytes: queueWriteTexture.bytes,
         })
       : queueSubmit
       ? Object.freeze({
@@ -13661,6 +14349,19 @@ export function createExecutableWebGpuCodecs(
         sealedLocalTimeline: closedBodyTimeline,
         convertedArguments,
       }, manifest.maxPayloadBytes);
+    } else if (queueWriteTexture) {
+      validateQueueWriteTextureRequestFields({
+        operationId: route.operationId,
+        wireId: route.wireId,
+        receiver,
+        target: target ?? undefined,
+        capturedScopeId,
+        adapterOrdinal,
+        deviceIngressOrdinal,
+        queueIngressOrdinal,
+        sealedLocalTimeline: closedBodyTimeline,
+        convertedArguments,
+      }, manifest.maxPayloadBytes);
     } else if (queueSubmit) {
       submitReference(receiver, 'GPUQueue.submit receiver', 'GPUQueue');
       if (
@@ -13713,6 +14414,18 @@ export function createExecutableWebGpuCodecs(
             'GPUQueue.writeBuffer destination offset',
           ),
           bytes: Object.freeze(Array.from(queueWriteBuffer.bytes)),
+        })
+      : queueWriteTexture
+      ? Object.freeze({
+          destination: Object.freeze({
+            texture: queueWriteTexture.destination,
+            mipLevel: queueWriteTexture.mipLevel,
+            origin: queueWriteTexture.origin,
+            aspect: queueWriteTexture.aspect,
+          }),
+          dataLayout: queueWriteTexture.dataLayout,
+          size: queueWriteTexture.size,
+          bytes: Object.freeze(Array.from(queueWriteTexture.bytes)),
         })
       : convertedArguments;
     const result = frozenRecord({
@@ -13821,6 +14534,27 @@ export function createExecutableWebGpuCodecs(
       ) {
         throw new TypeError(
           'GPUQueue.writeBuffer completion terminal is invalid',
+        );
+      }
+      return new Uint8Array(0);
+    }
+    if (route.operationId === QUEUE_WRITE_TEXTURE_OPERATION_ID) {
+      if (result.kind !== 'queue-write-texture') {
+        throw new TypeError(
+          'GPUQueue.writeTexture completion test value has the wrong shape',
+        );
+      }
+      exactLifecycleKeys(
+        result,
+        ['kind', 'terminal'],
+        'GPUQueue.writeTexture completion',
+      );
+      if (
+        result.terminal !== 'later-predicate-rejection' &&
+        result.terminal !== 'operation-success'
+      ) {
+        throw new TypeError(
+          'GPUQueue.writeTexture completion terminal is invalid',
         );
       }
       return new Uint8Array(0);

@@ -347,6 +347,7 @@ function createFakeCodecs(
         operationId === 'GPUBuffer.mapAsync' ||
         operationId === 'GPUBuffer.unmap' ||
         operationId === 'GPUQueue.writeBuffer' ||
+        operationId === 'GPUQueue.writeTexture' ||
         operationId === 'GPUTexture.createView' ||
         operationId === 'GPUTexture.destroy' ||
         operationId === 'GPUCanvasContext.configure' ||
@@ -397,7 +398,8 @@ function createFakeCodecs(
         input.operationId === 'GPUBuffer.mapAsync' ||
         input.operationId === 'GPUBuffer.unmap' ||
         input.operationId === 'GPUQueue.writeBuffer' ||
-        input.operationId === 'GPUTexture.createView'
+        input.operationId === 'GPUTexture.createView' ||
+        input.operationId === 'GPUQueue.writeTexture'
       ) {
         return WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
           .encodeServiceRequest(input);
@@ -643,6 +645,12 @@ interface TestRecordingDevice extends TestGpuDevice {
       dataOffset?: number,
       size?: number,
     ): void;
+    writeTexture(
+      destination: unknown,
+      data: ArrayBufferView,
+      dataLayout: unknown,
+      size: unknown,
+    ): void;
   };
   createBindGroupLayout(descriptor: unknown): object;
   createBindGroup(descriptor: unknown): object;
@@ -817,7 +825,7 @@ describe('production-private WebGPU wrapper gate', () => {
 
   test('keeps generated codecs injection-only while the native decoder is not installed', () => {
     expect(WEBGPU_PRODUCTION_PLAN.codecReadiness).toBe(
-      'generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed',
+      'generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-native-codec-not-installed',
     );
   });
   test('fails closed without a V2 provider and executable codec authority', () => {
@@ -1491,6 +1499,85 @@ describe('production-private WebGPU wrapper factory', () => {
         expect(descriptor?.get).toBeFunction();
       }
     }
+    binding.revoke();
+  });
+
+  test('routes writeTexture only after a synchronous immutable source snapshot', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs([], { distinctLiveDevices: true });
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs);
+    const device = await requestTestRecordingDevice(binding);
+    const texture = device.createTexture({
+      format: 'rgba8unorm',
+      size: { width: 1, height: 1, depthOrArrayLayers: 1 },
+      usage: 2,
+    });
+    const source = Uint8Array.from([1, 2, 3, 4]);
+    device.queue.writeTexture(
+      { texture, origin: [0, 0, 0] },
+      source,
+      { bytesPerRow: 256, rowsPerImage: 1 },
+      [1, 1, 1],
+    );
+    source.fill(99);
+    const wireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (route) => route.operationId === 'GPUQueue.writeTexture',
+    )?.wireId;
+    const submission = bridge.submissions.findLast(
+      (candidate) => candidate.operationId === wireId,
+    );
+    expect(submission).toBeDefined();
+    expect(submission?.wantsPromise).toBe(false);
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      submission!.payload,
+    )).toMatchObject({
+      operationId: 'GPUQueue.writeTexture',
+      convertedArguments: {
+        destination: {
+          texture: { kind: 'GPUTexture' },
+          origin: { x: 0, y: 0, z: 0, iterableLength: 3 },
+        },
+        dataLayout: { offset: '0', bytesPerRow: 256, rowsPerImage: 1 },
+        size: {
+          width: 1,
+          height: 1,
+          depthOrArrayLayers: 1,
+          iterableLength: 3,
+        },
+        bytes: [1, 2, 3, 4],
+      },
+    });
+
+    const foreignDevice = await requestTestRecordingDevice(binding);
+    const foreignTexture = foreignDevice.createTexture({
+      format: 'rgba8unorm',
+      size: { width: 1, height: 1, depthOrArrayLayers: 1 },
+      usage: 2,
+    });
+    expect(() => device.queue.writeTexture(
+      { texture: foreignTexture },
+      new Uint8Array(4),
+      { bytesPerRow: 256, rowsPerImage: 1 },
+      { width: 1, height: 1, depthOrArrayLayers: 1 },
+    )).not.toThrow();
+    const foreignSubmission = bridge.submissions.findLast(
+      (candidate) => candidate.operationId === wireId,
+    );
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      foreignSubmission!.payload,
+    )).toMatchObject({
+      receiver: { logicalDeviceId: '301' },
+      convertedArguments: {
+        destination: {
+          texture: {
+            kind: 'GPUTexture',
+            logicalDeviceId: '311',
+            logicalDeviceGeneration: '1',
+            providerGeneration: '7',
+          },
+        },
+      },
+    });
     binding.revoke();
   });
 

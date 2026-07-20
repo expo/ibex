@@ -2,15 +2,15 @@
 // Do not edit in Ibex; the normalized Exact authorities own these identities.
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  "projection": "0867c45c10ac786f6ce025502d2f13c624f3ce3a6ac85e7a1648260dc47e7d94",
-  "operationSet": "a156786e8e286b2cc1c0a51281c888504976f30668862485c7242cd27371651f",
-  "semanticProgramSet": "f4b33d9ea125dd60543d70a8d889e7ce65a045551939ee035c4a1e79c8443296",
-  "runtimeRouting": "06315dddb41182287828aa9b92e983ad16dc7e9b7475b455ee50dc8123283447",
-  "webgpuCVocabulary": "4bdddf608b0a893527dcc7afc607ef2e8e78d6229c7864a7331347c908d2c623"
+  "projection": "91dbf635d48069741a4fff75bfd3f0278a99b91fb40820fe558357867fb47e06",
+  "operationSet": "d5f5725c56d9e32890c005f207c2e2c0f43818cf0f21a3b12183d00ae38ccfbb",
+  "semanticProgramSet": "7907857eae018f2c0fe34c224d08d289303397f29f000b672560c651bf979a3a",
+  "runtimeRouting": "e19b24c1db7e34062dcccda48ae7390bde4adc833100da4a328c7fd10d61ff3e",
+  "webgpuCVocabulary": "59a03320bfde1e339ee99425118c9637eaa252ccba236c4a7b053fe02cea8826"
 });
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({
-  "semanticProjection": "286fad19fe97a8a4ff6769223b49f00ea3f3e4a8514e60043f1e4fca51c9e9e5",
-  "fakeClientData": "d4b76e9a5a4c9b3097cae44d666eff71c10d4c71f638016898627fbfbc58643e"
+  "semanticProjection": "4b101280ffc9c1df4d5e1ca959e760d5f27cb7387f88bd030a05910b210fecf6",
+  "fakeClientData": "1bed1135b1c12ddaff7f48f09e421a635622a1191633646bfcc29946e1857a39"
 });
 export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
   [
@@ -62,33 +62,9 @@ export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
     "method"
   ],
   [
-    "GPUCommandEncoder.beginComputePass",
-    "GPUCommandEncoder",
-    "beginComputePass",
-    "method"
-  ],
-  [
     "GPUCommandEncoder.beginRenderPass",
     "GPUCommandEncoder",
     "beginRenderPass",
-    "method"
-  ],
-  [
-    "GPUCommandEncoder.clearBuffer",
-    "GPUCommandEncoder",
-    "clearBuffer",
-    "method"
-  ],
-  [
-    "GPUCommandEncoder.copyBufferToBuffer",
-    "GPUCommandEncoder",
-    "copyBufferToBuffer",
-    "method"
-  ],
-  [
-    "GPUCommandEncoder.copyTextureToTexture",
-    "GPUCommandEncoder",
-    "copyTextureToTexture",
     "method"
   ],
   [
@@ -176,12 +152,6 @@ export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
     "method"
   ],
   [
-    "GPUDevice.createComputePipeline",
-    "GPUDevice",
-    "createComputePipeline",
-    "method"
-  ],
-  [
     "GPUDevice.createRenderPipeline",
     "GPUDevice",
     "createRenderPipeline",
@@ -242,33 +212,15 @@ export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
     "method"
   ],
   [
+    "GPUQueue.writeTexture",
+    "GPUQueue",
+    "writeTexture",
+    "method"
+  ],
+  [
     "GPUQueue.submit",
     "GPUQueue",
     "submit",
-    "method"
-  ],
-  [
-    "GPUComputePassEncoder.dispatchWorkgroups",
-    "GPUComputePassEncoder",
-    "dispatchWorkgroups",
-    "method"
-  ],
-  [
-    "GPUComputePassEncoder.end",
-    "GPUComputePassEncoder",
-    "end",
-    "method"
-  ],
-  [
-    "GPUComputePassEncoder.setBindGroup",
-    "GPUComputePassEncoder",
-    "setBindGroup",
-    "method"
-  ],
-  [
-    "GPUComputePassEncoder.setPipeline",
-    "GPUComputePassEncoder",
-    "setPipeline",
     "method"
   ],
   [
@@ -284,21 +236,9 @@ export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
     "method"
   ],
   [
-    "GPURenderPassEncoder.setBindGroup",
-    "GPURenderPassEncoder",
-    "setBindGroup",
-    "method"
-  ],
-  [
     "GPURenderPassEncoder.setPipeline",
     "GPURenderPassEncoder",
     "setPipeline",
-    "method"
-  ],
-  [
-    "GPURenderPassEncoder.setVertexBuffer",
-    "GPURenderPassEncoder",
-    "setVertexBuffer",
     "method"
   ],
   [
@@ -357,7 +297,6 @@ export const NATIVE_CODEC_ROUTE_IDS = Object.freeze([
   "GPUDevice.createBindGroupLayout",
   "GPUDevice.createBuffer",
   "GPUDevice.createPipelineLayout",
-  "GPUDevice.createComputePipeline",
   "GPUDevice.createRenderPipeline",
   "GPUDevice.createSampler",
   "GPUDevice.createTexture",
@@ -368,10 +307,8 @@ export const NATIVE_CODEC_ROUTE_IDS = Object.freeze([
   "GPUBuffer.destroy",
   "GPUBuffer.mapAsync",
   "GPUBuffer.unmap",
-  "GPUCanvasContext.configure",
-  "GPUCanvasContext.unconfigure",
-  "GPUTexture.destroy",
   "GPUQueue.writeBuffer",
+  "GPUQueue.writeTexture",
   "GPUQueue.submit"
 ]);
 export const CONDITIONAL_PROVIDER_OPERATION_IDS = Object.freeze([
@@ -387,7 +324,6 @@ export const CONDITIONAL_PROVIDER_OPERATION_IDS = Object.freeze([
   "GPUDevice.createBuffer",
   "GPUDevice.createCommandEncoder",
   "GPUDevice.createPipelineLayout",
-  "GPUDevice.createComputePipeline",
   "GPUDevice.createRenderPipeline",
   "GPUDevice.createSampler",
   "GPUDevice.createShaderModule",
@@ -396,6 +332,7 @@ export const CONDITIONAL_PROVIDER_OPERATION_IDS = Object.freeze([
   "GPUDevice.popErrorScope",
   "GPUQueue.submit",
   "GPUQueue.writeBuffer",
+  "GPUQueue.writeTexture",
   "GPUTexture.createView",
   "GPUTexture.destroy"
 ]);
@@ -503,5 +440,5 @@ export const TEXTURE_FORMAT_REQUIRED_FEATURES = Object.freeze({
   "astc-12x12-unorm-srgb": "texture-compression-astc"
 });
 export const TEXTURE_FORMAT_CAPABILITY_ROWS_SHA256 = "15c3a739357af9380618651982d07bb725db3e507e5b944a4b9c6ea34d7c7c04";
-export const WRAPPER_ROUTE_COUNT = 56;
+export const WRAPPER_ROUTE_COUNT = 46;
 export const CONDITIONAL_PROVIDER_ROUTE_COUNT = 23;

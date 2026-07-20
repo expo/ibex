@@ -6,15 +6,15 @@
   "status": "construction-private-source-derived-no-public-install",
   "source": {
     "productionPlanPath": "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts",
-    "productionPlanRawContentSha256": "dd3058d958cad7c8ea5fb61bc13cb457f3c6af04c4b88d22787ee7fcec94f325",
+    "productionPlanRawContentSha256": "6dc089eed3f4f479acfb63b01d571de478dac37060d176cb0c834afb7754fd5c",
     "wrapperAuthorityPath": "tests/fixtures/webgpu-test-wrapper-authority-v1.json",
-    "wrapperAuthorityRawContentSha256": "fe5a34e4903c13dbd798c30fe6e76d778b7eccd3d5c896968af62d95cbedaf82",
+    "wrapperAuthorityRawContentSha256": "135c422747ca79e1aa165aa9232da48df59bcc96841d1ffe292aefcc7b592f29",
     "authenticatedDigests": {
-      "operationSet": "a156786e8e286b2cc1c0a51281c888504976f30668862485c7242cd27371651f",
-      "semanticProgramSet": "f4b33d9ea125dd60543d70a8d889e7ce65a045551939ee035c4a1e79c8443296",
-      "runtimeRouting": "06315dddb41182287828aa9b92e983ad16dc7e9b7475b455ee50dc8123283447",
-      "webgpuCVocabulary": "4bdddf608b0a893527dcc7afc607ef2e8e78d6229c7864a7331347c908d2c623",
-      "projection": "0867c45c10ac786f6ce025502d2f13c624f3ce3a6ac85e7a1648260dc47e7d94"
+      "operationSet": "d5f5725c56d9e32890c005f207c2e2c0f43818cf0f21a3b12183d00ae38ccfbb",
+      "semanticProgramSet": "7907857eae018f2c0fe34c224d08d289303397f29f000b672560c651bf979a3a",
+      "runtimeRouting": "e19b24c1db7e34062dcccda48ae7390bde4adc833100da4a328c7fd10d61ff3e",
+      "webgpuCVocabulary": "59a03320bfde1e339ee99425118c9637eaa252ccba236c4a7b053fe02cea8826",
+      "projection": "91dbf635d48069741a4fff75bfd3f0278a99b91fb40820fe558357867fb47e06"
     }
   },
   "publicBoundary": {
@@ -27,13 +27,11 @@
   },
   "bridgeEdges": {
     "cancel": "surface.native.op.construction.private.gpunativebridgev2.cancel.1knoc8z",
-    "createMappedRangeAlias": "surface.native.op.construction.private.gpunativebridgev2.createmappedrangealias.1wlkeyh",
-    "detachMappedRange": "surface.native.op.construction.private.gpunativebridgev2.detachmappedrange.1bcb3hm",
     "retire": "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa",
     "setEventSink": "surface.native.op.construction.private.gpunativebridgev2.seteventsink.05cdr72",
     "submit": "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99"
   },
-  "operationCount": 56,
+  "operationCount": 46,
   "operations": [
     {
       "operationId": "GPU.getPreferredCanvasFormat",
@@ -147,7 +145,7 @@
     },
     {
       "operationId": "GPUCanvasContext.configure",
-      "wireId": 56177326,
+      "wireId": 3865035710,
       "edgeId": "surface.native.op.construction.private.webgpu.gpucanvascontext.configure.0ktf630",
       "edgeClassification": "closed",
       "dispatchClass": "wrapper-local-service-enqueue",
@@ -186,16 +184,6 @@
       "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpucanvascontext.unconfigure.12gdr9h.exact-construction-private-webgpu-v1"
     },
     {
-      "operationId": "GPUCommandEncoder.beginComputePass",
-      "wireId": 3517777017,
-      "edgeId": "surface.native.op.construction.private.webgpu.gpucommandencoder.begincomputepass.1hbady1",
-      "edgeClassification": "non-capability",
-      "dispatchClass": "wrapper-recording",
-      "logicalExecutionKind": "wrapper-recording",
-      "providerSubmission": "none",
-      "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpucommandencoder.begincomputepass.1hbady1.exact-construction-private-webgpu-v1"
-    },
-    {
       "operationId": "GPUCommandEncoder.beginRenderPass",
       "wireId": 1908549907,
       "edgeId": "surface.native.op.construction.private.webgpu.gpucommandencoder.beginrenderpass.152g8am",
@@ -206,36 +194,6 @@
       "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpucommandencoder.beginrenderpass.152g8am.exact-construction-private-webgpu-v1"
     },
     {
-      "operationId": "GPUCommandEncoder.clearBuffer",
-      "wireId": 3930891724,
-      "edgeId": "surface.native.op.construction.private.webgpu.gpucommandencoder.clearbuffer.0kv8x4h",
-      "edgeClassification": "non-capability",
-      "dispatchClass": "wrapper-recording",
-      "logicalExecutionKind": "wrapper-recording",
-      "providerSubmission": "none",
-      "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpucommandencoder.clearbuffer.0kv8x4h.exact-construction-private-webgpu-v1"
-    },
-    {
-      "operationId": "GPUCommandEncoder.copyBufferToBuffer",
-      "wireId": 441347126,
-      "edgeId": "surface.native.op.construction.private.webgpu.gpucommandencoder.copybuffertobuffer.1rtf8su",
-      "edgeClassification": "non-capability",
-      "dispatchClass": "wrapper-recording",
-      "logicalExecutionKind": "wrapper-recording",
-      "providerSubmission": "none",
-      "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpucommandencoder.copybuffertobuffer.1rtf8su.exact-construction-private-webgpu-v1"
-    },
-    {
-      "operationId": "GPUCommandEncoder.copyTextureToTexture",
-      "wireId": 2453223652,
-      "edgeId": "surface.native.op.construction.private.webgpu.gpucommandencoder.copytexturetotexture.0j64w0i",
-      "edgeClassification": "non-capability",
-      "dispatchClass": "wrapper-recording",
-      "logicalExecutionKind": "wrapper-recording",
-      "providerSubmission": "none",
-      "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpucommandencoder.copytexturetotexture.0j64w0i.exact-construction-private-webgpu-v1"
-    },
-    {
       "operationId": "GPUCommandEncoder.finish",
       "wireId": 2481184390,
       "edgeId": "surface.native.op.construction.private.webgpu.gpucommandencoder.finish.0k90p0d",
@@ -244,46 +202,6 @@
       "logicalExecutionKind": "wrapper-recording",
       "providerSubmission": "none",
       "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpucommandencoder.finish.0k90p0d.exact-construction-private-webgpu-v1"
-    },
-    {
-      "operationId": "GPUComputePassEncoder.dispatchWorkgroups",
-      "wireId": 1945140237,
-      "edgeId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.dispatchworkgroups.128rff0",
-      "edgeClassification": "non-capability",
-      "dispatchClass": "wrapper-recording",
-      "logicalExecutionKind": "wrapper-recording",
-      "providerSubmission": "none",
-      "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.dispatchworkgroups.128rff0.exact-construction-private-webgpu-v1"
-    },
-    {
-      "operationId": "GPUComputePassEncoder.end",
-      "wireId": 1131879253,
-      "edgeId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.end.1uq0ctc",
-      "edgeClassification": "non-capability",
-      "dispatchClass": "wrapper-recording",
-      "logicalExecutionKind": "wrapper-recording",
-      "providerSubmission": "none",
-      "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.end.1uq0ctc.exact-construction-private-webgpu-v1"
-    },
-    {
-      "operationId": "GPUComputePassEncoder.setBindGroup",
-      "wireId": 2288750516,
-      "edgeId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.setbindgroup.0dq2svx",
-      "edgeClassification": "non-capability",
-      "dispatchClass": "wrapper-recording",
-      "logicalExecutionKind": "wrapper-recording",
-      "providerSubmission": "none",
-      "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.setbindgroup.0dq2svx.exact-construction-private-webgpu-v1"
-    },
-    {
-      "operationId": "GPUComputePassEncoder.setPipeline",
-      "wireId": 3982602559,
-      "edgeId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.setpipeline.1j3s7nj",
-      "edgeClassification": "non-capability",
-      "dispatchClass": "wrapper-recording",
-      "logicalExecutionKind": "wrapper-recording",
-      "providerSubmission": "none",
-      "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.setpipeline.1j3s7nj.exact-construction-private-webgpu-v1"
     },
     {
       "operationId": "GPUDevice.createBindGroup",
@@ -324,16 +242,6 @@
       "logicalExecutionKind": "service-enqueue",
       "providerSubmission": "semantic-call-device-timeline",
       "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpudevice.createcommandencoder.0xjqx9i.exact-construction-private-webgpu-v1"
-    },
-    {
-      "operationId": "GPUDevice.createComputePipeline",
-      "wireId": 2342501516,
-      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.createcomputepipeline.1kduhd8",
-      "edgeClassification": "closed",
-      "dispatchClass": "service-submit",
-      "logicalExecutionKind": "service-enqueue",
-      "providerSubmission": "semantic-call-device-timeline",
-      "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpudevice.createcomputepipeline.1kduhd8.exact-construction-private-webgpu-v1"
     },
     {
       "operationId": "GPUDevice.createPipelineLayout",
@@ -476,6 +384,16 @@
       "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpuqueue.writebuffer.09drr9l.exact-construction-private-webgpu-v1"
     },
     {
+      "operationId": "GPUQueue.writeTexture",
+      "wireId": 3114133342,
+      "edgeId": "surface.native.op.construction.private.webgpu.gpuqueue.writetexture.0je9zc2",
+      "edgeClassification": "closed",
+      "dispatchClass": "service-submit",
+      "logicalExecutionKind": "service-enqueue",
+      "providerSubmission": "semantic-call-device-timeline",
+      "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpuqueue.writetexture.0je9zc2.exact-construction-private-webgpu-v1"
+    },
+    {
       "operationId": "GPURenderPassEncoder.draw",
       "wireId": 3054695767,
       "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.draw.1v1coju",
@@ -496,16 +414,6 @@
       "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.end.1tvn90t.exact-construction-private-webgpu-v1"
     },
     {
-      "operationId": "GPURenderPassEncoder.setBindGroup",
-      "wireId": 1203119164,
-      "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setbindgroup.1n0cuyu",
-      "edgeClassification": "non-capability",
-      "dispatchClass": "wrapper-recording",
-      "logicalExecutionKind": "wrapper-recording",
-      "providerSubmission": "none",
-      "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setbindgroup.1n0cuyu.exact-construction-private-webgpu-v1"
-    },
-    {
       "operationId": "GPURenderPassEncoder.setPipeline",
       "wireId": 551383281,
       "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setpipeline.1hzqdty",
@@ -514,16 +422,6 @@
       "logicalExecutionKind": "wrapper-recording",
       "providerSubmission": "none",
       "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setpipeline.1hzqdty.exact-construction-private-webgpu-v1"
-    },
-    {
-      "operationId": "GPURenderPassEncoder.setVertexBuffer",
-      "wireId": 4000042239,
-      "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setvertexbuffer.0yy9vps",
-      "edgeClassification": "non-capability",
-      "dispatchClass": "wrapper-recording",
-      "logicalExecutionKind": "wrapper-recording",
-      "providerSubmission": "none",
-      "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setvertexbuffer.0yy9vps.exact-construction-private-webgpu-v1"
     },
     {
       "operationId": "GPUTexture.createView",
@@ -596,7 +494,7 @@
       "privateTargetCellId": "surface.native.op.construction.private.webgpu.gputexture.width.1utkugg.exact-construction-private-webgpu-v1"
     }
   ],
-  "privateTargetCellCount": 56,
+  "privateTargetCellCount": 46,
   "privateTargetCells": [
     {
       "id": "surface.native.op.construction.private.webgpu.gpu.getpreferredcanvasformat.1c3jcst.exact-construction-private-webgpu-v1",
@@ -795,7 +693,7 @@
       "supportDisposition": "supported-construction-private-only",
       "capsecDisposition": "closed",
       "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpucanvascontext.configure.0ktf630.authenticated.production.route.0gl8l8v"
+        "surface.native.op.construction.private.webgpu.gpucanvascontext.configure.0ktf630.authenticated.production.route.0rvlyic"
       ],
       "providerBridgeEdgeId": "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99",
       "positiveAuthority": "absent-closed-provider-edge",
@@ -854,23 +752,6 @@
       "platformSupportClaim": "none"
     },
     {
-      "id": "surface.native.op.construction.private.webgpu.gpucommandencoder.begincomputepass.1hbady1.exact-construction-private-webgpu-v1",
-      "edgeId": "surface.native.op.construction.private.webgpu.gpucommandencoder.begincomputepass.1hbady1",
-      "target": {
-        "kind": "construction-private-runtime-route",
-        "id": "exact-construction-private-webgpu-v1"
-      },
-      "supportDisposition": "supported-construction-private-only",
-      "capsecDisposition": "non-capability",
-      "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpucommandencoder.begincomputepass.1hbady1.authenticated.production.route.07n28y8"
-      ],
-      "providerBridgeEdgeId": null,
-      "positiveAuthority": "not-applicable-wrapper-recording",
-      "publicInstallDisposition": "absent",
-      "platformSupportClaim": "none"
-    },
-    {
       "id": "surface.native.op.construction.private.webgpu.gpucommandencoder.beginrenderpass.152g8am.exact-construction-private-webgpu-v1",
       "edgeId": "surface.native.op.construction.private.webgpu.gpucommandencoder.beginrenderpass.152g8am",
       "target": {
@@ -888,57 +769,6 @@
       "platformSupportClaim": "none"
     },
     {
-      "id": "surface.native.op.construction.private.webgpu.gpucommandencoder.clearbuffer.0kv8x4h.exact-construction-private-webgpu-v1",
-      "edgeId": "surface.native.op.construction.private.webgpu.gpucommandencoder.clearbuffer.0kv8x4h",
-      "target": {
-        "kind": "construction-private-runtime-route",
-        "id": "exact-construction-private-webgpu-v1"
-      },
-      "supportDisposition": "supported-construction-private-only",
-      "capsecDisposition": "non-capability",
-      "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpucommandencoder.clearbuffer.0kv8x4h.authenticated.production.route.1xgprsb"
-      ],
-      "providerBridgeEdgeId": null,
-      "positiveAuthority": "not-applicable-wrapper-recording",
-      "publicInstallDisposition": "absent",
-      "platformSupportClaim": "none"
-    },
-    {
-      "id": "surface.native.op.construction.private.webgpu.gpucommandencoder.copybuffertobuffer.1rtf8su.exact-construction-private-webgpu-v1",
-      "edgeId": "surface.native.op.construction.private.webgpu.gpucommandencoder.copybuffertobuffer.1rtf8su",
-      "target": {
-        "kind": "construction-private-runtime-route",
-        "id": "exact-construction-private-webgpu-v1"
-      },
-      "supportDisposition": "supported-construction-private-only",
-      "capsecDisposition": "non-capability",
-      "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpucommandencoder.copybuffertobuffer.1rtf8su.authenticated.production.route.19lwk28"
-      ],
-      "providerBridgeEdgeId": null,
-      "positiveAuthority": "not-applicable-wrapper-recording",
-      "publicInstallDisposition": "absent",
-      "platformSupportClaim": "none"
-    },
-    {
-      "id": "surface.native.op.construction.private.webgpu.gpucommandencoder.copytexturetotexture.0j64w0i.exact-construction-private-webgpu-v1",
-      "edgeId": "surface.native.op.construction.private.webgpu.gpucommandencoder.copytexturetotexture.0j64w0i",
-      "target": {
-        "kind": "construction-private-runtime-route",
-        "id": "exact-construction-private-webgpu-v1"
-      },
-      "supportDisposition": "supported-construction-private-only",
-      "capsecDisposition": "non-capability",
-      "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpucommandencoder.copytexturetotexture.0j64w0i.authenticated.production.route.117110g"
-      ],
-      "providerBridgeEdgeId": null,
-      "positiveAuthority": "not-applicable-wrapper-recording",
-      "publicInstallDisposition": "absent",
-      "platformSupportClaim": "none"
-    },
-    {
       "id": "surface.native.op.construction.private.webgpu.gpucommandencoder.finish.0k90p0d.exact-construction-private-webgpu-v1",
       "edgeId": "surface.native.op.construction.private.webgpu.gpucommandencoder.finish.0k90p0d",
       "target": {
@@ -949,74 +779,6 @@
       "capsecDisposition": "non-capability",
       "implementationBranchIds": [
         "surface.native.op.construction.private.webgpu.gpucommandencoder.finish.0k90p0d.authenticated.production.route.1s7gyn1"
-      ],
-      "providerBridgeEdgeId": null,
-      "positiveAuthority": "not-applicable-wrapper-recording",
-      "publicInstallDisposition": "absent",
-      "platformSupportClaim": "none"
-    },
-    {
-      "id": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.dispatchworkgroups.128rff0.exact-construction-private-webgpu-v1",
-      "edgeId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.dispatchworkgroups.128rff0",
-      "target": {
-        "kind": "construction-private-runtime-route",
-        "id": "exact-construction-private-webgpu-v1"
-      },
-      "supportDisposition": "supported-construction-private-only",
-      "capsecDisposition": "non-capability",
-      "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpucomputepassencoder.dispatchworkgroups.128rff0.authenticated.production.route.0n97h5u"
-      ],
-      "providerBridgeEdgeId": null,
-      "positiveAuthority": "not-applicable-wrapper-recording",
-      "publicInstallDisposition": "absent",
-      "platformSupportClaim": "none"
-    },
-    {
-      "id": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.end.1uq0ctc.exact-construction-private-webgpu-v1",
-      "edgeId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.end.1uq0ctc",
-      "target": {
-        "kind": "construction-private-runtime-route",
-        "id": "exact-construction-private-webgpu-v1"
-      },
-      "supportDisposition": "supported-construction-private-only",
-      "capsecDisposition": "non-capability",
-      "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpucomputepassencoder.end.1uq0ctc.authenticated.production.route.1g46rj2"
-      ],
-      "providerBridgeEdgeId": null,
-      "positiveAuthority": "not-applicable-wrapper-recording",
-      "publicInstallDisposition": "absent",
-      "platformSupportClaim": "none"
-    },
-    {
-      "id": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.setbindgroup.0dq2svx.exact-construction-private-webgpu-v1",
-      "edgeId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.setbindgroup.0dq2svx",
-      "target": {
-        "kind": "construction-private-runtime-route",
-        "id": "exact-construction-private-webgpu-v1"
-      },
-      "supportDisposition": "supported-construction-private-only",
-      "capsecDisposition": "non-capability",
-      "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpucomputepassencoder.setbindgroup.0dq2svx.authenticated.production.route.04jv5j1"
-      ],
-      "providerBridgeEdgeId": null,
-      "positiveAuthority": "not-applicable-wrapper-recording",
-      "publicInstallDisposition": "absent",
-      "platformSupportClaim": "none"
-    },
-    {
-      "id": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.setpipeline.1j3s7nj.exact-construction-private-webgpu-v1",
-      "edgeId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.setpipeline.1j3s7nj",
-      "target": {
-        "kind": "construction-private-runtime-route",
-        "id": "exact-construction-private-webgpu-v1"
-      },
-      "supportDisposition": "supported-construction-private-only",
-      "capsecDisposition": "non-capability",
-      "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpucomputepassencoder.setpipeline.1j3s7nj.authenticated.production.route.012gps4"
       ],
       "providerBridgeEdgeId": null,
       "positiveAuthority": "not-applicable-wrapper-recording",
@@ -1085,23 +847,6 @@
       "capsecDisposition": "closed",
       "implementationBranchIds": [
         "surface.native.op.construction.private.webgpu.gpudevice.createcommandencoder.0xjqx9i.authenticated.production.route.1wj5kwl"
-      ],
-      "providerBridgeEdgeId": "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99",
-      "positiveAuthority": "absent-closed-provider-edge",
-      "publicInstallDisposition": "absent",
-      "platformSupportClaim": "none"
-    },
-    {
-      "id": "surface.native.op.construction.private.webgpu.gpudevice.createcomputepipeline.1kduhd8.exact-construction-private-webgpu-v1",
-      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.createcomputepipeline.1kduhd8",
-      "target": {
-        "kind": "construction-private-runtime-route",
-        "id": "exact-construction-private-webgpu-v1"
-      },
-      "supportDisposition": "supported-construction-private-only",
-      "capsecDisposition": "closed",
-      "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpudevice.createcomputepipeline.1kduhd8.authenticated.production.route.0oq0mj7"
       ],
       "providerBridgeEdgeId": "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99",
       "positiveAuthority": "absent-closed-provider-edge",
@@ -1347,6 +1092,23 @@
       "platformSupportClaim": "none"
     },
     {
+      "id": "surface.native.op.construction.private.webgpu.gpuqueue.writetexture.0je9zc2.exact-construction-private-webgpu-v1",
+      "edgeId": "surface.native.op.construction.private.webgpu.gpuqueue.writetexture.0je9zc2",
+      "target": {
+        "kind": "construction-private-runtime-route",
+        "id": "exact-construction-private-webgpu-v1"
+      },
+      "supportDisposition": "supported-construction-private-only",
+      "capsecDisposition": "closed",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.webgpu.gpuqueue.writetexture.0je9zc2.authenticated.production.route.0pmtsft"
+      ],
+      "providerBridgeEdgeId": "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99",
+      "positiveAuthority": "absent-closed-provider-edge",
+      "publicInstallDisposition": "absent",
+      "platformSupportClaim": "none"
+    },
+    {
       "id": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.draw.1v1coju.exact-construction-private-webgpu-v1",
       "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.draw.1v1coju",
       "target": {
@@ -1381,23 +1143,6 @@
       "platformSupportClaim": "none"
     },
     {
-      "id": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setbindgroup.1n0cuyu.exact-construction-private-webgpu-v1",
-      "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setbindgroup.1n0cuyu",
-      "target": {
-        "kind": "construction-private-runtime-route",
-        "id": "exact-construction-private-webgpu-v1"
-      },
-      "supportDisposition": "supported-construction-private-only",
-      "capsecDisposition": "non-capability",
-      "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setbindgroup.1n0cuyu.authenticated.production.route.0fz8l6o"
-      ],
-      "providerBridgeEdgeId": null,
-      "positiveAuthority": "not-applicable-wrapper-recording",
-      "publicInstallDisposition": "absent",
-      "platformSupportClaim": "none"
-    },
-    {
       "id": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setpipeline.1hzqdty.exact-construction-private-webgpu-v1",
       "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setpipeline.1hzqdty",
       "target": {
@@ -1408,23 +1153,6 @@
       "capsecDisposition": "non-capability",
       "implementationBranchIds": [
         "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setpipeline.1hzqdty.authenticated.production.route.16hqawg"
-      ],
-      "providerBridgeEdgeId": null,
-      "positiveAuthority": "not-applicable-wrapper-recording",
-      "publicInstallDisposition": "absent",
-      "platformSupportClaim": "none"
-    },
-    {
-      "id": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setvertexbuffer.0yy9vps.exact-construction-private-webgpu-v1",
-      "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setvertexbuffer.0yy9vps",
-      "target": {
-        "kind": "construction-private-runtime-route",
-        "id": "exact-construction-private-webgpu-v1"
-      },
-      "supportDisposition": "supported-construction-private-only",
-      "capsecDisposition": "non-capability",
-      "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setvertexbuffer.0yy9vps.authenticated.production.route.02xbqse"
       ],
       "providerBridgeEdgeId": null,
       "positiveAuthority": "not-applicable-wrapper-recording",

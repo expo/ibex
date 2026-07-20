@@ -7,135 +7,12 @@
     "profileSha256": "206fb144c2daef0d58db4e3481f8eebc08d197c7f420404c28f9f84f477b5d98",
     "logicalPath": "tests/gpu/logical-validation-v1.generated.json",
     "logicalSha256": "25564ccb8e2499a3a5ec39bc79c92abba2367c72a4eb0765a69b6d86e2a13651",
-    "normalizedSemanticComparison": "required-across-outer-ibex-repins-after-authenticated-local-promotions",
-    "localPromotions": [
-      {
-        "operationId": "GPUDevice.createComputePipeline",
-        "sourceRepository": "ccheever/exact",
-        "sourceCommit": "4b158f8480395c78463bdd99eb58794f3cca791a",
-        "sourceArtifactPath": "tests/gpu/typegpu-semantic-authority-v1.json",
-        "sourceArtifactSha256": "bf00879b067bf632334b45e9790d9209e2351e5b7cf5ca587e99b8efd06fbc04",
-        "sourceOperationWireId": 2342501516,
-        "sourceOperationSemanticSha256": "26b046d57388a595abc66ac3c96e2722ea737b5f80fce67f6a34c8a79d77d590",
-        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
-        "disposition": "construction-private-route-promotion-codec-and-native-ingress-only-public-install-and-support-absent"
-      },
-      {
-        "operationId": "GPUCommandEncoder.beginComputePass",
-        "sourceRepository": "ccheever/exact",
-        "sourceCommit": "671381b20b7dfb22a5342b3ccc73b0c245b58c7a",
-        "sourceArtifactPath": "tests/gpu/typegpu-semantic-authority-v1.json",
-        "sourceArtifactSha256": "96f902bef8960ee924ec82a2cce58f5cf02157530dc3a9ee01dfdd1a9f8eeed5",
-        "sourceOperationWireId": 3517777017,
-        "sourceOperationSemanticSha256": "d91e16ba3ccd1430d0d4dba9c2ba5dc4da74ffc38a95b9e956fefdd92e0fce38",
-        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
-        "disposition": "construction-private-command-program-route-promotion-public-install-and-support-absent"
-      },
-      {
-        "operationId": "GPUCommandEncoder.clearBuffer",
-        "sourceRepository": "ccheever/exact",
-        "sourceCommit": "671381b20b7dfb22a5342b3ccc73b0c245b58c7a",
-        "sourceArtifactPath": "tests/gpu/typegpu-semantic-authority-v1.json",
-        "sourceArtifactSha256": "96f902bef8960ee924ec82a2cce58f5cf02157530dc3a9ee01dfdd1a9f8eeed5",
-        "sourceOperationWireId": 3930891724,
-        "sourceOperationSemanticSha256": "fd8c82c5a16bbef0833ca708621cc33bac84c7b600f97f1a8cc6bf82412e7502",
-        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
-        "disposition": "construction-private-command-program-route-promotion-public-install-and-support-absent"
-      },
-      {
-        "operationId": "GPUCommandEncoder.copyBufferToBuffer",
-        "sourceRepository": "ccheever/exact",
-        "sourceCommit": "671381b20b7dfb22a5342b3ccc73b0c245b58c7a",
-        "sourceArtifactPath": "tests/gpu/typegpu-semantic-authority-v1.json",
-        "sourceArtifactSha256": "96f902bef8960ee924ec82a2cce58f5cf02157530dc3a9ee01dfdd1a9f8eeed5",
-        "sourceOperationWireId": 441347126,
-        "sourceOperationSemanticSha256": "d71af2f10f9c12681f2b231a321ea5112405ab07b37d3c4f8a8448a92e3b72c6",
-        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
-        "disposition": "construction-private-command-program-route-promotion-public-install-and-support-absent"
-      },
-      {
-        "operationId": "GPUCommandEncoder.copyTextureToTexture",
-        "sourceRepository": "ccheever/exact",
-        "sourceCommit": "671381b20b7dfb22a5342b3ccc73b0c245b58c7a",
-        "sourceArtifactPath": "tests/gpu/typegpu-semantic-authority-v1.json",
-        "sourceArtifactSha256": "96f902bef8960ee924ec82a2cce58f5cf02157530dc3a9ee01dfdd1a9f8eeed5",
-        "sourceOperationWireId": 2453223652,
-        "sourceOperationSemanticSha256": "685fae3807884b4896021d4da93d72a199060b1415bf115ef45ad3fe3770f43a",
-        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
-        "disposition": "construction-private-command-program-route-promotion-public-install-and-support-absent"
-      },
-      {
-        "operationId": "GPUComputePassEncoder.dispatchWorkgroups",
-        "sourceRepository": "ccheever/exact",
-        "sourceCommit": "671381b20b7dfb22a5342b3ccc73b0c245b58c7a",
-        "sourceArtifactPath": "tests/gpu/typegpu-semantic-authority-v1.json",
-        "sourceArtifactSha256": "96f902bef8960ee924ec82a2cce58f5cf02157530dc3a9ee01dfdd1a9f8eeed5",
-        "sourceOperationWireId": 1945140237,
-        "sourceOperationSemanticSha256": "f543a5c110f0df54a5de9124c87785badee6ef767ef292479aedce5660bbf465",
-        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
-        "disposition": "construction-private-command-program-route-promotion-public-install-and-support-absent"
-      },
-      {
-        "operationId": "GPUComputePassEncoder.end",
-        "sourceRepository": "ccheever/exact",
-        "sourceCommit": "671381b20b7dfb22a5342b3ccc73b0c245b58c7a",
-        "sourceArtifactPath": "tests/gpu/typegpu-semantic-authority-v1.json",
-        "sourceArtifactSha256": "96f902bef8960ee924ec82a2cce58f5cf02157530dc3a9ee01dfdd1a9f8eeed5",
-        "sourceOperationWireId": 1131879253,
-        "sourceOperationSemanticSha256": "9816838bf47017a498e417d5ec2f58868a3fa40ea623f0abea6bb01e176aa5d7",
-        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
-        "disposition": "construction-private-command-program-route-promotion-public-install-and-support-absent"
-      },
-      {
-        "operationId": "GPUComputePassEncoder.setBindGroup",
-        "sourceRepository": "ccheever/exact",
-        "sourceCommit": "671381b20b7dfb22a5342b3ccc73b0c245b58c7a",
-        "sourceArtifactPath": "tests/gpu/typegpu-semantic-authority-v1.json",
-        "sourceArtifactSha256": "96f902bef8960ee924ec82a2cce58f5cf02157530dc3a9ee01dfdd1a9f8eeed5",
-        "sourceOperationWireId": 2288750516,
-        "sourceOperationSemanticSha256": "202a2b9eab9c3b4c7c4892e86dabb67c4dc86edc7cf86a1908561a10b95d838f",
-        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
-        "disposition": "construction-private-command-program-route-promotion-public-install-and-support-absent"
-      },
-      {
-        "operationId": "GPUComputePassEncoder.setPipeline",
-        "sourceRepository": "ccheever/exact",
-        "sourceCommit": "671381b20b7dfb22a5342b3ccc73b0c245b58c7a",
-        "sourceArtifactPath": "tests/gpu/typegpu-semantic-authority-v1.json",
-        "sourceArtifactSha256": "96f902bef8960ee924ec82a2cce58f5cf02157530dc3a9ee01dfdd1a9f8eeed5",
-        "sourceOperationWireId": 3982602559,
-        "sourceOperationSemanticSha256": "024a5923cfe46a782116c9a434e31ae799b83568813907af9021e5fa23dcadc0",
-        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
-        "disposition": "construction-private-command-program-route-promotion-public-install-and-support-absent"
-      },
-      {
-        "operationId": "GPURenderPassEncoder.setBindGroup",
-        "sourceRepository": "ccheever/exact",
-        "sourceCommit": "671381b20b7dfb22a5342b3ccc73b0c245b58c7a",
-        "sourceArtifactPath": "tests/gpu/typegpu-semantic-authority-v1.json",
-        "sourceArtifactSha256": "96f902bef8960ee924ec82a2cce58f5cf02157530dc3a9ee01dfdd1a9f8eeed5",
-        "sourceOperationWireId": 1203119164,
-        "sourceOperationSemanticSha256": "7aa6c60bcb2ee1a560c96311f1a34c2565b716ea0ea5df66d56098a15049b082",
-        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
-        "disposition": "construction-private-command-program-route-promotion-public-install-and-support-absent"
-      },
-      {
-        "operationId": "GPURenderPassEncoder.setVertexBuffer",
-        "sourceRepository": "ccheever/exact",
-        "sourceCommit": "671381b20b7dfb22a5342b3ccc73b0c245b58c7a",
-        "sourceArtifactPath": "tests/gpu/typegpu-semantic-authority-v1.json",
-        "sourceArtifactSha256": "96f902bef8960ee924ec82a2cce58f5cf02157530dc3a9ee01dfdd1a9f8eeed5",
-        "sourceOperationWireId": 4000042239,
-        "sourceOperationSemanticSha256": "bac5309e4e26e54dbba62f9885e544920638907a7ddf2d197f44f67871e690b4",
-        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
-        "disposition": "construction-private-command-program-route-promotion-public-install-and-support-absent"
-      }
-    ]
+    "normalizedSemanticComparison": "required-across-outer-ibex-repins"
   },
   "authentication": {
     "canonicalization": "utf8-domain-line-plus-lexicographic-object-keys-arrays-preserved-v1",
-    "semanticProjectionSha256": "286fad19fe97a8a4ff6769223b49f00ea3f3e4a8514e60043f1e4fca51c9e9e5",
-    "fakeClientDataSha256": "d4b76e9a5a4c9b3097cae44d666eff71c10d4c71f638016898627fbfbc58643e"
+    "semanticProjectionSha256": "4b101280ffc9c1df4d5e1ca959e760d5f27cb7387f88bd030a05910b210fecf6",
+    "fakeClientDataSha256": "1bed1135b1c12ddaff7f48f09e421a635622a1191633646bfcc29946e1857a39"
   },
   "semanticProjection": {
     "featurePolicy": {
@@ -3392,12 +3269,10 @@
         "operationId": "GPUCanvasContext.configure",
         "facts": [
           "webidlValid",
-          "contentValidationPassed",
           "providerPredicatesValid"
         ],
         "precedence": [
           "webidlValid",
-          "contentValidationPassed",
           "providerPredicatesValid"
         ],
         "exhaustive": true,
@@ -3422,35 +3297,13 @@
             }
           },
           {
-            "terminalId": "content-rejection",
-            "conditions": {
-              "webidlValid": true,
-              "contentValidationPassed": false
-            },
-            "branchPath": [
-              "webidl",
-              "content-validation"
-            ],
-            "terminalOutcome": "throw during synchronous content-timeline validation before configuration installation",
-            "errorTiming": "content-timeline",
-            "providerTokenCount": 0,
-            "physicalSequenceCount": 0,
-            "resultDisposition": "throw",
-            "errorSource": {
-              "kind": "first-failing-predicate",
-              "branchId": "content-validation"
-            }
-          },
-          {
             "terminalId": "later-predicate-rejection",
             "conditions": {
               "webidlValid": true,
-              "contentValidationPassed": true,
               "providerPredicatesValid": false
             },
             "branchPath": [
               "webidl",
-              "content-validation",
               "service-provider"
             ],
             "terminalOutcome": "reject before the terminal operation outcome",
@@ -3467,12 +3320,10 @@
             "terminalId": "operation-success",
             "conditions": {
               "webidlValid": true,
-              "contentValidationPassed": true,
               "providerPredicatesValid": true
             },
             "branchPath": [
               "webidl",
-              "content-validation",
               "service-provider"
             ],
             "terminalOutcome": "enqueue configuration on the surface account device timeline",
@@ -3490,12 +3341,6 @@
             "fact": "webidlValid",
             "kind": "branch-predicates",
             "branchId": "webidl",
-            "passWhen": true
-          },
-          {
-            "fact": "contentValidationPassed",
-            "kind": "branch-predicates",
-            "branchId": "content-validation",
             "passWhen": true
           },
           {
@@ -4028,92 +3873,6 @@
               "service-provider"
             ],
             "terminalOutcome": "enqueue one logically validated pipeline layout creation",
-            "errorTiming": "none",
-            "providerTokenCount": 1,
-            "physicalSequenceCount": 1,
-            "resultDisposition": "return-object",
-            "errorSource": {
-              "kind": "none"
-            }
-          }
-        ],
-        "factBindings": [
-          {
-            "fact": "webidlValid",
-            "kind": "branch-predicates",
-            "branchId": "webidl",
-            "passWhen": true
-          },
-          {
-            "fact": "providerPredicatesValid",
-            "kind": "branch-predicates",
-            "branchId": "service-provider",
-            "passWhen": true
-          }
-        ]
-      },
-      {
-        "operationId": "GPUDevice.createComputePipeline",
-        "facts": [
-          "webidlValid",
-          "providerPredicatesValid"
-        ],
-        "precedence": [
-          "webidlValid",
-          "providerPredicatesValid"
-        ],
-        "exhaustive": true,
-        "disjoint": true,
-        "terminals": [
-          {
-            "terminalId": "webidl-rejection",
-            "conditions": {
-              "webidlValid": false
-            },
-            "branchPath": [
-              "webidl"
-            ],
-            "terminalOutcome": "throw during complete synchronous Web IDL conversion",
-            "errorTiming": "synchronous-webidl",
-            "providerTokenCount": 0,
-            "physicalSequenceCount": 0,
-            "resultDisposition": "throw",
-            "errorSource": {
-              "kind": "first-failing-predicate",
-              "branchId": "webidl"
-            }
-          },
-          {
-            "terminalId": "later-predicate-rejection",
-            "conditions": {
-              "webidlValid": true,
-              "providerPredicatesValid": false
-            },
-            "branchPath": [
-              "webidl",
-              "service-provider"
-            ],
-            "terminalOutcome": "return an invalid logical compute pipeline and report the first device-timeline predicate failure before provider admission; authenticated module reflection alone never supplies a provider token",
-            "errorTiming": "device-timeline",
-            "providerTokenCount": 0,
-            "physicalSequenceCount": 0,
-            "resultDisposition": "return-invalid-object-and-report-error",
-            "errorSource": {
-              "kind": "first-failing-predicate",
-              "branchId": "service-provider"
-            }
-          },
-          {
-            "terminalId": "operation-success",
-            "conditions": {
-              "webidlValid": true,
-              "providerPredicatesValid": true
-            },
-            "branchPath": [
-              "webidl",
-              "service-provider"
-            ],
-            "terminalOutcome": "return one logical compute pipeline and enqueue its fully reflected provider initialization",
             "errorTiming": "none",
             "providerTokenCount": 1,
             "physicalSequenceCount": 1,
@@ -4886,6 +4645,124 @@
         ]
       },
       {
+        "operationId": "GPUQueue.writeTexture",
+        "facts": [
+          "webidlValid",
+          "contentValidationPassed",
+          "providerPredicatesValid"
+        ],
+        "precedence": [
+          "webidlValid",
+          "contentValidationPassed",
+          "providerPredicatesValid"
+        ],
+        "exhaustive": true,
+        "disjoint": true,
+        "terminals": [
+          {
+            "terminalId": "webidl-rejection",
+            "conditions": {
+              "webidlValid": false
+            },
+            "branchPath": [
+              "webidl"
+            ],
+            "terminalOutcome": "throw during complete synchronous Web IDL conversion",
+            "errorTiming": "synchronous-webidl",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "resultDisposition": "throw",
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "webidl"
+            }
+          },
+          {
+            "terminalId": "snapshot-rejection",
+            "conditions": {
+              "webidlValid": true,
+              "contentValidationPassed": false
+            },
+            "branchPath": [
+              "webidl",
+              "content-snapshot"
+            ],
+            "terminalOutcome": "throw TypeError for destination-origin then copy-extent shape validation, or fail immutable whole-BufferSource snapshot allocation, before service ingress; linear layout, copy range, and sufficient-data checks do not run on this timeline",
+            "errorTiming": "content-timeline",
+            "resultDisposition": "throw",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "content-snapshot"
+            }
+          },
+          {
+            "terminalId": "later-predicate-rejection",
+            "conditions": {
+              "webidlValid": true,
+              "contentValidationPassed": true,
+              "providerPredicatesValid": false
+            },
+            "branchPath": [
+              "webidl",
+              "content-snapshot",
+              "service-provider"
+            ],
+            "terminalOutcome": "return undefined and report the device-timeline validation, security, or OOM error before provider admission, including invalid linear layout, copy range, usage, or insufficient immutable BufferSource bytes",
+            "errorTiming": "device-timeline",
+            "resultDisposition": "return-undefined-and-report-error",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "service-provider"
+            }
+          },
+          {
+            "terminalId": "operation-success",
+            "conditions": {
+              "webidlValid": true,
+              "contentValidationPassed": true,
+              "providerPredicatesValid": true
+            },
+            "branchPath": [
+              "webidl",
+              "content-snapshot",
+              "service-provider"
+            ],
+            "terminalOutcome": "enqueue one ordered immutable texture upload",
+            "errorTiming": "none",
+            "resultDisposition": "return-undefined",
+            "providerTokenCount": 1,
+            "physicalSequenceCount": 1,
+            "errorSource": {
+              "kind": "none"
+            }
+          }
+        ],
+        "factBindings": [
+          {
+            "fact": "webidlValid",
+            "kind": "branch-predicates",
+            "branchId": "webidl",
+            "passWhen": true
+          },
+          {
+            "fact": "contentValidationPassed",
+            "kind": "branch-predicates",
+            "branchId": "content-snapshot",
+            "passWhen": true
+          },
+          {
+            "fact": "providerPredicatesValid",
+            "kind": "branch-predicates",
+            "branchId": "service-provider",
+            "passWhen": true
+          }
+        ]
+      },
+      {
         "operationId": "GPUTexture.createView",
         "facts": [
           "webidlValid",
@@ -5347,7 +5224,6 @@
       "GPUCanvasContext.configure",
       "GPUDevice.createBindGroupLayout",
       "GPUDevice.createCommandEncoder",
-      "GPUDevice.createComputePipeline",
       "GPUDevice.createRenderPipeline",
       "GPUDevice.createShaderModule",
       "GPUQueue.submit",

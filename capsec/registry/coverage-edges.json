@@ -200159,6 +200159,16 @@
       "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
     },
     {
+      "id": "surface.native.op.construction.private.webgpu.gpuqueue.writetexture.0je9zc2",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUQueue.writeTexture"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
       "id": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.draw.1v1coju",
       "classification": "non-capability",
       "surface": {

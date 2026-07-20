@@ -61,6 +61,7 @@ const canvasConfigureOperationId = "GPUCanvasContext.configure";
 const canvasUnconfigureOperationId = "GPUCanvasContext.unconfigure";
 const textureDestroyOperationId = "GPUTexture.destroy";
 const queueWriteBufferOperationId = "GPUQueue.writeBuffer";
+const queueWriteTextureOperationId = "GPUQueue.writeTexture";
 const queueSubmitOperationId = "GPUQueue.submit";
 
 function fail(message) {
@@ -6454,6 +6455,23 @@ function buildCorpus() {
       (candidate) =>
         candidate.tag === queueWriteBufferRoute?.serviceCompletionCodec,
     );
+  const queueWriteTextureRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === queueWriteTextureOperationId,
+  );
+  const queueWriteTextureNativeRoute =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
+      (candidate) => candidate.operationId === queueWriteTextureOperationId,
+    );
+  const queueWriteTextureRequestCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+      (candidate) =>
+        candidate.tag === queueWriteTextureRoute?.serviceArgumentCodec,
+    );
+  const queueWriteTextureCompletionCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceCompletions.find(
+      (candidate) =>
+        candidate.tag === queueWriteTextureRoute?.serviceCompletionCodec,
+    );
   const queueSubmitCodec = WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
     (candidate) =>
       candidate.tag ===
@@ -6482,6 +6500,16 @@ function buildCorpus() {
     queueWriteBufferNativeRoute.request.catalog.wireTag !== 23 ||
     queueWriteBufferNativeRoute.completion.catalog.wireTag !==
       queueWriteBufferCompletionCodec.wireTag ||
+    !queueWriteTextureRoute ||
+    !queueWriteTextureNativeRoute ||
+    !queueWriteTextureRequestCodec?.nativeProgramPrerequisitesRepresented ||
+    !queueWriteTextureRequestCodec.executableFromCurrentAuthenticatedInputs ||
+    queueWriteTextureRequestCodec.unavailableSemanticFields.length !== 0 ||
+    !queueWriteTextureCompletionCodec ||
+    queueWriteTextureRequestCodec.wireTag !== 25 ||
+    queueWriteTextureNativeRoute.request.catalog.wireTag !== 25 ||
+    queueWriteTextureNativeRoute.completion.catalog.wireTag !==
+      queueWriteTextureCompletionCodec.wireTag ||
     !queueSubmitRoute ||
     !queueSubmitNativeRoute ||
     !queueSubmitCodec?.nativeProgramPrerequisitesRepresented ||
@@ -6493,7 +6521,7 @@ function buildCorpus() {
     queueSubmitNativeRoute.completion.catalog.wireTag !==
       queueSubmitCompletionCodec.wireTag
   ) {
-    fail("GPUQueue writeBuffer/submit native codec boundary drifted");
+    fail("GPUQueue writeBuffer/writeTexture/submit native codec boundary drifted");
   }
   const queueReceiver = Object.freeze({
     kind: "GPUQueue",
@@ -6512,19 +6540,37 @@ function buildCorpus() {
     providerGeneration: "9",
   });
   const queueDestinationBrand = Object.freeze({ corpusBrand: "GPUBuffer" });
+  const queueTextureDestination = Object.freeze({
+    kind: "GPUTexture",
+    objectId: "203",
+    objectGeneration: "7",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const queueTextureDestinationBrand = Object.freeze({ corpusBrand: "GPUTexture" });
   const queueWrapperAccess = Object.freeze({
     referenceIfBranded(value, expectedKind) {
-      if (value !== queueDestinationBrand) return undefined;
-      if (expectedKind !== "GPUBuffer") {
-        throw new TypeError("wrong WebGPU object brand");
+      if (value === queueDestinationBrand && expectedKind === "GPUBuffer") {
+        return queueDestination;
       }
-      return queueDestination;
+      if (
+        value === queueTextureDestinationBrand && expectedKind === "GPUTexture"
+      ) {
+        return queueTextureDestination;
+      }
+      return undefined;
     },
     reference(value, expectedKind) {
-      if (value !== queueDestinationBrand || expectedKind !== "GPUBuffer") {
-        throw new TypeError("unbranded queue writeBuffer destination");
+      if (value === queueDestinationBrand && expectedKind === "GPUBuffer") {
+        return queueDestination;
       }
-      return queueDestination;
+      if (
+        value === queueTextureDestinationBrand && expectedKind === "GPUTexture"
+      ) {
+        return queueTextureDestination;
+      }
+      throw new TypeError("unbranded queue upload destination");
     },
   });
   const convertQueueWriteBuffer = (
@@ -6752,6 +6798,238 @@ function buildCorpus() {
       ),
     },
   ]);
+
+  const convertQueueWriteTexture = ({
+    aspect = "all",
+    bytes,
+    bytesPerRow,
+    mipLevel = 0,
+    offset = 0,
+    origin = { x: 0, y: 0, z: 0 },
+    rowsPerImage,
+    size,
+  }) => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+    queueWriteTextureOperationId,
+    [
+      {
+        aspect,
+        mipLevel,
+        origin,
+        texture: queueTextureDestinationBrand,
+      },
+      Uint8Array.from(bytes),
+      {
+        offset,
+        ...(bytesPerRow === undefined ? {} : { bytesPerRow }),
+        ...(rowsPerImage === undefined ? {} : { rowsPerImage }),
+      },
+      size,
+    ],
+    queueWrapperAccess,
+  );
+  const queueWriteTextureInput = (convertedArguments) => Object.freeze({
+    operationId: queueWriteTextureOperationId,
+    wireId: queueWriteTextureRoute.wireId,
+    convertedArguments,
+    receiver: queueReceiver,
+    capturedScopeId: "2",
+    adapterOrdinal: "0",
+    deviceIngressOrdinal: "3",
+    queueIngressOrdinal: "5",
+    sealedLocalTimeline: Object.freeze([]),
+  });
+  const queueWriteTextureRequest = (id, options) => {
+    const codegenConverted = convertQueueWriteTexture(options);
+    const codegenBytes = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(queueWriteTextureInput(codegenConverted));
+    const productionConverted = convertQueueWriteTexture(options);
+    const productionBytes = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .encodeServiceRequest(queueWriteTextureInput(productionConverted));
+    if (toHex(codegenBytes) !== toHex(productionBytes)) {
+      fail(`${id} production and codegen request bytes differ`);
+    }
+    return Object.freeze({
+      id,
+      bytes: codegenBytes,
+      inspected: WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+        .inspectServiceRequest(codegenBytes),
+    });
+  };
+  const queueWriteTextureRequests = Object.freeze([
+    queueWriteTextureRequest("queue-write-texture-zero-byte-request", {
+      bytes: [],
+      size: { width: 0, height: 1, depthOrArrayLayers: 1 },
+    }),
+    queueWriteTextureRequest("queue-write-texture-row-request", {
+      bytes: Array.from({ length: 256 }, (_value, index) => index & 0xff),
+      bytesPerRow: 256,
+      rowsPerImage: 1,
+      size: { width: 1, height: 1, depthOrArrayLayers: 1 },
+    }),
+    queueWriteTextureRequest("queue-write-texture-iterable-shape-request", {
+      aspect: "depth-only",
+      bytes: [5, 6, 7, 8],
+      mipLevel: 2,
+      offset: 1,
+      origin: [1, 2, 3],
+      size: [1, 1, 1],
+    }),
+  ]);
+  const queueWriteTextureRequestById = new Map(
+    queueWriteTextureRequests.map((entry) => [entry.id, entry]),
+  );
+  const queueWriteTextureCarrier = Object.freeze({
+    ...queueWriteBufferCarrier,
+    operation_id: queueWriteTextureRoute.wireId,
+    operation_instance_id: "63",
+    queue_ingress_ordinal: "5",
+  });
+  const queueWriteTextureCompletionCarrier = (
+    providerAdmission,
+    physicalSequence,
+  ) => Object.freeze({
+    kind: 1,
+    record: Object.freeze({
+      operation_result: Object.freeze({
+        result_kind: 0,
+        status: 0,
+        operation: Object.freeze({
+          operation_id: queueWriteTextureCarrier.operation_id,
+          operation_instance_id:
+            queueWriteTextureCarrier.operation_instance_id,
+          promise_id: "0",
+          provider_admission: providerAdmission,
+          physical_sequence: physicalSequence,
+          captured_scope_id: queueWriteTextureCarrier.captured_scope_id,
+          adapter_ordinal: "0",
+          device_ingress_ordinal:
+            queueWriteTextureCarrier.device_ingress_ordinal,
+          queue_ingress_ordinal:
+            queueWriteTextureCarrier.queue_ingress_ordinal,
+          device_transition: 0,
+          ingress_device: queueWriteTextureCarrier.ingress_device,
+          result_device: queueWriteTextureCarrier.ingress_device,
+          provider_generation: "9",
+          receiver: queueWriteTextureCarrier.receiver,
+          target: queueWriteTextureCarrier.target,
+        }),
+      }),
+    }),
+  });
+  const queueWriteTextureCompletionBytes = new Map(
+    ["later-predicate-rejection", "operation-success"].map((terminal) => [
+      terminal,
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+        queueWriteTextureOperationId,
+        { kind: "queue-write-texture", terminal },
+      ),
+    ]),
+  );
+  if (
+    [...queueWriteTextureCompletionBytes.values()].some(
+      (bytes) => bytes.byteLength !== 0,
+    )
+  ) {
+    fail("GPUQueue.writeTexture terminals must encode empty receipt payloads");
+  }
+  const queueWriteTexturePositive = queueWriteTextureRequestById.get(
+    "queue-write-texture-row-request",
+  ).bytes;
+  const queueWriteTextureSemanticRejections = Object.freeze([
+    {
+      id: "queue-write-texture-request-cross-device-rejected",
+      mutation: "destination-logical-device-id-differs",
+      bytes: mutatedBytes(
+        queueWriteTexturePositive,
+        (_bytes, view) => view.setUint32(103, 56, true),
+      ),
+    },
+    {
+      id: "queue-write-texture-request-cross-provider-rejected",
+      mutation: "destination-provider-generation-differs",
+      bytes: mutatedBytes(
+        queueWriteTexturePositive,
+        (_bytes, view) => view.setUint32(119, 10, true),
+      ),
+    },
+  ].map((entry) => Object.freeze({
+    ...entry,
+    inspected: WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      entry.bytes,
+    ),
+  })));
+  const queueWriteTextureBinaryRejections = Object.freeze([
+    {
+      id: "queue-write-texture-request-truncated-rejected",
+      mutation: "truncate-final-owned-byte",
+      bytes: queueWriteTexturePositive.slice(0, -1),
+    },
+    {
+      id: "queue-write-texture-request-trailing-byte-rejected",
+      mutation: "append-trailing-byte",
+      bytes: withTrailingByte(queueWriteTexturePositive),
+    },
+    {
+      id: "queue-write-texture-request-destination-kind-rejected",
+      mutation: "destination-kind-GPUDevice",
+      bytes: mutatedBytes(queueWriteTexturePositive, (bytes) => {
+        bytes[86] = WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUDevice;
+      }),
+    },
+    {
+      id: "queue-write-texture-request-origin-shape-rejected",
+      mutation: "origin-shape-tag-two",
+      bytes: mutatedBytes(queueWriteTexturePositive, (bytes) => {
+        bytes[143] = 2;
+      }),
+    },
+    {
+      id: "queue-write-texture-request-aspect-rejected",
+      mutation: "aspect-tag-three",
+      bytes: mutatedBytes(queueWriteTexturePositive, (bytes) => {
+        bytes[148] = 3;
+      }),
+    },
+    {
+      id: "queue-write-texture-request-layout-presence-rejected",
+      mutation: "bytes-per-row-absent-with-nonzero-value",
+      bytes: mutatedBytes(queueWriteTexturePositive, (bytes) => {
+        bytes[157] = 0;
+      }),
+    },
+    {
+      id: "queue-write-texture-request-extent-shape-rejected",
+      mutation: "extent-iterable-length-zero",
+      bytes: mutatedBytes(queueWriteTexturePositive, (bytes) => {
+        bytes[179] = 1;
+      }),
+    },
+    {
+      id: "queue-write-texture-request-unsafe-offset-rejected",
+      mutation: "data-layout-offset-over-js-safe-u64",
+      bytes: mutatedBytes(
+        queueWriteTexturePositive,
+        (_bytes, view) => view.setUint32(153, 0x0020_0000, true),
+      ),
+    },
+    {
+      id: "queue-write-texture-request-owned-byte-bound-rejected",
+      mutation: "owned-byte-length-exact-bound-plus-one",
+      bytes: mutatedBytes(
+        queueWriteTexturePositive,
+        (_bytes, view) => view.setUint32(184, 16_777_025, true),
+      ),
+    },
+  ]);
+  for (const rejection of queueWriteTextureBinaryRejections) {
+    let rejected = false;
+    try {
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(rejection.bytes);
+    } catch {
+      rejected = true;
+    }
+    if (!rejected) fail(`${rejection.id} did not fail closed`);
+  }
 
   const queueSubmitVariants = Object.freeze([
     "GPUCanvasContext.getCurrentTexture",
@@ -7642,7 +7920,7 @@ function buildCorpus() {
   return {
     schema: "ibex/webgpu-production-codec-corpus/2",
     disposition:
-      "generated-language-neutral-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
+      "generated-language-neutral-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
     supportClaim: "none",
     carrierProjectionScope:
       "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
@@ -8004,6 +8282,22 @@ function buildCorpus() {
           queueWriteBufferNativeRoute.completion.semanticTerminalMapping,
         bodySchema:
           queueWriteBufferNativeRoute.request.payload.fields.at(-1).type,
+        completionBodySchema: "empty",
+      },
+      {
+        operationId: queueWriteTextureOperationId,
+        wireId: queueWriteTextureRoute.wireId,
+        nativeCodecProgramSchema:
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.schema,
+        requestCodec: queueWriteTextureRequestCodec.tag,
+        requestCodecTag: queueWriteTextureRequestCodec.wireTag,
+        completionCodec: queueWriteTextureCompletionCodec.tag,
+        completionCodecTag: queueWriteTextureCompletionCodec.wireTag,
+        productionExecutableFromCurrentAuthenticatedInputs: true,
+        semanticTerminalMapping:
+          queueWriteTextureNativeRoute.completion.semanticTerminalMapping,
+        bodySchema:
+          queueWriteTextureNativeRoute.request.payload.fields.at(-1).type,
         completionBodySchema: "empty",
       },
       {
@@ -8816,6 +9110,62 @@ function buildCorpus() {
           rejection: "fail-closed-before-provider-or-wrapper-exposure",
         },
       })),
+      ...queueWriteTextureRequests.map((entry) => ({
+        id: entry.id,
+        operationId: queueWriteTextureOperationId,
+        kind: "request",
+        carrierProjection: queueWriteTextureCarrier,
+        trust:
+          "source-affine-queue-plus-full-untrusted-texture-provenance-and-one-whole-owned-snapshot-never-authority",
+        semanticOwner:
+          "native-queue-write-texture-semantic-service-before-provider-admission",
+        bytesHex: toHex(entry.bytes),
+        expected: entry.inspected,
+      })),
+      ...queueWriteTextureSemanticRejections.map((entry) => ({
+        id: entry.id,
+        operationId: queueWriteTextureOperationId,
+        kind: "semantic-rejection",
+        direction: "request",
+        mutation: entry.mutation,
+        carrierProjection: queueWriteTextureCarrier,
+        semanticTerminalId: "later-predicate-rejection",
+        firstFailingPredicate:
+          "queue.write-texture.destination-current-same-device",
+        bytesHex: toHex(entry.bytes),
+        expected: {
+          convertedArguments: entry.inspected.convertedArguments,
+          rejection: "device-timeline-validation-before-provider-admission",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        },
+      })),
+      ...[
+        ["later-predicate-rejection", 0, "0"],
+        ["operation-success", 1, "72"],
+      ].map(([terminal, providerAdmission, physicalSequence]) => ({
+        id: `queue-write-texture-${terminal}-result`,
+        operationId: queueWriteTextureOperationId,
+        kind: "result",
+        semanticTerminalId: terminal,
+        carrierProjection: queueWriteTextureCompletionCarrier(
+          providerAdmission,
+          physicalSequence,
+        ),
+        bytesHex: toHex(queueWriteTextureCompletionBytes.get(terminal)),
+        expected: { kind: "terminal-receipt", value: "undefined" },
+      })),
+      ...queueWriteTextureBinaryRejections.map((rejection) => ({
+        id: rejection.id,
+        operationId: queueWriteTextureOperationId,
+        kind: "binary-rejection",
+        direction: "request",
+        mutation: rejection.mutation,
+        bytesHex: toHex(rejection.bytes),
+        expected: {
+          rejection: "fail-closed-before-provider-or-wrapper-exposure",
+        },
+      })),
       ...queueSubmitRequests.map((entry) => ({
         id: entry.id,
         operationId: queueSubmitOperationId,
@@ -8879,6 +9229,26 @@ function buildCorpus() {
           physicalSequenceCount: 0,
         },
       })),
+      ...[
+        ["captured-scope", { captured_scope_id: "3" }],
+        ["device-ingress", { device_ingress_ordinal: "4" }],
+        ["queue-ingress", { queue_ingress_ordinal: "6" }],
+        ["receiver-generation", {
+          receiver: { ...queueWriteTextureCarrier.receiver, object_generation: "6" },
+        }],
+        ["provider-generation", { provider_generation: "10" }],
+      ].map(([join, carrierMutation]) => ({
+        id: `queue-write-texture-${join}-carrier-mismatch-rejected`,
+        operationId: queueWriteTextureOperationId,
+        kind: "carrier-join-rejection",
+        carrierProjection: queueWriteTextureCarrier,
+        carrierMutation,
+        expected: {
+          rejection: "authenticated-carrier-payload-join-mismatch",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        },
+      })),
     ],
   };
 }
@@ -8897,7 +9267,7 @@ function main() {
       );
     }
     console.log(
-      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createBindGroup 18-call/full-provenance-witness/structural/adversarial, createBindGroupLayout, createBuffer 21-call/accounting/adversarial, createPipelineLayout, createSampler four-call/accounting/adversarial, createTexture five-call/accounting/adversarial, createTextureView 25-call/8-class/device-and-canvas/origin-ordering/adversarial, createCommandEncoder, createShaderModule, device-destroy, GPUBuffer destroy/mapAsync/unmap, canvas configure/unconfigure/texture-destroy generation-and-origin/adversarial, GPUQueue.writeBuffer, and GPUQueue.submit 15-command-record/timeline/digest/adversarial payload-codegen vectors are fresh",
+      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createBindGroup 18-call/full-provenance-witness/structural/adversarial, createBindGroupLayout, createBuffer 21-call/accounting/adversarial, createPipelineLayout, createSampler four-call/accounting/adversarial, createTexture five-call/accounting/adversarial, createTextureView 25-call/8-class/device-and-canvas/origin-ordering/adversarial, createCommandEncoder, createShaderModule, device-destroy, GPUBuffer destroy/mapAsync/unmap, canvas configure/unconfigure/texture-destroy generation-and-origin/adversarial, GPUQueue.writeBuffer/writeTexture, and GPUQueue.submit 15-command-record/timeline/digest/adversarial payload-codegen vectors are fresh",
     );
     return;
   }
