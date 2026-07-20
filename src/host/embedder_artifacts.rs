@@ -1455,9 +1455,13 @@ mod tests {
             runtime: *mut HermesRuntimeOpaque,
             path: *const std::ffi::c_char,
         ) -> u32;
-        fn ibex_test_root_global_logical_path_unreachable(
+        fn ibex_test_root_global_logical_path_probe(
             runtime: *mut HermesRuntimeOpaque,
             path: *const std::ffi::c_char,
+            undefined_terminal_is_unreachable: u32,
+            out_last_resolved_segment: *mut u32,
+            out_first_blocked_segment: *mut u32,
+            out_boundary: *mut u32,
         ) -> u32;
         fn ibex_test_reset_exact_host_completion_observer();
         fn ibex_test_exact_host_completion_observation(
@@ -3578,15 +3582,58 @@ mod tests {
         }
         assert_eq!(routes_by_live_probe.len(), 9_749);
 
-        let logical_path_absent = |path: &str| {
+        let probe_logical_path = |path: &str, undefined_terminal_is_unreachable: bool| {
             let path_c = std::ffi::CString::new(path).unwrap();
-            unsafe { ibex_test_root_global_logical_path_absent(runtime, path_c.as_ptr()) == 1 }
+            let mut last_resolved_segment = u32::MAX;
+            let mut first_blocked_segment = u32::MAX;
+            let mut boundary = u32::MAX;
+            let unreachable = unsafe {
+                ibex_test_root_global_logical_path_probe(
+                    runtime,
+                    path_c.as_ptr(),
+                    u32::from(undefined_terminal_is_unreachable),
+                    &mut last_resolved_segment,
+                    &mut first_blocked_segment,
+                    &mut boundary,
+                )
+            } == 1;
+            if !unreachable {
+                return None;
+            }
+            let segments = path.split('.').collect::<Vec<_>>();
+            let segment = |index: u32| {
+                usize::try_from(index)
+                    .ok()
+                    .and_then(|index| segments.get(index))
+                    .copied()
+            };
+            let boundary_kind = match boundary {
+                1 => "missing-descriptor",
+                2 => "undefined-terminal-value",
+                _ => {
+                    panic!("unreachable logical path reported invalid boundary {boundary}: {path}")
+                }
+            };
+            Some(serde_json::json!({
+                "requestedPath": path,
+                "mode": if undefined_terminal_is_unreachable { "unreachable" } else { "absent" },
+                "boundaryKind": boundary_kind,
+                "lastResolvedSegmentIndex": if last_resolved_segment == u32::MAX {
+                    serde_json::Value::Null
+                } else {
+                    serde_json::json!(last_resolved_segment)
+                },
+                "lastResolvedSegment": segment(last_resolved_segment),
+                "firstBlockedSegmentIndex": first_blocked_segment,
+                "firstBlockedSegment": segment(first_blocked_segment),
+            }))
         };
-        let logical_path_unreachable = |path: &str| {
-            let path_c = std::ffi::CString::new(path).unwrap();
-            unsafe { ibex_test_root_global_logical_path_unreachable(runtime, path_c.as_ptr()) == 1 }
+        let probe_roots = |roots: &[&str]| {
+            roots
+                .iter()
+                .map(|root| probe_logical_path(root, false))
+                .collect::<Option<Vec<_>>>()
         };
-        let roots_absent = |roots: &[&str]| roots.iter().all(|root| logical_path_absent(root));
         let selected_startup_identities = [
             "startup:runtime-create",
             "startup:install-route:ex_hermes_create_impl->installRestrictedExactGlobals",
@@ -3598,61 +3645,107 @@ mod tests {
             "startup:script:<authenticated-restricted-exact-bundle>",
             "startup:evaluation:ex_hermes_run_restricted_exact_bundle:<authenticated-restricted-exact-bundle>",
         ];
-        let route_absent = |route_kind: &str, target: &str| -> bool {
+        let route_traversal = |route_kind: &str, target: &str| -> Option<serde_json::Value> {
             if target.is_empty() {
-                return false;
+                return None;
             }
-            match route_kind {
-                "descriptor-prefix" => logical_path_absent(target),
-                "restricted-module-resolution" | "restricted-loader-entry" => roots_absent(&[
-                    "require",
-                    "__exactResolveModule",
-                    "__exactResolveManifestBuiltinInternal",
-                    "__exactRegisterPackage",
-                ]),
-                "restricted-cli-entry" => {
-                    roots_absent(&["process", "Bun", "Deno", "Ibex", "require"])
-                }
-                "restricted-js-native-abi" => {
-                    roots_absent(&["__hostCall", "__hostCallAsync", "process", "require", "Bun"])
-                }
+            let boundary = match route_kind {
+                "descriptor-prefix" => serde_json::json!({
+                    "kind": "root-descriptor",
+                    "receipts": [probe_logical_path(target, false)?],
+                }),
+                "restricted-module-resolution" | "restricted-loader-entry" => serde_json::json!({
+                    "kind": "module-loader-roots",
+                    "receipts": probe_roots(&[
+                        "require",
+                        "__exactResolveModule",
+                        "__exactResolveManifestBuiltinInternal",
+                        "__exactRegisterPackage",
+                    ])?,
+                }),
+                "restricted-cli-entry" => serde_json::json!({
+                    "kind": "cli-ingress-roots",
+                    "receipts": probe_roots(&["process", "Bun", "Deno", "Ibex", "require"])?,
+                }),
+                "restricted-js-native-abi" => serde_json::json!({
+                    "kind": "javascript-native-abi-roots",
+                    "receipts": probe_roots(&[
+                        "__hostCall", "__hostCallAsync", "process", "require", "Bun",
+                    ])?,
+                }),
                 "restricted-callback-route" => {
-                    roots_absent(&[
+                    let receipts = probe_roots(&[
                         "__hostCall",
                         "__hostCallAsync",
                         "fetch",
                         "WebSocket",
                         "process",
-                    ]) && targets_consumed == 0
-                        && callbacks_queued == 0
-                        && callbacks_delivered == 0
+                    ])?;
+                    if targets_consumed != 0 || callbacks_queued != 0 || callbacks_delivered != 0 {
+                        return None;
+                    }
+                    serde_json::json!({
+                        "kind": "callback-producer-roots-and-slots",
+                        "receipts": receipts,
+                        "completionSlots": {
+                            "targetsConsumed": targets_consumed,
+                            "callbacksQueued": callbacks_queued,
+                            "callbacksDelivered": callbacks_delivered,
+                        },
+                    })
                 }
                 "restricted-startup-route" => {
-                    (unsafe { ibex_test_restricted_exact_conformance_trace(runtime) == 0x1ff })
-                        && !selected_startup_identities.contains(&target)
+                    let trace = unsafe { ibex_test_restricted_exact_conformance_trace(runtime) };
+                    if trace != 0x1ff || selected_startup_identities.contains(&target) {
+                        return None;
+                    }
+                    serde_json::json!({
+                        "kind": "startup-selection",
+                        "restrictedTrace": trace,
+                        "selected": false,
+                    })
                 }
                 "restricted-native-installer-route" => {
                     let name = target.strip_prefix("native-op:").unwrap_or(target);
                     let logical = name.strip_prefix("global:").unwrap_or(name);
                     if logical == "[[dynamic-table:native-global-name]]" {
-                        return (unsafe {
-                            ibex_test_restricted_exact_conformance_trace(runtime) == 0x1ff
-                        }) && roots_absent(&[
-                            "__hostCall",
-                            "__hostCallAsync",
-                            "__exactResolveModule",
-                            "process",
-                        ]);
+                        let trace =
+                            unsafe { ibex_test_restricted_exact_conformance_trace(runtime) };
+                        if trace != 0x1ff {
+                            return None;
+                        }
+                        return Some(serde_json::json!({
+                            "routeKind": route_kind,
+                            "exactTarget": target,
+                            "boundary": {
+                                "kind": "dynamic-native-installer-roots",
+                                "receipts": probe_roots(&[
+                                    "__hostCall", "__hostCallAsync", "__exactResolveModule", "process",
+                                ])?,
+                                "restrictedTrace": trace,
+                            },
+                        }));
                     }
                     let direct_probe = logical.starts_with("__")
                         || logical
                             .as_bytes()
                             .first()
                             .is_some_and(u8::is_ascii_alphabetic);
-                    direct_probe && logical_path_unreachable(logical)
+                    if !direct_probe {
+                        return None;
+                    }
+                    serde_json::json!({
+                        "kind": "native-logical-path",
+                        "receipts": [probe_logical_path(logical, true)?],
+                    })
                 }
-                _ => false,
-            }
+                _ => return None,
+            };
+            Some(serde_json::json!({
+                "routeKind": route_kind,
+                "exactTarget": target,
+                "boundary": boundary,
+            }))
         };
 
         let barrier_for = |kind: &str| match kind {
@@ -3749,12 +3842,15 @@ mod tests {
                     "live target is not an attacker root for {route_id}: {attacker_identity}"
                 );
             }
-            if !source_selection {
-                assert!(
-                    route_absent(route_kind, target),
-                    "target-specific live traversal did not fail {route_id}: {route_kind} {target}"
-                );
-            }
+            let actual_boundary_observation = if source_selection {
+                serde_json::Value::Null
+            } else {
+                route_traversal(route_kind, target).unwrap_or_else(|| {
+                    panic!(
+                        "target-specific live traversal did not fail {route_id}: {route_kind} {target}"
+                    )
+                })
+            };
             serde_json::json!({
                 "routeId": route_id,
                 "probeId": probe_id,
@@ -3763,6 +3859,7 @@ mod tests {
                 "branchId": route["branchId"],
                 "proofKind": if source_selection { "source-selection" } else { "live-reachability" },
                 "cutsetObservations": cutset_observations,
+                "actualBoundaryObservation": actual_boundary_observation,
                 "lastObservedNode": path[path.len() - 3],
                 "blockedEdge": {
                     "from": path[path.len() - 3],

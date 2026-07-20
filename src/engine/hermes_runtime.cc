@@ -6834,57 +6834,89 @@ static facebook::jsi::Value findRootGlobalDescriptorWithoutGet(
   throw std::runtime_error("root-global prototype depth budget exceeded");
 }
 
-static bool rootGlobalLogicalPathAbsent(
+enum class RootGlobalProbeBoundary : uint32_t {
+  Present = 0,
+  MissingDescriptor = 1,
+  UndefinedTerminalValue = 2,
+  RefusedDynamicSegment = 3,
+  RefusedAccessorOrPrimitive = 4,
+  Invalid = 5,
+};
+
+struct RootGlobalProbeResult {
+  bool unreachable{false};
+  uint32_t last_resolved_segment{UINT32_MAX};
+  uint32_t first_blocked_segment{UINT32_MAX};
+  RootGlobalProbeBoundary boundary{RootGlobalProbeBoundary::Invalid};
+};
+
+static RootGlobalProbeResult probeRootGlobalLogicalPath(
     ExactHermesRuntime* handle,
-    const std::string& path) {
+    const std::string& path,
+    bool undefined_terminal_is_unreachable) {
   auto& rt = *handle->runtime;
   const auto segments = splitRootGlobalLogicalPath(path);
-  if (segments.empty()) return false;
+  if (segments.empty()) return {};
   auto current = facebook::jsi::Value(rt, rt.global()).asObject(rt);
   for (size_t index = 0; index < segments.size(); ++index) {
     if (segments[index].empty() || segments[index].rfind("[[", 0) == 0) {
-      return false;
+      return {
+          false,
+          index == 0 ? UINT32_MAX : static_cast<uint32_t>(index - 1),
+          static_cast<uint32_t>(index),
+          RootGlobalProbeBoundary::RefusedDynamicSegment,
+      };
     }
     auto descriptor =
         findRootGlobalDescriptorWithoutGet(handle, current, segments[index]);
-    if (descriptor.isUndefined()) return true;
-    if (index + 1 == segments.size()) return false;
+    if (descriptor.isUndefined()) {
+      return {
+          true,
+          index == 0 ? UINT32_MAX : static_cast<uint32_t>(index - 1),
+          static_cast<uint32_t>(index),
+          RootGlobalProbeBoundary::MissingDescriptor,
+      };
+    }
     auto descriptorObject = descriptor.asObject(rt);
     auto value = rootGlobalDescriptorField(
         handle, descriptorObject, "value");
+    if (index + 1 == segments.size()) {
+      return {
+          undefined_terminal_is_unreachable && value.isUndefined(),
+          static_cast<uint32_t>(index),
+          undefined_terminal_is_unreachable && value.isUndefined()
+              ? static_cast<uint32_t>(index)
+              : UINT32_MAX,
+          undefined_terminal_is_unreachable && value.isUndefined()
+              ? RootGlobalProbeBoundary::UndefinedTerminalValue
+              : RootGlobalProbeBoundary::Present,
+      };
+    }
     if (!value.isObject()) {
       // An accessor would have to be invoked to continue. Refuse rather than
       // treating an uninspectable reachable branch as absent.
-      return false;
+      return {
+          false,
+          static_cast<uint32_t>(index),
+          static_cast<uint32_t>(index + 1),
+          RootGlobalProbeBoundary::RefusedAccessorOrPrimitive,
+      };
     }
     current = value.asObject(rt);
   }
-  return false;
+  return {};
+}
+
+static bool rootGlobalLogicalPathAbsent(
+    ExactHermesRuntime* handle,
+    const std::string& path) {
+  return probeRootGlobalLogicalPath(handle, path, false).unreachable;
 }
 
 static bool rootGlobalLogicalPathUnreachable(
     ExactHermesRuntime* handle,
     const std::string& path) {
-  auto& rt = *handle->runtime;
-  const auto segments = splitRootGlobalLogicalPath(path);
-  if (segments.empty()) return false;
-  auto current = facebook::jsi::Value(rt, rt.global()).asObject(rt);
-  for (size_t index = 0; index < segments.size(); ++index) {
-    if (segments[index].empty() || segments[index].rfind("[[", 0) == 0) {
-      return false;
-    }
-    auto descriptor =
-        findRootGlobalDescriptorWithoutGet(handle, current, segments[index]);
-    if (descriptor.isUndefined()) return true;
-    auto descriptorObject = descriptor.asObject(rt);
-    auto value = rootGlobalDescriptorField(handle, descriptorObject, "value");
-    if (index + 1 == segments.size()) {
-      return value.isUndefined();
-    }
-    if (!value.isObject()) return false;
-    current = value.asObject(rt);
-  }
-  return false;
+  return probeRootGlobalLogicalPath(handle, path, true).unreachable;
 }
 
 #ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
@@ -6913,6 +6945,32 @@ extern "C" uint32_t ibex_test_root_global_logical_path_unreachable(
   }
   try {
     return rootGlobalLogicalPathUnreachable(handle, path) ? 1 : 0;
+  } catch (...) {
+    return 0;
+  }
+}
+
+extern "C" uint32_t ibex_test_root_global_logical_path_probe(
+    ExactHermesRuntime* handle,
+    const char* path,
+    uint32_t undefined_terminal_is_unreachable,
+    uint32_t* out_last_resolved_segment,
+    uint32_t* out_first_blocked_segment,
+    uint32_t* out_boundary) {
+  if (handle == nullptr || !handle->runtime || path == nullptr ||
+      out_last_resolved_segment == nullptr ||
+      out_first_blocked_segment == nullptr || out_boundary == nullptr ||
+      !handle->root_global_get_own_property_descriptor ||
+      !handle->root_global_get_prototype_of) {
+    return 0;
+  }
+  try {
+    const auto result = probeRootGlobalLogicalPath(
+        handle, path, undefined_terminal_is_unreachable != 0);
+    *out_last_resolved_segment = result.last_resolved_segment;
+    *out_first_blocked_segment = result.first_blocked_segment;
+    *out_boundary = static_cast<uint32_t>(result.boundary);
+    return result.unreachable ? 1 : 0;
   } catch (...) {
     return 0;
   }
