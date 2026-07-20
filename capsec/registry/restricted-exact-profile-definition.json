@@ -39,6 +39,84 @@
       "reason": "runtime-generation-scoped completion delivery is part of the endowed Contract path"
     },
     {
+      "edgeId": "surface.native.op.global.arraybuffer.0h54i6m",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:ArrayBuffer",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: ArrayBuffer"
+    },
+    {
+      "edgeId": "surface.native.op.global.atob.1yozrfz",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:atob",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: atob"
+    },
+    {
+      "edgeId": "surface.native.op.global.bigint64array.1hpbzur",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:BigInt64Array",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: BigInt64Array"
+    },
+    {
+      "edgeId": "surface.native.op.global.bigint64array.constructor.0nec50d",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:BigInt64Array.constructor",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: BigInt64Array.constructor"
+    },
+    {
+      "edgeId": "surface.native.op.global.bigint64array.name.1bbf044",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:BigInt64Array.name",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: BigInt64Array.name"
+    },
+    {
+      "edgeId": "surface.native.op.global.bigint64array.prototype.03jpbvv",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:BigInt64Array.prototype",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: BigInt64Array.prototype"
+    },
+    {
+      "edgeId": "surface.native.op.global.bigint64array.prototype.subarray.0fj696w",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:BigInt64Array.prototype.subarray",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: BigInt64Array.prototype.subarray"
+    },
+    {
+      "edgeId": "surface.native.op.global.biguint64array.0l9rpzi",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:BigUint64Array",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: BigUint64Array"
+    },
+    {
+      "edgeId": "surface.native.op.global.biguint64array.constructor.1rqg3uc",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:BigUint64Array.constructor",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: BigUint64Array.constructor"
+    },
+    {
+      "edgeId": "surface.native.op.global.biguint64array.name.163hdwj",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:BigUint64Array.name",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: BigUint64Array.name"
+    },
+    {
+      "edgeId": "surface.native.op.global.biguint64array.prototype.1w2isty",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:BigUint64Array.prototype",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: BigUint64Array.prototype"
+    },
+    {
+      "edgeId": "surface.native.op.global.biguint64array.prototype.subarray.039hdiz",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:BigUint64Array.prototype.subarray",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: BigUint64Array.prototype.subarray"
+    },
+    {
+      "edgeId": "surface.native.op.global.btoa.1ypofkh",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:btoa",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: btoa"
+    },
+    {
       "edgeId": "surface.native.op.global.clearinterval.11pm3v5",
       "surfaceKind": "native-op",
       "surfaceName": "global:clearInterval",
@@ -51,10 +129,40 @@
       "reason": "Contract tasks may cancel an activation-owned timeout"
     },
     {
+      "edgeId": "surface.native.op.global.dataview.03p397u",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:DataView",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: DataView"
+    },
+    {
+      "edgeId": "surface.native.op.global.dataview.constructor.1clrhqg",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:DataView.constructor",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: DataView.constructor"
+    },
+    {
+      "edgeId": "surface.native.op.global.dataview.name.0llyafb",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:DataView.name",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: DataView.name"
+    },
+    {
+      "edgeId": "surface.native.op.global.dataview.prototype.08nl2ua",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:DataView.prototype",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: DataView.prototype"
+    },
+    {
       "edgeId": "surface.native.op.global.date.1c0a19v",
       "surfaceKind": "native-op",
       "surfaceName": "global:Date",
       "reason": "the restricted constructor replaces Date with the injected deterministic wall clock"
+    },
+    {
+      "edgeId": "surface.native.op.global.date.constructor.03hdgjx",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Date.constructor",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Date.constructor"
     },
     {
       "edgeId": "surface.native.op.global.eval.018ogi5",
@@ -93,10 +201,316 @@
       "reason": "the authenticated activation checkpoint is exposed exactly once as copied bytes"
     },
     {
+      "edgeId": "surface.native.op.global.float32array.0z8utsv",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Float32Array",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Float32Array"
+    },
+    {
+      "edgeId": "surface.native.op.global.float32array.constructor.11fgwj5",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Float32Array.constructor",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Float32Array.constructor"
+    },
+    {
+      "edgeId": "surface.native.op.global.float32array.name.0lwb6lk",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Float32Array.name",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Float32Array.name"
+    },
+    {
+      "edgeId": "surface.native.op.global.float32array.prototype.1hwtmuv",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Float32Array.prototype",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Float32Array.prototype"
+    },
+    {
+      "edgeId": "surface.native.op.global.float32array.prototype.subarray.130qf9o",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Float32Array.prototype.subarray",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Float32Array.prototype.subarray"
+    },
+    {
+      "edgeId": "surface.native.op.global.float64array.1fmv40q",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Float64Array",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Float64Array"
+    },
+    {
+      "edgeId": "surface.native.op.global.float64array.constructor.0cr275k",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Float64Array.constructor",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Float64Array.constructor"
+    },
+    {
+      "edgeId": "surface.native.op.global.float64array.name.151nkk7",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Float64Array.name",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Float64Array.name"
+    },
+    {
+      "edgeId": "surface.native.op.global.float64array.prototype.1p9d7f6",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Float64Array.prototype",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Float64Array.prototype"
+    },
+    {
+      "edgeId": "surface.native.op.global.float64array.prototype.subarray.19ash6n",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Float64Array.prototype.subarray",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Float64Array.prototype.subarray"
+    },
+    {
       "edgeId": "surface.native.op.global.function.132ixh3",
       "surfaceKind": "native-op",
       "surfaceName": "global:Function",
       "reason": "Function remains observable only as an immutable throwing sentinel"
+    },
+    {
+      "edgeId": "surface.native.op.global.int16array.0d5ap9g",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Int16Array",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Int16Array"
+    },
+    {
+      "edgeId": "surface.native.op.global.int16array.constructor.1bdr0se",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Int16Array.constructor",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Int16Array.constructor"
+    },
+    {
+      "edgeId": "surface.native.op.global.int16array.name.0tgxqzh",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Int16Array.name",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Int16Array.name"
+    },
+    {
+      "edgeId": "surface.native.op.global.int16array.prototype.0sc3jsc",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Int16Array.prototype",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Int16Array.prototype"
+    },
+    {
+      "edgeId": "surface.native.op.global.int16array.prototype.subarray.0b4d2l5",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Int16Array.prototype.subarray",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Int16Array.prototype.subarray"
+    },
+    {
+      "edgeId": "surface.native.op.global.int32array.10f25eq",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Int32Array",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Int32Array"
+    },
+    {
+      "edgeId": "surface.native.op.global.int32array.constructor.14dayyo",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Int32Array.constructor",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Int32Array.constructor"
+    },
+    {
+      "edgeId": "surface.native.op.global.int32array.name.1h9yyqn",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Int32Array.name",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Int32Array.name"
+    },
+    {
+      "edgeId": "surface.native.op.global.int32array.prototype.0fjtcbe",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Int32Array.prototype",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Int32Array.prototype"
+    },
+    {
+      "edgeId": "surface.native.op.global.int32array.prototype.subarray.142eftj",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Int32Array.prototype.subarray",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Int32Array.prototype.subarray"
+    },
+    {
+      "edgeId": "surface.native.op.global.int8array.1nflbr1",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Int8Array",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Int8Array"
+    },
+    {
+      "edgeId": "surface.native.op.global.int8array.constructor.0mk4vcb",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Int8Array.constructor",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Int8Array.constructor"
+    },
+    {
+      "edgeId": "surface.native.op.global.int8array.name.197xf7m",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Int8Array.name",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Int8Array.name"
+    },
+    {
+      "edgeId": "surface.native.op.global.int8array.prototype.0a76gh9",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Int8Array.prototype",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Int8Array.prototype"
+    },
+    {
+      "edgeId": "surface.native.op.global.int8array.prototype.subarray.0lap2ky",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Int8Array.prototype.subarray",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Int8Array.prototype.subarray"
+    },
+    {
+      "edgeId": "surface.native.op.global.intl.0hl0zz0",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Intl",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Intl"
+    },
+    {
+      "edgeId": "surface.native.op.global.intl.collator.076ubos",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Intl.Collator",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Intl.Collator"
+    },
+    {
+      "edgeId": "surface.native.op.global.intl.collator.supportedlocalesof.1w93zle",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Intl.Collator.supportedLocalesOf",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Intl.Collator.supportedLocalesOf"
+    },
+    {
+      "edgeId": "surface.native.op.global.intl.datetimeformat.1ktia18",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Intl.DateTimeFormat",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Intl.DateTimeFormat"
+    },
+    {
+      "edgeId": "surface.native.op.global.intl.datetimeformat.prototype.1axm3p0",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Intl.DateTimeFormat.prototype",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Intl.DateTimeFormat.prototype"
+    },
+    {
+      "edgeId": "surface.native.op.global.intl.datetimeformat.prototype.formattoparts.0aifx0u",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Intl.DateTimeFormat.prototype.formatToParts",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Intl.DateTimeFormat.prototype.formatToParts"
+    },
+    {
+      "edgeId": "surface.native.op.global.intl.getcanonicallocales.0aoj0pj",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Intl.getCanonicalLocales",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Intl.getCanonicalLocales"
+    },
+    {
+      "edgeId": "surface.native.op.global.intl.numberformat.1x12218",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Intl.NumberFormat",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Intl.NumberFormat"
+    },
+    {
+      "edgeId": "surface.native.op.global.intl.numberformat.prototype.019kzas",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Intl.NumberFormat.prototype",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Intl.NumberFormat.prototype"
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.06iood9",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Iterator",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Iterator"
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.from.1rt6am9",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Iterator.from",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Iterator.from"
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.1up55ot",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Iterator.prototype",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Iterator.prototype"
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.constructor.0cxws1n",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Iterator.prototype.constructor",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Iterator.prototype.constructor"
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.drop.1nnmfgw",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Iterator.prototype.drop",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Iterator.prototype.drop"
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.every.0p665yw",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Iterator.prototype.every",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Iterator.prototype.every"
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.filter.1wb0por",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Iterator.prototype.filter",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Iterator.prototype.filter"
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.find.0i7f2h2",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Iterator.prototype.find",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Iterator.prototype.find"
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.flatmap.1mm2l6o",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Iterator.prototype.flatMap",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Iterator.prototype.flatMap"
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.foreach.11c24zx",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Iterator.prototype.forEach",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Iterator.prototype.forEach"
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.map.19jd4t1",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Iterator.prototype.map",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Iterator.prototype.map"
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.reduce.0lxpajv",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Iterator.prototype.reduce",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Iterator.prototype.reduce"
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.some.1513jst",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Iterator.prototype.some",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Iterator.prototype.some"
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.symbol.iterator.0k8w72b",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Iterator.prototype.[[Symbol.iterator]]",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Iterator.prototype.[[Symbol.iterator]]"
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.symbol.tostringtag.0qheaf3",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Iterator.prototype.[[Symbol.toStringTag]]",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Iterator.prototype.[[Symbol.toStringTag]]"
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.take.0m65296",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Iterator.prototype.take",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Iterator.prototype.take"
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.toarray.1rlnqf9",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Iterator.prototype.toArray",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Iterator.prototype.toArray"
     },
     {
       "edgeId": "surface.native.op.global.performance.19v50zv",
@@ -117,6 +531,42 @@
       "reason": "the initial restricted profile exposes a deterministic zero time origin"
     },
     {
+      "edgeId": "surface.native.op.global.promise.0kct1tg",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Promise",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Promise"
+    },
+    {
+      "edgeId": "surface.native.op.global.promise.prototype.1nw4n0c",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Promise.prototype",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Promise.prototype"
+    },
+    {
+      "edgeId": "surface.native.op.global.promise.prototype.catch.1rwe3ft",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Promise.prototype.catch",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Promise.prototype.catch"
+    },
+    {
+      "edgeId": "surface.native.op.global.promise.prototype.finally.0hjpugp",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Promise.prototype.finally",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Promise.prototype.finally"
+    },
+    {
+      "edgeId": "surface.native.op.global.promise.prototype.then.1iduah5",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Promise.prototype.then",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Promise.prototype.then"
+    },
+    {
+      "edgeId": "surface.native.op.global.promise.reject.1q6aai5",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Promise.reject",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Promise.reject"
+    },
+    {
       "edgeId": "surface.native.op.global.queuemicrotask.1gw3ql3",
       "surfaceKind": "native-op",
       "surfaceName": "global:queueMicrotask",
@@ -133,6 +583,144 @@
       "surfaceKind": "native-op",
       "surfaceName": "global:setTimeout",
       "reason": "Contract tasks may schedule activation-owned timeout work"
+    },
+    {
+      "edgeId": "surface.native.op.global.textdecoder.1r6q6sw",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:TextDecoder",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: TextDecoder"
+    },
+    {
+      "edgeId": "surface.native.op.global.textdecoder.prototype.1s6uc3c",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:TextDecoder.prototype",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: TextDecoder.prototype"
+    },
+    {
+      "edgeId": "surface.native.op.global.textencoder.16hxqtk",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:TextEncoder",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: TextEncoder"
+    },
+    {
+      "edgeId": "surface.native.op.global.uint16array.08pdnld",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Uint16Array",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Uint16Array"
+    },
+    {
+      "edgeId": "surface.native.op.global.uint16array.constructor.10xhnxz",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Uint16Array.constructor",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Uint16Array.constructor"
+    },
+    {
+      "edgeId": "surface.native.op.global.uint16array.name.0fmcx1q",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Uint16Array.name",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Uint16Array.name"
+    },
+    {
+      "edgeId": "surface.native.op.global.uint16array.prototype.0ikdmzl",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Uint16Array.prototype",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Uint16Array.prototype"
+    },
+    {
+      "edgeId": "surface.native.op.global.uint16array.prototype.subarray.0nblen2",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Uint16Array.prototype.subarray",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Uint16Array.prototype.subarray"
+    },
+    {
+      "edgeId": "surface.native.op.global.uint32array.173qiff",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Uint32Array",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Uint32Array"
+    },
+    {
+      "edgeId": "surface.native.op.global.uint32array.constructor.0j1n5qd",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Uint32Array.constructor",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Uint32Array.constructor"
+    },
+    {
+      "edgeId": "surface.native.op.global.uint32array.name.0igg6t8",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Uint32Array.name",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Uint32Array.name"
+    },
+    {
+      "edgeId": "surface.native.op.global.uint32array.prototype.1gdw8b7",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Uint32Array.prototype",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Uint32Array.prototype"
+    },
+    {
+      "edgeId": "surface.native.op.global.uint32array.prototype.subarray.1fmi4ps",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Uint32Array.prototype.subarray",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Uint32Array.prototype.subarray"
+    },
+    {
+      "edgeId": "surface.native.op.global.uint8array.1jktj5a",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Uint8Array",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Uint8Array"
+    },
+    {
+      "edgeId": "surface.native.op.global.uint8array.constructor.0pmh7f8",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Uint8Array.constructor",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Uint8Array.constructor"
+    },
+    {
+      "edgeId": "surface.native.op.global.uint8array.name.16s5ojn",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Uint8Array.name",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Uint8Array.name"
+    },
+    {
+      "edgeId": "surface.native.op.global.uint8array.prototype.1917mc6",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Uint8Array.prototype",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Uint8Array.prototype"
+    },
+    {
+      "edgeId": "surface.native.op.global.uint8array.prototype.subarray.0dvl28r",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Uint8Array.prototype.subarray",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Uint8Array.prototype.subarray"
+    },
+    {
+      "edgeId": "surface.native.op.global.uint8clampedarray.0hmsx0m",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Uint8ClampedArray",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Uint8ClampedArray"
+    },
+    {
+      "edgeId": "surface.native.op.global.uint8clampedarray.constructor.0lce1bg",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Uint8ClampedArray.constructor",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Uint8ClampedArray.constructor"
+    },
+    {
+      "edgeId": "surface.native.op.global.uint8clampedarray.name.1d6hmgr",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Uint8ClampedArray.name",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Uint8ClampedArray.name"
+    },
+    {
+      "edgeId": "surface.native.op.global.uint8clampedarray.prototype.0ck6y0e",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Uint8ClampedArray.prototype",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Uint8ClampedArray.prototype"
+    },
+    {
+      "edgeId": "surface.native.op.global.uint8clampedarray.prototype.subarray.0fsq9z7",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Uint8ClampedArray.prototype.subarray",
+      "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Uint8ClampedArray.prototype.subarray"
     },
     {
       "edgeId": "surface.native.op.ibexlockeddown.1l9g3ta",

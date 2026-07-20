@@ -1446,6 +1446,10 @@ mod tests {
             payload_json: *const std::ffi::c_char,
         ) -> i32;
         fn ex_hermes_poll(runtime: *mut HermesRuntimeOpaque, now_ms: u64) -> i32;
+        fn ibex_test_root_global_logical_path_absent(
+            runtime: *mut HermesRuntimeOpaque,
+            path: *const std::ffi::c_char,
+        ) -> u32;
         fn ex_hermes_free_string(value: *mut std::ffi::c_char);
         fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
     }
@@ -2344,6 +2348,85 @@ mod tests {
             ex_hermes_free_string(eval_error);
             ex_hermes_destroy(runtime);
         }
+    }
+
+    #[test]
+    fn restricted_exact_structural_absences_match_live_root_reachability() {
+        let _guard = crate::host::abi::host_test_lock();
+        if crate::engine::loaded_engine_structural_features()
+            != [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown",
+            ]
+        {
+            return;
+        }
+
+        let bundle = br#"(() => {
+          exact.takeCheckpointBytes();
+          exact.publishCheckpoint(new Uint8Array([0]));
+        })();"#;
+        let (runtime, _dispatch, _checkpoints) =
+            unsafe { configured_restricted_exact_runtime(bundle) };
+        let root_manifest: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/generated/root-global-disposition-manifest.json"
+        )))
+        .unwrap();
+        let projection: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/generated/restricted-exact-profile-projection.json"
+        )))
+        .unwrap();
+        let dispositions = projection["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                let row = row.as_array().unwrap();
+                (
+                    row[0].as_str().unwrap().to_owned(),
+                    row[1].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+
+        let mut reachable_paths = std::collections::BTreeMap::<String, Vec<String>>::new();
+        for row in root_manifest["rows"].as_array().unwrap() {
+            let root = &row["property"]["root"];
+            if root["kind"].as_str() != Some("string") {
+                continue;
+            }
+            let mut segments = vec![root["value"].as_str().unwrap().to_owned()];
+            for segment in row["property"]["path"].as_array().unwrap() {
+                if segment["kind"].as_str() != Some("string") {
+                    break;
+                }
+                segments.push(segment["value"].as_str().unwrap().to_owned());
+            }
+            let path = segments.join(".");
+            let path_c = std::ffi::CString::new(path.as_str()).unwrap();
+            if unsafe { ibex_test_root_global_logical_path_absent(runtime, path_c.as_ptr()) } == 0 {
+                reachable_paths
+                    .entry(row["registryEdgeId"].as_str().unwrap().to_owned())
+                    .or_default()
+                    .push(path);
+            }
+        }
+        unsafe { ex_hermes_destroy(runtime) };
+
+        let mismatches = reachable_paths
+            .into_iter()
+            .filter(|(edge_id, _)| {
+                dispositions.get(edge_id).map(String::as_str) == Some("structurally-absent")
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert!(
+            mismatches.is_empty(),
+            "restricted Exact projection marks live root paths structurally absent:\n{}",
+            serde_json::to_string_pretty(&mismatches).unwrap()
+        );
     }
 
     #[test]

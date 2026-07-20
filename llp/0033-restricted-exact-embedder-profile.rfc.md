@@ -5,7 +5,11 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-19 (r11 — removes two temporary bootstrap globals by
+**Revised:** 2026-07-19 (r12 — adds an exact-engine descriptor reachability
+gate, reclassifies baseline Hermes intrinsic/root paths that the first
+Ibex-only projection incorrectly called absent, and removes the native `gc`
+and `print` authority channels, yielding 126 reachable and 7,152 candidate
+structural absences; r11 — removes two temporary bootstrap globals by
 passing deterministic clock/RNG functions directly into the lockdown factory,
 leaving a 7,300-edge projection with 7,250 structural absences; r10 — refreshes the implementation-status inventory
 after the current-main registry integration and records the reviewed VS 2026
@@ -336,8 +340,8 @@ empty.
 Implementation status (2026-07-19): the additive definition, projection, and
 advertisement schemas and their non-writing drift gate are implemented. The
 authored definition pins the exact 7,300-edge full-registry set and binds each
-of 28 candidate reachable and 22 trusted-control-plane rows to its
-source-derived kind and name; the remaining 7,250 rows are candidate
+of 126 candidate reachable and 22 trusted-control-plane rows to its
+source-derived kind and name; the remaining 7,152 rows are candidate
 structural absences whose source-install and live-reachability evidence is
 explicitly pending. The projection also binds the raw definition, coverage,
 implementation-manifest, and three profile-schema byte digests. Six mutation

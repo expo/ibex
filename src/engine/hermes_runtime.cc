@@ -4127,7 +4127,7 @@ void installRestrictedExactGlobals(struct ExactHermesRuntime* handle) {
       Object.defineProperty(g, 'eval', {value: denied, writable: false, configurable: false});
       Object.defineProperty(g, 'Function', {value: denied, writable: false, configurable: false});
       for (const name of [
-        'require', 'process', 'Bun', 'Deno', 'Ibex', 'Exact', 'fetch',
+        'require', 'process', 'Bun', 'Deno', 'Ibex', 'Exact', 'fetch', 'gc',
         'WebSocket', 'XMLHttpRequest', 'WebAssembly', 'SharedArrayBuffer',
         'Atomics', '__hostCall', '__hostCallAsync', '__compartments',
         '__exactCapabilityCheck', '__exactGetEnv', '__exactResolveModule',
@@ -4136,7 +4136,7 @@ void installRestrictedExactGlobals(struct ExactHermesRuntime* handle) {
         '__exactGrantCapability', '__exactCheckImport',
         '__exactSetCompartmentFor', '__exactEnsureFs', '__exactEnsureHttp',
         '__exactEnsureSqlite', '__exactEnsureDns',
-        '__exactEnsureChildProcess', '__exactEnsureNet'
+        '__exactEnsureChildProcess', '__exactEnsureNet', 'print'
       ]) {
         try { delete g[name]; } catch (_) {}
       }
@@ -7401,8 +7401,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(
       return nullptr;
     }
   }
-  if (profile == RuntimeProfile::FullArmed &&
-      !captureRootGlobalDispositionIntrinsics(handle)) {
+  if (armed && !captureRootGlobalDispositionIntrinsics(handle)) {
     ex_host_console_log(
         1,
         "Armed startup refused: could not capture pristine root-global reflection intrinsics");
