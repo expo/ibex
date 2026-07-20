@@ -1572,6 +1572,7 @@ impl SharedRuntime {
         Ok(())
     }
 
+    #[cfg(feature = "module-runner")]
     fn ensure_module_generation_pinned(&self, nonce: u64, generation: u64) -> Result<()> {
         let pinned = self.module_generation_pinned.load(Ordering::Acquire);
         if pinned != 0 {

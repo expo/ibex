@@ -1893,9 +1893,12 @@ Windows no longer has to rely on the historical unpatched NuGet artifact. Its
 installer now fetches the exact commit-plus-patch-digest Release bundle and
 falls back to the same source build; the artifact manifest binds commit, patch
 digest, architecture, configuration, debugger state, and DLL digest. At
-runtime, the C++ bridge independently locates the loader-reported pathname for
-the DLL containing `makeHermesRuntime`; Rust reopens that pathname and compares
-its Windows volume serial/file index with the pinned file used for hashing.
+runtime, the C++ bridge snapshots the loader module set, requires exactly one
+loaded module with the authored `hermesvm.dll` basename, pins that module by
+its mapped base address, and obtains its loader-reported pathname. This avoids
+both an executable-side MSVC import thunk and ambiguous basename lookup. Rust
+reopens that pathname and compares its Windows volume serial/file index with
+the pinned file used for hashing.
 That detects ordinary named-file substitution, but it does not authenticate
 the already mapped image section: a post-load replacement can make both file
 handles identify different bytes from the code supplying the running process.
