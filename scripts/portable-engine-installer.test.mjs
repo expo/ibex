@@ -24,8 +24,13 @@ import {
 import { deriveReviewedSourceAuthorities } from "./package-portable-hermes-macos.mjs";
 import {
   buildFixedVerifierExpectations,
+  detectMacOsExtendedAcl,
   installPortableEngine,
   verifyPortableEngineStore,
+} from "./portable-engine-installer-test-harness.mjs";
+import {
+  installPortableEngine as installPortableEngineProduction,
+  verifyPortableEngineStore as verifyPortableEngineStoreProduction,
 } from "./portable-engine-installer.mjs";
 
 const sourceRepo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -458,6 +463,14 @@ async function createCase(fixture = buildFixture()) {
   return { root, repoRoot, archivePath, bundlePath, fixture };
 }
 
+async function lstatKind(filePath) {
+  const status = await fsp.lstat(filePath);
+  if (status.isSymbolicLink()) return "symlink";
+  if (status.isDirectory()) return "directory";
+  if (status.isFile()) return "regular";
+  return "special";
+}
+
 function mockVerificationResult({ archivePath, bundlePath, expectations, expectationsBytes }) {
   const archive = fs.readFileSync(archivePath);
   const bundle = fs.readFileSync(bundlePath);
@@ -526,7 +539,9 @@ describe("portable engine installer core", () => {
     assert.equal(result.installed, true);
     assert.equal(result.diagnosticOnly, true);
     assert.equal(result.manifest.artifactId, testCase.fixture.manifest.artifactId);
-    assert.equal(result.artifactRoot, path.join(await fsp.realpath(testCase.repoRoot), "target", "hermes-artifacts", result.manifest.artifactId));
+    assert.equal(result.artifactRoot, path.join(await fsp.realpath(testCase.repoRoot), "target", "hermes-artifacts-test-only", result.manifest.artifactId));
+    assert.equal(result.transport.receipt.schema, "ibex/test-only-portable-engine-installation-receipt/1");
+    await assert.rejects(() => fsp.lstat(path.join(testCase.repoRoot, "target", "hermes-artifacts")), { code: "ENOENT" });
     const repeated = await installCase(testCase);
     assert.equal(repeated.installed, false);
     const verified = await verifyPortableEngineStore({
@@ -558,6 +573,59 @@ describe("portable engine installer core", () => {
     assert.equal(second.transport.receipt.archiveDigest, rawDigest(alternateArchive));
     const transportRoot = path.join(first.artifactRoot, "LOCAL", "transport");
     assert.deepEqual((await fsp.readdir(transportRoot)).sort(compareUtf8), [rawDigest(testCase.fixture.archive), rawDigest(alternateArchive)].sort(compareUtf8));
+  });
+
+  test("rejects a valid attested transport for an unrelated valid installed artifact", async () => {
+    const firstCase = await createCase();
+    const first = await installCase(firstCase);
+    const unrelatedBytes = Buffer.from("unrelated but schema-valid metadata\n", "utf8");
+    const unrelatedFixture = replaceManifest(buildFixture(), (manifest) => {
+      manifest.entries.push({
+        kind: "regular",
+        role: "metadata",
+        path: "share/unrelated-metadata.txt",
+        digest: rawDigest(unrelatedBytes),
+        size: unrelatedBytes.length,
+        executable: false,
+      });
+    }, [{ path: "payload/share/unrelated-metadata.txt", kind: "regular", bytes: unrelatedBytes, executable: false }]);
+    const unrelatedCase = await createCase(unrelatedFixture);
+    const unrelated = await installPortableEngine({
+      repoRoot: firstCase.repoRoot,
+      archivePath: unrelatedCase.archivePath,
+      bundlePath: unrelatedCase.bundlePath,
+      expectedSourceRevision: unrelatedFixture.revision,
+    }, dependencies());
+    assert.notEqual(unrelated.manifest.artifactId, first.manifest.artifactId);
+
+    const unrelatedDigest = rawDigest(unrelatedFixture.archive);
+    const sourceTransport = path.join(unrelated.artifactRoot, "LOCAL", "transport", unrelatedDigest);
+    const firstTransportRoot = path.join(first.artifactRoot, "LOCAL", "transport");
+    const forgedTransport = path.join(firstTransportRoot, unrelatedDigest);
+    await fsp.chmod(firstTransportRoot, 0o755);
+    await fsp.cp(sourceTransport, forgedTransport, { recursive: true, preserveTimestamps: true });
+    const unrelatedReceiptPath = path.join(forgedTransport, "installation-receipt.json");
+    const receipt = JSON.parse(await fsp.readFile(unrelatedReceiptPath, "utf8"));
+    receipt.artifactId = first.manifest.artifactId;
+    receipt.manifestDigest = semanticDigest("ibex.portable-engine-manifest-digest.v1", first.manifest);
+    await fsp.chmod(unrelatedReceiptPath, 0o600);
+    await fsp.writeFile(unrelatedReceiptPath, canonicalJson(receipt));
+    await fsp.chmod(unrelatedReceiptPath, 0o444);
+    const completionPath = path.join(forgedTransport, "COMPLETE");
+    const completion = JSON.parse(await fsp.readFile(completionPath, "utf8"));
+    completion.artifactId = first.manifest.artifactId;
+    await fsp.chmod(completionPath, 0o600);
+    await fsp.writeFile(completionPath, canonicalJson(completion));
+    await fsp.chmod(completionPath, 0o444);
+    await fsp.chmod(forgedTransport, 0o555);
+    await fsp.chmod(firstTransportRoot, 0o555);
+
+    await assert.rejects(() => verifyPortableEngineStore({
+      repoRoot: firstCase.repoRoot,
+      expectedSourceRevision: firstCase.fixture.revision,
+      artifactId: first.manifest.artifactId,
+      archiveDigest: unrelatedDigest,
+    }, dependencies()), /retained archive manifest bytes differ from installed canonical manifest/u);
   });
 
   test("constructs authority expectations only from checked policy, revision, and subject facts", () => {
@@ -598,19 +666,91 @@ describe("portable engine installer core", () => {
     assert.equal(parsingStarted, false);
   });
 
-  test("keeps the real verifier integration fail-closed on the v1 base", async () => {
+  test("production wrappers reject dependency and context overrides", async () => {
     const testCase = await createCase();
-    await assert.rejects(() => installPortableEngine({
+    const installOptions = {
       repoRoot: testCase.repoRoot,
       archivePath: testCase.archivePath,
       bundlePath: testCase.bundlePath,
       expectedSourceRevision: testCase.fixture.revision,
-    }, {
-      readRevisionFile: revisionFile,
-      listRevisionFiles: revisionFiles,
-      readGitObject: gitObject,
-      resolveCheckoutRevision: () => testCase.fixture.revision,
-    }), /production offline-verifier invocation is deliberately not wired/u);
+    };
+    await assert.rejects(() => installPortableEngineProduction(installOptions, dependencies()), /exactly one production options object/u);
+    await assert.rejects(() => installPortableEngineProduction({ ...installOptions, context: {} }), /unknown option context/u);
+    await assert.rejects(() => verifyPortableEngineStoreProduction({
+      repoRoot: testCase.repoRoot,
+      expectedSourceRevision: testCase.fixture.revision,
+      artifactId: testCase.fixture.manifest.artifactId,
+    }, dependencies()), /exactly one production options object/u);
+  });
+
+  test("source-level caller guard confines the injectable core to the test-only harness", async () => {
+    const scriptsRoot = path.join(sourceRepo, "scripts");
+    const modules = (await fsp.readdir(scriptsRoot)).filter((name) => name.endsWith(".mjs") && !name.endsWith(".test.mjs"));
+    const coreImporters = [];
+    const harnessCallers = [];
+    for (const name of modules) {
+      const source = await fsp.readFile(path.join(scriptsRoot, name), "utf8");
+      if (source.includes('"./portable-engine-installer-core.mjs"')) coreImporters.push(name);
+      if (name !== "portable-engine-installer-test-harness.mjs" && source.includes("portable-engine-installer-test-harness")) harnessCallers.push(name);
+    }
+    assert.deepEqual(coreImporters.sort(), ["portable-engine-installer-test-harness.mjs", "portable-engine-installer.mjs"]);
+    assert.deepEqual(harnessCallers, []);
+    const cli = await fsp.readFile(path.join(scriptsRoot, "install-portable-hermes.mjs"), "utf8");
+    assert.match(cli, /from "\.\/portable-engine-installer\.mjs"/u);
+    assert.doesNotMatch(cli, /portable-engine-installer-(?:core|test-harness)/u);
+    assert.match(cli, /installPortableEngine\(options\)/u);
+    assert.doesNotMatch(cli, /installPortableEngine\(options\s*,/u);
+    const core = await fsp.readFile(path.join(scriptsRoot, "portable-engine-installer-core.mjs"), "utf8");
+    assert.doesNotMatch(core, /\boptions\.context\b/u);
+    const packageDocument = JSON.parse(await fsp.readFile(path.join(sourceRepo, "package.json"), "utf8"));
+    assert.equal(packageDocument.scripts["install:portable-hermes"], "node scripts/install-portable-hermes.mjs");
+  });
+
+  test("requires owned, non-shared, ACL-free checkout and store control nodes", async (t) => {
+    await t.test("effective UID owns the checkout", async () => {
+      const testCase = await createCase();
+      const differentUid = (typeof process.geteuid === "function" ? process.geteuid() : 0) + 1;
+      await expectRejected(testCase, /effective-UID ownership/u, { effectiveUid: differentUid });
+    });
+    await t.test("checkout is not group writable", async () => {
+      const testCase = await createCase();
+      await fsp.chmod(testCase.repoRoot, 0o770);
+      await expectRejected(testCase, /group\/world-writable/u);
+    });
+    await t.test("target ancestry is not world writable", async () => {
+      const testCase = await createCase();
+      await fsp.mkdir(path.join(testCase.repoRoot, "target"), { mode: 0o700 });
+      await fsp.chmod(path.join(testCase.repoRoot, "target"), 0o707);
+      await expectRejected(testCase, /group\/world-writable/u);
+    });
+    await t.test("store root remains private mode 0700", async () => {
+      const testCase = await createCase();
+      const installed = await installCase(testCase);
+      const storeRoot = path.dirname(installed.artifactRoot);
+      await fsp.chmod(storeRoot, 0o755);
+      await assert.rejects(() => verifyPortableEngineStore({
+        repoRoot: testCase.repoRoot,
+        expectedSourceRevision: testCase.fixture.revision,
+        artifactId: installed.manifest.artifactId,
+      }, dependencies()), /expected mode 700/u);
+    });
+    await t.test("macOS extended ACLs are outside the trusted-store premise", async () => {
+      const testCase = await createCase();
+      const checkout = await fsp.realpath(testCase.repoRoot);
+      if (process.platform === "darwin") {
+        execFileSync("/bin/chmod", ["+a", "everyone deny write", checkout]);
+        try {
+          assert.equal(detectMacOsExtendedAcl(checkout), true);
+          await expectRejected(testCase, /extended ACLs are forbidden/u, { hasExtendedAcl: detectMacOsExtendedAcl });
+        } finally {
+          execFileSync("/bin/chmod", ["-N", checkout]);
+        }
+      } else {
+        await expectRejected(testCase, /extended ACLs are forbidden/u, {
+          hasExtendedAcl: async (filePath) => filePath === checkout,
+        });
+      }
+    });
   });
 
   test("strict-validates the canonical verifier result before archive parsing", async () => {
@@ -763,6 +903,24 @@ describe("portable engine installer core", () => {
     });
   });
 
+  test("repeated truncated members close extractor output handles and both streams", async () => {
+    const base = buildFixture();
+    const partialManifest = base.manifestBytes.subarray(0, Math.max(1, Math.floor(base.manifestBytes.length / 3)));
+    const truncatedTar = Buffer.concat([
+      rawTarHeader({ path: "META-INF", kind: "directory" }),
+      rawTarHeader({ path: "META-INF/portable-engine-manifest.json", kind: "regular", bytes: base.manifestBytes, executable: false }),
+      partialManifest,
+    ]);
+    const fixture = { ...base, archive: gzipSync(truncatedTar, { level: 1, mtime: 0 }) };
+    const descriptorDirectory = process.platform === "linux" ? "/proc/self/fd" : "/dev/fd";
+    const before = (await fsp.readdir(descriptorDirectory)).length;
+    for (let attempt = 0; attempt < 24; attempt += 1) {
+      await expectRejected(await createCase(fixture), /ustar stream is truncated/u);
+    }
+    const after = (await fsp.readdir(descriptorDirectory)).length;
+    assert(after <= before + 2, `file descriptors grew from ${before} to ${after}`);
+  });
+
   test("rejects partial and mutated existing stores instead of trusting artifactId names", async (t) => {
     await t.test("missing completion marker", async () => {
       const testCase = await createCase();
@@ -771,7 +929,11 @@ describe("portable engine installer core", () => {
       await fsp.chmod(local, 0o755);
       await fsp.unlink(path.join(local, "COMPLETE"));
       await fsp.chmod(local, 0o555);
-      await expectRejected(testCase, /COMPLETE|completion/u);
+      await assert.rejects(() => verifyPortableEngineStore({
+        repoRoot: testCase.repoRoot,
+        expectedSourceRevision: testCase.fixture.revision,
+        artifactId: installed.manifest.artifactId,
+      }, dependencies()), /COMPLETE|completion/u);
     });
     await t.test("payload mutation", async () => {
       const testCase = await createCase();
@@ -854,6 +1016,140 @@ describe("portable engine installer core", () => {
     });
   });
 
+  test("serializes publication and quarantines invalid exact destinations for restart", async (t) => {
+    await t.test("two concurrent installs serialize per portable artifact", async () => {
+      const testCase = await createCase();
+      let criticalEntries = 0;
+      let releaseFirst;
+      let firstEntered;
+      const entered = new Promise((resolve) => { firstEntered = resolve; });
+      const gate = new Promise((resolve) => { releaseFirst = resolve; });
+      const failpoint = async (name) => {
+        if (name !== "after-artifact-lock") return;
+        criticalEntries += 1;
+        if (criticalEntries === 1) {
+          firstEntered();
+          await gate;
+        }
+      };
+      const firstPromise = installCase(testCase, { failpoint });
+      await entered;
+      const secondPromise = installCase(testCase, { failpoint });
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      assert.equal(criticalEntries, 1);
+      releaseFirst();
+      const results = await Promise.all([firstPromise, secondPromise]);
+      assert.deepEqual(results.map((result) => result.installed).sort(), [false, true]);
+      assert.equal(criticalEntries, 2);
+    });
+
+    await t.test("a dead-owner lock is recovered on restart", async () => {
+      const testCase = await createCase();
+      const storeRoot = path.join(testCase.repoRoot, "target", "hermes-artifacts-test-only");
+      const locksRoot = path.join(storeRoot, ".locks");
+      await fsp.mkdir(locksRoot, { recursive: true, mode: 0o700 });
+      await fsp.chmod(path.join(testCase.repoRoot, "target"), 0o700);
+      await fsp.chmod(storeRoot, 0o700);
+      await fsp.chmod(locksRoot, 0o700);
+      const lockPath = path.join(locksRoot, `${testCase.fixture.manifest.artifactId}.lock`);
+      await fsp.mkdir(lockPath, { mode: 0o700 });
+      await fsp.writeFile(path.join(lockPath, "OWNER"), canonicalJson({
+        schema: "ibex/test-only-portable-engine-local-install-lock/1",
+        pid: 999999,
+        token: "0".repeat(32),
+      }), { mode: 0o600 });
+      const installed = await installCase(testCase, { isProcessAlive: () => false });
+      assert.equal(installed.installed, true);
+      await assert.rejects(() => fsp.lstat(lockPath), { code: "ENOENT" });
+    });
+
+    await t.test("invalid partial store is retained in quarantine and replaced", async () => {
+      const testCase = await createCase();
+      const first = await installCase(testCase);
+      const local = path.join(first.artifactRoot, "LOCAL");
+      await fsp.chmod(local, 0o755);
+      await fsp.unlink(path.join(local, "COMPLETE"));
+      await fsp.chmod(local, 0o555);
+      const restarted = await installCase(testCase);
+      assert.equal(restarted.installed, true);
+      assert.equal(restarted.replacedInvalid, true);
+      assert.equal(restarted.quarantines.length, 1);
+      assert.equal(await lstatKind(restarted.quarantines[0]), "directory");
+      await assert.rejects(() => fsp.lstat(path.join(restarted.quarantines[0], "LOCAL", "COMPLETE")), { code: "ENOENT" });
+    });
+
+    await t.test("redirected exact destination is quarantined without following it", async () => {
+      const testCase = await createCase();
+      const artifactId = testCase.fixture.manifest.artifactId;
+      const storeRoot = path.join(testCase.repoRoot, "target", "hermes-artifacts-test-only");
+      await fsp.mkdir(storeRoot, { recursive: true, mode: 0o700 });
+      await fsp.chmod(path.join(testCase.repoRoot, "target"), 0o700);
+      await fsp.chmod(storeRoot, 0o700);
+      const sentinel = path.join(testCase.root, "outside-sentinel");
+      await fsp.mkdir(sentinel);
+      await fsp.writeFile(path.join(sentinel, "preserved"), "still here");
+      await fsp.symlink(sentinel, path.join(storeRoot, artifactId));
+      const installed = await installCase(testCase);
+      assert.equal(installed.replacedInvalid, true);
+      assert.equal(await fsp.readFile(path.join(sentinel, "preserved"), "utf8"), "still here");
+      assert.equal(await lstatKind(installed.quarantines[0]), "symlink");
+      assert.equal(await fsp.readlink(installed.quarantines[0]), sentinel);
+    });
+
+    await t.test("restart after quarantine-before-publish retains evidence and completes", async () => {
+      const testCase = await createCase();
+      const first = await installCase(testCase);
+      await fsp.chmod(first.artifactRoot, 0o755);
+      let fired = false;
+      await assert.rejects(() => installCase(testCase, {
+        failpoint: async (name) => {
+          if (!fired && name === "after-invalid-destination-quarantine") {
+            fired = true;
+            throw new Error("fixture crash after quarantine");
+          }
+        },
+      }), /fixture crash after quarantine/u);
+      await assert.rejects(() => fsp.lstat(first.artifactRoot), { code: "ENOENT" });
+      const restarted = await installCase(testCase);
+      assert.equal(restarted.installed, true);
+      assert.equal(restarted.quarantines.length, 1);
+    });
+
+    await t.test("restart after candidate rename quarantines the writable remnant", async () => {
+      const testCase = await createCase();
+      let fired = false;
+      await assert.rejects(() => installCase(testCase, {
+        failpoint: async (name) => {
+          if (!fired && name === "after-candidate-rename") {
+            fired = true;
+            throw new Error("fixture crash after candidate rename");
+          }
+        },
+      }), /fixture crash after candidate rename/u);
+      const finalRoot = path.join(testCase.repoRoot, "target", "hermes-artifacts-test-only", testCase.fixture.manifest.artifactId);
+      assert.equal(Number((await fsp.lstat(finalRoot, { bigint: true })).mode & 0o777n), 0o700);
+      const restarted = await installCase(testCase);
+      assert.equal(restarted.replacedInvalid, true);
+      assert.equal(restarted.quarantines.length, 1);
+    });
+
+    await t.test("restart after root narrowing treats the durable store as idempotent", async () => {
+      const testCase = await createCase();
+      let fired = false;
+      await assert.rejects(() => installCase(testCase, {
+        failpoint: async (name) => {
+          if (!fired && name === "after-published-root-narrow") {
+            fired = true;
+            throw new Error("fixture crash after root narrowing");
+          }
+        },
+      }), /fixture crash after root narrowing/u);
+      const restarted = await installCase(testCase);
+      assert.equal(restarted.installed, false);
+      assert.equal(restarted.quarantines.length, 0);
+    });
+  });
+
   test("pins the source archive and detects mutation of the authenticated copy", async (t) => {
     await t.test("source mutation cannot change parsed bytes", async () => {
       const testCase = await createCase();
@@ -887,6 +1183,36 @@ describe("portable engine installer core", () => {
         onArchiveParseStart: () => { parsingStarted = true; },
       });
       assert.equal(parsingStarted, false);
+    });
+    await t.test("retained archive mutation during reconstructive verification is fatal", async () => {
+      const testCase = await createCase();
+      const installed = await installCase(testCase);
+      await assert.rejects(() => verifyPortableEngineStore({
+        repoRoot: testCase.repoRoot,
+        expectedSourceRevision: testCase.fixture.revision,
+        artifactId: installed.manifest.artifactId,
+      }, dependencies({
+        failpoint: async (name, details) => {
+          if (name !== "after-retained-reconstruction-extraction") return;
+          await fsp.chmod(details.archivePath, 0o600);
+          await fsp.appendFile(details.archivePath, "mutation");
+        },
+      })), /retained archive mutated during reconstructive extraction/u);
+    });
+    await t.test("retained bundle mutation during reconstructive verification is fatal", async () => {
+      const testCase = await createCase();
+      const installed = await installCase(testCase);
+      await assert.rejects(() => verifyPortableEngineStore({
+        repoRoot: testCase.repoRoot,
+        expectedSourceRevision: testCase.fixture.revision,
+        artifactId: installed.manifest.artifactId,
+      }, dependencies({
+        failpoint: async (name, details) => {
+          if (name !== "after-retained-reconstruction-extraction") return;
+          await fsp.chmod(details.bundlePath, 0o600);
+          await fsp.appendFile(details.bundlePath, "mutation");
+        },
+      })), /retained bundle mutated during reconstructive extraction/u);
     });
   });
 
