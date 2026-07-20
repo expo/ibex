@@ -29,7 +29,9 @@
     "artifactSchema": { "const": "ibex/restricted-exact-artifact/1" },
     "profile": { "const": "ibex/exact-embedder-contract/1" },
     "fullProfile": { "const": "ibex/capsec/1" },
-    "status": { "const": "candidate-unadvertised" },
+    "status": {
+      "enum": ["candidate-unadvertised", "target-advertised"]
+    },
     "semanticCore": { "type": "string", "minLength": 1 },
     "vocabDigest": { "$ref": "#/$defs/digest" },
     "registryDigest": { "$ref": "#/$defs/digest" },

@@ -5,7 +5,12 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (r23 — records the fifth pinned Linux release attempt,
+**Revised:** 2026-07-20 (r24 — completes the report-derived production
+installer path before the next source-bound release run: restricted artifacts
+remain `candidate-unadvertised` without an exact generated target row, become
+`target-advertised` only when target, features, engine digest, and projection
+digest all match, and ordinary Host installation still fails before publication
+under the currently empty authority; r23 — records the fifth pinned Linux release attempt,
 which executed the complete absence route set but stopped before publication
 because its final observation assertion still expected 14,294 observations
 from the superseded 7,147-edge inventory; derives the required two observations
@@ -479,8 +484,10 @@ vocabulary/registry/source-edge identities; mapped Hermes binary, object, and
 bytecode version; protected Exact operation manifest; protected single-use
 Contract bundle; root-set, Contract-IR, module-graph, build, and empty package-
 graph digests; and a construction-fresh nonce. The builder validates source vs
-HBC format/version confusion and produces only `candidate-unadvertised`; it
-does not install a Host, create Hermes, or bypass the empty advertisement gate.
+HBC format/version confusion and produces `candidate-unadvertised` unless the
+compiled report-derived authority exactly matches the current target, feature
+set, engine digest, and projection digest; only that exact match produces
+`target-advertised`. Building bytes never installs a Host or creates Hermes.
 Strict re-ingestion now recomputes the artifact domain digest; rebinds all
 compiled profile, full-registry, engine, target, feature, bytecode, and empty-
 package-graph identities; reopens the manifest and bundle without following a
@@ -489,8 +496,11 @@ before and after reading; reparses the operation manifest; and rejects stale,
 unknown-field, nonce, format, protected-object, or digest confusion. The Host
 handoff now has three mutually exclusive claim kinds, so a restricted context
 cannot be consumed by the full armed or diagnostic constructors. Production
-installation explicitly refuses the still-empty advertisement authority;
-candidate installation exists only in tests/the conformance-observer build.
+installation explicitly refuses the still-empty advertisement authority before
+Host publication; once a matching reviewed advertisement is generated, it
+re-authenticates the artifact's advertised status and installs the same
+restricted Host posture. Candidate installation remains available only in
+tests/the conformance-observer build.
 The constructor allocates Hermes only after the restricted digest claim,
 disables general eval and the debugger, skips `installGlobals`, Web Streams,
 and the package-compartment bootstrap, and installs only the stable `exact`

@@ -1777,7 +1777,6 @@ impl Host {
     /// Construct the Host posture for one already-authenticated, advertised
     /// restricted Exact artifact. Callers must derive advertisement completion
     /// from the generated profile authority before reaching this function.
-    #[cfg(any(test, feature = "capsec-conformance-observer"))]
     pub(crate) fn new_restricted_exact(
         artifact: Arc<embedder_artifacts::AuthenticatedRestrictedExactArtifact>,
     ) -> capsec_semantics::Result<Self> {

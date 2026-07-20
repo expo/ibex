@@ -107,6 +107,35 @@ struct RestrictedBundleArtifact {
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RestrictedTargetAdvertisementAuthority {
+    advertisement_schema: String,
+    profile: String,
+    projection_raw_content_digest: Digest,
+    advertisements: Vec<RestrictedTargetAdvertisement>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RestrictedTargetAdvertisement {
+    target: RestrictedAdvertisedTarget,
+    report_digest: Digest,
+    report_raw_content_digest: Digest,
+    source_revision: String,
+    source_tree_digest: Digest,
+    engine_binary_digest: Digest,
+    projection_raw_content_digest: Digest,
+    fixture_plan_raw_content_digest: Digest,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RestrictedAdvertisedTarget {
+    triple: String,
+    features: Vec<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct RestrictedExactArtifact {
     artifact_schema: String,
     profile: String,
@@ -138,6 +167,7 @@ pub struct AuthenticatedRestrictedExactArtifact {
     operation_binding: ExactEmbedderBinding,
     bundle: Vec<u8>,
     bundle_format: String,
+    advertised: bool,
 }
 
 impl AuthenticatedRestrictedExactArtifact {
@@ -163,6 +193,10 @@ impl AuthenticatedRestrictedExactArtifact {
 
     pub fn bundle_format(&self) -> &str {
         &self.bundle_format
+    }
+
+    pub fn is_advertised(&self) -> bool {
+        self.advertised
     }
 }
 
@@ -609,6 +643,71 @@ fn raw_content_digest(bytes: &[u8]) -> Result<Digest> {
     .map_err(anyhow::Error::msg)
 }
 
+fn restricted_target_is_advertised(
+    authority_bytes: &[u8],
+    projection_digest: &Digest,
+    target: &str,
+    features: &[String],
+    engine_binary_digest: &Digest,
+) -> Result<bool> {
+    let text = std::str::from_utf8(authority_bytes)
+        .context("restricted target advertisement authority is not UTF-8")?;
+    let value = capsec_semantics::strict_json::parse_strict(text)
+        .context("restricted target advertisement authority is not strict JSON")?;
+    let authority: RestrictedTargetAdvertisementAuthority = serde_json::from_value(value)
+        .context("invalid restricted target advertisement authority")?;
+    anyhow::ensure!(
+        authority.advertisement_schema == "ibex/restricted-profile-advertisements/1"
+            && authority.profile == "ibex/exact-embedder-contract/1"
+            && authority.projection_raw_content_digest == *projection_digest,
+        "restricted target advertisement authority identity mismatch"
+    );
+
+    let mut target_keys = BTreeSet::new();
+    let mut matched = false;
+    for advertisement in authority.advertisements {
+        anyhow::ensure!(
+            !advertisement.target.triple.is_empty()
+                && !advertisement.target.features.is_empty()
+                && advertisement
+                    .target
+                    .features
+                    .windows(2)
+                    .all(|pair| pair[0] < pair[1])
+                && advertisement.projection_raw_content_digest == *projection_digest
+                && advertisement.source_revision.len() == 40
+                && advertisement
+                    .source_revision
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                && !advertisement.report_digest.as_str().is_empty()
+                && !advertisement.report_raw_content_digest.as_str().is_empty()
+                && !advertisement.source_tree_digest.as_str().is_empty()
+                && !advertisement
+                    .fixture_plan_raw_content_digest
+                    .as_str()
+                    .is_empty(),
+            "restricted target advertisement row is malformed"
+        );
+        let key = (
+            advertisement.target.triple.clone(),
+            advertisement.target.features.clone(),
+        );
+        anyhow::ensure!(
+            target_keys.insert(key),
+            "restricted target advertisement authority contains duplicate targets"
+        );
+        if advertisement.target.triple == target && advertisement.target.features == features {
+            anyhow::ensure!(
+                advertisement.engine_binary_digest == *engine_binary_digest,
+                "restricted target advertisement engine identity mismatch"
+            );
+            matched = true;
+        }
+    }
+    Ok(matched)
+}
+
 fn validate_restricted_bundle_format(
     format: &str,
     engine_bytecode_version: Option<u32>,
@@ -713,7 +812,6 @@ pub fn authenticate_restricted_exact_embedder_artifact(
         artifact.artifact_schema == "ibex/restricted-exact-artifact/1"
             && artifact.profile == "ibex/exact-embedder-contract/1"
             && artifact.full_profile == crate::capsec_registry_generated::CAPSEC_PROFILE
-            && artifact.status == "candidate-unadvertised"
             && artifact.semantic_core == crate::capsec_registry_generated::CAPSEC_SEMANTIC_CORE,
         "restricted Exact artifact profile identity mismatch"
     );
@@ -740,14 +838,14 @@ pub fn authenticate_restricted_exact_embedder_artifact(
         "/capsec/generated/restricted-exact-target-advertisements.json"
     ));
     let definition: serde_json::Value = serde_json::from_slice(definition_bytes)?;
-    let advertisements: serde_json::Value = serde_json::from_slice(advertisements_bytes)?;
+    let projection_digest = raw_content_digest(projection_bytes)?;
     let (vocab_digest, registry_digest) = checked_identity_digests()?;
     anyhow::ensure!(
         artifact.profile_definition_raw_content_digest == raw_content_digest(definition_bytes)?
-            && artifact.projection_raw_content_digest == raw_content_digest(projection_bytes)?
+            && artifact.projection_raw_content_digest == projection_digest
             && artifact.advertisements_raw_content_digest
                 == raw_content_digest(advertisements_bytes)?
-            && artifact.restricted_surface_closure_digest == raw_content_digest(projection_bytes)?
+            && artifact.restricted_surface_closure_digest == projection_digest
             && artifact.vocab_digest == vocab_digest
             && artifact.registry_digest == registry_digest
             && artifact.source_edge_set_digest.as_str()
@@ -756,13 +854,6 @@ pub fn authenticate_restricted_exact_embedder_artifact(
                     .unwrap_or_default(),
         "restricted Exact artifact authority digest mismatch"
     );
-    anyhow::ensure!(
-        advertisements["advertisements"]
-            .as_array()
-            .is_some_and(Vec::is_empty),
-        "candidate artifact authentication cannot consume an advertised profile"
-    );
-
     let engine = crate::engine::loaded_engine_binary_identity().map_err(anyhow::Error::msg)?;
     let bytecode_version =
         crate::engine::loaded_engine_bytecode_version().map_err(anyhow::Error::msg)?;
@@ -773,6 +864,24 @@ pub fn authenticate_restricted_exact_embedder_artifact(
             && artifact.engine.object == engine.object
             && artifact.engine.bytecode_version == bytecode_version,
         "restricted Exact artifact does not identify the loaded engine"
+    );
+    let engine_binary_digest =
+        Digest::new(engine.binary_digest.clone()).map_err(anyhow::Error::msg)?;
+    let advertised = restricted_target_is_advertised(
+        advertisements_bytes,
+        &projection_digest,
+        &artifact.target,
+        &artifact.features,
+        &engine_binary_digest,
+    )?;
+    let expected_status = if advertised {
+        "target-advertised"
+    } else {
+        "candidate-unadvertised"
+    };
+    anyhow::ensure!(
+        artifact.status == expected_status,
+        "restricted Exact artifact advertisement status mismatched generated authority"
     );
     let empty_graph = serde_json::json!({"nodes": [], "importEdges": []});
     anyhow::ensure!(
@@ -832,13 +941,13 @@ pub fn authenticate_restricted_exact_embedder_artifact(
         operation_binding,
         bundle,
         bundle_format: artifact.bundle.format,
+        advertised,
     })
 }
 
-/// Construct one immutable, target-local candidate artifact for the restricted
-/// Exact profile. This operation deliberately does not install a Host or claim
-/// target support: the generated advertisement family remains the sole
-/// promotion authority and is empty until conformance completes.
+/// Construct one immutable, target-local artifact for the restricted Exact
+/// profile. It remains a candidate unless the generated report-derived
+/// authority advertises this exact target, feature set, engine, and projection.
 ///
 /// @ref LLP 0033#4-profile-identity-and-anti-confusion-rules — bind the exact
 /// profile, engine, registries, operation manifest, Contract bundle, and nonce.
@@ -889,18 +998,13 @@ pub fn build_restricted_exact_embedder_artifact(
     ));
     let definition: serde_json::Value = serde_json::from_slice(definition_bytes)?;
     let projection: serde_json::Value = serde_json::from_slice(projection_bytes)?;
-    let advertisements: serde_json::Value = serde_json::from_slice(advertisements_bytes)?;
+    let projection_digest = raw_content_digest(projection_bytes)?;
     anyhow::ensure!(
         definition["profile"] == "ibex/exact-embedder-contract/1"
             && projection["profile"] == definition["profile"]
-            && advertisements["profile"] == definition["profile"],
+            && serde_json::from_slice::<serde_json::Value>(advertisements_bytes)?["profile"]
+                == definition["profile"],
         "restricted profile authority identity mismatch"
-    );
-    anyhow::ensure!(
-        advertisements["advertisements"]
-            .as_array()
-            .is_some_and(Vec::is_empty),
-        "candidate artifact builder must be reviewed before consuming a promoted advertisement"
     );
 
     let engine = crate::engine::loaded_engine_binary_identity().map_err(anyhow::Error::msg)?;
@@ -914,6 +1018,20 @@ pub fn build_restricted_exact_embedder_artifact(
             })),
         "loaded engine target/features are not a restricted profile candidate"
     );
+    let engine_binary_digest =
+        Digest::new(engine.binary_digest.clone()).map_err(anyhow::Error::msg)?;
+    let advertised = restricted_target_is_advertised(
+        advertisements_bytes,
+        &projection_digest,
+        &target,
+        &engine.structural_features,
+        &engine_binary_digest,
+    )?;
+    let artifact_status = if advertised {
+        "target-advertised"
+    } else {
+        "candidate-unadvertised"
+    };
     let (vocab_digest, registry_digest) = checked_identity_digests()?;
     let source_edge_set_digest = Digest::new(
         definition["sourceEdgeSet"]["digest"]
@@ -943,7 +1061,7 @@ pub fn build_restricted_exact_embedder_artifact(
         "artifactSchema": "ibex/restricted-exact-artifact/1",
         "profile": "ibex/exact-embedder-contract/1",
         "fullProfile": crate::capsec_registry_generated::CAPSEC_PROFILE,
-        "status": "candidate-unadvertised",
+        "status": artifact_status,
         "semanticCore": crate::capsec_registry_generated::CAPSEC_SEMANTIC_CORE,
         "vocabDigest": vocab_digest,
         "registryDigest": registry_digest,
@@ -1384,6 +1502,59 @@ mod tests {
     use capsec_semantics::arming::{ExpectedProtectedArtifact, ProtectedArtifactRole};
     use capsec_semantics::model::{LogicalPath, LogicalRoot};
     use sha2::Sha256;
+
+    fn restricted_advertisement_fixture(
+        projection_digest: &Digest,
+        engine_digest: &Digest,
+    ) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "advertisementSchema": "ibex/restricted-profile-advertisements/1",
+            "profile": "ibex/exact-embedder-contract/1",
+            "projectionRawContentDigest": projection_digest,
+            "advertisements": [{
+                "target": {
+                    "triple": "x86_64-unknown-linux-gnu",
+                    "features": ["release", "restricted-exact"]
+                },
+                "reportDigest": projection_digest,
+                "reportRawContentDigest": projection_digest,
+                "sourceRevision": "0123456789abcdef0123456789abcdef01234567",
+                "sourceTreeDigest": projection_digest,
+                "engineBinaryDigest": engine_digest,
+                "projectionRawContentDigest": projection_digest,
+                "fixturePlanRawContentDigest": projection_digest
+            }]
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn restricted_production_authority_matches_target_features_engine_and_projection() {
+        let projection_digest = raw_content_digest(b"projection").unwrap();
+        let engine_digest = raw_content_digest(b"engine").unwrap();
+        let authority = restricted_advertisement_fixture(&projection_digest, &engine_digest);
+        let features = vec!["release".to_owned(), "restricted-exact".to_owned()];
+        assert!(restricted_target_is_advertised(
+            &authority,
+            &projection_digest,
+            "x86_64-unknown-linux-gnu",
+            &features,
+            &engine_digest,
+        )
+        .unwrap());
+
+        let wrong_engine = raw_content_digest(b"wrong-engine").unwrap();
+        assert!(restricted_target_is_advertised(
+            &authority,
+            &projection_digest,
+            "x86_64-unknown-linux-gnu",
+            &features,
+            &wrong_engine,
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("engine identity mismatch"));
+    }
 
     #[repr(C)]
     struct HermesRuntimeOpaque {

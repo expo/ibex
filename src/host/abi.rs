@@ -1335,25 +1335,18 @@ pub fn install_restricted_exact_host(artifact_bytes: &[u8]) -> Result<(), String
     let artifact =
         super::embedder_artifacts::authenticate_restricted_exact_embedder_artifact(artifact_bytes)
             .map_err(|error| error.to_string())?;
-    let advertisements: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/capsec/generated/restricted-exact-target-advertisements.json"
-    )))
-    .map_err(|error| format!("invalid restricted target advertisement authority: {error}"))?;
-    let rows = advertisements["advertisements"]
-        .as_array()
-        .ok_or_else(|| "restricted target advertisement authority is malformed".to_owned())?;
-    if !rows.is_empty() {
-        return Err(
-            "restricted advertisement rows exist before the report-derived advertisement schema and verifier are implemented"
-                .into(),
-        );
+    if !artifact.is_advertised() {
+        return Err(format!(
+            "restricted Exact target/profile is not advertised: {} {:?}",
+            artifact.target(),
+            artifact.features(),
+        ));
     }
-    Err(format!(
-        "restricted Exact target/profile is not advertised: {} {:?}",
-        artifact.target(),
-        artifact.features(),
-    ))
+    let host = Host::new_restricted_exact(Arc::new(artifact)).map_err(|error| error.to_string())?;
+    if install_host(host) == 0 {
+        return Err("failed to allocate a restricted Exact Host context token".into());
+    }
+    Ok(())
 }
 
 /// Conformance-only candidate installation. Ordinary builds contain no path
