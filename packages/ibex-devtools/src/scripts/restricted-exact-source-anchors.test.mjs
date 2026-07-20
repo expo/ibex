@@ -223,6 +223,101 @@ void install(Runtime& rt) {
     ]);
   });
 
+  test("binds inherited CommonJS terminals through capture, guard, and prototype alias", () => {
+    const dynamic = "Cipher.[[dynamic-table:inherited-09c5428f83a8-properties]]";
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      { branchId: "cipher.inherited", observedKey: `builtin:export:exact_crypto:${dynamic}`, targetVariant: "all" },
+      `src/builtins/crypto.js#exports:${dynamic}`,
+    );
+    expect(binding.locatorKind).toBe("commonjs-inherited-export-route");
+    expect(binding.sites.map((site) => site.role)).toEqual([
+      "value-producer",
+      "retention",
+      "guard",
+      "alias",
+      "alias",
+      "publication",
+    ]);
+    expect(binding.producerPaths[0].conditionId).toBe(
+      "runtime-dependency:stream-transform-present",
+    );
+  });
+
+  test("binds an exported host ABI symbol through its exact definition and export", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.host.abi.ex.android.initialize.1c4cnq6.android",
+        observedKey: "host-abi:ex_android_initialize",
+        targetVariant: "android",
+      },
+      "src/engine/native_android_networking.cc#ex_android_initialize",
+    );
+    expect(binding.locatorKind).toBe("exported-host-abi");
+    expect(binding.sites.map((site) => site.role)).toEqual([
+      "value-producer",
+      "publication",
+    ]);
+    expect(binding.producerPaths[0].conditionId).toBe("target-branch:android");
+  });
+
+  test("keeps strong and weak host ABI definitions as build-conditioned alternatives", () => {
+    const branch = {
+      branchId: "surface.host.abi.ex.host.http.address.15trli0.default",
+      edgeId: "surface.host.abi.ex.host.http.address.15trli0",
+      observedKey: "host-abi:ex_host_http_address",
+      targetVariant: "default",
+    };
+    const route = buildRestrictedExactBranchSourceRoute(branch, [
+      "src/engine/hermes_runtime.cc#ex_host_http_address",
+      "src/host/http_server.rs#ex_host_http_address",
+    ]);
+    expect(route.status).toBe("executable");
+    expect(route.resolutionPolicy).toBe("conditioned-alternatives");
+    expect(route.producerPaths.map((producerPath) => producerPath.conditionId).sort()).toEqual([
+      "linkage:strong-rust-export",
+      "linkage:weak-fallback-without-strong-export",
+    ]);
+  });
+
+  test("binds a visible CLI command through manifest, clap enum, and dispatch", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.cli.run.1adr0ba.main",
+        observedKey: "cli:run",
+        targetVariant: "all",
+      },
+      "runtime-surface.json#visibleCommands",
+    );
+    expect(binding.locatorKind).toBe("cli-command-route");
+    expect(binding.sites.map((site) => site.role)).toEqual([
+      "registration",
+      "publication",
+      "dispatch",
+    ]);
+    expect(binding.producerPaths).toHaveLength(1);
+    expect(binding.refusalPaths).toEqual([]);
+  });
+
+  test("binds a forbidden CLI namespace to the compiled refusal dispatcher", () => {
+    const branch = {
+      branchId: "surface.cli.agent.18yerxe.main",
+      edgeId: "surface.cli.agent.18yerxe",
+      observedKey: "cli:agent",
+      targetVariant: "all",
+    };
+    const route = buildRestrictedExactBranchSourceRoute(branch, [
+      "runtime-surface.json#legacyProjectCommands",
+    ]);
+    expect(route.status).toBe("executable");
+    expect(route.producerPaths).toEqual([]);
+    expect(route.refusalPaths).toHaveLength(1);
+    expect(route.sites.map((site) => site.role)).toEqual([
+      "registration",
+      "guard",
+      "guard",
+    ]);
+  });
+
   test("uses UTF-8 byte offsets and isolates alternate-root caches", () => {
     const firstRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-anchor-a-"));
     const secondRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-anchor-b-"));

@@ -100,11 +100,11 @@ function declarationCandidateGroups(text, name) {
   const patterns = [
     new RegExp(`(?:^|\\n)[^\\n;{}]*\\b(?:function|class|struct|enum|trait|fn)\\s+${escaped}\\b`, "gu"),
     new RegExp(`(?:^|\\n)[^\\n;{}]*\\b(?:const|let|var|static)\\s+${escaped}\\s*(?::[^=;]+)?=`, "gu"),
-    new RegExp(`(?:^|\\n)[^\\n;{}]*\\b${escaped}\\s*\\([^;{}]*\\)[^;{]*\\{`, "gu"),
+    new RegExp(`(?:^|\\n)\\s*(?!(?:if|while|for|switch|return|else)\\b)[^\\n;{}]*\\b${escaped}\\s*\\([^;{}]*\\)[ \\t]*(?:const[ \\t]*)?(?:noexcept[ \\t]*)?(?:->[^\\n{]+)?(?:\\n[ \\t]*)?\\{`, "gu"),
   ];
   return patterns.map((pattern) => [...new Set(
     [...text.matchAll(pattern)].map(
-      (match) => match.index + (match[0][0] === "\n" ? 1 : 0),
+      (match) => match.index + match[0].search(/\S/u),
     ),
   )].sort((left, right) => left - right));
 }
@@ -125,7 +125,8 @@ function arrayDeclarationRange(text, name) {
     .sort((left, right) => left - right);
   if (candidates.length !== 1) return null;
   const startByte = candidates[0];
-  const opening = text.indexOf("[", startByte);
+  const equals = text.indexOf("=", startByte);
+  const opening = text.indexOf("[", equals >= 0 ? equals : startByte);
   if (opening < 0) return null;
   const endByte = matchingDelimiterEnd(text, opening, "[", "]");
   return endByte < 0 ? null : { startByte, endByte };
@@ -154,6 +155,20 @@ function tokenRangesWithin(text, token, containerRange) {
     offset = text.indexOf(token, offset + token.length);
   }
   return ranges;
+}
+
+function enclosingGuardLineRange(text, token, offset) {
+  const candidates = [];
+  let guardOffset = text.indexOf(token);
+  while (guardOffset >= 0) {
+    const opening = text.indexOf("{", guardOffset);
+    const end = opening < 0 ? -1 : matchingBraceEnd(text, opening);
+    if (opening >= 0 && opening < offset && end > offset) {
+      candidates.push(lineRange(text, guardOffset));
+    }
+    guardOffset = text.indexOf(token, guardOffset + token.length);
+  }
+  return candidates.length === 1 ? candidates[0] : null;
 }
 
 function locatorContainer(locator) {
@@ -506,6 +521,8 @@ function javascriptIndex(absolute, text) {
   const declarations = new Map();
   const assignments = [];
   const modulePublications = [];
+  const defineProperties = [];
+  const esmPublications = [];
   const addDeclaration = (name, row) => {
     if (!name) return;
     const rows = declarations.get(name) ?? [];
@@ -527,9 +544,40 @@ function javascriptIndex(absolute, text) {
       ) {
         modulePublications.push({ node: parent ?? node, value: node.right });
       }
+    } else if (node.type === "CallExpression"
+      && JSON.stringify(memberSegments(node.callee)) === JSON.stringify(["Object", "defineProperty"])
+      && propertyName(node.arguments[1]) !== null) {
+      defineProperties.push({
+        node: parent?.type === "ExpressionStatement" ? parent : node,
+        targetSegments: memberSegments(node.arguments[0]),
+        property: propertyName(node.arguments[1]),
+        descriptor: node.arguments[2],
+      });
+    } else if (node.type === "ExportNamedDeclaration") {
+      if (node.declaration) {
+        const name = node.declaration.id?.name;
+        if (name) esmPublications.push({
+          exported: name,
+          local: name,
+          node,
+          value: node.declaration,
+        });
+      }
+      for (const specifier of node.specifiers ?? []) {
+        const exported = propertyName(specifier.exported);
+        const local = propertyName(specifier.local);
+        if (exported && local) esmPublications.push({ exported, local, node, value: specifier.local });
+      }
+    } else if (node.type === "ExportDefaultDeclaration") {
+      esmPublications.push({
+        exported: "default",
+        local: node.declaration?.name ?? null,
+        node,
+        value: node.declaration,
+      });
     }
   });
-  const result = { declarations, assignments, modulePublications };
+  const result = { declarations, assignments, modulePublications, defineProperties, esmPublications };
   javascriptIndexCache.set(absolute, result);
   return result;
 }
@@ -592,14 +640,86 @@ function memberProducer(index, ownerName, memberName, preference = "prefer-stati
     JSON.stringify(segments) === JSON.stringify([ownerName, memberName]));
   const prototypeAssignments = index.assignments.filter(({ segments }) =>
     JSON.stringify(segments) === JSON.stringify([ownerName, "prototype", memberName]));
+  const staticDescriptors = index.defineProperties.filter((row) =>
+    row.property === memberName
+    && JSON.stringify(row.targetSegments) === JSON.stringify([ownerName]));
+  const prototypeDescriptors = index.defineProperties.filter((row) =>
+    row.property === memberName
+    && JSON.stringify(row.targetSegments) === JSON.stringify([ownerName, "prototype"]));
   if (preference === "prototype") {
-    return prototypeAssignments.length === 1 ? prototypeAssignments[0].node : null;
+    if (prototypeAssignments.length === 1) return prototypeAssignments[0].node;
+    return prototypeDescriptors.length === 1 ? prototypeDescriptors[0].node : null;
   }
   if (preference === "static") {
-    return staticAssignments.length === 1 ? staticAssignments[0].node : null;
+    if (staticAssignments.length === 1) return staticAssignments[0].node;
+    return staticDescriptors.length === 1 ? staticDescriptors[0].node : null;
   }
   if (staticAssignments.length === 1) return staticAssignments[0].node;
-  return prototypeAssignments.length === 1 ? prototypeAssignments[0].node : null;
+  if (staticDescriptors.length === 1) return staticDescriptors[0].node;
+  if (prototypeAssignments.length === 1) return prototypeAssignments[0].node;
+  if (prototypeDescriptors.length === 1) return prototypeDescriptors[0].node;
+  return null;
+}
+
+function commonjsInheritedExportBinding({ branch, sourceRef, sourcePath, exportPath, absolute, text, bytes }) {
+  const match = /^([^.]*)\.\[\[dynamic-table:inherited-[^\]]+-properties\]\]$/u.exec(exportPath);
+  if (!match) return null;
+  const exportedRoot = match[1];
+  const index = javascriptIndex(absolute, text);
+  if (index.modulePublications.length !== 1) return null;
+  const modulePublication = index.modulePublications[0];
+  const moduleDeclaration = modulePublication.value.type === "Identifier"
+    ? declarationFor(index, modulePublication.value.name)
+    : null;
+  const moduleValue = moduleDeclaration?.value ?? modulePublication.value;
+  const rootProperty = objectProperty(moduleValue, exportedRoot);
+  const rootValue = rootProperty?.value;
+  if (!rootProperty || rootValue?.type !== "Identifier") return null;
+  const owner = rootValue.name;
+  const ownerDeclaration = declarationFor(index, owner);
+  if (!ownerDeclaration) return null;
+  const aliases = [];
+  walkJavaScript(parse(text, { sourceType: "script", allowReturnOutsideFunction: true }).program, (node, parent) => {
+    if (node.type === "CallExpression"
+      && JSON.stringify(memberSegments(node.callee)) === JSON.stringify(["Object", "setPrototypeOf"])
+      && JSON.stringify(memberSegments(node.arguments[0])) === JSON.stringify([owner, "prototype"])) {
+      aliases.push(parent?.type === "ExpressionStatement" ? parent : node);
+    }
+  });
+  if (aliases.length !== 1) return null;
+  const baseExpression = aliases[0].expression?.arguments?.[1] ?? aliases[0].arguments?.[1];
+  const baseSegments = memberSegments(baseExpression);
+  if (!baseSegments || baseSegments.at(-1) !== "prototype") return null;
+  const retainedBase = baseSegments[0];
+  const retentionAssignments = index.assignments.filter(({ segments, value }) =>
+    JSON.stringify(segments) === JSON.stringify([retainedBase])
+    && value?.type === "MemberExpression"
+    && propertyName(value.property) === "Transform");
+  const guard = enclosingGuardLineRange(
+    text,
+    `if (${retainedBase}) {`,
+    aliases[0].start,
+  );
+  if (retentionAssignments.length !== 1 || !guard) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${owner}.definition`, range: { startByte: ownerDeclaration.node.start, endByte: ownerDeclaration.node.end }, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "retention", siteKey: `${retainedBase}.capture`, range: { startByte: retentionAssignments[0].node.start, endByte: retentionAssignments[0].node.end }, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "guard", siteKey: `${retainedBase}.guard`, range: guard, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "alias", siteKey: `${owner}.prototype-alias`, range: { startByte: aliases[0].start, endByte: aliases[0].end }, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "alias", siteKey: `${exportedRoot}.root-export`, range: { startByte: rootProperty.start, endByte: rootProperty.end }, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: "module.exports", range: { startByte: modulePublication.node.start, endByte: modulePublication.node.end }, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "commonjs-inherited-export-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0inherited`),
+      conditionId: "runtime-dependency:stream-transform-present",
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
 }
 
 function classElementName(element) {
@@ -793,12 +913,44 @@ function legacyBootstrapGlobalBinding({ branch, sourceRef, sourcePath, locator, 
 }
 
 function builtinExportBranchBinding({ branch, sourceRef, sourcePath, locator, absolute, text, bytes }) {
-  if (!sourcePath.startsWith("src/builtins/") || !sourcePath.endsWith(".js")) return null;
+  if (!sourcePath.endsWith(".js")) return null;
   if (!locator.startsWith("exports:") || !branch?.observedKey?.startsWith("builtin:export:")) return null;
   const exportPath = locator.slice("exports:".length);
-  if (exportPath.includes("[[") || exportPath.includes("<")) return null;
-  const parts = exportPath.split(".");
   const index = javascriptIndex(absolute, text);
+  if (exportPath.includes("[[")) {
+    return commonjsInheritedExportBinding({ branch, sourceRef, sourcePath, exportPath, absolute, text, bytes });
+  }
+  if (exportPath.includes("<")) return null;
+  const parts = exportPath.split(".");
+  if (index.modulePublications.length === 0) {
+    const publications = index.esmPublications.filter((publication) => publication.exported === parts[0]);
+    if (publications.length !== 1) return null;
+    const publication = publications[0];
+    const rootValue = publication.value;
+    const resolvedRoot = resolveIdentifierValue(index, rootValue);
+    let producerNode = resolvedRoot.declaration?.node ?? resolvedRoot.node;
+    if (parts.length > 1) {
+      if (parts.length !== 2) return null;
+      const ownerName = publication.local ?? rootValue?.name;
+      producerNode = ownerName ? memberProducer(index, ownerName, parts[1]) : null;
+    }
+    if (!producerNode || producerNode.start === undefined || producerNode.end === undefined) return null;
+    const sites = [
+      sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${exportPath}.producer`, range: { startByte: producerNode.start, endByte: producerNode.end }, text, bytes }),
+      sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${exportPath}.esm-export`, range: { startByte: publication.node.start, endByte: publication.node.end }, text, bytes }),
+    ];
+    return validateRestrictedExactSourceBinding({
+      sourceRef,
+      locatorKind: "esm-export-route",
+      resolutionPolicy: "composite-path",
+      sites,
+      producerPaths: [{
+        pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0${exportPath}`),
+        conditionId: `target-branch:${branch.targetVariant}`,
+        requiredSiteIds: sites.map((site) => site.siteId),
+      }],
+    });
+  }
   if (index.modulePublications.length !== 1) return null;
   const modulePublication = index.modulePublications[0];
   let moduleValue = modulePublication.value;
@@ -1073,7 +1225,149 @@ function jsiGlobalBranchBinding({ branch, sourceRef, sourcePath, locator, text, 
   });
 }
 
+function exportedHostAbiBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (!branch?.observedKey?.startsWith("host-abi:") || branch.observedKey.startsWith("host-abi:java:")) {
+    return null;
+  }
+  const symbol = branch.observedKey.slice("host-abi:".length);
+  if (locator !== symbol || !/\.(?:cc|mm|rs)$/u.test(sourcePath)) return null;
+  const range = declarationRange(text, symbol);
+  if (!range) return null;
+  const declaration = text.slice(range.startByte, Math.min(range.endByte, range.startByte + 500));
+  const exported = sourcePath.endsWith(".rs")
+    ? /pub\s+(?:unsafe\s+)?extern\s+"C"\s+fn/u.test(declaration)
+    : /extern\s+"C"/u.test(declaration);
+  if (!exported) return null;
+  const conditionId = sourcePath.endsWith(".rs")
+    ? "linkage:strong-rust-export"
+    : /\bWEAK_STUB\b/u.test(declaration)
+      ? "linkage:weak-fallback-without-strong-export"
+      : `target-branch:${branch.targetVariant}`;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${symbol}.definition`, range, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${symbol}.export`, range, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "exported-host-abi",
+    resolutionPolicy: "single-site",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0exported-abi`),
+      conditionId,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function cliNamespaceRefusalBinding({ branch, sourceRef, sourcePath, locator, absolute, text, bytes }) {
+  if (!branch?.observedKey?.startsWith("cli:") || sourcePath !== "runtime-surface.json") return null;
+  if (!["legacyProjectCommands", "reservedCommands"].includes(locator)) return null;
+  const command = branch.observedKey.slice("cli:".length).split(":")[0];
+  const propertyToken = `"${locator}"`;
+  const propertyOffset = text.indexOf(propertyToken);
+  if (propertyOffset < 0 || text.indexOf(propertyToken, propertyOffset + 1) >= 0) return null;
+  const opening = text.indexOf("[", propertyOffset + propertyToken.length);
+  const end = opening < 0 ? -1 : matchingDelimiterEnd(text, opening, "[", "]");
+  if (end < 0) return null;
+  const manifestEntries = tokenRangesWithin(text, `"${command}"`, { startByte: opening, endByte: end });
+  if (manifestEntries.length !== 1) return null;
+  const root = path.dirname(absolute);
+  const mainPath = "src/bin/ibex/main.rs";
+  const mainBytes = fs.readFileSync(path.join(root, mainPath));
+  const mainText = mainBytes.toString("utf8");
+  const tableName = locator === "legacyProjectCommands"
+    ? "EXACT_PROJECT_COMMANDS"
+    : "RESERVED_RUNTIME_COMMANDS";
+  const table = arrayDeclarationRange(mainText, tableName);
+  const dispatcher = declarationRange(mainText, "pre_clap_namespace_dispatch");
+  if (!table || !dispatcher) return null;
+  const compiledEntries = tokenRangesWithin(mainText, `"${command}"`, table);
+  if (compiledEntries.length !== 1) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "registration", siteKey: `${locator}.${command}.manifest`, range: manifestEntries[0], text, bytes }),
+    sourceSite({ sourceRef, path: mainPath, role: "guard", siteKey: `${tableName}.${command}.compiled`, range: compiledEntries[0], text: mainText, bytes: mainBytes }),
+    sourceSite({ sourceRef, path: mainPath, role: "guard", siteKey: "pre-clap-namespace-dispatch", range: dispatcher, text: mainText, bytes: mainBytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "cli-namespace-refusal",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [],
+    refusalPaths: [{
+      pathId: stableId("refusal", `${branch.branchId}\0${sourceRef}\0namespace`),
+      conditionId: "cli-namespace:non-path-token",
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function rustEnumVariantRange(text, enumRange, variant) {
+  const escaped = escapeRegExp(variant);
+  const slice = text.slice(enumRange.startByte, enumRange.endByte);
+  const pattern = new RegExp(`^    ${escaped}(?:\\s*[({,]|$)`, "mu");
+  const match = pattern.exec(slice);
+  if (!match) return null;
+  const startByte = enumRange.startByte + match.index;
+  const nextPattern = /^    [A-Z][A-Za-z0-9_]*(?:\s*[({,]|$)/gmu;
+  nextPattern.lastIndex = match.index + match[0].length;
+  const next = nextPattern.exec(slice);
+  return { startByte, endByte: next ? enumRange.startByte + next.index : enumRange.endByte };
+}
+
+function cliVisibleCommandBinding({ branch, sourceRef, sourcePath, locator, absolute, text, bytes }) {
+  if (!branch?.observedKey?.startsWith("cli:") || sourcePath !== "runtime-surface.json") return null;
+  if (!["visibleCommands", "hiddenHarnessCommands"].includes(locator)) return null;
+  const command = branch.observedKey.slice("cli:".length).split(":")[0];
+  const propertyOffset = text.indexOf(`"${locator}"`);
+  const opening = propertyOffset < 0 ? -1 : text.indexOf("[", propertyOffset);
+  const end = opening < 0 ? -1 : matchingDelimiterEnd(text, opening, "[", "]");
+  if (end < 0) return null;
+  const manifestEntries = tokenRangesWithin(text, `"${command}"`, { startByte: opening, endByte: end });
+  if (manifestEntries.length !== 1) return null;
+  const root = path.dirname(absolute);
+  const cliPath = "src/bin/ibex/cli.rs";
+  const mainPath = "src/bin/ibex/main.rs";
+  const cliBytes = fs.readFileSync(path.join(root, cliPath));
+  const mainBytes = fs.readFileSync(path.join(root, mainPath));
+  const cliText = cliBytes.toString("utf8");
+  const mainText = mainBytes.toString("utf8");
+  const variant = command.split(/[-_]/u).map((part) =>
+    `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`).join("");
+  const commands = declarationRange(cliText, "Commands");
+  const enumVariant = commands && rustEnumVariantRange(cliText, commands, variant);
+  const dispatchMarker = "match &cli.command {";
+  const dispatchStart = mainText.indexOf(dispatchMarker);
+  const dispatchOpening = dispatchStart < 0 ? -1 : mainText.indexOf("{", dispatchStart);
+  const dispatchEnd = dispatchOpening < 0 ? -1 : matchingBraceEnd(mainText, dispatchOpening);
+  if (!enumVariant || dispatchEnd < 0) return null;
+  const dispatchMatches = tokenRangesWithin(
+    mainText,
+    `Some(Commands::${variant}`,
+    { startByte: dispatchStart, endByte: dispatchEnd },
+  );
+  if (dispatchMatches.length !== 1) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "registration", siteKey: `${locator}.${command}.manifest`, range: manifestEntries[0], text, bytes }),
+    sourceSite({ sourceRef, path: cliPath, role: "publication", siteKey: `Commands.${variant}`, range: enumVariant, text: cliText, bytes: cliBytes }),
+    sourceSite({ sourceRef, path: mainPath, role: "dispatch", siteKey: `dispatch.${variant}`, range: dispatchMatches[0], text: mainText, bytes: mainBytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "cli-command-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0cli-command`),
+      conditionId: locator === "visibleCommands" ? "cli-command:visible" : "cli-command:hidden-harness",
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
 export function validateRestrictedExactSourceBinding(binding) {
+  binding.refusalPaths ??= [];
   const siteIds = binding.sites.map((site) => site.siteId);
   if (new Set(siteIds).size !== siteIds.length) {
     throw new Error(`${binding.sourceRef}: duplicate source site ID`);
@@ -1084,13 +1378,13 @@ export function validateRestrictedExactSourceBinding(binding) {
     }
   }
   if (binding.resolutionPolicy === "provenance-only") {
-    if (binding.producerPaths.length !== 0) {
+    if (binding.producerPaths.length !== 0 || binding.refusalPaths.length !== 0) {
       throw new Error(`${binding.sourceRef}: provenance-only binding has executable paths`);
     }
     return binding;
   }
-  if (binding.producerPaths.length === 0) {
-    throw new Error(`${binding.sourceRef}: executable binding lacks producer paths`);
+  if (binding.producerPaths.length === 0 && binding.refusalPaths.length === 0) {
+    throw new Error(`${binding.sourceRef}: executable binding lacks producer or refusal paths`);
   }
   if (
     binding.resolutionPolicy === "conditioned-alternatives"
@@ -1098,8 +1392,9 @@ export function validateRestrictedExactSourceBinding(binding) {
   ) {
     throw new Error(`${binding.sourceRef}: conditioned alternatives require multiple paths`);
   }
-  const pathIds = binding.producerPaths.map((producerPath) => producerPath.pathId);
-  const conditions = binding.producerPaths.map((producerPath) => producerPath.conditionId);
+  const allPaths = [...binding.producerPaths, ...binding.refusalPaths];
+  const pathIds = allPaths.map((producerPath) => producerPath.pathId);
+  const conditions = allPaths.map((producerPath) => producerPath.conditionId);
   if (new Set(pathIds).size !== pathIds.length) {
     throw new Error(`${binding.sourceRef}: duplicate producer path ID`);
   }
@@ -1110,7 +1405,7 @@ export function validateRestrictedExactSourceBinding(binding) {
     throw new Error(`${binding.sourceRef}: alternative paths require distinct conditions`);
   }
   const referenced = new Set();
-  for (const producerPath of binding.producerPaths) {
+  for (const producerPath of allPaths) {
     if (
       producerPath.requiredSiteIds.length === 0
       || new Set(producerPath.requiredSiteIds).size !== producerPath.requiredSiteIds.length
@@ -1126,11 +1421,15 @@ export function validateRestrictedExactSourceBinding(binding) {
     const roles = producerPath.requiredSiteIds.map(
       (siteId) => binding.sites.find((site) => site.siteId === siteId).role,
     );
-    if (!roles.includes("publication")) {
-      throw new Error(`${binding.sourceRef}: producer path lacks publication site`);
-    }
-    if (!roles.some((role) => ["definition", "value-producer", "registration"].includes(role))) {
-      throw new Error(`${binding.sourceRef}: producer path lacks definition or value producer`);
+    if (binding.producerPaths.includes(producerPath)) {
+      if (!roles.includes("publication")) {
+        throw new Error(`${binding.sourceRef}: producer path lacks publication site`);
+      }
+      if (!roles.some((role) => ["definition", "value-producer", "registration"].includes(role))) {
+        throw new Error(`${binding.sourceRef}: producer path lacks definition or value producer`);
+      }
+    } else if (!roles.includes("guard")) {
+      throw new Error(`${binding.sourceRef}: refusal path lacks guard site`);
     }
   }
   if (referenced.size !== siteIds.length) {
@@ -1200,6 +1499,9 @@ export function resolveRestrictedExactBranchSourceBinding(
   const contextual = moduleSpecifierBranchBinding({ branch, sourceRef, ...loaded })
     ?? builtinExportBranchBinding({ branch, sourceRef, ...loaded })
     ?? jsiGlobalBranchBinding({ branch, sourceRef, ...loaded })
+    ?? exportedHostAbiBinding({ branch, sourceRef, ...loaded })
+    ?? cliVisibleCommandBinding({ branch, sourceRef, ...loaded })
+    ?? cliNamespaceRefusalBinding({ branch, sourceRef, ...loaded })
     ?? bootstrapGlobalBinding({ branch, sourceRef, ...loaded })
     ?? legacyBootstrapGlobalBinding({ branch, sourceRef, ...loaded })
     ?? typescriptClassMemberBinding({ branch, sourceRef, ...loaded });
@@ -1242,6 +1544,7 @@ export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root =
   }
   const selectedEntries = new Set();
   const producerPaths = [];
+  const refusalPaths = [];
   if (branch.observedKey.startsWith("native-op:global:")) {
     const observedPath = branch.observedKey.slice("native-op:global:".length);
     const producer = selectGlobalProducerEntry(observedPath, entries);
@@ -1268,12 +1571,14 @@ export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root =
       producerPaths.push(...entry.binding.producerPaths);
     }
   } else {
-    for (const entry of entries.filter(({ binding }) => binding.producerPaths.length > 0)) {
+    for (const entry of entries.filter(({ binding }) =>
+      binding.producerPaths.length > 0 || binding.refusalPaths.length > 0)) {
       selectedEntries.add(entry);
       producerPaths.push(...entry.binding.producerPaths);
+      refusalPaths.push(...entry.binding.refusalPaths);
     }
   }
-  if (producerPaths.length === 0) {
+  if (producerPaths.length === 0 && refusalPaths.length === 0) {
     return {
       branchId: branch.branchId,
       status: "incomplete",
@@ -1285,12 +1590,13 @@ export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root =
       .map((site) => [site.siteId, site]),
   ).values()];
   const siteIds = new Set(sites.map((site) => site.siteId));
-  if (producerPaths.some((producerPath) =>
+  const allPaths = [...producerPaths, ...refusalPaths];
+  if (allPaths.some((producerPath) =>
     producerPath.requiredSiteIds.some((siteId) => !siteIds.has(siteId)))) {
-    throw new Error(`${branch.branchId}: producer path references an unselected site`);
+    throw new Error(`${branch.branchId}: executable path references an unselected site`);
   }
-  const conditions = producerPaths.map((producerPath) => producerPath.conditionId);
-  if (producerPaths.length > 1 && new Set(conditions).size !== conditions.length) {
+  const conditions = allPaths.map((producerPath) => producerPath.conditionId);
+  if (allPaths.length > 1 && new Set(conditions).size !== conditions.length) {
     throw new Error(`${branch.branchId}: alternative producer paths lack distinct conditions`);
   }
   const bindingDispositions = entries.map((entry) => ({
@@ -1308,9 +1614,10 @@ export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root =
     observedKey: branch.observedKey,
     targetVariant: branch.targetVariant,
     status: "executable",
-    resolutionPolicy: producerPaths.length > 1 ? "conditioned-alternatives" : "composite-path",
+    resolutionPolicy: allPaths.length > 1 ? "conditioned-alternatives" : "composite-path",
     sites,
     producerPaths,
+    refusalPaths,
     bindingDispositions,
   };
 }

@@ -40,12 +40,13 @@
     },
     "counts": {
       "type": "object",
-      "required": ["branches", "sourceRefs", "sites", "producerPaths", "incomplete"],
+      "required": ["branches", "sourceRefs", "sites", "producerPaths", "refusalPaths", "incomplete"],
       "properties": {
         "branches": { "type": "integer", "minimum": 1 },
         "sourceRefs": { "type": "integer", "minimum": 1 },
         "sites": { "type": "integer", "minimum": 1 },
         "producerPaths": { "type": "integer", "minimum": 1 },
+        "refusalPaths": { "type": "integer", "minimum": 0 },
         "incomplete": { "const": 0 }
       },
       "additionalProperties": false
@@ -149,6 +150,7 @@
         "resolutionPolicy",
         "sites",
         "producerPaths",
+        "refusalPaths",
         "bindingDispositions"
       ],
       "properties": {
@@ -167,7 +169,10 @@
         },
         "producerPaths": {
           "type": "array",
-          "minItems": 1,
+          "items": { "$ref": "#/$defs/producerPath" }
+        },
+        "refusalPaths": {
+          "type": "array",
           "items": { "$ref": "#/$defs/producerPath" }
         },
         "bindingDispositions": {
