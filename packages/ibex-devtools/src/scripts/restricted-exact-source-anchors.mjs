@@ -2503,6 +2503,58 @@ function typedArraySubarrayRouteBinding({
   });
 }
 
+function globalListenerForwardingBinding({
+  branch,
+  sourceRef,
+  sourcePath,
+  locator,
+  text,
+  bytes,
+}) {
+  const prefix = "installGlobalListenerForwarding:globals:";
+  if (sourcePath !== "packages/ibex-runtime-js/src/promise-rejection-tracking.ts"
+    || !locator.startsWith(prefix)
+    || branch?.observedKey !== `native-op:global:${locator.slice(prefix.length)}`) return null;
+  const member = locator.slice(prefix.length);
+  if (!["addEventListener", "removeEventListener"].includes(member)) return null;
+  const installer = robustFunctionDeclarationRange(text, "installGlobalListenerForwarding");
+  if (!installer) return null;
+  const publications = tokenRangesWithin(text, `g.${member} =`, installer)
+    .map((range) => lineRange(text, range.startByte));
+  const guardName = member === "addEventListener" ? "origAddEventListener" : "origRemoveEventListener";
+  const guards = tokenRangesWithin(text, `if (typeof ${guardName} === 'function') {`, installer);
+  const invocations = tokenRangesWithin(
+    text,
+    "installGlobalListenerForwarding();",
+    { startByte: installer.endByte, endByte: text.length },
+  );
+  if (publications.length !== 2 || guards.length !== 1 || invocations.length !== 1) return null;
+  const guard = sourceSite({ sourceRef, path: sourcePath, role: "guard", siteKey: `${member}.existing-handler-guard`, range: guards[0], text, bytes });
+  const dispatch = sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: `${member}.installer-dispatch`, range: invocations[0], text, bytes });
+  const sites = [guard, dispatch];
+  const producerPaths = [];
+  for (const [indexValue, publicationRange] of publications.entries()) {
+    const producer = sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${member}.forwarder.${indexValue}`, range: publicationRange, text, bytes });
+    const publication = sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${member}.publication.${indexValue}`, range: publicationRange, text, bytes });
+    sites.push(producer, publication);
+    producerPaths.push({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0listener-forwarding\0${indexValue}`),
+      conditionId: indexValue === 0
+        ? `global-listener:${member}:existing-handler`
+        : `global-listener:${member}:missing-handler`,
+      requiredSiteIds: [guard.siteId, dispatch.siteId, producer.siteId, publication.siteId],
+    });
+  }
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "typescript-global-listener-forwarding-route",
+    targetGlobalPath: member,
+    resolutionPolicy: "conditioned-alternatives",
+    sites,
+    producerPaths,
+  });
+}
+
 function legacyJavascriptGlobalRouteBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
   if (!branch?.observedKey?.startsWith("native-op:global:")
     || !sourcePath.startsWith("src/engine/bootstrap/")
@@ -2991,6 +3043,36 @@ function legacyNativeWrapStateBinding({ branch, sourceRef, sourcePath, locator, 
   });
 }
 
+function legacyStoragePersistenceBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (sourcePath !== "src/engine/bootstrap/web-storage.js"
+    || branch?.observedKey !== "native-op:global:localStorage.persistence"
+    || !["_load", "_save"].includes(locator)) return null;
+  const definition = javascriptNamedFunctionRange(text, locator);
+  const nativeName = locator === "_load" ? "__exactReadFile" : "__exactWriteFile";
+  const nativeCalls = tokenRangesWithin(text, nativeName, definition ?? { startByte: 0, endByte: 0 });
+  const publication = uniqueTokenRange(text, [
+    "  globalThis.localStorage = new StorageImpl(true);",
+  ]);
+  if (!definition || nativeCalls.length === 0 || !publication) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `local-storage.${locator}`, range: definition, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: `local-storage.${nativeName}`, range: nativeCalls[0], text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: "local-storage.publication", range: publication, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "javascript-storage-persistence-route",
+    targetGlobalPath: "localStorage.persistence",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0storage-persistence`),
+      conditionId: `storage-persistence:${locator === "_load" ? "read" : "write"}`,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
 function exactGlobalAliasBinding({ branch, sourceRef, sourcePath, locator, absolute, text, bytes }) {
   if (sourcePath !== "src/engine/bootstrap/exact-global.js"
     || !/^native-op:global:(?:Bun|Exact)(?:\.|$)/u.test(branch?.observedKey ?? "")
@@ -3242,6 +3324,40 @@ function evaluatedCppGlobalBinding({ branch, sourceRef, sourcePath, locator, tex
     producerPaths: [{
       pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0evaluated-cpp`),
       conditionId: `target-branch:${branch.targetVariant}:embedded:${variable}`,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function embeddedFsHandleReturnBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  const prefix = "embedded:kFsHandleJS:Ibex.fs.readHandle.[[return]].";
+  if (sourcePath !== "src/engine/hermes_runtime.cc"
+    || !locator.startsWith(prefix)
+    || branch?.observedKey !== `native-op:global:${locator.slice("embedded:kFsHandleJS:".length)}`) {
+    return null;
+  }
+  const member = locator.slice(prefix.length);
+  if (!["readFileSync", "readTextSync", "scoped", "revoke"].includes(member)) return null;
+  const producer = uniqueTokenRange(text, [`  FsHandle.prototype.${member} = function`]);
+  const factory = uniqueTokenRange(text, ["  Ibex.fs.readHandle = function (dir) {"]);
+  const dispatch = uniqueTokenRange(text, [
+    "      handle->runtime->evaluateJavaScript(buffer, \"<fs-handle>\");",
+  ]);
+  if (!producer || !factory || !dispatch) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `fs-handle.${member}`, range: producer, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: "fs-handle.read-handle-factory", range: factory, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: "fs-handle.script-evaluation", range: dispatch, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "evaluated-fs-handle-return-route",
+    targetGlobalPath: `Ibex.fs.readHandle.[[return]].${member}`,
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0fs-handle-return`),
+      conditionId: "runtime-bootstrap:fs-handle-script",
       requiredSiteIds: sites.map((site) => site.siteId),
     }],
   });
@@ -6851,6 +6967,7 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? cliNamespaceRefusalBinding({ branch, sourceRef, ...loaded })
     ?? sharedArrayBufferViewWrapperBinding({ branch, sourceRef, ...loaded })
     ?? typedArraySubarrayRouteBinding({ branch, sourceRef, ...loaded })
+    ?? globalListenerForwardingBinding({ branch, sourceRef, ...loaded })
     ?? typescriptGlobalInstallerBinding({ branch, sourceRef, ...loaded })
     ?? bootstrapGlobalBinding({ branch, sourceRef, ...loaded })
     ?? legacyBootstrapGlobalBinding({ branch, sourceRef, ...loaded })
@@ -6864,6 +6981,7 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? typescriptModuleGlobalMemberBinding({ branch, sourceRef, ...loaded })
     ?? typescriptModuleObjectMemberProvenanceBinding({ branch, sourceRef, ...loaded })
     ?? exactGlobalAliasBinding({ branch, sourceRef, ...loaded })
+    ?? embeddedFsHandleReturnBinding({ branch, sourceRef, ...loaded })
     ?? evaluatedCppGlobalBinding({ branch, sourceRef, ...loaded })
     ?? nativeSymbolTerminalBinding({ branch, sourceRef, ...loaded })
     ?? cppSymbolProvenanceBinding({ branch, sourceRef, ...loaded })
@@ -6874,6 +6992,7 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? legacyObjectPublishedMemberBinding({ branch, sourceRef, ...loaded })
     ?? legacyKChannelHandleBinding({ branch, sourceRef, ...loaded })
     ?? legacyNativeWrapStateBinding({ branch, sourceRef, ...loaded })
+    ?? legacyStoragePersistenceBinding({ branch, sourceRef, ...loaded })
     ?? legacyJavascriptTerminalRouteBinding({ branch, sourceRef, ...loaded })
     ?? legacyJavascriptAliasRouteBinding({ branch, sourceRef, ...loaded })
     ?? generatedJavascriptGlobalBinding({ branch, sourceRef, ...loaded })

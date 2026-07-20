@@ -968,6 +968,25 @@ void install(Runtime& rt) {
       .toBe("executable");
   });
 
+  test("binds localStorage persistence through read and write implementations", () => {
+    const branch = {
+      branchId: "surface.native.op.global.local-storage.persistence.default",
+      observedKey: "native-op:global:localStorage.persistence",
+      targetVariant: "default",
+    };
+    const refs = [
+      "src/engine/bootstrap/web-storage.js#_load",
+      "src/engine/bootstrap/web-storage.js#_save",
+    ];
+    for (const sourceRef of refs) {
+      expect(resolveRestrictedExactBranchSourceBinding(branch, sourceRef).locatorKind)
+        .toBe("javascript-storage-persistence-route");
+    }
+    const route = buildRestrictedExactBranchSourceRoute(branch, refs);
+    expect(route.status).toBe("executable");
+    expect(route.producerPaths).toHaveLength(2);
+  });
+
   test("binds an object-literal global member without crediting its installer", () => {
     const branch = {
       branchId: "surface.native.op.global.atomics.add.all",
@@ -1127,6 +1146,23 @@ void install(Runtime& rt) {
     }
   });
 
+  test("binds global listener forwarding for existing and missing handlers", () => {
+    for (const member of ["addEventListener", "removeEventListener"]) {
+      const branch = {
+        branchId: `surface.native.op.global.${member}.all`,
+        observedKey: `native-op:global:${member}`,
+        targetVariant: "all",
+      };
+      const sourceRef =
+        `packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installGlobalListenerForwarding:globals:${member}`;
+      const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+      expect(binding.locatorKind).toBe("typescript-global-listener-forwarding-route");
+      expect(binding.producerPaths).toHaveLength(2);
+      expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status)
+        .toBe("executable");
+    }
+  });
+
   test("composes computed TypeScript members with eager and lazy global publications", () => {
     const fixtures = [
       {
@@ -1248,6 +1284,22 @@ void install(Runtime& rt) {
         "dispatch",
       ]);
       expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status).toBe("executable");
+    }
+  });
+
+  test("binds returned filesystem-handle methods through factory and script evaluation", () => {
+    for (const member of ["readFileSync", "readTextSync", "scoped", "revoke"]) {
+      const observedPath = `Ibex.fs.readHandle.[[return]].${member}`;
+      const branch = {
+        branchId: `surface.native.op.global.${observedPath}.default`,
+        observedKey: `native-op:global:${observedPath}`,
+        targetVariant: "default",
+      };
+      const sourceRef = `src/engine/hermes_runtime.cc#embedded:kFsHandleJS:${observedPath}`;
+      const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+      expect(binding.locatorKind).toBe("evaluated-fs-handle-return-route");
+      expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status)
+        .toBe("executable");
     }
   });
 
