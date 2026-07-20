@@ -610,6 +610,15 @@ void installWorkletGlobals(ExactHermesRuntime* handle) {
 } // namespace
 
 extern "C" ExactHermesRuntime* ex_worklet_create() {
+  // A restricted runtime still needs an exact Host-selection generation for
+  // the common drive guard. Its private context is closed to every Host
+  // capability and does not consume the app runtime's pending constructor
+  // handoff.
+  // @ref LLP 0002#runtime-driving-thread-contract
+  const uint64_t hostContext = ibex_private_claim_restricted_host_context();
+  if (hostContext == 0) {
+    return nullptr;
+  }
   // Small heap by design (LLP 0297 §4.3: target <=4MB steady state, 8MB
   // limit) so worklet GC pauses stay sub-millisecond.
   auto gcConfig = ::hermes::vm::GCConfig::Builder()
@@ -628,16 +637,19 @@ extern "C" ExactHermesRuntime* ex_worklet_create() {
 
   auto runtime = facebook::hermes::makeHermesRuntime(config);
   if (!runtime) {
+    ex_host_release_context(hostContext);
     return nullptr;
   }
 
   auto handle = new ExactHermesRuntime();
   handle->runtime = std::move(runtime);
   handle->runtime_thread = std::this_thread::get_id();
+  handle->host_context_id = hostContext;
   handle->restricted = true;
   handle->runtime_nonce = exactAllocateRuntimeNonce();
   if (handle->runtime_nonce == 0) {
     delete handle;
+    ex_host_release_context(hostContext);
     return nullptr;
   }
   disableDebugger(handle);
@@ -656,6 +668,7 @@ extern "C" ExactHermesRuntime* ex_worklet_create() {
       g_workletStates.erase(handle);
     }
     delete handle;
+    ex_host_release_context(hostContext);
     return nullptr;
   }
 
@@ -710,6 +723,7 @@ extern "C" uint64_t ex_worklet_generation(ExactHermesRuntime* handle) {
 #define EX_WORKLET_ERROR 1
 #define EX_WORKLET_NOOP 2
 
+// @abi-output ex_worklet_install out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
 extern "C" int ex_worklet_install(
     ExactHermesRuntime* handle,
     const char* worklet_id,
@@ -769,6 +783,7 @@ extern "C" int ex_worklet_install(
   }
 }
 
+// @abi-output ex_worklet_invoke out_result_json role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
 extern "C" int ex_worklet_invoke(
     ExactHermesRuntime* handle,
     const char* worklet_id,
@@ -815,6 +830,7 @@ extern "C" int ex_worklet_invoke(
   }
 }
 
+// @abi-output ex_worklet_install_typed out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
 extern "C" int ex_worklet_install_typed(
     ExactHermesRuntime* handle,
     uint32_t install_format,
@@ -936,6 +952,7 @@ extern "C" int ex_worklet_install_typed(
   }
 }
 
+// @abi-output ex_worklet_invoke_typed outputs role=output kind=buffer length=output_capacity ownership=caller-storage
 extern "C" int ex_worklet_invoke_typed(
     ExactHermesRuntime* handle,
     uint64_t identity,
@@ -1016,6 +1033,7 @@ extern "C" int ex_worklet_bind_shared_value_accessors(
   return EX_WORKLET_OK;
 }
 
+// @abi-callback ex_worklet_set_measure_callback callback output=1 kind=buffer fixed-length=4 ownership=caller-storage
 extern "C" void ex_worklet_set_measure_callback(
     ExactHermesRuntime* handle,
     int (*callback)(uint32_t node_id, float* out_frame4, void* context),

@@ -36,6 +36,7 @@
 #endif
 #endif
 #include <chrono>
+#include <charconv>
 #include <deque>
 #include <future>
 #include <iomanip>
@@ -53,6 +54,7 @@
 // consumes generated stable IDs only; WP2's neutral Rust core remains the
 // single decision implementation.
 #include "capsec_registry_generated.h"
+#include "root_global_disposition.generated.h"
 #include <unordered_set>
 #include <optional>
 #include <vector>
@@ -75,6 +77,7 @@
 #include <spawn.h>
 #if defined(__linux__)
 #include <sys/epoll.h>
+#include <sys/sysmacros.h>
 #elif defined(__APPLE__)
 #include <sys/event.h>
 #include <sys/time.h>
@@ -252,6 +255,19 @@ extern "C" void ex_host_console_log(int32_t level, const char* message);
 
 #ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
 thread_local std::string g_injected_armed_startup_failure_stage;
+thread_local std::string g_injected_diagnostic_startup_failure_stage;
+thread_local std::string g_injected_root_global_disposition_key;
+thread_local uint32_t g_injected_root_global_getter_calls = 0;
+thread_local std::string g_root_global_disposition_last_failure;
+thread_local uint32_t
+    g_injected_structured_value_handle_allocation_failures = 0;
+thread_local uint32_t
+    g_injected_structured_safe_metadata_capture_allocation_failures = 0;
+thread_local uint32_t
+    g_injected_structured_safe_metadata_copy_allocation_failures = 0;
+std::mutex g_destroyed_structured_value_handle_counts_mutex;
+std::unordered_map<uint64_t, uint64_t>
+    g_destroyed_structured_value_handle_counts;
 // Test-only proof that one Exact completion capability traversed the resolver,
 // callback queue, and runtime delivery exactly once. Ordinary artifacts do not
 // compile this observer, and it cannot authorize or complete an operation.
@@ -262,6 +278,54 @@ std::atomic<uint64_t> g_exact_host_completion_callbacks_delivered{0};
 
 extern "C" void ibex_test_set_armed_startup_failure_stage(const char* stage) {
   g_injected_armed_startup_failure_stage = stage ? stage : "";
+}
+
+extern "C" void ibex_test_set_diagnostic_startup_failure_stage(
+    const char* stage) {
+  g_injected_diagnostic_startup_failure_stage = stage ? stage : "";
+}
+
+extern "C" void ibex_test_set_root_global_disposition_key(const char* key) {
+  g_injected_root_global_disposition_key = key ? key : "";
+  g_injected_root_global_getter_calls = 0;
+}
+
+extern "C" uint32_t ibex_test_root_global_disposition_getter_calls() {
+  return g_injected_root_global_getter_calls;
+}
+
+extern "C" const char* ibex_test_root_global_disposition_last_failure() {
+  return g_root_global_disposition_last_failure.c_str();
+}
+
+extern "C" void
+ibex_test_fail_next_structured_value_handle_allocation() {
+  g_injected_structured_value_handle_allocation_failures = 1;
+}
+
+extern "C" void
+ibex_test_fail_next_structured_safe_metadata_capture_allocation() {
+  g_injected_structured_safe_metadata_capture_allocation_failures = 1;
+}
+
+extern "C" void
+ibex_test_fail_next_structured_safe_metadata_copy_allocation() {
+  g_injected_structured_safe_metadata_copy_allocation_failures = 1;
+}
+
+extern "C" uint64_t
+ibex_test_take_destroyed_structured_value_handle_count(
+    uint64_t runtimeNonce) {
+  std::lock_guard<std::mutex> lock(
+      g_destroyed_structured_value_handle_counts_mutex);
+  auto found =
+      g_destroyed_structured_value_handle_counts.find(runtimeNonce);
+  if (found == g_destroyed_structured_value_handle_counts.end()) {
+    return std::numeric_limits<uint64_t>::max();
+  }
+  const uint64_t count = found->second;
+  g_destroyed_structured_value_handle_counts.erase(found);
+  return count;
 }
 
 extern "C" void ibex_test_reset_exact_host_completion_observer() {
@@ -301,6 +365,21 @@ void requireArmedStartupStage(ExactHermesRuntime* handle, const char* stage) {
 #endif
 }
 
+void requireDiagnosticStartupStage(
+    ExactHermesRuntime* handle,
+    const char* stage) {
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+  if (handle != nullptr && !handle->armed && stage != nullptr &&
+      g_injected_diagnostic_startup_failure_stage == stage) {
+    throw std::runtime_error(
+        std::string("injected diagnostic startup failure at ") + stage);
+  }
+#else
+  (void)handle;
+  (void)stage;
+#endif
+}
+
 void reportStartupFailure(ExactHermesRuntime* handle,
                           const char* stage,
                           const std::string& detail) {
@@ -321,7 +400,9 @@ extern "C" void ex_host_console_flush(uint32_t timeout_ms);
 extern "C" int32_t ex_host_is_allow_all(void);
 extern "C" int32_t ex_host_is_armed(void);
 extern "C" char* ex_host_armed_endowments(void);
-extern "C" int32_t ex_host_authorize_typed_fs_stack(
+extern "C" uint32_t ex_host_armed_bootstrap_compatibility_flags(void);
+extern "C" uint32_t ex_host_authorize_typed_fs_stack(
+    uint64_t runtime_nonce,
     uint64_t module_id,
     const uint64_t* module_ids,
     size_t module_ids_len,
@@ -389,14 +470,240 @@ extern "C" int32_t ex_host_fs_append(const char* path, const uint8_t* data, uint
 // the variable is unset. See getEnvValue below (ENG-22955).
 extern "C" int64_t ex_host_env_get(const char* key, char* out_buf, uint32_t len);
 extern "C" int32_t ex_host_random_fill(uint8_t* buf, uint32_t len);
+
+namespace {
+
+std::string takeVfsBytes(uint8_t* data, uint64_t length) {
+  std::string value;
+  if (data != nullptr && length != 0) {
+    value.assign(reinterpret_cast<const char*>(data),
+                 static_cast<size_t>(length));
+  }
+  if (data != nullptr) ex_host_free_buffer(data, length);
+  return value;
+}
+
+const char* errnoSymbol(int32_t value) {
+  switch (value) {
+    case EACCES: return "EACCES";
+    case EEXIST: return "EEXIST";
+    case EINVAL: return "EINVAL";
+    case EIO: return "EIO";
+    case ELOOP: return "ELOOP";
+    case ENAMETOOLONG: return "ENAMETOOLONG";
+    case ENOENT: return "ENOENT";
+    case ENOTDIR: return "ENOTDIR";
+    case EPERM: return "EPERM";
+    default: return "EIO";
+  }
+}
+
+[[noreturn]] void throwVfsError(
+    facebook::jsi::Runtime& runtime,
+    uint32_t result,
+    int32_t hostErrno,
+    const char* operation,
+    const std::string& path = "") {
+  const char* code = "ERR_IBEX_VFS";
+  const char* detail = "virtual filesystem operation failed";
+  int32_t compatibleErrno = EINVAL;
+  switch (result) {
+    case 1:
+      code = "EPERM";
+      detail = "closed filesystem operation";
+      compatibleErrno = EPERM;
+      break;
+    case 2:
+      code = "ERR_IBEX_STALE_SESSION";
+      detail = "stale runtime session";
+      break;
+    case 3:
+      code = "ERR_INVALID_ARG_VALUE";
+      detail = "malformed virtual path";
+      break;
+    case 4:
+      code = "ERR_INVALID_FILE_URL_PATH";
+      detail = "encoded path separator";
+      break;
+    case 5:
+      code = "ERR_IBEX_OUTSIDE_MOUNT";
+      detail = "path is outside the virtual mount";
+      break;
+    case 6:
+      code = "ERR_IBEX_SYNTHETIC_NODE";
+      detail = "operation requires a retained filesystem object";
+      break;
+    case 7:
+      code = "EACCES";
+      detail = "filesystem policy denied";
+      compatibleErrno = EACCES;
+      break;
+    case 8:
+      code = "ENOENT";
+      detail = "no such file or directory";
+      compatibleErrno = ENOENT;
+      break;
+    case 9:
+      code = "ELOOP";
+      detail = "too many symbolic links";
+      compatibleErrno = ELOOP;
+      break;
+    case 10:
+      code = "ERR_IBEX_UNMAPPABLE_LINK";
+      detail = "link has no unique virtual spelling";
+      break;
+    case 11:
+      code = "ERR_IBEX_STALE_IDENTITY";
+      detail = "retained filesystem identity is stale";
+      break;
+    case 12:
+      code = "ERR_IBEX_INPUT_TOO_LARGE";
+      detail = "virtual path exceeds the input limit";
+      break;
+    case 13:
+      code = errnoSymbol(hostErrno);
+      detail = hostErrno != 0 ? std::strerror(hostErrno) : "host filesystem failure";
+      compatibleErrno = hostErrno != 0 ? hostErrno : EIO;
+      break;
+    default:
+      break;
+  }
+  const std::string syscall = operation ? operation : "vfs";
+  std::string message = std::string(code) + ": " + syscall + ": " + detail;
+  if (!path.empty()) message += " '" + path + "'";
+  facebook::jsi::JSError jsError(runtime, message);
+  facebook::jsi::Value value(runtime, jsError.value());
+  auto object = value.asObject(runtime);
+  object.setProperty(
+      runtime, "code", facebook::jsi::String::createFromUtf8(runtime, code));
+  object.setProperty(runtime, "errno", facebook::jsi::Value(compatibleErrno));
+  object.setProperty(
+      runtime, "syscall",
+      facebook::jsi::String::createFromUtf8(runtime, syscall));
+  if (!path.empty()) {
+    object.setProperty(
+        runtime, "path", facebook::jsi::String::createFromUtf8(runtime, path));
+  }
+  throw facebook::jsi::JSError(runtime, std::move(value));
+}
+
+}  // namespace
+
+ExactResolvedVfsPath exactResolveVfsPath(
+    facebook::jsi::Runtime& runtime,
+    const std::string& input) {
+  if (ex_host_is_armed() != 1) return ExactResolvedVfsPath{input, input};
+  uint8_t* backing = nullptr;
+  uint64_t backingLength = 0;
+  uint8_t* virtualPath = nullptr;
+  uint64_t virtualLength = 0;
+  int32_t hostErrno = 0;
+  uint32_t result = ex_host_vfs_resolve_path(
+      exactCurrentRuntimeNonce(),
+      reinterpret_cast<const uint8_t*>(input.data()),
+      input.size(),
+      &backing,
+      &backingLength,
+      &virtualPath,
+      &virtualLength,
+      &hostErrno);
+  if (result != 0) {
+    if (backing != nullptr) ex_host_free_buffer(backing, backingLength);
+    if (virtualPath != nullptr) ex_host_free_buffer(virtualPath, virtualLength);
+    throwVfsError(runtime, result, hostErrno, "resolve", input);
+  }
+  return ExactResolvedVfsPath{
+      takeVfsBytes(backing, backingLength),
+      takeVfsBytes(virtualPath, virtualLength)};
+}
+
+std::string exactGetVfsCwd(facebook::jsi::Runtime& runtime) {
+  if (ex_host_is_armed() != 1) {
+    char buffer[4096];
+#if defined(_WIN32)
+    if (_getcwd(buffer, sizeof(buffer)) != nullptr) return buffer;
+#else
+    if (getcwd(buffer, sizeof(buffer)) != nullptr) return buffer;
+#endif
+    throw facebook::jsi::JSError(runtime, "EIO: cwd: host cwd unavailable");
+  }
+  uint8_t* virtualPath = nullptr;
+  uint64_t virtualLength = 0;
+  int32_t hostErrno = 0;
+  auto principals = exactCollectTypedPrincipalStack();
+  uint32_t result = ex_host_vfs_get_cwd(
+      exactCurrentRuntimeNonce(),
+      currentPrincipalId(),
+      principals.data(),
+      principals.size(),
+      &virtualPath,
+      &virtualLength,
+      &hostErrno);
+  if (result != 0) {
+    if (virtualPath != nullptr) ex_host_free_buffer(virtualPath, virtualLength);
+    throwVfsError(runtime, result, hostErrno, "cwd");
+  }
+  return takeVfsBytes(virtualPath, virtualLength);
+}
+
+std::string exactSetVfsCwd(
+    facebook::jsi::Runtime& runtime,
+    const std::string& input) {
+  if (ex_host_is_armed() != 1) {
+#if defined(_WIN32)
+    if (_chdir(input.c_str()) != 0) {
+#else
+    if (chdir(input.c_str()) != 0) {
+#endif
+      throw facebook::jsi::JSError(
+          runtime,
+          std::string(errnoSymbol(errno)) + ": chdir: " + std::strerror(errno));
+    }
+    return exactGetVfsCwd(runtime);
+  }
+  uint8_t* virtualPath = nullptr;
+  uint64_t virtualLength = 0;
+  int32_t hostErrno = 0;
+  auto principals = exactCollectTypedPrincipalStack();
+  uint32_t result = ex_host_vfs_chdir(
+      exactCurrentRuntimeNonce(),
+      currentPrincipalId(),
+      principals.data(),
+      principals.size(),
+      reinterpret_cast<const uint8_t*>(input.data()),
+      input.size(),
+      &virtualPath,
+      &virtualLength,
+      &hostErrno);
+  if (result != 0) {
+    if (virtualPath != nullptr) ex_host_free_buffer(virtualPath, virtualLength);
+    throwVfsError(runtime, result, hostErrno, "chdir", input);
+  }
+  return takeVfsBytes(virtualPath, virtualLength);
+}
+
 extern "C" char* ex_host_module_resolve(uint64_t requester_module_id,
+                                         uint32_t resolution_kind,
                                          const char* specifier,
                                          const char* referrer);
+extern "C" char* ex_host_session_static_import_resolve(
+    const uint8_t* logical_referrer,
+    size_t logical_referrer_length,
+    const uint8_t* specifier,
+    size_t specifier_length,
+    uint32_t resolution_kind);
+extern "C" char* ex_host_session_static_import_resolve_meta(
+    const uint8_t* logical_referrer,
+    size_t logical_referrer_length,
+    const uint8_t* specifier,
+    size_t specifier_length,
+    uint32_t resolution_kind);
 extern "C" char* ex_host_resolve_manifest_builtin_internal(
     const char* specifier);
 // Metadata-only resolve for require.resolve: resolved path + package fields, no
 // module body read/transpile. (ENG-23007)
 extern "C" char* ex_host_module_resolve_meta(uint64_t requester_module_id,
+                                              uint32_t resolution_kind,
                                               const char* specifier,
                                               const char* referrer);
 extern "C" void ex_host_free_string(char* value);
@@ -537,7 +844,10 @@ extern "C" void native_fetch_cancel(uint32_t request_id, uint64_t runtime_nonce)
 
 class MemoryBuffer : public facebook::jsi::Buffer {
  public:
-  MemoryBuffer(const uint8_t* data, size_t len) : size_(len), data_(data, data + len) {
+  MemoryBuffer(const uint8_t* data, size_t len) : size_(len) {
+    if (len != 0) {
+      data_.assign(data, data + len);
+    }
     data_.push_back(0);
   }
 
@@ -684,7 +994,7 @@ double processUptimeSeconds() {
   return elapsed.count();
 }
 
-[[noreturn]] void exactHostExit(int code) {
+[[noreturn]] void legacyUnarmedExit(int code) {
   // console.log lines travel through a bounded queue serviced by a writer
   // thread; terminating without draining it discards output enqueued in the
   // same tick (`console.log(...); process.exit(0)` printed nothing). Windows
@@ -698,47 +1008,1279 @@ double processUptimeSeconds() {
   std::fflush(stderr);
   ExitProcess(static_cast<UINT>(code));
 #else
-  std::exit(code);
+  _exit(code);
 #endif
 }
 
-facebook::jsi::Function makeHardExitFn(facebook::jsi::Runtime& rt) {
+int32_t normalizeLifecycleExitCode(
+    ExactHermesRuntime* handle,
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value) {
+  auto numeric = value.isNumber()
+      ? facebook::jsi::Value(value.asNumber())
+      : handle != nullptr && handle->structured_number
+          ? handle->structured_number->call(runtime, value)
+          : runtime.global().getPropertyAsFunction(runtime, "Number").call(
+                runtime, value);
+  if (!numeric.isNumber()) {
+    throw facebook::jsi::JSError::createTypeError(
+        runtime, "lifecycle exit code did not coerce to a number");
+  }
+  double number = numeric.asNumber();
+  // ECMAScript ToInt32: truncate, then reduce modulo 2^32 into the signed
+  // range. This keeps the native/Rust boundary closed over exactly i32 while
+  // retaining ordinary Number coercion for process.exitCode assignments.
+  if (!std::isfinite(number) || number == 0.0) return 0;
+  double integer = std::trunc(number);
+  double modulo = std::fmod(integer, 4294967296.0);
+  if (modulo < 0.0) modulo += 4294967296.0;
+  if (modulo >= 2147483648.0) modulo -= 4294967296.0;
+  return static_cast<int32_t>(modulo);
+}
+
+int32_t requireTypedLifecycleExit(
+    facebook::jsi::Runtime& runtime,
+    ExHostLifecycleExitSurface surface,
+    int32_t requestedCode,
+    bool hasRequestedCode) {
+  auto principals = exactCollectTypedPrincipalStack();
+  int32_t effectiveCode = 0;
+  if (ex_host_authorize_typed_lifecycle_exit_stack(
+          currentPrincipalId(),
+          principals.data(),
+          principals.size(),
+          static_cast<uint32_t>(surface),
+          requestedCode,
+          hasRequestedCode ? 1u : 0u,
+          &effectiveCode) != 1) {
+    throw facebook::jsi::JSError(
+        runtime, "Permission denied: lifecycle exit authority required");
+  }
+  return effectiveCode;
+}
+
+bool requestStructuredLifecycle(
+    ExactHermesRuntime* handle,
+    facebook::jsi::Runtime& runtime,
+    ExHostLifecycleExitSurface surface,
+    int32_t requestedCode,
+    bool hasRequestedCode) {
+  if (handle == nullptr || !handle->armed) {
+    return false;
+  }
+  // Authorization precedes both the native lifecycle record and the engine
+  // interrupt. A denied request is an ordinary catchable JavaScript error and
+  // cannot leave a latent exit request behind.
+  // @ref LLP 0025#8-exit-and-lifecycle
+  const int32_t code = requireTypedLifecycleExit(
+      runtime, surface, requestedCode, hasRequestedCode);
+  if (!handle->structured_lifecycle_pending) {
+    handle->structured_lifecycle_exit_code = code;
+    handle->structured_lifecycle_pending = true;
+  }
+  // Eval bytecode is compiled with Hermes' async-break checks. A timeout break
+  // is not a JavaScript throw: catch/finally cannot intercept it, so no code
+  // following process.exit can run. The structured boundary recognizes the
+  // native record before classifying the VM termination.
+  handle->runtime->asyncTriggerTimeout();
+  return true;
+}
+
+facebook::jsi::Function makeProcessExitFn(
+    ExactHermesRuntime* handle,
+    facebook::jsi::Runtime& rt) {
   auto fn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "exit"),
       1,
-      [](facebook::jsi::Runtime& runtime,
+      [handle](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
+        const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
-        int code = 0;
-        if (count > 0) {
-          if (args[0].isNumber()) {
-            code = static_cast<int>(args[0].asNumber());
-          } else if (args[0].isString()) {
-            try {
-              code = std::stoi(args[0].getString(runtime).utf8(runtime));
-            } catch (...) {
-              code = 0;
+        const bool hasRequestedCode = count > 0 && !args[0].isUndefined();
+        int32_t requestedCode = hasRequestedCode
+            ? normalizeLifecycleExitCode(handle, runtime, args[0])
+            : 0;
+        if (requestStructuredLifecycle(
+                handle,
+                runtime,
+                EX_HOST_LIFECYCLE_EXIT_SURFACE_PROCESS_EXIT,
+                requestedCode,
+                hasRequestedCode)) {
+          return facebook::jsi::Value::undefined();
+        }
+
+        // The native hard-exit path is retained only for explicitly unarmed
+        // compatibility runtimes. Armed runtimes return above after publishing
+        // a cooperative event and can never reach `_exit`/ExitProcess.
+        int32_t code = requestedCode;
+        if (hasRequestedCode) {
+          if (handle != nullptr && handle->structured_process) {
+            handle->structured_process->setProperty(
+                runtime, "exitCode", facebook::jsi::Value(code));
+          } else {
+            auto processValue = runtime.global().getProperty(runtime, "process");
+            if (processValue.isObject()) {
+              processValue.asObject(runtime).setProperty(
+                  runtime, "exitCode", facebook::jsi::Value(code));
             }
           }
-        }
-        try {
-          auto processObj = runtime.global().getProperty(runtime, "process");
-          if (!processObj.isObject()) {
-            exactHostExit(code);
+        } else if (handle != nullptr && handle->structured_process) {
+          code = normalizeLifecycleExitCode(
+              handle,
+              runtime,
+              handle->structured_process->getProperty(runtime, "exitCode"));
+        } else {
+          auto processValue = runtime.global().getProperty(runtime, "process");
+          if (processValue.isObject()) {
+            code = normalizeLifecycleExitCode(
+                handle,
+                runtime,
+                processValue.asObject(runtime).getProperty(runtime, "exitCode"));
           }
-          auto process = processObj.asObject(runtime);
-          process.setProperty(runtime, "exitCode", facebook::jsi::Value(code));
-        } catch (...) {
         }
-        exactHostExit(code);
+        legacyUnarmedExit(code);
       });
-  try {
-    fn.setProperty(rt, "__exactHostExit", facebook::jsi::Value(true));
-  } catch (...) {
-  }
   return fn;
+}
+
+// The controller polls from a different thread while the owner may be wedged
+// inside Hermes. Publication therefore owns no JSI values, never calls back
+// into the host, and has a fixed memory bound. Overflow is sticky and
+// fail-loud: the supervisor must dispose the worker rather than reason from a
+// partial live-unit set.
+// @ref LLP 0024#6-evaluation-outcomes-and-the-abi
+// @ref LLP 0025#6-interruption-and-cancellation
+constexpr size_t kStructuredWorkEventCapacity = 1024;
+constexpr size_t kStructuredCancellationEventCapacity = 1024;
+constexpr size_t kStructuredAsyncFailureEventCapacity = 1024;
+constexpr char kHermesTimeoutMessage[] = "Javascript execution has timed out.";
+
+enum class StructuredCancellationStopCause {
+  None,
+  HermesTimeout,
+  // Raw throw capture deliberately leaves JSError message/stack empty. When a
+  // cancellation request overlaps that throw, the consistency probe tells us
+  // whether the engine timeout was consumed by the target (Passed) or remains
+  // queued behind an ordinary user throw (Timeout), without consulting a
+  // JavaScript-visible `.message` property.
+  RawCapturedJsThrow,
+  CooperativeBoundary,
+};
+
+thread_local facebook::hermes::HermesRuntime* g_rawThrowCaptureRuntime = nullptr;
+thread_local size_t g_rawThrowCaptureDepth = 0;
+
+class ScopedRawThrowCapture {
+ public:
+  explicit ScopedRawThrowCapture(
+      facebook::hermes::HermesRuntime* runtime,
+      bool enabled = true)
+      : runtime_(runtime), enabled_(enabled && available()) {
+#ifdef HERMES_HAS_RAW_THROW_CAPTURE
+    if (!enabled_) return;
+    if (g_rawThrowCaptureRuntime == runtime_) {
+      g_rawThrowCaptureDepth++;
+      return;
+    }
+    previous_runtime_ = g_rawThrowCaptureRuntime;
+    previous_depth_ = g_rawThrowCaptureDepth;
+    switched_runtime_ = true;
+    g_rawThrowCaptureRuntime = runtime_;
+    g_rawThrowCaptureDepth = 1;
+    runtime_->setJSErrorMetadataPropertyAccessEnabled(false);
+#else
+    (void)runtime_;
+#endif
+  }
+
+  ~ScopedRawThrowCapture() {
+#ifdef HERMES_HAS_RAW_THROW_CAPTURE
+    if (!enabled_) return;
+    if (!switched_runtime_) {
+      if (g_rawThrowCaptureRuntime == runtime_ && g_rawThrowCaptureDepth != 0) {
+        g_rawThrowCaptureDepth--;
+      }
+      return;
+    }
+    runtime_->setJSErrorMetadataPropertyAccessEnabled(true);
+    g_rawThrowCaptureRuntime = previous_runtime_;
+    g_rawThrowCaptureDepth = previous_depth_;
+#endif
+  }
+
+  static constexpr bool available() {
+#ifdef HERMES_HAS_RAW_THROW_CAPTURE
+    return true;
+#else
+    return false;
+#endif
+  }
+
+  ScopedRawThrowCapture(const ScopedRawThrowCapture&) = delete;
+  ScopedRawThrowCapture& operator=(const ScopedRawThrowCapture&) = delete;
+
+ private:
+  facebook::hermes::HermesRuntime* runtime_;
+  bool enabled_{false};
+  facebook::hermes::HermesRuntime* previous_runtime_{nullptr};
+  size_t previous_depth_{0};
+  bool switched_runtime_{false};
+};
+
+// A cancellation consistency probe evaluates only the embedder-prepared
+// `void 0` unit. Let Hermes materialize its own timeout metadata while that
+// trusted probe runs, then restore the surrounding raw user-throw capture.
+// Otherwise a normally returning native target leaves a queued timeout whose
+// JSError message is intentionally blank, making a defeated request look like
+// a failed consistency check.
+// @ref LLP 0024#6-evaluation-outcomes-and-the-abi
+class ScopedTrustedProbeMetadataAccess {
+ public:
+  explicit ScopedTrustedProbeMetadataAccess(
+      facebook::hermes::HermesRuntime* runtime)
+      : runtime_(runtime),
+        restore_disabled_(
+            runtime != nullptr && g_rawThrowCaptureRuntime == runtime &&
+            g_rawThrowCaptureDepth != 0) {
+#ifdef HERMES_HAS_RAW_THROW_CAPTURE
+    if (restore_disabled_) {
+      runtime_->setJSErrorMetadataPropertyAccessEnabled(true);
+    }
+#endif
+  }
+
+  ~ScopedTrustedProbeMetadataAccess() {
+#ifdef HERMES_HAS_RAW_THROW_CAPTURE
+    if (restore_disabled_) {
+      runtime_->setJSErrorMetadataPropertyAccessEnabled(false);
+    }
+#endif
+  }
+
+  ScopedTrustedProbeMetadataAccess(
+      const ScopedTrustedProbeMetadataAccess&) = delete;
+  ScopedTrustedProbeMetadataAccess& operator=(
+      const ScopedTrustedProbeMetadataAccess&) = delete;
+
+ private:
+  facebook::hermes::HermesRuntime* runtime_;
+  bool restore_disabled_{false};
+};
+
+enum class StructuredCancellationProbeResult {
+  Passed,
+  Timeout,
+  Failed,
+};
+
+struct StructuredCancellationSettlement {
+  bool requested{false};
+  uint32_t resolution{0};
+};
+
+bool structuredWorkPublicationEnabled(const ExactHermesRuntime* runtime) {
+  return runtime != nullptr && runtime->structured_session_bound;
+}
+
+void failStructuredWorkPublication(ExactHermesRuntime* runtime) {
+  if (runtime == nullptr) return;
+  std::lock_guard<std::mutex> lock(runtime->structured_work_event_mutex);
+  runtime->structured_work_event_failed = true;
+  runtime->structured_work_events.clear();
+  runtime->structured_cancellation_events.clear();
+}
+
+bool publishStructuredWorkEvent(
+    ExactHermesRuntime* runtime,
+    uint32_t kind,
+    uint32_t phase,
+    uint64_t targetId,
+    uint64_t schedulingId) {
+  if (!structuredWorkPublicationEnabled(runtime)) return true;
+  std::lock_guard<std::mutex> lock(runtime->structured_work_event_mutex);
+  if (runtime->structured_work_event_overflow ||
+      runtime->structured_work_event_failed) {
+    return false;
+  }
+  if (runtime->structured_work_events.size() >=
+      kStructuredWorkEventCapacity) {
+    runtime->structured_work_event_overflow = true;
+    runtime->structured_work_events.clear();
+    return false;
+  }
+  try {
+    runtime->structured_work_events.push_back(
+        StructuredWorkUnitEvent{kind, phase, targetId, schedulingId});
+  } catch (...) {
+    runtime->structured_work_event_failed = true;
+    runtime->structured_work_events.clear();
+    return false;
+  }
+  return true;
+}
+
+bool publishStructuredCancellationEvent(
+    ExactHermesRuntime* runtime,
+    uint32_t resolution,
+    uint64_t targetId) {
+  if (!structuredWorkPublicationEnabled(runtime)) return true;
+  std::lock_guard<std::mutex> lock(runtime->structured_work_event_mutex);
+  if (runtime->structured_cancellation_event_overflow ||
+      runtime->structured_work_event_failed) {
+    return false;
+  }
+  if (runtime->structured_cancellation_events.size() >=
+      kStructuredCancellationEventCapacity) {
+    runtime->structured_cancellation_event_overflow = true;
+    runtime->structured_cancellation_events.clear();
+    return false;
+  }
+  try {
+    runtime->structured_cancellation_events.push_back(
+        StructuredCancellationEvent{resolution, targetId});
+  } catch (...) {
+    runtime->structured_work_event_failed = true;
+    runtime->structured_cancellation_events.clear();
+    return false;
+  }
+  return true;
+}
+
+bool isHermesTimeoutError(const facebook::jsi::JSError& error) {
+  // Hermes creates an uncatchable TimeoutError with this engine-owned message
+  // for asyncTriggerTimeout. A user can spoof the text, so the consistency
+  // probe below also has to prove there is no still-pending break before a
+  // timeout-shaped exception is accepted as causal.
+  return error.getMessage() == kHermesTimeoutMessage;
+}
+
+StructuredCancellationProbeResult runStructuredCancellationProbe(
+    ExactHermesRuntime* runtime) {
+  if (runtime == nullptr || runtime->runtime == nullptr ||
+      !runtime->structured_cancellation_consistency_probe) {
+    return StructuredCancellationProbeResult::Failed;
+  }
+  ScopedTrustedProbeMetadataAccess metadataAccess(runtime->runtime.get());
+  try {
+    auto value = runtime->runtime->evaluatePreparedJavaScript(
+        runtime->structured_cancellation_consistency_probe);
+    return value.isUndefined()
+        ? StructuredCancellationProbeResult::Passed
+        : StructuredCancellationProbeResult::Failed;
+  } catch (const facebook::jsi::JSError& error) {
+    return isHermesTimeoutError(error)
+        ? StructuredCancellationProbeResult::Timeout
+        : StructuredCancellationProbeResult::Failed;
+  } catch (...) {
+    return StructuredCancellationProbeResult::Failed;
+  }
+}
+
+bool structuredCancellationStateIsReusable(ExactHermesRuntime* runtime) {
+  if (runtime == nullptr || runtime->runtime == nullptr ||
+      runtime->structured_session_terminated) {
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
+  return runtime->structured_active_work_target_id == 0 &&
+      runtime->structured_cancel_requested_work_target_id == 0 &&
+      runtime->structured_cancellation_critical_work_target_id == 0 &&
+      !runtime->structured_vm_work_active;
+}
+
+StructuredCancellationSettlement retireStructuredWorkTarget(
+    ExactHermesRuntime* runtime,
+    uint64_t targetId,
+    StructuredCancellationStopCause stopCause) {
+  StructuredCancellationSettlement settlement;
+  if (runtime == nullptr || targetId == 0) return settlement;
+  {
+    std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
+    if (runtime->structured_active_work_target_id == targetId) {
+      runtime->structured_active_work_target_id = 0;
+    }
+    settlement.requested =
+        runtime->structured_cancel_requested_work_target_id == targetId;
+    if (settlement.requested) {
+      runtime->structured_cancel_requested_work_target_id = 0;
+    }
+    runtime->structured_vm_work_active = false;
+  }
+  if (!settlement.requested) return settlement;
+
+  // The probe is compiled before project source is admitted and executes only
+  // `void 0`. If the target won the race normally, this consumes the queued
+  // timeout here, while no successor target is published. A second clean probe
+  // proves that consumption and runtime reuse. A timeout already observed by
+  // the target must instead leave the first probe clean; otherwise a spoofed
+  // ordinary throw won the race and the request was defeated.
+  auto probe = runStructuredCancellationProbe(runtime);
+  if (probe == StructuredCancellationProbeResult::Failed) {
+    settlement.resolution = EX_HERMES_CANCELLATION_FAILED;
+    return settlement;
+  }
+  if (probe == StructuredCancellationProbeResult::Timeout) {
+    if (runStructuredCancellationProbe(runtime) !=
+        StructuredCancellationProbeResult::Passed) {
+      settlement.resolution = EX_HERMES_CANCELLATION_FAILED;
+      return settlement;
+    }
+    settlement.resolution =
+        stopCause == StructuredCancellationStopCause::CooperativeBoundary
+        ? EX_HERMES_CANCELLATION_ACCEPTED
+        : EX_HERMES_CANCELLATION_DEFEATED;
+    return settlement;
+  }
+  settlement.resolution =
+      stopCause == StructuredCancellationStopCause::None
+      ? EX_HERMES_CANCELLATION_DEFEATED
+      : EX_HERMES_CANCELLATION_ACCEPTED;
+  return settlement;
+}
+
+uint32_t validateStructuredCancellationSettlement(
+    ExactHermesRuntime* runtime,
+    StructuredCancellationSettlement settlement,
+    bool lifecycleWon = false) {
+  if (!settlement.requested) return 0;
+  if ((lifecycleWon || runtime->structured_lifecycle_pending) &&
+      settlement.resolution == EX_HERMES_CANCELLATION_ACCEPTED) {
+    // Cooperative lifecycle is the route that ended the target. It outranks
+    // the overlapping request without implying that the VM is inconsistent.
+    settlement.resolution = EX_HERMES_CANCELLATION_DEFEATED;
+  }
+  if (!lifecycleWon &&
+      settlement.resolution != EX_HERMES_CANCELLATION_FAILED &&
+      !structuredCancellationStateIsReusable(runtime)) {
+    settlement.resolution = EX_HERMES_CANCELLATION_FAILED;
+  }
+  if (settlement.resolution == EX_HERMES_CANCELLATION_FAILED) {
+    runtime->structured_session_terminated = true;
+  }
+  return settlement.resolution;
+}
+
+uint64_t allocateStructuredWorkTarget(ExactHermesRuntime* runtime) {
+  if (runtime == nullptr || runtime->next_structured_work_target_id == 0) {
+    failStructuredWorkPublication(runtime);
+    return 0;
+  }
+  return runtime->next_structured_work_target_id++;
+}
+
+bool structuredWorkIsExecuting(ExactHermesRuntime* runtime) {
+  if (runtime == nullptr) return false;
+  std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
+  return runtime->structured_active_work_target_id != 0;
+}
+
+bool beginStructuredWorkUnit(
+    ExactHermesRuntime* runtime,
+    uint32_t kind,
+    uint64_t schedulingId,
+    uint64_t targetId) {
+  if (!structuredWorkPublicationEnabled(runtime)) return false;
+  if (targetId == 0) {
+    targetId = allocateStructuredWorkTarget(runtime);
+  }
+  if (targetId == 0) return false;
+  {
+    std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
+    if (runtime->structured_active_work_target_id != 0) {
+      // Synchronously nested jobs are part of the already-published unit. The
+      // independent boundaries this seam names are the owner-thread units
+      // entered by poll once no other unit is executing.
+      return false;
+    }
+    runtime->structured_active_work_target_id = targetId;
+    runtime->structured_cancel_requested_work_target_id = 0;
+    runtime->structured_vm_work_active = true;
+  }
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+  if (runtime->structured_test_fail_next_begin_after_cancellation) {
+    runtime->structured_test_fail_next_begin_after_cancellation = false;
+    {
+      std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
+      if (runtime->structured_active_work_target_id == targetId &&
+          runtime->structured_vm_work_active &&
+          runtime->structured_cancel_requested_work_target_id == 0) {
+        runtime->structured_cancel_requested_work_target_id = targetId;
+        runtime->runtime->asyncTriggerTimeout();
+      }
+    }
+    failStructuredWorkPublication(runtime);
+  }
+#endif
+  if (!publishStructuredWorkEvent(
+          runtime,
+          kind,
+          EX_HERMES_WORK_UNIT_BEGIN,
+          targetId,
+          schedulingId)) {
+    {
+      std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
+      if (runtime->structured_active_work_target_id == targetId) {
+        runtime->structured_active_work_target_id = 0;
+        runtime->structured_vm_work_active = false;
+      }
+    }
+    // An any-thread cancellation can win after activation but before the
+    // publication attempt fails. Consume and classify that exact request now;
+    // otherwise the caller would observe an inactive unit while a stale
+    // timeout remained armed for its successor. Publication is already
+    // fail-loud, so no terminal cancellation event can be added to this queue.
+    const auto settlement = retireStructuredWorkTarget(
+        runtime, targetId, StructuredCancellationStopCause::None);
+    (void)validateStructuredCancellationSettlement(runtime, settlement);
+    return false;
+  }
+  return true;
+}
+
+bool endStructuredWorkUnit(
+    ExactHermesRuntime* runtime,
+    uint32_t kind,
+    uint64_t schedulingId,
+    uint64_t targetId,
+    StructuredCancellationStopCause stopCause =
+        StructuredCancellationStopCause::None) {
+  if (runtime == nullptr || targetId == 0) return false;
+  auto settlement = retireStructuredWorkTarget(runtime, targetId, stopCause);
+  const uint32_t resolution =
+      validateStructuredCancellationSettlement(runtime, settlement);
+  publishStructuredWorkEvent(
+      runtime,
+      kind,
+      EX_HERMES_WORK_UNIT_END,
+      targetId,
+      schedulingId);
+  if (resolution != 0) {
+    publishStructuredCancellationEvent(runtime, resolution, targetId);
+  }
+  // The caller suppresses only the engine-owned timeout (Accepted), or an
+  // untrusted runtime after a failed consistency check. Defeated ordinary
+  // throws continue through the normal async-error route.
+  return resolution == EX_HERMES_CANCELLATION_ACCEPTED ||
+      resolution == EX_HERMES_CANCELLATION_FAILED;
+}
+
+class ScopedNativeWorkUnit {
+ public:
+  ScopedNativeWorkUnit(
+      ExactHermesRuntime* runtime,
+      uint32_t kind,
+      uint64_t schedulingId = 0)
+      : runtime_(runtime), kind_(kind), scheduling_id_(schedulingId) {
+    if (!structuredWorkPublicationEnabled(runtime_) ||
+        structuredWorkIsExecuting(runtime_)) {
+      return;
+    }
+    target_id_ = allocateStructuredWorkTarget(runtime_);
+    if (target_id_ != 0 &&
+        !beginStructuredWorkUnit(
+            runtime_, kind_, scheduling_id_, target_id_)) {
+      target_id_ = 0;
+    }
+  }
+
+  ~ScopedNativeWorkUnit() {
+    finish();
+  }
+
+  bool finish() {
+    return finish(StructuredCancellationStopCause::None);
+  }
+
+  bool finish(const facebook::jsi::JSError& error) {
+    return finish(
+        isHermesTimeoutError(error)
+            ? StructuredCancellationStopCause::HermesTimeout
+            : StructuredCancellationStopCause::None);
+  }
+
+  bool finishRawCapturedJsThrow() {
+    return finish(StructuredCancellationStopCause::RawCapturedJsThrow);
+  }
+
+  uint64_t targetId() const { return target_id_; }
+
+  bool finish(StructuredCancellationStopCause stopCause) {
+    if (finished_) return cancellation_stopped_work_;
+    cancellation_stopped_work_ = endStructuredWorkUnit(
+        runtime_, kind_, scheduling_id_, target_id_, stopCause);
+    finished_ = true;
+    return cancellation_stopped_work_;
+  }
+
+  ScopedNativeWorkUnit(const ScopedNativeWorkUnit&) = delete;
+  ScopedNativeWorkUnit& operator=(const ScopedNativeWorkUnit&) = delete;
+
+ private:
+  ExactHermesRuntime* runtime_{nullptr};
+  uint32_t kind_{0};
+  uint64_t scheduling_id_{0};
+  uint64_t target_id_{0};
+  bool finished_{false};
+  bool cancellation_stopped_work_{false};
+};
+
+void reconcileStructuredTimerDue(
+    ExactHermesRuntime* runtime,
+    const std::vector<std::pair<uint64_t, uint64_t>>& due) {
+  if (!structuredWorkPublicationEnabled(runtime)) return;
+  std::unordered_set<uint64_t> current;
+  current.reserve(due.size());
+  for (const auto& row : due) current.insert(row.second);
+
+  std::vector<uint64_t> becameUndue;
+  for (uint64_t schedulingId : runtime->structured_published_due_timers) {
+    if (current.find(schedulingId) == current.end()) {
+      becameUndue.push_back(schedulingId);
+    }
+  }
+  for (uint64_t schedulingId : becameUndue) {
+    runtime->structured_published_due_timers.erase(schedulingId);
+    publishStructuredWorkEvent(
+        runtime,
+        EX_HERMES_WORK_UNIT_TIMER,
+        EX_HERMES_WORK_UNIT_UNDUE,
+        0,
+        schedulingId);
+  }
+  for (const auto& row : due) {
+    const uint64_t schedulingId = row.second;
+    if (runtime->structured_published_due_timers.insert(schedulingId).second) {
+      publishStructuredWorkEvent(
+          runtime,
+          EX_HERMES_WORK_UNIT_TIMER,
+          EX_HERMES_WORK_UNIT_DUE,
+          0,
+          schedulingId);
+    }
+  }
+}
+
+void consumeStructuredTimerDue(
+    ExactHermesRuntime* runtime,
+    uint64_t schedulingId) {
+  if (runtime == nullptr) return;
+  runtime->structured_published_due_timers.erase(schedulingId);
+}
+
+bool mintStructuredValueHandle(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::Value& value,
+    ExHermesValueHandle* out) noexcept {
+  if (runtime == nullptr || out == nullptr) return false;
+  *out = ExHermesValueHandle{0, 0};
+  try {
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+    if (g_injected_structured_value_handle_allocation_failures != 0) {
+      --g_injected_structured_value_handle_allocation_failures;
+      throw std::bad_alloc();
+    }
+#endif
+    if (runtime->next_structured_value_handle_id == 0) return false;
+    const uint64_t id = runtime->next_structured_value_handle_id++;
+    auto rooted =
+        std::make_unique<facebook::jsi::Value>(*runtime->runtime, value);
+    auto inserted =
+        runtime->structured_value_handles.emplace(id, std::move(rooted));
+    if (!inserted.second) return false;
+    out->runtime_nonce = runtime->runtime_nonce;
+    out->handle_id = id;
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
+StructuredAsyncPrincipalStatus structuredAsyncPrincipalStatus(
+    uint64_t principal) {
+  if (principal == static_cast<uint64_t>(kRuntimePrincipalId) ||
+      principal == static_cast<uint64_t>(kNoUserPrincipalId) ||
+      principal == kNoNativePrincipalOverride) {
+    return StructuredAsyncPrincipalStatus::Unavailable;
+  }
+  return StructuredAsyncPrincipalStatus::Authenticated;
+}
+
+StructuredAsyncFailureContext structuredAsyncFailureContext(
+    uint32_t kind,
+    uint64_t principal,
+    uint64_t eventId,
+    uint64_t associatedEvaluation) {
+  return StructuredAsyncFailureContext{
+      kind,
+      structuredAsyncPrincipalStatus(principal),
+      principal,
+      eventId,
+      associatedEvaluation};
+}
+
+class ScopedHermesJobAssociation {
+ public:
+  ScopedHermesJobAssociation(
+      ExactHermesRuntime* runtime,
+      uint64_t associatedEvaluation)
+      : runtime_(runtime),
+        previous_(runtime->structured_vm_job_associated_evaluation) {
+    runtime_->structured_vm_job_associated_evaluation = associatedEvaluation;
+#if defined(HERMES_HAS_PROMISE_REJECTION_CHECKPOINT_HOOK) && \
+    defined(EXACT_HAVE_STRUCTURED_ASYNC_PROVENANCE)
+    if (runtime_->attribution_runtime != nullptr) {
+      ex_hermes_vm_set_job_associated_evaluation(
+          runtime_->attribution_runtime, associatedEvaluation);
+    }
+#endif
+  }
+
+  ~ScopedHermesJobAssociation() {
+    runtime_->structured_vm_job_associated_evaluation = previous_;
+#if defined(HERMES_HAS_PROMISE_REJECTION_CHECKPOINT_HOOK) && \
+    defined(EXACT_HAVE_STRUCTURED_ASYNC_PROVENANCE)
+    if (runtime_->attribution_runtime != nullptr) {
+      ex_hermes_vm_set_job_associated_evaluation(
+          runtime_->attribution_runtime, previous_);
+    }
+#endif
+  }
+
+  ScopedHermesJobAssociation(const ScopedHermesJobAssociation&) = delete;
+  ScopedHermesJobAssociation& operator=(
+      const ScopedHermesJobAssociation&) = delete;
+
+ private:
+  ExactHermesRuntime* runtime_;
+  uint64_t previous_{0};
+};
+
+// A native completion has no live user JS frame when it resolves its Promise.
+// Carry the completion's authenticated schedule-time owner into Hermes only
+// for that exact callback scope; enqueueJob still prefers any real JS frame.
+// @ref LLP 0024#9-asynchronous-failures
+class ScopedHermesJobSchedulerPrincipal {
+ public:
+  ScopedHermesJobSchedulerPrincipal(
+      ExactHermesRuntime* runtime,
+      const StructuredAsyncFailureContext& context)
+      : runtime_(runtime),
+        previous_(runtime->structured_vm_job_scheduler_principal) {
+    const uint32_t principal =
+        context.principalStatus == StructuredAsyncPrincipalStatus::Authenticated &&
+            context.principal < static_cast<uint64_t>(kNoUserPrincipalId)
+        ? static_cast<uint32_t>(context.principal)
+        : kRuntimePrincipalId;
+    runtime_->structured_vm_job_scheduler_principal = principal;
+#if defined(HERMES_HAS_PROMISE_REJECTION_CHECKPOINT_HOOK) && \
+    defined(EXACT_HAVE_STRUCTURED_ASYNC_PROVENANCE)
+    if (runtime_->attribution_runtime != nullptr) {
+      ex_hermes_vm_set_embedder_job_scheduler_principal(
+          runtime_->attribution_runtime, principal);
+    }
+#endif
+  }
+
+  ~ScopedHermesJobSchedulerPrincipal() {
+    runtime_->structured_vm_job_scheduler_principal = previous_;
+#if defined(HERMES_HAS_PROMISE_REJECTION_CHECKPOINT_HOOK) && \
+    defined(EXACT_HAVE_STRUCTURED_ASYNC_PROVENANCE)
+    if (runtime_->attribution_runtime != nullptr) {
+      ex_hermes_vm_set_embedder_job_scheduler_principal(
+          runtime_->attribution_runtime, previous_);
+    }
+#endif
+  }
+
+  ScopedHermesJobSchedulerPrincipal(
+      const ScopedHermesJobSchedulerPrincipal&) = delete;
+  ScopedHermesJobSchedulerPrincipal& operator=(
+      const ScopedHermesJobSchedulerPrincipal&) = delete;
+
+ private:
+  ExactHermesRuntime* runtime_;
+  uint32_t previous_{kRuntimePrincipalId};
+};
+
+class ScopedAsyncFailureContext {
+ public:
+  ScopedAsyncFailureContext(
+      ExactHermesRuntime* runtime,
+      StructuredAsyncFailureContext context)
+      : runtime_(runtime),
+        previous_(runtime->structured_active_async_failure_context),
+        previously_set_(runtime->structured_active_async_failure_context_set),
+        job_association_(runtime, context.associatedEvaluation) {
+    runtime_->structured_active_async_failure_context = context;
+    runtime_->structured_active_async_failure_context_set = true;
+  }
+
+  ~ScopedAsyncFailureContext() {
+    runtime_->structured_active_async_failure_context = previous_;
+    runtime_->structured_active_async_failure_context_set = previously_set_;
+  }
+
+  ScopedAsyncFailureContext(const ScopedAsyncFailureContext&) = delete;
+  ScopedAsyncFailureContext& operator=(const ScopedAsyncFailureContext&) = delete;
+
+ private:
+  ExactHermesRuntime* runtime_;
+  StructuredAsyncFailureContext previous_;
+  bool previously_set_{false};
+  ScopedHermesJobAssociation job_association_;
+};
+
+void recordStructuredAsyncFailureDrops(
+    ExactHermesRuntime* runtime,
+    uint64_t count) {
+  if (count == 0) return;
+  const uint64_t available =
+      std::numeric_limits<uint64_t>::max() -
+      runtime->structured_async_failure_dropped;
+  if (count > available) {
+    runtime->structured_async_failure_dropped =
+        std::numeric_limits<uint64_t>::max();
+    runtime->structured_async_failure_failed = true;
+    return;
+  }
+  runtime->structured_async_failure_dropped += count;
+}
+
+void recordStructuredAsyncFailureDrop(ExactHermesRuntime* runtime) {
+  recordStructuredAsyncFailureDrops(runtime, 1);
+}
+
+void recordStructuredPendingPromiseRejectionDrop(
+    ExactHermesRuntime* runtime) {
+  if (runtime->structured_pending_promise_rejection_dropped ==
+      std::numeric_limits<uint64_t>::max()) {
+    runtime->structured_async_failure_failed = true;
+    return;
+  }
+  runtime->structured_pending_promise_rejection_dropped++;
+}
+
+#ifdef HERMES_HAS_SAFE_THROW_METADATA
+#ifdef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
+static_assert(
+    HERMES_SAFE_TEXT_MAX_BYTES == EX_HERMES_SAFE_TEXT_MAX_BYTES,
+    "Hermes and Ibex safe-text bounds must match");
+#endif
+
+uint32_t structuredErrorClass(
+    facebook::hermes::SafeJSErrorClass errorClass) {
+  using SafeClass = facebook::hermes::SafeJSErrorClass;
+  switch (errorClass) {
+    case SafeClass::Unclassified:
+      return EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+    case SafeClass::Error:
+      return EX_HERMES_ERROR_CLASS_ERROR;
+    case SafeClass::AggregateError:
+      return EX_HERMES_ERROR_CLASS_AGGREGATE_ERROR;
+    case SafeClass::EvalError:
+      return EX_HERMES_ERROR_CLASS_EVAL_ERROR;
+    case SafeClass::RangeError:
+      return EX_HERMES_ERROR_CLASS_RANGE_ERROR;
+    case SafeClass::ReferenceError:
+      return EX_HERMES_ERROR_CLASS_REFERENCE_ERROR;
+    case SafeClass::SyntaxError:
+      return EX_HERMES_ERROR_CLASS_SYNTAX_ERROR;
+    case SafeClass::TypeError:
+      return EX_HERMES_ERROR_CLASS_TYPE_ERROR;
+    case SafeClass::URIError:
+      return EX_HERMES_ERROR_CLASS_URI_ERROR;
+    case SafeClass::TimeoutError:
+      return EX_HERMES_ERROR_CLASS_TIMEOUT_ERROR;
+    case SafeClass::QuitError:
+      return EX_HERMES_ERROR_CLASS_QUIT_ERROR;
+  }
+  return EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+}
+
+uint32_t structuredSafeMetadataFields(
+    const std::string& message,
+    const std::string& stack,
+    bool messageTruncated,
+    bool stackTruncated) {
+  uint32_t fields = 0;
+  if (!message.empty()) fields |= EX_HERMES_THROW_FIELD_MESSAGE;
+  if (!stack.empty()) fields |= EX_HERMES_THROW_FIELD_STACK;
+  if (messageTruncated) {
+    fields |= EX_HERMES_THROW_FIELD_MESSAGE |
+        EX_HERMES_THROW_FIELD_MESSAGE_TRUNCATED;
+  }
+  if (stackTruncated) {
+    fields |= EX_HERMES_THROW_FIELD_STACK |
+        EX_HERMES_THROW_FIELD_STACK_TRUNCATED;
+  }
+  return fields;
+}
+
+facebook::hermes::SafeJSErrorClass captureStructuredSafeMetadata(
+    facebook::hermes::HermesRuntime* runtime,
+    const facebook::jsi::Value& value,
+    std::string& message,
+    std::string& stack,
+    bool& messageTruncated,
+    bool& stackTruncated) {
+  message.clear();
+  stack.clear();
+  messageTruncated = false;
+  stackTruncated = false;
+#ifdef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
+  return runtime->getSafeJSErrorMetadata(
+      value, message, stack, messageTruncated, stackTruncated);
+#else
+  // Older installed Hermes profiles exposed the original unbounded helper.
+  // Fail closed instead of materializing attacker-sized metadata; bounded
+  // profiles define HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA in the patched API.
+  (void)runtime;
+  (void)value;
+  return facebook::hermes::SafeJSErrorClass::Unclassified;
+#endif
+}
+#endif
+
+bool publishStructuredAsyncFailure(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::Value& value,
+    const std::string* capturedMessage = nullptr,
+    const std::string* capturedStack = nullptr,
+    const uint32_t* capturedMetadataFields = nullptr,
+    const uint32_t* capturedErrorClass = nullptr) {
+  if (!structuredWorkPublicationEnabled(runtime)) return false;
+  if (runtime->runtime_thread != std::this_thread::get_id() ||
+      runtime->structured_async_failure_failed) {
+    runtime->structured_async_failure_failed = true;
+    return false;
+  }
+  // Once a loss window opens, coalesce every later failure into that window
+  // until the owner thread takes its marker. Otherwise a caller that drains
+  // only part of the queue could resume the runtime, append a newer event,
+  // and receive that event before the marker for an older loss.
+  if (runtime->structured_async_failure_dropped != 0 ||
+      runtime->structured_async_failure_events.size() >=
+          kStructuredAsyncFailureEventCapacity) {
+    recordStructuredAsyncFailureDrop(runtime);
+    return false;
+  }
+
+  ExHermesValueHandle handle{0, 0};
+  try {
+    if (!mintStructuredValueHandle(runtime, value, &handle)) {
+      recordStructuredAsyncFailureDrop(runtime);
+      return false;
+    }
+    std::string safeMessage;
+    std::string safeStack;
+    uint32_t safeMetadataFields = 0;
+    uint32_t safeErrorClass = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+    if (capturedMessage != nullptr && capturedStack != nullptr) {
+      safeMessage = *capturedMessage;
+      safeStack = *capturedStack;
+      if (capturedMetadataFields != nullptr) {
+        safeMetadataFields = *capturedMetadataFields;
+      } else {
+        if (!safeMessage.empty()) {
+          safeMetadataFields |= EX_HERMES_THROW_FIELD_MESSAGE;
+        }
+        if (!safeStack.empty()) {
+          safeMetadataFields |= EX_HERMES_THROW_FIELD_STACK;
+        }
+      }
+      if (capturedErrorClass != nullptr) {
+        safeErrorClass = *capturedErrorClass;
+      } else {
+#ifdef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
+        std::string ignoredMessage;
+        std::string ignoredStack;
+        bool ignoredMessageTruncated = false;
+        bool ignoredStackTruncated = false;
+        safeErrorClass = structuredErrorClass(
+            captureStructuredSafeMetadata(
+                runtime->runtime.get(),
+                value,
+                ignoredMessage,
+                ignoredStack,
+                ignoredMessageTruncated,
+                ignoredStackTruncated));
+#endif
+      }
+    } else {
+#ifdef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
+      bool messageTruncated = false;
+      bool stackTruncated = false;
+      safeErrorClass = structuredErrorClass(
+          captureStructuredSafeMetadata(
+              runtime->runtime.get(),
+              value,
+              safeMessage,
+              safeStack,
+              messageTruncated,
+              stackTruncated));
+      safeMetadataFields = structuredSafeMetadataFields(
+          safeMessage, safeStack, messageTruncated, stackTruncated);
+#endif
+    }
+#ifdef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
+    runtime->structured_value_safe_throw_metadata.emplace(
+        handle.handle_id,
+        StructuredSafeThrowMetadata{
+            safeMetadataFields,
+            safeErrorClass,
+            std::move(safeMessage),
+            std::move(safeStack)});
+#endif
+    StructuredAsyncFailureContext context =
+        runtime->structured_active_async_failure_context_set
+        ? runtime->structured_active_async_failure_context
+        : StructuredAsyncFailureContext{
+              EX_HERMES_ASYNC_FAILURE_NATIVE_TASK,
+              StructuredAsyncPrincipalStatus::Unavailable,
+              0,
+              exactAllocateAsyncEventIdentity(runtime),
+              exactCurrentAsyncEvaluationAssociation(runtime)};
+    runtime->structured_async_failure_events.push_back(
+        StructuredAsyncFailureEvent{
+            handle.runtime_nonce,
+            handle.handle_id,
+            runtime->host_context_id,
+            context.principal,
+            context.eventId,
+            context.associatedEvaluation,
+            context.kind,
+            context.principalStatus});
+    return true;
+  } catch (...) {
+    if (handle.handle_id != 0) {
+      runtime->structured_value_handles.erase(handle.handle_id);
+      runtime->structured_value_safe_throw_metadata.erase(handle.handle_id);
+    }
+    recordStructuredAsyncFailureDrop(runtime);
+    return false;
+  }
+}
+
+StructuredAsyncFailureContext currentPromiseRejectionContext(
+    ExactHermesRuntime* runtime) {
+#if defined(HERMES_HAS_PROMISE_REJECTION_CHECKPOINT_HOOK) && \
+    defined(EXACT_HAVE_STRUCTURED_ASYNC_PROVENANCE)
+  if (runtime->attribution_runtime != nullptr) {
+    const uint64_t jobIdentity = ex_hermes_vm_current_job_identity(
+        runtime->attribution_runtime);
+    if (jobIdentity != 0) {
+      const uint64_t scheduler =
+          ex_hermes_vm_current_job_scheduler_principal(
+              runtime->attribution_runtime);
+      return structuredAsyncFailureContext(
+          EX_HERMES_ASYNC_FAILURE_MICROTASK,
+          scheduler,
+          jobIdentity,
+          ex_hermes_vm_current_job_associated_evaluation(
+              runtime->attribution_runtime));
+    }
+  }
+#endif
+  return structuredAsyncFailureContext(
+      EX_HERMES_ASYNC_FAILURE_MICROTASK,
+      currentPrincipalId(),
+      exactAllocateAsyncEventIdentity(runtime),
+      exactCurrentAsyncEvaluationAssociation(runtime));
+}
+
+bool samePromise(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::Object& left,
+    const facebook::jsi::Object& right) {
+  return facebook::jsi::Object::strictEquals(
+      *runtime->runtime, left, right);
+}
+
+void trackPendingPromiseRejection(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::Object& promise,
+    const facebook::jsi::Value& reason) {
+  if (!structuredWorkPublicationEnabled(runtime) ||
+      runtime->runtime_thread != std::this_thread::get_id()) {
+    return;
+  }
+  for (const auto& pending :
+       runtime->structured_pending_promise_rejections) {
+    if (samePromise(runtime, *pending.promise, promise)) return;
+  }
+  // Bound the pre-checkpoint roots independently from the publication queue.
+  // Keep the first window intact and count only later losses here; merging the
+  // count before publishing would incorrectly discard those older records.
+  // @ref LLP 0024#9-asynchronous-failures
+  if (runtime->structured_pending_promise_rejection_dropped != 0 ||
+      runtime->structured_pending_promise_rejections.size() >=
+          kStructuredAsyncFailureEventCapacity) {
+    recordStructuredPendingPromiseRejectionDrop(runtime);
+    return;
+  }
+  try {
+    StructuredPendingPromiseRejection pending;
+    // jsi::Object is move-only. Clone it through Value's explicit
+    // runtime-bearing lvalue constructor, then move the cloned Object into the
+    // owner-thread pending record.
+    facebook::jsi::Value rootedPromise(*runtime->runtime, promise);
+    pending.promise = std::make_unique<facebook::jsi::Object>(
+        std::move(rootedPromise).getObject(*runtime->runtime));
+    pending.reason =
+        std::make_unique<facebook::jsi::Value>(*runtime->runtime, reason);
+    pending.failureContext = currentPromiseRejectionContext(runtime);
+#ifdef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
+    bool messageTruncated = false;
+    bool stackTruncated = false;
+    pending.safeErrorClass = structuredErrorClass(
+        captureStructuredSafeMetadata(
+            runtime->runtime.get(),
+            reason,
+            pending.safeMessage,
+            pending.safeStack,
+            messageTruncated,
+            stackTruncated));
+    pending.safeMetadataFields = structuredSafeMetadataFields(
+        pending.safeMessage,
+        pending.safeStack,
+        messageTruncated,
+        stackTruncated);
+#endif
+    runtime->structured_pending_promise_rejections.push_back(
+        std::move(pending));
+  } catch (...) {
+    recordStructuredPendingPromiseRejectionDrop(runtime);
+  }
+}
+
+void handlePendingPromiseRejection(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::Object& promise) {
+  if (!structuredWorkPublicationEnabled(runtime) ||
+      runtime->runtime_thread != std::this_thread::get_id()) {
+    return;
+  }
+  auto& pending = runtime->structured_pending_promise_rejections;
+  auto found = std::find_if(
+      pending.begin(), pending.end(),
+      [runtime, &promise](const StructuredPendingPromiseRejection& row) {
+        return samePromise(runtime, *row.promise, promise);
+      });
+  if (found != pending.end()) {
+    // A handler attached before the poll checkpoint cancels the report by
+    // exact promise identity. @ref LLP 0024#9-asynchronous-failures
+    pending.erase(found);
+    return;
+  }
+  if (!runtime->structured_rejection_handled_handler) return;
+  try {
+    runtime->structured_rejection_handled_handler->call(
+        *runtime->runtime, promise);
+  } catch (...) {
+    // A rejectionhandled observer is advisory. It cannot resurrect an already
+    // published failure or poison the checkpoint tracker.
+  }
+}
+
+void flushPendingPromiseRejections(ExactHermesRuntime* runtime) {
+  if (!structuredWorkPublicationEnabled(runtime) ||
+      (runtime->structured_pending_promise_rejections.empty() &&
+       runtime->structured_pending_promise_rejection_dropped == 0)) {
+    return;
+  }
+  const uint64_t pendingDropped =
+      runtime->structured_pending_promise_rejection_dropped;
+  runtime->structured_pending_promise_rejection_dropped = 0;
+  std::deque<StructuredPendingPromiseRejection> pending;
+  pending.swap(runtime->structured_pending_promise_rejections);
+  for (auto& rejection : pending) {
+    bool report = true;
+    ScopedAsyncFailureContext failureContext(
+        runtime, rejection.failureContext);
+    if (runtime->structured_unhandled_rejection_handler) {
+      try {
+        auto disposition =
+            runtime->structured_unhandled_rejection_handler->call(
+                *runtime->runtime, *rejection.promise, *rejection.reason);
+        if (disposition.isBool()) report = disposition.getBool();
+      } catch (...) {
+        // A throwing listener does not convert the original rejection into a
+        // successful outcome. Preserve the original report.
+        report = true;
+      }
+    }
+    if (report) {
+      publishStructuredAsyncFailure(
+          runtime,
+          *rejection.reason,
+          &rejection.safeMessage,
+          &rejection.safeStack,
+          &rejection.safeMetadataFields,
+          &rejection.safeErrorClass);
+    }
+  }
+  // The retained records precede collection overflow, so publish them first
+  // and append the exact pre-receipt loss count to the sticky marker only now.
+  recordStructuredAsyncFailureDrops(runtime, pendingDropped);
+}
+
+bool configurePromiseRejectionCheckpointTracker(ExactHermesRuntime* runtime) {
+#ifndef HERMES_HAS_PROMISE_REJECTION_CHECKPOINT_HOOK
+  (void)runtime;
+  return false;
+#else
+  try {
+    auto& rt = *runtime->runtime;
+    auto internalValue = rt.global().getProperty(rt, "HermesInternal");
+    if (!internalValue.isObject()) return false;
+    auto internal = internalValue.asObject(rt);
+    auto enable = internal.getProperty(rt, "enablePromiseRejectionTracker");
+    if (!enable.isObject() || !enable.asObject(rt).isFunction(rt)) {
+      return false;
+    }
+    auto rejected = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(
+            rt, "ibexRejectedAtCheckpoint"),
+        2,
+        [runtime](facebook::jsi::Runtime& callbackRuntime,
+                  const facebook::jsi::Value&,
+                  const facebook::jsi::Value* args,
+                  size_t count) -> facebook::jsi::Value {
+          if (count >= 2 && args[0].isObject()) {
+            trackPendingPromiseRejection(
+                runtime, args[0].asObject(callbackRuntime), args[1]);
+          }
+          return facebook::jsi::Value::undefined();
+        });
+    auto handled = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(
+            rt, "ibexHandledAtCheckpoint"),
+        1,
+        [runtime](facebook::jsi::Runtime& callbackRuntime,
+                  const facebook::jsi::Value&,
+                  const facebook::jsi::Value* args,
+                  size_t count) -> facebook::jsi::Value {
+          if (count >= 1 && args[0].isObject()) {
+            handlePendingPromiseRejection(
+                runtime, args[0].asObject(callbackRuntime));
+          }
+          return facebook::jsi::Value::undefined();
+        });
+    facebook::jsi::Object options(rt);
+    options.setProperty(rt, "checkpointRejections", true);
+    options.setProperty(rt, "onRejectedAtCheckpoint", std::move(rejected));
+    options.setProperty(rt, "onHandledAtCheckpoint", std::move(handled));
+    enable.asObject(rt).asFunction(rt).callWithThis(
+        rt, internal, options);
+    runtime->structured_promise_rejection_tracker_configured = true;
+    return true;
+  } catch (...) {
+    return false;
+  }
+#endif
 }
 
 void drainMicrotasks(facebook::jsi::Runtime& rt) {
@@ -754,39 +2296,98 @@ void drainMicrotasks(facebook::jsi::Runtime& rt) {
 // exists and returned true (error consumed).
 bool invokeUncaughtHandler(facebook::jsi::Runtime& rt,
                            const facebook::jsi::JSError& err) {
-  try {
-    auto handler =
-        rt.global().getProperty(rt, "__exactUncaughtExceptionHandler");
-    if (handler.isObject() && handler.asObject(rt).isFunction(rt)) {
-      auto errVal = facebook::jsi::Value(rt, err.value());
-      auto result =
-          handler.asObject(rt).asFunction(rt).call(rt, std::move(errVal));
-      if (result.isBool() && result.getBool()) return true;
-    }
-  } catch (...) {
-    // The handler itself threw — fall through to raw reporting.
+  auto handler =
+      rt.global().getProperty(rt, "__exactUncaughtExceptionHandler");
+  if (handler.isObject() && handler.asObject(rt).isFunction(rt)) {
+    auto errVal = facebook::jsi::Value(rt, err.value());
+    auto result =
+        handler.asObject(rt).asFunction(rt).call(rt, std::move(errVal));
+    if (result.isBool() && result.getBool()) return true;
   }
   return false;
 }
 
 // Shared disposition for a JS error escaping any drained async callback
 // (timer, microtask, nextTick, cross-thread task/callback). Consults the
-// uncaught handler; unconsumed errors report raw and then follow the host
-// policy: the CLI default marks fatal_async_error so the observing poll
-// returns -1 and the host loop exits nonzero (ENG-23130); embedded app
-// hosts that opted in via ex_hermes_set_keep_alive_on_async_error() keep
-// the runtime pumping — one bad app callback must not crash or zombify the
-// host (ENG-23731). Returns true when the poll may keep processing.
+// uncaught handler first. An authenticated structured runtime roots and
+// publishes the original value without deciding fatality; legacy runtimes
+// retain their raw-report/keep-alive policy. Returns true when the poll may
+// keep processing.
 bool disposeAsyncCallbackError(ExactHermesRuntime* runtime,
                                const facebook::jsi::JSError& err) {
-  if (invokeUncaughtHandler(*runtime->runtime, err)) {
-    return true;
+  ScopedNativeWorkUnit workUnit(
+      runtime, EX_HERMES_WORK_UNIT_CALLBACK);
+  const bool rawCapture =
+      structuredWorkPublicationEnabled(runtime) &&
+      ScopedRawThrowCapture::available();
+  std::string safeMessage;
+  std::string safeStack;
+  uint32_t safeMetadataFields = 0;
+  uint32_t safeErrorClass = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+  bool safeMetadataCaptured = false;
+#ifdef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
+  if (structuredWorkPublicationEnabled(runtime)) {
+    try {
+      bool messageTruncated = false;
+      bool stackTruncated = false;
+      safeErrorClass = structuredErrorClass(
+          captureStructuredSafeMetadata(
+              runtime->runtime.get(),
+              err.value(),
+              safeMessage,
+              safeStack,
+              messageTruncated,
+              stackTruncated));
+      safeMetadataFields = structuredSafeMetadataFields(
+          safeMessage, safeStack, messageTruncated, stackTruncated);
+      safeMetadataCaptured = true;
+    } catch (...) {
+      // Publication below owns loss accounting. A bounded metadata allocation
+      // failure must not bypass the uncaught-handler disposition.
+    }
+  }
+#endif
+  try {
+    if (invokeUncaughtHandler(*runtime->runtime, err)) {
+      workUnit.finish();
+      return !runtime->structured_session_terminated;
+    }
+  } catch (const facebook::jsi::JSError& handlerError) {
+    if ((rawCapture
+             ? workUnit.finishRawCapturedJsThrow()
+             : workUnit.finish(handlerError))) {
+      return !runtime->structured_session_terminated;
+    }
+  } catch (...) {
+    workUnit.finish();
+    if (runtime->structured_session_terminated) return false;
+  }
+  if (structuredWorkPublicationEnabled(runtime)) {
+    // The original value remains rooted worker-locally. Queue saturation is
+    // reported through an explicit pre-receipt drop marker, so the engine can
+    // keep running without deciding session fatality or writing raw stderr.
+    // @ref LLP 0024#9-asynchronous-failures
+    if (safeMetadataCaptured) {
+      publishStructuredAsyncFailure(
+          runtime,
+          err.value(),
+          &safeMessage,
+          &safeStack,
+          &safeMetadataFields,
+          &safeErrorClass);
+    } else {
+      publishStructuredAsyncFailure(runtime, err.value());
+    }
+    workUnit.finish();
+    return !runtime->structured_session_terminated;
   }
   ex_host_console_log(1, err.getMessage().c_str());
   if (runtime->keep_alive_on_async_error) {
-    return true;
+    workUnit.finish();
+    return !runtime->structured_session_terminated;
   }
   runtime->fatal_async_error = true;
+  workUnit.finish();
   return false;
 }
 
@@ -798,17 +2399,64 @@ bool disposeAsyncCallbackError(ExactHermesRuntime* runtime,
 // error we resume draining rather than strand the rest of the queue.
 void drainMicrotasksGuarded(ExactHermesRuntime* runtime) {
   for (;;) {
+    if (runtime->structured_lifecycle_pending) return;
+    ScopedNativeWorkUnit workUnit(
+        runtime, EX_HERMES_WORK_UNIT_MICROTASK_DRAIN);
+    const bool rawCapture =
+        structuredWorkPublicationEnabled(runtime) &&
+        ScopedRawThrowCapture::available();
+    ScopedRawThrowCapture rawThrowCapture(runtime->runtime.get(), rawCapture);
+    ScopedAsyncFailureContext failureContext(
+        runtime,
+        StructuredAsyncFailureContext{
+            EX_HERMES_ASYNC_FAILURE_MICROTASK,
+            StructuredAsyncPrincipalStatus::Ambiguous,
+            0,
+            workUnit.targetId(),
+            exactCurrentAsyncEvaluationAssociation(runtime)});
     try {
       drainMicrotasks(*runtime->runtime);
+      workUnit.finish();
       return;
     } catch (const facebook::jsi::JSError& err) {
+      std::optional<ScopedAsyncFailureContext> failedJobContext;
+#if defined(HERMES_HAS_PROMISE_REJECTION_CHECKPOINT_HOOK) && \
+    defined(EXACT_HAVE_STRUCTURED_ASYNC_PROVENANCE)
+      uint32_t schedulingPrincipal = kRuntimePrincipalId;
+      uint64_t jobIdentity = 0;
+      uint64_t associatedEvaluation = 0;
+      if (runtime->attribution_runtime != nullptr &&
+          ex_hermes_vm_take_failed_job_context(
+              runtime->attribution_runtime,
+              &schedulingPrincipal,
+              &jobIdentity,
+              &associatedEvaluation) == 1) {
+        failedJobContext.emplace(
+            runtime,
+            structuredAsyncFailureContext(
+                EX_HERMES_ASYNC_FAILURE_MICROTASK,
+                schedulingPrincipal,
+                jobIdentity,
+                associatedEvaluation));
+      }
+#endif
+      if ((rawCapture
+               ? workUnit.finishRawCapturedJsThrow()
+               : workUnit.finish(err))) return;
+      if (runtime->structured_lifecycle_pending) return;
       if (!disposeAsyncCallbackError(runtime, err)) {
         return;
       }
     } catch (const std::exception& err) {
+      if (workUnit.finish()) return;
+      if (runtime->structured_lifecycle_pending) return;
       // Non-JS failure: no per-job progress guarantee (unlike the JSError
       // arm, which consumes the throwing job), so never loop — leave any
       // remaining jobs for the next poll.
+      if (structuredWorkPublicationEnabled(runtime)) {
+        recordStructuredAsyncFailureDrop(runtime);
+        return;
+      }
       ex_host_console_log(1, err.what());
       if (!runtime->keep_alive_on_async_error) {
         runtime->fatal_async_error = true;
@@ -821,9 +2469,26 @@ void drainMicrotasksGuarded(ExactHermesRuntime* runtime) {
 void cleanupFetchCallbacks(ExactHermesRuntime* runtime);
 void cancelAllFetchCallbacks(ExactHermesRuntime* runtime);
 extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms);
+extern "C" int ex_hermes_poll_with_external_keep_alive(
+    ExactHermesRuntime* runtime,
+    uint64_t now_ms);
+static int pollRuntime(
+    ExactHermesRuntime* runtime,
+    uint64_t now_ms,
+    bool external_keep_alive);
 extern "C" int64_t ex_hermes_next_timer(ExactHermesRuntime* runtime);
 extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime);
 extern "C" uint32_t ex_hermes_callback_backlog(ExactHermesRuntime* runtime);
+static int64_t nextTimerUnchecked(ExactHermesRuntime* runtime);
+static int hasPendingTasksUnchecked(ExactHermesRuntime* runtime);
+static int evalRuntimeUnchecked(
+    ExactHermesRuntime* runtime,
+    const uint8_t* data,
+    size_t len,
+    const char* sourceUrl,
+    int isBytecode,
+    char** outValue);
+ExHermesEvaluationFault structuredRuntimeDriveFault(int32_t status);
 
 std::mutex g_runtimeRegistryMutex;
 
@@ -835,6 +2500,8 @@ enum class RuntimeLifecycleState : uint8_t {
 struct RuntimeRegistryEntry {
   uint64_t nonce;
   RuntimeLifecycleState state;
+  std::thread::id owner;
+  bool drive_active;
 };
 
 std::unordered_map<ExactHermesRuntime*, RuntimeRegistryEntry> g_activeRuntimes;
@@ -892,7 +2559,49 @@ static bool runtimeTargetMatchesLocked(
 
 RuntimeCallbackTarget exactRuntimeCallbackTarget(ExactHermesRuntime* runtime) {
   if (!runtime) return {};
-  return RuntimeCallbackTarget{runtime, runtime->runtime_nonce};
+  if (runtime->runtime_thread != std::this_thread::get_id()) {
+    return RuntimeCallbackTarget{
+        runtime,
+        runtime->runtime_nonce,
+        StructuredAsyncFailureContext{
+            EX_HERMES_ASYNC_FAILURE_NATIVE_COMPLETION,
+            StructuredAsyncPrincipalStatus::Unavailable,
+            0,
+            0,
+            0}};
+  }
+  const uint64_t principal = currentPrincipalId();
+  return RuntimeCallbackTarget{
+      runtime,
+      runtime->runtime_nonce,
+      structuredAsyncFailureContext(
+          EX_HERMES_ASYNC_FAILURE_NATIVE_COMPLETION,
+          principal,
+          exactAllocateAsyncEventIdentity(runtime),
+          exactCurrentAsyncEvaluationAssociation(runtime))};
+}
+
+uint64_t exactAllocateAsyncEventIdentity(ExactHermesRuntime* runtime) {
+  if (runtime == nullptr ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      runtime->next_structured_async_event_id == 0) {
+    return 0;
+  }
+  const uint64_t id = runtime->next_structured_async_event_id;
+  runtime->next_structured_async_event_id++;
+  return id;
+}
+
+uint64_t exactCurrentAsyncEvaluationAssociation(ExactHermesRuntime* runtime) {
+  if (runtime == nullptr ||
+      runtime->runtime_thread != std::this_thread::get_id()) {
+    return 0;
+  }
+  if (runtime->structured_active_async_failure_context_set) {
+    return runtime->structured_active_async_failure_context
+        .associatedEvaluation;
+  }
+  return runtime->structured_evaluation_scheduling_id;
 }
 
 extern "C" uint64_t ex_hermes_runtime_nonce(ExactHermesRuntime* runtime) {
@@ -910,7 +2619,98 @@ void registerRuntime(ExactHermesRuntime* runtime) {
   if (!runtime || runtime->runtime_nonce == 0) return;
   std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
   g_activeRuntimes[runtime] =
-      RuntimeRegistryEntry{runtime->runtime_nonce, RuntimeLifecycleState::Running};
+      RuntimeRegistryEntry{runtime->runtime_nonce, RuntimeLifecycleState::Running,
+                           runtime->runtime_thread, false};
+}
+
+ExactRuntimeDriveGuard::ExactRuntimeDriveGuard(
+    ExactHermesRuntime* runtime, uint64_t expectedNonce)
+    : runtime_(runtime) {
+  if (runtime == nullptr) return;
+  {
+    std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
+    auto it = g_activeRuntimes.find(runtime);
+    if (it == g_activeRuntimes.end() ||
+        it->second.state != RuntimeLifecycleState::Running ||
+        (expectedNonce != 0 && it->second.nonce != expectedNonce)) {
+      status_ = EXACT_RUNTIME_DRIVE_STALE;
+      return;
+    }
+    if (it->second.owner != std::this_thread::get_id()) {
+      status_ = EXACT_RUNTIME_DRIVE_OFF_OWNER;
+      return;
+    }
+    if (it->second.drive_active) {
+      status_ = EXACT_RUNTIME_DRIVE_REENTRANT;
+      return;
+    }
+    it->second.drive_active = true;
+    nonce_ = it->second.nonce;
+    status_ = EXACT_RUNTIME_DRIVE_OK;
+  }
+
+  // Host selection is an engine-entry property, not an individual evaluator's
+  // responsibility. Centralizing it here covers module-record execution,
+  // CommonJS recursion, and event-loop callback delivery as well as eval.
+  // Do not hold the native runtime-registry mutex across the Rust Host call.
+  // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+  previous_runtime_nonce_ = g_active_runtime_nonce;
+  g_active_runtime_nonce = nonce_;
+  previous_host_context_ = ex_host_enter_context(runtime->host_context_id);
+  if (previous_host_context_ == UINT64_MAX) {
+    g_active_runtime_nonce = previous_runtime_nonce_;
+    std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
+    auto it = g_activeRuntimes.find(runtime);
+    if (it != g_activeRuntimes.end() && it->second.nonce == nonce_) {
+      it->second.drive_active = false;
+    }
+    status_ = EXACT_RUNTIME_DRIVE_STALE;
+    return;
+  }
+
+  // A principal identifier is meaningful only inside the Host/runtime
+  // generation that authenticated it. A same-thread drive of runtime B may
+  // occur inside a timer, nextTick, or module callback from runtime A, whose
+  // native and typed-FS scopes are still live on this thread. Never translate
+  // those bare numeric IDs into B's Host context: start B at its root/no-native
+  // boundary and let B's own frames and callbacks install their scopes.
+  // @ref LLP 0002#runtime-driving-thread-contract
+  previous_module_id_ = g_active_module_id;
+  previous_native_principal_ = g_native_callback_principal_id;
+  previous_typed_principal_stack_ =
+      exactSwapTypedPrincipalStackForRuntimeDrive(nullptr);
+  g_active_module_id = 0;
+  g_native_callback_principal_id = kNoNativePrincipalOverride;
+  principal_scope_active_ = true;
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  previous_attribution_runtime_ = g_vm_runtime;
+  g_vm_runtime = runtime->attribution_runtime;
+#endif
+  dynamic_scope_active_ = true;
+}
+
+ExactRuntimeDriveGuard::~ExactRuntimeDriveGuard() {
+  if (status_ != EXACT_RUNTIME_DRIVE_OK || runtime_ == nullptr) return;
+  if (dynamic_scope_active_) {
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+    g_vm_runtime = previous_attribution_runtime_;
+#endif
+    if (principal_scope_active_) {
+      exactSwapTypedPrincipalStackForRuntimeDrive(
+          previous_typed_principal_stack_);
+      g_native_callback_principal_id = previous_native_principal_;
+      g_active_module_id = previous_module_id_;
+      principal_scope_active_ = false;
+    }
+    ex_host_restore_context(previous_host_context_);
+    g_active_runtime_nonce = previous_runtime_nonce_;
+    dynamic_scope_active_ = false;
+  }
+  std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
+  auto it = g_activeRuntimes.find(runtime_);
+  if (it != g_activeRuntimes.end() && it->second.nonce == nonce_) {
+    it->second.drive_active = false;
+  }
 }
 
 void unregisterRuntime(ExactHermesRuntime* runtime) {
@@ -969,6 +2769,8 @@ void exactUnpinRuntimeNativeWorker(RuntimeCallbackTarget target) {
   // its final access to the runtime and released the mutex.
   // @ref LLP 0003#blocking-work-worker-pools — detached-worker pins must drain
   // completely before runtime teardown destroys their synchronization state.
+  // @ref LLP 0025#6-interruption-and-cancellation — admitted any-thread
+  // controls use the same drain edge through their final runtime access.
   auto* runtime = target.runtime;
   std::lock_guard<std::mutex> lock(runtime->native_worker_mutex);
   auto previous = runtime->native_worker_pins.fetch_sub(1, std::memory_order_acq_rel);
@@ -977,14 +2779,125 @@ void exactUnpinRuntimeNativeWorker(RuntimeCallbackTarget target) {
   }
 }
 
-static bool beginRuntimeTeardown(RuntimeCallbackTarget target) {
+namespace {
+
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+std::mutex g_structuredControlLeasePauseMutex;
+std::condition_variable g_structuredControlLeasePauseCv;
+bool g_structuredControlLeasePauseArmed{false};
+bool g_structuredControlLeasePaused{false};
+bool g_structuredControlTeardownWaitObserved{false};
+
+void exactTestPauseStructuredControlLease() {
+  std::unique_lock<std::mutex> lock(g_structuredControlLeasePauseMutex);
+  if (!g_structuredControlLeasePauseArmed) return;
+  g_structuredControlLeasePaused = true;
+  g_structuredControlLeasePauseCv.notify_all();
+  g_structuredControlLeasePauseCv.wait(lock, [] {
+    return !g_structuredControlLeasePauseArmed;
+  });
+  g_structuredControlLeasePaused = false;
+  g_structuredControlLeasePauseCv.notify_all();
+}
+
+void exactTestObserveStructuredControlTeardownWait() {
+  std::lock_guard<std::mutex> lock(g_structuredControlLeasePauseMutex);
+  if (!g_structuredControlLeasePaused) return;
+  g_structuredControlTeardownWaitObserved = true;
+  g_structuredControlLeasePauseCv.notify_all();
+}
+#else
+void exactTestPauseStructuredControlLease() {}
+void exactTestObserveStructuredControlTeardownWait() {}
+#endif
+
+// The public structured-control ABI is deliberately callable while the owner
+// thread is driving Hermes. A registry check alone would leave a TOCTOU window:
+// teardown could delete the runtime after the check and before the control
+// locks one of its mutexes. Pin the exact pointer-plus-nonce generation for the
+// full operation; Closing refuses new leases and destroy drains admitted ones.
+// @ref LLP 0025#6-interruption-and-cancellation — cancellation targets and
+// their terminal publication are native, exact-generation state.
+class ScopedRuntimeControlLease {
+ public:
+  ScopedRuntimeControlLease(
+      ExactHermesRuntime* runtime,
+      uint64_t runtimeNonce)
+      : target_{runtime, runtimeNonce},
+        acquired_(exactPinRuntimeNativeWorker(target_)) {
+    if (acquired_) exactTestPauseStructuredControlLease();
+  }
+
+  ~ScopedRuntimeControlLease() {
+    if (acquired_) exactUnpinRuntimeNativeWorker(target_);
+  }
+
+  ScopedRuntimeControlLease(const ScopedRuntimeControlLease&) = delete;
+  ScopedRuntimeControlLease& operator=(const ScopedRuntimeControlLease&) = delete;
+
+  explicit operator bool() const { return acquired_; }
+
+ private:
+  RuntimeCallbackTarget target_;
+  bool acquired_{false};
+};
+
+}  // namespace
+
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+extern "C" int32_t ibex_test_arm_structured_control_lease_pause() {
+  std::lock_guard<std::mutex> lock(g_structuredControlLeasePauseMutex);
+  if (g_structuredControlLeasePauseArmed || g_structuredControlLeasePaused) {
+    return -1;
+  }
+  g_structuredControlLeasePauseArmed = true;
+  g_structuredControlTeardownWaitObserved = false;
+  return 1;
+}
+
+extern "C" int32_t ibex_test_structured_control_lease_paused() {
+  std::lock_guard<std::mutex> lock(g_structuredControlLeasePauseMutex);
+  return g_structuredControlLeasePaused ? 1 : 0;
+}
+
+extern "C" int32_t ibex_test_structured_control_teardown_wait_observed() {
+  std::lock_guard<std::mutex> lock(g_structuredControlLeasePauseMutex);
+  return g_structuredControlTeardownWaitObserved ? 1 : 0;
+}
+
+extern "C" int32_t ibex_test_release_structured_control_lease_pause() {
+  {
+    std::lock_guard<std::mutex> lock(g_structuredControlLeasePauseMutex);
+    g_structuredControlLeasePauseArmed = false;
+  }
+  g_structuredControlLeasePauseCv.notify_all();
+  return 1;
+}
+#endif
+
+static int32_t beginRuntimeTeardown(
+    ExactHermesRuntime* runtime,
+    uint64_t expectedNonce,
+    RuntimeCallbackTarget* outTarget) {
+  if (runtime == nullptr || outTarget == nullptr) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
   std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
-  auto it = g_activeRuntimes.find(target.runtime);
-  if (it == g_activeRuntimes.end() || it->second.nonce != target.nonce) {
-    return false;
+  auto it = g_activeRuntimes.find(runtime);
+  if (it == g_activeRuntimes.end() ||
+      it->second.state != RuntimeLifecycleState::Running ||
+      (expectedNonce != 0 && it->second.nonce != expectedNonce)) {
+    return EXACT_RUNTIME_DRIVE_STALE;
+  }
+  if (it->second.owner != std::this_thread::get_id()) {
+    return EXACT_RUNTIME_DRIVE_OFF_OWNER;
+  }
+  if (it->second.drive_active) {
+    return EXACT_RUNTIME_DRIVE_REENTRANT;
   }
   it->second.state = RuntimeLifecycleState::Closing;
-  return true;
+  *outTarget = RuntimeCallbackTarget{runtime, it->second.nonce};
+  return EXACT_RUNTIME_DRIVE_OK;
 }
 
 static void drainRuntimeFinalizers(ExactHermesRuntime* runtime) {
@@ -1005,7 +2918,7 @@ static void drainRuntimeFinalizers(ExactHermesRuntime* runtime) {
 }
 
 static void discardRuntimeCallbacksOnOwnerThread(ExactHermesRuntime* runtime) {
-  std::deque<std::function<void(facebook::jsi::Runtime&)>> queue;
+  std::deque<ExactHermesRuntime::QueuedRuntimeCallback> queue;
   {
     std::lock_guard<std::mutex> lock(runtime->callbackMutex);
     queue.swap(runtime->callbackQueue);
@@ -1029,6 +2942,7 @@ static void finishRuntimeTeardown(RuntimeCallbackTarget target) {
     if (runtime->native_worker_pins.load(std::memory_order_acquire) == 0) {
       break;
     }
+    exactTestObserveStructuredControlTeardownWait();
     runtime->native_worker_cv.wait_for(lock, std::chrono::milliseconds(25));
   }
 
@@ -1093,13 +3007,20 @@ void cleanupFetchCallbacks(ExactHermesRuntime* runtime) {
     if (!reject) {
       continue;
     }
+    ScopedNativeWorkUnit workUnit(
+        runtime, EX_HERMES_WORK_UNIT_CALLBACK);
     try {
       reject->call(*runtime->runtime,
                    facebook::jsi::JSError(*runtime->runtime,
                                           ("Fetch timeout: " + url).c_str())
                        .value());
+      workUnit.finish();
+    } catch (const facebook::jsi::JSError& error) {
+      workUnit.finish(error);
     } catch (...) {
+      workUnit.finish();
     }
+    if (runtime->structured_session_terminated) return;
   }
 }
 
@@ -1213,7 +3134,9 @@ void pushRuntimeCallback(RuntimeCallbackTarget target,
         }
         auto* runtime = target.runtime;
         std::lock_guard<std::mutex> lock(runtime->callbackMutex);
-        runtime->callbackQueue.push_back(std::move(fn));
+        runtime->callbackQueue.push_back(
+            ExactHermesRuntime::QueuedRuntimeCallback{
+                target.failureContext, std::move(fn)});
         if (g_activeRuntimes.at(runtime).state == RuntimeLifecycleState::Closing) {
           runtime->native_worker_cv.notify_all();
         }
@@ -1248,43 +3171,74 @@ bool pushRuntimeFinalizer(RuntimeCallbackTarget target,
 namespace {
 
 int drainCallbackQueue(ExactHermesRuntime* runtime) {
-    std::deque<std::function<void(facebook::jsi::Runtime&)>> queue;
+    std::deque<ExactHermesRuntime::QueuedRuntimeCallback> queue;
     {
         std::lock_guard<std::mutex> lock(runtime->callbackMutex);
         queue.swap(runtime->callbackQueue);
     }
     int count = 0;
-    for (auto& fn : queue) {
+    for (auto& entry : queue) {
+        if (runtime->structured_lifecycle_pending) break;
+        ScopedNativeWorkUnit workUnit(
+            runtime, EX_HERMES_WORK_UNIT_CALLBACK);
+        if (entry.failureContext.eventId == 0) {
+          entry.failureContext.eventId = workUnit.targetId();
+        }
+        ScopedAsyncFailureContext failureContext(
+            runtime, entry.failureContext);
+        ScopedHermesJobSchedulerPrincipal schedulerPrincipal(
+            runtime, entry.failureContext);
+        const bool rawCapture =
+            structuredWorkPublicationEnabled(runtime) &&
+            ScopedRawThrowCapture::available();
+        ScopedRawThrowCapture rawThrowCapture(
+            runtime->runtime.get(), rawCapture);
         try {
             ScopedNativePrincipal nativePrincipal(kNoNativePrincipalOverride);
-            fn(*runtime->runtime);
+            entry.callback(*runtime->runtime);
+            workUnit.finish();
+            if (runtime->structured_session_terminated) return count;
             count++;
         } catch (const facebook::jsi::JSError& err) {
-            // Route the original thrown value through the uncaughtException
-            // handler so stack/custom props survive, instead of flattening to
-            // a console message. @ref LLP 0006#degrade-diagnostics-never-the-caller
-            bool handled = false;
-            try {
-                auto& rt = *runtime->runtime;
-                auto handler =
-                    rt.global().getProperty(rt, "__exactUncaughtExceptionHandler");
-                if (handler.isObject() && handler.asObject(rt).isFunction(rt)) {
-                    auto errVal = facebook::jsi::Value(rt, err.value());
-                    auto result =
-                        handler.asObject(rt).asFunction(rt).call(rt, std::move(errVal));
-                    if (result.isBool() && result.getBool()) handled = true;
-                }
-            } catch (...) {}
-            if (!handled) {
-                ex_host_console_log(1, err.getMessage().c_str());
-                if (!runtime->keep_alive_on_async_error) {
-                    runtime->fatal_async_error = true;
-                }
+            if ((rawCapture
+                     ? workUnit.finishRawCapturedJsThrow()
+                     : workUnit.finish(err))) {
+                if (runtime->structured_session_terminated) return count;
+                count++;
+                continue;
             }
+            if (runtime->structured_lifecycle_pending) break;
+            // Error disposition is successor user work with its own target;
+            // ending the throwing callback must not leave a blocking handler
+            // invisible to the controller.
+            // @ref LLP 0024#6-evaluation-outcomes-and-the-abi
+            if (!disposeAsyncCallbackError(runtime, err)) return count;
         } catch (const std::exception& err) {
+            if (workUnit.finish()) {
+                if (runtime->structured_session_terminated) return count;
+                count++;
+                continue;
+            }
+            if (runtime->structured_lifecycle_pending) break;
+            if (structuredWorkPublicationEnabled(runtime)) {
+                recordStructuredAsyncFailureDrop(runtime);
+                count++;
+                continue;
+            }
             ex_host_console_log(1, err.what());
             if (!runtime->keep_alive_on_async_error) runtime->fatal_async_error = true;
         } catch (...) {
+            if (workUnit.finish()) {
+                if (runtime->structured_session_terminated) return count;
+                count++;
+                continue;
+            }
+            if (runtime->structured_lifecycle_pending) break;
+            if (structuredWorkPublicationEnabled(runtime)) {
+                recordStructuredAsyncFailureDrop(runtime);
+                count++;
+                continue;
+            }
             ex_host_console_log(1, "Callback execution failed");
             if (!runtime->keep_alive_on_async_error) runtime->fatal_async_error = true;
         }
@@ -1329,6 +3283,34 @@ void emitNewScriptsImpl(ExactHermesRuntime* runtime,
 // (shared with hermes_runtime_debugger.cc)
 #include "hermes_runtime_templates.inl"
 #endif
+
+bool isAndroidStorageHostPathEnvironmentKey(const std::string& key) {
+#if defined(EXACT_PLATFORM_ANDROID)
+  // Android initialization seeds these keys with Context backing paths. Even
+  // an env:read grant cannot turn a private native storage root into an armed
+  // JavaScript projection.
+  // @ref LLP 0023#6-path-bearing-observables
+  return key == "HOME" || key == "TMPDIR" || key == "TEMP" || key == "TMP" ||
+      key == "EXACT_ANDROID_FILES_DIR" ||
+      key == "EXACT_ANDROID_CACHE_DIR" ||
+      key == "EXACT_ANDROID_NO_BACKUP_FILES_DIR" ||
+      key == "EXACT_ANDROID_CODE_CACHE_DIR" ||
+      key == "EXACT_ANDROID_EXTERNAL_FILES_DIR";
+#else
+  (void)key;
+  return false;
+#endif
+}
+
+bool isPrivateProcessIpcEnvironmentKey(const std::string& key) {
+  // These inherited values are a native construction handshake, not public
+  // process environment. Unarmed compatibility runtimes otherwise expose the
+  // host environment, so suppress the raw startup copies there too; an explicit
+  // later JavaScript override remains ordinary process.env state in its proxy.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+  return key == "EXACT_IPC_FD" || key == "EXACT_IPC_SERIALIZATION";
+}
 
 // Returns the value of `key`, or std::nullopt when the variable is unset (kept
 // distinct from a present-but-empty value). Grows past the initial stack buffer
@@ -1804,6 +3786,37 @@ bool installCompartmentRegistry(struct ExactHermesRuntime* handle) {
   return false;
 }
 
+void sealUnarmedProcessExitCodeDescriptor(ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  auto processValue = rt.global().getProperty(rt, "process");
+  if (!processValue.isObject()) {
+    throw std::runtime_error("runtime process object is unavailable");
+  }
+  auto object = rt.global().getPropertyAsObject(rt, "Object");
+  auto getOwnPropertyDescriptor =
+      object.getPropertyAsFunction(rt, "getOwnPropertyDescriptor");
+  auto defineProperty = object.getPropertyAsFunction(rt, "defineProperty");
+  auto process = processValue.asObject(rt);
+  auto descriptorValue = getOwnPropertyDescriptor.call(
+      rt,
+      process,
+      facebook::jsi::String::createFromAscii(rt, "exitCode"));
+  if (!descriptorValue.isObject()) {
+    throw std::runtime_error("runtime process.exitCode descriptor is unavailable");
+  }
+  auto descriptor = descriptorValue.asObject(rt);
+  auto configurable = descriptor.getProperty(rt, "configurable");
+  if (configurable.isBool() && !configurable.getBool()) {
+    return;
+  }
+  descriptor.setProperty(rt, "configurable", false);
+  defineProperty.call(
+      rt,
+      process,
+      facebook::jsi::String::createFromAscii(rt, "exitCode"),
+      descriptor);
+}
+
 // Create the one stable Exact capability object before the package-compartment
 // baseline is captured. Native setters add immutable methods to this object;
 // package compartments retain the object identity from the baseline instead of
@@ -1881,7 +3894,137 @@ void defineExactCapability(
       descriptor);
 }
 
+void installBootstrapCompatibilityModes(ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  size_t count = (handle->bootstrap_bun_compat ? 1u : 0u) +
+      (handle->bootstrap_fixture_compat ? 1u : 0u) +
+      (handle->bootstrap_bun_fixture ? 1u : 0u);
+  facebook::jsi::Array modes(rt, count);
+  size_t index = 0;
+  auto append = [&](const char* mode) {
+    modes.setValueAtIndex(
+        rt,
+        index++,
+        facebook::jsi::String::createFromAscii(rt, mode));
+  };
+  if (handle->bootstrap_bun_compat) append("bun");
+  if (handle->bootstrap_fixture_compat) append("fixture");
+  if (handle->bootstrap_bun_fixture) append("fixture:bun");
+  auto freeze = rt.global()
+                    .getPropertyAsObject(rt, "Object")
+                    .getPropertyAsFunction(rt, "freeze");
+  auto frozenModes = freeze.call(rt, modes);
+  rt.global().setProperty(
+      rt, "__exactCompatModes", std::move(frozenModes));
+  if (handle->process_ipc_fd >= 0) {
+    // Publish a dedicated frozen bootstrap input rather than projecting the
+    // inherited descriptor through either the principal environment or the
+    // non-capability compatibility-mode tuple. Bootstrap scripts capture it
+    // lexically, then the engine load finalizer deletes the temporary root
+    // before project code.
+    // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+    // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+    facebook::jsi::Object ipcBootstrap(rt);
+    ipcBootstrap.setProperty(rt, "fd", handle->process_ipc_fd);
+    ipcBootstrap.setProperty(
+        rt,
+        "serialization",
+        facebook::jsi::String::createFromAscii(
+            rt,
+            handle->process_ipc_advanced_serialization
+                ? "advanced"
+                : "json"));
+    auto closeProcessIpc = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "close"),
+        0,
+        [runtimeNonce = handle->runtime_nonce, fd = handle->process_ipc_fd](
+            facebook::jsi::Runtime& runtime,
+            const facebook::jsi::Value&,
+            const facebook::jsi::Value*,
+            size_t) -> facebook::jsi::Value {
+          if (!exactCloseProcessIpcFd(runtimeNonce, fd)) {
+            throw facebook::jsi::JSError(
+                runtime, "process IPC channel is already closed or stale");
+          }
+          return facebook::jsi::Value::undefined();
+        });
+    ipcBootstrap.setProperty(rt, "close", std::move(closeProcessIpc));
+    (void)freeze.call(rt, ipcBootstrap);
+    rt.global().setProperty(
+        rt, "__exactProcessIpcBootstrap", std::move(ipcBootstrap));
+  }
+}
+
+// Diagnostic runtimes may project the ambient process environment after the
+// caller passes the env:read:* gate. Armed runtimes return from
+// __exactGetAllEnv before this helper is reachable, so keeping the platform
+// enumeration in a named helper makes that post-arm boundary auditable.
+// @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+void populateDiagnosticProcessEnvironment(
+    facebook::jsi::Runtime& runtime,
+    facebook::jsi::Object& env) {
+#if defined(_WIN32)
+  // ENG-23115 — populate from the REAL process environment. This was
+  // hardcoded to nullptr, so process.env enumeration ({...process.env},
+  // Object.keys, JSON.stringify) and child_process default env inheritance
+  // (`_flattenEnv` walks process.env) saw an empty environment on Windows
+  // (no PATH/SystemRoot). GetEnvironmentStringsW is always populated
+  // (independent of main/wmain) and returns UTF-16, converted to UTF-8 to
+  // match the POSIX branch below.
+  LPWCH envBlock = GetEnvironmentStringsW();
+  if (envBlock) {
+    auto toUtf8 = [](const std::wstring& w) -> std::string {
+      if (w.empty()) return std::string();
+      int n = WideCharToMultiByte(
+          CP_UTF8, 0, w.data(), static_cast<int>(w.size()), nullptr, 0, nullptr, nullptr);
+      if (n <= 0) return std::string();
+      std::string out(static_cast<size_t>(n), '\0');
+      WideCharToMultiByte(
+          CP_UTF8, 0, w.data(), static_cast<int>(w.size()), &out[0], n, nullptr, nullptr);
+      return out;
+    };
+    for (LPWCH p = envBlock; *p != L'\0';) {
+      std::wstring entry(p);  // wchar_t* -> length via char_traits, no wcslen
+      p += entry.size() + 1;
+      auto eq = entry.find(L'=');
+      // Windows exposes "=C:=..." drive-cwd pseudo-vars whose key is empty
+      // (the entry begins with '='); skip them, matching Node's process.env.
+      if (eq == std::wstring::npos || eq == 0) continue;
+      std::string key = toUtf8(entry.substr(0, eq));
+      std::string val = toUtf8(entry.substr(eq + 1));
+      if (isPrivateProcessIpcEnvironmentKey(key)) continue;
+      env.setProperty(runtime,
+        facebook::jsi::PropNameID::forUtf8(runtime, key),
+        facebook::jsi::String::createFromUtf8(runtime, val));
+    }
+    FreeEnvironmentStringsW(envBlock);
+  }
+#else
+#if defined(__APPLE__)
+  char **envp = *_NSGetEnviron();
+#else
+  char **envp = ::environ;
+#endif
+  if (envp) {
+    for (char **ep = envp; *ep; ++ep) {
+      std::string entry(*ep);
+      auto eq = entry.find('=');
+      if (eq != std::string::npos) {
+        auto key = entry.substr(0, eq);
+        auto val = entry.substr(eq + 1);
+        if (isPrivateProcessIpcEnvironmentKey(key)) continue;
+        env.setProperty(runtime,
+          facebook::jsi::PropNameID::forUtf8(runtime, key),
+          facebook::jsi::String::createFromUtf8(runtime, val));
+      }
+    }
+  }
+#endif
+}
+
 void installGlobals(struct ExactHermesRuntime* handle) {
+  captureLegacyBootstrapEnvironment(handle);
   bool _tracing = startup_trace_enabled();
   bool sharedRuntimeInstalled = false;
   auto _t_host_functions = std::chrono::steady_clock::now();
@@ -1893,6 +4036,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
             #n, (long long)_el, _el / 1000.0); }
 
   auto& rt = *handle->runtime;
+  installBootstrapCompatibilityModes(handle);
   auto _t_console_globals = std::chrono::steady_clock::now();
   installConsoleGlobals(handle);
   ensureExactEmbedderObject(handle);
@@ -1906,8 +4050,76 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     reportStartupFailure(handle, "Host function install", "disabled by startup control");
   } else {
   IG_TRACE_START(host_functions);
+  // Install the enforcement-only seam before any builtin alias can initialize,
+  // independently of the lazy full filesystem bridge. Armed bootstrap captures
+  // it in fs.js and deletes the root spelling before project code runs.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  installFsMutationGuardHostFunction(handle);
   installTimerGlobals(handle);
   installAndroidHostFunctions(handle);
+
+  // The shared runtime captures these registration functions while it installs
+  // rejection event forwarding. Armed sealing deletes both root spellings;
+  // only the native-held callbacks survive for poll-checkpoint dispatch.
+  // Compatibility runtimes intentionally do not see this seam and retain the
+  // existing userland tracker/fatality contract.
+  // @ref LLP 0024#9-asynchronous-failures
+  if (handle->armed) {
+    auto registerUnhandledRejection =
+        facebook::jsi::Function::createFromHostFunction(
+            rt,
+            facebook::jsi::PropNameID::forAscii(
+                rt, "__exactOnUnhandledRejection"),
+            1,
+            [handle](facebook::jsi::Runtime& callbackRuntime,
+                   const facebook::jsi::Value&,
+                   const facebook::jsi::Value* args,
+                   size_t count) -> facebook::jsi::Value {
+            if (count != 1 || !args[0].isObject() ||
+                !args[0].asObject(callbackRuntime).isFunction(
+                    callbackRuntime)) {
+              throw facebook::jsi::JSError::createTypeError(
+                  callbackRuntime,
+                  "unhandled rejection checkpoint handler must be a function");
+            }
+            handle->structured_unhandled_rejection_handler =
+                std::make_unique<facebook::jsi::Function>(
+                    args[0].asObject(callbackRuntime).asFunction(
+                        callbackRuntime));
+            return facebook::jsi::Value::undefined();
+          });
+    rt.global().setProperty(
+        rt,
+        "__exactOnUnhandledRejection",
+        std::move(registerUnhandledRejection));
+    auto registerRejectionHandled =
+        facebook::jsi::Function::createFromHostFunction(
+            rt,
+            facebook::jsi::PropNameID::forAscii(
+                rt, "__exactOnRejectionHandled"),
+            1,
+            [handle](facebook::jsi::Runtime& callbackRuntime,
+                   const facebook::jsi::Value&,
+                   const facebook::jsi::Value* args,
+                   size_t count) -> facebook::jsi::Value {
+            if (count != 1 || !args[0].isObject() ||
+                !args[0].asObject(callbackRuntime).isFunction(
+                    callbackRuntime)) {
+              throw facebook::jsi::JSError::createTypeError(
+                  callbackRuntime,
+                  "rejectionhandled checkpoint handler must be a function");
+            }
+            handle->structured_rejection_handled_handler =
+                std::make_unique<facebook::jsi::Function>(
+                    args[0].asObject(callbackRuntime).asFunction(
+                        callbackRuntime));
+            return facebook::jsi::Value::undefined();
+          });
+    rt.global().setProperty(
+        rt,
+        "__exactOnRejectionHandled",
+        std::move(registerRejectionHandled));
+  }
 
   auto capabilityCheckFn = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -1929,15 +4141,36 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetEnv"),
       1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value* args,
+               size_t count) -> facebook::jsi::Value {
         if (count == 0) {
           return facebook::jsi::Value::undefined();
         }
         auto key = args[0].toString(runtime).utf8(runtime);
+        if (!handle->armed && isPrivateProcessIpcEnvironmentKey(key)) {
+          return facebook::jsi::Value::undefined();
+        }
+        if (handle->armed && isAndroidStorageHostPathEnvironmentKey(key)) {
+          return facebook::jsi::Value::undefined();
+        }
         authorizeTypedEnvironmentRead(runtime, key);
+        if (handle->armed) {
+          auto principal = currentPrincipalId();
+          auto principalOverlay =
+              handle->environment_principal_overlays.find(principal);
+          if (principalOverlay ==
+              handle->environment_principal_overlays.end()) {
+            return facebook::jsi::Value::undefined();
+          }
+          auto value = principalOverlay->second.find(key);
+          if (value == principalOverlay->second.end()) {
+            return facebook::jsi::Value::undefined();
+          }
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, value->second));
+        }
         auto value = getEnvValue(key);
         if (!value.has_value()) {
           // Unset -> undefined; a present-but-empty value returns "" so callers
@@ -1949,6 +4182,49 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactGetEnv", std::move(getEnvFn));
 
+  if (handle->armed) {
+    auto setEnvFn = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "__exactSetEnv"),
+        2,
+        [handle](facebook::jsi::Runtime& runtime,
+                 const facebook::jsi::Value&,
+                 const facebook::jsi::Value* args,
+                 size_t count) -> facebook::jsi::Value {
+          if (count != 2 || !args[0].isString() ||
+              (!args[1].isString() && !args[1].isUndefined())) {
+            throw facebook::jsi::JSError::createTypeError(
+                runtime,
+                "environment overlay mutation requires a name and string or undefined value");
+          }
+          auto key = args[0].asString(runtime).utf8(runtime);
+          if (isAndroidStorageHostPathEnvironmentKey(key)) {
+            throw facebook::jsi::JSError(
+                runtime,
+                "Permission denied: private storage environment key");
+          }
+          authorizeTypedEnvironmentWrite(runtime, key);
+          auto principal = currentPrincipalId();
+          if (args[1].isUndefined()) {
+            auto principalOverlay =
+                handle->environment_principal_overlays.find(principal);
+            if (principalOverlay !=
+                handle->environment_principal_overlays.end()) {
+              principalOverlay->second.erase(key);
+              if (principalOverlay->second.empty()) {
+                handle->environment_principal_overlays.erase(
+                    principalOverlay);
+              }
+            }
+          } else {
+            handle->environment_principal_overlays[principal][key] =
+                args[1].asString(runtime).utf8(runtime);
+          }
+          return facebook::jsi::Value::undefined();
+        });
+    rt.global().setProperty(rt, "__exactSetEnv", std::move(setEnvFn));
+  }
+
   auto getAllEnvFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetAllEnv"),
@@ -1958,70 +4234,41 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                const facebook::jsi::Value*,
                size_t) -> facebook::jsi::Value {
         facebook::jsi::Object env(runtime);
-        // @ref LLP 0021#typed-resources-and-initial-vocabulary — enumeration
-        // cannot be represented by wildcard environment authority, so armed
-        // runtimes close it without consulting the legacy string oracle.
+        // @ref LLP 0022#7-capabilities-principals-and-affordance-parity — the
+        // armed base is empty. Enumeration visits only the current principal's
+        // overlay and independently authorizes each exact name before copying
+        // its value; env:write alone never implies disclosure.
         if (handle->armed) {
+          auto principalOverlay =
+              handle->environment_principal_overlays.find(
+                  currentPrincipalId());
+          if (principalOverlay ==
+              handle->environment_principal_overlays.end()) {
+            return env;
+          }
+          std::vector<std::string> keys;
+          keys.reserve(principalOverlay->second.size());
+          for (const auto& entry : principalOverlay->second) {
+            keys.push_back(entry.first);
+          }
+          std::sort(keys.begin(), keys.end());
+          for (const auto& key : keys) {
+            if (!typedEnvironmentOverlayAccessAllowed(
+                    key, ExactEnvironmentOverlayAccess::EnumerationRead)) {
+              continue;
+            }
+            env.setProperty(
+                runtime,
+                facebook::jsi::PropNameID::forUtf8(runtime, key),
+                facebook::jsi::String::createFromUtf8(
+                    runtime, principalOverlay->second.at(key)));
+          }
           return env;
         }
         if (!checkCapability("env:read:*")) {
           return env;
         }
-#if defined(_WIN32)
-        // ENG-23115 — populate from the REAL process environment. This was
-        // hardcoded to nullptr, so process.env enumeration ({...process.env},
-        // Object.keys, JSON.stringify) and child_process default env inheritance
-        // (`_flattenEnv` walks process.env) saw an empty environment on Windows
-        // (no PATH/SystemRoot). GetEnvironmentStringsW is always populated
-        // (independent of main/wmain) and returns UTF-16, converted to UTF-8 to
-        // match the POSIX branch below.
-        LPWCH envBlock = GetEnvironmentStringsW();
-        if (envBlock) {
-          auto toUtf8 = [](const std::wstring& w) -> std::string {
-            if (w.empty()) return std::string();
-            int n = WideCharToMultiByte(
-                CP_UTF8, 0, w.data(), static_cast<int>(w.size()), nullptr, 0, nullptr, nullptr);
-            if (n <= 0) return std::string();
-            std::string out(static_cast<size_t>(n), '\0');
-            WideCharToMultiByte(
-                CP_UTF8, 0, w.data(), static_cast<int>(w.size()), &out[0], n, nullptr, nullptr);
-            return out;
-          };
-          for (LPWCH p = envBlock; *p != L'\0';) {
-            std::wstring entry(p);  // wchar_t* -> length via char_traits, no wcslen
-            p += entry.size() + 1;
-            auto eq = entry.find(L'=');
-            // Windows exposes "=C:=..." drive-cwd pseudo-vars whose key is empty
-            // (the entry begins with '='); skip them, matching Node's process.env.
-            if (eq == std::wstring::npos || eq == 0) continue;
-            std::string key = toUtf8(entry.substr(0, eq));
-            std::string val = toUtf8(entry.substr(eq + 1));
-            env.setProperty(runtime,
-              facebook::jsi::PropNameID::forUtf8(runtime, key),
-              facebook::jsi::String::createFromUtf8(runtime, val));
-          }
-          FreeEnvironmentStringsW(envBlock);
-        }
-#else
-#if defined(__APPLE__)
-        char **envp = *_NSGetEnviron();
-#else
-        char **envp = ::environ;
-#endif
-        if (envp) {
-          for (char **ep = envp; *ep; ++ep) {
-            std::string entry(*ep);
-            auto eq = entry.find('=');
-            if (eq != std::string::npos) {
-              auto key = entry.substr(0, eq);
-              auto val = entry.substr(eq + 1);
-              env.setProperty(runtime,
-                facebook::jsi::PropNameID::forUtf8(runtime, key),
-                facebook::jsi::String::createFromUtf8(runtime, val));
-            }
-          }
-        }
-#endif
+        populateDiagnosticProcessEnvironment(runtime, env);
         return env;
       });
   rt.global().setProperty(rt, "__exactGetAllEnv", std::move(getAllEnvFn));
@@ -2124,7 +4371,10 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // unrestricted `require('node:fs')` is not contained: import policy is the
   // primary gate for them. Returns whether the requesting principal may load the
   // specifier under the active mode (audit logs but allows). Inert unless policy
-  // restricts a package's `builtins`/`packages`. Captured by the loader, sealed.
+  // restricts a package's `builtins`/`packages`. A cache-hit call additionally
+  // supplies the authenticated SourceId and resolution-kind code so Rust can
+  // revalidate the exact typed edge without probing source. Captured by the
+  // loader, sealed.
   auto checkImportFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactCheckImport"),
@@ -2155,8 +4405,27 @@ void installGlobals(struct ExactHermesRuntime* handle) {
               : 0;
         }
         auto specifier = args[1].asString(runtime).utf8(runtime);
+        std::string targetSourceId;
+        bool hasTargetSourceId = count > 2 && args[2].isString();
+        uint32_t resolutionKind = 0;
+        if (hasTargetSourceId) {
+          targetSourceId = args[2].asString(runtime).utf8(runtime);
+          if (count <= 3 || !args[3].isNumber()) {
+            return facebook::jsi::Value(false);
+          }
+          double rawResolutionKind = args[3].asNumber();
+          if (rawResolutionKind != 0 && rawResolutionKind != 1 &&
+              rawResolutionKind != 2 && rawResolutionKind != 3) {
+            return facebook::jsi::Value(false);
+          }
+          resolutionKind = static_cast<uint32_t>(rawResolutionKind);
+        }
         return facebook::jsi::Value(
-            ex_host_check_import(principal, specifier.c_str()) != 0);
+            ex_host_check_import(
+                principal,
+                specifier.c_str(),
+                hasTargetSourceId ? targetSourceId.c_str() : nullptr,
+                resolutionKind) != 0);
       });
   rt.global().setProperty(rt, "__exactCheckImport", std::move(checkImportFn));
 
@@ -2430,18 +4699,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
-        exactRequireTypedSystemInfo(
-            runtime, ExactSystemInfoSurface::Cwd, ExactSystemInfoName::Cwd);
-        char buffer[4096];
-#if defined(_WIN32)
-        if (_getcwd(buffer, sizeof(buffer)) == nullptr) {
-#else
-        if (getcwd(buffer, sizeof(buffer)) == nullptr) {
-#endif
-          return facebook::jsi::Value::undefined();
-        }
         return facebook::jsi::Value(
-          facebook::jsi::String::createFromUtf8(runtime, buffer));
+          facebook::jsi::String::createFromUtf8(
+              runtime, exactGetVfsCwd(runtime)));
       });
   rt.global().setProperty(rt, "__exactGetCwd", std::move(getCwdFn));
 
@@ -2459,22 +4719,18 @@ void installGlobals(struct ExactHermesRuntime* handle) {
               "process.chdir() expected path string");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
-        // @ref LLP 0013#policy — __exactSetCwd backs process.chdir's
-        // process-global mutation path and must share the process:cwd gate.
-        if (!checkCapability("process:cwd")) {
-          throw facebook::jsi::JSError(
-              runtime,
-              "Permission denied: process:cwd capability required");
+        if (ex_host_is_armed() == 1) {
+          auto principals = exactCollectTypedPrincipalStack();
+          const bool rootOnly = currentPrincipalId() == 0 &&
+              std::all_of(
+                  principals.begin(), principals.end(),
+                  [](uint64_t principal) { return principal == 0; });
+          if (!rootOnly) {
+            throw facebook::jsi::JSError(
+                runtime, "EACCES: chdir: root principal required");
+          }
         }
-#if defined(_WIN32)
-        if (_chdir(path.c_str()) != 0) {
-#else
-        if (chdir(path.c_str()) != 0) {
-#endif
-          throw facebook::jsi::JSError(
-              runtime,
-              "Failed to change directory: " + std::string(strerror(errno)));
-        }
+        (void)exactSetVfsCwd(runtime, path);
       return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactSetCwd", std::move(setCwdFn));
@@ -2484,23 +4740,23 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactExit"),
       1,
-      [](facebook::jsi::Runtime& runtime,
+      [handle](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
-        int code = 0;
-        if (count > 0) {
-          if (args[0].isNumber()) {
-            code = static_cast<int>(args[0].asNumber());
-          } else if (args[0].isString()) {
-            try {
-              code = std::stoi(args[0].getString(runtime).utf8(runtime));
-            } catch (...) {
-              code = 0;
-            }
-          }
+        const bool hasRequestedCode = count > 0 && !args[0].isUndefined();
+        const int32_t requestedCode = hasRequestedCode
+            ? normalizeLifecycleExitCode(handle, runtime, args[0])
+            : 0;
+        if (requestStructuredLifecycle(
+                handle,
+                runtime,
+                EX_HOST_LIFECYCLE_EXIT_SURFACE_EXACT_EXIT,
+                requestedCode,
+                hasRequestedCode)) {
+          return facebook::jsi::Value::undefined();
         }
-        exactHostExit(code);
+        legacyUnarmedExit(requestedCode);
       });
   rt.global().setProperty(rt, "__exactExit", std::move(exactExitFn));
 
@@ -2622,7 +4878,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   auto resolveModuleFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactModuleResolve"),
-      2,
+      3,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -2635,8 +4891,22 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         if (count > 1 && args[1].isString()) {
           referrer = args[1].toString(runtime).utf8(runtime);
         }
+        uint32_t resolutionKind = 0;
+        if (count > 2) {
+          if (!args[2].isNumber()) {
+            throw facebook::jsi::JSError::createTypeError(
+                runtime, "module resolution kind must be an integer from 0 through 3");
+          }
+          auto value = args[2].asNumber();
+          if (!(value >= 0 && value <= 3) ||
+              value != static_cast<double>(static_cast<uint32_t>(value))) {
+            throw facebook::jsi::JSError::createTypeError(
+                runtime, "module resolution kind must be an integer from 0 through 3");
+          }
+          resolutionKind = static_cast<uint32_t>(value);
+        }
         char* json = ex_host_module_resolve(
-            currentPrincipalId(), spec.c_str(),
+            currentPrincipalId(), resolutionKind, spec.c_str(),
             referrer.empty() ? nullptr : referrer.c_str());
         if (!json) {
           return facebook::jsi::Value::null();
@@ -2653,6 +4923,110 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   auto resolveModuleValue = facebook::jsi::Value(rt, resolveModuleFn);
   rt.global().setProperty(rt, "__exactModuleResolve", resolveModuleValue);
   rt.global().setProperty(rt, "__exactNativeModuleResolve", resolveModuleValue);
+
+  if (handle->armed) {
+    // The trusted loader passes its private, pre-resolved materializer through
+    // this one-shot rendezvous and immediately deletes the global. The native
+    // root is thereafter the only reference used by authenticated sessions.
+    // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+    auto captureSessionStaticImport =
+        facebook::jsi::Function::createFromHostFunction(
+            rt,
+            facebook::jsi::PropNameID::forAscii(
+                rt, "__exactCaptureSessionStaticImport"),
+            1,
+            [handle](facebook::jsi::Runtime& runtime,
+                     const facebook::jsi::Value&,
+                     const facebook::jsi::Value* args,
+                     size_t count) -> facebook::jsi::Value {
+              if (count != 1 || !args[0].isObject() ||
+                  !args[0].getObject(runtime).isFunction(runtime) ||
+                  handle->structured_session_import_materializer) {
+                throw facebook::jsi::JSError::createTypeError(
+                    runtime, "invalid session static-import materializer capture");
+              }
+              handle->structured_session_import_materializer =
+                  std::make_unique<facebook::jsi::Function>(
+                      args[0].getObject(runtime).asFunction(runtime));
+              auto makeSessionRootResolver =
+                  [](facebook::jsi::Runtime& runtime,
+                     const char* functionName,
+                     bool metadataOnly) {
+                    return facebook::jsi::Function::createFromHostFunction(
+                        runtime,
+                        facebook::jsi::PropNameID::forAscii(
+                            runtime, functionName),
+                        3,
+                        [metadataOnly](facebook::jsi::Runtime& runtime,
+                                       const facebook::jsi::Value&,
+                                       const facebook::jsi::Value* args,
+                                       size_t count) -> facebook::jsi::Value {
+                          if (count != 3 || !args[0].isString() ||
+                              !args[1].isString() || !args[2].isNumber()) {
+                            throw facebook::jsi::JSError::createTypeError(
+                                runtime,
+                                "session-root resolution requires a specifier, logical referrer, and typed resolution kind");
+                          }
+                          auto specifier =
+                              args[0].toString(runtime).utf8(runtime);
+                          auto logicalReferrer =
+                              args[1].toString(runtime).utf8(runtime);
+                          auto kindValue = args[2].asNumber();
+                          if (!(kindValue >= 0 && kindValue <= 3) ||
+                              kindValue != static_cast<double>(
+                                  static_cast<uint32_t>(kindValue))) {
+                            throw facebook::jsi::JSError::createTypeError(
+                                runtime,
+                                "session-root resolution kind must be an integer from 0 through 3");
+                          }
+                          auto resolutionKind =
+                              static_cast<uint32_t>(kindValue);
+                          char* json = metadataOnly
+                              ? ex_host_session_static_import_resolve_meta(
+                                    reinterpret_cast<const uint8_t*>(
+                                        logicalReferrer.data()),
+                                    logicalReferrer.size(),
+                                    reinterpret_cast<const uint8_t*>(
+                                        specifier.data()),
+                                    specifier.size(),
+                                    resolutionKind)
+                              : ex_host_session_static_import_resolve(
+                                    reinterpret_cast<const uint8_t*>(
+                                        logicalReferrer.data()),
+                                    logicalReferrer.size(),
+                                    reinterpret_cast<const uint8_t*>(
+                                        specifier.data()),
+                                    specifier.size(),
+                                    resolutionKind);
+                          if (json == nullptr) {
+                            return facebook::jsi::Value::null();
+                          }
+                          auto result = facebook::jsi::String::createFromUtf8(
+                              runtime, json);
+                          ex_host_free_string(json);
+                          return result;
+                        });
+                  };
+              facebook::jsi::Object sessionRootResolvers(runtime);
+              sessionRootResolvers.setProperty(
+                  runtime,
+                  "resolve",
+                  makeSessionRootResolver(
+                      runtime, "resolve authenticated session root", false));
+              sessionRootResolvers.setProperty(
+                  runtime,
+                  "resolveMeta",
+                  makeSessionRootResolver(
+                      runtime,
+                      "resolve authenticated session root metadata",
+                      true));
+              return facebook::jsi::Value(std::move(sessionRootResolvers));
+            });
+    rt.global().setProperty(
+        rt,
+        "__exactCaptureSessionStaticImport",
+        std::move(captureSessionStaticImport));
+  }
 
   // Loader-private resolution path for a manifest builtin's synchronous
   // implementation dependencies. It cannot resolve packages or paths, and the
@@ -2697,7 +5071,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   auto resolveModuleMetaFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactModuleResolveMeta"),
-      2,
+      3,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -2710,8 +5084,22 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         if (count > 1 && args[1].isString()) {
           referrer = args[1].toString(runtime).utf8(runtime);
         }
+        uint32_t resolutionKind = 0;
+        if (count > 2) {
+          if (!args[2].isNumber()) {
+            throw facebook::jsi::JSError::createTypeError(
+                runtime, "module resolution kind must be an integer from 0 through 3");
+          }
+          auto value = args[2].asNumber();
+          if (!(value >= 0 && value <= 3) ||
+              value != static_cast<double>(static_cast<uint32_t>(value))) {
+            throw facebook::jsi::JSError::createTypeError(
+                runtime, "module resolution kind must be an integer from 0 through 3");
+          }
+          resolutionKind = static_cast<uint32_t>(value);
+        }
         char* json = ex_host_module_resolve_meta(
-            currentPrincipalId(), spec.c_str(),
+            currentPrincipalId(), resolutionKind, spec.c_str(),
             referrer.empty() ? nullptr : referrer.c_str());
         if (!json) {
           return facebook::jsi::Value::null();
@@ -2844,6 +5232,26 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactEnsureNet", std::move(ensureNetFn));
   sharedRuntimeInstalled = installModuleLoader(handle);
+  handle->shared_runtime_bundle_installed = sharedRuntimeInstalled;
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+  // Armed code must never fall back to the legacy native process object: its
+  // eager env snapshot and other compatibility state are intentionally not a
+  // capability-mediated package surface.
+  if (handle->armed && !sharedRuntimeInstalled) {
+    throw std::runtime_error(
+        "Armed startup requires the capability-mediated shared runtime bundle");
+  }
+  if (handle->armed && !configurePromiseRejectionCheckpointTracker(handle)) {
+    throw std::runtime_error(
+        "Hermes promise rejection checkpoint tracking is unavailable");
+  }
+  if (sharedRuntimeInstalled && !handle->armed) {
+    // The runtime bundle leaves this descriptor configurable only for the
+    // native lifecycle handoff. Armed startup replaces it at the authenticated
+    // seal; compatibility runtimes retain the historical Node-shaped accessor.
+    // @ref LLP 0025#8-exit-and-lifecycle
+    sealUnarmedProcessExitCodeDescriptor(handle);
+  }
 
   installLegacyLazyBootstrapGetters(handle, sharedRuntimeInstalled);
   IG_TRACE_END(host_functions);
@@ -2857,12 +5265,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   auto _t_ipc_patch = std::chrono::steady_clock::now();
   runLegacyProcessCompatFix(handle, sharedRuntimeInstalled);
 
-  // Legacy bootstraps rely on a hard process.exit() on the process object.
-  // The shared runtime bundle installs a JS Process implementation whose
-  // prototype exit() preserves Node's recursive exit listener semantics and
-  // terminates through __exactExit(). Replacing it with a hard host function
-  // breaks tests like test-process-exit-recursive.js by bypassing exit
-  // listeners and exitCode overrides.
+  // Legacy bootstraps require process.exit() on the process object. Armed
+  // instances of this function publish a cooperative lifecycle request;
+  // explicitly unarmed compatibility runtimes retain the historical exit.
   if (!sharedRuntimeInstalled) {
     // NOTE: Only set exit on the process object itself, NOT on its prototype.
     // At this point process.__proto__ is Object.prototype, so setting exit there
@@ -2870,8 +5275,8 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     auto processValue = rt.global().getProperty(rt, "process");
     if (processValue.isObject()) {
       auto processObjFinal = processValue.asObject(rt);
-      auto hardExitFn = makeHardExitFn(rt);
-      processObjFinal.setProperty(rt, "exit", std::move(hardExitFn));
+      auto exitFn = makeProcessExitFn(handle, rt);
+      processObjFinal.setProperty(rt, "exit", std::move(exitFn));
       // Note: Do NOT set exit on process.__proto__ as that would pollute
       // Object.prototype and make 'exit' enumerable on all objects, breaking
       // for...in loops (e.g., in WPT headers-basic tests).
@@ -3098,6 +5503,30 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     }
   }
 
+  // Capture the two evaluator capabilities the native runner needs before the
+  // hardening seal deletes the Domain binder and lockdown tames Function.
+  // Neither reference is published back to JavaScript. Package code therefore
+  // cannot select a principal, compartment, or source to compile.
+  // @ref LLP 0026#4-native-graph-owner-and-hermes-runner
+  {
+    auto constructor = rt.global().getProperty(rt, "Function");
+    auto binder = rt.global().getProperty(rt, "__exactSetCompartmentFor");
+    if (!constructor.isObject() || !constructor.asObject(rt).isFunction(rt) ||
+        !binder.isObject() || !binder.asObject(rt).isFunction(rt)) {
+      if (handle->armed) {
+        throw std::runtime_error(
+            "native module runner evaluator capabilities are unavailable");
+      }
+    } else {
+      handle->module_function_constructor =
+          std::make_shared<facebook::jsi::Function>(
+              constructor.asObject(rt).asFunction(rt));
+      handle->module_compartment_binder =
+          std::make_shared<facebook::jsi::Function>(
+              binder.asObject(rt).asFunction(rt));
+    }
+  }
+
   // @ref LLP 0013#phase-0 — end-of-bootstrap capability hardening seal. The
   // module-attribution setter (`__exactSetActiveModuleId`) and the self-grant
   // function (`__exactGrantCapability`) are ambient-authority escape hatches:
@@ -3143,6 +5572,10 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                  '__exactSetPendingPackageId', '__exactRegisterPackage',
                  '__exactCheckImport', '__exactSetCompartmentFor',
                  '__exactResolveManifestBuiltinInternal'];
+  if (sealSelfGrant) {
+    hatches.push('__exactModuleResolve', '__exactModuleResolveMeta',
+                 '__exactNativeModuleResolve', '__exactNativeModuleResolveMeta');
+  }
   if (!keepBareNameHelper) hatches.push('__ibexBarePackageName');
   for (var j = 0; j < hatches.length; j++) {
     try { delete g[hatches[j]]; } catch (e) { if (sealSelfGrant) throw e; }
@@ -3171,8 +5604,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // lockdown/compartment path the installers stay lazy for startup cost.
   if (handle->structural_lockdown) {
     requireArmedStartupStage(handle, "eager-install-seal");
-    static const char* kEagerInstallSealJS = R"JS((function () {
+    std::string eagerInstallSealJS = std::string(R"JS((function () {
   var g = globalThis;
+  var sealClosedNative = )JS") + (handle->armed ? "true" : "false") + R"JS(;
   var ensures = ['__exactEnsureFs', '__exactEnsureHttp', '__exactEnsureSqlite',
     '__exactEnsureDns', '__exactEnsureChildProcess', '__exactEnsureNet',
     '__exactEnsureStreamEnhance', '__exactEnsureWebCrypto',
@@ -3181,6 +5615,33 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     var fn = g[ensures[i]];
     if (typeof fn === 'function') fn();
     delete g[ensures[i]];
+  }
+  // These direct native globals back compatibility and diagnostic wrappers,
+  // but the production CapSec registry classifies their ambient forms as
+  // closed. Some are created by the lazy installers above, so remove the
+  // complete reviewed set only after every installer has run.
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+  if (sealClosedNative) {
+    // __exactExit and __exactSetCwd remain only through the authenticated
+    // bootstrap capture assertion. ex_hermes_finish_bootstrap deletes both in
+    // sealRootGlobalSessionBridges before structured submissions can begin.
+    // Deleting them here would bypass that proof (and make the cwd bridge
+    // assertion fail) even though package code still cannot run at this stage.
+    // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+    var closedNative = [
+      '__exactGetGCStats',
+      '__exactGetHeapInfo',
+      '__exactGetSourceCacheStats',
+      '__exactIpcRecvMsg',
+      '__exactIpcSendMsg',
+      '__exactPollSignal',
+      '__exactResetSignal'
+    ];
+    for (var j = 0; j < closedNative.length; j++) {
+      if (!delete g[closedNative[j]]) {
+        throw new TypeError('cannot close armed native global ' + closedNative[j]);
+      }
+    }
   }
   // @ref LLP 0013#phase-1 — close the ambient self-grant channel. The
   // end-of-bootstrap seal deletes __exactGrantCapability but rebinds
@@ -3196,6 +5657,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   } catch (e) { throw e; }
 })();
 )JS";
+    const char* kEagerInstallSealJS = eagerInstallSealJS.c_str();
     try {
       auto buffer =
           std::make_shared<facebook::jsi::StringBuffer>(kEagerInstallSealJS);
@@ -3267,6 +5729,34 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     tamedEval.__exactWrappedForNativesSyntax = true;
     defineProp(g, 'eval', { value: tamedEval, writable: false, configurable: false });
   } catch (e) { if (failClosed) throw e; }
+
+  // `process:umask` is deny-only in the armed profile. The shared runtime
+  // installs a compatibility implementation before lockdown, so seal the
+  // actual public invocation here rather than relying on a catalog label. A
+  // package may still read the function-valued binding, but invoking it can
+  // neither read nor mutate process-global state. Remove the compatibility
+  // backing cell as well so `_umask` is not a second disclosure path.
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+  if (failClosed && g.process && (typeof g.process === 'object' || typeof g.process === 'function')) {
+    try {
+      function closedUmask() {
+        var error = new Error('process.umask is disabled in an armed runtime');
+        error.code = 'ERR_ACCESS_DENIED';
+        error.permission = 'ProcessUmask';
+        throw error;
+      }
+      defineProp(g.process, 'umask', {
+        value: closedUmask,
+        writable: false,
+        enumerable: true,
+        configurable: false
+      });
+      delete g.process._umask;
+      if ('_umask' in g.process) {
+        throw new TypeError('process._umask could not be sealed');
+      }
+    } catch (e) { throw e; }
+  }
 
   // --- Freeze walk over the shared intrinsics graph ---
   var frozen = new WeakSet();
@@ -3358,6 +5848,62 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // package's object graph: an ungated native primitive while every other
   // dangerous native is capability-gated. Acceptance criterion: escape-hatch
   // globals unreachable in all modes.
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+  // Conformance must observe the exact loaded Hermes natives, but production
+  // correctly deletes their globals below before project code can run. Invoke
+  // four fixed sentinels in this last trusted-bootstrap window and retain only
+  // a bit mask on this runtime: deep primitive/object, shallow
+  // primitive/object, and an independent completion bit. Null-prototype graphs
+  // ensure the probe cannot freeze any shared realm object.
+  // @ref LLP 0013#mechanism-1
+  {
+    static const char* kNativeFreezeObservationJS = R"JS((function () {
+  var g = globalThis;
+  var mask = 16;
+  try {
+    var deepPrimitive = 1729;
+    if (g.__exactDeepFreeze(deepPrimitive) === deepPrimitive) mask |= 1;
+  } catch (e) {}
+  try {
+    var deepChild = Object.create(null);
+    var deepRoot = Object.create(null);
+    deepRoot.child = deepChild;
+    if (g.__exactDeepFreeze(deepRoot) === deepRoot &&
+        Object.isFrozen(deepRoot) && Object.isFrozen(deepChild)) mask |= 2;
+  } catch (e) {}
+  try {
+    var shallowPrimitive = 1729;
+    if (g.__exactNativeFreeze(shallowPrimitive) === shallowPrimitive) mask |= 4;
+  } catch (e) {}
+  try {
+    var shallowChild = Object.create(null);
+    var shallowRoot = Object.create(null);
+    shallowRoot.child = shallowChild;
+    if (g.__exactNativeFreeze(shallowRoot) === shallowRoot &&
+        Object.isFrozen(shallowRoot) && !Object.isFrozen(shallowChild)) mask |= 8;
+  } catch (e) {}
+  return mask;
+})())JS";
+    try {
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(
+          kNativeFreezeObservationJS);
+      auto observation = handle->runtime->evaluateJavaScript(
+          buffer, "<native-freeze-conformance-observation>");
+      if (observation.isNumber()) {
+        const double mask = observation.asNumber();
+        if (mask >= 16 && mask <= 31 &&
+            mask == static_cast<double>(static_cast<uint32_t>(mask))) {
+          handle->capsec_native_freeze_observation =
+              static_cast<uint32_t>(mask);
+        }
+      }
+    } catch (...) {
+      // A zero/partial mask is the fail-closed result consumed by the test-only
+      // executor. Runtime construction and the production deletion below keep
+      // their ordinary semantics even when an observation cannot complete.
+    }
+  }
+#endif
   {
     static const char* kFreezeSealJS = R"JS((function () {
   var g = globalThis;
@@ -3380,14 +5926,42 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   IG_TRACE_END(post_host_fns);
 }
 
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+extern "C" int ibex_test_native_freeze_observation(
+    ExactHermesRuntime* runtime,
+    uint32_t* outMask) {
+  if (outMask != nullptr) *outMask = 0;
+  if (runtime == nullptr || outMask == nullptr || !runtime->runtime ||
+      runtime->runtime_thread != std::this_thread::get_id()) {
+    return 0;
+  }
+  *outMask = runtime->capsec_native_freeze_observation;
+  return 1;
+}
+#endif
+
 void runNextTickQueue(ExactHermesRuntime* runtime) {
   if (!runtime) {
     return;
   }
   auto& rt = *runtime->runtime;
   while (!runtime->next_tick.empty()) {
+    if (runtime->structured_lifecycle_pending) return;
     auto entry = std::move(runtime->next_tick.front());
     runtime->next_tick.pop_front();
+    ScopedNativeWorkUnit workUnit(
+        runtime, EX_HERMES_WORK_UNIT_CALLBACK);
+    ScopedAsyncFailureContext failureContext(
+        runtime,
+        structuredAsyncFailureContext(
+            EX_HERMES_ASYNC_FAILURE_NEXT_TICK,
+            entry.principal,
+            entry.id == 0 ? workUnit.targetId() : entry.id,
+            entry.associatedEvaluation));
+    const bool rawCapture =
+        structuredWorkPublicationEnabled(runtime) &&
+        ScopedRawThrowCapture::available();
+    ScopedRawThrowCapture rawThrowCapture(runtime->runtime.get(), rawCapture);
     try {
       ScopedNativePrincipal nativePrincipal(entry.principal);
       ScopedTypedPrincipalStack typedStack(entry.principalStack);
@@ -3399,24 +5973,29 @@ void runNextTickQueue(ExactHermesRuntime* runtime) {
             static_cast<const facebook::jsi::Value*>(entry.args.data()),
             entry.args.size());
       }
+      workUnit.finish();
+      if (runtime->structured_session_terminated) return;
     } catch (const facebook::jsi::JSError& err) {
-      // Try uncaughtException handler first
-      bool handled = false;
-      try {
-        auto handler = rt.global().getProperty(rt, "__exactUncaughtExceptionHandler");
-        if (handler.isObject() && handler.asObject(rt).isFunction(rt)) {
-          // Pass the original thrown value through (stack/custom props intact),
-          // mirroring the timer error path. @ref LLP 0006#degrade-diagnostics-never-the-caller
-          auto errVal = facebook::jsi::Value(rt, err.value());
-          auto result = handler.asObject(rt).asFunction(rt).call(rt, std::move(errVal));
-          if (result.isBool() && result.getBool()) handled = true;
-        }
-      } catch (...) {}
-      if (!handled) {
-        ex_host_console_log(1, err.getMessage().c_str());
-        if (!runtime->keep_alive_on_async_error) runtime->fatal_async_error = true;
+      if ((rawCapture
+               ? workUnit.finishRawCapturedJsThrow()
+               : workUnit.finish(err))) {
+        if (runtime->structured_session_terminated) return;
+        continue;
       }
+      if (runtime->structured_lifecycle_pending) return;
+      // The handler is successor user work and gets its own published target.
+      // @ref LLP 0024#6-evaluation-outcomes-and-the-abi
+      if (!disposeAsyncCallbackError(runtime, err)) return;
     } catch (const std::exception& err) {
+      if (workUnit.finish()) {
+        if (runtime->structured_session_terminated) return;
+        continue;
+      }
+      if (runtime->structured_lifecycle_pending) return;
+      if (structuredWorkPublicationEnabled(runtime)) {
+        recordStructuredAsyncFailureDrop(runtime);
+        continue;
+      }
       ex_host_console_log(1, err.what());
       if (!runtime->keep_alive_on_async_error) runtime->fatal_async_error = true;
     }
@@ -3473,10 +6052,40 @@ extern "C" int32_t ex_hermes_engine_binary_path(char* out, size_t out_len) {
 extern "C" int32_t ex_hermes_engine_mapped_object(
     uint64_t* out_device, uint64_t* out_inode) {
   if (out_device == nullptr || out_inode == nullptr) return -1;
-#if defined(__APPLE__) && TARGET_OS_OSX
   using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
       const ::hermes::vm::RuntimeConfig&);
   auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
+#if defined(_WIN32)
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // derive current-file identity from the loader-reported DLL pathname
+  // independently of the Rust handle used to hash the named artifact. Windows
+  // does not expose the loader's image-section handle here, so this remains
+  // diagnostic pathname-reopen evidence and cannot authenticate mapped code.
+  HMODULE module = nullptr;
+  if (!GetModuleHandleExA(
+          GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+              GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+          reinterpret_cast<LPCSTR>(factory), &module)) {
+    return -1;
+  }
+  std::vector<char> path(32768, '\0');
+  DWORD written =
+      GetModuleFileNameA(module, path.data(), static_cast<DWORD>(path.size()));
+  if (written == 0 || written >= path.size()) return -1;
+  HANDLE file = CreateFileA(
+      path.data(), FILE_READ_ATTRIBUTES,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (file == INVALID_HANDLE_VALUE) return -1;
+  BY_HANDLE_FILE_INFORMATION info = {};
+  BOOL identified = GetFileInformationByHandle(file, &info);
+  CloseHandle(file);
+  if (!identified) return -1;
+  *out_device = static_cast<uint64_t>(info.dwVolumeSerialNumber);
+  *out_inode = (static_cast<uint64_t>(info.nFileIndexHigh) << 32) |
+      static_cast<uint64_t>(info.nFileIndexLow);
+  return 1;
+#elif defined(__APPLE__) && TARGET_OS_OSX
   proc_regionwithpathinfo region = {};
   int bytes = proc_pidinfo(
       getpid(), PROC_PIDREGIONPATHINFO,
@@ -3486,6 +6095,53 @@ extern "C" int32_t ex_hermes_engine_mapped_object(
   *out_device = static_cast<uint64_t>(region.prp_vip.vip_vi.vi_stat.vst_dev);
   *out_inode = static_cast<uint64_t>(region.prp_vip.vip_vi.vi_stat.vst_ino);
   return *out_inode != 0 ? 1 : -1;
+#elif defined(__linux__) || defined(__ANDROID__)
+  // Identify the file object backing the mapping that contains Hermes' runtime
+  // factory. This binds device/inode identity only; it does not hash the
+  // executable pages already mapped by the loader. The
+  // adapter function itself is compiled into Ibex and therefore names the
+  // executable, not libhermesvm; using its address would attest the wrong
+  // object on ELF targets.
+  uintptr_t address = reinterpret_cast<uintptr_t>(
+      reinterpret_cast<void*>(factory));
+  std::ifstream maps("/proc/self/maps");
+  std::string line;
+  while (std::getline(maps, line)) {
+    std::istringstream fields(line);
+    std::string range;
+    std::string permissions;
+    std::string offset;
+    std::string device;
+    std::string inode;
+    if (!(fields >> range >> permissions >> offset >> device >> inode)) {
+      continue;
+    }
+    auto dash = range.find('-');
+    auto colon = device.find(':');
+    if (dash == std::string::npos || colon == std::string::npos) continue;
+    uintptr_t start = 0;
+    uintptr_t end = 0;
+    uint64_t major = 0;
+    uint64_t minor = 0;
+    uint64_t parsed_inode = 0;
+    auto parse = [](const char* first, const char* last, auto& value, int base) {
+      auto result = std::from_chars(first, last, value, base);
+      return result.ec == std::errc() && result.ptr == last;
+    };
+    if (!parse(range.data(), range.data() + dash, start, 16) ||
+        !parse(range.data() + dash + 1, range.data() + range.size(), end, 16) ||
+        !parse(device.data(), device.data() + colon, major, 16) ||
+        !parse(device.data() + colon + 1,
+               device.data() + device.size(), minor, 16) ||
+        !parse(inode.data(), inode.data() + inode.size(), parsed_inode, 10)) {
+      continue;
+    }
+    if (address < start || address >= end) continue;
+    *out_device = static_cast<uint64_t>(makedev(major, minor));
+    *out_inode = parsed_inode;
+    return *out_inode != 0 ? 1 : -1;
+  }
+  return -1;
 #else
   return -1;
 #endif
@@ -3513,6 +6169,811 @@ extern "C" uint64_t ex_host_claim_diagnostic_context();
 extern "C" void ex_host_release_context(uint64_t context_id);
 
 static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool armed);
+
+static std::string rootGlobalSymbolKey(
+    facebook::jsi::Runtime& rt,
+    const facebook::jsi::Symbol& symbol) {
+  const std::string rendered = symbol.toString(rt);
+  static constexpr const char* kWellKnownPrefix = "Symbol(Symbol.";
+  if (rendered.rfind(kWellKnownPrefix, 0) == 0 && rendered.size() > 15 &&
+      rendered.back() == ')') {
+    return "[[Symbol." +
+        rendered.substr(
+            std::strlen(kWellKnownPrefix),
+            rendered.size() - std::strlen(kWellKnownPrefix) - 1) +
+        "]]";
+  }
+  if (rendered.rfind("Symbol(", 0) == 0 && rendered.back() == ')') {
+    return "[[Symbol." + rendered.substr(7, rendered.size() - 8) + "]]";
+  }
+  return "[[" + rendered + "]]";
+}
+
+template <typename Visitor>
+static void forEachRootGlobalOwnKey(
+    ExactHermesRuntime* handle,
+    const facebook::jsi::Object& object,
+    Visitor&& visitor) {
+  auto& rt = *handle->runtime;
+  auto visitArray = [&](facebook::jsi::Function& intrinsic, bool symbols) {
+    auto result = intrinsic.call(rt, object);
+    if (!result.isObject() || !result.asObject(rt).isArray(rt)) {
+      throw std::runtime_error(
+          "root-global reflection intrinsic returned a non-array");
+    }
+    auto keys = result.asObject(rt).asArray(rt);
+    for (size_t index = 0; index < keys.size(rt); ++index) {
+      auto key = keys.getValueAtIndex(rt, index);
+      std::string text;
+      if (symbols) {
+        if (!key.isSymbol()) {
+          throw std::runtime_error(
+              "root-global symbol reflection returned a non-symbol");
+        }
+        text = rootGlobalSymbolKey(rt, key.asSymbol(rt));
+      } else {
+        if (!key.isString()) {
+          throw std::runtime_error(
+              "root-global name reflection returned a non-string");
+        }
+        text = key.asString(rt).utf8(rt);
+      }
+      visitor(key, text);
+    }
+  };
+  visitArray(*handle->root_global_get_own_property_names, false);
+  visitArray(*handle->root_global_get_own_property_symbols, true);
+}
+
+static facebook::jsi::Value rootGlobalOwnDescriptor(
+    ExactHermesRuntime* handle,
+    const facebook::jsi::Object& object,
+    const facebook::jsi::Value& key) {
+  return handle->root_global_get_own_property_descriptor->call(
+      *handle->runtime, object, key);
+}
+
+static facebook::jsi::Value rootGlobalDescriptorField(
+    ExactHermesRuntime* handle,
+    const facebook::jsi::Object& descriptor,
+    const char* field) {
+  auto& rt = *handle->runtime;
+  auto namesValue =
+      handle->root_global_get_own_property_names->call(rt, descriptor);
+  if (!namesValue.isObject() || !namesValue.asObject(rt).isArray(rt)) {
+    throw std::runtime_error(
+        "root-global descriptor field reflection returned a non-array");
+  }
+  auto names = namesValue.asObject(rt).asArray(rt);
+  for (size_t index = 0; index < names.size(rt); ++index) {
+    auto name = names.getValueAtIndex(rt, index);
+    if (!name.isString()) {
+      throw std::runtime_error(
+          "root-global descriptor field reflection returned a non-string");
+    }
+    if (name.asString(rt).utf8(rt) == field) {
+      // Object.getOwnPropertyDescriptor creates a fresh descriptor record
+      // whose listed fields are own data properties. Proving the field is own
+      // before reading it prevents a missing descriptor field from walking to
+      // a hostile inherited accessor on Object.prototype.
+      return descriptor.getProperty(rt, field);
+    }
+  }
+  return facebook::jsi::Value::undefined();
+}
+
+static bool captureRootGlobalDispositionIntrinsics(
+    ExactHermesRuntime* handle) {
+  try {
+    auto& rt = *handle->runtime;
+    auto object = rt.global().getPropertyAsObject(rt, "Object");
+    auto reflect = rt.global().getPropertyAsObject(rt, "Reflect");
+    handle->root_global_get_own_property_names =
+        std::make_unique<facebook::jsi::Function>(
+            object.getPropertyAsFunction(rt, "getOwnPropertyNames"));
+    handle->root_global_get_own_property_symbols =
+        std::make_unique<facebook::jsi::Function>(
+            object.getPropertyAsFunction(rt, "getOwnPropertySymbols"));
+    handle->root_global_get_own_property_descriptor =
+        std::make_unique<facebook::jsi::Function>(
+            object.getPropertyAsFunction(rt, "getOwnPropertyDescriptor"));
+    handle->root_global_get_prototype_of =
+        std::make_unique<facebook::jsi::Function>(
+            object.getPropertyAsFunction(rt, "getPrototypeOf"));
+    handle->root_global_reflect_delete_property =
+        std::make_unique<facebook::jsi::Function>(
+            reflect.getPropertyAsFunction(rt, "deleteProperty"));
+
+    handle->root_global_baseline_keys.clear();
+    forEachRootGlobalOwnKey(
+        handle,
+        rt.global(),
+        [&](const facebook::jsi::Value&, const std::string& key) {
+          handle->root_global_baseline_keys.push_back(key);
+        });
+    std::sort(
+        handle->root_global_baseline_keys.begin(),
+        handle->root_global_baseline_keys.end());
+    return true;
+  } catch (...) {
+    handle->root_global_get_own_property_names.reset();
+    handle->root_global_get_own_property_symbols.reset();
+    handle->root_global_get_own_property_descriptor.reset();
+    handle->root_global_get_prototype_of.reset();
+    handle->root_global_reflect_delete_property.reset();
+    handle->root_global_baseline_keys.clear();
+    return false;
+  }
+}
+
+static bool rootGlobalTargetApplies(
+    ExactHermesRuntime* handle,
+    const char* target) {
+  if (std::strcmp(target, "all") == 0 ||
+      std::strcmp(target, "default") == 0) {
+    return true;
+  }
+  if (std::strncmp(target, "conditional:", 12) == 0) {
+    const char* control = target + 12;
+    if (std::strcmp(control, "EXACT_COMPAT_TEST") == 0) {
+      return handle->bootstrap_fixture_compat;
+    }
+    if (std::strcmp(control, "EXACT_COMPAT_BUN") == 0) {
+      return handle->bootstrap_bun_compat;
+    }
+    if (std::strcmp(control, "EXACT_IPC_FD") == 0) {
+      return handle->process_ipc_fd >= 0;
+    }
+    // Conditional root-global controls are a closed generated vocabulary. An
+    // unknown condition must not become an ambient post-arm environment read.
+    // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+    return false;
+  }
+#if defined(_WIN32)
+  if (std::strcmp(target, "windows") == 0) return true;
+#else
+  if (std::strcmp(target, "posix") == 0) return true;
+#endif
+#if defined(__ANDROID__)
+  if (std::strcmp(target, "android") == 0) return true;
+#endif
+#if defined(__APPLE__)
+  if (std::strcmp(target, "apple") == 0) return true;
+#if TARGET_OS_IOS
+  if (std::strcmp(target, "ios") == 0) return true;
+#endif
+#endif
+  return false;
+}
+
+static bool rootGlobalActivationApplies(
+    ExactHermesRuntime* handle,
+    const char* activation,
+    const char* subject_key) {
+  // Activation describes which installed branch remains live at the armed
+  // seal; an earlier native installer may have been replaced by the shared
+  // runtime and is then represented by its fallback-only branch.
+  if (std::strcmp(activation, "always") == 0) return true;
+  if (std::strcmp(activation, "shared-runtime-bundle") == 0) {
+    return handle->shared_runtime_bundle_installed;
+  }
+  if (std::strcmp(activation, "legacy-runtime-fallback") == 0) {
+    return !handle->shared_runtime_bundle_installed;
+  }
+  if (std::strcmp(activation, "bun-compat-shared-runtime") == 0) {
+    return handle->shared_runtime_bundle_installed &&
+        handle->bootstrap_bun_compat;
+  }
+  if (
+      std::strcmp(
+          activation, "bun-compat-shared-or-legacy-fallback") == 0) {
+    return !handle->shared_runtime_bundle_installed ||
+        handle->bootstrap_bun_compat;
+  }
+  if (std::strcmp(activation, "web-streams-polyfill") == 0) {
+    return env_flag_enabled("EX_WEB_STREAMS_POLYFILL");
+  }
+  if (std::strcmp(activation, "ipc-channel-bootstrap") == 0) {
+    return handle->process_ipc_fd >= 0;
+  }
+  if (std::strcmp(activation, "openssl-crypto") == 0) {
+#if defined(EXACT_NO_OPENSSL)
+    return false;
+#else
+    return true;
+#endif
+  }
+  if (std::strcmp(activation, "windows-native") == 0) {
+#if defined(_WIN32)
+    return true;
+#else
+    return false;
+#endif
+  }
+  if (std::strcmp(activation, "android-platform-state") == 0) {
+#if defined(__ANDROID__)
+    return true;
+#else
+    return false;
+#endif
+  }
+  if (std::strcmp(activation, "baseline-input") == 0) {
+    return std::binary_search(
+        handle->root_global_baseline_keys.begin(),
+        handle->root_global_baseline_keys.end(),
+        subject_key);
+  }
+  if (std::strcmp(activation, "host-navigator-copy") == 0) {
+    // installGlobals copies only a navigator that predates the shared bundle;
+    // the bundle's own navigator is installed later and is deliberately not
+    // mirrored back into this host-input slot.
+    return handle->shared_runtime_bundle_installed &&
+        std::binary_search(
+            handle->root_global_baseline_keys.begin(),
+            handle->root_global_baseline_keys.end(),
+            "navigator");
+  }
+  if (
+      std::strcmp(activation, "diagnostic-unarmed-promise-fallback") == 0 ||
+      std::strcmp(activation, "intrinsic-reference-only") == 0 ||
+      std::strcmp(activation, "post-bootstrap-embedder-endowment") == 0 ||
+      std::strcmp(activation, "post-bootstrap-lazy") == 0) {
+    return false;
+  }
+  return false;
+}
+
+static bool rootGlobalConcreteKey(const std::string& key) {
+  return key.rfind("[[dynamic-table:", 0) != 0 &&
+      key.rfind("[[return]]", 0) != 0;
+}
+
+static bool rootGlobalDispositionFailure(const std::string& detail) {
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+  g_root_global_disposition_last_failure = detail;
+#endif
+  const std::string message =
+      "Armed startup refused: root-global disposition (" +
+      std::string(exact::root_global_disposition::kManifestDigest) + "): " +
+      detail;
+  ex_host_console_log(1, message.c_str());
+  return false;
+}
+
+static std::vector<std::string> splitRootGlobalLogicalPath(
+    const std::string& path) {
+  std::vector<std::string> segments;
+  size_t start = 0;
+  while (start <= path.size()) {
+    const size_t separator = path.find('.', start);
+    segments.push_back(path.substr(
+        start,
+        separator == std::string::npos ? std::string::npos
+                                       : separator - start));
+    if (separator == std::string::npos) break;
+    start = separator + 1;
+  }
+  return segments;
+}
+
+static facebook::jsi::Value findRootGlobalDescriptorWithoutGet(
+    ExactHermesRuntime* handle,
+    const facebook::jsi::Object& start,
+    const std::string& key) {
+  auto& rt = *handle->runtime;
+  auto current = facebook::jsi::Value(rt, start).asObject(rt);
+  for (size_t depth = 0;
+       depth <= exact::root_global_disposition::kMaxDepth;
+       ++depth) {
+    auto property = facebook::jsi::String::createFromUtf8(rt, key);
+    auto propertyValue = facebook::jsi::Value(std::move(property));
+    auto descriptor =
+        rootGlobalOwnDescriptor(handle, current, propertyValue);
+    if (descriptor.isObject()) return descriptor;
+    auto prototype = handle->root_global_get_prototype_of->call(rt, current);
+    if (prototype.isNull()) return facebook::jsi::Value::undefined();
+    if (!prototype.isObject()) {
+      throw std::runtime_error(
+          "root-global prototype reflection returned an invalid value");
+    }
+    current = prototype.asObject(rt);
+  }
+  throw std::runtime_error("root-global prototype depth budget exceeded");
+}
+
+static bool rootGlobalLogicalPathAbsent(
+    ExactHermesRuntime* handle,
+    const std::string& path) {
+  auto& rt = *handle->runtime;
+  const auto segments = splitRootGlobalLogicalPath(path);
+  if (segments.empty()) return false;
+  auto current = facebook::jsi::Value(rt, rt.global()).asObject(rt);
+  for (size_t index = 0; index < segments.size(); ++index) {
+    if (segments[index].empty() || segments[index].rfind("[[", 0) == 0) {
+      return false;
+    }
+    auto descriptor =
+        findRootGlobalDescriptorWithoutGet(handle, current, segments[index]);
+    if (descriptor.isUndefined()) return true;
+    if (index + 1 == segments.size()) return false;
+    auto descriptorObject = descriptor.asObject(rt);
+    auto value = rootGlobalDescriptorField(
+        handle, descriptorObject, "value");
+    if (!value.isObject()) {
+      // An accessor would have to be invoked to continue. Refuse rather than
+      // treating an uninspectable reachable branch as absent.
+      return false;
+    }
+    current = value.asObject(rt);
+  }
+  return false;
+}
+
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+extern "C" uint32_t ibex_test_root_global_logical_path_absent(
+    ExactHermesRuntime* handle,
+    const char* path) {
+  if (handle == nullptr || !handle->runtime || path == nullptr ||
+      !handle->root_global_get_own_property_descriptor ||
+      !handle->root_global_get_prototype_of) {
+    return 0;
+  }
+  try {
+    return rootGlobalLogicalPathAbsent(handle, path) ? 1 : 0;
+  } catch (...) {
+    return 0;
+  }
+}
+#endif
+
+static bool deleteRootGlobalOwnProperty(
+    ExactHermesRuntime* handle,
+    const facebook::jsi::Object& object,
+    const std::string& key) {
+  auto& rt = *handle->runtime;
+  auto deleted = handle->root_global_reflect_delete_property->call(
+      rt, object, facebook::jsi::String::createFromUtf8(rt, key));
+  return deleted.isBool() && deleted.getBool();
+}
+
+static bool capturePrivateBridgeConsumers(ExactHermesRuntime* handle) {
+  // Verify that the trusted loader retained the native bridge function objects
+  // it passes only to authenticated builtin wrappers. The seal below then
+  // removes every raw spelling before project code runs without eagerly
+  // evaluating those facades or expanding the root-global surface.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  // @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified
+  try {
+    auto& rt = *handle->runtime;
+    auto ownDataFunction = [&](const char* key) {
+      auto keyValue = facebook::jsi::Value(
+          facebook::jsi::String::createFromAscii(rt, key));
+      auto descriptor = rootGlobalOwnDescriptor(handle, rt.global(), keyValue);
+      if (!descriptor.isObject()) {
+        throw std::runtime_error(std::string(key) + " is unavailable");
+      }
+      auto value = rootGlobalDescriptorField(
+          handle, descriptor.asObject(rt), "value");
+      if (!value.isObject() || !value.asObject(rt).isFunction(rt)) {
+        throw std::runtime_error(std::string(key) + " is not a data function");
+      }
+      return value.asObject(rt).asFunction(rt);
+    };
+    (void)ownDataFunction("__exactFsMutationGuard");
+    (void)ownDataFunction("__exactGetCwd");
+    (void)ownDataFunction("__exactSetCwd");
+    if (!handle->structured_session_import_materializer) {
+      throw std::runtime_error(
+          "private bootstrap facade materializer is unavailable");
+    }
+    if (!handle->structured_promise_rejection_tracker_configured ||
+        !handle->structured_unhandled_rejection_handler ||
+        !handle->structured_rejection_handled_handler) {
+      throw std::runtime_error(
+          "promise rejection checkpoint consumers were not captured");
+    }
+    auto captured = handle->structured_session_import_materializer->call(
+        rt,
+        facebook::jsi::String::createFromAscii(rt, "assert-private-bridges"));
+    if (!captured.isBool() || !captured.getBool()) {
+      throw std::runtime_error("private bootstrap bridge capture is incomplete");
+    }
+    return true;
+  } catch (const facebook::jsi::JSError& error) {
+    return rootGlobalDispositionFailure(error.getMessage());
+  } catch (const std::exception& error) {
+    return rootGlobalDispositionFailure(error.what());
+  } catch (...) {
+    return rootGlobalDispositionFailure(
+        "unknown private-bridge consumer capture failure");
+  }
+}
+
+static bool sealRootGlobalSessionBridges(ExactHermesRuntime* handle) {
+  try {
+    auto& rt = *handle->runtime;
+    for (const char* key : {
+             "__exactExit",
+             // The shared runtime has already captured the digest-bound
+             // compatibility tuple in module-private state. Reflect.delete is
+             // intentionally idempotent because the Rust preload also closes
+             // temporary process/bootstrap wires before this final sweep.
+             "__exactCompatModes",
+             "__exactFsMutationGuard",
+             "__exactGetCwd",
+             "__exactOnRejectionHandled",
+             "__exactOnUnhandledRejection",
+             "__exactSetCwd",
+             "__exactStdinRead",
+         }) {
+      if (!deleteRootGlobalOwnProperty(handle, rt.global(), key)) {
+        return rootGlobalDispositionFailure(
+            std::string("could not delete captured private bridge ") + key);
+      }
+    }
+
+    auto ibexKey = facebook::jsi::String::createFromAscii(rt, "Ibex");
+    auto ibexKeyValue = facebook::jsi::Value(std::move(ibexKey));
+    auto ibexDescriptor =
+        rootGlobalOwnDescriptor(handle, rt.global(), ibexKeyValue);
+    if (ibexDescriptor.isObject()) {
+      auto ibexValue = rootGlobalDescriptorField(
+          handle, ibexDescriptor.asObject(rt), "value");
+      if (!ibexValue.isObject()) {
+        return rootGlobalDispositionFailure(
+            "Ibex is not a data-property facade");
+      }
+      auto ibex = ibexValue.asObject(rt);
+      for (const char* key : {"permissions", "authority"}) {
+        if (!deleteRootGlobalOwnProperty(handle, ibex, key)) {
+          return rootGlobalDispositionFailure(
+              std::string("could not seal Ibex.") + key);
+        }
+      }
+    }
+    return true;
+  } catch (const std::exception& error) {
+    return rootGlobalDispositionFailure(error.what());
+  } catch (...) {
+    return rootGlobalDispositionFailure(
+        "unknown private-bridge sealing failure");
+  }
+}
+
+static bool injectRootGlobalDispositionTestAccessor(
+    ExactHermesRuntime* handle) {
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+  if (g_injected_root_global_disposition_key.empty()) return true;
+  try {
+    auto& rt = *handle->runtime;
+    auto getter = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(
+            rt, "root-global disposition getter bomb"),
+        0,
+        [](facebook::jsi::Runtime&,
+           const facebook::jsi::Value&,
+           const facebook::jsi::Value*,
+           size_t) -> facebook::jsi::Value {
+          g_injected_root_global_getter_calls += 1;
+          return facebook::jsi::Value::undefined();
+        });
+    facebook::jsi::Object descriptor(rt);
+    descriptor.setProperty(rt, "get", std::move(getter));
+    descriptor.setProperty(rt, "enumerable", false);
+    descriptor.setProperty(rt, "configurable", true);
+    handle->structured_object_define_property->call(
+        rt,
+        rt.global(),
+        facebook::jsi::String::createFromUtf8(
+            rt, g_injected_root_global_disposition_key),
+        descriptor);
+    return true;
+  } catch (const std::exception& error) {
+    return rootGlobalDispositionFailure(error.what());
+  } catch (...) {
+    return rootGlobalDispositionFailure(
+        "could not install conformance getter bomb");
+  }
+#else
+  (void)handle;
+  return true;
+#endif
+}
+
+static std::string rootGlobalKeyPair(
+    const std::string& root,
+    const std::string& key) {
+  return root + '\0' + key;
+}
+
+static std::string rootGlobalDiagnosticList(
+    std::vector<std::string> values) {
+  std::sort(values.begin(), values.end());
+  constexpr size_t kLimit = 128;
+  std::ostringstream output;
+  for (size_t index = 0; index < values.size() && index < kLimit; ++index) {
+    if (index != 0) output << ", ";
+    output << values[index];
+  }
+  if (values.size() > kLimit) {
+    output << " (and " << (values.size() - kLimit) << " more)";
+  }
+  return output.str();
+}
+
+struct RootGlobalSweepNode {
+  std::string root;
+  std::string edge_key;
+  size_t depth;
+  facebook::jsi::Value value;
+
+  RootGlobalSweepNode(
+      std::string rootValue,
+      std::string edgeKeyValue,
+      size_t depthValue,
+      facebook::jsi::Value&& valueValue)
+      : root(std::move(rootValue)),
+        edge_key(std::move(edgeKeyValue)),
+        depth(depthValue),
+        value(std::move(valueValue)) {}
+};
+
+static bool verifyRootGlobalDisposition(ExactHermesRuntime* handle) {
+  if (handle == nullptr || !handle->runtime ||
+      !handle->root_global_get_own_property_names ||
+      !handle->root_global_get_own_property_symbols ||
+      !handle->root_global_get_own_property_descriptor ||
+      !handle->root_global_get_prototype_of ||
+      !handle->root_global_reflect_delete_property) {
+    return rootGlobalDispositionFailure(
+        "pristine reflection intrinsics were not captured");
+  }
+  try {
+    auto& rt = *handle->runtime;
+    std::unordered_map<std::string, size_t> baselineCounts;
+    std::unordered_map<std::string, size_t> currentCounts;
+    for (const auto& key : handle->root_global_baseline_keys) {
+      baselineCounts[key] += 1;
+    }
+    forEachRootGlobalOwnKey(
+        handle,
+        rt.global(),
+        [&](const facebook::jsi::Value&, const std::string& key) {
+          currentCounts[key] += 1;
+        });
+
+    std::unordered_set<std::string> reachableRoots;
+    std::unordered_set<std::string> absentRoots;
+    std::unordered_set<std::string> descriptorLeafRoots;
+    for (const auto& expectation :
+         exact::root_global_disposition::kRootExpectations) {
+      if (!rootGlobalTargetApplies(handle, expectation.target_variant) ||
+          !rootGlobalActivationApplies(
+              handle, expectation.activation, expectation.root_key)) {
+        continue;
+      }
+      const std::string key = expectation.root_key;
+      if (!rootGlobalConcreteKey(key)) continue;
+      if (std::strcmp(expectation.live_expectation, "reachable") == 0) {
+        reachableRoots.insert(key);
+        if (std::strcmp(expectation.traversal, "descriptor-leaf") == 0) {
+          descriptorLeafRoots.insert(key);
+        }
+      } else {
+        absentRoots.insert(key);
+      }
+    }
+    std::vector<std::string> missingRoots;
+    std::vector<std::string> reachableSealedRoots;
+    std::vector<std::string> extraRoots;
+    for (const auto& key : reachableRoots) {
+      if (absentRoots.count(key) != 0) {
+        return rootGlobalDispositionFailure(
+            "conflicting generated disposition for " + key);
+      }
+      if (currentCounts[key] == 0) {
+        missingRoots.push_back(key);
+      }
+    }
+    for (const auto& key : absentRoots) {
+      if (currentCounts[key] != 0) {
+        reachableSealedRoots.push_back(key);
+      }
+    }
+    for (const auto& [key, count] : currentCounts) {
+      const size_t baselineCount = baselineCounts[key];
+      if (count > baselineCount && reachableRoots.count(key) == 0) {
+        extraRoots.push_back(key);
+      }
+    }
+    if (!missingRoots.empty()) {
+      return rootGlobalDispositionFailure(
+          "missing permitted reachable roots: " +
+          rootGlobalDiagnosticList(std::move(missingRoots)));
+    }
+    if (!reachableSealedRoots.empty()) {
+      return rootGlobalDispositionFailure(
+          "sealed roots remain reachable: " +
+          rootGlobalDiagnosticList(std::move(reachableSealedRoots)));
+    }
+    if (!extraRoots.empty()) {
+      return rootGlobalDispositionFailure(
+          "extra post-bootstrap roots: " +
+          rootGlobalDiagnosticList(std::move(extraRoots)));
+    }
+
+    for (const auto& expectation :
+         exact::root_global_disposition::kAbsentExpectations) {
+      if (!rootGlobalTargetApplies(handle, expectation.target_variant) ||
+          !rootGlobalActivationApplies(
+              handle, expectation.activation, expectation.logical_path)) {
+        continue;
+      }
+      if (!rootGlobalLogicalPathAbsent(handle, expectation.logical_path)) {
+        return rootGlobalDispositionFailure(
+            std::string("sealed/private path remains reachable: ") +
+            expectation.logical_path);
+      }
+    }
+
+    std::unordered_set<std::string> requiredNativeKeys;
+    std::unordered_set<std::string> permittedKeys;
+    for (const auto& expectation :
+         exact::root_global_disposition::kNativeKeyExpectations) {
+      if (!rootGlobalTargetApplies(handle, expectation.target_variant) ||
+          !rootGlobalActivationApplies(
+              handle, expectation.activation, expectation.root_key)) {
+        continue;
+      }
+      requiredNativeKeys.insert(rootGlobalKeyPair(
+          expectation.root_key, expectation.property_key));
+    }
+    for (const auto& expectation :
+         exact::root_global_disposition::kPermittedKeyExpectations) {
+      if (!rootGlobalTargetApplies(handle, expectation.target_variant) ||
+          !rootGlobalActivationApplies(
+              handle, expectation.activation, expectation.root_key)) {
+        continue;
+      }
+      permittedKeys.insert(rootGlobalKeyPair(
+          expectation.root_key, expectation.property_key));
+    }
+
+    std::unordered_set<std::string> foundKeys;
+    std::deque<RootGlobalSweepNode> queue;
+    size_t descriptorCount = 0;
+    forEachRootGlobalOwnKey(
+        handle,
+        rt.global(),
+        [&](const facebook::jsi::Value& key, const std::string& text) {
+          descriptorCount += 1;
+          if (descriptorCount >
+              exact::root_global_disposition::kMaxDescriptors) {
+            throw std::runtime_error(
+                "root-global descriptor budget exceeded");
+          }
+          foundKeys.insert(rootGlobalKeyPair(text, text));
+          auto descriptorValue = rootGlobalOwnDescriptor(
+              handle, rt.global(), key);
+          if (!descriptorValue.isObject()) {
+            throw std::runtime_error(
+                "root-global key disappeared during descriptor sweep");
+          }
+          auto descriptor = descriptorValue.asObject(rt);
+          for (const char* edge : {"value", "get", "set"}) {
+            auto value = rootGlobalDescriptorField(
+                handle, descriptor, edge);
+            if (value.isObject()) {
+              queue.emplace_back(text, text, 0, std::move(value));
+            }
+          }
+        });
+
+    std::deque<facebook::jsi::Object> visited;
+    // The global object itself was just enumerated above. Seed it as visited so
+    // globalThis/window/self/global aliases cannot cause the same descriptor
+    // graph to be reinterpreted under an alias prefix (for example treating
+    // the permitted root `print` as an unrelated `globalThis.print`).
+    visited.emplace_back(rt.global());
+    size_t objectCount = 1;
+    while (!queue.empty()) {
+      auto node = std::move(queue.front());
+      queue.pop_front();
+      if (node.depth > exact::root_global_disposition::kMaxDepth) {
+        throw std::runtime_error("root-global depth budget exceeded");
+      }
+      auto object = node.value.asObject(rt);
+      bool hostBacked = object.isHostObject(rt);
+      if (object.isFunction(rt)) {
+        hostBacked = hostBacked || object.asFunction(rt).isHostFunction(rt);
+      }
+      const std::string nodePair =
+          rootGlobalKeyPair(node.root, node.edge_key);
+      if (hostBacked && permittedKeys.count(nodePair) == 0) {
+        return rootGlobalDispositionFailure(
+            "un-dispositioned native reachable at " + node.root + "." +
+            node.edge_key);
+      }
+      if (hostBacked) foundKeys.insert(nodePair);
+
+      bool seen = false;
+      for (const auto& prior : visited) {
+        if (facebook::jsi::Object::strictEquals(rt, object, prior)) {
+          seen = true;
+          break;
+        }
+      }
+      if (seen) continue;
+      visited.emplace_back(std::move(object));
+      objectCount += 1;
+      if (objectCount > exact::root_global_disposition::kMaxObjects) {
+        throw std::runtime_error("root-global object budget exceeded");
+      }
+      auto& current = visited.back();
+      if (descriptorLeafRoots.count(node.root) != 0) continue;
+
+      forEachRootGlobalOwnKey(
+          handle,
+          current,
+          [&](const facebook::jsi::Value& key, const std::string& text) {
+            descriptorCount += 1;
+            if (descriptorCount >
+                exact::root_global_disposition::kMaxDescriptors) {
+              throw std::runtime_error(
+                  "root-global descriptor budget exceeded");
+            }
+            foundKeys.insert(rootGlobalKeyPair(node.root, text));
+            auto descriptorValue =
+                rootGlobalOwnDescriptor(handle, current, key);
+            if (!descriptorValue.isObject()) {
+              throw std::runtime_error(
+                  "reachable key disappeared during descriptor sweep");
+            }
+            auto descriptor = descriptorValue.asObject(rt);
+            for (const char* edge : {"value", "get", "set"}) {
+              auto value = rootGlobalDescriptorField(
+                  handle, descriptor, edge);
+              if (value.isObject()) {
+                queue.emplace_back(
+                    node.root, text, node.depth + 1, std::move(value));
+              }
+            }
+          });
+      auto prototype =
+          handle->root_global_get_prototype_of->call(rt, current);
+      if (prototype.isObject()) {
+        queue.emplace_back(
+            node.root,
+            node.edge_key,
+            node.depth + 1,
+            std::move(prototype));
+      } else if (!prototype.isNull()) {
+        throw std::runtime_error(
+            "root-global prototype reflection returned an invalid value");
+      }
+    }
+
+    std::vector<std::string> missingNativeKeys;
+    for (const auto& key : requiredNativeKeys) {
+      if (foundKeys.count(key) == 0) {
+        const size_t separator = key.find('\0');
+        missingNativeKeys.push_back(
+            key.substr(0, separator) + "." + key.substr(separator + 1));
+      }
+    }
+    if (!missingNativeKeys.empty()) {
+      return rootGlobalDispositionFailure(
+          "missing native descriptors: " +
+          rootGlobalDiagnosticList(std::move(missingNativeKeys)));
+    }
+    return true;
+  } catch (const std::exception& error) {
+    return rootGlobalDispositionFailure(error.what());
+  } catch (...) {
+    return rootGlobalDispositionFailure("unknown live descriptor sweep failure");
+  }
+}
 
 uint64_t exactAllocateRuntimeNonce() {
   // Zero is the unscoped sentinel. Refuse before the monotonic namespace can
@@ -3553,6 +7014,10 @@ static bool verifyArmedRuntimePosture(ExactHermesRuntime* handle) {
         "__exactRegisterPackage",
         "__exactSetPendingPackageId",
         "__exactResolveManifestBuiltinInternal",
+        "__exactModuleResolve",
+        "__exactModuleResolveMeta",
+        "__exactNativeModuleResolve",
+        "__exactNativeModuleResolveMeta",
         "__exactSetActiveModuleId",
         "__exactGrantCapability",
         "__exactCheckImport",
@@ -3580,11 +7045,28 @@ static bool verifyArmedRuntimePosture(ExactHermesRuntime* handle) {
   }
 }
 
+static bool verifyArmedBootstrapFinalized(ExactHermesRuntime* handle) {
+  if (!verifyArmedRuntimePosture(handle)) return false;
+  try {
+    auto& rt = *handle->runtime;
+    auto finalized =
+        rt.global().getProperty(rt, "__ibexCompartmentBaselineFinalized");
+    return finalized.isBool() && finalized.getBool() &&
+        !rt.global().hasProperty(rt, "__ibexRefreshCompartmentBaseline");
+  } catch (...) {
+    return false;
+  }
+}
+
 static void cleanupPartiallyConstructedRuntime(ExactHermesRuntime* handle) {
   if (handle == nullptr) return;
   // Bootstrap can register runtime-scoped native state before the handle is
   // admitted to g_activeRuntimes. Refusal must unwind every such registry just
   // like normal destruction, without calling the registered-runtime wait path.
+  if (handle->vfs_runtime_bound) {
+    (void)ex_host_vfs_unbind_runtime(handle->runtime_nonce);
+    handle->vfs_runtime_bound = false;
+  }
   unregisterAndroidHostFunctions(handle);
   exactCleanupRuntimeSpawnedProcesses(handle->runtime_nonce);
   exactCleanupRuntimeWebSockets(handle->runtime_nonce);
@@ -3674,11 +7156,64 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   }
   ScopedRuntimeSecurityContext securityContext(handle);
   if (armed) {
+    const uint32_t compatibilityFlags =
+        ex_host_armed_bootstrap_compatibility_flags();
+    if ((compatibilityFlags & ~7u) != 0 ||
+        ((compatibilityFlags & 4u) != 0 &&
+         (compatibilityFlags & 2u) == 0)) {
+      ex_host_console_log(
+          1,
+          "Armed startup refused: invalid bootstrap compatibility projection");
+      cleanupPartiallyConstructedRuntime(handle);
+      return nullptr;
+    }
+    handle->bootstrap_bun_compat = (compatibilityFlags & 1u) != 0;
+    handle->bootstrap_fixture_compat = (compatibilityFlags & 2u) != 0;
+    handle->bootstrap_bun_fixture = (compatibilityFlags & 4u) != 0;
+  }
+  if (armed) {
+    // Bind the authenticated namespace before bootstrap installs any path-
+    // bearing surface. No armed JavaScript can run without an exact runtime
+    // generation owning `/project` and its retained cwd identity.
+    // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+    if (ex_host_vfs_bind_runtime(host_context_id, handle->runtime_nonce) != 0) {
+      ex_host_console_log(
+          1, "Armed startup refused: virtual filesystem session unavailable");
+      cleanupPartiallyConstructedRuntime(handle);
+      return nullptr;
+    }
+    handle->vfs_runtime_bound = true;
+  }
+  try {
+    static constexpr char kCancellationProbeSource[] = "void 0;";
+    auto source = std::make_shared<facebook::jsi::StringBuffer>(
+        kCancellationProbeSource);
+    handle->structured_cancellation_consistency_probe =
+        handle->runtime->prepareJavaScript(
+            source, "<ibex-cancellation-consistency>");
+  } catch (const std::exception& error) {
+    ex_host_console_log(1, error.what());
+    cleanupPartiallyConstructedRuntime(handle);
+    return nullptr;
+  } catch (...) {
+    ex_host_console_log(
+        1, "Hermes cancellation consistency probe could not be prepared");
+    cleanupPartiallyConstructedRuntime(handle);
+    return nullptr;
+  }
+  if (armed && !captureRootGlobalDispositionIntrinsics(handle)) {
+    ex_host_console_log(
+        1,
+        "Armed startup refused: could not capture pristine root-global reflection intrinsics");
+    cleanupPartiallyConstructedRuntime(handle);
+    return nullptr;
+  }
+  if (armed) {
     char* endowments = ex_host_armed_endowments();
     if (endowments == nullptr) {
       ex_host_console_log(
           1, "Armed startup refused: authenticated endowment projection unavailable");
-      delete handle;
+      cleanupPartiallyConstructedRuntime(handle);
       return nullptr;
     }
     handle->snapshot_endowments_json = endowments;
@@ -3733,15 +7268,40 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   TRACE_START(install_globals);
   try {
     requireArmedStartupStage(handle, "install-globals");
-    installGlobals(handle);
-    if (const char* ipcFdEnv = std::getenv("EXACT_IPC_FD")) {
-      char* end = nullptr;
-      errno = 0;
-      long ipcFd = std::strtol(ipcFdEnv, &end, 10);
-      if (end != ipcFdEnv && *end == '\0' && errno == 0 && ipcFd >= 0 && ipcFd <= INT_MAX) {
-        exactRegisterProcessIpcFd(static_cast<int>(ipcFd));
+    int32_t processIpcFd = -1;
+    uint32_t processIpcSerialization = 0;
+    const int32_t processIpcBootstrap =
+        ibex_private_take_process_ipc_bootstrap(
+            host_context_id,
+            &processIpcFd,
+            &processIpcSerialization);
+    if (processIpcBootstrap == 1) {
+      if (processIpcFd < 0 || processIpcSerialization > 1) {
+        throw std::runtime_error(
+            "invalid private child-process IPC bootstrap signal");
       }
+      // Register the protected descriptor before JavaScript bootstrap can
+      // install process.send/channel. The POSIX registration validates that it
+      // is a socket, restores FD_CLOEXEC after the child mapping, binds it to
+      // this runtime nonce, and keeps numeric-fd APIs from treating it as
+      // ambient authority.
+      // @ref LLP 0025#1-modes-descriptors-and-topology
+      if (!exactRegisterProcessIpcFd(processIpcFd)) {
+        throw std::runtime_error(
+            "invalid or unprotectable child-process IPC descriptor");
+      }
+      handle->process_ipc_fd = processIpcFd;
+      handle->process_ipc_advanced_serialization =
+          processIpcSerialization == 1;
+      // The test-only diagnostic stage proves that partial construction after
+      // descriptor adoption takes the same identity-safe teardown path as a
+      // normally destroyed runtime.
+      requireDiagnosticStartupStage(handle, "process-ipc-registered");
+    } else if (processIpcBootstrap != 0) {
+      throw std::runtime_error(
+          "private child-process IPC bootstrap handoff failed");
     }
+    installGlobals(handle);
   } catch (const facebook::jsi::JSError& err) {
     ex_host_console_log(
         1, (std::string("Armed startup refused: ") + err.getMessage()).c_str());
@@ -3825,6 +7385,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
     return nullptr;
   }
 
+  handle->bootstrap_in_progress = false;
   registerRuntime(handle);
 
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
@@ -3848,25 +7409,204 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   return handle;
 }
 
-extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
-  if (runtime == nullptr) {
-    return;
+bool captureStructuredSessionIntrinsics(ExactHermesRuntime* handle) {
+  try {
+    auto& rt = *handle->runtime;
+    if (!handle->structured_session_import_materializer ||
+        rt.global().hasProperty(rt, "__exactCaptureSessionStaticImport")) {
+      return false;
+    }
+    auto object = rt.global().getPropertyAsObject(rt, "Object");
+    auto reflect = rt.global().getPropertyAsObject(rt, "Reflect");
+    auto number = rt.global().getPropertyAsFunction(rt, "Number");
+    auto promise = rt.global().getPropertyAsFunction(rt, "Promise");
+    auto promisePrototype = promise.getPropertyAsObject(rt, "prototype");
+    auto processValue = rt.global().getProperty(rt, "process");
+    if (!processValue.isObject()) return false;
+    handle->structured_object_get_own_descriptor =
+        std::make_unique<facebook::jsi::Function>(
+            object.getPropertyAsFunction(rt, "getOwnPropertyDescriptor"));
+    handle->structured_object_define_property =
+        std::make_unique<facebook::jsi::Function>(
+            object.getPropertyAsFunction(rt, "defineProperty"));
+    handle->structured_object_is_extensible =
+        std::make_unique<facebook::jsi::Function>(
+            object.getPropertyAsFunction(rt, "isExtensible"));
+    handle->structured_reflect_set =
+        std::make_unique<facebook::jsi::Function>(
+            reflect.getPropertyAsFunction(rt, "set"));
+    handle->structured_reflect_delete_property =
+        std::make_unique<facebook::jsi::Function>(
+            reflect.getPropertyAsFunction(rt, "deleteProperty"));
+    handle->structured_promise_then =
+        std::make_unique<facebook::jsi::Function>(
+            promisePrototype.getPropertyAsFunction(rt, "then"));
+    handle->structured_number =
+        std::make_unique<facebook::jsi::Function>(std::move(number));
+    handle->structured_process =
+        std::make_unique<facebook::jsi::Object>(processValue.asObject(rt));
+    return true;
+  } catch (...) {
+    handle->structured_object_get_own_descriptor.reset();
+    handle->structured_object_define_property.reset();
+    handle->structured_object_is_extensible.reset();
+    handle->structured_reflect_set.reset();
+    handle->structured_reflect_delete_property.reset();
+    handle->structured_promise_then.reset();
+    handle->structured_number.reset();
+    handle->structured_process.reset();
+    handle->structured_session_import_materializer.reset();
+    return false;
   }
-  if (runtime->runtime_thread != std::this_thread::get_id()) {
-    // Every field holding a JSI value must be destroyed on its owning thread.
-    // Silently continuing here is Hermes value-table corruption, not a
-    // recoverable embedding error.
-    ex_host_console_log(1, "ex_hermes_destroy must run on the runtime owner thread");
-    std::terminate();
+}
+
+bool installStructuredLifecycleAccessors(ExactHermesRuntime* handle) {
+  if (!handle->structured_process ||
+      !handle->structured_object_define_property ||
+      !handle->structured_reflect_delete_property) {
+    return false;
+  }
+  try {
+    auto& rt = *handle->runtime;
+    auto getter = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "get exitCode"),
+        0,
+        [](facebook::jsi::Runtime& runtime,
+           const facebook::jsi::Value&,
+           const facebook::jsi::Value*,
+           size_t) -> facebook::jsi::Value {
+          auto principals = exactCollectTypedPrincipalStack();
+          int32_t code = 0;
+          if (ex_host_lifecycle_exit_code_get_stack(
+                  currentPrincipalId(),
+                  principals.data(),
+                  principals.size(),
+                  &code) != 1) {
+            throw facebook::jsi::JSError(
+                runtime,
+                "Permission denied: lifecycle exitCode read authority required");
+          }
+          return facebook::jsi::Value(static_cast<double>(code));
+        });
+    auto setter = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "set exitCode"),
+        1,
+        [handle](facebook::jsi::Runtime& runtime,
+                 const facebook::jsi::Value&,
+                 const facebook::jsi::Value* args,
+                 size_t count) -> facebook::jsi::Value {
+          auto undefined = facebook::jsi::Value::undefined();
+          const auto& input = count == 0 ? undefined : args[0];
+          int32_t code = normalizeLifecycleExitCode(handle, runtime, input);
+          auto principals = exactCollectTypedPrincipalStack();
+          if (ex_host_lifecycle_exit_code_set_stack(
+                  currentPrincipalId(),
+                  principals.data(),
+                  principals.size(),
+                  code) != 1) {
+            throw facebook::jsi::JSError(
+                runtime,
+                "Permission denied: lifecycle exitCode write authority required");
+          }
+          return facebook::jsi::Value::undefined();
+        });
+    facebook::jsi::Object descriptor(rt);
+    descriptor.setProperty(rt, "get", std::move(getter));
+    descriptor.setProperty(rt, "set", std::move(setter));
+    descriptor.setProperty(rt, "enumerable", true);
+    descriptor.setProperty(rt, "configurable", false);
+    handle->structured_object_define_property->call(
+        rt,
+        *handle->structured_process,
+        facebook::jsi::String::createFromAscii(rt, "exitCode"),
+        descriptor);
+
+    auto deleted = handle->structured_reflect_delete_property->call(
+        rt,
+        *handle->structured_process,
+        facebook::jsi::String::createFromAscii(rt, "_exactExiting"));
+    return deleted.isBool() && deleted.getBool();
+  } catch (...) {
+    return false;
+  }
+}
+
+extern "C" uint32_t ex_hermes_finish_bootstrap(
+    ExactHermesRuntime* runtime) {
+  if (runtime == nullptr) {
+    return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return structuredRuntimeDriveFault(drive.status());
+  if (!runtime->armed) {
+    return EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED;
+  }
+  if (!runtime->armed_bootstrap_eval_open) {
+    return EX_HERMES_EVAL_FAULT_NONE;
+  }
+  if (!verifyArmedBootstrapFinalized(runtime)) {
+    rootGlobalDispositionFailure(
+        "armed bootstrap posture was not finalized before disposition sweep");
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+  if (!captureStructuredSessionIntrinsics(runtime)) {
+    rootGlobalDispositionFailure(
+        "structured-session intrinsics/private import bridge were not captured");
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+  if (!installStructuredLifecycleAccessors(runtime)) {
+    rootGlobalDispositionFailure(
+        "structured lifecycle accessors could not be installed");
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+  if (!capturePrivateBridgeConsumers(runtime)) {
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+  // Trusted bootstrap has now captured the only private consumers of the
+  // lifecycle/stdin/filesystem-enforcement bridges. Seal those spellings and
+  // the session-wide dynamic-authority facades before comparing the live
+  // descriptor graph to the generated three-set disposition join.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  if (!sealRootGlobalSessionBridges(runtime)) {
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+  if (!injectRootGlobalDispositionTestAccessor(runtime)) {
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+  if (!verifyRootGlobalDisposition(runtime)) {
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+  runtime->armed_bootstrap_eval_open = false;
+  return EX_HERMES_EVAL_FAULT_NONE;
+}
+
+extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
+  auto status = ex_hermes_try_destroy(runtime, 0);
+  if (status == EXACT_RUNTIME_DRIVE_OFF_OWNER) {
+    ex_host_console_log(1, "ex_hermes_destroy refused off the runtime owner thread");
+  } else if (status == EXACT_RUNTIME_DRIVE_REENTRANT) {
+    ex_host_console_log(1, "ex_hermes_destroy refused during an active runtime drive");
+  }
+}
+
+extern "C" int32_t ex_hermes_try_destroy(
+    ExactHermesRuntime* runtime, uint64_t runtime_nonce) {
+  RuntimeCallbackTarget target;
+  auto status = beginRuntimeTeardown(runtime, runtime_nonce, &target);
+  if (status != EXACT_RUNTIME_DRIVE_OK) {
+    return status;
   }
   uint64_t hostContext = runtime->host_context_id;
-  auto target = exactRuntimeCallbackTarget(runtime);
   ScopedRuntimeSecurityContext securityContext(runtime);
 
-  if (!beginRuntimeTeardown(target)) {
-    return;
-  }
-
+  // Closing refuses new native lifetime pins, including structured-control
+  // leases. Cancel only filesystem leases that have not crossed the pool's
+  // queued -> committed edge; workers that already crossed it retain their
+  // generation pin and drain below.
+  // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+  exactCancelQueuedFsOperations(target);
   // Stop/cancel callback sources while the exact generation remains
   // registered in Closing. Already-admitted JSI-bearing producers retain a
   // native-worker pin, may enqueue their captures, and are drained below.
@@ -3880,6 +7620,16 @@ extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
   exactCleanupRuntimeHttpServers(runtime->runtime_nonce);
 
   finishRuntimeTeardown(target);
+
+  // A committed filesystem lease can still perform chunk/commit-stage typed
+  // checks while its native pin drains. Keep this exact VFS session bound
+  // until every admitted producer is finished; Closing already prevents a
+  // new lease, so retaining the binding cannot admit new work.
+  // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+  if (runtime->vfs_runtime_bound) {
+    (void)ex_host_vfs_unbind_runtime(runtime->runtime_nonce);
+    runtime->vfs_runtime_bound = false;
+  }
 
   exactCleanupRuntimeSpawnedProcesses(runtime->runtime_nonce);
   ibex_tls_cleanup_runtime(runtime->runtime_nonce);
@@ -3896,13 +7646,4617 @@ extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
     g_vm_runtime = nullptr;
   }
 #endif
-  // All producer pins are gone and every queued/finalized JSI capture was
-  // destroyed on this thread before Hermes itself.
+  // The bound session token is a native-only bearer secret. Do not leave its
+  // bytes in allocator-reusable storage after the runtime generation dies.
+  // A volatile byte loop is used because an ordinary memset of an object that
+  // is immediately deleted may be removed as a dead store by the optimizer.
+  // @ref LLP 0024#1-the-in-memory-source-api
+  volatile uint8_t* sessionToken =
+      runtime->structured_session_token.data();
+  for (size_t index = 0;
+       index < runtime->structured_session_token.size();
+       ++index) {
+    sessionToken[index] = 0;
+  }
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+  const uint64_t destroyedRuntimeNonce = runtime->runtime_nonce;
+  const uint64_t destroyedStructuredValueHandleCount =
+      runtime->structured_value_handles.size();
+#endif
+  // All native lifetime pins (workers and structured controls) are gone, and
+  // every queued/finalized JSI capture was destroyed on this thread before
+  // Hermes itself.
   delete runtime;
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+  if (destroyedStructuredValueHandleCount != 0) {
+    try {
+      std::lock_guard<std::mutex> lock(
+          g_destroyed_structured_value_handle_counts_mutex);
+      g_destroyed_structured_value_handle_counts[destroyedRuntimeNonce] =
+          destroyedStructuredValueHandleCount;
+    } catch (...) {
+      // A test receipt must never make the production destructor semantics
+      // throw across their C boundary. The C probe fails loud on a missing
+      // receipt instead.
+    }
+  }
+#endif
   ex_host_release_context(hostContext);
+  return EXACT_RUNTIME_DRIVE_OK;
 }
 
+namespace {
+
+bool structuredResultLayoutIsCurrent(const ExHermesEvaluationResult* result) {
+  return result != nullptr &&
+      result->abi_version == EX_HERMES_STRUCTURED_EVAL_ABI_VERSION &&
+      result->struct_size == sizeof(ExHermesEvaluationResult);
+}
+
+bool structuredCredentialLayoutIsCurrent(
+    const ExHermesSessionCredential* credential) {
+  return credential != nullptr &&
+      credential->abi_version == EX_HERMES_STRUCTURED_EVAL_ABI_VERSION &&
+      credential->struct_size == sizeof(ExHermesSessionCredential);
+}
+
+bool hasNonzeroByte(const uint8_t* bytes, size_t length) {
+  uint8_t combined = 0;
+  for (size_t index = 0; index < length; ++index) {
+    combined = static_cast<uint8_t>(combined | bytes[index]);
+  }
+  return combined != 0;
+}
+
+bool constantTimeBytesEqual(
+    const uint8_t* left,
+    const uint8_t* right,
+    size_t length) {
+  uint8_t difference = 0;
+  for (size_t index = 0; index < length; ++index) {
+    difference = static_cast<uint8_t>(
+        difference | static_cast<uint8_t>(left[index] ^ right[index]));
+  }
+  return difference == 0;
+}
+
+bool validUtf8(const uint8_t* bytes, size_t length) {
+  if (length != 0 && bytes == nullptr) return false;
+  size_t index = 0;
+  while (index < length) {
+    const uint8_t first = bytes[index++];
+    if (first <= 0x7f) continue;
+    auto continuation = [&](size_t offset) {
+      return index + offset < length &&
+          bytes[index + offset] >= 0x80 && bytes[index + offset] <= 0xbf;
+    };
+    if (first >= 0xc2 && first <= 0xdf) {
+      if (!continuation(0)) return false;
+      index += 1;
+      continue;
+    }
+    if (first == 0xe0) {
+      if (index + 1 >= length || bytes[index] < 0xa0 || bytes[index] > 0xbf ||
+          !continuation(1)) return false;
+      index += 2;
+      continue;
+    }
+    if ((first >= 0xe1 && first <= 0xec) ||
+        (first >= 0xee && first <= 0xef)) {
+      if (!continuation(0) || !continuation(1)) return false;
+      index += 2;
+      continue;
+    }
+    if (first == 0xed) {
+      if (index + 1 >= length || bytes[index] < 0x80 || bytes[index] > 0x9f ||
+          !continuation(1)) return false;
+      index += 2;
+      continue;
+    }
+    if (first == 0xf0) {
+      if (index + 2 >= length || bytes[index] < 0x90 || bytes[index] > 0xbf ||
+          !continuation(1) || !continuation(2)) return false;
+      index += 3;
+      continue;
+    }
+    if (first >= 0xf1 && first <= 0xf3) {
+      if (!continuation(0) || !continuation(1) || !continuation(2)) return false;
+      index += 3;
+      continue;
+    }
+    if (first == 0xf4) {
+      if (index + 2 >= length || bytes[index] < 0x80 || bytes[index] > 0x8f ||
+          !continuation(1) || !continuation(2)) return false;
+      index += 3;
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+void disposeStructuredSourcePositions(ExHermesEvaluationResult* result);
+
+void clearStructuredThrowMetadata(ExHermesEvaluationResult* result) {
+  free(result->message.data);
+  free(result->stack.data);
+  disposeStructuredSourcePositions(result);
+  result->message = {nullptr, 0};
+  result->stack = {nullptr, 0};
+  result->throw_metadata_status = EX_HERMES_THROW_METADATA_UNAVAILABLE;
+  result->throw_metadata_fields = 0;
+  result->throw_error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+}
+
+void structuredFault(
+    ExHermesEvaluationResult* result,
+    ExHermesEvaluationFault fault) {
+  clearStructuredThrowMetadata(result);
+  result->outcome_tag = EX_HERMES_EVAL_OUTCOME_ENGINE_FAULT;
+  result->fault = static_cast<uint32_t>(fault);
+  result->lifecycle_exit_code = 0;
+  result->capability_flags = 0;
+}
+
+void disposeStructuredSourcePositions(ExHermesEvaluationResult* result) {
+  if (result->positions != nullptr) {
+    for (size_t index = 0; index < result->position_count; ++index) {
+      free(result->positions[index].source_label.data);
+      result->positions[index].source_label = {nullptr, 0};
+    }
+    free(result->positions);
+  }
+  result->positions = nullptr;
+  result->position_count = 0;
+}
+
+void discardStructuredEvaluationResultPayload(
+    ExactHermesRuntime* runtime,
+    ExHermesEvaluationResult* result) {
+  if (result->value.runtime_nonce == runtime->runtime_nonce &&
+      result->value.handle_id != 0) {
+    runtime->structured_value_handles.erase(result->value.handle_id);
+  }
+  if (runtime->structured_pending_display_work_target_id ==
+      result->work_target_id) {
+    runtime->structured_pending_display_work_target_id = 0;
+    runtime->structured_pending_display_handle_id = 0;
+  }
+  free(result->message.data);
+  free(result->stack.data);
+  disposeStructuredSourcePositions(result);
+  result->value = {0, 0};
+  result->message = {nullptr, 0};
+  result->stack = {nullptr, 0};
+  result->throw_metadata_status = EX_HERMES_THROW_METADATA_UNAVAILABLE;
+  result->throw_metadata_fields = 0;
+  result->throw_error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+  result->lifecycle_exit_code = 0;
+}
+
+bool structuredLifecycleOutcome(
+    ExactHermesRuntime* runtime,
+    ExHermesEvaluationResult* result,
+    uint32_t capability_flags) {
+  if (!runtime->structured_lifecycle_pending) return false;
+  clearStructuredThrowMetadata(result);
+  result->outcome_tag = EX_HERMES_EVAL_OUTCOME_LIFECYCLE;
+  result->fault = EX_HERMES_EVAL_FAULT_NONE;
+  result->lifecycle_exit_code = runtime->structured_lifecycle_exit_code;
+  result->capability_flags = capability_flags;
+  runtime->structured_lifecycle_pending = false;
+  runtime->structured_session_terminated = true;
+  return true;
+}
+
+facebook::jsi::Value* structuredValueForHandle(
+    ExactHermesRuntime* runtime,
+    ExHermesValueHandle handle) {
+  if (runtime == nullptr || handle.runtime_nonce == 0 || handle.handle_id == 0 ||
+      handle.runtime_nonce != runtime->runtime_nonce) {
+    return nullptr;
+  }
+  auto found = runtime->structured_value_handles.find(handle.handle_id);
+  return found == runtime->structured_value_handles.end()
+      ? nullptr
+      : found->second.get();
+}
+
+bool copyStructuredOwnedBytes(
+    const std::string& source,
+    ExHermesOwnedBytes* destination) {
+  destination->data = nullptr;
+  destination->length = 0;
+  if (source.size() > EX_HERMES_SAFE_TEXT_MAX_BYTES) return false;
+  if (source.empty()) return true;
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+  if (g_injected_structured_safe_metadata_copy_allocation_failures != 0) {
+    --g_injected_structured_safe_metadata_copy_allocation_failures;
+    return false;
+  }
+#endif
+  auto* bytes = static_cast<uint8_t*>(malloc(source.size() + 1));
+  if (bytes == nullptr) return false;
+  memcpy(bytes, source.data(), source.size());
+  bytes[source.size()] = 0;
+  destination->data = bytes;
+  destination->length = source.size();
+  return true;
+}
+
+bool structuredSafeTextInvariant(
+    const std::string& text,
+    bool truncated) {
+  if (text.size() > EX_HERMES_SAFE_TEXT_MAX_BYTES) return false;
+  if (!truncated) return true;
+  constexpr const char marker[] = EX_HERMES_SAFE_TEXT_TRUNCATION_MARKER;
+  constexpr size_t markerBytes = sizeof(marker) - 1;
+  return text.size() >= markerBytes &&
+      memcmp(
+          text.data() + text.size() - markerBytes,
+          marker,
+          markerBytes) == 0;
+}
+
+void populateStructuredSafeThrowMetadata(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::Value& value,
+    ExHermesEvaluationResult* result) noexcept {
+  if ((result->capability_flags & EX_HERMES_EVAL_CAPABILITY_SAFE_THROW) == 0) {
+    // Metadata availability and the advertised stratum are one protocol
+    // invariant.  In particular, the unarmed diagnostic seam deliberately
+    // advertises no Base/SafeThrow profile even when the linked engine has the
+    // native metadata primitive, so it must not leak Captured metadata.
+    // @ref LLP 0024#8-safe-inspection
+    result->throw_metadata_status = EX_HERMES_THROW_METADATA_UNAVAILABLE;
+    result->throw_metadata_fields = 0;
+    result->throw_error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+    return;
+  }
+#ifdef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
+  // A Throw outcome and its rooted value remain valid even when this optional
+  // bounded copy cannot allocate. Establish the capability-consistent empty
+  // Captured fallback before entering any code which may throw, and publish
+  // richer metadata only after both owned copies have succeeded. This helper
+  // is called from JSError catch handlers, so no exception may leave it.
+  result->message = {nullptr, 0};
+  result->stack = {nullptr, 0};
+  result->throw_metadata_status = EX_HERMES_THROW_METADATA_CAPTURED;
+  result->throw_metadata_fields = 0;
+  result->throw_error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+  try {
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+    if (g_injected_structured_safe_metadata_capture_allocation_failures != 0) {
+      --g_injected_structured_safe_metadata_capture_allocation_failures;
+      throw std::bad_alloc();
+    }
+#endif
+    std::string message;
+    std::string stack;
+    bool messageTruncated = false;
+    bool stackTruncated = false;
+    const uint32_t errorClass = structuredErrorClass(
+        captureStructuredSafeMetadata(
+            runtime->runtime.get(),
+            value,
+            message,
+            stack,
+            messageTruncated,
+            stackTruncated));
+    if (!structuredSafeTextInvariant(message, messageTruncated) ||
+        !structuredSafeTextInvariant(stack, stackTruncated)) {
+      return;
+    }
+    ExHermesOwnedBytes copiedMessage{nullptr, 0};
+    ExHermesOwnedBytes copiedStack{nullptr, 0};
+    if (!copyStructuredOwnedBytes(message, &copiedMessage) ||
+        !copyStructuredOwnedBytes(stack, &copiedStack)) {
+      free(copiedMessage.data);
+      free(copiedStack.data);
+      return;
+    }
+    result->message = copiedMessage;
+    result->stack = copiedStack;
+    result->throw_metadata_fields = structuredSafeMetadataFields(
+        message, stack, messageTruncated, stackTruncated);
+    result->throw_error_class = errorClass;
+  } catch (...) {
+    // The preinstalled empty Captured record is the bounded fail-closed form.
+    return;
+  }
+#else
+  (void)runtime;
+  (void)value;
+  result->throw_metadata_status = EX_HERMES_THROW_METADATA_UNAVAILABLE;
+  result->throw_metadata_fields = 0;
+  result->throw_error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+#endif
+}
+
+// Source-map-aware execution below improves Hermes' internal coordinates but
+// does not yet produce independently owned position rows. Safe Error message
+// and stack metadata, however, come directly from Hermes' internal Error state
+// without consulting JavaScript properties or coercion.
+constexpr uint32_t kStructuredEvaluatorCapabilities =
+#ifdef HERMES_HAS_SAFE_STAGE1_TEXT
+    EX_HERMES_EVAL_CAPABILITY_BASE
+#else
+    0
+#endif
+#ifdef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
+    | EX_HERMES_EVAL_CAPABILITY_SAFE_THROW
+#endif
+    ;
+static_assert(
+    (kStructuredEvaluatorCapabilities &
+     EX_HERMES_EVAL_CAPABILITY_SOURCE_POSITIONS) == 0);
+
+void finishStructuredSessionTransaction(
+    ExactHermesRuntime* handle,
+    bool success);
+void clearStructuredAsyncState(ExactHermesRuntime* handle);
+
+bool finalizeStructuredModuleCacheBeforeCancellationPublication(
+    ExactHermesRuntime* handle,
+    const ExHermesEvaluationResult* result,
+    uint32_t resolution) noexcept;
+
+class ScopedStructuredEvaluation {
+ public:
+  ScopedStructuredEvaluation(
+      ExactHermesRuntime* runtime,
+      ExHermesEvaluationResult* result,
+      bool executing = true,
+      uint64_t schedulingId = 0)
+      : runtime_(runtime),
+        result_(result),
+        job_association_(
+            runtime,
+            schedulingId != 0
+                ? schedulingId
+                : runtime->structured_evaluation_scheduling_id) {
+    runtime_->structured_evaluation_in_flight = true;
+    if (result_->work_target_id == 0) {
+      invalid_target_ = true;
+      return;
+    }
+    if (executing) {
+      runtime_->structured_evaluation_scheduling_id = schedulingId;
+      began_ = beginStructuredWorkUnit(
+          runtime_,
+          EX_HERMES_WORK_UNIT_EVALUATION,
+          schedulingId,
+          result_->work_target_id);
+      if (!began_) invalid_target_ = true;
+    } else {
+      scheduling_id_ = runtime_->structured_evaluation_scheduling_id;
+      std::lock_guard<std::mutex> lock(runtime_->structured_cancel_mutex);
+      if (runtime_->structured_active_work_target_id != 0) {
+        invalid_target_ = true;
+      }
+    }
+    if (scheduling_id_ == 0) {
+      scheduling_id_ = schedulingId;
+    }
+  }
+
+  ~ScopedStructuredEvaluation() {
+    if (invalid_target_ || suspended_) return;
+    close();
+  }
+
+  bool invalidTarget() const { return invalid_target_; }
+
+  bool cancelAtCooperativeBoundary() {
+    bool requested = false;
+    {
+      std::lock_guard<std::mutex> lock(runtime_->structured_cancel_mutex);
+      requested = runtime_->structured_cancel_requested_work_target_id ==
+          result_->work_target_id;
+    }
+    if (!requested) return false;
+    close(StructuredCancellationStopCause::CooperativeBoundary);
+    // Both Accepted and Failed are terminal for this execution path. A failed
+    // consistency check must never fall through and keep using the runtime.
+    return true;
+  }
+
+  void observeHermesTimeout(const facebook::jsi::JSError& error) {
+    if (isHermesTimeoutError(error)) {
+      stop_cause_ = StructuredCancellationStopCause::HermesTimeout;
+    }
+  }
+
+  /// Transfer an uncancelled pending top-level-await unit back to the host
+  /// without retiring its work target or transaction. The continuation ABI
+  /// will recreate this guard for the same id when ready work has been driven.
+  /// @ref LLP 0024#6-evaluation-outcomes-and-the-abi — retirement is atomic
+  /// with the last cooperative cancellation check, so no break can survive
+  /// suspension and land on successor work.
+  bool suspend() {
+    if (closed_ || invalid_target_) return true;
+    bool requested = false;
+    {
+      std::lock_guard<std::mutex> lock(runtime_->structured_cancel_mutex);
+      requested = runtime_->structured_cancel_requested_work_target_id ==
+          result_->work_target_id;
+      if (!requested) {
+        if (runtime_->structured_active_work_target_id ==
+            result_->work_target_id) {
+          runtime_->structured_active_work_target_id = 0;
+        }
+        runtime_->structured_vm_work_active = false;
+      }
+    }
+    if (requested) {
+      // Retire through close() after releasing the mutex. Keeping the active
+      // target published until then prevents the queued break from becoming
+      // successor work.
+      clearStructuredAsyncState(runtime_);
+      close(StructuredCancellationStopCause::CooperativeBoundary);
+      return true;
+    }
+    publishStructuredWorkEvent(
+        runtime_,
+        EX_HERMES_WORK_UNIT_EVALUATION,
+        EX_HERMES_WORK_UNIT_SUSPENDED,
+        result_->work_target_id,
+        scheduling_id_);
+    suspended_ = true;
+    return false;
+  }
+
+  /// Atomically retire the target before a successful transaction commits.
+  /// A cancellation accepted before this point wins and rewrites the result;
+  /// after this point the native cancel route observes a stale target and can
+  /// never land on the successor.
+  bool close(
+      StructuredCancellationStopCause stopCause =
+          StructuredCancellationStopCause::None) {
+    if (closed_) return stop_execution_;
+    if (stopCause == StructuredCancellationStopCause::None) {
+      stopCause = stop_cause_;
+    }
+    auto settlement = retireStructuredWorkTarget(
+        runtime_, result_->work_target_id, stopCause);
+    closed_ = true;
+    runtime_->structured_evaluation_scheduling_id = 0;
+    runtime_->structured_evaluation_in_flight = false;
+
+    const bool cancellationStoppedWork = settlement.requested &&
+        settlement.resolution != EX_HERMES_CANCELLATION_DEFEATED;
+    if (cancellationStoppedWork &&
+        result_->outcome_tag != EX_HERMES_EVAL_OUTCOME_LIFECYCLE) {
+      finishStructuredSessionTransaction(runtime_, false);
+      discardStructuredEvaluationResultPayload(runtime_, result_);
+      result_->outcome_tag = settlement.resolution ==
+              EX_HERMES_CANCELLATION_ACCEPTED
+          ? EX_HERMES_EVAL_OUTCOME_CANCELLED
+          : EX_HERMES_EVAL_OUTCOME_ENGINE_FAULT;
+      result_->fault = settlement.resolution ==
+              EX_HERMES_CANCELLATION_ACCEPTED
+          ? EX_HERMES_EVAL_FAULT_NONE
+          : EX_HERMES_EVAL_FAULT_ENGINE;
+      result_->capability_flags = kStructuredEvaluatorCapabilities;
+    }
+    if (settlement.requested &&
+        !finalizeStructuredModuleCacheBeforeCancellationPublication(
+            runtime_, result_, settlement.resolution)) {
+      // The target is retired, probes have consumed any queued break, and no
+      // successor can begin before this owner call returns. Fail closed if the
+      // trusted entry cannot be finalized in that publication gap.
+      runtime_->structured_session_terminated = true;
+      settlement.resolution = EX_HERMES_CANCELLATION_FAILED;
+    }
+    const uint32_t resolution =
+        validateStructuredCancellationSettlement(
+            runtime_,
+            settlement,
+            result_->outcome_tag == EX_HERMES_EVAL_OUTCOME_LIFECYCLE);
+    if (resolution == EX_HERMES_CANCELLATION_FAILED &&
+        result_->outcome_tag != EX_HERMES_EVAL_OUTCOME_LIFECYCLE) {
+      finishStructuredSessionTransaction(runtime_, false);
+      discardStructuredEvaluationResultPayload(runtime_, result_);
+      result_->outcome_tag = EX_HERMES_EVAL_OUTCOME_ENGINE_FAULT;
+      result_->fault = EX_HERMES_EVAL_FAULT_ENGINE;
+      result_->capability_flags = 0;
+    }
+    stop_execution_ = resolution == EX_HERMES_CANCELLATION_ACCEPTED ||
+        resolution == EX_HERMES_CANCELLATION_FAILED;
+    publishStructuredWorkEvent(
+        runtime_,
+        EX_HERMES_WORK_UNIT_EVALUATION,
+        EX_HERMES_WORK_UNIT_END,
+        result_->work_target_id,
+        scheduling_id_);
+    if (resolution != 0) {
+      publishStructuredCancellationEvent(
+          runtime_, resolution, result_->work_target_id);
+    }
+    return stop_execution_;
+  }
+
+  ScopedStructuredEvaluation(const ScopedStructuredEvaluation&) = delete;
+  ScopedStructuredEvaluation& operator=(const ScopedStructuredEvaluation&) =
+      delete;
+
+ private:
+  ExactHermesRuntime* runtime_;
+  ExHermesEvaluationResult* result_;
+  ScopedHermesJobAssociation job_association_;
+  bool invalid_target_{false};
+  bool closed_{false};
+  bool stop_execution_{false};
+  bool suspended_{false};
+  bool began_{false};
+  StructuredCancellationStopCause stop_cause_{
+      StructuredCancellationStopCause::None};
+  uint64_t scheduling_id_{0};
+};
+
+// Phase 5 mutates non-configurable global bindings and therefore cannot admit
+// an async break between mutations. The controller still records delivery,
+// but defers raising the Hermes timeout until this bounded, user-code-free
+// section reaches its boundary.
+// @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+class ScopedStructuredCancellationCriticalSection {
+ public:
+  ScopedStructuredCancellationCriticalSection(
+      ExactHermesRuntime* runtime,
+      uint64_t targetId)
+      : runtime_(runtime), target_id_(targetId) {
+    if (runtime_ == nullptr || target_id_ == 0) {
+      throw std::logic_error("invalid cancellation critical-section target");
+    }
+    std::lock_guard<std::mutex> lock(runtime_->structured_cancel_mutex);
+    if (runtime_->structured_active_work_target_id != target_id_ ||
+        !runtime_->structured_vm_work_active ||
+        runtime_->structured_cancellation_critical_work_target_id != 0) {
+      throw std::logic_error("invalid cancellation critical-section state");
+    }
+    if (runtime_->structured_cancel_requested_work_target_id == target_id_) {
+      cancellation_pending_ = true;
+      return;
+    }
+    runtime_->structured_cancellation_critical_work_target_id = target_id_;
+    entered_ = true;
+  }
+
+  ~ScopedStructuredCancellationCriticalSection() {
+    leave();
+  }
+
+  bool entered() const { return entered_; }
+  bool cancellationPending() const { return cancellation_pending_; }
+
+  void leave() {
+    if (!entered_) return;
+    std::lock_guard<std::mutex> lock(runtime_->structured_cancel_mutex);
+    if (runtime_->structured_cancellation_critical_work_target_id ==
+        target_id_) {
+      runtime_->structured_cancellation_critical_work_target_id = 0;
+    }
+    entered_ = false;
+  }
+
+  ScopedStructuredCancellationCriticalSection(
+      const ScopedStructuredCancellationCriticalSection&) = delete;
+  ScopedStructuredCancellationCriticalSection& operator=(
+      const ScopedStructuredCancellationCriticalSection&) = delete;
+
+ private:
+  ExactHermesRuntime* runtime_{nullptr};
+  uint64_t target_id_{0};
+  bool entered_{false};
+  bool cancellation_pending_{false};
+};
+
+constexpr bool structuredCompletionRecordAvailable() {
+#ifdef HERMES_HAS_COMPLETION_RECORD
+  return true;
+#else
+  return false;
+#endif
+}
+
+int evaluateStructuredSource(
+    ExactHermesRuntime* runtime,
+    const uint8_t* source,
+    size_t source_length,
+    const uint8_t* source_label,
+    size_t source_label_length,
+    bool distinguish_empty,
+    uint32_t capability_flags,
+    ExHermesEvaluationResult* result,
+    ScopedStructuredEvaluation* evaluation) {
+  ScopedRuntimeSecurityContext securityContext(runtime);
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  ScopedActiveAttributionRuntime activeAttributionRuntime(
+      runtime->attribution_runtime);
+#endif
+  ScopedRawThrowCapture rawThrowCapture(runtime->runtime.get());
+
+  try {
+    const std::string label(
+        reinterpret_cast<const char*>(source_label), source_label_length);
+    const char* source_chars = source_length == 0
+        ? ""
+        : reinterpret_cast<const char*>(source);
+    runtime->sources_by_name[label] = std::string(source_chars, source_length);
+
+    static const uint8_t empty = 0;
+    const uint8_t* source_data = source_length == 0 ? &empty : source;
+    auto source_buffer =
+        std::make_shared<MemoryBuffer>(source_data, source_length);
+    auto value = runtime->runtime->evaluateJavaScript(source_buffer, label);
+    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
+      return 0;
+    }
+    bool completion_was_empty = false;
+#ifdef HERMES_HAS_COMPLETION_RECORD
+    if (distinguish_empty) {
+      // Read this immediately: later event-loop work must not become the
+      // completion discriminator for the submitted Script.
+      completion_was_empty =
+          runtime->runtime->lastEvaluationResultWasEmpty();
+    }
+#else
+    (void)distinguish_empty;
+#endif
+    runNextTickQueue(runtime);
+    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
+      return 0;
+    }
+    // The Script completion has already settled. A user-scheduled job drained
+    // at this checkpoint is background work, so publish its throw through the
+    // asynchronous-failure channel instead of turning it into this input's
+    // Throw outcome. @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+    if (structuredWorkPublicationEnabled(runtime)) {
+      drainMicrotasksGuarded(runtime);
+    } else {
+      // The diagnostic-only seam has no authenticated event channel and keeps
+      // its historical foreground outcome behavior.
+      drainMicrotasks(*runtime->runtime);
+    }
+    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
+      return 0;
+    }
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
+    if (runtime->debugger_attached.load()) {
+      emitNewScripts(runtime, runtime->runtime->getDebugger());
+    }
+#endif
+    if (completion_was_empty) {
+      result->outcome_tag = EX_HERMES_EVAL_OUTCOME_EMPTY;
+      result->fault = EX_HERMES_EVAL_FAULT_NONE;
+      result->capability_flags = capability_flags;
+      return 0;
+    }
+    if (!mintStructuredValueHandle(runtime, value, &result->value)) {
+      structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+      return 0;
+    }
+    result->outcome_tag = EX_HERMES_EVAL_OUTCOME_VALUE;
+    result->fault = EX_HERMES_EVAL_FAULT_NONE;
+    result->capability_flags = capability_flags;
+    return 0;
+  } catch (const facebook::jsi::JSError& error) {
+    if (evaluation != nullptr) {
+      evaluation->observeHermesTimeout(error);
+    }
+    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
+      return 0;
+    }
+    try {
+      if (!mintStructuredValueHandle(runtime, error.value(), &result->value)) {
+        structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+        return 0;
+      }
+    } catch (const std::bad_alloc&) {
+      structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+      return 0;
+    }
+    result->outcome_tag = EX_HERMES_EVAL_OUTCOME_THROW;
+    result->fault = EX_HERMES_EVAL_FAULT_NONE;
+    result->capability_flags = capability_flags;
+    populateStructuredSafeThrowMetadata(runtime, error.value(), result);
+    return 0;
+  } catch (const std::bad_alloc&) {
+    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
+      return 0;
+    }
+    structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+    return 0;
+  } catch (const std::exception&) {
+    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
+      return 0;
+    }
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+    return 0;
+  } catch (...) {
+    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
+      return 0;
+    }
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+    return 0;
+  }
+}
+
+struct StructuredOwnDescriptor {
+  bool present{false};
+  bool configurable{false};
+  bool enumerable{false};
+  bool writable{false};
+  bool data{false};
+};
+
+StructuredOwnDescriptor structuredOwnDescriptor(
+    ExactHermesRuntime* handle,
+    const std::string& name) {
+  auto& rt = *handle->runtime;
+  auto global = rt.global();
+  auto descriptorValue = handle->structured_object_get_own_descriptor->call(
+      rt,
+      global,
+      facebook::jsi::String::createFromUtf8(rt, name));
+  if (descriptorValue.isUndefined()) return {};
+  if (!descriptorValue.isObject()) {
+    throw facebook::jsi::JSError::createTypeError(
+        rt, "session descriptor intrinsic returned a non-object");
+  }
+  auto descriptor = descriptorValue.asObject(rt);
+  StructuredOwnDescriptor result;
+  result.present = true;
+  result.configurable =
+      descriptor.getProperty(rt, "configurable").getBool();
+  result.enumerable = descriptor.getProperty(rt, "enumerable").getBool();
+  result.data = descriptor.hasProperty(rt, "value");
+  result.writable = result.data &&
+      descriptor.getProperty(rt, "writable").getBool();
+  return result;
+}
+
+bool structuredGlobalIsExtensible(ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  auto value = handle->structured_object_is_extensible->call(rt, rt.global());
+  return value.isBool() && value.getBool();
+}
+
+void defineStructuredGlobal(
+    ExactHermesRuntime* handle,
+    const std::string& name,
+    const facebook::jsi::Value& value) {
+  auto& rt = *handle->runtime;
+  facebook::jsi::Object descriptor(rt);
+  descriptor.setProperty(rt, "value", value);
+  descriptor.setProperty(rt, "writable", true);
+  descriptor.setProperty(rt, "enumerable", true);
+  descriptor.setProperty(rt, "configurable", false);
+  handle->structured_object_define_property->call(
+      rt,
+      rt.global(),
+      facebook::jsi::String::createFromUtf8(rt, name),
+      descriptor);
+}
+
+bool installStructuredLastValueAccessor(ExactHermesRuntime* handle) {
+  if (!handle->structured_object_define_property) return false;
+  try {
+    auto& rt = *handle->runtime;
+    auto getter = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "get $_"),
+        0,
+        [handle](facebook::jsi::Runtime& runtime,
+                 const facebook::jsi::Value&,
+                 const facebook::jsi::Value*,
+                 size_t) -> facebook::jsi::Value {
+          return handle->structured_last_displayed_value
+              ? facebook::jsi::Value(
+                    runtime, *handle->structured_last_displayed_value)
+              : facebook::jsi::Value::undefined();
+        });
+    auto setter = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "set $_"),
+        1,
+        [handle](facebook::jsi::Runtime& runtime,
+                 const facebook::jsi::Value&,
+                 const facebook::jsi::Value* args,
+                 size_t count) -> facebook::jsi::Value {
+          const auto value = count == 0
+              ? facebook::jsi::Value::undefined()
+              : facebook::jsi::Value(runtime, args[0]);
+          handle->structured_last_displayed_value =
+              std::make_unique<facebook::jsi::Value>(runtime, value);
+          handle->structured_last_value_auto_update_enabled = false;
+          ++handle->structured_last_value_mutation_generation;
+          return facebook::jsi::Value::undefined();
+        });
+    auto getterRoot =
+        std::make_unique<facebook::jsi::Function>(std::move(getter));
+    auto setterRoot =
+        std::make_unique<facebook::jsi::Function>(std::move(setter));
+    facebook::jsi::Object descriptor(rt);
+    descriptor.setProperty(
+        rt, "get", facebook::jsi::Value(rt, *getterRoot));
+    descriptor.setProperty(
+        rt, "set", facebook::jsi::Value(rt, *setterRoot));
+    descriptor.setProperty(rt, "enumerable", false);
+    descriptor.setProperty(rt, "configurable", true);
+    handle->structured_object_define_property->call(
+        rt,
+        rt.global(),
+        facebook::jsi::String::createFromAscii(rt, "$_"),
+        descriptor);
+    handle->structured_last_value_getter = std::move(getterRoot);
+    handle->structured_last_value_setter = std::move(setterRoot);
+    handle->structured_last_value_auto_update_enabled = true;
+    handle->structured_last_value_mutation_generation = 0;
+    handle->structured_last_displayed_value.reset();
+    return true;
+  } catch (...) {
+    handle->structured_last_value_getter.reset();
+    handle->structured_last_value_setter.reset();
+    return false;
+  }
+}
+
+bool structuredLastValueAccessorIntact(ExactHermesRuntime* handle) {
+  if (!handle->structured_object_get_own_descriptor ||
+      !handle->structured_last_value_getter ||
+      !handle->structured_last_value_setter) {
+    return false;
+  }
+  auto& rt = *handle->runtime;
+  auto descriptorValue = handle->structured_object_get_own_descriptor->call(
+      rt,
+      rt.global(),
+      facebook::jsi::String::createFromAscii(rt, "$_"));
+  if (!descriptorValue.isObject()) return false;
+  auto descriptor = descriptorValue.asObject(rt);
+  auto getter = descriptor.getProperty(rt, "get");
+  auto setter = descriptor.getProperty(rt, "set");
+  if (!getter.isObject() || !setter.isObject()) return false;
+  auto getterObject = getter.asObject(rt);
+  auto setterObject = setter.asObject(rt);
+  return facebook::jsi::Object::strictEquals(
+             rt, getterObject, *handle->structured_last_value_getter) &&
+      facebook::jsi::Object::strictEquals(
+             rt, setterObject, *handle->structured_last_value_setter);
+}
+
+facebook::jsi::Value readStructuredSessionName(
+    ExactHermesRuntime* handle,
+    facebook::jsi::Runtime& rt,
+    const std::string& name) {
+  auto cell = handle->structured_session_cells.find(name);
+  if (cell != handle->structured_session_cells.end()) {
+    if (!cell->second->initialized || !cell->second->value) {
+      throw facebook::jsi::JSError::createReferenceError(
+          rt, "Cannot access '" + name + "' before initialization");
+    }
+    return facebook::jsi::Value(rt, *cell->second->value);
+  }
+  auto global = rt.global();
+  if (global.hasProperty(rt, name.c_str())) {
+    return global.getProperty(rt, name.c_str());
+  }
+  throw facebook::jsi::JSError::createReferenceError(
+      rt, name + " is not defined");
+}
+
+void markStructuredCellInitialized(
+    ExactHermesRuntime* handle,
+    const std::string& name) {
+  for (auto entry = handle->structured_session_journal.rbegin();
+       entry != handle->structured_session_journal.rend();
+       ++entry) {
+    if (entry->name == name) {
+      entry->initialized = true;
+      return;
+    }
+  }
+}
+
+void writeStructuredSessionName(
+    ExactHermesRuntime* handle,
+    facebook::jsi::Runtime& rt,
+    const std::string& name,
+    const facebook::jsi::Value& value,
+    bool strict,
+    bool initialize) {
+  auto cell = handle->structured_session_cells.find(name);
+  if (cell != handle->structured_session_cells.end()) {
+    if (initialize) {
+      if (cell->second->initialized) {
+        throw facebook::jsi::JSError::createReferenceError(
+            rt, "Binding '" + name + "' has already been initialized");
+      }
+      cell->second->value =
+          std::make_unique<facebook::jsi::Value>(rt, value);
+      cell->second->initialized = true;
+      markStructuredCellInitialized(handle, name);
+      return;
+    }
+    if (!cell->second->initialized) {
+      throw facebook::jsi::JSError::createReferenceError(
+          rt, "Cannot access '" + name + "' before initialization");
+    }
+    if (cell->second->kind == StructuredSessionCellKind::Const ||
+        cell->second->kind == StructuredSessionCellKind::Import) {
+      throw facebook::jsi::JSError::createTypeError(
+          rt, "Assignment to constant binding '" + name + "'");
+    }
+    cell->second->value =
+        std::make_unique<facebook::jsi::Value>(rt, value);
+    return;
+  }
+  if (initialize) {
+    throw facebook::jsi::JSError::createReferenceError(
+        rt, "No pending lexical binding named '" + name + "'");
+  }
+
+  auto global = rt.global();
+  if (!global.hasProperty(rt, name.c_str())) {
+    if (strict) {
+      throw facebook::jsi::JSError::createReferenceError(
+          rt, name + " is not defined");
+    }
+    global.setProperty(rt, name.c_str(), value);
+    return;
+  }
+  auto written = handle->structured_reflect_set->call(
+      rt,
+      global,
+      facebook::jsi::String::createFromUtf8(rt, name),
+      value,
+      global);
+  if ((!written.isBool() || !written.getBool()) && strict) {
+    throw facebook::jsi::JSError::createTypeError(
+        rt, "Cannot assign to global binding '" + name + "'");
+  }
+}
+
+class StructuredSessionReferenceHostObject final
+    : public facebook::jsi::HostObject {
+ public:
+  StructuredSessionReferenceHostObject(
+      ExactHermesRuntime* handle,
+      std::string name,
+      bool strict,
+      bool initialize)
+      : handle_(handle),
+        name_(std::move(name)),
+        strict_(strict),
+        initialize_(initialize) {}
+
+  facebook::jsi::Value get(
+      facebook::jsi::Runtime& rt,
+      const facebook::jsi::PropNameID& property) override {
+    if (property.utf8(rt) != "value") {
+      return facebook::jsi::Value::undefined();
+    }
+    return readStructuredSessionName(handle_, rt, name_);
+  }
+
+  void set(
+      facebook::jsi::Runtime& rt,
+      const facebook::jsi::PropNameID& property,
+      const facebook::jsi::Value& value) override {
+    if (property.utf8(rt) != "value") {
+      throw facebook::jsi::JSError::createTypeError(
+          rt, "invalid checked-cell property");
+    }
+    writeStructuredSessionName(
+        handle_, rt, name_, value, strict_, initialize_);
+  }
+
+  std::vector<facebook::jsi::PropNameID> getPropertyNames(
+      facebook::jsi::Runtime& rt) override {
+    std::vector<facebook::jsi::PropNameID> names;
+    names.push_back(facebook::jsi::PropNameID::forAscii(rt, "value"));
+    return names;
+  }
+
+ private:
+  ExactHermesRuntime* handle_;
+  std::string name_;
+  bool strict_;
+  bool initialize_;
+};
+
+std::string structuredNameArgument(
+    facebook::jsi::Runtime& rt,
+    const facebook::jsi::Value* args,
+    size_t count) {
+  if (count == 0 || !args[0].isString()) {
+    throw facebook::jsi::JSError::createTypeError(
+        rt, "checked-cell operation requires a string name");
+  }
+  return args[0].getString(rt).utf8(rt);
+}
+
+facebook::jsi::Object makeStructuredSessionHooks(
+    ExactHermesRuntime* handle,
+    const std::string& logicalReferrer) {
+  auto& rt = *handle->runtime;
+  facebook::jsi::Object hooks(rt);
+  auto reference = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "reference"),
+      2,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value* args,
+               size_t count) -> facebook::jsi::Value {
+        auto name = structuredNameArgument(runtime, args, count);
+        bool strict = count > 1 && args[1].isBool() && args[1].getBool();
+        auto reference = std::make_shared<StructuredSessionReferenceHostObject>(
+            handle, std::move(name), strict, false);
+        return facebook::jsi::Object::createFromHostObject(
+            runtime, std::move(reference));
+      });
+  hooks.setProperty(rt, "reference", std::move(reference));
+
+  auto initialize = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "initialize"),
+      1,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value* args,
+               size_t count) -> facebook::jsi::Value {
+        auto name = structuredNameArgument(runtime, args, count);
+        auto reference = std::make_shared<StructuredSessionReferenceHostObject>(
+            handle, std::move(name), true, true);
+        return facebook::jsi::Object::createFromHostObject(
+            runtime, std::move(reference));
+      });
+  hooks.setProperty(rt, "initialize", std::move(initialize));
+
+  auto typeOfName = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "typeofName"),
+      1,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value* args,
+               size_t count) -> facebook::jsi::Value {
+        auto name = structuredNameArgument(runtime, args, count);
+        auto cell = handle->structured_session_cells.find(name);
+        if (cell == handle->structured_session_cells.end() &&
+            !runtime.global().hasProperty(runtime, name.c_str())) {
+          return facebook::jsi::String::createFromAscii(runtime, "undefined");
+        }
+        auto value = readStructuredSessionName(handle, runtime, name);
+        const char* kind = "object";
+        if (value.isUndefined()) kind = "undefined";
+        else if (value.isBool()) kind = "boolean";
+        else if (value.isNumber()) kind = "number";
+        else if (value.isString()) kind = "string";
+        else if (value.isSymbol()) kind = "symbol";
+        else if (value.isBigInt()) kind = "bigint";
+        else if (value.isObject() &&
+                 value.getObject(runtime).isFunction(runtime)) kind = "function";
+        return facebook::jsi::String::createFromAscii(runtime, kind);
+      });
+  hooks.setProperty(rt, "typeofName", std::move(typeOfName));
+
+  auto deleteName = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "deleteName"),
+      1,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value* args,
+               size_t count) -> facebook::jsi::Value {
+        auto name = structuredNameArgument(runtime, args, count);
+        if (handle->structured_session_cells.count(name) != 0) {
+          return facebook::jsi::Value(false);
+        }
+        auto global = runtime.global();
+        if (!global.hasProperty(runtime, name.c_str())) {
+          return facebook::jsi::Value(true);
+        }
+        auto deleted = handle->structured_reflect_delete_property->call(
+            runtime,
+            global,
+            facebook::jsi::String::createFromUtf8(runtime, name));
+        bool success = deleted.isBool() && deleted.getBool();
+        if (success) {
+          handle->structured_session_created_vars.erase(name);
+        }
+        return facebook::jsi::Value(success);
+      });
+  hooks.setProperty(rt, "deleteName", std::move(deleteName));
+
+  // @ref LLP 0024#71-the-environment-a-modified-globalenvironmentrecord
+  auto dynamicImport = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "dynamicImport"),
+      1,
+      [handle, logicalReferrer](facebook::jsi::Runtime& runtime,
+                                const facebook::jsi::Value&,
+                                const facebook::jsi::Value* args,
+                                size_t count) -> facebook::jsi::Value {
+        if (count != 1 || !handle->structured_session_bound ||
+            handle->structured_session_terminated ||
+            !handle->structured_session_import_materializer ||
+            logicalReferrer.empty()) {
+          throw facebook::jsi::JSError::createTypeError(
+              runtime, "authenticated session dynamic import is unavailable");
+        }
+        // The trusted JS dispatcher converts invalid specifiers and resolver
+        // denials into rejected promises. Passing the raw value preserves that
+        // import() behavior while this native closure supplies the immutable,
+        // C-only logical referrer captured from the admitted request.
+        return handle->structured_session_import_materializer->call(
+            runtime,
+            facebook::jsi::String::createFromAscii(runtime, "dynamic-import"),
+            args[0],
+            facebook::jsi::String::createFromUtf8(runtime, logicalReferrer));
+      });
+  hooks.setProperty(rt, "dynamicImport", std::move(dynamicImport));
+
+  auto hoistFunction = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "hoistFunction"),
+      2,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value* args,
+               size_t count) -> facebook::jsi::Value {
+        auto name = structuredNameArgument(runtime, args, count);
+        if (count < 2 || !args[1].isObject() ||
+            !args[1].getObject(runtime).isFunction(runtime) ||
+            handle->structured_session_var_declared_names.count(name) == 0 ||
+            handle->structured_session_cells.count(name) != 0) {
+          throw facebook::jsi::JSError::createTypeError(
+              runtime, "invalid session function hoist");
+        }
+        defineStructuredGlobal(handle, name, args[1]);
+        return facebook::jsi::Value::undefined();
+      });
+  hooks.setProperty(rt, "hoistFunction", std::move(hoistFunction));
+
+  auto finish = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "finish"),
+      2,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value* args,
+               size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isBool()) {
+          throw facebook::jsi::JSError::createTypeError(
+              runtime, "invalid session completion");
+        }
+        handle->structured_session_completion_has_value = args[0].getBool();
+        if (handle->structured_session_completion_has_value) {
+          handle->structured_session_completion_value =
+              std::make_unique<facebook::jsi::Value>(runtime, args[1]);
+        } else {
+          handle->structured_session_completion_value.reset();
+        }
+        // Never return the completion. In an async wrapper this value is what
+        // the intrinsic Promise resolution machinery sees, so a displayed
+        // thenable cannot be assimilated merely because it is the final value.
+        return facebook::jsi::Value::undefined();
+      });
+  hooks.setProperty(rt, "finish", std::move(finish));
+  return hooks;
+}
+
+struct StructuredDeclarationPlanEntry {
+  std::string name;
+  uint32_t kind{0};
+};
+
+bool buildStructuredDeclarationPlan(
+    const ExHermesSessionDeclaration* declarations,
+    size_t declarationCount,
+    std::vector<StructuredDeclarationPlanEntry>* output,
+    std::string* semanticCollision) {
+  std::unordered_map<std::string, size_t> byName;
+  output->clear();
+  output->reserve(declarationCount);
+  semanticCollision->clear();
+  for (size_t index = 0; index < declarationCount; ++index) {
+    const auto& declaration = declarations[index];
+    if (declaration.name == nullptr || declaration.name_length == 0 ||
+        declaration.reserved != 0 ||
+        !validUtf8(declaration.name, declaration.name_length) ||
+        memchr(declaration.name, 0, declaration.name_length) != nullptr ||
+        declaration.kind < EX_HERMES_SESSION_DECL_VAR ||
+        declaration.kind > EX_HERMES_SESSION_DECL_IMPORT) {
+      return false;
+    }
+    std::string name(
+        reinterpret_cast<const char*>(declaration.name),
+        declaration.name_length);
+    auto existing = byName.find(name);
+    if (existing == byName.end()) {
+      byName.emplace(name, output->size());
+      output->push_back({std::move(name), declaration.kind});
+      continue;
+    }
+    auto& prior = (*output)[existing->second];
+    bool priorVar = prior.kind == EX_HERMES_SESSION_DECL_VAR ||
+        prior.kind == EX_HERMES_SESSION_DECL_FUNCTION;
+    bool nextVar = declaration.kind == EX_HERMES_SESSION_DECL_VAR ||
+        declaration.kind == EX_HERMES_SESSION_DECL_FUNCTION;
+    if (!priorVar || !nextVar) {
+      // This is an authenticated source early error, not a malformed ABI
+      // payload. Continue validating the remaining rows and retain any import
+      // kind needed by the independently validated import plan; the caller
+      // will return a JavaScript SyntaxError before compilation or mutation.
+      // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+      if (semanticCollision->empty()) {
+        *semanticCollision = priorVar != nextVar
+            ? "lexical declaration " + name +
+                " collides with a var-scoped declaration"
+            : "duplicate lexical declaration " + name;
+      }
+      if (declaration.kind == EX_HERMES_SESSION_DECL_IMPORT) {
+        prior.kind = declaration.kind;
+      }
+      continue;
+    }
+    if (declaration.kind == EX_HERMES_SESSION_DECL_FUNCTION) {
+      prior.kind = declaration.kind;
+    }
+  }
+  return true;
+}
+
+struct StructuredImportBindingPlanEntry {
+  std::string localName;
+  std::string importedName;
+  uint32_t kind{0};
+};
+
+struct StructuredStaticImportPlanEntry {
+  std::string specifier;
+  size_t firstBinding{0};
+  size_t bindingCount{0};
+};
+
+struct StructuredStaticImportPlan {
+  std::string logicalReferrer;
+  std::string sourceId;
+  std::string generatedEntryRecord;
+  uint32_t sourceKind{0};
+  std::vector<StructuredStaticImportPlanEntry> imports;
+  std::vector<StructuredImportBindingPlanEntry> bindings;
+  std::vector<std::string> fileArguments;
+};
+
+bool structuredImportBytesValid(
+    const uint8_t* bytes,
+    size_t length,
+    bool allowEmpty) {
+  if (length == 0) return allowEmpty && bytes == nullptr;
+  return bytes != nullptr && validUtf8(bytes, length) &&
+      memchr(bytes, 0, length) == nullptr;
+}
+
+bool structuredFileArgumentBytesValid(
+    const uint8_t* bytes,
+    size_t length) {
+  // Rust strings may use a non-null dangling pointer for the empty string.
+  // Empty trailing argv entries are data and must survive exactly.
+  if (length == 0) return true;
+  return bytes != nullptr && validUtf8(bytes, length) &&
+      memchr(bytes, 0, length) == nullptr;
+}
+
+bool buildStructuredStaticImportPlan(
+    const ExHermesSessionImportPlan* input,
+    const std::vector<StructuredDeclarationPlanEntry>& declarations,
+    StructuredStaticImportPlan* output) {
+  static_assert(EX_HERMES_SESSION_IMPORT_PLAN_ABI_VERSION == 4u);
+  if (input == nullptr ||
+      input->abi_version != EX_HERMES_SESSION_IMPORT_PLAN_ABI_VERSION ||
+      input->struct_size != sizeof(ExHermesSessionImportPlan) ||
+      !structuredImportBytesValid(
+          input->logical_referrer,
+          input->logical_referrer_length,
+          false) ||
+      !structuredImportBytesValid(
+          input->source_id,
+          input->source_id_length,
+          true) ||
+      input->source_id_length > 64 * 1024 ||
+      (input->source_kind != EX_HERMES_STRUCTURED_SOURCE_SESSION &&
+       input->source_kind != EX_HERMES_STRUCTURED_SOURCE_COMMONJS_ENTRY &&
+       input->source_kind !=
+           EX_HERMES_STRUCTURED_SOURCE_GENERATED_COMMONJS_ENTRY) ||
+      !structuredImportBytesValid(
+          input->generated_entry_record,
+          input->generated_entry_record_length,
+          input->source_kind !=
+              EX_HERMES_STRUCTURED_SOURCE_GENERATED_COMMONJS_ENTRY) ||
+      input->generated_entry_record_length > 1024 * 1024 ||
+      ((input->source_kind ==
+        EX_HERMES_STRUCTURED_SOURCE_GENERATED_COMMONJS_ENTRY) !=
+       (input->generated_entry_record_length != 0)) ||
+      input->reserved != 0 ||
+      ((input->imports == nullptr) != (input->import_count == 0)) ||
+      ((input->bindings == nullptr) != (input->binding_count == 0)) ||
+      ((input->file_arguments == nullptr) !=
+       (input->file_argument_count == 0)) ||
+      input->file_argument_count == 1 ||
+      input->file_argument_count > 65536 ||
+      (input->file_argument_count != 0 && input->source_id_length == 0)) {
+    return false;
+  }
+
+  output->logicalReferrer.assign(
+      reinterpret_cast<const char*>(input->logical_referrer),
+      input->logical_referrer_length);
+  output->sourceId.clear();
+  output->generatedEntryRecord.clear();
+  output->sourceKind = input->source_kind;
+  if (input->source_id_length != 0) {
+    output->sourceId.assign(
+        reinterpret_cast<const char*>(input->source_id),
+        input->source_id_length);
+    static constexpr const char kSourceIdPrefix[] = "ibex-source-id-v1:";
+    if (output->sourceId.compare(
+            0, sizeof(kSourceIdPrefix) - 1, kSourceIdPrefix) != 0) {
+      return false;
+    }
+  }
+  if (input->generated_entry_record_length != 0) {
+    output->generatedEntryRecord.assign(
+        reinterpret_cast<const char*>(input->generated_entry_record),
+        input->generated_entry_record_length);
+  }
+  output->imports.clear();
+  output->bindings.clear();
+  output->fileArguments.clear();
+  output->imports.reserve(input->import_count);
+  output->bindings.reserve(input->binding_count);
+  output->fileArguments.reserve(input->file_argument_count);
+
+  constexpr size_t kMaximumFileArgumentBytes = 1024 * 1024;
+  size_t fileArgumentBytes = 0;
+  for (size_t index = 0;
+       index < input->file_argument_count;
+       ++index) {
+    const auto& argument = input->file_arguments[index];
+    if (!structuredFileArgumentBytesValid(argument.data, argument.length) ||
+        argument.length > kMaximumFileArgumentBytes - fileArgumentBytes) {
+      return false;
+    }
+    fileArgumentBytes += argument.length;
+    if (argument.length == 0) {
+      output->fileArguments.emplace_back();
+    } else {
+      output->fileArguments.emplace_back(
+          reinterpret_cast<const char*>(argument.data), argument.length);
+    }
+  }
+  if (!output->fileArguments.empty()) {
+    if (output->fileArguments[0] != "ibex:runtime") return false;
+    const auto& entry = output->fileArguments[1];
+    if (entry.size() <= 9 || entry.compare(0, 9, "/project/") != 0 ||
+        entry.back() == '/' || entry.find("//") != std::string::npos ||
+        entry.find("/./") != std::string::npos ||
+        entry.find("/../") != std::string::npos ||
+        (entry.size() >= 2 &&
+         entry.compare(entry.size() - 2, 2, "/.") == 0) ||
+        (entry.size() >= 3 &&
+         entry.compare(entry.size() - 3, 3, "/..") == 0)) {
+      return false;
+    }
+  }
+
+  std::unordered_set<std::string> declaredImports;
+  for (const auto& declaration : declarations) {
+    if (declaration.kind == EX_HERMES_SESSION_DECL_IMPORT &&
+        !declaredImports.insert(declaration.name).second) {
+      return false;
+    }
+  }
+  std::unordered_set<std::string> publishedImports;
+  size_t nextBinding = 0;
+  for (size_t importIndex = 0;
+       importIndex < input->import_count;
+       ++importIndex) {
+    const auto& import = input->imports[importIndex];
+    if (import.abi_version != EX_HERMES_SESSION_IMPORT_PLAN_ABI_VERSION ||
+        import.struct_size != sizeof(ExHermesSessionStaticImport) ||
+        !structuredImportBytesValid(
+            import.specifier, import.specifier_length, false) ||
+        import.first_binding != nextBinding ||
+        import.binding_count > input->binding_count - nextBinding) {
+      return false;
+    }
+    output->imports.push_back({
+        std::string(
+            reinterpret_cast<const char*>(import.specifier),
+            import.specifier_length),
+        import.first_binding,
+        import.binding_count});
+
+    for (size_t offset = 0; offset < import.binding_count; ++offset) {
+      const auto& binding = input->bindings[nextBinding + offset];
+      if (binding.abi_version !=
+              EX_HERMES_SESSION_IMPORT_PLAN_ABI_VERSION ||
+          binding.struct_size != sizeof(ExHermesSessionImportBinding) ||
+          binding.reserved != 0 ||
+          binding.kind < EX_HERMES_SESSION_IMPORT_DEFAULT ||
+          binding.kind > EX_HERMES_SESSION_IMPORT_NAMESPACE ||
+          !structuredImportBytesValid(
+              binding.local_name, binding.local_name_length, true)) {
+        return false;
+      }
+      bool named = binding.kind == EX_HERMES_SESSION_IMPORT_NAMED;
+      if (named != (binding.imported_name_length != 0) ||
+          !structuredImportBytesValid(
+              binding.imported_name,
+              binding.imported_name_length,
+              !named)) {
+        return false;
+      }
+      std::string localName;
+      if (binding.local_name_length != 0) {
+        localName.assign(
+            reinterpret_cast<const char*>(binding.local_name),
+            binding.local_name_length);
+        if (declaredImports.count(localName) == 0 ||
+            !publishedImports.insert(localName).second) {
+          return false;
+        }
+      }
+      std::string importedName;
+      if (binding.imported_name_length != 0) {
+        importedName.assign(
+            reinterpret_cast<const char*>(binding.imported_name),
+            binding.imported_name_length);
+      }
+      output->bindings.push_back(
+          {std::move(localName), std::move(importedName), binding.kind});
+    }
+    nextBinding += import.binding_count;
+  }
+  return nextBinding == input->binding_count &&
+      publishedImports == declaredImports;
+}
+
+void defineStructuredObjectDataProperty(
+    ExactHermesRuntime* handle,
+    facebook::jsi::Object& object,
+    const char* name,
+    const facebook::jsi::Value& value) {
+  auto& rt = *handle->runtime;
+  facebook::jsi::Object descriptor(rt);
+  descriptor.setProperty(rt, "value", value);
+  descriptor.setProperty(rt, "writable", true);
+  descriptor.setProperty(rt, "enumerable", true);
+  descriptor.setProperty(rt, "configurable", true);
+  handle->structured_object_define_property->call(
+      rt,
+      object,
+      facebook::jsi::String::createFromAscii(rt, name),
+      descriptor);
+}
+
+bool applyStructuredFileArguments(
+    ExactHermesRuntime* handle,
+    const StructuredStaticImportPlan& plan) {
+  // @ref LLP 0023#6-path-bearing-observables — file argv and main identity
+  // enter the realm from the authenticated native request, never through the
+  // mutable hidden globals used by the sealed legacy file wrapper.
+  if (plan.fileArguments.empty()) return true;
+  if (!handle->structured_process ||
+      !handle->structured_object_define_property) {
+    return false;
+  }
+  auto& rt = *handle->runtime;
+  facebook::jsi::Array arguments(rt, plan.fileArguments.size());
+  for (size_t index = 0; index < plan.fileArguments.size(); ++index) {
+    arguments.setValueAtIndex(
+        rt,
+        index,
+        facebook::jsi::String::createFromUtf8(
+            rt, plan.fileArguments[index]));
+  }
+  facebook::jsi::Value argumentsValue(std::move(arguments));
+  defineStructuredObjectDataProperty(
+      handle,
+      *handle->structured_process,
+      "argv",
+      argumentsValue);
+  defineStructuredObjectDataProperty(
+      handle,
+      *handle->structured_process,
+      "argv0",
+      facebook::jsi::Value(facebook::jsi::String::createFromUtf8(
+          rt, plan.fileArguments.front())));
+  defineStructuredObjectDataProperty(
+      handle,
+      *handle->structured_process,
+      "execPath",
+      facebook::jsi::Value(facebook::jsi::String::createFromUtf8(
+          rt, plan.fileArguments.front())));
+
+  // Exact and Bun share the compatibility object. Refresh its public argv
+  // projection directly from the authenticated native value; no hidden
+  // mutable realm global participates in file identity or argument ingress.
+  auto exactValue = rt.global().getProperty(rt, "Exact");
+  if (!exactValue.isObject()) return false;
+  auto exact = exactValue.asObject(rt);
+  defineStructuredObjectDataProperty(
+      handle, exact, "argv", argumentsValue);
+  defineStructuredObjectDataProperty(
+      handle,
+      exact,
+      "main",
+      facebook::jsi::Value(facebook::jsi::String::createFromUtf8(
+          rt, plan.fileArguments[1])));
+  return true;
+}
+
+bool dispatchStructuredModuleCacheAction(
+    ExactHermesRuntime* handle,
+    const char* action,
+    const std::string* sourceId = nullptr,
+    const std::string* sourceLabel = nullptr,
+    const std::string* virtualPath = nullptr) {
+  if (!handle->structured_session_import_materializer) return false;
+  auto& rt = *handle->runtime;
+  auto argument = [&rt](const std::string* value) -> facebook::jsi::Value {
+    return value == nullptr
+        ? facebook::jsi::Value::undefined()
+        : facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(rt, *value));
+  };
+  auto result = handle->structured_session_import_materializer->call(
+      rt,
+      facebook::jsi::String::createFromAscii(rt, action),
+      argument(sourceId),
+      argument(sourceLabel),
+      argument(virtualPath));
+  return result.isBool() && result.getBool();
+}
+
+facebook::jsi::Value evaluateStructuredCommonJsEntry(
+    ExactHermesRuntime* handle,
+    const std::string& source,
+    const std::string& sourceLabel,
+    const StructuredStaticImportPlan& plan) {
+  if (!handle->structured_session_import_materializer ||
+      plan.sourceId.empty() || plan.fileArguments.size() < 2 ||
+      !plan.imports.empty() || !plan.bindings.empty()) {
+    throw std::runtime_error("invalid authenticated CommonJS entry plan");
+  }
+  auto& rt = *handle->runtime;
+  return handle->structured_session_import_materializer->call(
+      rt,
+      facebook::jsi::String::createFromAscii(
+          rt, "evaluate-commonjs-entry"),
+      facebook::jsi::String::createFromUtf8(rt, source),
+      facebook::jsi::String::createFromUtf8(rt, sourceLabel),
+      facebook::jsi::String::createFromUtf8(rt, plan.fileArguments[1]),
+      facebook::jsi::String::createFromUtf8(rt, plan.logicalReferrer));
+}
+
+facebook::jsi::Value evaluateStructuredGeneratedCommonJsEntry(
+    ExactHermesRuntime* handle,
+    const std::string& source,
+    const std::string& sourceLabel,
+    const StructuredStaticImportPlan& plan) {
+  if (!handle->structured_session_import_materializer ||
+      plan.sourceId.empty() || plan.generatedEntryRecord.empty() ||
+      plan.fileArguments.size() < 2 || !plan.imports.empty() ||
+      !plan.bindings.empty()) {
+    throw std::runtime_error(
+        "invalid authenticated generated CommonJS entry plan");
+  }
+  auto& rt = *handle->runtime;
+  return handle->structured_session_import_materializer->call(
+      rt,
+      facebook::jsi::String::createFromAscii(
+          rt, "evaluate-generated-single-commonjs-entry"),
+      facebook::jsi::String::createFromUtf8(rt, source),
+      facebook::jsi::String::createFromUtf8(rt, plan.generatedEntryRecord),
+      facebook::jsi::String::createFromUtf8(rt, sourceLabel),
+      facebook::jsi::String::createFromUtf8(rt, plan.logicalReferrer));
+}
+
+bool structuredModuleCacheOutcomeCommits(uint32_t outcome) {
+  return outcome == EX_HERMES_EVAL_OUTCOME_EMPTY ||
+      outcome == EX_HERMES_EVAL_OUTCOME_VALUE ||
+      outcome == EX_HERMES_EVAL_OUTCOME_LIFECYCLE;
+}
+
+bool finalizeStructuredModuleCacheBeforeCancellationPublication(
+    ExactHermesRuntime* handle,
+    const ExHermesEvaluationResult* result,
+    uint32_t resolution) noexcept {
+  if (!handle->structured_module_cache_entry_pending) return true;
+  try {
+    // A defeated request preserves the ordinary outcome. Accepted/Failed
+    // instead abort the reserved entry, except that a latched lifecycle is the
+    // actual winner and has already committed the evaluation transaction.
+    const bool commits =
+        result->outcome_tag == EX_HERMES_EVAL_OUTCOME_LIFECYCLE ||
+        (resolution == EX_HERMES_CANCELLATION_DEFEATED &&
+         structuredModuleCacheOutcomeCommits(result->outcome_tag));
+    const char* action = commits ? "commit-entry" : "abort-entry";
+    if (!dispatchStructuredModuleCacheAction(handle, action)) return false;
+    handle->structured_module_cache_entry_pending = false;
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
+void finalizeStructuredModuleCacheOutcome(
+    ExactHermesRuntime* handle,
+    ExHermesEvaluationResult* result) noexcept {
+  if (!handle->structured_module_cache_entry_pending) return;
+  if (result->outcome_tag == 0 ||
+      result->outcome_tag == EX_HERMES_EVAL_CONTINUATION_SUSPENDED) {
+    return;
+  }
+  try {
+    const char* action = structuredModuleCacheOutcomeCommits(result->outcome_tag)
+        ? "commit-entry"
+        : "abort-entry";
+    if (!dispatchStructuredModuleCacheAction(handle, action)) {
+      throw std::runtime_error("native module-cache finalization was refused");
+    }
+    handle->structured_module_cache_entry_pending = false;
+  } catch (...) {
+    handle->structured_session_terminated = true;
+    discardStructuredEvaluationResultPayload(handle, result);
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+  }
+}
+
+class ScopedStructuredEntryCacheReservation {
+ public:
+  ScopedStructuredEntryCacheReservation(
+      ExactHermesRuntime* handle,
+      uint64_t workTargetId)
+      : handle_(handle), work_target_id_(workTargetId) {}
+
+  bool reserve(
+      const StructuredStaticImportPlan& plan,
+      const std::string& sourceLabel) {
+    if (plan.sourceId.empty()) return true;
+    if (plan.fileArguments.size() == 1) return false;
+    const std::string* virtualPath =
+        plan.fileArguments.empty() ? nullptr : &plan.fileArguments[1];
+    if (virtualPath == nullptr && sourceLabel != "ibex:stdin") return false;
+    if (handle_->structured_module_cache_entry_pending) return false;
+    ScopedStructuredCancellationCriticalSection critical(
+        handle_, work_target_id_);
+    if (!critical.entered()) return false;
+    // Publish the rollback obligation before trusted JS performs its first
+    // mutation. The bounded critical section defers the Hermes break; an OOM
+    // or other partial reserve still terminates the session even if the best-
+    // effort abort reports success.
+    handle_->structured_module_cache_entry_pending = true;
+    active_ = true;
+    if (!dispatchStructuredModuleCacheAction(
+            handle_,
+            "reserve-entry",
+            &plan.sourceId,
+            &sourceLabel,
+            virtualPath)) {
+      // The call may have returned after a partial trusted mutation. Mark the
+      // runtime unusable before the caller can settle an overlapping request;
+      // the still-active destructor remains responsible for best-effort abort.
+      handle_->structured_session_terminated = true;
+      return false;
+    }
+    reservation_completed_ = true;
+    return true;
+  }
+
+  // The authenticated generated action has to inspect the private SourceId
+  // cache before deciding whether it is a hit or needs a new reservation, so
+  // native cannot call reserve-entry first. Publish the same rollback
+  // obligation before that combined action performs its first mutation; a
+  // cache hit makes the later commit/abort action an intentional no-op.
+  // @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+  bool beginGenerated() {
+    if (handle_->structured_module_cache_entry_pending) return false;
+    ScopedStructuredCancellationCriticalSection critical(
+        handle_, work_target_id_);
+    if (!critical.entered()) return false;
+    handle_->structured_module_cache_entry_pending = true;
+    active_ = true;
+    reservation_completed_ = true;
+    return true;
+  }
+
+  void finalize(ExHermesEvaluationResult* result) {
+    if (!active_) return;
+    if (result->outcome_tag == EX_HERMES_EVAL_CONTINUATION_SUSPENDED) {
+      active_ = false;
+      return;
+    }
+    finalizeStructuredModuleCacheOutcome(handle_, result);
+    active_ = false;
+  }
+
+  ~ScopedStructuredEntryCacheReservation() {
+    if (!active_) return;
+    const bool incomplete = !reservation_completed_;
+    try {
+      if (handle_->structured_module_cache_entry_pending &&
+          !dispatchStructuredModuleCacheAction(handle_, "abort-entry")) {
+        handle_->structured_session_terminated = true;
+        return;
+      }
+      handle_->structured_module_cache_entry_pending = false;
+      if (incomplete) handle_->structured_session_terminated = true;
+    } catch (...) {
+      handle_->structured_session_terminated = true;
+    }
+  }
+
+  ScopedStructuredEntryCacheReservation(
+      const ScopedStructuredEntryCacheReservation&) = delete;
+  ScopedStructuredEntryCacheReservation& operator=(
+      const ScopedStructuredEntryCacheReservation&) = delete;
+
+ private:
+  ExactHermesRuntime* handle_;
+  uint64_t work_target_id_{0};
+  bool active_{false};
+  bool reservation_completed_{false};
+};
+
+struct StructuredMaterializedImportBinding {
+  std::string localName;
+  std::unique_ptr<facebook::jsi::Value> value;
+};
+
+bool materializeStructuredStaticImports(
+    ExactHermesRuntime* handle,
+    const StructuredStaticImportPlan& plan,
+    ScopedStructuredEvaluation* evaluation,
+    std::vector<StructuredMaterializedImportBinding>* output) {
+  auto& rt = *handle->runtime;
+  output->clear();
+  output->reserve(plan.bindings.size());
+  for (const auto& import : plan.imports) {
+    if (evaluation->cancelAtCooperativeBoundary()) return false;
+    std::unique_ptr<char, void (*)(char*)> record(
+        ex_host_session_static_import_resolve(
+            reinterpret_cast<const uint8_t*>(plan.logicalReferrer.data()),
+            plan.logicalReferrer.size(),
+            reinterpret_cast<const uint8_t*>(import.specifier.data()),
+            import.specifier.size(),
+            1),
+        ex_host_free_string);
+    if (!record) {
+      throw std::runtime_error(
+          "authenticated static-import resolver returned no record");
+    }
+    if (evaluation->cancelAtCooperativeBoundary()) return false;
+
+    facebook::jsi::Array kinds(rt, import.bindingCount);
+    facebook::jsi::Array importedNames(rt, import.bindingCount);
+    for (size_t offset = 0; offset < import.bindingCount; ++offset) {
+      const auto& binding = plan.bindings[import.firstBinding + offset];
+      kinds.setValueAtIndex(
+          rt, offset, facebook::jsi::Value(static_cast<double>(binding.kind)));
+      if (binding.kind == EX_HERMES_SESSION_IMPORT_NAMED) {
+        importedNames.setValueAtIndex(
+            rt,
+            offset,
+            facebook::jsi::String::createFromUtf8(rt, binding.importedName));
+      } else {
+        importedNames.setValueAtIndex(
+            rt, offset, facebook::jsi::Value::undefined());
+      }
+    }
+    auto result = handle->structured_session_import_materializer->call(
+        rt,
+        facebook::jsi::String::createFromAscii(rt, "materialize-import"),
+        facebook::jsi::String::createFromUtf8(rt, import.specifier),
+        facebook::jsi::String::createFromUtf8(rt, record.get()),
+        kinds,
+        importedNames);
+    if (!result.isObject() || !result.getObject(rt).isArray(rt)) {
+      throw std::runtime_error(
+          "trusted static-import materializer returned a non-array");
+    }
+    auto values = result.getObject(rt).asArray(rt);
+    if (values.size(rt) != import.bindingCount) {
+      throw std::runtime_error(
+          "trusted static-import materializer returned the wrong value count");
+    }
+    for (size_t offset = 0; offset < import.bindingCount; ++offset) {
+      const auto& binding = plan.bindings[import.firstBinding + offset];
+      auto value = values.getValueAtIndex(rt, offset);
+      output->push_back({
+          binding.localName,
+          std::make_unique<facebook::jsi::Value>(rt, value)});
+    }
+    if (evaluation->cancelAtCooperativeBoundary()) return false;
+  }
+  return true;
+}
+
+void initializeStructuredImportCells(
+    ExactHermesRuntime* handle,
+    std::vector<StructuredMaterializedImportBinding>* imports) {
+  auto& rt = *handle->runtime;
+  for (auto& import : *imports) {
+    if (import.localName.empty()) continue;
+    auto cell = handle->structured_session_cells.find(import.localName);
+    if (cell == handle->structured_session_cells.end() ||
+        cell->second->kind != StructuredSessionCellKind::Import ||
+        cell->second->initialized || !import.value) {
+      throw std::runtime_error("invalid native static-import cell commit");
+    }
+    cell->second->value =
+        std::make_unique<facebook::jsi::Value>(rt, *import.value);
+    cell->second->initialized = true;
+    markStructuredCellInitialized(handle, import.localName);
+  }
+}
+
+enum class StructuredDeclarationRefusalKind {
+  None,
+  CanDeclareGlobal,
+  RestrictedGlobal,
+};
+
+struct StructuredDeclarationFeasibility {
+  StructuredDeclarationRefusalKind refusal{
+      StructuredDeclarationRefusalKind::None};
+  std::string name;
+
+  bool feasible() const {
+    return refusal == StructuredDeclarationRefusalKind::None;
+  }
+};
+
+StructuredDeclarationFeasibility structuredDeclarationPlanFeasibility(
+    ExactHermesRuntime* handle,
+    const std::vector<StructuredDeclarationPlanEntry>& plan) {
+  for (const auto& declaration : plan) {
+    auto descriptor = structuredOwnDescriptor(handle, declaration.name);
+    if (declaration.kind == EX_HERMES_SESSION_DECL_VAR) {
+      if (!descriptor.present && !structuredGlobalIsExtensible(handle)) {
+        return {
+            StructuredDeclarationRefusalKind::CanDeclareGlobal,
+            declaration.name};
+      }
+      continue;
+    }
+    if (declaration.kind == EX_HERMES_SESSION_DECL_FUNCTION) {
+      if (!descriptor.present) {
+        if (!structuredGlobalIsExtensible(handle)) {
+          return {
+              StructuredDeclarationRefusalKind::CanDeclareGlobal,
+              declaration.name};
+        }
+      } else if (!descriptor.configurable &&
+                 (!descriptor.data || !descriptor.writable ||
+                  !descriptor.enumerable)) {
+        return {
+            StructuredDeclarationRefusalKind::CanDeclareGlobal,
+            declaration.name};
+      }
+      continue;
+    }
+    if (descriptor.present && !descriptor.configurable &&
+        handle->structured_session_created_vars.count(declaration.name) == 0) {
+      return {
+          StructuredDeclarationRefusalKind::RestrictedGlobal,
+          declaration.name};
+    }
+  }
+  return {};
+}
+
+StructuredSessionCellKind structuredCellKind(uint32_t kind) {
+  switch (kind) {
+    case EX_HERMES_SESSION_DECL_CONST:
+      return StructuredSessionCellKind::Const;
+    case EX_HERMES_SESSION_DECL_CLASS:
+      return StructuredSessionCellKind::Class;
+    case EX_HERMES_SESSION_DECL_IMPORT:
+      return StructuredSessionCellKind::Import;
+    case EX_HERMES_SESSION_DECL_LET:
+    default:
+      return StructuredSessionCellKind::Let;
+  }
+}
+
+void beginStructuredSessionTransaction(
+    ExactHermesRuntime* handle,
+    const std::vector<StructuredDeclarationPlanEntry>& plan) {
+  handle->structured_session_journal.clear();
+  handle->structured_session_transaction_active = true;
+  for (const auto& declaration : plan) {
+    bool objectBinding = declaration.kind == EX_HERMES_SESSION_DECL_VAR ||
+        declaration.kind == EX_HERMES_SESSION_DECL_FUNCTION;
+    if (objectBinding) {
+      if (declaration.name == "$_") {
+        handle->structured_last_value_auto_update_enabled = false;
+      }
+      auto lexical = handle->structured_session_cells.find(declaration.name);
+      if (lexical != handle->structured_session_cells.end()) {
+        handle->structured_session_cells.erase(lexical);
+      }
+      auto descriptor = structuredOwnDescriptor(handle, declaration.name);
+      if (!descriptor.present ||
+          declaration.kind == EX_HERMES_SESSION_DECL_FUNCTION) {
+        defineStructuredGlobal(
+            handle,
+            declaration.name,
+            facebook::jsi::Value::undefined());
+      }
+      handle->structured_session_var_declared_names.insert(declaration.name);
+      if (!descriptor.present) {
+        handle->structured_session_created_vars.insert(declaration.name);
+      }
+      continue;
+    }
+
+    StructuredSessionJournalEntry journal;
+    journal.name = declaration.name;
+    if (declaration.name == "$_") {
+      journal.restoresLastValueAutoUpdate = true;
+      journal.priorLastValueAutoUpdateEnabled =
+          handle->structured_last_value_auto_update_enabled;
+      handle->structured_last_value_auto_update_enabled = false;
+      journal.lastValueMutationGenerationAtInstantiation =
+          handle->structured_last_value_mutation_generation;
+    }
+    auto displaced = handle->structured_session_cells.find(declaration.name);
+    if (displaced != handle->structured_session_cells.end()) {
+      journal.displaced = std::move(displaced->second);
+      handle->structured_session_cells.erase(displaced);
+    }
+    auto cell = std::make_unique<StructuredSessionCell>();
+    cell->kind = structuredCellKind(declaration.kind);
+    handle->structured_session_cells.emplace(
+        declaration.name, std::move(cell));
+    handle->structured_session_journal.push_back(std::move(journal));
+  }
+}
+
+void finishStructuredSessionTransaction(
+    ExactHermesRuntime* handle,
+    bool success) {
+  if (!handle->structured_session_transaction_active) return;
+  if (!success) {
+    for (auto entry = handle->structured_session_journal.rbegin();
+         entry != handle->structured_session_journal.rend();
+         ++entry) {
+      if (entry->initialized) continue;
+      handle->structured_session_cells.erase(entry->name);
+      if (entry->displaced) {
+        handle->structured_session_cells.emplace(
+            entry->name, std::move(entry->displaced));
+      }
+      if (entry->restoresLastValueAutoUpdate &&
+          handle->structured_last_value_mutation_generation ==
+              entry->lastValueMutationGenerationAtInstantiation) {
+        handle->structured_last_value_auto_update_enabled =
+            entry->priorLastValueAutoUpdateEnabled;
+      }
+    }
+  }
+  handle->structured_session_journal.clear();
+  handle->structured_session_transaction_active = false;
+}
+
+void structuredThrowValue(
+    ExactHermesRuntime* handle,
+    const facebook::jsi::Value& value,
+    uint32_t capabilityFlags,
+    ExHermesEvaluationResult* result) {
+  if (!mintStructuredValueHandle(handle, value, &result->value)) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+    return;
+  }
+  result->outcome_tag = EX_HERMES_EVAL_OUTCOME_THROW;
+  result->fault = EX_HERMES_EVAL_FAULT_NONE;
+  result->capability_flags = capabilityFlags;
+  populateStructuredSafeThrowMetadata(handle, value, result);
+}
+
+void structuredDeclarationRefusal(
+    ExactHermesRuntime* handle,
+    const StructuredDeclarationFeasibility& feasibility,
+    bool afterImportMaterialization,
+    uint32_t capabilityFlags,
+    ExHermesEvaluationResult* result) {
+  auto& rt = *handle->runtime;
+  const std::string message = afterImportMaterialization
+      ? "session declaration '" + feasibility.name +
+          "' became infeasible during static import materialization"
+      : "session declaration '" + feasibility.name + "' is not permitted";
+  const auto refusal = feasibility.refusal ==
+          StructuredDeclarationRefusalKind::RestrictedGlobal
+      ? facebook::jsi::JSError::createSyntaxError(rt, message)
+      : facebook::jsi::JSError::createTypeError(rt, message);
+  structuredThrowValue(
+      handle, refusal.value(), capabilityFlags, result);
+}
+
+void clearStructuredAsyncState(ExactHermesRuntime* handle) {
+  handle->structured_async_invocation.reset();
+  handle->structured_async_settlement_value.reset();
+  handle->structured_async_work_target_id = 0;
+  handle->structured_async_capability_flags = 0;
+  handle->structured_async_settled = false;
+  handle->structured_async_rejected = false;
+}
+
+void structuredSuspended(
+    ExHermesEvaluationResult* result,
+    uint32_t capabilityFlags) {
+  clearStructuredThrowMetadata(result);
+  result->outcome_tag = EX_HERMES_EVAL_CONTINUATION_SUSPENDED;
+  result->fault = EX_HERMES_EVAL_FAULT_NONE;
+  result->lifecycle_exit_code = 0;
+  result->capability_flags = capabilityFlags;
+}
+
+bool prepareStructuredSessionSuccess(
+    ExactHermesRuntime* handle,
+    uint32_t capabilityFlags,
+    ExHermesEvaluationResult* result) {
+  if (!handle->structured_session_completion_has_value) {
+    result->outcome_tag = EX_HERMES_EVAL_OUTCOME_EMPTY;
+    result->fault = EX_HERMES_EVAL_FAULT_NONE;
+    result->capability_flags = capabilityFlags;
+    return true;
+  }
+  if (!handle->structured_session_completion_value ||
+      !mintStructuredValueHandle(
+          handle,
+          *handle->structured_session_completion_value,
+          &result->value)) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+    return false;
+  }
+  result->outcome_tag = EX_HERMES_EVAL_OUTCOME_VALUE;
+  result->fault = EX_HERMES_EVAL_FAULT_NONE;
+  result->capability_flags = capabilityFlags;
+  handle->structured_pending_display_work_target_id = result->work_target_id;
+  handle->structured_pending_display_handle_id = result->value.handle_id;
+  return true;
+}
+
+int evaluateLoweredPreparedSession(
+    ExactHermesRuntime* handle,
+    const std::shared_ptr<const facebook::jsi::PreparedJavaScript>& prepared,
+    const std::shared_ptr<const facebook::jsi::Buffer>& source,
+    const std::shared_ptr<const facebook::jsi::Buffer>& sourceMap,
+    const std::string& sourceLabel,
+    const std::string& logicalReferrer,
+    bool asynchronous,
+    uint32_t capabilityFlags,
+    ExHermesEvaluationResult* result,
+    ScopedStructuredEvaluation* evaluation) {
+  auto& rt = *handle->runtime;
+  handle->structured_session_completion_has_value = false;
+  handle->structured_session_completion_value.reset();
+  try {
+    // `prepareJavaScript` above remains the pre-mutation syntax/compilation
+    // gate. When lowering supplied its generated map, execute the identical
+    // immutable bytes through Hermes' source-map-aware entry point so VM
+    // exception/debug coordinates use that map. Hermes exposes no prepared
+    // script API that also accepts a map, hence this deliberate second compile.
+    // @ref LLP 0024#4-grammar-selection
+    auto wrapperValue = sourceMap
+        ? handle->runtime->evaluateJavaScriptWithSourceMap(
+              source, sourceMap, sourceLabel)
+        : rt.evaluatePreparedJavaScript(prepared);
+    if (!wrapperValue.isObject() ||
+        !wrapperValue.getObject(rt).isFunction(rt)) {
+      finishStructuredSessionTransaction(handle, false);
+      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+      return 0;
+    }
+    auto wrapper = wrapperValue.getObject(rt).asFunction(rt);
+    auto hooks = makeStructuredSessionHooks(handle, logicalReferrer);
+    auto invocation = wrapper.call(rt, hooks);
+
+    if (asynchronous) {
+      if (!invocation.isObject()) {
+        finishStructuredSessionTransaction(handle, false);
+        structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+        return 0;
+      }
+      if (handle->structured_async_work_target_id != 0 ||
+          handle->structured_async_invocation ||
+          handle->structured_async_settlement_value) {
+        finishStructuredSessionTransaction(handle, false);
+        handle->structured_session_terminated = true;
+        structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+        return 0;
+      }
+      const uint64_t workTargetId = result->work_target_id;
+      handle->structured_async_work_target_id = workTargetId;
+      handle->structured_async_capability_flags = capabilityFlags;
+      handle->structured_async_settled = false;
+      handle->structured_async_rejected = false;
+      handle->structured_async_invocation =
+          std::make_unique<facebook::jsi::Value>(rt, invocation);
+      auto fulfilled = facebook::jsi::Function::createFromHostFunction(
+          rt,
+          facebook::jsi::PropNameID::forAscii(rt, "sessionFulfilled"),
+          1,
+          [handle, workTargetId](facebook::jsi::Runtime& runtime,
+                                 const facebook::jsi::Value&,
+                                 const facebook::jsi::Value* args,
+                                 size_t count) -> facebook::jsi::Value {
+            if (handle->structured_async_work_target_id != workTargetId) {
+              return facebook::jsi::Value::undefined();
+            }
+            handle->structured_async_settled = true;
+            handle->structured_async_rejected = false;
+            handle->structured_async_settlement_value = count == 0
+                ? std::make_unique<facebook::jsi::Value>(
+                      facebook::jsi::Value::undefined())
+                : std::make_unique<facebook::jsi::Value>(runtime, args[0]);
+            return facebook::jsi::Value::undefined();
+          });
+      auto rejected = facebook::jsi::Function::createFromHostFunction(
+          rt,
+          facebook::jsi::PropNameID::forAscii(rt, "sessionRejected"),
+          1,
+          [handle, workTargetId](facebook::jsi::Runtime& runtime,
+                                 const facebook::jsi::Value&,
+                                 const facebook::jsi::Value* args,
+                                 size_t count) -> facebook::jsi::Value {
+            if (handle->structured_async_work_target_id != workTargetId) {
+              return facebook::jsi::Value::undefined();
+            }
+            handle->structured_async_settled = true;
+            handle->structured_async_rejected = true;
+            handle->structured_async_settlement_value = count == 0
+                ? std::make_unique<facebook::jsi::Value>(
+                      facebook::jsi::Value::undefined())
+                : std::make_unique<facebook::jsi::Value>(runtime, args[0]);
+            return facebook::jsi::Value::undefined();
+          });
+      auto promise = invocation.getObject(rt);
+      handle->structured_promise_then->callWithThis(
+          rt, promise, fulfilled, rejected);
+      // A user-scheduled job is a background work unit even when the TLA
+      // settlement checkpoint happens to drain it synchronously here. Let the
+      // guarded drain publish that exact job failure and continue to the
+      // wrapper's settlement reaction; otherwise its JSError is caught by this
+      // evaluator and misreported as the top-level-await outcome.
+      // @ref LLP 0024#9-asynchronous-failures
+      drainMicrotasksGuarded(handle);
+      if (structuredLifecycleOutcome(handle, result, capabilityFlags)) {
+        finishStructuredSessionTransaction(handle, true);
+        clearStructuredAsyncState(handle);
+        return 0;
+      }
+      if (!handle->structured_async_settled) {
+        // Pending is an internal progress state, never a terminal evaluation
+        // outcome. The host drives ready work and resumes this exact id; no
+        // timeout or Promise-value assimilation participates.
+        // @ref LLP 0024#6-evaluation-outcomes-and-the-abi
+        structuredSuspended(result, capabilityFlags);
+        if (evaluation->suspend()) {
+          clearStructuredAsyncState(handle);
+        }
+        return 0;
+      }
+      if (handle->structured_async_rejected) {
+        finishStructuredSessionTransaction(handle, false);
+        if (!handle->structured_async_settlement_value) {
+          clearStructuredAsyncState(handle);
+          handle->structured_session_terminated = true;
+          structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+          return 0;
+        }
+        structuredThrowValue(handle,
+                             *handle->structured_async_settlement_value,
+                             capabilityFlags,
+                             result);
+        clearStructuredAsyncState(handle);
+        return 0;
+      }
+      clearStructuredAsyncState(handle);
+    }
+
+    if (structuredLifecycleOutcome(handle, result, capabilityFlags)) {
+      finishStructuredSessionTransaction(handle, true);
+      return 0;
+    }
+    if (!prepareStructuredSessionSuccess(handle, capabilityFlags, result)) {
+      finishStructuredSessionTransaction(handle, false);
+      evaluation->close();
+      return 0;
+    }
+    if (evaluation->close()) {
+      return 0;
+    }
+    finishStructuredSessionTransaction(handle, true);
+    return 0;
+  } catch (const facebook::jsi::JSError& error) {
+    evaluation->observeHermesTimeout(error);
+    if (structuredLifecycleOutcome(handle, result, capabilityFlags)) {
+      finishStructuredSessionTransaction(handle, true);
+      clearStructuredAsyncState(handle);
+      return 0;
+    }
+    finishStructuredSessionTransaction(handle, false);
+    structuredThrowValue(handle, error.value(), capabilityFlags, result);
+    clearStructuredAsyncState(handle);
+    return 0;
+  } catch (const std::bad_alloc&) {
+    if (structuredLifecycleOutcome(handle, result, capabilityFlags)) {
+      finishStructuredSessionTransaction(handle, true);
+      clearStructuredAsyncState(handle);
+      return 0;
+    }
+    finishStructuredSessionTransaction(handle, false);
+    clearStructuredAsyncState(handle);
+    handle->structured_session_terminated = true;
+    structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+    return 0;
+  } catch (...) {
+    if (structuredLifecycleOutcome(handle, result, capabilityFlags)) {
+      finishStructuredSessionTransaction(handle, true);
+      clearStructuredAsyncState(handle);
+      return 0;
+    }
+    finishStructuredSessionTransaction(handle, false);
+    clearStructuredAsyncState(handle);
+    handle->structured_session_terminated = true;
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+    return 0;
+  }
+}
+
+}  // namespace
+
+// @abi-output ex_hermes_evaluation_result_init result role=output kind=aggregate schema=ExHermesEvaluationResult members=* ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
+extern "C" void ex_hermes_evaluation_result_init(
+    ExHermesEvaluationResult* result) {
+  if (result == nullptr) return;
+  memset(result, 0, sizeof(*result));
+  result->abi_version = EX_HERMES_STRUCTURED_EVAL_ABI_VERSION;
+  result->struct_size = sizeof(*result);
+  result->throw_metadata_status = EX_HERMES_THROW_METADATA_UNAVAILABLE;
+  result->throw_error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+}
+
+// @abi-output ex_hermes_evaluation_result_dispose result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
+extern "C" void ex_hermes_evaluation_result_dispose(
+    ExHermesEvaluationResult* result) {
+  if (result == nullptr) return;
+  if (structuredResultLayoutIsCurrent(result)) {
+    free(result->message.data);
+    free(result->stack.data);
+    disposeStructuredSourcePositions(result);
+  }
+  ex_hermes_evaluation_result_init(result);
+}
+
+// @abi-output ex_hermes_eval_structured_diagnostic result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* elements=positions ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
+extern "C" int ex_hermes_eval_structured_diagnostic(
+    ExactHermesRuntime* runtime,
+    const uint8_t* source,
+    size_t source_length,
+    const uint8_t* source_label,
+    size_t source_label_length,
+    ExHermesEvaluationResult* result) {
+  if (!structuredResultLayoutIsCurrent(result)) return -1;
+  ex_hermes_evaluation_result_dispose(result);
+
+  if (runtime == nullptr || (source == nullptr && source_length != 0) ||
+      source_label == nullptr || source_label_length == 0 ||
+      memchr(source_label, 0, source_label_length) != nullptr) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_INPUT);
+    return 0;
+  }
+  if (!validUtf8(source, source_length) ||
+      !validUtf8(source_label, source_label_length)) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_UTF8);
+    return 0;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) {
+    structuredFault(result, structuredRuntimeDriveFault(drive.status()));
+    return 0;
+  }
+  if (runtime->armed) {
+    // This seam carries no SubmissionCredential. Keeping it diagnostic-only
+    // prevents a typed result container from disguising unattributed eval.
+    // @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ARMED_INGRESS_REQUIRED);
+    return 0;
+  }
+  if (runtime->next_structured_work_target_id == 0) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+    return 0;
+  }
+  result->work_target_id = runtime->next_structured_work_target_id++;
+  if (!ScopedRawThrowCapture::available()) {
+    // Stock Hermes reads arbitrary `.message` / `.stack` properties before a
+    // JSI caller can catch JSError. Refuse the whole evaluator, since any input
+    // can throw and a success-only capability would fail open on that branch.
+    structuredFault(result, EX_HERMES_EVAL_FAULT_RAW_THROW_UNAVAILABLE);
+    return 0;
+  }
+
+  // Raw JSI evaluation does not expose the Script completion record's Empty
+  // discriminator on stock artifacts, so this diagnostic seam honestly
+  // returns a value handle even for undefined and advertises no Base profile.
+  return evaluateStructuredSource(
+      runtime,
+      source,
+      source_length,
+      source_label,
+      source_label_length,
+      false,
+      0,
+      result,
+      nullptr);
+}
+
+extern "C" uint32_t ex_hermes_structured_session_bind(
+    ExactHermesRuntime* runtime,
+    const uint8_t* session_token,
+    size_t session_token_length) {
+  static_assert(EX_HERMES_SESSION_TOKEN_LENGTH == 32u);
+  if (runtime == nullptr || session_token == nullptr ||
+      session_token_length != EX_HERMES_SESSION_TOKEN_LENGTH ||
+      !hasNonzeroByte(session_token, session_token_length)) {
+    return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return structuredRuntimeDriveFault(drive.status());
+  if (!runtime->armed) {
+    return EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED;
+  }
+  if (runtime->armed_bootstrap_eval_open) {
+    return EX_HERMES_EVAL_FAULT_BOOTSTRAP_NOT_SEALED;
+  }
+  if (!runtime->structured_session_bound) {
+    // @ref LLP 0024#78-the-last-value-binding — the reserved binding is a
+    // runtime-owned configurable accessor installed only for a bound session.
+    if (!installStructuredLastValueAccessor(runtime)) {
+      return EX_HERMES_EVAL_FAULT_ENGINE;
+    }
+    std::copy(
+        session_token,
+        session_token + session_token_length,
+        runtime->structured_session_token.begin());
+    runtime->structured_session_bound = true;
+    return EX_HERMES_EVAL_FAULT_NONE;
+  }
+  return constantTimeBytesEqual(
+             runtime->structured_session_token.data(),
+             session_token,
+             session_token_length)
+      ? EX_HERMES_EVAL_FAULT_NONE
+      : EX_HERMES_EVAL_FAULT_WRONG_SESSION;
+}
+
+void clearStructuredAdmittedSubmission(ExactHermesRuntime* runtime) {
+  runtime->structured_admitted_submission_ordinal = 0;
+  runtime->structured_admitted_work_target_id = 0;
+  std::fill(
+      runtime->structured_admitted_request_binding.begin(),
+      runtime->structured_admitted_request_binding.end(),
+      0);
+}
+
+void clearStructuredActiveTarget(
+    ExactHermesRuntime* runtime,
+    uint64_t workTargetId) {
+  std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
+  if (runtime->structured_active_work_target_id == workTargetId) {
+    runtime->structured_active_work_target_id = 0;
+  }
+  if (runtime->structured_cancel_requested_work_target_id == workTargetId) {
+    runtime->structured_cancel_requested_work_target_id = 0;
+  }
+  runtime->structured_vm_work_active = false;
+}
+
+class ScopedStructuredActiveTarget {
+ public:
+  ScopedStructuredActiveTarget(
+      ExactHermesRuntime* runtime,
+      uint64_t workTargetId)
+      : runtime_(runtime), work_target_id_(workTargetId) {}
+
+  ~ScopedStructuredActiveTarget() {
+    if (!transferred_) {
+      clearStructuredActiveTarget(runtime_, work_target_id_);
+    }
+  }
+
+  void transfer() { transferred_ = true; }
+
+ private:
+  ExactHermesRuntime* runtime_;
+  uint64_t work_target_id_;
+  bool transferred_{false};
+};
+
+bool structuredAdmittedCredentialMatches(
+    const ExactHermesRuntime* runtime,
+    const ExHermesSessionCredential* credential) {
+  return runtime->structured_admitted_submission_ordinal != 0 &&
+      runtime->structured_admitted_work_target_id != 0 &&
+      credential->ordinal ==
+          runtime->structured_admitted_submission_ordinal &&
+      constantTimeBytesEqual(
+          runtime->structured_admitted_request_binding.data(),
+          credential->request_binding,
+          EX_HERMES_REQUEST_BINDING_LENGTH);
+}
+
+ExHermesEvaluationFault structuredMissingAdmissionFault(
+    const ExactHermesRuntime* runtime,
+    const ExHermesSessionCredential* credential) {
+  if (runtime->structured_admitted_submission_ordinal != 0) {
+    if (credential->ordinal <
+        runtime->structured_admitted_submission_ordinal) {
+      return EX_HERMES_EVAL_FAULT_SUBMISSION_REPLAY;
+    }
+    if (credential->ordinal >
+        runtime->structured_admitted_submission_ordinal) {
+      return EX_HERMES_EVAL_FAULT_WRONG_ORDINAL;
+    }
+    return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
+  }
+  if (credential->ordinal < runtime->next_structured_submission_ordinal) {
+    return EX_HERMES_EVAL_FAULT_SUBMISSION_REPLAY;
+  }
+  if (credential->ordinal > runtime->next_structured_submission_ordinal) {
+    return EX_HERMES_EVAL_FAULT_WRONG_ORDINAL;
+  }
+  return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
+}
+
+extern "C" uint32_t ex_hermes_structured_submission_admit(
+    ExactHermesRuntime* runtime,
+    const ExHermesSessionCredential* credential,
+    uint64_t* out_work_target_id) {
+  static_assert(EX_HERMES_SESSION_TOKEN_LENGTH == 32u);
+  static_assert(EX_HERMES_REQUEST_BINDING_LENGTH == 32u);
+  if (out_work_target_id == nullptr) {
+    return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
+  }
+  *out_work_target_id = 0;
+  if (runtime == nullptr ||
+      !structuredCredentialLayoutIsCurrent(credential)) {
+    return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return structuredRuntimeDriveFault(drive.status());
+  if (!runtime->armed) {
+    return EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED;
+  }
+  if (runtime->armed_bootstrap_eval_open) {
+    return EX_HERMES_EVAL_FAULT_BOOTSTRAP_NOT_SEALED;
+  }
+  if (!runtime->structured_session_bound) {
+    return EX_HERMES_EVAL_FAULT_SESSION_NOT_BOUND;
+  }
+  if (runtime->structured_session_terminated) {
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+  if (!constantTimeBytesEqual(
+          runtime->structured_session_token.data(),
+          credential->session_token,
+          EX_HERMES_SESSION_TOKEN_LENGTH)) {
+    return EX_HERMES_EVAL_FAULT_WRONG_SESSION;
+  }
+  if (!hasNonzeroByte(
+          credential->request_binding,
+          EX_HERMES_REQUEST_BINDING_LENGTH)) {
+    return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
+  }
+  if (runtime->structured_evaluation_in_flight ||
+      runtime->structured_pending_display_work_target_id != 0 ||
+      runtime->structured_pending_display_handle_id != 0 ||
+      runtime->structured_admitted_submission_ordinal != 0 ||
+      runtime->structured_admitted_work_target_id != 0) {
+    return EX_HERMES_EVAL_FAULT_EVALUATION_IN_FLIGHT;
+  }
+  const uint64_t expectedOrdinal =
+      runtime->next_structured_submission_ordinal;
+  if (expectedOrdinal == 0) {
+    return EX_HERMES_EVAL_FAULT_ORDINAL_EXHAUSTED;
+  }
+  if (credential->ordinal < expectedOrdinal) {
+    return EX_HERMES_EVAL_FAULT_SUBMISSION_REPLAY;
+  }
+  if (credential->ordinal > expectedOrdinal) {
+    return EX_HERMES_EVAL_FAULT_WRONG_ORDINAL;
+  }
+  if (runtime->next_structured_work_target_id == 0) {
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+
+  // This is the submission boundary: authentication and byte/shape checks
+  // have completed, and syntax/lowering begins only after this ordinal and
+  // exact work target are durably reserved. A failed parse settles the ticket
+  // but never rolls the ordinal back.
+  // @ref LLP 0024#2-source-identity-and-reserved-schemes
+  runtime->next_structured_submission_ordinal =
+      expectedOrdinal == std::numeric_limits<uint64_t>::max()
+      ? 0
+      : expectedOrdinal + 1;
+  runtime->structured_admitted_submission_ordinal = credential->ordinal;
+  std::copy(
+      credential->request_binding,
+      credential->request_binding + EX_HERMES_REQUEST_BINDING_LENGTH,
+      runtime->structured_admitted_request_binding.begin());
+  runtime->structured_admitted_work_target_id =
+      allocateStructuredWorkTarget(runtime);
+  if (runtime->structured_admitted_work_target_id == 0) {
+    clearStructuredAdmittedSubmission(runtime);
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+  {
+    std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
+    if (runtime->structured_active_work_target_id != 0) {
+      clearStructuredAdmittedSubmission(runtime);
+      return EX_HERMES_EVAL_FAULT_EVALUATION_IN_FLIGHT;
+    }
+    runtime->structured_cancel_requested_work_target_id = 0;
+    runtime->structured_vm_work_active = false;
+  }
+  *out_work_target_id = runtime->structured_admitted_work_target_id;
+  return EX_HERMES_EVAL_FAULT_NONE;
+}
+
+extern "C" uint32_t ex_hermes_structured_submission_settle(
+    ExactHermesRuntime* runtime,
+    const ExHermesSessionCredential* credential) {
+  if (runtime == nullptr ||
+      !structuredCredentialLayoutIsCurrent(credential)) {
+    return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return structuredRuntimeDriveFault(drive.status());
+  if (!runtime->structured_session_bound) {
+    return EX_HERMES_EVAL_FAULT_SESSION_NOT_BOUND;
+  }
+  if (!constantTimeBytesEqual(
+          runtime->structured_session_token.data(),
+          credential->session_token,
+          EX_HERMES_SESSION_TOKEN_LENGTH)) {
+    return EX_HERMES_EVAL_FAULT_WRONG_SESSION;
+  }
+  if (!structuredAdmittedCredentialMatches(runtime, credential)) {
+    return structuredMissingAdmissionFault(runtime, credential);
+  }
+  const uint64_t workTargetId =
+      runtime->structured_admitted_work_target_id;
+  clearStructuredAdmittedSubmission(runtime);
+  clearStructuredActiveTarget(runtime, workTargetId);
+  return EX_HERMES_EVAL_FAULT_NONE;
+}
+
+uint64_t exactRetainStructuredModuleGraphError(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::JSError& error) noexcept {
+  return exactRetainStructuredModuleGraphError(runtime, error.value());
+}
+
+uint64_t exactRetainStructuredModuleGraphError(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::Value& value) noexcept {
+  if (runtime == nullptr || !runtime->structured_module_graph_in_flight) {
+    return 0;
+  }
+  constexpr size_t kMaximumRetainedModuleErrors = 4096;
+  if (runtime->structured_module_error_values.size() >=
+          kMaximumRetainedModuleErrors ||
+      runtime->next_structured_module_error_token == 0) {
+    return 0;
+  }
+  const uint64_t token = runtime->next_structured_module_error_token++;
+  try {
+    auto retained =
+        std::make_unique<facebook::jsi::Value>(*runtime->runtime, value);
+    if (!runtime->structured_module_error_values
+             .emplace(token, std::move(retained))
+             .second) {
+      return 0;
+    }
+    return token;
+  } catch (...) {
+    return 0;
+  }
+}
+
+bool copyStructuredModuleGraphFileArguments(
+    const ExHermesUtf8Slice* input,
+    size_t count,
+    std::vector<std::string>* output) {
+  if (output == nullptr || input == nullptr || count < 2 || count > 65536) {
+    return false;
+  }
+  constexpr size_t kMaximumFileArgumentBytes = 1024 * 1024;
+  size_t totalBytes = 0;
+  output->clear();
+  output->reserve(count);
+  for (size_t index = 0; index < count; ++index) {
+    const auto& argument = input[index];
+    if (!structuredFileArgumentBytesValid(argument.data, argument.length) ||
+        argument.length > kMaximumFileArgumentBytes - totalBytes) {
+      return false;
+    }
+    totalBytes += argument.length;
+    if (argument.length == 0) {
+      output->emplace_back();
+    } else {
+      output->emplace_back(
+          reinterpret_cast<const char*>(argument.data), argument.length);
+    }
+  }
+  if ((*output)[0] != "ibex:runtime") return false;
+  const auto& entry = (*output)[1];
+  return entry.size() > 9 && entry.compare(0, 9, "/project/") == 0 &&
+      entry.back() != '/' && entry.find("//") == std::string::npos &&
+      entry.find("/./") == std::string::npos &&
+      entry.find("/../") == std::string::npos &&
+      (entry.size() < 2 || entry.compare(entry.size() - 2, 2, "/.") != 0) &&
+      (entry.size() < 3 || entry.compare(entry.size() - 3, 3, "/..") != 0);
+}
+
+void clearStructuredModuleGraphJobAssociation(ExactHermesRuntime* runtime) {
+  runtime->structured_vm_job_associated_evaluation = 0;
+#if defined(HERMES_HAS_PROMISE_REJECTION_CHECKPOINT_HOOK) && \
+    defined(EXACT_HAVE_STRUCTURED_ASYNC_PROVENANCE)
+  if (runtime->attribution_runtime != nullptr) {
+    ex_hermes_vm_set_job_associated_evaluation(runtime->attribution_runtime, 0);
+  }
+#endif
+}
+
+ExHermesEvaluationFault structuredRuntimeDriveFault(int32_t status) {
+  switch (status) {
+    case EXACT_RUNTIME_DRIVE_INVALID:
+      return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
+    case EXACT_RUNTIME_DRIVE_STALE:
+      return EX_HERMES_EVAL_FAULT_STALE_HANDLE;
+    case EXACT_RUNTIME_DRIVE_OFF_OWNER:
+      return EX_HERMES_EVAL_FAULT_WRONG_THREAD;
+    case EXACT_RUNTIME_DRIVE_REENTRANT:
+      return EX_HERMES_EVAL_FAULT_EVALUATION_IN_FLIGHT;
+    case EXACT_RUNTIME_DRIVE_ENGINE_ERROR:
+    default:
+      return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+}
+
+extern "C" uint32_t ex_hermes_structured_module_graph_begin(
+    ExactHermesRuntime* runtime,
+    const ExHermesSessionCredential* credential,
+    const ExHermesUtf8Slice* file_arguments,
+    size_t file_argument_count) {
+  if (runtime == nullptr ||
+      !structuredCredentialLayoutIsCurrent(credential)) {
+    return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return structuredRuntimeDriveFault(drive.status());
+  if (!runtime->armed) return EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED;
+  if (!runtime->structured_session_bound) {
+    return EX_HERMES_EVAL_FAULT_SESSION_NOT_BOUND;
+  }
+  if (runtime->structured_session_terminated) {
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+  if (!constantTimeBytesEqual(
+          runtime->structured_session_token.data(),
+          credential->session_token,
+          EX_HERMES_SESSION_TOKEN_LENGTH)) {
+    return EX_HERMES_EVAL_FAULT_WRONG_SESSION;
+  }
+  if (!structuredAdmittedCredentialMatches(runtime, credential)) {
+    return structuredMissingAdmissionFault(runtime, credential);
+  }
+  if (runtime->structured_evaluation_in_flight ||
+      runtime->structured_module_graph_in_flight ||
+      runtime->structured_pending_display_work_target_id != 0 ||
+      runtime->structured_pending_display_handle_id != 0 ||
+      structuredWorkIsExecuting(runtime)) {
+    return EX_HERMES_EVAL_FAULT_EVALUATION_IN_FLIGHT;
+  }
+
+  StructuredStaticImportPlan filePlan;
+  if (!copyStructuredModuleGraphFileArguments(
+          file_arguments, file_argument_count, &filePlan.fileArguments)) {
+    return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
+  }
+  try {
+    if (!applyStructuredFileArguments(runtime, filePlan)) {
+      return EX_HERMES_EVAL_FAULT_ENGINE;
+    }
+  } catch (...) {
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+
+  const uint64_t workTargetId = runtime->structured_admitted_work_target_id;
+  runtime->structured_module_error_values.clear();
+  runtime->next_structured_module_error_token = 1;
+  runtime->structured_module_graph_work_target_id = workTargetId;
+  runtime->structured_module_graph_in_flight = true;
+  runtime->structured_module_graph_suspended = false;
+  runtime->structured_evaluation_in_flight = true;
+  runtime->structured_evaluation_scheduling_id = credential->ordinal;
+  runtime->structured_vm_job_associated_evaluation = credential->ordinal;
+#if defined(HERMES_HAS_PROMISE_REJECTION_CHECKPOINT_HOOK) && \
+    defined(EXACT_HAVE_STRUCTURED_ASYNC_PROVENANCE)
+  if (runtime->attribution_runtime != nullptr) {
+    ex_hermes_vm_set_job_associated_evaluation(
+        runtime->attribution_runtime, credential->ordinal);
+  }
+#endif
+  if (!beginStructuredWorkUnit(
+          runtime,
+          EX_HERMES_WORK_UNIT_EVALUATION,
+          credential->ordinal,
+          workTargetId)) {
+    clearStructuredModuleGraphJobAssociation(runtime);
+    runtime->structured_evaluation_scheduling_id = 0;
+    runtime->structured_evaluation_in_flight = false;
+    runtime->structured_module_graph_in_flight = false;
+    runtime->structured_module_graph_work_target_id = 0;
+    runtime->structured_module_error_values.clear();
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+  clearStructuredAdmittedSubmission(runtime);
+  return EX_HERMES_EVAL_FAULT_NONE;
+}
+
+extern "C" uint32_t ex_hermes_structured_module_graph_suspend(
+    ExactHermesRuntime* runtime,
+    uint64_t work_target_id) {
+  if (runtime == nullptr || work_target_id == 0) {
+    return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
+  if (!runtime->structured_module_graph_in_flight ||
+      runtime->structured_module_graph_suspended ||
+      runtime->structured_module_graph_work_target_id != work_target_id) {
+    return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
+  }
+  {
+    std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
+    if (runtime->structured_active_work_target_id != work_target_id ||
+        !runtime->structured_vm_work_active) {
+      return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
+    }
+    if (runtime->structured_cancel_requested_work_target_id == work_target_id) {
+      return EX_HERMES_MODULE_GRAPH_TRANSITION_CANCELLATION_PENDING;
+    }
+    runtime->structured_active_work_target_id = 0;
+    runtime->structured_vm_work_active = false;
+  }
+  runtime->structured_module_graph_suspended = true;
+  clearStructuredModuleGraphJobAssociation(runtime);
+  if (!publishStructuredWorkEvent(
+          runtime,
+          EX_HERMES_WORK_UNIT_EVALUATION,
+          EX_HERMES_WORK_UNIT_SUSPENDED,
+          work_target_id,
+          runtime->structured_evaluation_scheduling_id)) {
+    return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
+  }
+  return EX_HERMES_MODULE_GRAPH_TRANSITION_OK;
+}
+
+extern "C" uint32_t ex_hermes_structured_module_graph_resume(
+    ExactHermesRuntime* runtime,
+    uint64_t work_target_id) {
+  if (runtime == nullptr || work_target_id == 0) {
+    return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
+  if (!runtime->structured_module_graph_in_flight ||
+      !runtime->structured_module_graph_suspended ||
+      runtime->structured_module_graph_work_target_id != work_target_id) {
+    return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
+  }
+  {
+    std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
+    if (runtime->structured_active_work_target_id != 0 ||
+        runtime->structured_vm_work_active ||
+        runtime->structured_cancel_requested_work_target_id != 0) {
+      return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
+    }
+  }
+  // Resumption is a new executing interval for the same exact target. Publish
+  // Begin through the ordinary helper so the supervisor can move the target
+  // out of its suspended set before offering exact cancellation. The helper
+  // rolls the native active-target state back if publication is unavailable;
+  // leave the graph suspended and its job association cleared on that path.
+  // @ref LLP 0025#6-interruption-and-cancellation
+  if (!beginStructuredWorkUnit(
+          runtime,
+          EX_HERMES_WORK_UNIT_EVALUATION,
+          runtime->structured_evaluation_scheduling_id,
+          work_target_id)) {
+    return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
+  }
+  runtime->structured_module_graph_suspended = false;
+  runtime->structured_vm_job_associated_evaluation =
+      runtime->structured_evaluation_scheduling_id;
+#if defined(HERMES_HAS_PROMISE_REJECTION_CHECKPOINT_HOOK) && \
+    defined(EXACT_HAVE_STRUCTURED_ASYNC_PROVENANCE)
+  if (runtime->attribution_runtime != nullptr) {
+    ex_hermes_vm_set_job_associated_evaluation(
+        runtime->attribution_runtime,
+        runtime->structured_evaluation_scheduling_id);
+  }
+#endif
+  return EX_HERMES_MODULE_GRAPH_TRANSITION_OK;
+}
+
+// @abi-output ex_hermes_structured_module_graph_finish result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* elements=positions ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
+extern "C" int ex_hermes_structured_module_graph_finish(
+    ExactHermesRuntime* runtime,
+    uint64_t work_target_id,
+    uint32_t execution_outcome,
+    uint64_t error_token,
+    ExHermesEvaluationResult* result) {
+  if (!structuredResultLayoutIsCurrent(result)) return -1;
+  ex_hermes_evaluation_result_dispose(result);
+  if (runtime == nullptr || work_target_id == 0) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_INPUT);
+    return 0;
+  }
+  result->work_target_id = work_target_id;
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) {
+    structuredFault(result, structuredRuntimeDriveFault(drive.status()));
+    return 0;
+  }
+  if (!runtime->structured_module_graph_in_flight ||
+      runtime->structured_module_graph_work_target_id != work_target_id) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_STALE_HANDLE);
+    return 0;
+  }
+
+  auto retainedError = error_token == 0
+      ? runtime->structured_module_error_values.end()
+      : runtime->structured_module_error_values.find(error_token);
+  const bool exactJavascriptThrow =
+      execution_outcome == EX_HERMES_MODULE_GRAPH_JAVASCRIPT_THROW &&
+      retainedError != runtime->structured_module_error_values.end();
+  const bool unresolvedTopLevelAwait =
+      execution_outcome ==
+      EX_HERMES_MODULE_GRAPH_UNRESOLVED_TOP_LEVEL_AWAIT;
+
+  if (structuredLifecycleOutcome(
+          runtime, result, kStructuredEvaluatorCapabilities)) {
+    // Lifecycle is terminal and outranks an overlapping cancellation request.
+  } else if (execution_outcome == EX_HERMES_MODULE_GRAPH_COMPLETED) {
+    result->outcome_tag = EX_HERMES_EVAL_OUTCOME_EMPTY;
+    result->fault = EX_HERMES_EVAL_FAULT_NONE;
+    result->capability_flags = kStructuredEvaluatorCapabilities;
+  } else if (exactJavascriptThrow) {
+    structuredThrowValue(
+        runtime,
+        *retainedError->second,
+        kStructuredEvaluatorCapabilities,
+        result);
+  } else if (unresolvedTopLevelAwait) {
+    try {
+      const auto failure = facebook::jsi::JSError(
+          *runtime->runtime,
+          "Unsettled top-level await has no pending host or runtime work");
+      structuredThrowValue(
+          runtime,
+          failure.value(),
+          kStructuredEvaluatorCapabilities,
+          result);
+    } catch (const std::bad_alloc&) {
+      structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+    } catch (...) {
+      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+    }
+  } else {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+  }
+
+  const auto stopCause = exactJavascriptThrow
+      ? StructuredCancellationStopCause::RawCapturedJsThrow
+      : execution_outcome ==
+              EX_HERMES_MODULE_GRAPH_COOPERATIVE_CANCELLATION
+      ? StructuredCancellationStopCause::CooperativeBoundary
+      : StructuredCancellationStopCause::None;
+  const uint64_t schedulingId =
+      runtime->structured_evaluation_scheduling_id;
+  auto settlement = retireStructuredWorkTarget(runtime, work_target_id, stopCause);
+  runtime->structured_evaluation_scheduling_id = 0;
+  runtime->structured_evaluation_in_flight = false;
+
+  const bool cancellationStoppedWork = settlement.requested &&
+      settlement.resolution != EX_HERMES_CANCELLATION_DEFEATED;
+  if (cancellationStoppedWork &&
+      result->outcome_tag != EX_HERMES_EVAL_OUTCOME_LIFECYCLE) {
+    discardStructuredEvaluationResultPayload(runtime, result);
+    result->outcome_tag = settlement.resolution == EX_HERMES_CANCELLATION_ACCEPTED
+        ? EX_HERMES_EVAL_OUTCOME_CANCELLED
+        : EX_HERMES_EVAL_OUTCOME_ENGINE_FAULT;
+    result->fault = settlement.resolution == EX_HERMES_CANCELLATION_ACCEPTED
+        ? EX_HERMES_EVAL_FAULT_NONE
+        : EX_HERMES_EVAL_FAULT_ENGINE;
+    result->capability_flags = kStructuredEvaluatorCapabilities;
+  }
+  const uint32_t resolution = validateStructuredCancellationSettlement(
+      runtime,
+      settlement,
+      result->outcome_tag == EX_HERMES_EVAL_OUTCOME_LIFECYCLE);
+  if (resolution == EX_HERMES_CANCELLATION_FAILED &&
+      result->outcome_tag != EX_HERMES_EVAL_OUTCOME_LIFECYCLE) {
+    discardStructuredEvaluationResultPayload(runtime, result);
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+  }
+  publishStructuredWorkEvent(
+      runtime,
+      EX_HERMES_WORK_UNIT_EVALUATION,
+      EX_HERMES_WORK_UNIT_END,
+      work_target_id,
+      schedulingId);
+  if (resolution != 0) {
+    publishStructuredCancellationEvent(runtime, resolution, work_target_id);
+  }
+
+  clearStructuredModuleGraphJobAssociation(runtime);
+  runtime->structured_module_graph_in_flight = false;
+  runtime->structured_module_graph_suspended = false;
+  runtime->structured_module_graph_work_target_id = 0;
+  runtime->structured_module_error_values.clear();
+  return 0;
+}
+
+// @abi-output ex_hermes_take_work_unit_event event role=inout kind=aggregate schema=ExHermesWorkUnitEvent members=kind,phase,target_id,scheduling_id ownership=caller-storage
+extern "C" uint32_t ex_hermes_take_work_unit_event(
+    ExactHermesRuntime* runtime,
+    uint64_t runtimeNonce,
+    ExHermesWorkUnitEvent* event) {
+  if (event == nullptr ||
+      event->abi_version != EX_HERMES_WORK_UNIT_EVENT_ABI_VERSION ||
+      event->struct_size != sizeof(ExHermesWorkUnitEvent)) {
+    return EX_HERMES_WORK_UNIT_EVENT_FAILED;
+  }
+  ScopedRuntimeControlLease lease(runtime, runtimeNonce);
+  if (!lease) return EX_HERMES_WORK_UNIT_EVENT_FAILED;
+  std::lock_guard<std::mutex> lock(runtime->structured_work_event_mutex);
+  if (runtime->structured_work_event_failed) {
+    return EX_HERMES_WORK_UNIT_EVENT_FAILED;
+  }
+  if (runtime->structured_work_event_overflow) {
+    return EX_HERMES_WORK_UNIT_EVENT_OVERFLOW;
+  }
+  if (runtime->structured_work_events.empty()) {
+    return EX_HERMES_WORK_UNIT_EVENT_EMPTY;
+  }
+  const StructuredWorkUnitEvent published =
+      runtime->structured_work_events.front();
+  runtime->structured_work_events.pop_front();
+  event->kind = published.kind;
+  event->phase = published.phase;
+  event->target_id = published.targetId;
+  event->scheduling_id = published.schedulingId;
+  return EX_HERMES_WORK_UNIT_EVENT_AVAILABLE;
+}
+
+// @abi-output ex_hermes_take_cancellation_event event role=inout kind=aggregate schema=ExHermesCancellationEvent members=resolution,target_id ownership=caller-storage
+extern "C" uint32_t ex_hermes_take_cancellation_event(
+    ExactHermesRuntime* runtime,
+    uint64_t runtimeNonce,
+    ExHermesCancellationEvent* event) {
+  if (event == nullptr ||
+      event->abi_version != EX_HERMES_CANCELLATION_EVENT_ABI_VERSION ||
+      event->struct_size != sizeof(ExHermesCancellationEvent) ||
+      event->reserved != 0) {
+    return EX_HERMES_CANCELLATION_EVENT_FAILED;
+  }
+  ScopedRuntimeControlLease lease(runtime, runtimeNonce);
+  if (!lease) return EX_HERMES_CANCELLATION_EVENT_FAILED;
+  std::lock_guard<std::mutex> lock(runtime->structured_work_event_mutex);
+  if (runtime->structured_work_event_failed) {
+    return EX_HERMES_CANCELLATION_EVENT_FAILED;
+  }
+  if (runtime->structured_cancellation_event_overflow) {
+    return EX_HERMES_CANCELLATION_EVENT_OVERFLOW;
+  }
+  if (runtime->structured_cancellation_events.empty()) {
+    return EX_HERMES_CANCELLATION_EVENT_EMPTY;
+  }
+  const StructuredCancellationEvent published =
+      runtime->structured_cancellation_events.front();
+  runtime->structured_cancellation_events.pop_front();
+  event->resolution = published.resolution;
+  event->target_id = published.targetId;
+  return EX_HERMES_CANCELLATION_EVENT_AVAILABLE;
+}
+
+// @abi-output ex_hermes_take_async_failure_event event role=inout kind=aggregate schema=ExHermesAsyncFailureEvent members=kind,principal_status,value,host_context_id,owning_principal_id,event_id,associated_evaluation,dropped_count ownership=caller-storage
+extern "C" uint32_t ex_hermes_take_async_failure_event(
+    ExactHermesRuntime* runtime,
+    ExHermesAsyncFailureEvent* event) {
+  if (event == nullptr ||
+      event->abi_version != EX_HERMES_ASYNC_FAILURE_EVENT_ABI_VERSION ||
+      event->struct_size != sizeof(ExHermesAsyncFailureEvent)) {
+    return EX_HERMES_ASYNC_FAILURE_EVENT_FAILED;
+  }
+  event->kind = 0;
+  event->principal_status = 0;
+  event->value = {0, 0};
+  event->host_context_id = 0;
+  event->owning_principal_id = 0;
+  event->event_id = 0;
+  event->associated_evaluation = 0;
+  event->dropped_count = 0;
+
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return EX_HERMES_ASYNC_FAILURE_EVENT_FAILED;
+
+  if (runtime->structured_async_failure_failed) {
+    return EX_HERMES_ASYNC_FAILURE_EVENT_FAILED;
+  }
+  if (!runtime->structured_async_failure_events.empty()) {
+    const StructuredAsyncFailureEvent published =
+        runtime->structured_async_failure_events.front();
+    runtime->structured_async_failure_events.pop_front();
+    event->kind = published.kind;
+    event->principal_status =
+        static_cast<uint32_t>(published.principalStatus);
+    event->value = {published.runtimeNonce, published.handleId};
+    event->host_context_id = published.hostContextId;
+    event->owning_principal_id = published.principal;
+    event->event_id = published.eventId;
+    event->associated_evaluation = published.associatedEvaluation;
+    return EX_HERMES_ASYNC_FAILURE_EVENT_AVAILABLE;
+  }
+  if (runtime->structured_async_failure_dropped != 0) {
+    event->dropped_count = runtime->structured_async_failure_dropped;
+    runtime->structured_async_failure_dropped = 0;
+    return EX_HERMES_ASYNC_FAILURE_EVENT_DROPPED;
+  }
+  return EX_HERMES_ASYNC_FAILURE_EVENT_EMPTY;
+}
+
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+extern "C" int32_t ibex_test_enable_work_unit_publication(
+    ExactHermesRuntime* runtime) {
+  if (runtime == nullptr || runtime->armed ||
+      runtime->runtime_thread != std::this_thread::get_id()) {
+    return -1;
+  }
+  // Test-only activation lets a diagnostic runtime exercise the real timer,
+  // callback, microtask, queue, and any-thread cancellation paths without
+  // manufacturing a production armed-session credential.
+  runtime->structured_session_bound = true;
+  return 1;
+}
+
+extern "C" int32_t
+ibex_test_fail_next_work_begin_after_cancellation(
+    ExactHermesRuntime* runtime) {
+  if (runtime == nullptr || runtime->armed ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->structured_session_bound ||
+      runtime->structured_test_fail_next_begin_after_cancellation) {
+    return -1;
+  }
+  runtime->structured_test_fail_next_begin_after_cancellation = true;
+  return 1;
+}
+
+extern "C" int32_t ibex_test_begin_module_graph_transition_probe(
+    ExactHermesRuntime* runtime,
+    uint64_t work_target_id,
+    uint64_t scheduling_id) {
+  if (runtime == nullptr || runtime->armed ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->structured_session_bound || work_target_id == 0 ||
+      scheduling_id == 0 || runtime->structured_evaluation_in_flight ||
+      runtime->structured_module_graph_in_flight ||
+      structuredWorkIsExecuting(runtime)) {
+    return -1;
+  }
+  runtime->structured_module_graph_work_target_id = work_target_id;
+  runtime->structured_module_graph_in_flight = true;
+  runtime->structured_module_graph_suspended = false;
+  runtime->structured_evaluation_in_flight = true;
+  runtime->structured_evaluation_scheduling_id = scheduling_id;
+  runtime->structured_vm_job_associated_evaluation = scheduling_id;
+  if (!beginStructuredWorkUnit(
+          runtime,
+          EX_HERMES_WORK_UNIT_EVALUATION,
+          scheduling_id,
+          work_target_id)) {
+    clearStructuredModuleGraphJobAssociation(runtime);
+    runtime->structured_evaluation_scheduling_id = 0;
+    runtime->structured_evaluation_in_flight = false;
+    runtime->structured_module_graph_in_flight = false;
+    runtime->structured_module_graph_work_target_id = 0;
+    return -1;
+  }
+  return 1;
+}
+
+extern "C" int32_t ibex_test_begin_callback_during_module_graph_gap(
+    ExactHermesRuntime* runtime,
+    uint64_t work_target_id,
+    uint64_t scheduling_id) {
+  if (runtime == nullptr || runtime->armed ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->structured_module_graph_in_flight ||
+      !runtime->structured_module_graph_suspended || work_target_id == 0 ||
+      scheduling_id == 0 || structuredWorkIsExecuting(runtime)) {
+    return -1;
+  }
+  return beginStructuredWorkUnit(
+             runtime,
+             EX_HERMES_WORK_UNIT_CALLBACK,
+             scheduling_id,
+             work_target_id)
+      ? 1
+      : -1;
+}
+
+extern "C" int32_t ibex_test_end_callback_during_module_graph_gap(
+    ExactHermesRuntime* runtime,
+    uint64_t work_target_id,
+    uint64_t scheduling_id) {
+  if (runtime == nullptr || runtime->armed ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->structured_module_graph_in_flight ||
+      !runtime->structured_module_graph_suspended || work_target_id == 0 ||
+      scheduling_id == 0) {
+    return -1;
+  }
+  (void)endStructuredWorkUnit(
+      runtime,
+      EX_HERMES_WORK_UNIT_CALLBACK,
+      scheduling_id,
+      work_target_id);
+  return 1;
+}
+
+extern "C" int32_t ibex_test_end_module_graph_transition_probe(
+    ExactHermesRuntime* runtime,
+    uint64_t work_target_id,
+    int32_t cooperative_cancellation) {
+  if (runtime == nullptr || runtime->armed ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->structured_module_graph_in_flight ||
+      runtime->structured_module_graph_work_target_id != work_target_id) {
+    return -1;
+  }
+  const uint64_t schedulingId =
+      runtime->structured_evaluation_scheduling_id;
+  (void)endStructuredWorkUnit(
+      runtime,
+      EX_HERMES_WORK_UNIT_EVALUATION,
+      schedulingId,
+      work_target_id,
+      cooperative_cancellation != 0
+          ? StructuredCancellationStopCause::CooperativeBoundary
+          : StructuredCancellationStopCause::None);
+  clearStructuredModuleGraphJobAssociation(runtime);
+  runtime->structured_evaluation_scheduling_id = 0;
+  runtime->structured_evaluation_in_flight = false;
+  runtime->structured_module_graph_in_flight = false;
+  runtime->structured_module_graph_suspended = false;
+  runtime->structured_module_graph_work_target_id = 0;
+  return structuredCancellationStateIsReusable(runtime) ? 1 : -1;
+}
+
+extern "C" int32_t ibex_test_begin_structured_module_error_capture(
+    ExactHermesRuntime* runtime) {
+  if (runtime == nullptr || runtime->runtime_thread != std::this_thread::get_id() ||
+      runtime->structured_module_graph_in_flight) {
+    return -1;
+  }
+  runtime->structured_module_error_values.clear();
+  runtime->next_structured_module_error_token = 1;
+  runtime->structured_module_graph_in_flight = true;
+  return 1;
+}
+
+extern "C" int32_t ibex_test_end_structured_module_error_capture(
+    ExactHermesRuntime* runtime) {
+  if (runtime == nullptr || runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->structured_module_graph_in_flight) {
+    return -1;
+  }
+  runtime->structured_module_error_values.clear();
+  runtime->structured_module_graph_in_flight = false;
+  return 1;
+}
+
+extern "C" int32_t ibex_test_structured_module_error_token_matches_utf8(
+    ExactHermesRuntime* runtime,
+    uint64_t error_token,
+    const uint8_t* expected,
+    size_t expected_length) {
+  if (runtime == nullptr || runtime->runtime_thread != std::this_thread::get_id() ||
+      error_token == 0 || (expected == nullptr && expected_length != 0)) {
+    return -1;
+  }
+  auto retained = runtime->structured_module_error_values.find(error_token);
+  if (retained == runtime->structured_module_error_values.end() ||
+      !retained->second || !retained->second->isString()) {
+    return 0;
+  }
+  try {
+    const std::string value =
+        retained->second->asString(*runtime->runtime).utf8(*runtime->runtime);
+    return value.size() == expected_length &&
+            (expected_length == 0 ||
+             memcmp(value.data(), expected, expected_length) == 0)
+        ? 1
+        : 0;
+  } catch (...) {
+    return -1;
+  }
+}
+
+extern "C" uint64_t ibex_test_structured_module_error_token_for_utf8(
+    ExactHermesRuntime* runtime,
+    const uint8_t* expected,
+    size_t expected_length) {
+  if (runtime == nullptr || runtime->runtime_thread != std::this_thread::get_id() ||
+      (expected == nullptr && expected_length != 0)) {
+    return 0;
+  }
+  for (const auto& retained : runtime->structured_module_error_values) {
+    if (!retained.second || !retained.second->isString()) continue;
+    try {
+      const std::string value =
+          retained.second->asString(*runtime->runtime).utf8(*runtime->runtime);
+      if (value.size() == expected_length &&
+          (expected_length == 0 ||
+           memcmp(value.data(), expected, expected_length) == 0)) {
+        return retained.first;
+      }
+    } catch (...) {
+      return 0;
+    }
+  }
+  return 0;
+}
+
+extern "C" int32_t ibex_test_enqueue_blocking_native_work(
+    ExactHermesRuntime* runtime) {
+  if (runtime == nullptr || !runtime->structured_session_bound ||
+      runtime->runtime_thread != std::this_thread::get_id()) {
+    return -1;
+  }
+  {
+    std::lock_guard<std::mutex> lock(runtime->structured_test_work_mutex);
+    runtime->structured_test_work_released = false;
+  }
+  {
+    std::lock_guard<std::mutex> lock(runtime->task_mutex);
+    runtime->pending_tasks.push_back(
+        [runtime](facebook::jsi::Runtime&) {
+          std::unique_lock<std::mutex> lock(
+              runtime->structured_test_work_mutex);
+          runtime->structured_test_work_cv.wait(lock, [runtime] {
+            return runtime->structured_test_work_released;
+          });
+        });
+  }
+  return 1;
+}
+
+extern "C" int32_t ibex_test_enqueue_runtime_principal_throw(
+    ExactHermesRuntime* runtime) {
+  if (runtime == nullptr || !runtime->structured_session_bound ||
+      runtime->runtime_thread != std::this_thread::get_id()) {
+    return -1;
+  }
+  std::lock_guard<std::mutex> lock(runtime->callbackMutex);
+  runtime->callbackQueue.push_back(
+      ExactHermesRuntime::QueuedRuntimeCallback{
+          structuredAsyncFailureContext(
+              EX_HERMES_ASYNC_FAILURE_NATIVE_TASK,
+              static_cast<uint64_t>(kRuntimePrincipalId),
+              exactAllocateAsyncEventIdentity(runtime),
+              0),
+          [](facebook::jsi::Runtime& rt) {
+            throw facebook::jsi::JSError(
+                rt, "runtime-principal-unavailable");
+          }});
+  return 1;
+}
+
+extern "C" uint64_t ibex_test_structured_async_root_count(
+    ExactHermesRuntime* runtime,
+    uint32_t selector) {
+  if (runtime == nullptr || !runtime->structured_session_bound ||
+      runtime->runtime_thread != std::this_thread::get_id()) {
+    return std::numeric_limits<uint64_t>::max();
+  }
+  switch (selector) {
+    case 1:
+      return runtime->structured_pending_promise_rejections.size();
+    case 2:
+      return runtime->structured_value_handles.size();
+    case 3:
+      return runtime->structured_value_safe_throw_metadata.size();
+    case 4:
+      return runtime->structured_pending_promise_rejection_dropped;
+    case 5:
+      return runtime->structured_async_failure_events.size();
+    case 6:
+      return runtime->structured_async_failure_dropped;
+    default:
+      return std::numeric_limits<uint64_t>::max();
+  }
+}
+
+extern "C" int32_t ibex_test_set_pending_promise_rejection_drop_count(
+    ExactHermesRuntime* runtime,
+    uint64_t count) {
+  if (runtime == nullptr || !runtime->armed ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->structured_pending_promise_rejections.empty()) {
+    return -1;
+  }
+  runtime->structured_pending_promise_rejection_dropped = count;
+  return 1;
+}
+
+extern "C" int32_t ibex_test_release_blocking_native_work(
+    ExactHermesRuntime* runtime) {
+  if (runtime == nullptr) return -1;
+  {
+    std::lock_guard<std::mutex> lock(runtime->structured_test_work_mutex);
+    runtime->structured_test_work_released = true;
+  }
+  runtime->structured_test_work_cv.notify_all();
+  return 1;
+}
+#endif
+
+extern "C" uint64_t ex_hermes_structured_active_work_target(
+    ExactHermesRuntime* runtime,
+    uint64_t runtimeNonce) {
+  ScopedRuntimeControlLease lease(runtime, runtimeNonce);
+  if (!lease) return 0;
+  std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
+  return runtime->structured_active_work_target_id;
+}
+
+extern "C" uint32_t ex_hermes_cancel_structured_work_target(
+    ExactHermesRuntime* runtime,
+    uint64_t runtimeNonce,
+    uint64_t workTargetId) {
+  if (workTargetId == 0) {
+    return EX_HERMES_CANCEL_FAILED;
+  }
+  ScopedRuntimeControlLease lease(runtime, runtimeNonce);
+  if (!lease) return EX_HERMES_CANCEL_FAILED;
+  std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
+  if (runtime->structured_active_work_target_id == 0) {
+    return EX_HERMES_CANCEL_UNAVAILABLE;
+  }
+  if (runtime->structured_active_work_target_id != workTargetId) {
+    return EX_HERMES_CANCEL_STALE_TARGET;
+  }
+  if (!runtime->structured_vm_work_active) {
+    // Due and suspended units are visible in the publication stream but are
+    // not executing cancellation targets. Refuse if an internal transition
+    // has already removed this unit from Hermes execution.
+    // @ref LLP 0025#6-interruption-and-cancellation
+    return EX_HERMES_CANCEL_UNAVAILABLE;
+  }
+  if (runtime->structured_cancel_requested_work_target_id == workTargetId) {
+    // Multiple controller requests for the same executing unit share one
+    // terminal native result. Re-triggering would queue a second timeout that
+    // the consistency probe could mistake for a normal-completion win.
+    return EX_HERMES_CANCEL_ACCEPTED;
+  }
+  const uint64_t criticalTarget =
+      runtime->structured_cancellation_critical_work_target_id;
+  if (criticalTarget != 0 && criticalTarget != workTargetId) {
+    return EX_HERMES_CANCEL_FAILED;
+  }
+  runtime->structured_cancel_requested_work_target_id = workTargetId;
+  if (criticalTarget == workTargetId) {
+    // Phase 5 has already proved feasibility and is committing a bounded set
+    // of inert mutations. Delivery is recorded now; the owner observes it at
+    // the boundary without placing a break inside the atomic commit.
+    return EX_HERMES_CANCEL_ACCEPTED;
+  }
+  // Hermes documents asyncTriggerTimeout as any-thread. The target mutex is
+  // held through the call, so the owner cannot retire this unit and publish
+  // a successor between the exact-id check and the interrupt request.
+  runtime->runtime->asyncTriggerTimeout();
+  return EX_HERMES_CANCEL_ACCEPTED;
+}
+
+// @abi-output ex_hermes_eval_structured_session result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* elements=positions ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
+extern "C" int ex_hermes_eval_structured_session(
+    ExactHermesRuntime* runtime,
+    const ExHermesSessionCredential* credential,
+    const uint8_t* source,
+    size_t source_length,
+    const uint8_t* source_label,
+    size_t source_label_length,
+    ExHermesEvaluationResult* result) {
+  static_assert(EX_HERMES_SESSION_TOKEN_LENGTH == 32u);
+  static_assert(EX_HERMES_REQUEST_BINDING_LENGTH == 32u);
+  if (!structuredResultLayoutIsCurrent(result)) return -1;
+  ex_hermes_evaluation_result_dispose(result);
+
+  if (runtime == nullptr ||
+      !structuredCredentialLayoutIsCurrent(credential) ||
+      (source == nullptr && source_length != 0) || source_label == nullptr ||
+      source_label_length == 0 ||
+      memchr(source_label, 0, source_label_length) != nullptr) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_INPUT);
+    return 0;
+  }
+  if (!validUtf8(source, source_length) ||
+      !validUtf8(source_label, source_label_length)) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_UTF8);
+    return 0;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) {
+    structuredFault(result, structuredRuntimeDriveFault(drive.status()));
+    return 0;
+  }
+  if (!runtime->armed) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED);
+    return 0;
+  }
+  if (!runtime->structured_session_bound) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_SESSION_NOT_BOUND);
+    return 0;
+  }
+  if (!constantTimeBytesEqual(
+          runtime->structured_session_token.data(),
+          credential->session_token,
+          EX_HERMES_SESSION_TOKEN_LENGTH)) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_WRONG_SESSION);
+    return 0;
+  }
+  if (!hasNonzeroByte(
+          credential->request_binding,
+          EX_HERMES_REQUEST_BINDING_LENGTH)) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_INPUT);
+    return 0;
+  }
+  if (runtime->structured_evaluation_in_flight ||
+      runtime->structured_pending_display_work_target_id != 0 ||
+      runtime->structured_pending_display_handle_id != 0 ||
+      runtime->structured_admitted_submission_ordinal != 0 ||
+      runtime->structured_admitted_work_target_id != 0) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_EVALUATION_IN_FLIGHT);
+    return 0;
+  }
+  const uint64_t expected_ordinal =
+      runtime->next_structured_submission_ordinal;
+  if (expected_ordinal == 0) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ORDINAL_EXHAUSTED);
+    return 0;
+  }
+  if (credential->ordinal < expected_ordinal) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_SUBMISSION_REPLAY);
+    return 0;
+  }
+  if (credential->ordinal > expected_ordinal) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_WRONG_ORDINAL);
+    return 0;
+  }
+  if (!ScopedRawThrowCapture::available()) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_RAW_THROW_UNAVAILABLE);
+    return 0;
+  }
+  if (!structuredCompletionRecordAvailable()) {
+    structuredFault(
+        result, EX_HERMES_EVAL_FAULT_COMPLETION_RECORD_UNAVAILABLE);
+    return 0;
+  }
+  if (runtime->next_structured_work_target_id == 0) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+    return 0;
+  }
+
+  // Crossing this point accepts and consumes the credential. A thrown program
+  // value or later engine fault must not make its ordinal reusable.
+  runtime->next_structured_submission_ordinal =
+      expected_ordinal == std::numeric_limits<uint64_t>::max()
+      ? 0
+      : expected_ordinal + 1;
+  result->work_target_id = allocateStructuredWorkTarget(runtime);
+  if (result->work_target_id == 0) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+    return 0;
+  }
+  {
+    std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
+    if (runtime->structured_active_work_target_id != 0) {
+      structuredFault(result, EX_HERMES_EVAL_FAULT_EVALUATION_IN_FLIGHT);
+      return 0;
+    }
+    runtime->structured_cancel_requested_work_target_id = 0;
+  }
+  ScopedStructuredEvaluation evaluation(
+      runtime, result, true, credential->ordinal);
+  return evaluateStructuredSource(
+      runtime,
+      source,
+      source_length,
+      source_label,
+      source_label_length,
+      true,
+      kStructuredEvaluatorCapabilities,
+      result,
+      &evaluation);
+}
+
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+// Exercise the real direct armed-session ABI without weakening its production
+// credential surface. The helper starts from an already-bound test session,
+// uses the next two native ordinals, and leaves the real asynchronous-failure
+// records queued for the Rust adapter to validate and release.
+extern "C" int32_t ibex_test_direct_session_async_boundary(
+    ExactHermesRuntime* runtime) {
+  if (runtime == nullptr || !runtime->armed ||
+      !runtime->structured_session_bound ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      runtime->structured_evaluation_in_flight ||
+      runtime->structured_session_terminated ||
+      !runtime->structured_async_failure_events.empty() ||
+      runtime->structured_async_failure_dropped != 0 ||
+      runtime->structured_async_failure_failed) {
+    return 1;
+  }
+
+  const uint64_t firstOrdinal =
+      runtime->next_structured_submission_ordinal;
+  if (firstOrdinal == 0 ||
+      firstOrdinal > std::numeric_limits<uint64_t>::max() - 2) {
+    return 2;
+  }
+
+  auto makeCredential = [runtime](uint64_t ordinal, uint8_t bindingByte) {
+    ExHermesSessionCredential credential{};
+    credential.abi_version = EX_HERMES_STRUCTURED_EVAL_ABI_VERSION;
+    credential.struct_size = sizeof(credential);
+    std::copy(
+        runtime->structured_session_token.begin(),
+        runtime->structured_session_token.end(),
+        credential.session_token);
+    std::fill(
+        credential.request_binding,
+        credential.request_binding + EX_HERMES_REQUEST_BINDING_LENGTH,
+        bindingByte);
+    credential.ordinal = ordinal;
+    return credential;
+  };
+
+  auto evaluateNumber = [runtime](
+                            const ExHermesSessionCredential& credential,
+                            const char* source,
+                            const char* label,
+                            double expected) -> bool {
+    ExHermesEvaluationResult result{};
+    ex_hermes_evaluation_result_init(&result);
+    const int status = ex_hermes_eval_structured_session(
+        runtime,
+        &credential,
+        reinterpret_cast<const uint8_t*>(source),
+        strlen(source),
+        reinterpret_cast<const uint8_t*>(label),
+        strlen(label),
+        &result);
+    bool matches = status == 0 &&
+        result.outcome_tag == EX_HERMES_EVAL_OUTCOME_VALUE &&
+        result.fault == EX_HERMES_EVAL_FAULT_NONE &&
+        result.value.runtime_nonce == runtime->runtime_nonce &&
+        result.value.handle_id != 0;
+    if (matches) {
+      auto found = runtime->structured_value_handles.find(
+          result.value.handle_id);
+      matches = found != runtime->structured_value_handles.end() &&
+          found->second && found->second->isNumber() &&
+          found->second->asNumber() == expected;
+    }
+    if (result.value.handle_id != 0) {
+      matches =
+          ex_hermes_value_release(runtime, result.value) ==
+              EX_HERMES_EVAL_FAULT_NONE && matches;
+    }
+    ex_hermes_evaluation_result_dispose(&result);
+    return matches;
+  };
+
+  static const char kFirstSource[] = R"JS((function () {
+  globalThis.__ibexDirectSessionBoundary = {
+    foreground: 40,
+    nextTickAfter: false,
+    microtaskAfter: false
+  };
+  process.nextTick(function directSessionNextTickThrow() {
+    throw 'direct-next-tick';
+  });
+  process.nextTick(function directSessionNextTickAfter() {
+    globalThis.__ibexDirectSessionBoundary.nextTickAfter = true;
+  });
+  queueMicrotask(function directSessionMicrotaskThrow() {
+    throw 'direct-microtask';
+  });
+  queueMicrotask(function directSessionMicrotaskAfter() {
+    globalThis.__ibexDirectSessionBoundary.microtaskAfter = true;
+  });
+  globalThis.__ibexDirectSessionBoundary.foreground += 1;
+  return globalThis.__ibexDirectSessionBoundary.foreground;
+})())JS";
+  const auto firstCredential = makeCredential(firstOrdinal, 0xA5);
+  if (!evaluateNumber(
+          firstCredential,
+          kFirstSource,
+          "repl:direct-session-boundary:1",
+          41)) {
+    return 3;
+  }
+
+  if (runtime->structured_async_failure_events.size() != 2 ||
+      runtime->structured_async_failure_dropped != 0 ||
+      runtime->structured_async_failure_failed) {
+    return 4;
+  }
+  bool sawNextTick = false;
+  bool sawMicrotask = false;
+  for (const auto& event : runtime->structured_async_failure_events) {
+    auto found = runtime->structured_value_handles.find(event.handleId);
+    if (event.runtimeNonce != runtime->runtime_nonce ||
+        event.eventId == 0 || event.associatedEvaluation != firstOrdinal ||
+        found == runtime->structured_value_handles.end() || !found->second ||
+        !found->second->isString()) {
+      return 5;
+    }
+    const std::string reason =
+        found->second->getString(*runtime->runtime).utf8(*runtime->runtime);
+    if (event.kind == EX_HERMES_ASYNC_FAILURE_NEXT_TICK &&
+        reason == "direct-next-tick") {
+      sawNextTick = true;
+    } else if (event.kind == EX_HERMES_ASYNC_FAILURE_MICROTASK &&
+               reason == "direct-microtask") {
+      sawMicrotask = true;
+    } else {
+      return 6;
+    }
+  }
+  if (!sawNextTick || !sawMicrotask) return 7;
+
+  static const char kSecondSource[] = R"JS((function () {
+  var state = globalThis.__ibexDirectSessionBoundary;
+  var result = state.foreground +
+      (state.nextTickAfter ? 1 : -100) +
+      (state.microtaskAfter ? 1 : -100);
+  delete globalThis.__ibexDirectSessionBoundary;
+  return result;
+})())JS";
+  const auto secondCredential = makeCredential(firstOrdinal + 1, 0x5A);
+  if (!evaluateNumber(
+          secondCredential,
+          kSecondSource,
+          "repl:direct-session-boundary:2",
+          43)) {
+    return 8;
+  }
+  if (runtime->structured_async_failure_events.size() != 2 ||
+      runtime->structured_evaluation_in_flight ||
+      runtime->structured_session_terminated ||
+      runtime->structured_active_work_target_id != 0 ||
+      runtime->next_structured_submission_ordinal != firstOrdinal + 2) {
+    return 9;
+  }
+  return 0;
+}
+#endif
+
+// @abi-output ex_hermes_eval_lowered_session result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* elements=positions ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
+extern "C" int ex_hermes_eval_lowered_session(
+    ExactHermesRuntime* runtime,
+    const ExHermesSessionCredential* credential,
+    uint32_t lowering_protocol_version,
+    const uint8_t* lowered_source,
+    size_t lowered_source_length,
+    const uint8_t* lowered_source_map,
+    size_t lowered_source_map_length,
+    const uint8_t* source_label,
+    size_t source_label_length,
+    const ExHermesSessionDeclaration* declarations,
+    size_t declaration_count,
+    const ExHermesSessionImportPlan* import_plan,
+    bool asynchronous,
+    ExHermesEvaluationResult* result) {
+  static_assert(EX_HERMES_SESSION_TOKEN_LENGTH == 32u);
+  static_assert(EX_HERMES_REQUEST_BINDING_LENGTH == 32u);
+  if (!structuredResultLayoutIsCurrent(result)) return -1;
+  ex_hermes_evaluation_result_dispose(result);
+
+  if (runtime == nullptr ||
+      !structuredCredentialLayoutIsCurrent(credential)) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_INPUT);
+    return 0;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) {
+    structuredFault(result, structuredRuntimeDriveFault(drive.status()));
+    return 0;
+  }
+  if (!runtime->armed) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED);
+    return 0;
+  }
+  if (!runtime->structured_session_bound) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_SESSION_NOT_BOUND);
+    return 0;
+  }
+  if (runtime->structured_session_terminated) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+    return 0;
+  }
+  if (runtime->structured_pending_display_work_target_id != 0 ||
+      runtime->structured_pending_display_handle_id != 0) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_EVALUATION_IN_FLIGHT);
+    return 0;
+  }
+  if (!constantTimeBytesEqual(
+          runtime->structured_session_token.data(),
+          credential->session_token,
+          EX_HERMES_SESSION_TOKEN_LENGTH)) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_WRONG_SESSION);
+    return 0;
+  }
+  if (!structuredAdmittedCredentialMatches(runtime, credential)) {
+    structuredFault(
+        result, structuredMissingAdmissionFault(runtime, credential));
+    return 0;
+  }
+
+  // An exact native admission is linear. Transfer its already-consumed work
+  // target into this result before checking the generated lowering payload, so
+  // every later recoverable or engine fault retains the submitted identity.
+  result->work_target_id =
+      runtime->structured_admitted_work_target_id;
+  clearStructuredAdmittedSubmission(runtime);
+  ScopedStructuredActiveTarget activeTarget(
+      runtime, result->work_target_id);
+
+  if (lowering_protocol_version !=
+          EX_HERMES_SESSION_LOWERING_PROTOCOL_VERSION ||
+      (lowered_source == nullptr && lowered_source_length != 0) ||
+      (lowered_source_map == nullptr && lowered_source_map_length != 0) ||
+      source_label == nullptr || source_label_length == 0 ||
+      memchr(source_label, 0, source_label_length) != nullptr ||
+      (declarations == nullptr && declaration_count != 0) ||
+      import_plan == nullptr) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_INPUT);
+    return 0;
+  }
+  if (!validUtf8(lowered_source, lowered_source_length) ||
+      !validUtf8(lowered_source_map, lowered_source_map_length) ||
+      !validUtf8(source_label, source_label_length)) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_UTF8);
+    return 0;
+  }
+  if (runtime->structured_evaluation_in_flight ||
+      runtime->structured_pending_display_work_target_id != 0 ||
+      runtime->structured_pending_display_handle_id != 0) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_EVALUATION_IN_FLIGHT);
+    return 0;
+  }
+  if (!ScopedRawThrowCapture::available()) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_RAW_THROW_UNAVAILABLE);
+    return 0;
+  }
+  if (!structuredCompletionRecordAvailable()) {
+    structuredFault(
+        result, EX_HERMES_EVAL_FAULT_COMPLETION_RECORD_UNAVAILABLE);
+    return 0;
+  }
+  if (!runtime->structured_object_get_own_descriptor ||
+      !runtime->structured_object_define_property ||
+      !runtime->structured_object_is_extensible ||
+      !runtime->structured_reflect_set ||
+      !runtime->structured_reflect_delete_property ||
+      !runtime->structured_promise_then ||
+      !runtime->structured_session_import_materializer) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+    return 0;
+  }
+
+  std::vector<StructuredDeclarationPlanEntry> plan;
+  std::string declarationCollision;
+  if (!buildStructuredDeclarationPlan(
+          declarations,
+          declaration_count,
+          &plan,
+          &declarationCollision)) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_INPUT);
+    return 0;
+  }
+  StructuredStaticImportPlan staticImportPlan;
+  if (!buildStructuredStaticImportPlan(
+          import_plan, plan, &staticImportPlan)) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_INPUT);
+    return 0;
+  }
+  const bool generatedCommonJsEntry =
+      staticImportPlan.sourceKind ==
+      EX_HERMES_STRUCTURED_SOURCE_GENERATED_COMMONJS_ENTRY;
+  const bool commonJsEntry = generatedCommonJsEntry ||
+      staticImportPlan.sourceKind ==
+          EX_HERMES_STRUCTURED_SOURCE_COMMONJS_ENTRY;
+  const bool syntheticStdinEntry =
+      !staticImportPlan.sourceId.empty() &&
+      staticImportPlan.fileArguments.empty() &&
+      source_label_length == sizeof("ibex:stdin") - 1 &&
+      memcmp(source_label, "ibex:stdin", sizeof("ibex:stdin") - 1) == 0;
+  // Program stdin is the sole module-cache entry with no file object. Script
+  // inputs have no SourceId, while file-backed modules retain the argv/path
+  // pair checked by buildStructuredStaticImportPlan.
+  // @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+  if (!staticImportPlan.sourceId.empty() &&
+      staticImportPlan.fileArguments.empty() &&
+      !syntheticStdinEntry) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_INPUT);
+    return 0;
+  }
+  if ((!commonJsEntry &&
+       (lowered_source == nullptr || lowered_source_length == 0)) ||
+      (commonJsEntry &&
+       (lowered_source_map_length != 0 || declaration_count != 0 ||
+        asynchronous))) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_INPUT);
+    return 0;
+  }
+  if (commonJsEntry &&
+      (staticImportPlan.sourceId.empty() ||
+       staticImportPlan.fileArguments.size() < 2 ||
+       !staticImportPlan.imports.empty() ||
+       !staticImportPlan.bindings.empty() ||
+       (generatedCommonJsEntry !=
+        !staticImportPlan.generatedEntryRecord.empty()))) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_INPUT);
+    return 0;
+  }
+
+  ScopedRuntimeSecurityContext securityContext(runtime);
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  ScopedActiveAttributionRuntime activeAttributionRuntime(
+      runtime->attribution_runtime);
+#endif
+  ScopedRawThrowCapture rawThrowCapture(runtime->runtime.get());
+  std::unique_ptr<ScopedStructuredEvaluation> evaluation;
+  try {
+    if (!declarationCollision.empty()) {
+      const auto collision = facebook::jsi::JSError::createSyntaxError(
+          *runtime->runtime, declarationCollision);
+      structuredThrowValue(
+          runtime,
+          collision.value(),
+          kStructuredEvaluatorCapabilities,
+          result);
+      return 0;
+    }
+    const std::string label(
+        reinterpret_cast<const char*>(source_label), source_label_length);
+    if (commonJsEntry) {
+      const char* sourceChars = lowered_source_length == 0
+          ? ""
+          : reinterpret_cast<const char*>(lowered_source);
+      const std::string source(sourceChars, lowered_source_length);
+      runtime->sources_by_name[label] = source;
+      runtime->source_maps_by_name[label].clear();
+
+      evaluation = std::make_unique<ScopedStructuredEvaluation>(
+          runtime, result, true, credential->ordinal);
+      if (evaluation->invalidTarget()) {
+        structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+        return 0;
+      }
+      activeTarget.transfer();
+      if (evaluation->cancelAtCooperativeBoundary()) return 0;
+      if (!applyStructuredFileArguments(runtime, staticImportPlan)) {
+        structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+        evaluation->close();
+        return 0;
+      }
+      ScopedStructuredEntryCacheReservation entryCache(
+          runtime, result->work_target_id);
+      const bool cacheTransactionReady = generatedCommonJsEntry
+          ? entryCache.beginGenerated()
+          : entryCache.reserve(staticImportPlan, label);
+      if (!cacheTransactionReady) {
+        if (evaluation->cancelAtCooperativeBoundary()) return 0;
+        structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+        evaluation->close();
+        return 0;
+      }
+      if (evaluation->cancelAtCooperativeBoundary()) return 0;
+      auto value = generatedCommonJsEntry
+          ? evaluateStructuredGeneratedCommonJsEntry(
+                runtime, source, label, staticImportPlan)
+          : evaluateStructuredCommonJsEntry(
+                runtime, source, label, staticImportPlan);
+      if (structuredLifecycleOutcome(
+              runtime,
+              result,
+              kStructuredEvaluatorCapabilities)) {
+        entryCache.finalize(result);
+        evaluation->close();
+        return 0;
+      }
+      if (!mintStructuredValueHandle(runtime, value, &result->value)) {
+        structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+      } else {
+        result->outcome_tag = EX_HERMES_EVAL_OUTCOME_VALUE;
+        result->fault = EX_HERMES_EVAL_FAULT_NONE;
+        result->capability_flags = kStructuredEvaluatorCapabilities;
+        runtime->structured_pending_display_work_target_id =
+            result->work_target_id;
+        runtime->structured_pending_display_handle_id =
+            result->value.handle_id;
+      }
+      entryCache.finalize(result);
+      evaluation->close();
+      return 0;
+    }
+    auto sourceBuffer = std::make_shared<MemoryBuffer>(
+        lowered_source, lowered_source_length);
+    std::shared_ptr<const facebook::jsi::Buffer> sourceMapBuffer;
+    if (lowered_source_map_length != 0) {
+      sourceMapBuffer = std::make_shared<MemoryBuffer>(
+          lowered_source_map, lowered_source_map_length);
+    }
+
+    // `prepareJavaScript` compiles without executing the wrapper expression.
+    // No session mutation occurs unless both compilation and the complete
+    // feasibility vector succeed.
+    auto prepared = runtime->runtime->prepareJavaScript(sourceBuffer, label);
+    const auto initialFeasibility =
+        structuredDeclarationPlanFeasibility(runtime, plan);
+    if (!initialFeasibility.feasible()) {
+      // Feasibility is a JavaScript declaration-instantiation result, not an
+      // invalid lowering payload. Preserve the model's error class: a
+      // restricted lexical is SyntaxError, while CanDeclareGlobal* refusal is
+      // TypeError.
+      // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+      structuredDeclarationRefusal(
+          runtime,
+          initialFeasibility,
+          false,
+          kStructuredEvaluatorCapabilities,
+          result);
+      return 0;
+    }
+
+    runtime->sources_by_name[label] = std::string(
+        reinterpret_cast<const char*>(lowered_source),
+        lowered_source_length);
+    runtime->source_maps_by_name[label] = std::string(
+        reinterpret_cast<const char*>(lowered_source_map),
+        lowered_source_map_length);
+
+    evaluation = std::make_unique<ScopedStructuredEvaluation>(
+        runtime, result, true, credential->ordinal);
+    if (evaluation->invalidTarget()) {
+      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+      return 0;
+    }
+    activeTarget.transfer();
+    if (evaluation->cancelAtCooperativeBoundary()) {
+      return 0;
+    }
+    if (!applyStructuredFileArguments(runtime, staticImportPlan)) {
+      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+      evaluation->close();
+      return 0;
+    }
+    ScopedStructuredEntryCacheReservation entryCache(
+        runtime, result->work_target_id);
+    if (!entryCache.reserve(staticImportPlan, label)) {
+      if (evaluation->cancelAtCooperativeBoundary()) {
+        return 0;
+      }
+      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+      evaluation->close();
+      return 0;
+    }
+    if (evaluation->cancelAtCooperativeBoundary()) {
+      return 0;
+    }
+    std::vector<StructuredMaterializedImportBinding> materializedImports;
+    try {
+      if (!materializeStructuredStaticImports(
+              runtime,
+              staticImportPlan,
+              evaluation.get(),
+              &materializedImports)) {
+        return 0;
+      }
+    } catch (const facebook::jsi::JSError& error) {
+      evaluation->observeHermesTimeout(error);
+      if (structuredLifecycleOutcome(
+              runtime,
+              result,
+              kStructuredEvaluatorCapabilities)) {
+        evaluation->close();
+        return 0;
+      }
+      structuredThrowValue(
+          runtime,
+          error.value(),
+          kStructuredEvaluatorCapabilities,
+          result);
+      evaluation->close();
+      return 0;
+    }
+
+    // Module evaluation may run arbitrary project code. Repeat the complete
+    // collision/descriptor feasibility vector after every import has loaded
+    // and every named/default Get has completed, but before publishing a
+    // single session declaration.
+    // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+    const auto recheckedFeasibility =
+        structuredDeclarationPlanFeasibility(runtime, plan);
+    if (!recheckedFeasibility.feasible()) {
+      structuredDeclarationRefusal(
+          runtime,
+          recheckedFeasibility,
+          true,
+          kStructuredEvaluatorCapabilities,
+          result);
+      evaluation->close();
+      return 0;
+    }
+    if (evaluation->cancelAtCooperativeBoundary()) {
+      return 0;
+    }
+    ScopedStructuredCancellationCriticalSection phase5(
+        runtime, result->work_target_id);
+    if (!phase5.entered()) {
+      if (phase5.cancellationPending() &&
+          evaluation->cancelAtCooperativeBoundary()) {
+        return 0;
+      }
+      throw std::logic_error(
+          "phase-5 cancellation critical section could not be entered");
+    }
+    beginStructuredSessionTransaction(runtime, plan);
+    initializeStructuredImportCells(runtime, &materializedImports);
+    phase5.leave();
+    if (evaluation->cancelAtCooperativeBoundary()) {
+      return 0;
+    }
+    const int status = evaluateLoweredPreparedSession(
+        runtime,
+        prepared,
+        sourceBuffer,
+        sourceMapBuffer,
+        label,
+        staticImportPlan.logicalReferrer,
+        asynchronous,
+        kStructuredEvaluatorCapabilities,
+        result,
+        evaluation.get());
+    entryCache.finalize(result);
+    return status;
+  } catch (const facebook::jsi::JSError& error) {
+    if (evaluation) {
+      evaluation->observeHermesTimeout(error);
+      if (structuredLifecycleOutcome(
+              runtime,
+              result,
+              kStructuredEvaluatorCapabilities)) {
+        evaluation->close();
+        return 0;
+      }
+      finishStructuredSessionTransaction(runtime, false);
+      structuredThrowValue(
+          runtime,
+          error.value(),
+          kStructuredEvaluatorCapabilities,
+          result);
+      evaluation->close();
+      return 0;
+    }
+    runtime->structured_session_terminated = true;
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+    return 0;
+  } catch (const std::bad_alloc&) {
+    if (result->work_target_id != 0) {
+      finishStructuredSessionTransaction(runtime, false);
+      runtime->structured_session_terminated = true;
+    }
+    structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+    return 0;
+  } catch (...) {
+    if (structuredLifecycleOutcome(
+            runtime,
+            result,
+            kStructuredEvaluatorCapabilities)) {
+      return 0;
+    }
+    if (result->work_target_id != 0) {
+      finishStructuredSessionTransaction(runtime, false);
+      runtime->structured_session_terminated = true;
+    }
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+    return 0;
+  }
+}
+
+// @abi-output ex_hermes_resume_structured_session result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* elements=positions ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
+extern "C" int ex_hermes_resume_structured_session(
+    ExactHermesRuntime* runtime,
+    uint64_t work_target_id,
+    ExHermesEvaluationResult* result) {
+  if (!structuredResultLayoutIsCurrent(result)) return -1;
+  ex_hermes_evaluation_result_dispose(result);
+
+  if (runtime == nullptr || work_target_id == 0) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_INPUT);
+    return 0;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) {
+    structuredFault(result, structuredRuntimeDriveFault(drive.status()));
+    return 0;
+  }
+  if (!runtime->armed) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED);
+    return 0;
+  }
+  if (runtime->armed_bootstrap_eval_open) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_BOOTSTRAP_NOT_SEALED);
+    return 0;
+  }
+  if (!runtime->structured_session_bound) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_SESSION_NOT_BOUND);
+    return 0;
+  }
+  if (!runtime->structured_evaluation_in_flight ||
+      runtime->structured_async_work_target_id == 0) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_EVALUATION_IN_FLIGHT);
+    return 0;
+  }
+  if (runtime->structured_async_work_target_id != work_target_id) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_EVALUATION_IN_FLIGHT);
+    return 0;
+  }
+  {
+    std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
+    if (runtime->structured_active_work_target_id != 0) {
+      structuredFault(result, EX_HERMES_EVAL_FAULT_EVALUATION_IN_FLIGHT);
+      return 0;
+    }
+  }
+
+  result->work_target_id = work_target_id;
+  const uint32_t capabilityFlags =
+      runtime->structured_async_capability_flags;
+  ScopedStructuredEvaluation evaluation(runtime, result, false);
+  if (evaluation.invalidTarget()) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_EVALUATION_IN_FLIGHT);
+    return 0;
+  }
+  auto finalizeModuleCache = [&]() {
+    finalizeStructuredModuleCacheOutcome(runtime, result);
+    return 0;
+  };
+
+  try {
+    if (structuredLifecycleOutcome(runtime, result, capabilityFlags)) {
+      finishStructuredSessionTransaction(runtime, true);
+      clearStructuredAsyncState(runtime);
+      evaluation.close();
+      return finalizeModuleCache();
+    }
+    if (!runtime->structured_async_settled) {
+      structuredSuspended(result, capabilityFlags);
+      if (evaluation.suspend()) {
+        clearStructuredAsyncState(runtime);
+      }
+      return finalizeModuleCache();
+    }
+    if (!runtime->structured_async_settlement_value) {
+      finishStructuredSessionTransaction(runtime, false);
+      clearStructuredAsyncState(runtime);
+      runtime->structured_session_terminated = true;
+      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+      evaluation.close();
+      return finalizeModuleCache();
+    }
+    if (runtime->structured_async_rejected) {
+      finishStructuredSessionTransaction(runtime, false);
+      structuredThrowValue(runtime,
+                           *runtime->structured_async_settlement_value,
+                           capabilityFlags,
+                           result);
+      clearStructuredAsyncState(runtime);
+      evaluation.close();
+      return finalizeModuleCache();
+    }
+
+    clearStructuredAsyncState(runtime);
+    if (!prepareStructuredSessionSuccess(runtime, capabilityFlags, result)) {
+      finishStructuredSessionTransaction(runtime, false);
+      evaluation.close();
+      return finalizeModuleCache();
+    }
+    if (evaluation.close()) {
+      return finalizeModuleCache();
+    }
+    finishStructuredSessionTransaction(runtime, true);
+    return finalizeModuleCache();
+  } catch (const std::bad_alloc&) {
+    finishStructuredSessionTransaction(runtime, false);
+    clearStructuredAsyncState(runtime);
+    runtime->structured_session_terminated = true;
+    structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+    evaluation.close();
+    return finalizeModuleCache();
+  } catch (...) {
+    if (structuredLifecycleOutcome(runtime, result, capabilityFlags)) {
+      finishStructuredSessionTransaction(runtime, true);
+    } else {
+      finishStructuredSessionTransaction(runtime, false);
+      runtime->structured_session_terminated = true;
+      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+    }
+    clearStructuredAsyncState(runtime);
+    evaluation.close();
+    return finalizeModuleCache();
+  }
+}
+
+extern "C" uint32_t ex_hermes_value_kind(
+    ExactHermesRuntime* runtime,
+    ExHermesValueHandle handle) {
+  ExactRuntimeDriveGuard drive(runtime, handle.runtime_nonce);
+  if (!drive) return EX_HERMES_VALUE_INVALID;
+  auto* value = structuredValueForHandle(runtime, handle);
+  if (value == nullptr) return EX_HERMES_VALUE_INVALID;
+  if (value->isUndefined()) return EX_HERMES_VALUE_UNDEFINED;
+  if (value->isNull()) return EX_HERMES_VALUE_NULL;
+  if (value->isBool()) return EX_HERMES_VALUE_BOOLEAN;
+  if (value->isNumber()) return EX_HERMES_VALUE_NUMBER;
+  if (value->isString()) return EX_HERMES_VALUE_STRING;
+  if (value->isSymbol()) return EX_HERMES_VALUE_SYMBOL;
+  if (value->isBigInt()) return EX_HERMES_VALUE_BIGINT;
+  if (value->isObject()) {
+    try {
+      auto object = value->getObject(*runtime->runtime);
+      if (object.isFunction(*runtime->runtime)) {
+        return EX_HERMES_VALUE_FUNCTION;
+      }
+      if (object.isArray(*runtime->runtime)) {
+        return EX_HERMES_VALUE_ARRAY;
+      }
+    } catch (...) {
+      // IsArray throws for a revoked Proxy.  Stage 1 is deliberately opaque
+      // for any object it cannot classify, and no exception may cross this C
+      // ABI boundary into the host.
+      // @ref LLP 0024#8-safe-inspection
+      return EX_HERMES_VALUE_OBJECT;
+    }
+    return EX_HERMES_VALUE_OBJECT;
+  }
+  return EX_HERMES_VALUE_INVALID;
+}
+
+std::string structuredStage1Number(double number) {
+  if (std::isnan(number)) return "NaN";
+  if (std::isinf(number)) return number < 0 ? "-Infinity" : "Infinity";
+  if (number == 0.0 && std::signbit(number)) return "-0";
+  char buffer[128];
+  auto converted = std::to_chars(
+      std::begin(buffer),
+      std::end(buffer),
+      number,
+      std::chars_format::general);
+  if (converted.ec != std::errc()) {
+    throw std::runtime_error("failed to format structured number");
+  }
+  return std::string(buffer, converted.ptr);
+}
+
+// @abi-output ex_hermes_value_stage1_text out_data role=output kind=buffer length=out_length ownership=caller-frees:ex_hermes_free_string
+// @abi-output ex_hermes_value_stage1_text out_truncated role=output kind=scalar ownership=caller-storage
+extern "C" uint32_t ex_hermes_value_stage1_text(
+    ExactHermesRuntime* runtime,
+    ExHermesValueHandle handle,
+    uint8_t** out_data,
+    size_t* out_length,
+    uint32_t* out_truncated) {
+  if (out_data == nullptr || out_length == nullptr ||
+      out_truncated == nullptr) {
+    return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
+  }
+  *out_data = nullptr;
+  *out_length = 0;
+  *out_truncated = 0;
+  ExactRuntimeDriveGuard drive(runtime, handle.runtime_nonce);
+  if (!drive) return structuredRuntimeDriveFault(drive.status());
+  auto* value = structuredValueForHandle(runtime, handle);
+  if (value == nullptr) return EX_HERMES_EVAL_FAULT_STALE_HANDLE;
+#ifndef HERMES_HAS_SAFE_STAGE1_TEXT
+  return EX_HERMES_EVAL_FAULT_RAW_THROW_UNAVAILABLE;
+#endif
+  try {
+    std::string text;
+    bool truncated = false;
+    if (value->isUndefined()) {
+      text = "undefined";
+    } else if (value->isNull()) {
+      text = "null";
+    } else if (value->isBool()) {
+      text = value->getBool() ? "true" : "false";
+    } else if (value->isNumber()) {
+      text = structuredStage1Number(value->getNumber());
+    } else if (value->isString() || value->isSymbol() || value->isBigInt()) {
+#ifndef HERMES_HAS_SAFE_STAGE1_TEXT
+      return EX_HERMES_EVAL_FAULT_RAW_THROW_UNAVAILABLE;
+#else
+      if (!runtime->runtime->getSafeStage1Text(*value, text, truncated)) {
+        return EX_HERMES_EVAL_FAULT_ENGINE;
+      }
+#endif
+    } else {
+      // Stage 1 renders object categories from ex_hermes_value_kind. Never
+      // touch an object property or invoke a user-replaceable coercion here.
+      return EX_HERMES_EVAL_FAULT_NONE;
+    }
+    if (!structuredSafeTextInvariant(text, truncated)) {
+      return EX_HERMES_EVAL_FAULT_ENGINE;
+    }
+    auto* bytes = static_cast<uint8_t*>(malloc(text.size() + 1));
+    if (bytes == nullptr) return EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY;
+    if (!text.empty()) memcpy(bytes, text.data(), text.size());
+    bytes[text.size()] = 0;
+    *out_data = bytes;
+    *out_length = text.size();
+    *out_truncated = truncated ? 1u : 0u;
+    return EX_HERMES_EVAL_FAULT_NONE;
+  } catch (const std::bad_alloc&) {
+    return EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY;
+  } catch (...) {
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+}
+
+// @abi-output ex_hermes_value_safe_throw_metadata message role=output kind=aggregate schema=ExHermesOwnedBytes members=* ownership=caller-storage member-ownership=caller-frees:ex_hermes_free_string
+// @abi-output ex_hermes_value_safe_throw_metadata stack role=output kind=aggregate schema=ExHermesOwnedBytes members=* ownership=caller-storage member-ownership=caller-frees:ex_hermes_free_string
+// @abi-output ex_hermes_value_safe_throw_metadata metadata_fields role=output kind=scalar ownership=caller-storage
+// @abi-output ex_hermes_value_safe_throw_metadata error_class role=output kind=scalar ownership=caller-storage
+extern "C" uint32_t ex_hermes_value_safe_throw_metadata(
+    ExactHermesRuntime* runtime,
+    ExHermesValueHandle handle,
+    uint32_t* metadata_fields,
+    uint32_t* error_class,
+    ExHermesOwnedBytes* message,
+    ExHermesOwnedBytes* stack) {
+  if (metadata_fields == nullptr || error_class == nullptr ||
+      message == nullptr || stack == nullptr) {
+    return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
+  }
+  *metadata_fields = 0;
+  *error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+  *message = {nullptr, 0};
+  *stack = {nullptr, 0};
+  ExactRuntimeDriveGuard drive(runtime, handle.runtime_nonce);
+  if (!drive) return structuredRuntimeDriveFault(drive.status());
+  auto* value = structuredValueForHandle(runtime, handle);
+  if (value == nullptr) return EX_HERMES_EVAL_FAULT_STALE_HANDLE;
+#ifndef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
+  return EX_HERMES_EVAL_FAULT_RAW_THROW_UNAVAILABLE;
+#endif
+  try {
+    std::string safeMessage;
+    std::string safeStack;
+    uint32_t safeMetadataFields = 0;
+    auto captured = runtime->structured_value_safe_throw_metadata.find(
+        handle.handle_id);
+    if (captured != runtime->structured_value_safe_throw_metadata.end()) {
+      safeMetadataFields = captured->second.fields;
+      *error_class = captured->second.errorClass;
+      safeMessage = captured->second.message;
+      safeStack = captured->second.stack;
+    } else {
+#ifndef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
+      return EX_HERMES_EVAL_FAULT_RAW_THROW_UNAVAILABLE;
+#else
+      bool messageTruncated = false;
+      bool stackTruncated = false;
+      *error_class = structuredErrorClass(
+          captureStructuredSafeMetadata(
+              runtime->runtime.get(),
+              *value,
+              safeMessage,
+              safeStack,
+              messageTruncated,
+              stackTruncated));
+      safeMetadataFields = structuredSafeMetadataFields(
+          safeMessage, safeStack, messageTruncated, stackTruncated);
+#endif
+    }
+    const bool messageTruncated =
+        (safeMetadataFields & EX_HERMES_THROW_FIELD_MESSAGE_TRUNCATED) != 0;
+    const bool stackTruncated =
+        (safeMetadataFields & EX_HERMES_THROW_FIELD_STACK_TRUNCATED) != 0;
+    if (!structuredSafeTextInvariant(safeMessage, messageTruncated) ||
+        !structuredSafeTextInvariant(safeStack, stackTruncated)) {
+      *error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+      return EX_HERMES_EVAL_FAULT_ENGINE;
+    }
+    if (!copyStructuredOwnedBytes(safeMessage, message) ||
+        !copyStructuredOwnedBytes(safeStack, stack)) {
+      free(message->data);
+      free(stack->data);
+      *message = {nullptr, 0};
+      *stack = {nullptr, 0};
+      *error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+      return EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY;
+    }
+    *metadata_fields = safeMetadataFields;
+    return EX_HERMES_EVAL_FAULT_NONE;
+  } catch (const std::bad_alloc&) {
+    free(message->data);
+    free(stack->data);
+    *error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+    *metadata_fields = 0;
+    *message = {nullptr, 0};
+    *stack = {nullptr, 0};
+    return EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY;
+  } catch (...) {
+    free(message->data);
+    free(stack->data);
+    *error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+    *metadata_fields = 0;
+    *message = {nullptr, 0};
+    *stack = {nullptr, 0};
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+}
+
+extern "C" uint32_t ex_hermes_session_display_ack(
+    ExactHermesRuntime* runtime,
+    uint64_t work_target_id,
+    ExHermesValueHandle handle,
+    bool displayed) {
+  if (runtime == nullptr || work_target_id == 0 ||
+      handle.runtime_nonce == 0 || handle.handle_id == 0) {
+    return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
+  }
+  ExactRuntimeDriveGuard drive(runtime, handle.runtime_nonce);
+  if (!drive) return structuredRuntimeDriveFault(drive.status());
+  if (!runtime->armed || !runtime->structured_session_bound) {
+    return EX_HERMES_EVAL_FAULT_SESSION_NOT_BOUND;
+  }
+  if (runtime->structured_pending_display_work_target_id != work_target_id ||
+      runtime->structured_pending_display_handle_id != handle.handle_id ||
+      handle.runtime_nonce != runtime->runtime_nonce) {
+    return EX_HERMES_EVAL_FAULT_STALE_HANDLE;
+  }
+  auto* value = structuredValueForHandle(runtime, handle);
+  if (value == nullptr) return EX_HERMES_EVAL_FAULT_STALE_HANDLE;
+  try {
+    if (displayed &&
+        runtime->structured_last_value_auto_update_enabled) {
+      // @ref LLP 0024#78-the-last-value-binding — only a Displayed ACK may
+      // advance `$_`, and a replaced/deleted accessor disables auto-update.
+      if (structuredLastValueAccessorIntact(runtime)) {
+        runtime->structured_last_displayed_value =
+            std::make_unique<facebook::jsi::Value>(
+                *runtime->runtime, *value);
+      } else {
+        runtime->structured_last_value_auto_update_enabled = false;
+        ++runtime->structured_last_value_mutation_generation;
+      }
+    }
+    runtime->structured_value_handles.erase(handle.handle_id);
+    runtime->structured_pending_display_work_target_id = 0;
+    runtime->structured_pending_display_handle_id = 0;
+    return EX_HERMES_EVAL_FAULT_NONE;
+  } catch (const std::bad_alloc&) {
+    return EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY;
+  } catch (...) {
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+}
+
+extern "C" uint32_t ex_hermes_value_release(
+    ExactHermesRuntime* runtime,
+    ExHermesValueHandle handle) {
+  ExactRuntimeDriveGuard drive(runtime, handle.runtime_nonce);
+  if (!drive) return structuredRuntimeDriveFault(drive.status());
+  if (structuredValueForHandle(runtime, handle) == nullptr) {
+    return EX_HERMES_EVAL_FAULT_STALE_HANDLE;
+  }
+  runtime->structured_value_handles.erase(handle.handle_id);
+  runtime->structured_value_safe_throw_metadata.erase(handle.handle_id);
+  if (runtime->structured_pending_display_handle_id == handle.handle_id &&
+      handle.runtime_nonce == runtime->runtime_nonce) {
+    runtime->structured_pending_display_work_target_id = 0;
+    runtime->structured_pending_display_handle_id = 0;
+  }
+  return EX_HERMES_EVAL_FAULT_NONE;
+}
+
+static void writeEvalRefusal(char** outValue, const char* text) noexcept {
+  if (outValue == nullptr) return;
+  *outValue = nullptr;
+  const size_t length = strlen(text);
+  auto* copy = static_cast<char*>(malloc(length + 1));
+  if (copy == nullptr) return;
+  memcpy(copy, text, length + 1);
+  *outValue = copy;
+}
+
+// @abi-output ex_hermes_eval out_value role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
 extern "C" int ex_hermes_eval(
+    ExactHermesRuntime* runtime,
+    const uint8_t* data,
+    size_t len,
+    const char* source_url,
+    int is_bytecode,
+    char** out_value) {
+  if (out_value != nullptr) *out_value = nullptr;
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) {
+    writeEvalRefusal(
+        out_value, "Hermes eval refused by the runtime drive gate");
+    return drive.status();
+  }
+  return evalRuntimeUnchecked(
+      runtime, data, len, source_url, is_bytecode, out_value);
+}
+
+int exactHermesBootstrapEval(
+    ExactHermesRuntime* runtime,
+    const uint8_t* data,
+    size_t len,
+    const char* sourceUrl,
+    int isBytecode,
+    char** outValue) {
+  if (outValue != nullptr) *outValue = nullptr;
+  if (runtime == nullptr || !runtime->bootstrap_in_progress ||
+      runtime->runtime_thread != std::this_thread::get_id()) {
+    writeEvalRefusal(
+        outValue, "Hermes bootstrap eval refused outside construction");
+    return EXACT_RUNTIME_DRIVE_STALE;
+  }
+  return evalRuntimeUnchecked(
+      runtime, data, len, sourceUrl, isBytecode, outValue);
+}
+
+static int evalRuntimeUnchecked(
     ExactHermesRuntime* runtime,
     const uint8_t* data,
     size_t len,
@@ -3930,6 +12284,20 @@ extern "C" int ex_hermes_eval(
 
   if (!runtime || !data || len == 0) {
     writeOutError("Hermes eval received invalid input");
+    return 1;
+  }
+  if (runtime->runtime_thread != std::this_thread::get_id()) {
+    writeOutError("Hermes eval refused a non-owner thread");
+    return 1;
+  }
+  if (runtime->armed &&
+      (!runtime->armed_bootstrap_eval_open ||
+       runtime->structured_evaluation_in_flight)) {
+    // The bare string seam exists only for trusted, phase-limited runtime
+    // bootstrap. Operator and project source must carry a linear authenticated
+    // session credential through ex_hermes_eval_structured_session.
+    // @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+    writeOutError("Hermes bare evaluation is sealed for armed project source");
     return 1;
   }
 
@@ -3968,33 +12336,29 @@ extern "C" int ex_hermes_eval(
       source_buffer = std::make_shared<AlignedBytecodeBuffer>(data, len);
       auto aligned_data = source_buffer->data();
 #if defined(EXACT_HAVE_HERMES_RUNTIME_BYTECODE_SANITY_CHECK)
-      const auto* disable_check = std::getenv("EX_DISABLE_BYTECODE_SANITY_CHECK");
-      if (!disable_check) {
-        std::string reason;
-        if (!facebook::hermes::HermesRuntime::hermesBytecodeSanityCheck(
-                aligned_data, len, &reason)) {
-          // Stable prefix so the Rust caller can tell "the bytecode buffer
-          // was rejected before any code ran" apart from "the program ran
-          // and threw" — only the former may delete a cached .hbc and
-          // re-run the JS source (see is_bytecode_load_error, ENG-23484).
-          writeOutError("Bytecode sanity check failed: " + reason);
-          return 2;
-        }
+      std::string reason;
+      if (!facebook::hermes::HermesRuntime::hermesBytecodeSanityCheck(
+              aligned_data, len, &reason)) {
+        // Stable prefix so the Rust caller can tell "the bytecode buffer
+        // was rejected before any code ran" apart from "the program ran
+        // and threw" — only the former may delete a cached .hbc and
+        // re-run the JS source (see is_bytecode_load_error, ENG-23484).
+        // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+        writeOutError("Bytecode sanity check failed: " + reason);
+        return 2;
       }
 #elif defined(EXACT_HAVE_HERMES_ROOT_BYTECODE_SANITY_CHECK)
-      const auto* disable_check = std::getenv("EX_DISABLE_BYTECODE_SANITY_CHECK");
-      if (!disable_check) {
-        std::string reason;
-        auto* root = facebook::jsi::castInterface<facebook::hermes::IHermesRootAPI>(
-            facebook::hermes::makeHermesRootAPI());
-        if (root == nullptr ||
-            !root->hermesBytecodeSanityCheck(aligned_data, len, &reason)) {
-          writeOutError("Bytecode sanity check failed: " +
-                        (root == nullptr ? std::string("Hermes root API unavailable") : reason));
-          // A distinct status is the native proof that no program instruction
-          // ran. User exception text can never manufacture this status.
-          return 2;
-        }
+      std::string reason;
+      auto* root = facebook::jsi::castInterface<facebook::hermes::IHermesRootAPI>(
+          facebook::hermes::makeHermesRootAPI());
+      if (root == nullptr ||
+          !root->hermesBytecodeSanityCheck(aligned_data, len, &reason)) {
+        writeOutError("Bytecode sanity check failed: " +
+                      (root == nullptr ? std::string("Hermes root API unavailable") : reason));
+        // A distinct status is the native proof that no program instruction
+        // ran. User exception text can never manufacture this status.
+        // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+        return 2;
       }
 #else
       (void)aligned_data;
@@ -4080,22 +12444,14 @@ extern "C" int ex_hermes_eval(
         // counts *any* referenced work (a `setInterval`, a live server), so an
         // unrelated timer keeps it true and this loop would spin forever when the
         // awaited Promise itself never settles — e.g. `setInterval(()=>{},1000)`
-        // then `await new Promise(()=>{})`. Cap the wait and fall back to
-        // returning the still-pending Promise so the prompt (which holds the
-        // runtime lock across this call) comes back. Override the budget with
-        // IBEX_AWAIT_UNWRAP_TIMEOUT_MS; 0 disables the cap. (ENG-23030 #4)
-        const uint64_t unwrap_budget_ms = []() -> uint64_t {
-          const char* raw = std::getenv("IBEX_AWAIT_UNWRAP_TIMEOUT_MS");
-          if (!raw || !*raw) {
-            return 10000;
-          }
-          char* end = nullptr;
-          unsigned long long parsed = std::strtoull(raw, &end, 10);
-          if (end == raw) {
-            return 10000;
-          }
-          return static_cast<uint64_t>(parsed);
-        }();
+        // then `await new Promise(()=>{})`. The historical environment override
+        // was a post-arming evaluation-time host read and is intentionally
+        // retired: evaluation behavior cannot depend on mutable launcher state.
+        // @ref LLP 0024#9-asynchronous-failures — evaluation budgets are not
+        // environment-configurable after arming.
+        // @ref LLP 0025#2-startup-configuration-is-captured-before-arming — a
+        // session never re-consults the host environment.
+        constexpr uint64_t unwrap_budget_ms = 10000;
         const uint64_t unwrap_start_ms = nowMs();
 
         while (true) {
@@ -4107,7 +12463,7 @@ extern "C" int ex_hermes_eval(
             break;
           }
 
-          int executed = ex_hermes_poll(runtime, nowMs());
+          int executed = pollRuntime(runtime, nowMs(), false);
           if (executed < 0) {
             if (!writeOutString("Hermes task execution failed while awaiting Promise result")) {
               return 1;
@@ -4123,8 +12479,8 @@ extern "C" int ex_hermes_eval(
             break;
           }
 
-          auto nextTimer = ex_hermes_next_timer(runtime);
-          auto hasPendingWork = ex_hermes_has_pending_tasks(runtime) != 0;
+          auto nextTimer = nextTimerUnchecked(runtime);
+          auto hasPendingWork = hasPendingTasksUnchecked(runtime) != 0;
           if (!hasPendingWork && nextTimer < 0) {
             // No timers or host work can advance the Promise any further.
             // Fall back to returning the raw Promise value rather than spin.
@@ -4344,20 +12700,31 @@ bool decodeHostCallPayload(facebook::jsi::Runtime& rt,
 // @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
 extern "C" int ibex_test_install_capsec_context_observer(
     ExactHermesRuntime* runtime,
-    const char* global_name) {
+    const char* global_name,
+    const char* compartment_identity) {
   constexpr const char* kPrefix = "__ibexCapsecContextObserver_";
-  if (!runtime || !runtime->armed || runtime->restricted ||
-      runtime->runtime_thread != std::this_thread::get_id() || !global_name ||
+  if (!runtime || !global_name ||
       std::strncmp(global_name, kPrefix, std::strlen(kPrefix)) != 0) {
     return 0;
   }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive || !runtime->armed || runtime->restricted) return 0;
 
   try {
     auto& rt = *runtime->runtime;
     std::string name(global_name);
     auto property = facebook::jsi::PropNameID::forUtf8(rt, name);
-    if (rt.global().hasProperty(rt, property)) {
-      return 0;
+    facebook::jsi::Object compartment(rt);
+    if (compartment_identity == nullptr) {
+      if (rt.global().hasProperty(rt, property)) return 0;
+    } else {
+      auto registry = rt.global().getProperty(rt, "__compartments");
+      if (!registry.isObject()) return 0;
+      auto compartmentValue = registry.asObject(rt).getProperty(
+          rt, compartment_identity);
+      if (!compartmentValue.isObject()) return 0;
+      compartment = compartmentValue.asObject(rt);
+      if (compartment.hasProperty(rt, property)) return 0;
     }
     auto called = std::make_shared<std::atomic<bool>>(false);
     auto observer = facebook::jsi::Function::createFromHostFunction(
@@ -4387,7 +12754,11 @@ extern "C" int ibex_test_install_capsec_context_observer(
                   rt, "u64:" + std::to_string(runtime->runtime_nonce)));
           return context;
         });
-    rt.global().setProperty(rt, property, std::move(observer));
+    if (compartment_identity == nullptr) {
+      rt.global().setProperty(rt, property, std::move(observer));
+    } else {
+      compartment.setProperty(rt, property, std::move(observer));
+    }
     return 1;
   } catch (const facebook::jsi::JSIException&) {
     return 0;
@@ -4397,13 +12768,15 @@ extern "C" int ibex_test_install_capsec_context_observer(
 }
 #endif
 
+// @abi-callback ex_hermes_set_host_call callback return-ownership=native-consumes
 extern "C" void ex_hermes_set_host_call(
     ExactHermesRuntime* runtime,
     char* (*callback)(const char* op, const char* args_json)) {
   // @ref LLP 0002#the-__hostcall-bridge--the-generic-host-channel — the
   // string-typed catch-all bridge is diagnostic-only; an armed runtime must
   // expose only its dedicated, capability-aware native APIs.
-  if (!runtime || runtime->armed) return;
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive || runtime->armed) return;
   // Restricted worklet runtimes never get __hostCall (LLP 0297 §4.3).
   if (runtime->restricted) return;
   runtime->host_call_fn = callback;
@@ -4458,7 +12831,8 @@ extern "C" void ex_hermes_set_host_call_async(
   // @ref LLP 0002#the-__hostcall-bridge--the-generic-host-channel — armed
   // runtimes fail closed before storing a generic callback or mutating the
   // global object, including replacement attempts made after lockdown.
-  if (!runtime || runtime->armed) return;
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive || runtime->armed) return;
   // Restricted worklet runtimes never get __hostCallAsync (LLP 0297 §4.3).
   if (runtime->restricted) return;
   runtime->host_call_async_fn = callback;
@@ -4605,8 +12979,12 @@ extern "C" int ex_hermes_set_exact_host_call_async(
   // @ref LLP 0002#the-exact-embedder-ingress — app and agent isolates receive
   // an explicit operation endowment. UI worklets retain only their dedicated
   // SharedValue/Motion ABI and can never acquire the host-operation channel.
-  if (!runtime || !runtime->runtime || !callback) return -1;
-  if (runtime->runtime_thread != std::this_thread::get_id()) return -7;
+  if (!runtime || !callback) return -1;
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) {
+    return drive.status() == EXACT_RUNTIME_DRIVE_OFF_OWNER ? -7 : -9;
+  }
+  if (!runtime->runtime) return -1;
   if (runtime->restricted) return -2;
   auto rawContext = static_cast<uint32_t>(context_kind);
   if (!exactHostContextIsValid(rawContext)) return -3;
@@ -4910,28 +13288,53 @@ static int pollTypedAuthorityGenerations(ExactHermesRuntime* runtime) {
   runtime->typed_negative_generation = negative;
   runtime->typed_dynamic_generation = dynamic;
   runtime->typed_handle_generation = handle;
+  std::optional<ScopedNativeWorkUnit> workUnit;
+  std::optional<ScopedAsyncFailureContext> failureContext;
+  std::optional<ScopedRawThrowCapture> rawThrowCapture;
+  const bool rawCapture =
+      structuredWorkPublicationEnabled(runtime) &&
+      ScopedRawThrowCapture::available();
   try {
     auto& rt = *runtime->runtime;
     auto callback = rt.global().getProperty(rt, "__exactNotifyTypedAuthorityChange");
     if (callback.isObject() && callback.asObject(rt).isFunction(rt)) {
+      workUnit.emplace(runtime, EX_HERMES_WORK_UNIT_CALLBACK);
+      failureContext.emplace(
+          runtime,
+          structuredAsyncFailureContext(
+              EX_HERMES_ASYNC_FAILURE_NATIVE_TASK,
+              static_cast<uint64_t>(kRuntimePrincipalId),
+              workUnit->targetId(),
+              exactCurrentAsyncEvaluationAssociation(runtime)));
+      rawThrowCapture.emplace(runtime->runtime.get(), rawCapture);
       callback.asObject(rt).asFunction(rt).call(
           rt,
           facebook::jsi::Value(static_cast<double>(negative)),
           facebook::jsi::Value(static_cast<double>(dynamic)),
           facebook::jsi::Value(static_cast<double>(handle)));
+      workUnit->finish();
       return 1;
     }
   } catch (const facebook::jsi::JSError& err) {
+    if (workUnit &&
+        (rawCapture
+             ? workUnit->finishRawCapturedJsThrow()
+             : workUnit->finish(err))) return 1;
     disposeAsyncCallbackError(runtime, err);
   }
   return 0;
 }
 
-extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
-  if (!runtime) {
-    return 0;
+static int pollRuntime(
+    ExactHermesRuntime* runtime,
+    uint64_t now_ms,
+    bool external_keep_alive) {
+  if (runtime->structured_session_terminated) {
+    return -1;
   }
-
+  if (runtime->structured_lifecycle_pending) {
+    return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
+  }
   ScopedRuntimeSecurityContext securityContext(runtime);
 
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
@@ -4941,11 +13344,26 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
 
   int executed = 0;
   executed += pollTypedAuthorityGenerations(runtime);
+  if (runtime->structured_session_terminated) {
+    return -1;
+  }
+  if (runtime->structured_lifecycle_pending) {
+    return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
+  }
   cleanupFetchCallbacks(runtime);
+  if (runtime->structured_session_terminated) {
+    return -1;
+  }
   drainRuntimeFinalizers(runtime);
 
   // Drain cross-thread callback queue (HTTP server responses, etc.)
   executed += drainCallbackQueue(runtime);
+  if (runtime->structured_session_terminated) {
+    return -1;
+  }
+  if (runtime->structured_lifecycle_pending) {
+    return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
+  }
 
   // Drain pending cross-thread tasks
   {
@@ -4957,15 +13375,55 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
     if (!tasks.empty()) {
       auto& rt = *runtime->runtime;
       for (auto& task : tasks) {
+        if (runtime->structured_lifecycle_pending) break;
+        ScopedNativeWorkUnit workUnit(
+            runtime, EX_HERMES_WORK_UNIT_CALLBACK);
+        ScopedAsyncFailureContext failureContext(
+            runtime,
+            StructuredAsyncFailureContext{
+                EX_HERMES_ASYNC_FAILURE_NATIVE_TASK,
+                StructuredAsyncPrincipalStatus::Unavailable,
+                0,
+                workUnit.targetId(),
+                exactCurrentAsyncEvaluationAssociation(runtime)});
+        const bool rawCapture =
+            structuredWorkPublicationEnabled(runtime) &&
+            ScopedRawThrowCapture::available();
+        ScopedRawThrowCapture rawThrowCapture(
+            runtime->runtime.get(), rawCapture);
         try {
           task(rt);
+          workUnit.finish();
+          if (runtime->structured_session_terminated) return -1;
           executed++;
         } catch (const facebook::jsi::JSError& err) {
-          // Uncaught-handler consult first; unconsumed throws follow the
-          // host's async-error policy (fatal for the CLI per ENG-23130,
-          // report-and-continue for embedded hosts per ENG-23731).
-          disposeAsyncCallbackError(runtime, err);
+          if ((rawCapture
+                   ? workUnit.finishRawCapturedJsThrow()
+                   : workUnit.finish(err))) {
+            if (runtime->structured_session_terminated) return -1;
+            executed++;
+            continue;
+          }
+          if (runtime->structured_lifecycle_pending) break;
+          // Uncaught-handler consult first; authenticated runtimes publish a
+          // structured event, while legacy runtimes retain host async-error
+          // policy (fatal CLI or report-and-continue embedding).
+          if (!disposeAsyncCallbackError(runtime, err)) {
+            if (runtime->structured_session_terminated) return -1;
+            break;
+          }
         } catch (const std::exception& err) {
+          if (workUnit.finish()) {
+            if (runtime->structured_session_terminated) return -1;
+            executed++;
+            continue;
+          }
+          if (runtime->structured_lifecycle_pending) break;
+          if (structuredWorkPublicationEnabled(runtime)) {
+            recordStructuredAsyncFailureDrop(runtime);
+            executed++;
+            continue;
+          }
           ex_host_console_log(1, err.what());
           if (!runtime->keep_alive_on_async_error) {
             runtime->fatal_async_error = true;
@@ -4974,29 +13432,66 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
       }
     }
   }
+  if (runtime->structured_lifecycle_pending) {
+    return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
+  }
 
   runNextTickQueue(runtime);
+  if (runtime->structured_session_terminated) {
+    return -1;
+  }
+  if (runtime->structured_lifecycle_pending) {
+    return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
+  }
   // Guarded: a throwing microtask must not escape the extern "C" boundary
   // (std::terminate → host SIGABRT; ENG-23731 leg 1).
   drainMicrotasksGuarded(runtime);
+  if (runtime->structured_session_terminated) {
+    return -1;
+  }
+  if (runtime->structured_lifecycle_pending) {
+    return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
+  }
 
-  // Check if there are any referenced tasks keeping the loop alive
-  // (excluding unref'd timers). If not, skip unref'd due timers.
-  bool has_referenced_work = false;
-  if (ex_host_http_has_referenced() || ex_host_http_has_pending_requests()
-      || native_ws_has_active() || hasPendingFetchCallbacks(runtime)) {
+  // A host-owned keep-alive (the REPL, inspector, or explicit CLI loop) is a
+  // reference for this poll turn only. It makes already-due unref'd timers
+  // eligible without changing TimerEntry::referenced or the runtime's pending
+  // work query; future unref'd timers still cannot keep ordinary program drain
+  // alive. This is the same distinction Node/libuv draws between handle
+  // eligibility while a loop is alive and whether that handle keeps it alive.
+  // @ref LLP 0003#the-event-loop
+  // @ref LLP 0024#1-the-in-memory-source-api
+  bool has_referenced_work = external_keep_alive;
+  if (!has_referenced_work &&
+      (ex_host_http_has_referenced() || ex_host_http_has_pending_requests()
+       || native_ws_has_active() || hasPendingFetchCallbacks(runtime))) {
     has_referenced_work = true;
-  } else if (!runtime->next_tick.empty()) {
+  } else if (!has_referenced_work && !runtime->next_tick.empty()) {
     has_referenced_work = true;
-  } else if (runtime->active_spawn_processes.load(std::memory_order_relaxed) > 0) {
+  } else if (!has_referenced_work &&
+             runtime->active_spawn_processes.load(std::memory_order_relaxed) > 0) {
     has_referenced_work = true;
-  } else if (runtime->pending_dns_lookups.load(std::memory_order_relaxed) > 0) {
+  } else if (!has_referenced_work &&
+             runtime->pending_dns_lookups.load(std::memory_order_relaxed) > 0) {
     // A pending async DNS resolution keeps the loop alive. (ENG-22995)
     has_referenced_work = true;
-  } else if (runtime->pending_fs_ops.load(std::memory_order_relaxed) > 0) {
+  } else if (!has_referenced_work &&
+             runtime->pending_fs_ops.load(std::memory_order_relaxed) > 0) {
     // A pending async fs operation keeps the loop alive. (ENG-23497)
     has_referenced_work = true;
-  } else {
+  } else if (!has_referenced_work && std::any_of(
+                 runtime->module_records.begin(),
+                 runtime->module_records.end(),
+                 [](const auto& record) {
+                   return record.second.state ==
+                       NativeModuleRecordState::Evaluating;
+                 })) {
+    // A suspended module graph is one live structured-evaluation unit. Its
+    // internal promise keeps the loop alive; individual import waiters do not
+    // become cancellation targets.
+    // @ref LLP 0025#6-interruption-and-cancellation
+    has_referenced_work = true;
+  } else if (!has_referenced_work) {
     std::lock_guard<std::mutex> lock(runtime->callbackMutex);
     if (!runtime->callbackQueue.empty()) has_referenced_work = true;
   }
@@ -5026,13 +13521,27 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
   }
   // Node/libuv fire coalesced due timers by deadline first, then insertion id.
   std::sort(due.begin(), due.end());
+  // Due is a scheduling state, not a cancellation target. Publish every
+  // native timer identity before any corresponding Begin; a timer removed by
+  // an earlier callback below emits Undue instead.
+  // @ref LLP 0025#6-interruption-and-cancellation
+  reconcileStructuredTimerDue(runtime, due);
 
   for (const auto& due_timer : due) {
     const uint64_t id = due_timer.second;
     auto it = runtime->timers.find(id);
     if (it == runtime->timers.end()) {
+      if (runtime->structured_published_due_timers.erase(id) != 0) {
+        publishStructuredWorkEvent(
+            runtime,
+            EX_HERMES_WORK_UNIT_TIMER,
+            EX_HERMES_WORK_UNIT_UNDUE,
+            0,
+            id);
+      }
       continue;
     }
+    consumeStructuredTimerDue(runtime, id);
     // Retire or reschedule the fired timer. Must run before any error return
     // below: otherwise a throwing one-shot timer stays due and refires on
     // every subsequent poll. @ref LLP 0006#degrade-diagnostics-never-the-caller
@@ -5046,6 +13555,19 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
         }
       }
     };
+    ScopedNativeWorkUnit workUnit(
+        runtime, EX_HERMES_WORK_UNIT_TIMER, id);
+    ScopedAsyncFailureContext failureContext(
+        runtime,
+        structuredAsyncFailureContext(
+            EX_HERMES_ASYNC_FAILURE_TIMER,
+            it->second.principal,
+            id,
+            it->second.associatedEvaluation));
+    const bool rawCapture =
+        structuredWorkPublicationEnabled(runtime) &&
+        ScopedRawThrowCapture::available();
+    ScopedRawThrowCapture rawThrowCapture(runtime->runtime.get(), rawCapture);
     try {
       // @ref LLP 0013#phase-5 — ENG-23112 — scope the native-principal override to
       // JUST the timer callback invocation. Extending it over runNextTickQueue /
@@ -5071,31 +13593,97 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
               it->second.args.size());
         }
       }
+      workUnit.finish();
+      if (runtime->structured_session_terminated) {
+        retireTimer();
+        return -1;
+      }
       executed += 1;
+      if (runtime->structured_lifecycle_pending) {
+        retireTimer();
+        return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
+      }
       runNextTickQueue(runtime);
+      if (runtime->structured_session_terminated) {
+        retireTimer();
+        return -1;
+      }
+      if (runtime->structured_lifecycle_pending) {
+        retireTimer();
+        return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
+      }
       // Guarded: a microtask throw here must neither escape (SIGABRT) nor be
       // misattributed to the timer catch below (which would retire an
       // innocent timer and, for the CLI, return -1). (ENG-23731)
       drainMicrotasksGuarded(runtime);
+      if (runtime->structured_session_terminated) {
+        retireTimer();
+        return -1;
+      }
+      if (runtime->structured_lifecycle_pending) {
+        retireTimer();
+        return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
+      }
     } catch (const facebook::jsi::JSError& err) {
       executed += 1;
-      // Uncaught-handler consult + host policy. Embedded hosts keep
-      // processing the remaining due timers (ENG-23731); the CLI keeps the
-      // fatal -1 contract (ENG-23130).
+      if ((rawCapture
+               ? workUnit.finishRawCapturedJsThrow()
+               : workUnit.finish(err))) {
+        retireTimer();
+        if (runtime->structured_session_terminated) return -1;
+        continue;
+      }
+      if (runtime->structured_lifecycle_pending) {
+        retireTimer();
+        return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
+      }
+      // Uncaught-handler consult first. Authenticated runtimes publish and
+      // continue; legacy embedded hosts keep processing the remaining due
+      // timers, while the legacy CLI keeps its fatal -1 contract.
       if (!disposeAsyncCallbackError(runtime, err)) {
         retireTimer();
-        // This return -1 IS the one-shot report for this throw; leaving
-        // fatal_async_error set would make the NEXT poll return -1 again
-        // for the same error (double-report — breaks the transient--1 REPL
-        // contract pinned by throwing_one_shot_timer_does_not_refire).
-        runtime->fatal_async_error = false;
+        if (!structuredWorkPublicationEnabled(runtime)) {
+          // This return -1 is the legacy one-shot report for this throw;
+          // leaving the flag set would report it again on the next poll.
+          runtime->fatal_async_error = false;
+        }
         return -1;
       }
       // Continue processing remaining timers after a consumed exception
       runNextTickQueue(runtime);
+      if (runtime->structured_session_terminated) {
+        retireTimer();
+        return -1;
+      }
+      if (runtime->structured_lifecycle_pending) {
+        retireTimer();
+        return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
+      }
       drainMicrotasksGuarded(runtime);
+      if (runtime->structured_session_terminated) {
+        retireTimer();
+        return -1;
+      }
+      if (runtime->structured_lifecycle_pending) {
+        retireTimer();
+        return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
+      }
     } catch (const std::exception& err) {
+      if (workUnit.finish()) {
+        retireTimer();
+        if (runtime->structured_session_terminated) return -1;
+        executed += 1;
+        continue;
+      }
       retireTimer();
+      if (runtime->structured_lifecycle_pending) {
+        return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
+      }
+      if (structuredWorkPublicationEnabled(runtime)) {
+        recordStructuredAsyncFailureDrop(runtime);
+        executed += 1;
+        continue;
+      }
       ex_host_console_log(1, err.what());
       if (!runtime->keep_alive_on_async_error) {
         return -1;
@@ -5105,19 +13693,45 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
     retireTimer();
   }
 
-  // An async callback (nextTick, cross-thread task/callback) threw and no
-  // uncaughtException handler consumed it: report failure so the host loop
-  // exits nonzero instead of treating the run as green. One-shot, mirroring
-  // the throwing-timer -1 above. (ENG-23130)
+  // Pinned rejection-determination checkpoint: all work admitted to this poll
+  // iteration has run, so a still-pending promise is now reportable. A handler
+  // attached anywhere above removed its exact promise record first.
+  // @ref LLP 0024#9-asynchronous-failures
+  flushPendingPromiseRejections(runtime);
+  if (runtime->structured_session_terminated) return -1;
+  if (runtime->structured_lifecycle_pending) {
+    return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
+  }
+
+  // Legacy-only one-shot failure reporting. Authenticated runtimes publish
+  // structured events above and never set this flag.
   if (runtime->fatal_async_error) {
     runtime->fatal_async_error = false;
     return -1;
   }
 
+  if (runtime->structured_lifecycle_pending) {
+    return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
+  }
+
   return executed;
 }
 
-extern "C" int64_t ex_hermes_next_timer(ExactHermesRuntime* runtime) {
+extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return drive.status();
+  return pollRuntime(runtime, now_ms, false);
+}
+
+extern "C" int ex_hermes_poll_with_external_keep_alive(
+    ExactHermesRuntime* runtime,
+    uint64_t now_ms) {
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return drive.status();
+  return pollRuntime(runtime, now_ms, true);
+}
+
+static int64_t nextTimerUnchecked(ExactHermesRuntime* runtime) {
   if (!runtime || runtime->timers.empty()) {
     return -1;
   }
@@ -5133,17 +13747,29 @@ extern "C" int64_t ex_hermes_next_timer(ExactHermesRuntime* runtime) {
   return static_cast<int64_t>(next_due);
 }
 
+extern "C" int64_t ex_hermes_next_timer(ExactHermesRuntime* runtime) {
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return -1;
+  return nextTimerUnchecked(runtime);
+}
+
 extern "C" void ex_hermes_set_keep_alive_on_async_error(
     ExactHermesRuntime* runtime, int enabled) {
-  if (!runtime) {
-    return;
-  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return;
   runtime->keep_alive_on_async_error = enabled != 0;
 }
 
-extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime) {
+static int hasPendingTasksUnchecked(ExactHermesRuntime* runtime) {
   if (!runtime) {
     return 0;
+  }
+  if (runtime->structured_lifecycle_pending) {
+    return 1;
+  }
+  if (!runtime->structured_pending_promise_rejections.empty() ||
+      runtime->structured_pending_promise_rejection_dropped != 0) {
+    return 1;
   }
   if (ex_host_http_has_referenced() || ex_host_http_has_pending_requests()
       || native_ws_has_active() || hasPendingFetchCallbacks(runtime)) {
@@ -5163,6 +13789,14 @@ extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime) {
   if (runtime->pending_fs_ops.load(std::memory_order_relaxed) > 0) {
     return 1;
   }
+  if (std::any_of(
+          runtime->module_records.begin(),
+          runtime->module_records.end(),
+          [](const auto& record) {
+            return record.second.state == NativeModuleRecordState::Evaluating;
+          })) {
+    return 1;
+  }
   {
     std::lock_guard<std::mutex> lock(runtime->callbackMutex);
     if (!runtime->callbackQueue.empty()) return 1;
@@ -5180,24 +13814,41 @@ extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime) {
   return 0;
 }
 
-extern "C" uint32_t ex_hermes_callback_backlog(ExactHermesRuntime* runtime) {
-  if (!runtime) {
-    return 0;
-  }
+extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime) {
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return 0;
+  return hasPendingTasksUnchecked(runtime);
+}
 
+extern "C" uint32_t ex_hermes_callback_backlog(ExactHermesRuntime* runtime) {
+  if (!runtime) return 0;
   uint64_t backlog = 0;
   {
-    std::lock_guard<std::mutex> lock(runtime->callbackMutex);
-    backlog = runtime->callbackQueue.size();
-  }
-  {
-    std::lock_guard<std::mutex> lock(runtime->finalizerMutex);
-    backlog += runtime->finalizerQueue.size();
+    // This query is intentionally any-thread: the wake/idle planner calls it
+    // while an owner drive may be active. Pin the currently registered object
+    // through both queue locks so teardown cannot free either mutex between a
+    // liveness check and dereference. Lock order matches callback producers.
+    // @ref LLP 0002#runtime-driving-thread-contract
+    std::lock_guard<std::mutex> registryLock(g_runtimeRegistryMutex);
+    auto runtimeIt = g_activeRuntimes.find(runtime);
+    if (runtimeIt == g_activeRuntimes.end() ||
+        runtimeIt->second.state != RuntimeLifecycleState::Running) {
+      return 0;
+    }
+    {
+      std::lock_guard<std::mutex> callbackLock(runtime->callbackMutex);
+      backlog = runtime->callbackQueue.size();
+    }
+    {
+      std::lock_guard<std::mutex> finalizerLock(runtime->finalizerMutex);
+      backlog += runtime->finalizerQueue.size();
+    }
   }
   return static_cast<uint32_t>(
       std::min<uint64_t>(backlog, std::numeric_limits<uint32_t>::max()));
 }
 
+// @abi-callback ex_hermes_schedule_watchdog_heartbeat callback delivery=none
 extern "C" void ex_hermes_schedule_watchdog_heartbeat(
     ExactHermesRuntime* runtime,
     void (*callback)(void* context),
@@ -5237,14 +13888,16 @@ extern "C" void ex_hermes_schedule_watchdog_heartbeat_for_generation(
 // =============================================================================
 
 extern "C" void ex_hermes_gc(ExactHermesRuntime* runtime) {
-  if (!runtime || !runtime->runtime) return;
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive || !runtime->runtime) return;
   runtime->runtime->instrumentation().collectGarbage("ex_hermes_gc");
 }
 
 extern "C" char* ex_hermes_get_heap_info(
     ExactHermesRuntime* runtime,
     int include_expensive) {
-  if (!runtime || !runtime->runtime) {
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive || !runtime->runtime) {
     return nullptr;
   }
 
@@ -5253,7 +13906,8 @@ extern "C" char* ex_hermes_get_heap_info(
 }
 
 extern "C" char* ex_hermes_get_gc_stats(ExactHermesRuntime* runtime) {
-  if (!runtime || !runtime->runtime) {
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive || !runtime->runtime) {
     return nullptr;
   }
 
@@ -5264,6 +13918,145 @@ extern "C" char* ex_hermes_get_gc_stats(ExactHermesRuntime* runtime) {
     return nullptr;
   }
 }
+
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+// Establish deliberately foreign principal TLS around a nested public runtime
+// drive. This private probe lets the Rust consumer prove both isolation inside
+// runtime B and exact restoration of runtime A's still-live callback scope.
+extern "C" int32_t ibex_test_with_principal_tls_scope(
+    uint64_t module_id,
+    uint64_t native_principal,
+    const uint64_t* typed_principals,
+    size_t typed_principal_count,
+    int32_t (*body)(void* context),
+    void* context) {
+  if (body == nullptr || typed_principal_count > 64 ||
+      (typed_principal_count != 0 && typed_principals == nullptr)) {
+    return std::numeric_limits<int32_t>::min();
+  }
+  try {
+    std::vector<uint64_t> typed;
+    if (typed_principal_count != 0) {
+      typed.assign(
+          typed_principals, typed_principals + typed_principal_count);
+    }
+    const uint64_t previousModule = g_active_module_id;
+    g_active_module_id = module_id;
+    int32_t result = std::numeric_limits<int32_t>::min();
+    bool restored = false;
+    try {
+      ScopedNativePrincipal nativeScope(native_principal);
+      ScopedTypedPrincipalStack typedScope(typed);
+      result = body(context);
+      const auto observed = exactCollectTypedPrincipalStack();
+      restored = g_active_module_id == module_id &&
+          g_native_callback_principal_id == native_principal &&
+          std::all_of(
+              typed.begin(), typed.end(), [&](uint64_t principal) {
+                return std::find(
+                           observed.begin(), observed.end(), principal) !=
+                    observed.end();
+              });
+    } catch (...) {
+      g_active_module_id = previousModule;
+      return std::numeric_limits<int32_t>::min();
+    }
+    g_active_module_id = previousModule;
+    return restored ? result : std::numeric_limits<int32_t>::min();
+  } catch (...) {
+    return std::numeric_limits<int32_t>::min();
+  }
+}
+
+// Return a bit for each forbidden outer principal channel still visible in
+// the current scope: legacy module, native callback, and typed-FS stack.
+extern "C" uint32_t ibex_test_forbidden_principal_tls_mask(
+    uint64_t module_id,
+    uint64_t native_principal,
+    const uint64_t* typed_principals,
+    size_t typed_principal_count) {
+  if (typed_principal_count > 64 ||
+      (typed_principal_count != 0 && typed_principals == nullptr)) {
+    return UINT32_MAX;
+  }
+  uint32_t mask = 0;
+  if (g_active_module_id == module_id) mask |= 1u;
+  if (g_native_callback_principal_id == native_principal) mask |= 2u;
+  try {
+    const auto observed = exactCollectTypedPrincipalStack();
+    for (size_t index = 0; index < typed_principal_count; ++index) {
+      if (std::find(
+              observed.begin(), observed.end(), typed_principals[index]) !=
+          observed.end()) {
+        mask |= 4u;
+        break;
+      }
+    }
+  } catch (...) {
+    return UINT32_MAX;
+  }
+  return mask;
+}
+
+extern "C" uint32_t ibex_test_runtime_security_context_boundary(
+    ExactHermesRuntime* runtime,
+    uint64_t outer_runtime_nonce,
+    uint64_t module_id,
+    uint64_t native_principal,
+    const uint64_t* typed_principals,
+    size_t typed_principal_count) {
+  if (runtime == nullptr || outer_runtime_nonce == 0 ||
+      outer_runtime_nonce == runtime->runtime_nonce ||
+      typed_principal_count > 64 ||
+      (typed_principal_count != 0 && typed_principals == nullptr)) {
+    return UINT32_MAX;
+  }
+  try {
+    std::vector<uint64_t> typed;
+    if (typed_principal_count != 0) {
+      typed.assign(
+          typed_principals, typed_principals + typed_principal_count);
+    }
+    const uint64_t previousNonce = g_active_runtime_nonce;
+    const uint64_t previousModule = g_active_module_id;
+    g_active_runtime_nonce = outer_runtime_nonce;
+    g_active_module_id = module_id;
+    uint32_t failures = 0;
+    try {
+      ScopedNativePrincipal nativeScope(native_principal);
+      ScopedTypedPrincipalStack typedScope(typed);
+      {
+        ScopedRuntimeSecurityContext targetScope(runtime);
+        if (ibex_test_forbidden_principal_tls_mask(
+                module_id,
+                native_principal,
+                typed_principals,
+                typed_principal_count) != 0) {
+          failures |= 1u;
+        }
+        if (exactCurrentRuntimeNonce() != runtime->runtime_nonce) {
+          failures |= 2u;
+        }
+      }
+      if (ibex_test_forbidden_principal_tls_mask(
+              module_id,
+              native_principal,
+              typed_principals,
+              typed_principal_count) != 7u) {
+        failures |= 4u;
+      }
+      if (exactCurrentRuntimeNonce() != outer_runtime_nonce) failures |= 8u;
+    } catch (...) {
+      failures = UINT32_MAX;
+    }
+    g_active_module_id = previousModule;
+    g_active_runtime_nonce = previousNonce;
+    return failures;
+  } catch (...) {
+    return UINT32_MAX;
+  }
+}
+#endif
 
 // =============================================================================
 // HTTP server stubs (deliberate no-host builds only)

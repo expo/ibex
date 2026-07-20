@@ -31,7 +31,7 @@
 #     the intrinsics freeze natively (IBEX_NATIVE_LOCKDOWN) instead of a JS walk.
 #
 diff --git a/include/hermes/VM/Runtime.h b/include/hermes/VM/Runtime.h
-index aeb865ed6..66b65c3db 100644
+index 4742eaffcbf7dcdf05d569741fd34b5cd7240b93..557b4cbfbde8ff9e1ff8fd51748f9f28b71f15ca 100644
 --- a/include/hermes/VM/Runtime.h
 +++ b/include/hermes/VM/Runtime.h
 @@ -1008,6 +1008,14 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
@@ -71,7 +71,7 @@ index aeb865ed6..66b65c3db 100644
      return vmExperimentFlags_;
    }
 diff --git a/include/hermes/VM/RuntimeHermesValueFields.def b/include/hermes/VM/RuntimeHermesValueFields.def
-index 42ca00073..a158a8b45 100644
+index 42ca00073903029d96198bba0a56b3cdd54f7a06..43b91ccd4bf07dea8fa52a1550b49340fa0cac2d 100644
 --- a/include/hermes/VM/RuntimeHermesValueFields.def
 +++ b/include/hermes/VM/RuntimeHermesValueFields.def
 @@ -124,4 +124,10 @@ RUNTIME_HV_FIELD(intlNumberFormatPrototype, JSObject)
@@ -86,7 +86,7 @@ index 42ca00073..a158a8b45 100644
 +
  #undef RUNTIME_HV_FIELD
 diff --git a/lib/VM/CapabilityAttribution.cpp b/lib/VM/CapabilityAttribution.cpp
-index 458b0ca04..582316c76 100644
+index fcce7b37a518b0ae4b4952bfddcca711bf2f8d38..81b1aa353ed65a3189eb69e57e2b9f517405284f 100644
 --- a/lib/VM/CapabilityAttribution.cpp
 +++ b/lib/VM/CapabilityAttribution.cpp
 @@ -153,6 +153,14 @@ HERMES_EXPORT void ex_hermes_vm_set_default_package_id(
@@ -105,7 +105,7 @@ index 458b0ca04..582316c76 100644
  /// innermost-first, and return the count. @ref LLP 0013#phase-5
  HERMES_EXPORT size_t ex_hermes_vm_collect_package_ids(
 diff --git a/lib/VM/JSLib/GlobalObject.cpp b/lib/VM/JSLib/GlobalObject.cpp
-index b78ddb6ca..1bca3c449 100644
+index fb137bc411954bbfc161b852fe561153cb0f3e47..ac6abef2f9443cdd8af8024bf87d6cc06d9a6705 100644
 --- a/lib/VM/JSLib/GlobalObject.cpp
 +++ b/lib/VM/JSLib/GlobalObject.cpp
 @@ -27,6 +27,8 @@
@@ -253,7 +253,7 @@ index b78ddb6ca..1bca3c449 100644
    // Define the 'eval' function.
    defineGlobalFunc(Predefined::getSymbolID(Predefined::eval), eval, 1);
 diff --git a/lib/VM/JSLib/eval.cpp b/lib/VM/JSLib/eval.cpp
-index 3d0fc7ed1..fa6513eea 100644
+index 3d0fc7ed1903f364bd6225a8c54986fd0ceda1c5..2447849fc5bd804d36f2c48577f45ee6ee1c0a1c 100644
 --- a/lib/VM/JSLib/eval.cpp
 +++ b/lib/VM/JSLib/eval.cpp
 @@ -11,6 +11,7 @@
@@ -294,7 +294,7 @@ index 3d0fc7ed1..fa6513eea 100644
    llvh::StringRef sourceURL{};
    return runtime.runBytecode(
 diff --git a/lib/VM/Runtime.cpp b/lib/VM/Runtime.cpp
-index 0828b7267..1cadc9340 100644
+index 0828b7267ac950f052b4c3cf3df36c19ae95ee0b..f4fe9910ac50f6376390cae4567d81563eb7bd3b 100644
 --- a/lib/VM/Runtime.cpp
 +++ b/lib/VM/Runtime.cpp
 @@ -1175,17 +1175,19 @@ CallResult<HermesValue> Runtime::runBytecode(

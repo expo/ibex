@@ -97,6 +97,14 @@ static uint32_t allocate_ws_id() {
 }
 static std::once_flag g_curl_global_init_once;
 
+// Test-runner TLS compatibility is immutable process-start configuration;
+// armed WebSocket handshakes never consult the host environment.
+// @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+static const bool g_trust_loopback_tls_at_process_start = []() {
+    const char* value = std::getenv("EXACT_WPT_TRUST_LOOPBACK_TLS");
+    return value && *value && std::strcmp(value, "0") != 0;
+}();
+
 static void ensure_curl_global_init() {
     std::call_once(g_curl_global_init_once, []() {
         curl_global_init(CURL_GLOBAL_DEFAULT);
@@ -104,11 +112,7 @@ static void ensure_curl_global_init() {
 }
 
 static bool should_trust_loopback_tls() {
-    const char* value = std::getenv("EXACT_WPT_TRUST_LOOPBACK_TLS");
-    if (!value || !*value) {
-        return false;
-    }
-    return std::string(value) != "0";
+    return g_trust_loopback_tls_at_process_start;
 }
 
 static std::string extract_url_host(const char* url) {

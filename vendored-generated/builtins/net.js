@@ -2813,8 +2813,7 @@ Socket.prototype.resume = function() {
 			if (self.destroyed) return;
 			var bytes = nread;
 			if (bytes == null && typeof globalThis === "object" && globalThis.__exactStreamWrapState) bytes = globalThis.__exactStreamWrapState[globalThis.__exactStreamWrapReadBytesOrErrorIndex || 0];
-			var eof = typeof globalThis === "object" && globalThis.__exactUvEOFValue !== void 0 ? globalThis.__exactUvEOFValue : -4095;
-			if (bytes === eof || bytes === null) {
+			if (bytes === -4095 || bytes === null) {
 				_handleSocketEOF(self);
 				return;
 			}

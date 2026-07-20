@@ -69,15 +69,15 @@ describe("LLP 0021 capsec contract", () => {
   test("all schemas, registries, examples, and generated output validate", () => {
     const contract = loadAndValidateContract();
     const counts = runContractCheck();
-    expect(counts.capabilityDefinitions).toBe(38);
+    expect(counts.capabilityDefinitions).toBe(40);
     expect(counts.legacyCapabilities).toBe(57);
     expect(counts.schemas).toBe(contract.manifest.schemas.length);
-    expect(counts.selectorExamples).toBe(16);
-    expect(counts.occurrenceExamples).toBe(15);
+    expect(counts.selectorExamples).toBe(19);
+    expect(counts.occurrenceExamples).toBe(19);
     expect(counts.decisionSets).toBe(1);
     expect(counts.containmentVectors).toBe(23);
     expect(counts.digestVectors).toBe(5);
-    expect(counts.invalidFixtures).toBe(27);
+    expect(counts.invalidFixtures).toBe(30);
     expect(counts.coverageEdges).toBeGreaterThan(500);
     expect(counts.targetCells).toBeGreaterThanOrEqual(counts.coverageEdges);
     expect(renderLegacyReconciliation(contract)).toContain(
@@ -585,6 +585,50 @@ describe("LLP 0021 capsec contract", () => {
     ).toThrow(/package owner is not a graph node/);
   });
 
+  test("armed entry kind identity and mode are one closed authenticated tuple", () => {
+    const contract = loadAndValidateContract();
+    const invalidEntries = [
+      { kind: "repl", identity: "ibex:stdin", mode: "interactive" },
+      { kind: "repl", identity: "ibex:repl", mode: "program" },
+      { kind: "stdin", identity: "ibex:stdin", mode: "transcript" },
+      { kind: "eval", identity: "ibex:eval", mode: "program" },
+      {
+        kind: "file",
+        identity: "file:///project/../private.js",
+        mode: "program",
+      },
+      {
+        kind: "file",
+        identity: "file:///project/%2Fetc/passwd",
+        mode: "program",
+      },
+    ];
+    for (const entry of invalidEntries) {
+      const mutated = structuredClone(contract.armed);
+      mutated.entry = entry;
+      expect(() =>
+        validateArmedSnapshotSemantics(mutated, "mutated armed"),
+      ).toThrow(/entry.*inconsistent/);
+    }
+
+    for (const entry of [
+      { kind: "stdin", identity: "ibex:stdin", mode: "program" },
+      { kind: "repl", identity: "ibex:repl", mode: "interactive" },
+      { kind: "eval", identity: "ibex:eval", mode: "one-shot" },
+      {
+        kind: "file",
+        identity: "file:///project/a%20b.js",
+        mode: "program",
+      },
+    ]) {
+      const mutated = structuredClone(contract.armed);
+      mutated.entry = entry;
+      expect(() =>
+        validateArmedSnapshotSemantics(mutated, "mutated armed"),
+      ).not.toThrow();
+    }
+  });
+
   test("decision-set context cannot be contradicted by one effect", () => {
     const contract = loadAndValidateContract();
     const value = structuredClone(contract.effectSet);
@@ -664,6 +708,7 @@ describe("LLP 0021 capsec contract", () => {
       ),
     );
     pathDiscovery.stage = "discovery";
+    pathDiscovery.resource.objectState = "existing";
     delete pathDiscovery.resource.finalObject;
     delete pathDiscovery.resource.retainedHandle;
     expect(() =>
@@ -691,6 +736,35 @@ describe("LLP 0021 capsec contract", () => {
         "mutated occurrence",
       ),
     ).toThrow(/discovery stage lacks socketObject/);
+
+    const sessionState = contract.occurrenceExamples.occurrences.find(
+      (occurrence) => occurrence.resource.kind === "session-state-occurrence",
+    );
+    for (const stage of ["requested", "commit"]) {
+      const allowed = structuredClone(sessionState);
+      allowed.stage = stage;
+      expect(() =>
+        validateOccurrenceSemantics(
+          allowed,
+          contract.definitionsById,
+          contract.rules,
+          `session-state occurrence at ${stage}`,
+        ),
+      ).not.toThrow();
+    }
+
+    const delivery = structuredClone(sessionState);
+    delivery.stage = "delivery";
+    expect(() =>
+      validateOccurrenceSemantics(
+        delivery,
+        contract.definitionsById,
+        contract.rules,
+        "session-state occurrence at delivery",
+      ),
+    ).toThrow(
+      /session-state occurrence supports only requested and commit stages/,
+    );
   });
 
   test("digest projections omit self-digest fields and retain every other field", () => {
@@ -707,6 +781,34 @@ describe("LLP 0021 capsec contract", () => {
     expect(
       computeDomainDigest(vector.domain, changedSelfDigest, vector.omitFields),
     ).not.toBe(vector.expectedDigest);
+    const changedDiscovery = structuredClone(contract.armed);
+    changedDiscovery.projectRootDiscovery.markerSetVersion =
+      "ibex/project-root-markers/2";
+    expect(
+      computeDomainDigest(vector.domain, changedDiscovery, vector.omitFields),
+    ).not.toBe(vector.expectedDigest);
+  });
+
+  test("armed project-root discovery is total and agrees with its project binding", () => {
+    const contract = loadAndValidateContract();
+    expect(() =>
+      validateArmedSnapshotSemantics(contract.armed, "armed fixture"),
+    ).not.toThrow();
+
+    const mismatchedRoot = structuredClone(contract.armed);
+    mismatchedRoot.projectRootDiscovery.selectedRoot.components.push({
+      encoding: "utf8",
+      value: "other",
+    });
+    expect(() =>
+      validateArmedSnapshotSemantics(mismatchedRoot, "mutated"),
+    ).toThrow(/selected root differs from the project binding/);
+
+    const mismatchedMarker = structuredClone(contract.armed);
+    mismatchedMarker.projectRootDiscovery.markerKind = "lockfile";
+    expect(() =>
+      validateArmedSnapshotSemantics(mismatchedMarker, "mutated"),
+    ).toThrow(/discovery record is internally inconsistent/);
   });
 
   test("digest projections and domain payloads cannot redefine their own oracle", () => {
@@ -977,6 +1079,50 @@ describe("LLP 0021 capsec contract", () => {
         reconciliation.entries.slice(0, -1),
       ),
     ).toThrow(/missing=network:resolve/);
+  });
+
+  test("virtual cwd actions replace the legacy shared-process definition", () => {
+    const definitions = JSON.parse(
+      fs.readFileSync(
+        path.join(capsecRoot, "registry", "capability-definitions.json"),
+        "utf8",
+      ),
+    ).definitions;
+    const byId = new Map(definitions.map((definition) => [definition.id, definition]));
+
+    expect(byId.has("process:cwd")).toBe(false);
+    expect(byId.get("path:cwd-observe")).toMatchObject({
+      lifecycle: "authorable",
+      globality: "session-scoped",
+      resourceKinds: ["session-state"],
+      staticOnly: true,
+      channels: { dynamic: false, handle: false, synthesis: false },
+    });
+    expect(byId.get("path:cwd-mutate")).toMatchObject({
+      lifecycle: "authorable",
+      globality: "session-scoped",
+      resourceKinds: ["path-exact"],
+      staticOnly: true,
+      principalConstraint: "root-only",
+      channels: { dynamic: false, handle: false, synthesis: false },
+    });
+
+    const reconciliation = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          capsecRoot,
+          "registry",
+          "legacy-capability-reconciliation.json",
+        ),
+        "utf8",
+      ),
+    ).entries.find((entry) => entry.legacyCapability === "process:cwd");
+    expect(reconciliation).toMatchObject({
+      destinationDisposition: "authorable",
+      migrationKind: "decompose",
+      replacementActions: ["path:cwd-mutate", "path:cwd-observe"],
+      currentStatus: "enforced",
+    });
   });
 
   test("closed legacy rows can map only to deny-only definitions", () => {

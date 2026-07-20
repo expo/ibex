@@ -886,7 +886,9 @@ var performance = new Performance();
 performance.nodeTiming = _nodeTiming;
 performance.timerify = timerify;
 performance.eventLoopUtilization = eventLoopUtilization;
-if (typeof globalThis !== "undefined") {
+var _exactPrivateBuiltinBridges = typeof __exactPrivateBuiltinBridges === "object" && __exactPrivateBuiltinBridges ? __exactPrivateBuiltinBridges : null;
+var _exactSharedRuntimeOwnsGlobals = _exactPrivateBuiltinBridges && _exactPrivateBuiltinBridges.sharedRuntimeBundle === true;
+if (typeof globalThis !== "undefined" && !_exactSharedRuntimeOwnsGlobals) {
 	globalThis.performance = performance;
 	globalThis.Performance = Performance;
 	globalThis.PerformanceEntry = PerformanceEntry;

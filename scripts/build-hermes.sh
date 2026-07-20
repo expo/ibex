@@ -44,6 +44,7 @@ case "$HOST_ARCH_RAW" in
 esac
 HERMESC_DEST="$PROJECT_ROOT/tools/hermes/hermesc-macos-$HOST_ARCH"
 MACOS_FRAMEWORK_DEST="$FRAMEWORKS_DIR/hermesvm.framework"
+PROFILE_RECEIPT_DEST="$FRAMEWORKS_DIR/hermes-profile-provenance.json"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -74,6 +75,16 @@ if [[ "$HERMES_DEBUGGER" == "1" || "$HERMES_DEBUGGER" == "true" || "$HERMES_DEBU
     DEBUG_SUFFIX="-debug"
 fi
 
+# Both platform builders reuse mutable source/build caches. Hold the shared
+# kernel-backed lock until the final cache/receipt install has completed. EXIT
+# also runs after the explicit signal traps; on SIGKILL, the kernel releases
+# after the final inherited descriptor closes.
+ibex_acquire_hermes_source_build_lock "$(basename "$0")"
+trap 'ibex_release_hermes_source_build_lock' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 is_truthy() {
     case "$1" in
         1|true|TRUE|yes|YES|on|ON) return 0 ;;
@@ -84,6 +95,7 @@ is_truthy() {
 verify_debugger_symbols() {
     local framework_dir="$1"
     local binary="$framework_dir/Versions/1/hermesvm"
+    local symbols
     if ! is_truthy "$HERMES_DEBUGGER"; then
         return
     fi
@@ -91,12 +103,24 @@ verify_debugger_symbols() {
         echo "[✗] Expected Hermes macOS binary at $binary"
         exit 1
     fi
-    if ! nm -gU "$binary" 2>/dev/null | grep -q "AsyncDebuggerAPI"; then
+    symbols="$(nm -gU "$binary" 2>/dev/null)" || {
+        echo "[✗] Could not inspect Hermes macOS framework symbols"
+        exit 1
+    }
+    if [[ "$symbols" != *AsyncDebuggerAPI* ]]; then
         echo "[✗] Hermes macOS framework was built without debugger symbols"
         echo "    Missing AsyncDebuggerAPI in $binary"
         exit 1
     fi
     echo "[✓] Verified Hermes debugger symbols in $(basename "$framework_dir")"
+}
+
+write_profile_receipt() {
+    ibex_write_source_patched_profile_receipt \
+        "$MACOS_FRAMEWORK_DEST/Versions/1/hermesvm" \
+        "$PROFILE_RECEIPT_DEST" \
+        "$HERMES_VERSION" \
+        "$(basename "$VERSION_CACHE")"
 }
 
 # iOS deployment target (minimum iOS version)
@@ -146,16 +170,36 @@ resolve_version() {
 # hermes-artifacts publish workflow via scripts/hermes-version.sh (ENG-23147).
 VERSION_KEY=$(resolve_version "$HERMES_VERSION")
 PATCH_DIGEST=$(ibex_hermes_patch_digest)
-VERSION_CACHE="$CACHE_DIR/${VERSION_KEY}${DEBUG_SUFFIX}-p${PATCH_DIGEST}"
+APPLE_BUILD_AUTHORITY_DIGEST="$(ibex_hermes_apple_build_authority_digest_hex)"
+LINUX_BUILD_AUTHORITY_DIGEST="$(ibex_hermes_linux_build_authority_digest_hex)"
+PATCH_APPLICATION_AUTHORITY_DIGEST="$(ibex_hermes_patch_application_authority_digest)"
+PATCH_IDENTITY_AUTHORITY_DIGEST="$(ibex_hermes_patch_identity_authority_digest)"
+VERSION_CACHE="$CACHE_DIR/$(ibex_hermes_apple_source_cache_key "$VERSION_KEY" "$DEBUG_SUFFIX")"
 
 echo "=== Hermes Build Script ==="
 echo "Version: $HERMES_VERSION"
 echo "Cache key: $VERSION_KEY (patch stack: $PATCH_DIGEST)"
+echo "Apple build authority: ${APPLE_BUILD_AUTHORITY_DIGEST:0:12}"
+echo "Linux build authority: ${LINUX_BUILD_AUTHORITY_DIGEST:0:12}"
+echo "Patch application authority: $PATCH_APPLICATION_AUTHORITY_DIGEST"
+echo "Patch identity authority: $PATCH_IDENTITY_AUTHORITY_DIGEST"
 echo "Debugger suffix: $DEBUG_SUFFIX"
 echo "Cache dir: $VERSION_CACHE"
 echo "iOS Deployment Target: $IOS_DEPLOYMENT_TARGET"
 echo "Hermes Debugger: $HERMES_DEBUGGER"
 echo ""
+
+# A reviewed cache hit must carry a receipt for this exact cache identity. An
+# incomplete/crashed publication or a bundle built by an older patch verifier
+# is a miss, never a source-profile install.
+if [ -d "$VERSION_CACHE/hermesvm.xcframework" ] \
+    && [[ "$HERMES_VERSION" == "$IBEX_HERMES_SOURCE_COMMIT" ]] \
+    && ! ibex_hermes_profile_receipt_has_cache_key \
+        "$VERSION_CACHE/hermes-profile-provenance.json" \
+        "$(basename "$VERSION_CACHE")"; then
+    echo "[provenance] Discarding Hermes cache entry with a missing or stale source-profile receipt: $VERSION_CACHE" >&2
+    rm -rf "$VERSION_CACHE"
+fi
 
 # Check if already built
 if [ -d "$VERSION_CACHE/hermesvm.xcframework" ]; then
@@ -171,6 +215,14 @@ if [ -d "$VERSION_CACHE/hermesvm.xcframework" ]; then
         rm -rf "$MACOS_FRAMEWORK_DEST"
         cp -R "$VERSION_CACHE/hermesvm.framework" "$MACOS_FRAMEWORK_DEST"
         verify_debugger_symbols "$MACOS_FRAMEWORK_DEST"
+        if [ -f "$VERSION_CACHE/hermes-profile-provenance.json" ]; then
+            cp "$VERSION_CACHE/hermes-profile-provenance.json" "$PROFILE_RECEIPT_DEST"
+        else
+            rm -f "$PROFILE_RECEIPT_DEST"
+            echo "[provenance] cached Hermes has no source-build receipt; profile remains unverified." >&2
+        fi
+    else
+        rm -f "$PROFILE_RECEIPT_DEST"
     fi
 
     # Copy headers
@@ -217,9 +269,6 @@ echo "[✓] Xcode: $(xcode-select -p)"
 
 echo ""
 
-# Create cache directory
-mkdir -p "$VERSION_CACHE"
-
 # Clone or update Hermes
 HERMES_SRC="$CACHE_DIR/hermes-src"
 
@@ -231,12 +280,18 @@ fi
 
 cd "$HERMES_SRC"
 
+# An interrupted prior build may leave tracked, staged, ignored, or untracked
+# state that can affect checkout itself. This is a build-owned cache: erase the
+# complete source worktree before selecting the requested revision.
+git reset --hard HEAD
+git clean -ffdx
+
 echo "Checking out $HERMES_VERSION..."
 git fetch origin --tags
 if [[ "$HERMES_VERSION" == "static_h" || "$HERMES_VERSION" == "main" ]]; then
-    git checkout origin/static_h
+    git checkout --detach origin/static_h
 elif git rev-parse --verify --quiet "origin/$HERMES_VERSION" >/dev/null; then
-    git checkout "origin/$HERMES_VERSION"
+    git checkout --detach "origin/$HERMES_VERSION"
 else
     # A pinned commit may not be reachable from any currently advertised
     # branch/tag (upstream rebases/deletes release branches); GitHub serves
@@ -245,21 +300,25 @@ else
         && ! git rev-parse --verify --quiet "${HERMES_VERSION}^{commit}" >/dev/null; then
         git fetch origin "$HERMES_VERSION"
     fi
-    git checkout "$HERMES_VERSION"
+    git checkout --detach "$HERMES_VERSION"
 fi
 
-ACTUAL_COMMIT=$(git rev-parse HEAD | cut -c1-12)
+CHECKED_OUT_COMMIT="$(git rev-parse HEAD^{commit})"
+git reset --hard "$CHECKED_OUT_COMMIT"
+git clean -ffdx
+if [[ -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
+    echo "[✗] Hermes source checkout is not pristine after reset/clean" >&2
+    exit 1
+fi
+
+ACTUAL_COMMIT=$(printf '%s' "$CHECKED_OUT_COMMIT" | cut -c1-12)
 echo "Building commit: $ACTUAL_COMMIT"
 echo ""
 
-# @ref LLP 0013#upstream-tracking — restore a pristine tree (this cache is
-# reused across builds), then apply the carried Hermes patch stack.
-git checkout -- . 2>/dev/null || true
-git clean -fdq -- include lib 2>/dev/null || true
+# @ref LLP 0013#upstream-tracking — the complete checkout is now pristine,
+# including its real index and all ignored build outputs, before replaying the
+# carried Hermes patch stack.
 "$SCRIPT_DIR/apply-hermes-patches.sh" "$HERMES_SRC"
-
-# Clean previous builds
-rm -rf destroot build_host_hermesc build_iphoneos build_iphonesimulator build_macosx
 
 echo "=== Building Hermes for iOS ==="
 echo ""
@@ -390,6 +449,7 @@ xcodebuild -create-xcframework \
 # Copy results to cache
 echo ""
 echo "Caching build results..."
+mkdir -p "$VERSION_CACHE"
 cp -R "$HERMES_SRC/destroot/Library/Frameworks/universal/hermesvm.xcframework" "$VERSION_CACHE/"
 cp -R "$HERMES_SRC/build_macosx/lib/hermesvm.framework" "$VERSION_CACHE/"
 cp -R "$HERMES_SRC/destroot/include" "$VERSION_CACHE/"
@@ -407,6 +467,12 @@ cp -R "$VERSION_CACHE/hermesvm.xcframework" "$FRAMEWORKS_DIR/hermes.xcframework"
 rm -rf "$MACOS_FRAMEWORK_DEST"
 cp -R "$VERSION_CACHE/hermesvm.framework" "$MACOS_FRAMEWORK_DEST"
 verify_debugger_symbols "$MACOS_FRAMEWORK_DEST"
+write_profile_receipt
+if [ -f "$PROFILE_RECEIPT_DEST" ]; then
+    cp "$PROFILE_RECEIPT_DEST" "$VERSION_CACHE/hermes-profile-provenance.json"
+else
+    rm -f "$VERSION_CACHE/hermes-profile-provenance.json"
+fi
 
 rm -rf "$FRAMEWORKS_DIR/hermes-headers"
 mkdir -p "$FRAMEWORKS_DIR/hermes-headers"

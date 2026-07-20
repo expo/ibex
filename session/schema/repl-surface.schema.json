@@ -1,0 +1,386 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schema/repl-surface.v1.json",
+  "title": "Ibex REPL and published keybinding surface v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["replSurface", "keybindingSurface"],
+  "properties": {
+    "replSurface": {
+      "$ref": "#/$defs/replSurface"
+    },
+    "keybindingSurface": {
+      "$ref": "#/$defs/keybindingSurface"
+    }
+  },
+  "$defs": {
+    "replSurface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "$comment",
+        "version",
+        "recognition",
+        "modes",
+        "commands",
+        "loadExtensions"
+      ],
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "const": 1
+        },
+        "recognition": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "leadingWhitespace",
+            "prefix",
+            "namePattern",
+            "termination",
+            "argumentRemainder",
+            "unknownDisposition",
+            "nonmatchDisposition",
+            "commandsNeverContinue"
+          ],
+          "properties": {
+            "leadingWhitespace": {
+              "const": "unicode"
+            },
+            "prefix": {
+              "const": "."
+            },
+            "namePattern": {
+              "const": "[A-Za-z][A-Za-z0-9_-]*"
+            },
+            "termination": {
+              "const": ["whitespace", "end-of-input"]
+            },
+            "argumentRemainder": {
+              "const": "verbatim-after-first-whitespace-run"
+            },
+            "unknownDisposition": {
+              "const": "recoverable-error-naming-.help"
+            },
+            "nonmatchDisposition": {
+              "const": "evaluate-as-javascript"
+            },
+            "commandsNeverContinue": {
+              "const": true
+            }
+          }
+        },
+        "modes": {
+          "const": ["interactive", "plain-transcript"]
+        },
+        "commands": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/command"
+          }
+        },
+        "loadExtensions": {
+          "$ref": "#/$defs/loadExtensions"
+        }
+      }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "aliases",
+        "usage",
+        "argument",
+        "modes",
+        "states",
+        "successOutput",
+        "errorOutput",
+        "affordance",
+        "registryRelations",
+        "sourceSubmission",
+        "help"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^\\.[A-Za-z][A-Za-z0-9_-]*$"
+        },
+        "aliases": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^\\.[A-Za-z][A-Za-z0-9_-]*$"
+          }
+        },
+        "usage": {
+          "type": "string",
+          "minLength": 1
+        },
+        "argument": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind"],
+              "properties": {
+                "kind": {
+                  "const": "none"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "name", "preserve"],
+              "properties": {
+                "kind": {
+                  "const": "required-remainder"
+                },
+                "name": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                },
+                "preserve": {
+                  "const": "verbatim"
+                }
+              }
+            }
+          ]
+        },
+        "modes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["interactive", "plain-transcript"]
+          }
+        },
+        "states": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["fresh", "continuation"]
+          }
+        },
+        "successOutput": {
+          "enum": ["stdout", "none", "editor-control-or-none"]
+        },
+        "errorOutput": {
+          "const": "stderr"
+        },
+        "affordance": {
+          "enum": [
+            "presentation-only",
+            "cooperative-lifecycle",
+            "terminal-operator-state",
+            "typed-session-effect",
+            "evaluation-wrapper",
+            "session-control",
+            "logical-namespace-introspection"
+          ]
+        },
+        "registryRelations": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/registryRelation"
+          }
+        },
+        "sourceSubmission": {
+          "enum": ["none", "advance-on-source-request"]
+        },
+        "help": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "registryRelation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": {
+          "enum": ["capability", "non-capability-rationale"]
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*(?::[a-z][a-z0-9-]*)?$"
+        }
+      }
+    },
+    "loadExtensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "matching",
+        "rows",
+        "defaultDisposition",
+        "defaultErrorCode"
+      ],
+      "properties": {
+        "matching": {
+          "const": "longest-suffix-first"
+        },
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["extension", "disposition", "dialect"],
+                "properties": {
+                  "extension": {
+                    "$ref": "#/$defs/extension"
+                  },
+                  "disposition": {
+                    "const": "script"
+                  },
+                  "dialect": {
+                    "enum": [
+                      "javascript",
+                      "javascript-jsx",
+                      "typescript",
+                      "typescript-jsx"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["extension", "disposition", "dialect"],
+                "properties": {
+                  "extension": {
+                    "const": ".json"
+                  },
+                  "disposition": {
+                    "const": "json-data"
+                  },
+                  "dialect": {
+                    "const": "json"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["extension", "disposition", "errorCode"],
+                "properties": {
+                  "extension": {
+                    "$ref": "#/$defs/extension"
+                  },
+                  "disposition": {
+                    "enum": ["refuse-module-kind", "refuse-types-only"]
+                  },
+                  "errorCode": {
+                    "enum": ["load-module-kind", "load-types-only"]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "defaultDisposition": {
+          "const": "refuse-unknown-or-extensionless"
+        },
+        "defaultErrorCode": {
+          "const": "load-unsupported-extension"
+        }
+      }
+    },
+    "extension": {
+      "type": "string",
+      "pattern": "^\\.[a-z.]+$"
+    },
+    "keybindingSurface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["$comment", "version", "scope", "editorProfile", "bindings"],
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "const": 1
+        },
+        "scope": {
+          "const": "published-session-controls"
+        },
+        "editorProfile": {
+          "const": "emacs"
+        },
+        "bindings": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/keybinding"
+          }
+        }
+      }
+    },
+    "keybinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "display",
+        "bytes",
+        "action",
+        "countsAsEditorInput",
+        "help"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "display": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bytes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          }
+        },
+        "action": {
+          "enum": [
+            "bounded-asynchronous-completion",
+            "interrupt-machine",
+            "orderly-eof-or-delete-forward",
+            "reverse-history-search",
+            "suspend-transaction"
+          ]
+        },
+        "countsAsEditorInput": {
+          "type": "boolean"
+        },
+        "help": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

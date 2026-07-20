@@ -34,13 +34,6 @@
 #include <cstring>
 #endif
 
-// ENG-23874 — the degraded curl CLI fallback spawns via posix_spawnp with the
-// caller's environment (PATH lookup for `curl` is intentional: this fallback
-// exists only for constrained dev builds, opted into by
-// IBEX_ALLOW_CURL_CLI_FALLBACK=1 at build time; supported builds use libcurl
-// in-process and never take this path).
-extern char** environ;
-
 typedef void (*NativeFetchResponseCallback)(
     uint32_t request_id,
     int status,
@@ -447,13 +440,13 @@ static void native_fetch_perform_async(
 
     // @ref LLP 0008#linux-networking — ENG-23874: the degraded CLI fallback
     // must not route request data through a shell: build an argv array and
-    // posix_spawnp it directly, so there is no quoting layer whose correctness
-    // every future flag has to preserve. The URL is bound to --url (not
+    // spawn the fixed executable directly, so there is no quoting layer whose
+    // correctness every future flag has to preserve. The URL is bound to --url (not
     // positional) so a URL beginning with `-` cannot be parsed as a curl
     // option.
     // No -L flag: don't auto-follow redirects — let JS handle redirect logic.
     std::vector<std::string> args = {
-        "curl", "-sS",
+        "curl", "-q", "-sS",
         "--connect-timeout", "30",
         "--max-time", "300",
         "-X", method,
@@ -508,9 +501,33 @@ static void native_fetch_perform_async(
         &actions, STDOUT_FILENO, code_path.c_str(), O_WRONLY | O_TRUNC, 0);
     posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
 
+    // @ref LLP 0008#linux-networking — the degraded fallback must not turn
+    // network authority into ambient process-environment or executable-search
+    // authority. Resolve only a fixed absolute-path set, suppress curlrc with
+    // argv[1] == -q, and give the child an explicit empty environment.
+    static constexpr const char* kCurlExecutables[] = {
+        "/usr/bin/curl",
+        "/bin/curl",
+        "/usr/local/bin/curl",
+    };
+    const char* curl_executable = nullptr;
+    for (const char* candidate : kCurlExecutables) {
+        if (access(candidate, X_OK) == 0) {
+            curl_executable = candidate;
+            break;
+        }
+    }
+    char* empty_environment[] = {nullptr};
     pid_t curl_pid = 0;
-    const int spawn_rc =
-        posix_spawnp(&curl_pid, "curl", &actions, nullptr, argv.data(), environ);
+    const int spawn_rc = curl_executable
+        ? posix_spawn(
+              &curl_pid,
+              curl_executable,
+              &actions,
+              nullptr,
+              argv.data(),
+              empty_environment)
+        : ENOENT;
     posix_spawn_file_actions_destroy(&actions);
 
     int rc = -1;

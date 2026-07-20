@@ -9,9 +9,23 @@ src/engine/capsec_registry_generated.h text eol=lf
 
 # Evaluator identity review hashes these checked-in bytes. Keep a Windows
 # checkout byte-identical to the reviewed LF source and patch authorities.
-patches/hermes/*.patch text eol=lf
+patches/hermes/*.patch text eol=lf -whitespace
 scripts/hermes-version.sh text eol=lf
 scripts/apply-hermes-patches.sh text eol=lf
 scripts/build-hermes.sh text eol=lf
 scripts/build-hermes-linux.sh text eol=lf
+scripts/build-hermes-windows.ps1 text eol=lf
+scripts/install-windows-hermes.ps1 text eol=lf
+# The exact-target prerequisite matrix invokes these through Git Bash on
+# Windows; CRLF would become part of shell tokens and invalidate the evidence.
+scripts/run-tests.sh text eol=lf
+scripts/test-android-java.sh text eol=lf
+scripts/check-generated-drift.sh text eol=lf
 src/engine/hermes_runtime.cc text eol=lf
+
+# The vendored-runtime fingerprint hashes these source bytes directly. Keep
+# every authority byte-identical across checkouts so the hermetic build's
+# content check is genuinely portable to Windows.
+src/builtins/** text eol=lf
+packages/ibex-runtime-js/src/** text eol=lf
+modules.ts text eol=lf

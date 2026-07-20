@@ -31,11 +31,11 @@ const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
 
 // Diagnostic `.js` entries exercise the real lowering/bundling path before
 // Hermes starts. A cold, unoptimized test binary routinely spends 10–12s in
-// that setup, so the old 20s deadline had too little headroom under full-matrix
-// load and intermittently reported an event-loop timeout. This is a deadlock
-// bound, not a startup-performance assertion; keep the narrower command tests
-// below on their purpose-specific deadlines.
-const DIAGNOSTIC_EVAL_TIMEOUT: Duration = Duration::from_secs(60);
+// that setup, and a shared host under full-matrix load has exceeded 60s despite
+// completing in 15s when isolated. This is a deadlock bound, not a
+// startup-performance assertion; keep the narrower command tests below on
+// their purpose-specific deadlines.
+const DIAGNOSTIC_EVAL_TIMEOUT: Duration = Duration::from_secs(120);
 
 async fn command_output(
     cmd: &mut Command,

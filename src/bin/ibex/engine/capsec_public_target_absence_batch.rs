@@ -117,14 +117,14 @@ const TARGET_ABSENCE_BATCH_COMMAND: [&str; 9] = [
     "--bin",
     "ibex",
     "--features",
-    "capsec-conformance-observer",
+    "capsec-conformance-observer,openssl-crypto",
     "capsec_public_target_absence_batch",
     "--",
     "--test-threads=1",
 ];
-const EXPECTED_ABSENT_FIXTURES: usize = 110;
-const EXPECTED_TARGET_ABSENCE_FIXTURES: usize = 102;
-const EXPECTED_NATIVE_GLOBAL_ABSENCE_FIXTURES: usize = 8;
+const EXPECTED_ABSENT_FIXTURES: usize = 112;
+const EXPECTED_TARGET_ABSENCE_FIXTURES: usize = 90;
+const EXPECTED_NATIVE_GLOBAL_ABSENCE_FIXTURES: usize = 22;
 
 fn tagged_jcs_digest(value: &serde_json::Value) -> String {
     let bytes = capsec_semantics::canonical::to_jcs_bytes(value)
@@ -251,6 +251,7 @@ fn symbol_present(symbol_name: &str) -> bool {
 
 async fn runtime_global_property_present(
     engine: &HermesEngine,
+    evaluator: &mut AuthenticatedReplTestEvaluator,
     global_name: &str,
     member_name: Option<&str>,
 ) -> bool {
@@ -259,25 +260,20 @@ async fn runtime_global_property_present(
     let source = format!(
         r#"(() => {{
           const root = Object.getOwnPropertyDescriptor(globalThis, {global_name});
-          if (root === undefined) return false;
+          if (root === undefined) return "false";
           const member = {member_name};
-          if (member === null) return true;
-          if (!Object.prototype.hasOwnProperty.call(root, "value")) return true;
+          if (member === null) return "true";
+          if (!Object.prototype.hasOwnProperty.call(root, "value")) return "true";
           const value = root.value;
           if (value === null || (typeof value !== "object" && typeof value !== "function")) {{
-            return false;
+            return "false";
           }}
-          return Object.prototype.hasOwnProperty.call(value, member);
+          return Object.prototype.hasOwnProperty.call(value, member) ? "true" : "false";
         }})()"#
     );
-    match engine
-        .eval_immediate(&source)
-        .await
-        .expect("inspect exact runtime global without invoking accessors")
-        .as_deref()
-    {
-        Some("true") => true,
-        Some("false") => false,
+    match evaluator.eval_string(engine, &source).await.as_str() {
+        "true" => true,
+        "false" => false,
         other => panic!("runtime-global absence probe returned {other:?}"),
     }
 }
@@ -408,7 +404,7 @@ async fn execute_target_absence_recipe(
 
     let (host, snapshot_digest) =
         build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
-    assert_ne!(crate::host::abi::install_host(host), 0);
+    assert_ne!(crate::host::abi::install_host(host.clone()), 0);
     let _reset = HostResetGuard;
     let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
         .expect("create isolated target-absence engine");
@@ -416,13 +412,12 @@ async fn execute_target_absence_recipe(
         .load_runtime()
         .await
         .expect("load exact runtime for target-absence probe");
+    let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
     assert_eq!(
-        engine
-            .eval_immediate("'IBEX_CAPSEC_TARGET_ABSENCE_ENGINE_EXECUTED'")
-            .await
-            .expect("execute target-absence engine marker")
-            .as_deref(),
-        Some("IBEX_CAPSEC_TARGET_ABSENCE_ENGINE_EXECUTED")
+        evaluator
+            .eval_string(&engine, "'IBEX_CAPSEC_TARGET_ABSENCE_ENGINE_EXECUTED'")
+            .await,
+        "IBEX_CAPSEC_TARGET_ABSENCE_ENGINE_EXECUTED"
     );
     let session_id = format!("public-observation:{}", recipe.plan_digest);
     assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
@@ -449,8 +444,13 @@ async fn execute_target_absence_recipe(
             global_name,
             member_name,
         } => {
-            let is_present =
-                runtime_global_property_present(&engine, global_name, member_name.as_deref()).await;
+            let is_present = runtime_global_property_present(
+                &engine,
+                &mut evaluator,
+                global_name,
+                member_name.as_deref(),
+            )
+            .await;
             assert!(
                 !is_present,
                 "target-absent runtime global property {global_name}{} is installed",

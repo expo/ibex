@@ -1,0 +1,21 @@
+{
+  "schema": "ibex/session-semantics-manifest/1",
+  "modelVersion": 1,
+  "modelSource": {
+    "path": "packages/ibex-devtools/src/scripts/session-semantics-model.mjs",
+    "digest": "sha256-U02UpYG32hnYcshxZNle3VH9Y99P8nNpcRlE9oCTbrE"
+  },
+  "artifactSetDigest": "sha256-uJcOYvm9y6SStIYrLk-5KRb6QKdssw0h5Oru529JOG8",
+  "outputs": [
+    {
+      "path": "capsec/session-semantics/fixtures.json",
+      "kind": "model-fixtures",
+      "digest": "sha256-fCwq7mputo0c2owHz_c5G4RlTLOLk5mIVhFREOig3IM"
+    },
+    {
+      "path": "capsec/session-semantics/tables.md",
+      "kind": "generated-tables",
+      "digest": "sha256-67cAvMJYWusIoyphTYaW0KGFYnuUK-6mvKMV2jtt2qQ"
+    }
+  ]
+}

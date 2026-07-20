@@ -3,6 +3,31 @@
   var p = globalThis.process;
   var setTimeout = globalThis.setTimeout;
   var clearTimeout = globalThis.clearTimeout;
+  // Private, construction-bound child-process IPC input. Its frozen temporary
+  // root is deleted before project code; process.env remains an empty
+  // authenticated base plus principal overlays and is not a bootstrap control
+  // channel.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+  var processIpcBootstrap = null;
+  try {
+    var ipcCandidate = globalThis.__exactProcessIpcBootstrap;
+    var ipcCandidateFd = ipcCandidate && Number(ipcCandidate.fd);
+    if (isFinite(ipcCandidateFd) && ipcCandidateFd >= 0 &&
+        Math.floor(ipcCandidateFd) === ipcCandidateFd) {
+      processIpcBootstrap = { fd: ipcCandidateFd };
+    }
+  } catch (_) {}
+  // Trusted-bootstrap-only captures. Armed startup deletes the raw global
+  // spellings after this script runs; all later process/stream use stays on
+  // these lexical references.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  var nativeStdinRead = typeof globalThis.__exactStdinRead === 'function'
+    ? globalThis.__exactStdinRead
+    : null;
+  var nativeLifecycleExit = typeof globalThis.__exactExit === 'function'
+    ? globalThis.__exactExit
+    : null;
   function _getStreamFsModule() {
     if (typeof require !== 'function') return null;
     try {
@@ -15,20 +40,50 @@
   if (!p) return;
 
   // --- Minimal EventEmitter mixin ---
-  function addEventEmitter(obj) {
+  function addEventEmitter(obj, lifecycleListenersNoEffect) {
     var listeners = Object.create(null);
+    var lifecycleDiagnosticEmitted = false;
+    function isLifecycleListenerEvent(event) {
+      return lifecycleListenersNoEffect === true &&
+        (event === 'exit' || event === 'beforeExit');
+    }
+    function diagnoseLifecycleListenerNoEffect() {
+      if (lifecycleDiagnosticEmitted) return;
+      lifecycleDiagnosticEmitted = true;
+      var message = 'process exit and beforeExit listeners are unsupported in Ibex and have no effect';
+      var warning = new Error(message);
+      warning.name = 'IbexLifecycleWarning';
+      warning.code = 'IBEX_LIFECYCLE_LISTENER_NO_EFFECT';
+      setTimeout(function() {
+        if (obj.emit('warning', warning)) return;
+        if (globalThis.console && typeof globalThis.console.warn === 'function') {
+          globalThis.console.warn('[' + warning.code + '] ' + message);
+        }
+      }, 0);
+    }
     obj.on = function(event, fn) {
+      // @ref LLP 0025#8-exit-and-lifecycle — lifecycle listener registration
+      // succeeds but is diagnosed once and never stored.
+      if (isLifecycleListenerEvent(event)) {
+        diagnoseLifecycleListenerNoEffect();
+        return obj;
+      }
       if (!listeners[event]) listeners[event] = [];
       listeners[event].push({ fn: fn, once: false });
       return obj;
     };
     obj.addListener = obj.on;
     obj.once = function(event, fn) {
+      if (isLifecycleListenerEvent(event)) {
+        diagnoseLifecycleListenerNoEffect();
+        return obj;
+      }
       if (!listeners[event]) listeners[event] = [];
       listeners[event].push({ fn: fn, once: true });
       return obj;
     };
     obj.emit = function(event) {
+      if (isLifecycleListenerEvent(event)) return false;
       var args = [];
       for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
       var list = listeners[event];
@@ -44,6 +99,7 @@
       return true;
     };
     obj.removeListener = function(event, fn) {
+      if (isLifecycleListenerEvent(event)) return obj;
       var list = listeners[event];
       if (!list) return obj;
       var keep = [];
@@ -55,24 +111,35 @@
     };
     obj.off = obj.removeListener;
     obj.removeAllListeners = function(event) {
+      if (isLifecycleListenerEvent(event)) return obj;
       if (event) { listeners[event] = []; } else { listeners = Object.create(null); }
       return obj;
     };
     obj.listenerCount = function(event) {
+      if (isLifecycleListenerEvent(event)) return 0;
       return listeners[event] ? listeners[event].length : 0;
     };
     obj.listeners = function(event) {
+      if (isLifecycleListenerEvent(event)) return [];
       var list = listeners[event] || [];
       var result = [];
       for (var j = 0; j < list.length; j++) result.push(list[j].fn);
       return result;
     };
     obj.prependListener = function(event, fn) {
+      if (isLifecycleListenerEvent(event)) {
+        diagnoseLifecycleListenerNoEffect();
+        return obj;
+      }
       if (!listeners[event]) listeners[event] = [];
       listeners[event].unshift({ fn: fn, once: false });
       return obj;
     };
     obj.prependOnceListener = function(event, fn) {
+      if (isLifecycleListenerEvent(event)) {
+        diagnoseLifecycleListenerNoEffect();
+        return obj;
+      }
       if (!listeners[event]) listeners[event] = [];
       listeners[event].unshift({ fn: fn, once: true });
       return obj;
@@ -81,7 +148,7 @@
     obj.eventNames = function() {
       var names = [];
       for (var k in listeners) {
-        if (listeners[k] && listeners[k].length > 0) names.push(k);
+        if (!isLifecycleListenerEvent(k) && listeners[k] && listeners[k].length > 0) names.push(k);
       }
       return names;
     };
@@ -444,11 +511,11 @@
       stream.readable = true;
       stream._paused = false;
       stream.readableFlowing = true;
-      // Start polling for stdin data if we have __exactStdinRead
-      if (!stream._ended && typeof __exactStdinRead === 'function' && !stream._pollTimer) {
+      // Start polling for stdin data if trusted bootstrap captured the bridge.
+      if (!stream._ended && nativeStdinRead && !stream._pollTimer) {
         (function pollStdin() {
           if (stream._paused || stream._ended || stream.destroyed) return;
-          var data = __exactStdinRead(262144);
+          var data = nativeStdinRead(262144);
           if (data === null) {
             // No data available, poll again
             stream._pollTimer = setTimeout(pollStdin, 1);
@@ -478,8 +545,8 @@
     };
 
     stream.read = function(size) {
-      if (typeof __exactStdinRead === 'function') {
-        var data = __exactStdinRead(size || 262144);
+      if (nativeStdinRead) {
+        var data = nativeStdinRead(size || 262144);
         if (data === '') return null; // EOF
         if (data === null) return null;
         return stdinChunk(data, false);
@@ -573,7 +640,7 @@
   } catch(e) {}
 
   // --- Make process itself an EventEmitter ---
-  addEventEmitter(p);
+  addEventEmitter(p, true);
 
   try {
     var ProcessEventsCtor = require('events');
@@ -612,33 +679,23 @@
     }
   } catch (err) {}
 
-  // process.on('exit') — fire exit hooks before process exits
+  // Lifecycle exit is a native cooperative request. Delegation intentionally
+  // performs no exitCode access and fires no listeners before authorization.
   var origExit = p.exit;
-  if (!origExit || !origExit.__exactHostExit) {
-    p.exit = function(code) {
-      var currentProcess = (this && this !== null && typeof this === 'object') ? this : p;
-      if (!currentProcess) return;
-      if (code === undefined) {
-        code = currentProcess.exitCode || 0;
-      }
-      currentProcess.exitCode = code;
-      if (currentProcess._exactExiting) {
-        return;
-      }
-      currentProcess._exactExiting = true;
-      try { currentProcess.emit('exit', code); } catch(e) {}
-      var finalCode = currentProcess.exitCode || 0;
-      if (origExit && origExit.__exactHostExit) {
-        return origExit.call(currentProcess, finalCode);
-      }
-      if (typeof globalThis.__exactExit === 'function') {
-        return globalThis.__exactExit(finalCode);
-      }
-      if (origExit) {
-        return origExit.call(currentProcess, finalCode);
-      }
-    };
-  }
+  p.exit = function(code) {
+    var currentProcess = (this && this !== null && typeof this === 'object') ? this : p;
+    if (origExit) {
+      return code === undefined
+        ? origExit.call(currentProcess)
+        : origExit.call(currentProcess, code);
+    }
+    if (nativeLifecycleExit) {
+      return code === undefined
+        ? nativeLifecycleExit()
+        : nativeLifecycleExit(code);
+    }
+    throw new Error('process.exit() is unavailable in this runtime');
+  };
 
   // process.exitCode — settable exit code
   if (p.exitCode === undefined) p.exitCode = 0;
@@ -649,9 +706,14 @@
     return p.stdin;
   };
 
-  // process.abort()
+  // The runtime facade deliberately exposes abort as an unsupported stable
+  // throw. Preserve that contract instead of translating it into a lifecycle
+  // exit request, which would turn a compatibility method into an authority-
+  // bearing termination path.
+  var origAbort = p.abort;
   p.abort = function() {
-    p.exit(134);
+    if (origAbort) return origAbort.call(p);
+    throw new Error('process.abort() is not supported in Ibex runtime');
   };
 
   // process.emitWarning()
@@ -1363,11 +1425,11 @@
   // loads lazily, so it can run after compat-polyfills), leave it alone —
   // re-installing the early shim would clobber handle passing, advanced
   // serialization, and the listener-tracked channel ref accounting.
-  var hasIpcBootstrap = !!(p.env && p.env.EXACT_IPC_FD);
+  var hasIpcBootstrap = processIpcBootstrap !== null;
   if (p.__exactProcessIpcBootstrapInstalled) {
     // Fuller IPC implementation already owns process.send/channel.
   } else if (hasIpcBootstrap) {
-    var exactBootstrapIpcFd = Number(p.env.EXACT_IPC_FD);
+    var exactBootstrapIpcFd = processIpcBootstrap.fd;
     var exactBootstrapIpcBuffer = '';
     var exactBootstrapIpcPollTimer = 0;
     var exactBootstrapIpcReadPending = false;
@@ -1611,8 +1673,9 @@
     p.features = { inspector: true, debug: false, uv: false, ipv6: true, tls_alpn: false, tls_sni: false, tls_ocsp: false, tls: false };
   }
 
-  // process.mainModule (deprecated but still used)
-  p.mainModule = undefined;
+  // LLP 0022 closes the live main-module handle rather than projecting an
+  // undefined-but-present compatibility property.
+  try { delete p.mainModule; } catch (_mainModuleCleanupError) {}
 
   // process.binding — stub (deprecated but some old packages use it)
   if (!p.binding) {

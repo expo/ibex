@@ -1,0 +1,87 @@
+# LLP 0024 Hermes patch 0009 — trap-free raw thrown-value capture
+# Class: B (one virtual control, one boolean field, one guarded early return).
+# @ref LLP 0024#6-evaluation-outcomes-and-the-abi
+#
+# Hermes normally translates a pending JavaScript exception into jsi::JSError
+# by reading `.message` and `.stack` and, for other values, calling the realm's
+# `String`. Those operations can invoke arbitrary project code before the
+# embedder sees the exception. The structured evaluator must preserve the exact
+# thrown value without inspection, coercion, or Proxy/accessor traps.
+#
+# This patch adds an owner-thread scoped control to HermesRuntime. With metadata
+# property access disabled, throwPendingError moves the raw JSI value into the
+# existing non-evaluating JSError constructor and leaves metadata empty. Legacy
+# consumers retain the default behavior. Ibex brackets only its structured
+# evaluation call and restores the default with RAII, including exceptional
+# exits.
+#
+diff --git a/API/hermes/hermes.cpp b/API/hermes/hermes.cpp
+index 270bb4a3b5e1ef761bcf786b147d85dd5704ef3a..460434d10c35790247a10250d46a275623ea2795 100644
+--- a/API/hermes/hermes.cpp
++++ b/API/hermes/hermes.cpp
+@@ -1261,6 +1261,7 @@ class HermesRuntimeImpl final : public HermesRuntime,
+   SHRuntime *getSHRuntime() noexcept override;
+   void *getVMRuntimeUnsafe() const override;
+   size_t rootsListLengthForTests() const override;
++  void setJSErrorMetadataPropertyAccessEnabled(bool enabled) override;
+ 
+   ManagedValues<vm::PinnedHermesValue> hermesValues_;
+   ManagedValues<vm::WeakRoot<vm::JSObject>> weakHermesValues_;
+@@ -1273,6 +1274,7 @@ class HermesRuntimeImpl final : public HermesRuntime,
+ 
+   /// Compilation flags used by prepareJavaScript().
+   ::hermes::hbc::CompileFlags compileFlags_{};
++  bool jSErrorMetadataPropertyAccessEnabled_{true};
+   /// Custom data stored by the user of the runtime.
+   llvh::DenseMap<
+       jsi::UUID,
+@@ -1494,6 +1496,10 @@ jsi::ICast *HermesRuntimeImpl::getHermesRootAPI() {
+   return makeHermesRootAPI();
+ }
+ 
++void HermesRuntimeImpl::setJSErrorMetadataPropertyAccessEnabled(bool enabled) {
++  jSErrorMetadataPropertyAccessEnabled_ = enabled;
++}
++
+ jsi::ICast *HermesRuntimeImpl::castInterface(const jsi::UUID &interfaceUUID) {
+   if (interfaceUUID == IHermesTestHelpers::uuid) {
+     return static_cast<IHermesTestHelpers *>(this);
+@@ -3176,6 +3182,12 @@ void HermesRuntimeImpl::throwPendingError() {
+   vm::PinnedHermesValue valueStorage;
+   auto hnd = vmHandleFromValue(jsiVal, &valueStorage);
+ 
++  if (!jSErrorMetadataPropertyAccessEnabled_) {
++    // The structured evaluator owns inspection. Do not invoke message/stack
++    // getters or String on an arbitrary thrown value while crossing JSI.
++    throw jsi::JSError(std::move(jsiVal), "", "");
++  }
++
+   std::string msg = "No message";
+   std::string stack = "No stack";
+   if (auto str = vm::Handle<vm::StringPrimitive>::dyn_vmcast(hnd)) {
+diff --git a/API/hermes/hermes.h b/API/hermes/hermes.h
+index 1a66be931c50da1e83e283617575b2c3bdcdb0d1..8f54456cb7ca1482774ec991dcc42f9cfa0a8918 100644
+--- a/API/hermes/hermes.h
++++ b/API/hermes/hermes.h
+@@ -194,6 +194,8 @@ class IHermesTracingHelpers : public jsi::ICast {
+ };
+ #endif
+ 
++#define HERMES_HAS_RAW_THROW_CAPTURE 1
++
+ class HermesRuntime : public jsi::Runtime,
+                       public IHermes,
+                       public IHermesSHUnit {
+@@ -204,6 +206,12 @@ class HermesRuntime : public jsi::Runtime,
+   /// other interfaces.
+   ~HermesRuntime() override = default;
+ 
++  /// Disable only the message/stack property reads and String coercion which
++  /// normally occur while a pending JavaScript exception is translated to
++  /// jsi::JSError. The raw thrown value is still retained by JSError. Runtime
++  /// owners must restore the default after the scoped evaluation completes.
++  virtual void setJSErrorMetadataPropertyAccessEnabled(bool enabled) = 0;
++
+   using jsi::Runtime::castInterface;
+ };
+ 

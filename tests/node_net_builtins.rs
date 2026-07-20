@@ -15,20 +15,36 @@
 //! (or `cargo test --test node_net_builtins`).
 
 use serde_json::Value;
+use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::timeout;
 
 const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
+const DIAGNOSTIC_STARTUP_HEADROOM: Duration = Duration::from_secs(45);
 
 async fn run_script(script: &str, secs: u64) -> Value {
+    // Each audit authenticates and boots the real runtime before the fixture's
+    // own JavaScript watchdog exists. Keep `secs` as the semantic deadline,
+    // add cold-start headroom, and serialize siblings so the deadlock bound is
+    // not accidentally a CPU-contention benchmark.
+    static RUN_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    let _guard = RUN_LOCK
+        .get_or_init(|| tokio::sync::Mutex::new(()))
+        .lock()
+        .await;
     let dir = tempfile::tempdir().expect("create script tempdir");
     let entry = dir.path().join("app.js");
     std::fs::write(&entry, script).expect("write script fixture");
     let mut cmd = Command::new(IBEX);
-    cmd.arg("capsec").arg("audit").arg(&entry);
+    cmd.arg("capsec")
+        .arg("audit")
+        .arg(&entry)
+        .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
+        .kill_on_drop(true);
 
-    let output = timeout(Duration::from_secs(secs), cmd.output())
+    let deadline = Duration::from_secs(secs) + DIAGNOSTIC_STARTUP_HEADROOM;
+    let output = timeout(deadline, cmd.output())
         .await
         .expect("ibex process timed out (harness-level; the script watchdog should fire first)")
         .expect("failed to spawn or read ibex process output");

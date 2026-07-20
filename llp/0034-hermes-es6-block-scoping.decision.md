@@ -1,4 +1,4 @@
-# LLP 0026: Enable Hermes ES6 Block Scoping in Ibex
+# LLP 0034: Enable Hermes ES6 Block Scoping in Ibex
 
 **Type:** Decision
 **Status:** Draft

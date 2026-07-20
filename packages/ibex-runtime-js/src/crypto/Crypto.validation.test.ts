@@ -17,7 +17,17 @@
 import { expect, test, beforeAll, afterEach } from "bun:test";
 import { webcrypto, createCipheriv } from "node:crypto";
 import { SubtleCrypto, Crypto } from "./Crypto.ts";
-import { enableTestMode, Capabilities } from "../security/Capabilities.ts";
+import {
+  Capabilities,
+  disableTestMode,
+  enableTestMode,
+  onCapabilityAudit,
+  setNativeCapabilityModule,
+} from "../security/Capabilities.ts";
+import {
+  getNativeCryptoModule,
+  setNativeCryptoModule,
+} from "../native/NativeModules.ts";
 
 const nodeSubtle = webcrypto.subtle as any;
 const ibex = new SubtleCrypto();
@@ -372,6 +382,55 @@ test("getRandomValues throws TypeMismatchError for non-integer views (f)", () =>
   }
   // A non-view is still a TypeError.
   expect(() => ibexCrypto.getRandomValues([] as any)).toThrow(TypeError);
+});
+
+test("ordinary randomness returns without consulting capability authority", () => {
+  const previousCrypto = getNativeCryptoModule();
+  let capabilityChecks = 0;
+  const auditEvents: unknown[] = [];
+  const unsubscribe = onCapabilityAudit((event) => auditEvents.push(event));
+
+  disableTestMode();
+  setNativeCapabilityModule({
+    checkCapability() {
+      capabilityChecks += 1;
+      return false;
+    },
+    async requestCapability() {
+      return false;
+    },
+    getGrantedCapabilities() {
+      return [];
+    },
+  });
+  setNativeCryptoModule({
+    getRandomValues(array) {
+      array.fill(7);
+      return array;
+    },
+    randomUUID() {
+      return "00000000-0000-4000-8000-000000000000";
+    },
+    async sha256() { return new ArrayBuffer(32); },
+    async sha384() { return new ArrayBuffer(48); },
+    async sha512() { return new ArrayBuffer(64); },
+    async sha1() { return new ArrayBuffer(20); },
+  });
+
+  try {
+    const crypto = new Crypto();
+    expect(Array.from(crypto.getRandomValues(new Uint8Array(4)))).toEqual([7, 7, 7, 7]);
+    expect(crypto.randomUUID()).toBe("00000000-0000-4000-8000-000000000000");
+    expect(capabilityChecks).toBe(0);
+    expect(auditEvents).toEqual([]);
+  } finally {
+    unsubscribe();
+    setNativeCryptoModule(previousCrypto as any);
+    enableTestMode({
+      grants: [Capabilities.CRYPTO_SUBTLE, Capabilities.CRYPTO_RANDOM, "*"],
+      silent: true,
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------

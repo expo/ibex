@@ -2,11 +2,15 @@
   "policySchema": "ibex/capsec-policy/1",
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
-  "vocabDigest": "sha256-diaMQAlXpD7PWPRHI84g4H_hJ4z1oSpHb7G_MDNFLsU",
-  "registryDigest": "sha256-P3Aqv9iFkz1OhrBBOld8tO_BOlSyKviOooVKTjYrUHY",
-  "policyDigest": "sha256-Q5uWMIO0X8bPn0-z_rVk11f3w2MxcrId7-giEtM6QJo",
+  "vocabDigest": "sha256-4AXYSBt6dvdLGoapYQXk9TUWUg0BTIBXGQICovWXfm0",
+  "registryDigest": "sha256-LyxfUqgfQxZkXRhz12Iw29ftXeROWtT7Il9FCnY4o-k",
+  "policyDigest": "sha256-09aVYqX_eufm1z8MfweVcJKFgdE_jdIqyhdg7QJ6rwk",
   "purpose": "production",
   "mode": "enforce",
+  "rootImports": [
+    "env-reader@1.0.0",
+    "evil-pkg@1.0.0"
+  ],
   "principals": [
     {
       "principal": {
@@ -15,7 +19,23 @@
         "integrity": "sha256-7DH3tvLlSog0F83dhhYH4yfIjk2hFjka6R1seWe92Dc",
         "locator": "evil-pkg@1.0.0"
       },
-      "floor": [],
+      "floor": [
+        {
+          "authority": {
+            "cap": "path:cwd-observe",
+            "resource": {
+              "kind": "session-state",
+              "name": "cwd"
+            }
+          },
+          "provenance": [
+            {
+              "kind": "macro-expansion",
+              "source": "profile:path.cwd.v1:universal-observe"
+            }
+          ]
+        }
+      ],
       "denials": [],
       "escalationCeiling": [],
       "imports": {
@@ -45,6 +65,21 @@
             {
               "kind": "import-site",
               "source": "examples/llp0013-supply-chain/app.mjs:5"
+            }
+          ]
+        },
+        {
+          "authority": {
+            "cap": "path:cwd-observe",
+            "resource": {
+              "kind": "session-state",
+              "name": "cwd"
+            }
+          },
+          "provenance": [
+            {
+              "kind": "macro-expansion",
+              "source": "profile:path.cwd.v1:universal-observe"
             }
           ]
         }

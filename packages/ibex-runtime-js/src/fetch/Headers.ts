@@ -6,6 +6,10 @@
  */
 
 import type { HeadersInit } from './types.js';
+import {
+  isBootstrapCompatibilityControlFixed,
+  readBootstrapCompatibilityControl,
+} from '../core/host-inputs.js';
 
 /**
  * Header guard modes per the Fetch spec.
@@ -37,6 +41,11 @@ function isBunCompatEnv(): boolean {
 }
 
 function readRuntimeEnv(key: string): string | undefined {
+  const bootstrapValue = readBootstrapCompatibilityControl(key);
+  if (
+    bootstrapValue !== undefined ||
+    isBootstrapCompatibilityControlFixed(key)
+  ) return bootstrapValue;
   const hostEnv = (globalThis as { __exactHostEnv?: Record<string, string | undefined> })
     .__exactHostEnv;
   if (hostEnv && typeof hostEnv[key] === 'string') {
@@ -577,7 +586,15 @@ export class Headers implements Iterable<[string, string]> {
    */
   private _sortedEntries(): [string, string[]][] {
     const entries = [...this._map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-    if (!isBunCompatEnv()) {
+    const setCookieIndex = entries.findIndex(([name]) => name === 'set-cookie');
+    // Bun compatibility only changes the observable order when set-cookie is
+    // present before another entry. Keep ordinary iteration independent of
+    // compatibility environment state.
+    if (
+      setCookieIndex < 0 ||
+      setCookieIndex === entries.length - 1 ||
+      !isBunCompatEnv()
+    ) {
       return entries;
     }
 

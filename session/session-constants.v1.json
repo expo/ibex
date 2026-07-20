@@ -1,0 +1,189 @@
+{
+  "$schema": "./schema/session-constants.schema.json",
+  "version": 1,
+  "id": "ibex-terminal-session-constants",
+  "sourceRefs": [
+    "LLP 0022#10-terminal-interrupt-exit-and-history",
+    "LLP 0025#3-rendering-terminal-safety-and-the-output-broker",
+    "LLP 0025#5-terminal-presentation-and-restoration",
+    "LLP 0025#6-interruption-and-cancellation",
+    "LLP 0025#8-exit-and-lifecycle",
+    "LLP 0025#12-constants"
+  ],
+  "promptTokens": {
+    "defaultText": "➤ ",
+    "interruptByte": 3,
+    "editorErase": "\r\u001b[2K",
+    "transcriptBoundary": "\n"
+  },
+  "ansiStyles": {
+    "reset": "\u001b[0m",
+    "session": {
+      "prompt": "\u001b[36m",
+      "notice": "\u001b[33m",
+      "error": "\u001b[31m"
+    },
+    "display": {
+      "string": "\u001b[32m",
+      "number": "\u001b[36m",
+      "keyword": "\u001b[35m",
+      "error": "\u001b[31m",
+      "key": "\u001b[34m",
+      "typeTag": "\u001b[33m",
+      "truncation": "\u001b[2m"
+    }
+  },
+  "notices": {
+    "orderlyPromise": "press Ctrl+C again to end the session, or Ctrl+D to exit",
+    "cancellingWork": "cancelling work — press Ctrl+C again to end the session",
+    "workInFlight": "work is in flight — press Ctrl+C again to end the session",
+    "cancellingCompletion": "cancelling completion — press Ctrl+C again to end the session",
+    "inputDiscarded": "input discarded"
+  },
+  "exitStatuses": {
+    "orderlyDefault": 0,
+    "nonInteractiveFailure": 1,
+    "workerCommitUnacknowledged": 69,
+    "cancellationOrEngineFault": 70,
+    "startupFailure": 78,
+    "sighup": 129,
+    "interrupt": 130,
+    "sigquit": 131,
+    "brokenPipe": 141,
+    "sigterm": 143,
+    "posixStatusMask": 255
+  },
+  "timings": {
+    "brokerFlush": {
+      "milliseconds": 500,
+      "onExpiry": "abandon-and-account"
+    },
+    "historyLockAcquisition": {
+      "milliseconds": 250,
+      "onExpiry": "skip-persistence-and-notice"
+    },
+    "lifecycleCommitAck": {
+      "milliseconds": 2000,
+      "onExpiry": "worker-exits-reserved-status"
+    },
+    "shutdownDrain": {
+      "milliseconds": null,
+      "onExpiry": "unbound-engine-dependent"
+    },
+    "cancellation": {
+      "milliseconds": null,
+      "onExpiry": "unbound-engine-dependent"
+    },
+    "completion": {
+      "milliseconds": null,
+      "onExpiry": "unbound-engine-dependent"
+    },
+    "asyncStormCoalescingWindow": {
+      "milliseconds": null,
+      "onExpiry": "unbound-engine-dependent"
+    }
+  },
+  "limits": {
+    "rendererDepth": {
+      "value": 4,
+      "unit": "levels",
+      "overflow": "truncate-with-marker"
+    },
+    "rendererBreadth": {
+      "value": 128,
+      "unit": "entries-per-collection",
+      "overflow": "truncate-with-marker"
+    },
+    "rendererPayload": {
+      "value": 10000,
+      "unit": "unicode-scalars-per-string",
+      "overflow": "truncate-with-marker"
+    },
+    "historyEntries": {
+      "value": 10000,
+      "unit": "entries",
+      "overflow": "compact-drop-oldest"
+    },
+    "historyBytes": {
+      "value": 8388608,
+      "unit": "bytes",
+      "overflow": "compact-drop-oldest"
+    },
+    "historyRecordBytes": {
+      "value": 1048576,
+      "unit": "bytes",
+      "overflow": "reject-and-notice"
+    },
+    "brokerQueueBytes": {
+      "value": 8388608,
+      "unit": "bytes-per-destination",
+      "overflow": "backpressure"
+    },
+    "displayTreeSerializedBytes": {
+      "value": 16777216,
+      "unit": "bytes",
+      "overflow": "opaque-fallback"
+    },
+    "liveRelays": {
+      "value": 64,
+      "unit": "relays-per-session",
+      "overflow": "refuse-next-relay"
+    },
+    "inputBytes": {
+      "value": 1048576,
+      "unit": "bytes-per-submitted-input",
+      "overflow": "reject-and-notice"
+    }
+  },
+  "renderText": {
+    "childrenOpen": " [",
+    "childrenSeparator": ", ",
+    "childrenClose": "]",
+    "payloadTruncationSeparator": " ",
+    "truncationTemplate": "… +{omitted} more",
+    "fallbackTemplate": "[display unavailable: {reason}]",
+    "unknownNodeTemplate": "[Unknown display node {tag}]",
+    "fallbackReasons": {
+      "oversizeTree": "display tree exceeds 16 MiB",
+      "malformedOrUnknownTree": "malformed or unknown display tree",
+      "renderedDisplayTooLarge": "rendered display exceeds broker queue bound"
+    }
+  },
+  "displayTreeWire": {
+    "magic": "IBDX",
+    "version": 1,
+    "endianness": "little",
+    "rootDepth": 1,
+    "headerOrder": [
+      "magic",
+      "version"
+    ],
+    "nodeOrder": [
+      "kind",
+      "payloadLength",
+      "payload",
+      "childCount",
+      "children"
+    ],
+    "fieldWidthsBits": {
+      "magic": 32,
+      "version": 16,
+      "kind": 16,
+      "payloadLength": 32,
+      "childCount": 32
+    },
+    "nodeTags": {
+      "text": 1,
+      "string": 2,
+      "number": 3,
+      "boolean": 4,
+      "null": 5,
+      "undefined": 6,
+      "error": 7,
+      "key": 8,
+      "typeTag": 9,
+      "cycle": 10,
+      "truncation": 11
+    }
+  }
+}

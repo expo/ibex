@@ -5,6 +5,7 @@ import {
   parseLocaleTag,
   type LocaleDirection,
 } from './i18n-helpers.js';
+import { getHostNavigatorInput } from './host-inputs.js';
 
 export interface ExactLocaleSnapshot {
   readonly language: string;
@@ -35,9 +36,12 @@ interface ExactLocaleRuntimeState {
   changeTimer: ReturnType<typeof setTimeout> | null;
 }
 
+// @ref LLP 0011#state-modules — normalized mutable state is shared through the
+// module singleton; the host-facing globals carry snapshots and notifications,
+// not a project-code-visible state object.
+let exactLocaleState: ExactLocaleRuntimeState | undefined;
+
 declare global {
-  // eslint-disable-next-line no-var
-  var __exactLocaleState: ExactLocaleRuntimeState | undefined;
   // eslint-disable-next-line no-var
   var __exactLocaleSnapshot: NativeLocaleSnapshot | undefined;
   // eslint-disable-next-line no-var
@@ -60,16 +64,11 @@ export function readNativeLocaleSnapshot(): NativeLocaleSnapshot | null {
   const g = globalThis as typeof globalThis & {
     __exactLocale?: unknown;
     __exactLanguage?: unknown;
-    __exactHostNavigator?: {
-      language?: unknown;
-      languages?: unknown;
-    };
   };
 
-  const hostNavigator =
-    g.__exactHostNavigator && typeof g.__exactHostNavigator === 'object'
-      ? g.__exactHostNavigator
-      : undefined;
+  const hostNavigator = getHostNavigatorInput() as
+    | { language?: unknown; languages?: unknown }
+    | undefined;
   const hostLanguages = Array.isArray(hostNavigator?.languages)
     ? hostNavigator.languages.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
     : [];
@@ -161,10 +160,10 @@ function createDefaultState(): ExactLocaleRuntimeState {
 }
 
 function getLocaleState(): ExactLocaleRuntimeState {
-  if (!globalThis.__exactLocaleState) {
-    globalThis.__exactLocaleState = createDefaultState();
+  if (!exactLocaleState) {
+    exactLocaleState = createDefaultState();
   }
-  return globalThis.__exactLocaleState;
+  return exactLocaleState;
 }
 
 function dispatchLocaleChange(state: ExactLocaleRuntimeState): void {
@@ -243,11 +242,11 @@ export function clearExactLocaleOverride(): ExactLocaleSnapshot {
 }
 
 export function _resetExactLocaleForTests(): void {
-  const state = globalThis.__exactLocaleState;
+  const state = exactLocaleState;
   if (state?.changeTimer != null) {
     clearTimeout(state.changeTimer);
   }
-  delete globalThis.__exactLocaleState;
+  exactLocaleState = undefined;
   delete globalThis.__exactLocaleChanged;
   delete globalThis.__exactLocaleSnapshot;
 }

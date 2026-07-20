@@ -8,13 +8,30 @@ try {
   StringDecoder = null;
 }
 
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+// capture debug configuration during the module's effectful initialization so
+// pipeline calls classified as non-capability never consult process.env.
+var _exactPipelineDebug = (typeof process === 'object' && process && process.env &&
+  process.env.EXACT_PIPELINE_DEBUG === '1') ||
+  !!(typeof process === 'object' && process && process.__exactPipelineDebug);
+var _exactPipelineStateDebug = typeof process === 'object' && process &&
+  process.env && process.env.EXACT_PIPELINE_STATE_DEBUG === '1';
+
 // Polyfill Symbol.dispose and Symbol.asyncDispose if missing (e.g. Hermes)
+// A native module-runner builtin may first evaluate after lockdown has frozen
+// shared intrinsics. In that case the local Symbol.for fallback below remains
+// valid, while attempting to extend the constructor must stay non-fatal.
+// @ref LLP 0026#7-commonjs-interop
 if (typeof Symbol !== 'undefined') {
   if (!Symbol.dispose) {
-    Symbol.dispose = Symbol.for('nodejs.dispose');
+    try {
+      Symbol.dispose = Symbol.for('nodejs.dispose');
+    } catch (_err) {}
   }
   if (!Symbol.asyncDispose) {
-    Symbol.asyncDispose = Symbol.for('nodejs.asyncDispose');
+    try {
+      Symbol.asyncDispose = Symbol.for('nodejs.asyncDispose');
+    } catch (_err) {}
   }
 }
 
@@ -5835,6 +5852,12 @@ Object.getOwnPropertyNames(Writable.prototype).forEach(function(k) {
     Object.defineProperty(Duplex.prototype, k, desc);
   }
 });
+// Materialize the one copied lifecycle method that is part of the public
+// inventory. The computed copy above is exact at runtime but opaque to the
+// source scanner, which otherwise mislabels this own descriptor as inherited.
+// @ref LLP 0004#the-builtin-module-surface — inventoried descriptor identity
+// must match the loaded builtin rather than an approximation of the copy loop.
+Duplex.prototype._undestroy = Stream.prototype._undestroy;
 Duplex.prototype.constructor = Duplex;
 Duplex.prototype.pipe = function(dest, options) {
   return Stream.prototype.pipe.call(this, dest, options);
@@ -6407,10 +6430,8 @@ Readable.prototype.wrap = function(stream) {
 };
 
 function pipeline() {
-  var __pipelineDebug = (typeof process === 'object' && process && process.env &&
-    process.env.EXACT_PIPELINE_DEBUG === '1') || !!(typeof process === 'object' && process && process.__exactPipelineDebug);
-  var __pipelineStateDebug = typeof process === 'object' && process &&
-    process.env && process.env.EXACT_PIPELINE_STATE_DEBUG === '1';
+  var __pipelineDebug = _exactPipelineDebug;
+  var __pipelineStateDebug = _exactPipelineStateDebug;
   function __pipelineGetCallerLine() {
     if (!__pipelineDebug) return 'unknown';
     var stack = new Error().stack || '';

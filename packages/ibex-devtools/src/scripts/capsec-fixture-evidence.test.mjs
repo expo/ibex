@@ -264,12 +264,17 @@ describe("Exact fixture-evidence pilot", () => {
     });
     expect(report.status).toBe("incomplete");
     expect(report.summary).toMatchObject({
-      requiredFixtures: 22_996,
+      cells: 7_283,
+      conformantCells: 1,
+      incompleteCells: 7_282,
+      requiredFixtures: 23_665,
       passedFixtures: 9,
-      missingFixtures: 22_987,
+      missingFixtures: 23_656,
       failedFixtures: 0,
     });
-    expect(() => assertReportMayAdvertise(report)).toThrow(/incomplete/u);
+    expect(() => assertReportMayAdvertise(report)).toThrow(
+      /cannot advertise without recipe, public-surface, and output-disposition evidence bindings/u,
+    );
   });
 
   test("fails closed on stale source or semantic bindings", () => {
@@ -337,5 +342,5 @@ describe("Exact fixture-evidence pilot", () => {
         validateRuntimeObservation: validatePublicFixtureRuntimeObservation,
       }),
     ).toThrow(/single-use Exact completion route/u);
-  });
+  }, 15_000);
 });

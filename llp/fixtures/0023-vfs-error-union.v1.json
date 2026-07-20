@@ -1,0 +1,128 @@
+{
+  "schema": "ibex/llp0023-vfs-error-union/1",
+  "abiVersion": 1,
+  "reasons": [
+    {
+      "id": "stale-session",
+      "rustVariant": "StaleSession",
+      "cConstant": "EX_HOST_VFS_RESULT_STALE_SESSION",
+      "discriminant": 2,
+      "precedence": 0,
+      "code": "ERR_IBEX_STALE_SESSION",
+      "phase": "session"
+    },
+    {
+      "id": "closed-operation",
+      "rustVariant": "ClosedOperation",
+      "cConstant": "EX_HOST_VFS_RESULT_CLOSED_OPERATION",
+      "discriminant": 1,
+      "precedence": 1,
+      "code": "EPERM",
+      "phase": "operation"
+    },
+    {
+      "id": "malformed-input",
+      "rustVariant": "MalformedInput",
+      "cConstant": "EX_HOST_VFS_RESULT_MALFORMED_INPUT",
+      "discriminant": 3,
+      "precedence": 2,
+      "code": "ERR_INVALID_ARG_VALUE",
+      "phase": "shape"
+    },
+    {
+      "id": "encoded-separator",
+      "rustVariant": "EncodedSeparator",
+      "cConstant": "EX_HOST_VFS_RESULT_ENCODED_SEPARATOR",
+      "discriminant": 4,
+      "precedence": 3,
+      "code": "ERR_INVALID_FILE_URL_PATH",
+      "phase": "shape"
+    },
+    {
+      "id": "outside-mount",
+      "rustVariant": "OutsideMount",
+      "cConstant": "EX_HOST_VFS_RESULT_OUTSIDE_MOUNT",
+      "discriminant": 5,
+      "precedence": 4,
+      "code": "ERR_IBEX_OUTSIDE_MOUNT",
+      "phase": "containment"
+    },
+    {
+      "id": "synthetic-node",
+      "rustVariant": "SyntheticNode",
+      "cConstant": "EX_HOST_VFS_RESULT_SYNTHETIC_NODE",
+      "discriminant": 6,
+      "precedence": 5,
+      "code": "ERR_IBEX_SYNTHETIC_NODE",
+      "phase": "path"
+    },
+    {
+      "id": "policy-denied",
+      "rustVariant": "PolicyDenied",
+      "cConstant": "EX_HOST_VFS_RESULT_POLICY_DENIED",
+      "discriminant": 7,
+      "precedence": 6,
+      "code": "EACCES",
+      "phase": "authorization"
+    },
+    {
+      "id": "absent",
+      "rustVariant": "Absent",
+      "cConstant": "EX_HOST_VFS_RESULT_ABSENT",
+      "discriminant": 8,
+      "precedence": 7,
+      "code": "ENOENT",
+      "phase": "existence"
+    },
+    {
+      "id": "symlink-depth",
+      "rustVariant": "SymlinkDepthExceeded",
+      "cConstant": "EX_HOST_VFS_RESULT_SYMLINK_DEPTH",
+      "discriminant": 9,
+      "precedence": 8,
+      "code": "ELOOP",
+      "phase": "discovery"
+    },
+    {
+      "id": "unmappable-link",
+      "rustVariant": "UnmappableLink",
+      "cConstant": "EX_HOST_VFS_RESULT_UNMAPPABLE_LINK",
+      "discriminant": 10,
+      "precedence": 9,
+      "code": "ERR_IBEX_UNMAPPABLE_LINK",
+      "phase": "discovery"
+    },
+    {
+      "id": "stale-identity",
+      "rustVariant": "StaleIdentity",
+      "cConstant": "EX_HOST_VFS_RESULT_STALE_IDENTITY",
+      "discriminant": 11,
+      "precedence": 10,
+      "code": "ERR_IBEX_STALE_IDENTITY",
+      "phase": "commit"
+    },
+    {
+      "id": "input-too-large",
+      "rustVariant": "InputTooLarge",
+      "cConstant": "EX_HOST_VFS_RESULT_INPUT_TOO_LARGE",
+      "discriminant": 12,
+      "precedence": 11,
+      "code": "ERR_IBEX_INPUT_TOO_LARGE",
+      "phase": "authorized-input"
+    },
+    {
+      "id": "host-error",
+      "rustVariant": "HostError",
+      "cConstant": "EX_HOST_VFS_RESULT_HOST_ERROR",
+      "discriminant": 13,
+      "precedence": 12,
+      "code": "ERR_IBEX_HOST_IO",
+      "phase": "authorized-host"
+    }
+  ],
+  "perStageRule": [
+    "containment",
+    "authorization",
+    "existence"
+  ]
+}

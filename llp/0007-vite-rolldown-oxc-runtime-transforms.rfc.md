@@ -5,8 +5,8 @@
 **Systems:** Module Loader, Build, Runtime
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-06-13
-**Revised:** 2026-06-13 (Claude independent review — `llp/reviews/0007-vite-rolldown-oxc-runtime-transforms.claude.md`); 2026-06-14 (Codex second-pass revision); 2026-07-04 (devtools parser convergence: Acorn removed from first-party transform/import-grants scripts in favor of Rolldown/Oxc parser utilities); 2026-07-07 (Hermes-compat for-of / async-generator authority delegated to LLP 0019)
-**Related:** LLP 0000; LLP 0004 (module loading); LLP 0005 (build pipeline); LLP 0006 (design principles); LLP 0009
+**Revised:** 2026-07-15 (ENG-25066 made the authenticated Oxc producer/native linker the ordinary-ESM default); 2026-07-15 (ENG-25064 made source-table and Rolldown/HBC preparation share one authenticated carrier/artifact contract and connected it to the existing deployment cache); 2026-07-15 (architecture fork resolved to the accepted LLP 0026 ModuleRunner branch); 2026-06-13 (Claude independent review — `llp/reviews/0007-vite-rolldown-oxc-runtime-transforms.claude.md`); 2026-06-14 (Codex second-pass revision); 2026-07-04 (devtools parser convergence: Acorn removed from first-party transform/import-grants scripts in favor of Rolldown/Oxc parser utilities); 2026-07-07 (Hermes-compat for-of / async-generator authority delegated to LLP 0019)
+**Related:** LLP 0000; LLP 0004 (module loading); LLP 0005 (build pipeline); LLP 0006 (design principles); LLP 0009; LLP 0026 (accepted ModuleRunner architecture)
 
 ## Summary
 
@@ -46,6 +46,29 @@ If the candidate cannot satisfy the runtime-loader contract without changing
 loader architecture, the correct completion state is not a forced default
 switch; it is a documented Decision choosing a ModuleRunner-style redesign or a
 temporary SWC extension window.
+
+### Resolved architecture fork
+
+LLP 0026 is the accepted resolution: Ibex will move ordinary ESM from
+file-at-a-time CommonJS lowering to a native-owned module graph with a
+Rust/Oxc `ModuleArtifact` producer and Hermes runner. The bounded producer
+spike passed its precommitted real-Hermes bars on the pinned toolchain. SWC
+remains a compatibility implementation during the staged migration; the
+accepted direction does not bypass this RFC's fixture, hermeticity,
+performance, or default-switch gates.
+
+The prepared-carrier seam is now concrete (`commit:c6d2aefe`). The in-process
+producer's verified artifacts can be deterministically assembled into a
+per-principal JavaScript factory table, or that exact table can be compiled by
+the matching `hermesc` into HBC. Both representations retain the same
+`ModuleSemanticsV1`, semantic digest, original `SourceId`, typed edges, and
+source map; only the separately authenticated carrier encoding/digest changes.
+The existing Rolldown cache now emits that contract as a canonical
+`ibex/prepared-module-graph/1` index with one JavaScript factory carrier per
+defining principal. A warm load re-authenticates the deployment graph,
+original source identities, bindings, artifacts, and carrier bytes before the
+full native linker runs; it does not parse the application graph. This is an
+upgrade to the existing cache, not a second bundled-module semantics.
 
 ## Motivation
 
@@ -427,8 +450,6 @@ This RFC is complete when:
 
 ## Open questions
 
-- Is file-at-a-time transformation still a hard runtime-loader requirement, or
-  can runtime-loaded source move toward a graph transform/cache?
 - Which exact Hermes target should the Oxc/Rolldown path use? The generated path
   already uses `es2020` (`transforms.mjs:23`); is that the runtime target too, and
   do the `es5` loop-scope cases stay a separate Hermes pass?

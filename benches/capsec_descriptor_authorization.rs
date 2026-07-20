@@ -17,7 +17,12 @@ use capsec_semantics::decision::{
     VerifiedDecisionContext, Workflow,
 };
 use capsec_semantics::model::{
-    AuthoritySelector, DecisionSet, Digest, NonEmptyString, Principal, SafeUint, StableId,
+    AuthoritySelector, DecisionSet, Digest, LogicalPath, LogicalRoot, NonEmptyString,
+    ObjectPlatform, PathComponent, Principal, SafeUint, StableId,
+};
+use capsec_semantics::path_alias::{
+    BoundVolumePathCanonicalizer, PathAliasCanonicalizerIdentity, PathAliasCanonicalizers,
+    PathCanonicalizerRootBinding,
 };
 use capsec_semantics::registry::{ValidatedProfile, PROFILE, SEMANTIC_CORE};
 
@@ -86,7 +91,32 @@ fn context_and_decision() -> (VerifiedDecisionContext, DecisionSet, EffectGate) 
         handles: Vec::new(),
         dynamic_grants: Vec::new(),
     };
-    let context = VerifiedDecisionContext::arm(
+    // Path-capable fixtures bind the same per-volume canonicalizer used for
+    // both authority selectors and occurrences; a neutral arm is deliberately
+    // valid only for profiles with no path decisions.
+    // @ref LLP 0023#3-path-grammar-normalization-aliasing-and-containment
+    let volume = NonEmptyString::new("dev-bench").unwrap();
+    let path_canonicalizers = PathAliasCanonicalizers::bind(
+        vec![BoundVolumePathCanonicalizer {
+            platform: ObjectPlatform::Unix,
+            volume: volume.clone(),
+            identity: PathAliasCanonicalizerIdentity::ByteIdentityV1,
+        }],
+        [PathCanonicalizerRootBinding {
+            logical_root: LogicalRoot::Project,
+            owner: None,
+            logical_path: None,
+            host_path: LogicalPath {
+                root: LogicalRoot::Absolute,
+                components: vec![PathComponent::utf8("project").unwrap()],
+                host_bound: Some(true),
+            },
+            platform: ObjectPlatform::Unix,
+            volume,
+        }],
+    )
+    .unwrap();
+    let context = VerifiedDecisionContext::arm_with_path_canonicalizers(
         ArmInputs {
             expected_identity: identity.clone(),
             loaded_identity: identity,
@@ -95,6 +125,7 @@ fn context_and_decision() -> (VerifiedDecisionContext, DecisionSet, EffectGate) 
         },
         definitions,
         authority,
+        path_canonicalizers,
     )
     .unwrap();
     let decision: DecisionSet = serde_json::from_value(serde_json::json!({

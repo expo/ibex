@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <deque>
 #include <exception>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -47,6 +48,7 @@ struct WindowsFileHandle {
 
 struct FileEntry {
   std::shared_ptr<WindowsFileHandle> file;
+  // @ref LLP 0023#6-path-bearing-observables — Handle metadata retains only the virtual spelling used by capabilities and JS errors.
   std::string path;
   bool append = false;
   uint64_t runtimeNonce = 0;
@@ -65,6 +67,13 @@ std::mutex g_files_mutex;
 std::unordered_map<int, FileEntry> g_files;
 int g_next_fd = 3;
 thread_local const std::vector<uint64_t>* g_typed_principal_stack = nullptr;
+
+const std::vector<uint64_t>* exactSwapTypedPrincipalStackForRuntimeDrive(
+    const std::vector<uint64_t>* replacement) {
+  const auto* previous = g_typed_principal_stack;
+  g_typed_principal_stack = replacement;
+  return previous;
+}
 
 extern "C" void* ex_host_fs_open(const char* path, uint32_t flags);
 extern "C" int32_t ex_host_fs_read(void* file, uint8_t* buf, uint32_t len);
@@ -104,6 +113,7 @@ std::string pathArg(facebook::jsi::Runtime& runtime, const facebook::jsi::Value&
 
 const char* fsErrorCode(int32_t error) {
   switch (error) {
+    case EPERM: return "EPERM";
     case ENOENT: return "ENOENT";
     case EACCES: return "EACCES";
     case EEXIST: return "EEXIST";
@@ -124,6 +134,7 @@ const char* fsErrorCode(int32_t error) {
 
 const char* fsErrorDescription(int32_t error) {
   switch (error) {
+    case EPERM: return "operation not permitted";
     case ENOENT: return "no such file or directory";
     case EACCES: return "permission denied";
     case EEXIST: return "file already exists";
@@ -159,6 +170,52 @@ std::string fsErrorMessage(
 
 void throwFs(facebook::jsi::Runtime& runtime, const std::string& syscall, const std::string& path) {
   throw facebook::jsi::JSError(runtime, fsErrorMessage(syscall, path));
+}
+
+void refuseClosedArmedFsMutation(
+    facebook::jsi::Runtime& runtime, const std::string& syscall) {
+  if (ex_host_is_armed() != 1) {
+    return;
+  }
+  // @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified — Closed mutations fail with typed EPERM before path conversion, lookup, or capability probing.
+  throw facebook::jsi::JSError(
+      runtime, fsErrorMessage(syscall, std::string(), EPERM));
+}
+
+void throwSessionDescriptorRefused(
+    facebook::jsi::Runtime& runtime, int fd, const std::string& syscall) {
+  throw facebook::jsi::JSError(
+      runtime,
+      fsErrorMessage(syscall, std::string("fd ") + std::to_string(fd), EACCES));
+}
+
+bool sessionDescriptorReadIsEof(
+    facebook::jsi::Runtime& runtime, int fd, const std::string& syscall) {
+  int32_t route = ex_host_session_descriptor_read_route(fd);
+  if (route == 1) return true;
+  if (route != 0) throwSessionDescriptorRefused(runtime, fd, syscall);
+  return false;
+}
+
+void requireSessionDescriptorWrite(
+    facebook::jsi::Runtime& runtime, int fd, const std::string& syscall) {
+  if (ex_host_session_descriptor_write_route(fd) != 0) {
+    throwSessionDescriptorRefused(runtime, fd, syscall);
+  }
+}
+
+bool sessionDescriptorCloseIsNoOp(facebook::jsi::Runtime& runtime, int fd) {
+  int32_t route = ex_host_session_descriptor_close_route(fd);
+  if (route == 1) return true;
+  if (route != 0) throwSessionDescriptorRefused(runtime, fd, "close");
+  return false;
+}
+
+void requireSessionDescriptorGeneric(
+    facebook::jsi::Runtime& runtime, int fd, const std::string& syscall) {
+  if (ex_host_session_descriptor_is_protected(fd) != 0) {
+    throwSessionDescriptorRefused(runtime, fd, syscall);
+  }
 }
 
 void requireCapability(
@@ -215,6 +272,7 @@ void* fileHandle(const FileEntry& entry) {
 }
 
 FileEntry getFileEntry(facebook::jsi::Runtime& runtime, int fd) {
+  requireSessionDescriptorGeneric(runtime, fd, "fd");
   std::lock_guard<std::mutex> lock(g_files_mutex);
   auto it = g_files.find(fd);
   if (it == g_files.end() || !fileHandle(it->second)) {
@@ -278,9 +336,10 @@ facebook::jsi::Function unaryPathJsonFunction(
         if (count == 0) {
           throw facebook::jsi::JSError(runtime, std::string(name) + ": path required");
         }
-        auto path = pathArg(runtime, args[0]);
-        requireReadCapability(runtime, path);
-        return jsonStringResult(runtime, host_fn(path.c_str()), syscall, path);
+        auto path = exactResolveVfsPath(runtime, pathArg(runtime, args[0]));
+        requireReadCapability(runtime, path.virtualPath);
+        return jsonStringResult(
+            runtime, host_fn(path.backing.c_str()), syscall, path.virtualPath);
       });
 }
 
@@ -346,6 +405,50 @@ FsAsyncResult fsAsyncUnsupported(const std::string& syscall, const std::string& 
       path);
 }
 
+enum class FsOperationLeaseState : uint8_t {
+  Queued,
+  Committed,
+  Canceled,
+  Completed,
+};
+
+// Windows uses the same exact-generation operation lease as the POSIX
+// adapter. The pool mutex serializes Queued -> Committed with teardown's
+// Queued -> Canceled transition, and the decided closure retains every native
+// handle/fact captured on the runtime thread.
+// @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+struct FsOperationLease {
+  RuntimeCallbackTarget target;
+  std::shared_ptr<std::vector<uint64_t>> principalStack;
+  std::shared_ptr<std::function<FsAsyncResult()>> decidedWork;
+  std::atomic<FsOperationLeaseState> state{FsOperationLeaseState::Queued};
+
+  bool matches(RuntimeCallbackTarget candidate) const noexcept {
+    return target.runtime == candidate.runtime && target.nonce == candidate.nonce;
+  }
+
+  bool commit() noexcept {
+    auto expected = FsOperationLeaseState::Queued;
+    return state.compare_exchange_strong(
+        expected, FsOperationLeaseState::Committed,
+        std::memory_order_acq_rel, std::memory_order_acquire);
+  }
+
+  bool cancel() noexcept {
+    auto expected = FsOperationLeaseState::Queued;
+    return state.compare_exchange_strong(
+        expected, FsOperationLeaseState::Canceled,
+        std::memory_order_acq_rel, std::memory_order_acquire);
+  }
+
+  void complete() noexcept {
+    auto expected = FsOperationLeaseState::Committed;
+    (void)state.compare_exchange_strong(
+        expected, FsOperationLeaseState::Completed,
+        std::memory_order_release, std::memory_order_relaxed);
+  }
+};
+
 class FsWorkerPool {
  public:
   static FsWorkerPool& instance() {
@@ -353,7 +456,10 @@ class FsWorkerPool {
     return *pool;
   }
 
-  bool enqueue(std::function<void()> job, std::string& error) {
+  bool enqueue(
+      std::shared_ptr<FsOperationLease> lease,
+      std::function<void()> job,
+      std::string& error) {
     {
       std::lock_guard<std::mutex> lock(mutex_);
       if (queue_.size() >= kMaxQueue) {
@@ -361,18 +467,49 @@ class FsWorkerPool {
         return false;
       }
       spawnWorkerIfNeededLocked();
-      queue_.push_back(std::move(job));
+      queue_.push_back(QueuedJob{std::move(lease), std::move(job)});
     }
     cv_.notify_one();
     return true;
   }
 
+  size_t cancelQueued(RuntimeCallbackTarget target) noexcept {
+    size_t canceledCount = 0;
+    for (;;) {
+      QueuedJob canceled;
+      bool found = false;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (auto it = queue_.begin(); it != queue_.end(); ++it) {
+          if (it->lease && it->lease->matches(target) && it->lease->cancel()) {
+            canceled = std::move(*it);
+            queue_.erase(it);
+            found = true;
+            break;
+          }
+        }
+      }
+      if (!found) return canceledCount;
+      if (canceled.lease && canceled.lease->decidedWork) {
+        *canceled.lease->decidedWork = {};
+      }
+      // QueuedJob destruction on the runtime owner thread releases Promise
+      // roots, retained Windows handles, pending_fs_ops, and the runtime pin.
+      canceledCount += 1;
+    }
+  }
+
  private:
+  struct QueuedJob {
+    std::shared_ptr<FsOperationLease> lease;
+    std::function<void()> work;
+  };
+
   static constexpr size_t kMaxWorkers = 8;
   static constexpr size_t kMaxQueue = 1024;
   std::mutex mutex_;
   std::condition_variable cv_;
-  std::deque<std::function<void()>> queue_;
+  std::deque<QueuedJob> queue_;
   size_t idle_ = 0;
   size_t total_ = 0;
 
@@ -381,20 +518,32 @@ class FsWorkerPool {
       return;
     }
     total_ += 1;
-    std::thread([this]() {
-      for (;;) {
-        std::function<void()> job;
-        {
-          std::unique_lock<std::mutex> lock(mutex_);
-          idle_ += 1;
-          cv_.wait(lock, [this] { return !queue_.empty(); });
-          idle_ -= 1;
-          job = std::move(queue_.front());
-          queue_.pop_front();
+    try {
+      std::thread([this]() {
+        for (;;) {
+          QueuedJob job;
+          {
+            std::unique_lock<std::mutex> lock(mutex_);
+            idle_ += 1;
+            cv_.wait(lock, [this] { return !queue_.empty(); });
+            idle_ -= 1;
+            job = std::move(queue_.front());
+            queue_.pop_front();
+            if (!job.lease || !job.lease->commit()) continue;
+          }
+          try {
+            job.work();
+          } catch (...) {
+            // The detached pool is immortal; one broken adapter operation
+            // must not terminate its worker.
+          }
+          job.lease->complete();
         }
-        job();
-      }
-    }).detach();
+      }).detach();
+    } catch (...) {
+      total_ -= 1;
+      throw;
+    }
   }
 };
 
@@ -470,6 +619,10 @@ facebook::jsi::Value startFsAsync(
             std::make_shared<facebook::jsi::Function>(args[1].asObject(rt).asFunction(rt));
         auto target = exactRuntimeCallbackTarget(handle);
         auto lifetime = std::make_shared<FsAsyncLifetime>(target);
+        auto operationLease = std::make_shared<FsOperationLease>();
+        operationLease->target = target;
+        operationLease->principalStack = principalStack;
+        operationLease->decidedWork = workPtr;
         if (!exactPinRuntimeNativeWorker(target)) {
           throw facebook::jsi::JSError(rt, "FS async: runtime is shutting down");
         }
@@ -477,9 +630,12 @@ facebook::jsi::Value startFsAsync(
         lifetime->activate();
 
         std::string enqueueError;
-        bool queued = FsWorkerPool::instance().enqueue(
-            [handle, target, principal, principalStack, workPtr, resolve, reject,
-             lifetime]() mutable {
+        bool queued = false;
+        try {
+          queued = FsWorkerPool::instance().enqueue(
+              operationLease,
+              [handle, target, principal, principalStack, workPtr, resolve, reject,
+               lifetime]() mutable {
               exactTestDelayRuntimeProducer();
               ScopedRuntimeSecurityContext securityContext(handle);
               ScopedTypedPrincipalStack typedStack(*principalStack);
@@ -546,8 +702,13 @@ facebook::jsi::Value startFsAsync(
                       }
                     }
                   });
-            },
-            enqueueError);
+              },
+              enqueueError);
+        } catch (const std::exception& error) {
+          enqueueError = error.what();
+        } catch (...) {
+          enqueueError = "FS worker enqueue failed";
+        }
         if (!queued) {
           // A rejected Promise can retain its executor. Clear the unqueued
           // callable so any owned native resources are released immediately.
@@ -594,12 +755,15 @@ FsAsyncResult fsReadWholeHandleWork(
   return result;
 }
 
-FsAsyncResult fsReadFilePathWork(const std::string& path) {
+FsAsyncResult fsReadFilePathWork(
+    const std::string& backingPath,
+    const std::string& virtualPath) {
   uint64_t len = 0;
   int32_t readErrno = 0;
-  uint8_t* data = ex_host_fs_read_file(path.c_str(), &len, &readErrno);
+  uint8_t* data =
+      ex_host_fs_read_file(backingPath.c_str(), &len, &readErrno);
   if (!data) {
-    return fsAsyncSyscallError("open", path, readErrno);
+    return fsAsyncSyscallError("open", virtualPath, readErrno);
   }
   if (static_cast<double>(len) > kMaxReadFileBytes) {
     ex_host_free_buffer(data, len);
@@ -656,16 +820,18 @@ FsAsyncResult fsWriteAllHandleWork(
 }
 
 FsAsyncResult fsWriteFilePathWork(
-    const std::string& path,
+    const std::string& backingPath,
+    const std::string& virtualPath,
     const std::vector<uint8_t>& bytes,
     int nodeFlags,
     bool flush) {
-  void* rawFile = ex_host_fs_open(path.c_str(), hostFlagsFromNodeFlags(nodeFlags));
+  void* rawFile =
+      ex_host_fs_open(backingPath.c_str(), hostFlagsFromNodeFlags(nodeFlags));
   if (!rawFile) {
-    return fsAsyncSyscallError("open", path);
+    return fsAsyncSyscallError("open", virtualPath);
   }
   auto file = std::make_shared<WindowsFileHandle>(rawFile);
-  return fsWriteAllHandleWork(file, path, bytes, flush);
+  return fsWriteAllHandleWork(file, virtualPath, bytes, flush);
 }
 
 FsAsyncResult fsReadChunkWork(
@@ -805,10 +971,15 @@ FsAsyncResult fsWritevWork(
   return result;
 }
 
-FsAsyncResult fsStatPathWork(const std::string& path, bool isLstat) {
-  char* json = isLstat ? ex_host_fs_lstat(path.c_str()) : ex_host_fs_stat(path.c_str());
+FsAsyncResult fsStatPathWork(
+    const std::string& backingPath,
+    const std::string& virtualPath,
+    bool isLstat) {
+  char* json = isLstat ? ex_host_fs_lstat(backingPath.c_str())
+                       : ex_host_fs_stat(backingPath.c_str());
   if (!json) {
-    return fsAsyncSyscallError(isLstat ? "lstat" : "stat", path);
+    return fsAsyncSyscallError(
+        isLstat ? "lstat" : "stat", virtualPath);
   }
   auto result = fsAsyncOk(FsAsyncResult::Kind::Json);
   result.json = json;
@@ -837,17 +1008,122 @@ FsAsyncResult fsAsyncString(std::string value) {
   return result;
 }
 
+FsAsyncResult projectRealpathIdentity(
+    uint64_t runtimeNonce,
+    const ExactResolvedVfsPath& requested,
+    const std::string& canonicalBacking) {
+  uint8_t* projected = nullptr;
+  uint64_t projectedLength = 0;
+  int32_t hostError = 0;
+  uint32_t status = ibex_private_vfs_project_realpath(
+      runtimeNonce,
+      reinterpret_cast<const uint8_t*>(requested.virtualPath.data()),
+      requested.virtualPath.size(),
+      reinterpret_cast<const uint8_t*>(canonicalBacking.data()),
+      canonicalBacking.size(),
+      &projected,
+      &projectedLength,
+      &hostError);
+  if (status == 0 && projected != nullptr && projectedLength != 0) {
+    std::string logical(
+        reinterpret_cast<const char*>(projected),
+        static_cast<size_t>(projectedLength));
+    ex_host_free_buffer(projected, projectedLength);
+    return fsAsyncString(std::move(logical));
+  }
+  if (projected != nullptr) ex_host_free_buffer(projected, projectedLength);
+  switch (status) {
+    case 1:
+      return fsAsyncSyscallError("realpath", requested.virtualPath, EPERM);
+    case 2:
+      return fsAsyncError(
+          "ERR_IBEX_STALE_SESSION",
+          "ERR_IBEX_STALE_SESSION: runtime filesystem session is stale, realpath '" +
+              requested.virtualPath + "'",
+          "realpath", requested.virtualPath);
+    case 3:
+    case 4:
+    case 12:
+      return fsAsyncError(
+          "ERR_INVALID_ARG_VALUE",
+          "ERR_INVALID_ARG_VALUE: malformed filesystem path, realpath '" +
+              requested.virtualPath + "'",
+          "realpath", requested.virtualPath);
+    case 5:
+      return fsAsyncError(
+          "ERR_IBEX_OUTSIDE_MOUNT",
+          "ERR_IBEX_OUTSIDE_MOUNT: resolved path is outside the virtual mount, realpath '" +
+              requested.virtualPath + "'",
+          "realpath", requested.virtualPath);
+    case 6:
+      return fsAsyncError(
+          "ERR_IBEX_SYNTHETIC_NODE",
+          "ERR_IBEX_SYNTHETIC_NODE: operation requires a retained filesystem object, realpath '" +
+              requested.virtualPath + "'",
+          "realpath", requested.virtualPath);
+    case 7:
+      return fsAsyncSyscallError("realpath", requested.virtualPath, EACCES);
+    case 8:
+      return fsAsyncSyscallError("realpath", requested.virtualPath, ENOENT);
+    case 9:
+      return fsAsyncSyscallError("realpath", requested.virtualPath, ELOOP);
+    case 10:
+      return fsAsyncError(
+          "ERR_IBEX_UNMAPPABLE_LINK",
+          "ERR_IBEX_UNMAPPABLE_LINK: link has no unique virtual spelling, realpath '" +
+              requested.virtualPath + "'",
+          "realpath", requested.virtualPath);
+    case 11:
+      return fsAsyncError(
+          "ERR_IBEX_STALE_IDENTITY",
+          "ERR_IBEX_STALE_IDENTITY: retained filesystem identity is stale, realpath '" +
+              requested.virtualPath + "'",
+          "realpath", requested.virtualPath);
+    case 13:
+      return fsAsyncSyscallError(
+          "realpath", requested.virtualPath, hostError != 0 ? hostError : EIO);
+    default:
+      return fsAsyncSyscallError("realpath", requested.virtualPath, EIO);
+  }
+}
+
+FsAsyncResult fsRealpathWork(
+    uint64_t runtimeNonce,
+    const ExactResolvedVfsPath& path) {
+  if (ex_host_is_armed() != 1) {
+    char* resolved = ex_host_fs_realpath(path.backing.c_str());
+    if (!resolved) {
+      return fsAsyncSyscallError("realpath", path.virtualPath);
+    }
+    std::string canonicalBacking(resolved);
+    ex_host_free_string(resolved);
+    return fsAsyncString(std::move(canonicalBacking));
+  }
+  std::error_code error;
+  auto canonical = std::filesystem::canonical(
+      std::filesystem::u8path(path.backing), error);
+  if (error) {
+    int32_t compatibleError = error.default_error_condition().value();
+    return fsAsyncSyscallError(
+        "realpath", path.virtualPath,
+        compatibleError != 0 ? compatibleError : EIO);
+  }
+  return projectRealpathIdentity(
+      runtimeNonce, path, canonical.u8string());
+}
+
 FsAsyncResult fsPathOpWork(
+    uint64_t runtimeNonce,
     const std::string& op,
-    const std::string& a,
-    const std::string& b,
+    const ExactResolvedVfsPath& a,
+    const ExactResolvedVfsPath& b,
     double x,
     double y,
     uint64_t principal) {
   if (op == "readdir") {
-    char* json = ex_host_fs_readdir(a.c_str());
+    char* json = ex_host_fs_readdir(a.backing.c_str());
     if (!json) {
-      return fsAsyncSyscallError("scandir", a);
+      return fsAsyncSyscallError("scandir", a.virtualPath);
     }
     std::string out(json);
     ex_host_free_string(json);
@@ -855,97 +1131,110 @@ FsAsyncResult fsPathOpWork(
   }
   if (op == "mkdir") {
     if (x != 0) {
-      char* firstCreated = ex_host_fs_mkdir_recursive_result(a.c_str());
-      if (!firstCreated) return fsAsyncSyscallError("mkdir", a);
+      char* firstCreated =
+          ex_host_fs_mkdir_recursive_result(a.backing.c_str());
+      if (!firstCreated) {
+        return fsAsyncSyscallError("mkdir", a.virtualPath);
+      }
       std::string result(firstCreated);
       ex_host_free_string(firstCreated);
       return result.empty() ? fsAsyncOk() : fsAsyncString(std::move(result));
     }
-    if (ex_host_fs_mkdir(a.c_str(), x != 0 ? 1 : 0) != 0) {
-      return fsAsyncSyscallError("mkdir", a);
+    if (ex_host_fs_mkdir(a.backing.c_str(), x != 0 ? 1 : 0) != 0) {
+      return fsAsyncSyscallError("mkdir", a.virtualPath);
+    }
+    if (y >= 0 && ex_host_is_armed() != 1) {
+      // The JS async route passes mkdir mode in the fourth payload slot.
+      // Preserve legacy best-effort mode handling only outside armed mode.
+      (void)ex_host_fs_chmod(
+          a.backing.c_str(), static_cast<uint32_t>(y));
     }
     return fsAsyncOk();
   }
   if (op == "rmdir") {
-    if (ex_host_fs_rmdir(a.c_str()) != 0) {
-      return fsAsyncSyscallError("rmdir", a);
+    if (ex_host_fs_rmdir(a.backing.c_str()) != 0) {
+      return fsAsyncSyscallError("rmdir", a.virtualPath);
     }
     return fsAsyncOk();
   }
   if (op == "unlink") {
-    if (ex_host_fs_unlink(a.c_str()) != 0) {
-      return fsAsyncSyscallError("unlink", a);
+    if (ex_host_fs_unlink(a.backing.c_str()) != 0) {
+      return fsAsyncSyscallError("unlink", a.virtualPath);
     }
     return fsAsyncOk();
   }
   if (op == "rename") {
-    if (ex_host_fs_rename(a.c_str(), b.c_str()) != 0) {
-      return fsAsyncSyscallError("rename", a);
+    if (ex_host_fs_rename(a.backing.c_str(), b.backing.c_str()) != 0) {
+      return fsAsyncSyscallError("rename", a.virtualPath);
     }
     return fsAsyncOk();
   }
   if (op == "copyfile") {
-    if (ex_host_fs_copy(a.c_str(), b.c_str()) != 0) {
-      return fsAsyncSyscallError("copyfile", a);
+    if (ex_host_fs_copy(a.backing.c_str(), b.backing.c_str()) != 0) {
+      return fsAsyncSyscallError("copyfile", a.virtualPath);
     }
     return fsAsyncOk();
   }
   if (op == "copyfile_excl") {
-    if (ex_host_fs_copy_exclusive(a.c_str(), b.c_str()) != 0) {
-      return fsAsyncSyscallError("copyfile", a);
+    if (ex_host_fs_copy_exclusive(
+            a.backing.c_str(), b.backing.c_str()) != 0) {
+      return fsAsyncSyscallError("copyfile", a.virtualPath);
     }
     return fsAsyncOk();
   }
   if (op == "realpath") {
-    char* resolved = ex_host_fs_realpath(a.c_str());
-    if (!resolved) {
-      return fsAsyncSyscallError("realpath", a);
-    }
-    std::string out(resolved);
-    ex_host_free_string(resolved);
-    return fsAsyncString(std::move(out));
+    return fsRealpathWork(runtimeNonce, a);
+  }
+  if (op == "readlink") {
+    // Resolve and authorize on the runtime thread, then report honest ENOSYS
+    // with only the virtual spelling rather than attempting an unsafe direct
+    // backing-path fallback.
+    // @ref LLP 0008#filesystem — Unsupported Windows link operations fail honestly until a Host hook exists.
+    return fsAsyncUnsupported("readlink", a.virtualPath);
   }
   if (op == "access") {
-    if (ex_host_fs_access(a.c_str(), static_cast<int32_t>(x)) != 0) {
-      return fsAsyncSyscallError("access", a);
+    if (ex_host_fs_access(a.backing.c_str(), static_cast<int32_t>(x)) != 0) {
+      return fsAsyncSyscallError("access", a.virtualPath);
     }
     return fsAsyncOk();
   }
   if (op == "chmod") {
-    if (ex_host_fs_chmod(a.c_str(), static_cast<uint32_t>(x)) != 0) {
-      return fsAsyncSyscallError("chmod", a);
+    if (ex_host_fs_chmod(a.backing.c_str(), static_cast<uint32_t>(x)) != 0) {
+      return fsAsyncSyscallError("chmod", a.virtualPath);
     }
     return fsAsyncOk();
   }
   if (op == "truncate") {
-    if (x < 0 || ex_host_fs_truncate(a.c_str(), static_cast<uint64_t>(x)) != 0) {
-      return fsAsyncSyscallError("truncate", a, x < 0 ? EINVAL : 0);
+    if (x < 0 ||
+        ex_host_fs_truncate(a.backing.c_str(), static_cast<uint64_t>(x)) != 0) {
+      return fsAsyncSyscallError(
+          "truncate", a.virtualPath, x < 0 ? EINVAL : 0);
     }
     return fsAsyncOk();
   }
   if (op == "utime") {
-    if (ex_host_fs_utimes(a.c_str(), x, y) != 0) {
-      return fsAsyncSyscallError("utime", a);
+    if (ex_host_fs_utimes(a.backing.c_str(), x, y) != 0) {
+      return fsAsyncSyscallError("utime", a.virtualPath);
     }
     return fsAsyncOk();
   }
   if (op == "statfs") {
-    char* json = ex_host_fs_statfs(a.c_str());
-    if (!json) return fsAsyncSyscallError("statfs", a);
+    char* json = ex_host_fs_statfs(a.backing.c_str());
+    if (!json) return fsAsyncSyscallError("statfs", a.virtualPath);
     std::string result(json);
     ex_host_free_string(json);
     return fsAsyncString(std::move(result));
   }
   if (op == "mkdtemp") {
-    char* path = ex_host_fs_mkdtemp(a.c_str(), principal);
+    char* path = ex_host_fs_mkdtemp(a.backing.c_str(), principal);
     if (!path) {
-      return fsAsyncSyscallError("mkdtemp", a);
+      return fsAsyncSyscallError("mkdtemp", a.virtualPath);
     }
     std::string out(path);
     ex_host_free_string(path);
     return fsAsyncString(std::move(out));
   }
-  return fsAsyncUnsupported(op, a);
+  return fsAsyncUnsupported(op, a.virtualPath);
 }
 
 bool parseWindowsIoVecArguments(
@@ -988,6 +1277,33 @@ bool parseWindowsIoVecArguments(
 }
 
 } // namespace
+
+void exactCancelQueuedFsOperations(RuntimeCallbackTarget target) {
+  if (!target) return;
+  (void)FsWorkerPool::instance().cancelQueued(target);
+}
+
+ExactArmedSqliteFile exactOpenArmedSqliteFile(
+    facebook::jsi::Runtime& runtime,
+    const ExactResolvedVfsPath&,
+    bool,
+    bool) {
+  throw facebook::jsi::JSError(
+      runtime,
+      "ERR_IBEX_TARGET_UNSUPPORTED: checked file-backed SQLite is unavailable on Windows");
+}
+
+void exactRequireArmedSqliteFile(
+    facebook::jsi::Runtime& runtime,
+    const ExactArmedSqliteFile&,
+    const char*,
+    uint32_t,
+    bool,
+    bool) {
+  throw facebook::jsi::JSError(
+      runtime,
+      "ERR_IBEX_TARGET_UNSUPPORTED: checked file-backed SQLite is unavailable on Windows");
+}
 
 std::vector<uint64_t> exactCollectTypedPrincipalStack() {
   std::vector<uint64_t> principals;
@@ -1055,15 +1371,44 @@ void exactCleanupRuntimeFileDescriptors(uint64_t runtimeNonce) {
 // the SCM_RIGHTS process-IPC fd in the fd ownership registry so raw integers
 // don't become ambient authority (ENG-22883). Windows has no SCM_RIGHTS fd
 // passing and this file keeps no raw-fd registry (file access goes through
-// HANDLE-backed FileEntry records), so the platform-neutral call site in
-// hermes_runtime.cc (EXACT_IPC_FD bootstrap) links against this no-op.
-void exactRegisterProcessIpcFd(int fd) {
+// HANDLE-backed FileEntry records). The Rust construction bridge ignores the
+// POSIX-only IPC environment marker on Windows; this successful no-op exists
+// only to keep the platform-neutral call site and link contract uniform.
+bool exactRegisterProcessIpcFd(int fd) {
   (void)fd;
+  return true;
+}
+
+bool exactCloseProcessIpcFd(uint64_t runtimeNonce, int fd) {
+  (void)runtimeNonce;
+  (void)fd;
+  return false;
+}
+
+void installFsMutationGuardHostFunction(ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  auto mutationGuardFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactFsMutationGuard"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactFsMutationGuard: operation required");
+        }
+        auto operation = args[0].asString(runtime).utf8(runtime);
+        refuseClosedArmedFsMutation(runtime, operation);
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(
+      rt, "__exactFsMutationGuard", std::move(mutationGuardFn));
 }
 
 void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
-
   auto readFileFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactReadFile"),
@@ -1075,14 +1420,15 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (count == 0) {
           throw facebook::jsi::JSError(runtime, "__exactReadFile: path required");
         }
-        auto path = pathArg(runtime, args[0]);
-        requireReadCapability(runtime, path);
+        auto path = exactResolveVfsPath(runtime, pathArg(runtime, args[0]));
+        requireReadCapability(runtime, path.virtualPath);
         uint64_t len = 0;
         int32_t read_errno = 0;
-        uint8_t* data = ex_host_fs_read_file(path.c_str(), &len, &read_errno);
+        uint8_t* data =
+            ex_host_fs_read_file(path.backing.c_str(), &len, &read_errno);
         if (!data) {
           (void)read_errno;
-          throwFs(runtime, "open", path);
+          throwFs(runtime, "open", path.virtualPath);
         }
         std::vector<uint8_t> bytes(data, data + len);
         ex_host_free_buffer(data, len);
@@ -1101,13 +1447,14 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (count < 2) {
           throw facebook::jsi::JSError(runtime, "__exactWriteFile: path and data required");
         }
-        auto path = pathArg(runtime, args[0]);
-        requireWriteCapability(runtime, path);
+        auto path = exactResolveVfsPath(runtime, pathArg(runtime, args[0]));
+        requireWriteCapability(runtime, path.virtualPath);
         auto bytes = extractBytes(runtime, args[1]);
         void* file = ex_host_fs_open(
-            path.c_str(), EXACT_FS_WRITE | EXACT_FS_CREATE | EXACT_FS_TRUNCATE);
+            path.backing.c_str(),
+            EXACT_FS_WRITE | EXACT_FS_CREATE | EXACT_FS_TRUNCATE);
         if (!file) {
-          throwFs(runtime, "open", path);
+          throwFs(runtime, "open", path.virtualPath);
         }
         // ex_host_fs_write is a single std::io::Write::write, which may write
         // FEWER bytes than requested (nearly-full disk, RLIMIT_FSIZE, a large
@@ -1134,12 +1481,12 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             // short-write fixes — see the POSIX EINTR retry in
             // hermes_runtime_fs.cc's __exactWriteFile.)
             ex_host_fs_close(file);
-            throwFs(runtime, "write", path);
+            throwFs(runtime, "write", path.virtualPath);
           }
           if (written == 0) {
             // No progress and no error: refuse to spin forever.
             ex_host_fs_close(file);
-            throwFs(runtime, "write", path);
+            throwFs(runtime, "write", path.virtualPath);
           }
           totalWritten += static_cast<size_t>(written);
         }
@@ -1159,28 +1506,42 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (count == 0 || !args[0].isString()) {
           throw facebook::jsi::JSError(runtime, "__exactFsOpen: path required");
         }
-        auto path = pathArg(runtime, args[0]);
+        auto path = exactResolveVfsPath(runtime, pathArg(runtime, args[0]));
         int flags = 0;
         if (count > 1 && args[1].isNumber()) {
           flags = static_cast<int>(args[1].asNumber());
         }
         auto host_flags = hostFlagsFromNodeFlags(flags);
         if ((host_flags & EXACT_FS_READ) == EXACT_FS_READ) {
-          requireReadCapability(runtime, path);
+          requireReadCapability(runtime, path.virtualPath);
         }
         if ((host_flags & EXACT_FS_WRITE) == EXACT_FS_WRITE) {
-          requireWriteCapability(runtime, path);
+          requireWriteCapability(runtime, path.virtualPath);
         }
-        void* rawFile = ex_host_fs_open(path.c_str(), host_flags);
+        void* rawFile = ex_host_fs_open(path.backing.c_str(), host_flags);
         if (!rawFile) {
-          throwFs(runtime, "open", path);
+          throwFs(runtime, "open", path.virtualPath);
         }
         auto file = std::make_shared<WindowsFileHandle>(rawFile);
         std::lock_guard<std::mutex> lock(g_files_mutex);
-        int fd = g_next_fd++;
+        int fd = -1;
+        // Future Windows worker support may install the same process policy.
+        // Never mint a FileHandle integer in the protected descriptor class;
+        // bound the search so an indeterminate/poisoned policy fails closed.
+        for (size_t attempts = 0; attempts < 1024; ++attempts) {
+          int candidate = g_next_fd++;
+          if (ex_host_session_descriptor_is_protected(candidate) == 0) {
+            fd = candidate;
+            break;
+          }
+        }
+        if (fd < 0) {
+          throw facebook::jsi::JSError(
+              runtime, "EACCES: permission denied, open file descriptor");
+        }
         g_files[fd] = FileEntry{
             file,
-            path,
+            path.virtualPath,
             (flags & NODE_O_APPEND) == NODE_O_APPEND,
             exactCurrentRuntimeNonce(),
             currentPrincipalId(),
@@ -1202,6 +1563,11 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsClose: fd required");
         }
         auto fd = fdFromValue(runtime, args[0]);
+        // @ref LLP 0025#1-modes-descriptors-and-topology — standard-fd close
+        // is virtual success; protected descriptors are typed refusals.
+        if (sessionDescriptorCloseIsNoOp(runtime, fd)) {
+          return facebook::jsi::Value::undefined();
+        }
         FileEntry entry;
         {
           std::lock_guard<std::mutex> lock(g_files_mutex);
@@ -1234,6 +1600,9 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         auto fd = fdFromValue(runtime, args[0]);
         auto length = static_cast<uint32_t>(args[1].asNumber());
+        if (sessionDescriptorReadIsEof(runtime, fd, "read")) {
+          return makeUint8Array(runtime, std::vector<uint8_t>());
+        }
         std::vector<uint8_t> bytes(length);
         auto entry = getFileEntry(runtime, fd);
         requireFileEntryRead(runtime, entry);
@@ -1272,6 +1641,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsWrite: fd and data required");
         }
         auto fd = fdFromValue(runtime, args[0]);
+        requireSessionDescriptorWrite(runtime, fd, "write");
         auto entry = getFileEntry(runtime, fd);
         requireFileEntryWrite(runtime, entry);
         auto bytes = extractBytes(runtime, args[1]);
@@ -1337,22 +1707,44 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto mkdirFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactMkdir"),
-      2,
+      3,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
-        auto path = count > 0 ? pathArg(runtime, args[0]) : std::string();
-        int32_t recursive = count > 1 && args[1].isBool() && args[1].getBool() ? 1 : 0;
-        requireWriteCapability(runtime, path);
-        if (path.empty() || ex_host_fs_mkdir(path.c_str(), recursive) != 0) {
-          throwFs(runtime, "mkdir", path);
+        int32_t recursive = 0;
+        if (count > 1 && args[1].isBool()) {
+          recursive = args[1].getBool() ? 1 : 0;
+        } else if (count > 1 && args[1].isNumber()) {
+          recursive = args[1].asNumber() != 0 ? 1 : 0;
+        }
+        int mode = count > 2 && args[2].isNumber()
+            ? static_cast<int>(args[2].asNumber())
+            : -1;
+        if (recursive != 0) {
+          refuseClosedArmedFsMutation(runtime, "mkdir");
+        }
+        auto path = exactResolveVfsPath(
+            runtime,
+            count > 0 ? pathArg(runtime, args[0]) : std::string());
+        requireWriteCapability(runtime, path.virtualPath);
+        if (path.virtualPath.empty() ||
+            ex_host_fs_mkdir(path.backing.c_str(), recursive) != 0) {
+          throwFs(runtime, "mkdir", path.virtualPath);
+        }
+        if (mode >= 0 && ex_host_is_armed() != 1) {
+          // fs.js now passes mkdir's mode into the native create entry. Keep
+          // the legacy best-effort adjustment for unarmed Windows without
+          // introducing a forbidden post-create metadata mutation when armed.
+          (void)ex_host_fs_chmod(
+              path.backing.c_str(), static_cast<uint32_t>(mode));
         }
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactMkdir", std::move(mkdirFn));
 
-  auto unaryVoid = [&rt](const char* name, const char* syscall, int32_t (*host_fn)(const char*)) {
+  auto unaryClosedVoid =
+      [&rt](const char* name, const char* syscall, int32_t (*host_fn)(const char*)) {
     return facebook::jsi::Function::createFromHostFunction(
         rt,
         facebook::jsi::PropNameID::forAscii(rt, name),
@@ -1362,6 +1754,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             const facebook::jsi::Value&,
             const facebook::jsi::Value* args,
             size_t count) -> facebook::jsi::Value {
+          refuseClosedArmedFsMutation(runtime, syscall);
           auto path = count > 0 ? pathArg(runtime, args[0]) : std::string();
           requireWriteCapability(runtime, path);
           if (path.empty() || host_fn(path.c_str()) != 0) {
@@ -1370,8 +1763,14 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value::undefined();
         });
   };
-  rt.global().setProperty(rt, "__exactRmdir", unaryVoid("__exactRmdir", "rmdir", ex_host_fs_rmdir));
-  rt.global().setProperty(rt, "__exactUnlink", unaryVoid("__exactUnlink", "unlink", ex_host_fs_unlink));
+  rt.global().setProperty(
+      rt,
+      "__exactRmdir",
+      unaryClosedVoid("__exactRmdir", "rmdir", ex_host_fs_rmdir));
+  rt.global().setProperty(
+      rt,
+      "__exactUnlink",
+      unaryClosedVoid("__exactUnlink", "unlink", ex_host_fs_unlink));
 
   auto renameFn = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -1384,6 +1783,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (count < 2) {
           throw facebook::jsi::JSError(runtime, "__exactRename: from and to required");
         }
+        refuseClosedArmedFsMutation(runtime, "rename");
         auto from = pathArg(runtime, args[0]);
         auto to = pathArg(runtime, args[1]);
         requireWriteCapability(runtime, from);
@@ -1406,6 +1806,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (count < 2) {
           throw facebook::jsi::JSError(runtime, "__exactCopyFile: from and to required");
         }
+        refuseClosedArmedFsMutation(runtime, "copyfile");
         auto from = pathArg(runtime, args[0]);
         auto to = pathArg(runtime, args[1]);
         requireReadCapability(runtime, from);
@@ -1420,10 +1821,50 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactCopyFile", std::move(copyFn));
 
-  rt.global().setProperty(
+  auto realpathFn = facebook::jsi::Function::createFromHostFunction(
       rt,
-      "__exactRealpath",
-      unaryPathJsonFunction(rt, "__exactRealpath", "realpath", ex_host_fs_realpath));
+      facebook::jsi::PropNameID::forAscii(rt, "__exactRealpath"),
+      1,
+      [handle](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactRealpath: path required");
+        }
+        auto path = exactResolveVfsPath(runtime, pathArg(runtime, args[0]));
+        requireReadCapability(runtime, path.virtualPath);
+        auto result = fsRealpathWork(handle->runtime_nonce, path);
+        if (!result.ok) {
+          throw facebook::jsi::JSError(runtime, result.message);
+        }
+        return facebook::jsi::String::createFromUtf8(
+            runtime, result.json);
+      });
+  rt.global().setProperty(rt, "__exactRealpath", std::move(realpathFn));
+
+  auto readlinkFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactReadlink"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactReadlink: path required");
+        }
+        auto path = exactResolveVfsPath(runtime, pathArg(runtime, args[0]));
+        requireReadCapability(runtime, path.virtualPath);
+        // There is no Windows Host ABI readlink primitive yet. Preserve the
+        // documented honest refusal after virtual resolution/authorization.
+        // @ref LLP 0008#filesystem — Unsupported Windows link operations fail honestly until a Host hook exists.
+        throw facebook::jsi::JSError(
+            runtime, fsErrorMessage("readlink", path.virtualPath, ENOSYS));
+      });
+  rt.global().setProperty(rt, "__exactReadlink", std::move(readlinkFn));
 
   auto accessFn = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -1433,15 +1874,18 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
-        auto path = count > 0 ? pathArg(runtime, args[0]) : std::string();
+        auto path = exactResolveVfsPath(
+            runtime,
+            count > 0 ? pathArg(runtime, args[0]) : std::string());
         int32_t mode = count > 1 && args[1].isNumber() ? static_cast<int32_t>(args[1].asNumber()) : 0;
         if ((mode & 2) == 2) {
-          requireWriteCapability(runtime, path);
+          requireWriteCapability(runtime, path.virtualPath);
         } else {
-          requireReadCapability(runtime, path);
+          requireReadCapability(runtime, path.virtualPath);
         }
-        if (path.empty() || ex_host_fs_access(path.c_str(), mode) != 0) {
-          throwFs(runtime, "access", path);
+        if (path.virtualPath.empty() ||
+            ex_host_fs_access(path.backing.c_str(), mode) != 0) {
+          throwFs(runtime, "access", path.virtualPath);
         }
         return facebook::jsi::Value::undefined();
       });
@@ -1455,6 +1899,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
+        refuseClosedArmedFsMutation(runtime, "chmod");
         auto path = count > 0 ? pathArg(runtime, args[0]) : std::string();
         auto mode = count > 1 && args[1].isNumber() ? static_cast<uint32_t>(args[1].asNumber()) : 0;
         requireWriteCapability(runtime, path);
@@ -1476,11 +1921,13 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (count < 2 || !args[1].isNumber()) {
           throw facebook::jsi::JSError(runtime, "__exactTruncate: path and length required");
         }
-        auto path = pathArg(runtime, args[0]);
+        auto path = exactResolveVfsPath(runtime, pathArg(runtime, args[0]));
         auto length = args[1].asNumber();
-        requireWriteCapability(runtime, path);
-        if (length < 0 || ex_host_fs_truncate(path.c_str(), static_cast<uint64_t>(length)) != 0) {
-          throwFs(runtime, "truncate", path);
+        requireWriteCapability(runtime, path.virtualPath);
+        if (length < 0 ||
+            ex_host_fs_truncate(
+                path.backing.c_str(), static_cast<uint64_t>(length)) != 0) {
+          throwFs(runtime, "truncate", path.virtualPath);
         }
         return facebook::jsi::Value::undefined();
       });
@@ -1497,6 +1944,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (count < 3 || !args[1].isNumber() || !args[2].isNumber()) {
           throw facebook::jsi::JSError(runtime, "__exactUtimes: path, atime, and mtime required");
         }
+        refuseClosedArmedFsMutation(runtime, "utime");
         auto path = pathArg(runtime, args[0]);
         requireWriteCapability(runtime, path);
         if (ex_host_fs_utimes(
@@ -1518,10 +1966,13 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (count < 1) {
           throw facebook::jsi::JSError(runtime, "__exactStatfs: path required");
         }
-        auto path = pathArg(runtime, args[0]);
-        requireReadCapability(runtime, path);
+        auto path = exactResolveVfsPath(runtime, pathArg(runtime, args[0]));
+        requireReadCapability(runtime, path.virtualPath);
         return jsonStringResult(
-            runtime, ex_host_fs_statfs(path.c_str()), "statfs", path);
+            runtime,
+            ex_host_fs_statfs(path.backing.c_str()),
+            "statfs",
+            path.virtualPath);
       });
   rt.global().setProperty(rt, "__exactStatfs", std::move(statfsFn));
 
@@ -1533,6 +1984,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
+        refuseClosedArmedFsMutation(runtime, "mkdtemp");
         auto prefix = count > 0 ? pathArg(runtime, args[0]) : std::string("tmp");
         return jsonStringResult(
             runtime,
@@ -1556,6 +2008,11 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         if (args[0].isNumber()) {
           int fd = fdFromValue(runtime, args[0]);
+          if (sessionDescriptorReadIsEof(runtime, fd, "read")) {
+            return startFsAsync(handle, runtime, []() {
+              return fsAsyncOk(FsAsyncResult::Kind::Bytes);
+            });
+          }
           auto entry = getFileEntry(runtime, fd);
           requireFileEntryRead(runtime, entry);
           auto file = entry.file;
@@ -1564,11 +2021,15 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             return fsReadWholeHandleWork(file, path);
           });
         }
-        auto path = pathArg(runtime, args[0]);
-        requireReadCapability(runtime, path);
-        return startFsAsync(handle, runtime, [path]() -> FsAsyncResult {
-          return fsReadFilePathWork(path);
-        });
+        auto path = exactResolveVfsPath(runtime, pathArg(runtime, args[0]));
+        requireReadCapability(runtime, path.virtualPath);
+        return startFsAsync(
+            handle,
+            runtime,
+            [backingPath = path.backing,
+             virtualPath = path.virtualPath]() -> FsAsyncResult {
+              return fsReadFilePathWork(backingPath, virtualPath);
+            });
       });
   rt.global().setProperty(rt, "__exactFsReadFileAsync", std::move(readFileAsyncFn));
 
@@ -1589,6 +2050,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         bool flush = count > 4 && args[4].isBool() && args[4].getBool();
         if (args[0].isNumber()) {
           int fd = fdFromValue(runtime, args[0]);
+          requireSessionDescriptorWrite(runtime, fd, "write");
           auto entry = getFileEntry(runtime, fd);
           requireFileEntryWrite(runtime, entry);
           auto file = entry.file;
@@ -1598,14 +2060,18 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
                 return fsWriteAllHandleWork(file, path, *dataBytes, flush);
               });
         }
-        auto path = pathArg(runtime, args[0]);
-        requireWriteCapability(runtime, path);
+        auto path = exactResolveVfsPath(runtime, pathArg(runtime, args[0]));
+        requireWriteCapability(runtime, path.virtualPath);
         int nodeFlags = count > 2 && args[2].isNumber()
             ? static_cast<int>(args[2].asNumber())
             : (NODE_O_CREAT | NODE_O_TRUNC | NODE_O_WRONLY);
         return startFsAsync(
-            handle, runtime, [path, dataBytes, nodeFlags, flush]() -> FsAsyncResult {
-              return fsWriteFilePathWork(path, *dataBytes, nodeFlags, flush);
+            handle,
+            runtime,
+            [backingPath = path.backing, virtualPath = path.virtualPath,
+             dataBytes, nodeFlags, flush]() -> FsAsyncResult {
+              return fsWriteFilePathWork(
+                  backingPath, virtualPath, *dataBytes, nodeFlags, flush);
             });
       });
   rt.global().setProperty(rt, "__exactFsWriteFileAsync", std::move(writeFileAsyncFn));
@@ -1622,6 +2088,11 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsReadAsync: fd and length required");
         }
         int fd = fdFromValue(runtime, args[0]);
+        if (sessionDescriptorReadIsEof(runtime, fd, "read")) {
+          return startFsAsync(handle, runtime, []() {
+            return fsAsyncOk(FsAsyncResult::Kind::Bytes);
+          });
+        }
         auto entry = getFileEntry(runtime, fd);
         requireFileEntryRead(runtime, entry);
         auto length = std::min(
@@ -1650,6 +2121,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsWriteAsync: fd and data required");
         }
         int fd = fdFromValue(runtime, args[0]);
+        requireSessionDescriptorWrite(runtime, fd, "write");
         auto entry = getFileEntry(runtime, fd);
         requireFileEntryWrite(runtime, entry);
         auto dataBytes =
@@ -1678,13 +2150,19 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsReadvAsync: fd and buffers required");
         }
         int fd = fdFromValue(runtime, args[0]);
-        auto entry = getFileEntry(runtime, fd);
-        requireFileEntryRead(runtime, entry);
+        bool sessionEof = sessionDescriptorReadIsEof(runtime, fd, "readv");
         std::vector<std::vector<uint8_t>> buffers;
         if (!parseWindowsIoVecArguments(runtime, args[1], buffers, false)) {
           throw facebook::jsi::JSError(
               runtime, "__exactFsReadvAsync: buffers must be Uint8Array-like objects");
         }
+        if (sessionEof) {
+          return startFsAsync(handle, runtime, []() {
+            return fsAsyncOk(FsAsyncResult::Kind::Bytes);
+          });
+        }
+        auto entry = getFileEntry(runtime, fd);
+        requireFileEntryRead(runtime, entry);
         bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
         int64_t position = positioned ? static_cast<int64_t>(args[2].asNumber()) : -1;
         auto buffersPtr = std::make_shared<std::vector<std::vector<uint8_t>>>(std::move(buffers));
@@ -1709,6 +2187,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsWritevAsync: fd and buffers required");
         }
         int fd = fdFromValue(runtime, args[0]);
+        requireSessionDescriptorWrite(runtime, fd, "writev");
         auto entry = getFileEntry(runtime, fd);
         requireFileEntryWrite(runtime, entry);
         std::vector<std::vector<uint8_t>> buffers;
@@ -1742,43 +2221,60 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsPathAsync: op and path required");
         }
         auto op = args[0].toString(runtime).utf8(runtime);
-        auto a = args[1].toString(runtime).utf8(runtime);
-        std::string b;
-        if (count > 2 && args[2].isString()) {
-          b = args[2].toString(runtime).utf8(runtime);
-        }
         double x = count > 3 && args[3].isNumber() ? args[3].asNumber() : 0;
+        const bool closedMutation =
+            op == "rmdir" || op == "unlink" || op == "chmod" ||
+            op == "chown" || op == "utime" || op == "lchown" ||
+            op == "lchmod" || op == "lutime" || op == "rename" ||
+            op == "copyfile" || op == "copyfile_excl" || op == "symlink" ||
+            op == "link" || op == "mkdtemp" || (op == "mkdir" && x != 0);
+        if (closedMutation) {
+          refuseClosedArmedFsMutation(runtime, op);
+        }
+        auto rawA = args[1].toString(runtime).utf8(runtime);
+        std::string rawB;
+        if (count > 2 && args[2].isString()) {
+          rawB = args[2].toString(runtime).utf8(runtime);
+        }
+        auto a = exactResolveVfsPath(runtime, rawA);
+        ExactResolvedVfsPath b{rawB, rawB};
+        if (!rawB.empty()) {
+          b = exactResolveVfsPath(runtime, rawB);
+        }
         double y = count > 4 && args[4].isNumber() ? args[4].asNumber() : 0;
         uint64_t principal = currentPrincipalId();
         if (!isAllowAll()) {
           if (op == "readdir" || op == "realpath" || op == "readlink" ||
               op == "statfs") {
-            requireReadCapability(runtime, a);
+            requireReadCapability(runtime, a.virtualPath);
           } else if (op == "rename") {
-            requireWriteCapability(runtime, a);
-            requireWriteCapability(runtime, b);
+            requireWriteCapability(runtime, a.virtualPath);
+            requireWriteCapability(runtime, b.virtualPath);
           } else if (op == "copyfile" || op == "copyfile_excl") {
-            requireReadCapability(runtime, a);
-            requireWriteCapability(runtime, b);
+            requireReadCapability(runtime, a.virtualPath);
+            requireWriteCapability(runtime, b.virtualPath);
           } else if (op == "access") {
             if ((static_cast<int32_t>(x) & 2) != 0) {
-              requireWriteCapability(runtime, a);
+              requireWriteCapability(runtime, a.virtualPath);
             } else {
-              requireReadCapability(runtime, a);
+              requireReadCapability(runtime, a.virtualPath);
             }
           } else if (op == "symlink") {
-            requireWriteCapability(runtime, b);
+            requireWriteCapability(runtime, b.virtualPath);
           } else if (op == "link") {
-            requireReadCapability(runtime, a);
-            requireWriteCapability(runtime, a);
-            requireWriteCapability(runtime, b);
+            requireReadCapability(runtime, a.virtualPath);
+            requireWriteCapability(runtime, a.virtualPath);
+            requireWriteCapability(runtime, b.virtualPath);
           } else {
-            requireWriteCapability(runtime, a);
+            requireWriteCapability(runtime, a.virtualPath);
           }
         }
         return startFsAsync(
-            handle, runtime, [op, a, b, x, y, principal]() -> FsAsyncResult {
-              return fsPathOpWork(op, a, b, x, y, principal);
+            handle, runtime,
+            [runtimeNonce = handle->runtime_nonce, op, a, b, x, y,
+             principal]() -> FsAsyncResult {
+              return fsPathOpWork(
+                  runtimeNonce, op, a, b, x, y, principal);
             });
       });
   rt.global().setProperty(rt, "__exactFsPathAsync", std::move(fsPathAsyncFn));
@@ -1809,42 +2305,53 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(
               runtime, "__exactFsStatAsync: path and stat/lstat kind required");
         }
-        auto path = args[0].toString(runtime).utf8(runtime);
-        requireReadCapability(runtime, path);
+        auto path = exactResolveVfsPath(
+            runtime, args[0].toString(runtime).utf8(runtime));
+        requireReadCapability(runtime, path.virtualPath);
         bool isLstat = kind == "lstat";
-        return startFsAsync(handle, runtime, [path, isLstat]() -> FsAsyncResult {
-          return fsStatPathWork(path, isLstat);
-        });
+        return startFsAsync(
+            handle,
+            runtime,
+            [backingPath = path.backing, virtualPath = path.virtualPath,
+             isLstat]() -> FsAsyncResult {
+              return fsStatPathWork(backingPath, virtualPath, isLstat);
+            });
       });
   rt.global().setProperty(rt, "__exactFsStatAsync", std::move(fsStatAsyncFn));
 
-  auto installSync = [&rt](const char* name, const char* syscall, int32_t dataOnly) {
-    auto fn = facebook::jsi::Function::createFromHostFunction(
-        rt,
-        facebook::jsi::PropNameID::forAscii(rt, name),
-        1,
-        [name, syscall, dataOnly](
-            facebook::jsi::Runtime& runtime,
-            const facebook::jsi::Value&,
-            const facebook::jsi::Value* args,
-            size_t count) -> facebook::jsi::Value {
-          if (count == 0 || !args[0].isNumber()) {
-            throw facebook::jsi::JSError(runtime, std::string(name) + ": fd required");
-          }
-          auto entry = getFileEntry(runtime, fdFromValue(runtime, args[0]));
-          requireFileEntryWrite(runtime, entry);
-          auto file = entry.file;
-          std::lock_guard<std::mutex> ioLock(file->ioMutex);
-          if (ex_host_fs_sync(file->handle, dataOnly) != 0) {
-            throwFs(runtime, syscall, entry.path);
-          }
-          return facebook::jsi::Value::undefined();
-        });
-    rt.global().setProperty(rt, name, std::move(fn));
-  };
+  auto makeSync =
+      [&rt](const char* name, const char* syscall, int32_t dataOnly) {
+        return facebook::jsi::Function::createFromHostFunction(
+            rt,
+            facebook::jsi::PropNameID::forAscii(rt, name),
+            1,
+            [name, syscall, dataOnly](
+                facebook::jsi::Runtime& runtime,
+                const facebook::jsi::Value&,
+                const facebook::jsi::Value* args,
+                size_t count) -> facebook::jsi::Value {
+              if (count == 0 || !args[0].isNumber()) {
+                throw facebook::jsi::JSError(
+                    runtime, std::string(name) + ": fd required");
+              }
+              auto entry =
+                  getFileEntry(runtime, fdFromValue(runtime, args[0]));
+              requireFileEntryWrite(runtime, entry);
+              auto file = entry.file;
+              std::lock_guard<std::mutex> ioLock(file->ioMutex);
+              if (ex_host_fs_sync(file->handle, dataOnly) != 0) {
+                throwFs(runtime, syscall, entry.path);
+              }
+              return facebook::jsi::Value::undefined();
+            });
+      };
   // The Rust-owned handle now exposes File::sync_all/sync_data, which map to
   // FlushFileBuffers on Windows. These must be real flushes: registering
   // no-op success here would violate Node's durability contract (ENG-22963).
-  installSync("__exactFsFsyncSync", "fsync", 0);
-  installSync("__exactFsFdatasyncSync", "fdatasync", 1);
+  rt.global().setProperty(
+      rt, "__exactFsFsyncSync", makeSync("__exactFsFsyncSync", "fsync", 0));
+  rt.global().setProperty(
+      rt,
+      "__exactFsFdatasyncSync",
+      makeSync("__exactFsFdatasyncSync", "fdatasync", 1));
 }

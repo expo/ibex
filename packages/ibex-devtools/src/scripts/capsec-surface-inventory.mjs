@@ -50,6 +50,17 @@ const NATIVE_SOURCE_EXTENSIONS = new Set([
 const PUBLIC_ABI_IDENTIFIER =
   /^ex_(?:android|host|hermes|worklet)_[A-Za-z0-9_]+$/u;
 
+export const HOST_ABI_OUTPUT_CONTRACT_SCHEMA =
+  "ibex/host-abi-output-contract/1";
+export const C_ABI_TYPE_REGISTRY_SCHEMA = "ibex/c-abi-type-registry/1";
+export const CALLBACK_OUTPUT_CONTRACT_SCHEMA =
+  "ibex/callback-output-contract/1";
+export const PRINCIPAL_ENVIRONMENT_OVERLAY_SOURCE_CONTRACT_SCHEMA =
+  "ibex/principal-environment-overlay-source-contract/1";
+export const PRINCIPAL_ENVIRONMENT_OVERLAY_DYNAMIC_MEMBER =
+  "[[dynamic-table:principal-environment-overlay-properties]]";
+export const PRINCIPAL_ENVIRONMENT_OVERLAY_SURFACE_NAME = `global:process.env.${PRINCIPAL_ENVIRONMENT_OVERLAY_DYNAMIC_MEMBER}`;
+
 const PRIVATE_NATIVE_IDENTIFIER =
   /^__[A-Za-z_$][A-Za-z0-9_$]*(?:[.:/-][A-Za-z0-9_$]+)*$/u;
 
@@ -479,7 +490,8 @@ function lexRust(text, label) {
   const tokens = [];
   let index = 0;
 
-  const push = (type, value) => tokens.push({ type, value });
+  const push = (type, value, offset = index) =>
+    tokens.push({ type, value, offset });
 
   const skipNormalString = (quote, type) => {
     const start = index;
@@ -489,7 +501,7 @@ function lexRust(text, label) {
       const char = text[index];
       if (char === quote) {
         index += 1;
-        if (type) push(type, decodeEscapedString(raw, label));
+        if (type) push(type, decodeEscapedString(raw, label), start);
         return;
       }
       if (char === "\\") {
@@ -552,7 +564,7 @@ function lexRust(text, label) {
         throw new Error(
           `${label}: unterminated Rust raw string at byte ${start}`,
         );
-      push("string", text.slice(index, end));
+      push("string", text.slice(index, end), start);
       index = end + close.length;
       continue;
     }
@@ -567,7 +579,7 @@ function lexRust(text, label) {
       if (close !== -1 && close - index <= 8) {
         skipNormalString(char, null);
       } else {
-        push("punctuation", char);
+        push("punctuation", char, index);
         index += 1;
       }
       continue;
@@ -576,10 +588,10 @@ function lexRust(text, label) {
       const start = index;
       index += 1;
       while (/[A-Za-z0-9_]/u.test(text[index] ?? "")) index += 1;
-      push("identifier", text.slice(start, index));
+      push("identifier", text.slice(start, index), start);
       continue;
     }
-    push("punctuation", char);
+    push("punctuation", char, index);
     index += 1;
   }
   return tokens;
@@ -691,6 +703,20 @@ function matchingOpeningToken(tokens, closeIndex, openValue, closeValue) {
   return -1;
 }
 
+function rustImmediateCfgTargetVariant(tokens, itemIndex) {
+  let cursor = itemIndex - 1;
+  while (tokens[cursor]?.value === "]") {
+    const open = matchingOpeningToken(tokens, cursor, "[", "]");
+    if (open <= 0 || tokens[open - 1]?.value !== "#") break;
+    const values = tokens.slice(open + 1, cursor).map((token) => token.value);
+    if (values[0] === "cfg" && values.includes("unix")) {
+      return values.includes("not") ? "windows" : "posix";
+    }
+    cursor = open - 2;
+  }
+  return null;
+}
+
 function rustExportNameAttribute(tokens, open, close, sourcePath) {
   const body = tokens.slice(open + 1, close);
   const exportNameIndexes = body
@@ -751,7 +777,7 @@ function rustAttributesImmediatelyBefore(tokens, itemIndex, sourcePath) {
   return attributes;
 }
 
-function parseRustExternFunction(tokens, itemIndex, definitionNameIndexes) {
+function parseRustExternFunction(tokens, itemIndex, definitionsByNameIndex) {
   let cursor = itemIndex;
   if (tokens[cursor]?.value === "pub") {
     cursor += 1;
@@ -772,11 +798,13 @@ function parseRustExternFunction(tokens, itemIndex, definitionNameIndexes) {
     tokens[cursor + 1]?.value !== "C" ||
     tokens[cursor + 2]?.value !== "fn" ||
     tokens[cursor + 3]?.type !== "identifier" ||
-    !definitionNameIndexes.has(cursor + 3)
+    !definitionsByNameIndex.has(cursor + 3)
   ) {
     return null;
   }
+  const definition = definitionsByNameIndex.get(cursor + 3);
   return {
+    bodyOpen: definition.bodyOpen,
     internalName: tokens[cursor + 3].value,
     isUnsafe,
     nameIndex: cursor + 3,
@@ -826,8 +854,11 @@ function rustStaticallyNamedItem(tokens, itemIndex) {
 }
 
 function rustPublicExternDefinitions(tokens, sourcePath) {
-  const definitionNameIndexes = new Set(
-    rustFunctionDefinitions(tokens).map((definition) => definition.nameIndex),
+  const definitionsByNameIndex = new Map(
+    rustFunctionDefinitions(tokens).map((definition) => [
+      definition.nameIndex,
+      definition,
+    ]),
   );
   const records = new Map();
   const addRecord = (record, exportName = null) => {
@@ -855,7 +886,7 @@ function rustPublicExternDefinitions(tokens, sourcePath) {
       throw new Error(`${sourcePath}: multiple Rust export_name attributes`);
     }
     addRecord(
-      parseRustExternFunction(tokens, index, definitionNameIndexes),
+      parseRustExternFunction(tokens, index, definitionsByNameIndex),
       exportNames[0] ?? null,
     );
   }
@@ -900,7 +931,7 @@ function rustPublicExternDefinitions(tokens, sourcePath) {
     const record = parseRustExternFunction(
       tokens,
       itemIndex,
-      definitionNameIndexes,
+      definitionsByNameIndex,
     );
     const staticallyNamedItem = noMangle
       ? rustStaticallyNamedItem(tokens, itemIndex)
@@ -926,8 +957,26 @@ function rustPublicExternDefinitions(tokens, sourcePath) {
 /** Scan one Rust source file for actual public ex_host_* C ABI definitions. */
 export function scanRustHostExterns(text, sourcePath = "<rust-source>") {
   const tokens = rustProductionTokens(text, sourcePath);
+  const outputAnnotations = parseAbiOutputAnnotations(text, sourcePath);
+  const callbackAnnotations = parseAbiCallbackAnnotations(text, sourcePath);
+  const records = rustPublicExternDefinitions(tokens, sourcePath);
+  const recordNames = new Set(records.map((record) => record.name));
+  for (const functionName of outputAnnotations.keys()) {
+    if (!recordNames.has(functionName)) {
+      throw new Error(
+        `${sourcePath}: @abi-output names absent Rust ABI definition ${functionName}`,
+      );
+    }
+  }
+  for (const functionName of callbackAnnotations.keys()) {
+    if (!recordNames.has(functionName)) {
+      throw new Error(
+        `${sourcePath}: @abi-callback names absent Rust ABI definition ${functionName}`,
+      );
+    }
+  }
   const names = new Map();
-  for (const record of rustPublicExternDefinitions(tokens, sourcePath)) {
+  for (const record of records) {
     const { name } = record;
     if (!name.startsWith("ex_host_")) continue;
     if (!/^ex_host_[A-Za-z0-9_]+$/u.test(name)) {
@@ -945,10 +994,20 @@ export function scanRustHostExterns(text, sourcePath = "<rust-source>") {
 
   return sortSurfaces(
     [...names.entries()].map(([name, record]) => {
-      const metadata = { unsafe: record.isUnsafe };
+      const sourceRef = sourceSymbol(sourcePath, name);
+      const metadata = {
+        outputContract: rustHostAbiOutputContract(
+          tokens,
+          record,
+          outputAnnotations.get(name) ?? [],
+          callbackAnnotations.get(name) ?? [],
+          sourceRef,
+        ),
+        unsafe: record.isUnsafe,
+      };
       if (record.internalName !== name)
         metadata.rustIdentifier = record.internalName;
-      return makeSurface("host-abi", name, [sourceSymbol(sourcePath, name)], {
+      return makeSurface("host-abi", name, [sourceRef], {
         metadata,
       });
     }),
@@ -961,8 +1020,26 @@ export function scanRustPublicAbiDefinitions(
   sourcePath = "<rust-source>",
 ) {
   const tokens = rustProductionTokens(text, sourcePath);
+  const outputAnnotations = parseAbiOutputAnnotations(text, sourcePath);
+  const callbackAnnotations = parseAbiCallbackAnnotations(text, sourcePath);
+  const records = rustPublicExternDefinitions(tokens, sourcePath);
+  const recordNames = new Set(records.map((record) => record.name));
+  for (const functionName of outputAnnotations.keys()) {
+    if (!recordNames.has(functionName)) {
+      throw new Error(
+        `${sourcePath}: @abi-output names absent Rust ABI definition ${functionName}`,
+      );
+    }
+  }
+  for (const functionName of callbackAnnotations.keys()) {
+    if (!recordNames.has(functionName)) {
+      throw new Error(
+        `${sourcePath}: @abi-callback names absent Rust ABI definition ${functionName}`,
+      );
+    }
+  }
   const definitions = new Map();
-  for (const record of rustPublicExternDefinitions(tokens, sourcePath)) {
+  for (const record of records) {
     const { name } = record;
     if (!PUBLIC_ABI_IDENTIFIER.test(name)) continue;
     if (definitions.has(name)) {
@@ -973,14 +1050,22 @@ export function scanRustPublicAbiDefinitions(
 
   return sortSurfaces(
     [...definitions.entries()].map(([name, record]) => {
+      const sourceRef = sourceSymbol(sourcePath, name);
       const metadata = {
         language: "rust",
+        outputContract: rustHostAbiOutputContract(
+          tokens,
+          record,
+          outputAnnotations.get(name) ?? [],
+          callbackAnnotations.get(name) ?? [],
+          sourceRef,
+        ),
         unsafe: record.isUnsafe,
         weak: false,
       };
       if (record.internalName !== name)
         metadata.rustIdentifier = record.internalName;
-      return makeSurface("host-abi", name, [sourceSymbol(sourcePath, name)], {
+      return makeSurface("host-abi", name, [sourceRef], {
         metadata,
       });
     }),
@@ -990,7 +1075,8 @@ export function scanRustPublicAbiDefinitions(
 function lexCpp(text, label) {
   const tokens = [];
   let index = 0;
-  const push = (type, value) => tokens.push({ type, value });
+  const push = (type, value, offset = index) =>
+    tokens.push({ type, value, offset });
 
   const skipQuoted = (quote, collect) => {
     const start = index;
@@ -1000,7 +1086,7 @@ function lexCpp(text, label) {
       const char = text[index];
       if (char === quote) {
         index += 1;
-        if (collect) push("string", decodeEscapedString(raw, label));
+        if (collect) push("string", decodeEscapedString(raw, label), start);
         return;
       }
       if (char === "\\") {
@@ -1058,7 +1144,7 @@ function lexCpp(text, label) {
             throw new Error(
               `${label}: unterminated raw string at byte ${start}`,
             );
-          push("string", text.slice(open + 1, close));
+          push("string", text.slice(open + 1, close), start);
           index = close + closeMarker.length;
           continue;
         }
@@ -1083,26 +1169,23 @@ function lexCpp(text, label) {
       const start = index;
       index += 1;
       while (/[A-Za-z0-9_]/u.test(text[index] ?? "")) index += 1;
-      push("identifier", text.slice(start, index));
+      push("identifier", text.slice(start, index), start);
       continue;
     }
     const pair = text.slice(index, index + 2);
     if (new Set(["::", "->", "[[", "]]"]).has(pair)) {
-      push("punctuation", pair);
+      push("punctuation", pair, index);
       index += 2;
       continue;
     }
-    push("punctuation", char);
+    push("punctuation", char, index);
     index += 1;
   }
   return tokens;
 }
 
 function matchingToken(tokens, start, open, close) {
-  if (
-    tokens[start]?.type !== "punctuation" ||
-    tokens[start]?.value !== open
-  )
+  if (tokens[start]?.type !== "punctuation" || tokens[start]?.value !== open)
     return -1;
   let depth = 0;
   for (let index = start; index < tokens.length; index += 1) {
@@ -1112,6 +1195,1740 @@ function matchingToken(tokens, start, open, close) {
     if (depth === 0) return index;
   }
   return -1;
+}
+
+const ABI_TYPE_WORDS = new Set([
+  "bool",
+  "char",
+  "const",
+  "double",
+  "extern",
+  "float",
+  "int",
+  "long",
+  "mut",
+  "short",
+  "signed",
+  "struct",
+  "unsigned",
+  "void",
+  "volatile",
+]);
+
+const ABI_SCALAR_TYPES = new Set([
+  "bool",
+  "char",
+  "double",
+  "f32",
+  "f64",
+  "float",
+  "i8",
+  "i16",
+  "i32",
+  "i64",
+  "i128",
+  "int",
+  "int8_t",
+  "int16_t",
+  "int32_t",
+  "int64_t",
+  "intptr_t",
+  "isize",
+  "long",
+  "short",
+  "signed",
+  "size_t",
+  "ssize_t",
+  "u8",
+  "u16",
+  "u32",
+  "u64",
+  "u128",
+  "uint8_t",
+  "uint16_t",
+  "uint32_t",
+  "uint64_t",
+  "uintptr_t",
+  "unsigned",
+  "usize",
+]);
+
+function abiTypeDescriptor(tokens) {
+  const tokenValues = tokens.map((token) =>
+    token.type === "string" ? `\"${token.value}\"` : token.value,
+  );
+  return {
+    canonical: tokenValues.join(" "),
+    tokens: tokenValues,
+  };
+}
+
+function splitTopLevelAbiTokens(tokens, delimiter) {
+  if (tokens.length === 0) return [];
+  const parts = [];
+  let start = 0;
+  const depth = { "(": 0, "[": 0, "{": 0, "<": 0 };
+  const closeToOpen = { ")": "(", "]": "[", "}": "{", ">": "<" };
+  for (let index = 0; index < tokens.length; index += 1) {
+    const value = tokens[index].value;
+    if (Object.hasOwn(depth, value)) depth[value] += 1;
+    if (Object.hasOwn(closeToOpen, value)) {
+      const open = closeToOpen[value];
+      if (depth[open] > 0) depth[open] -= 1;
+    }
+    if (
+      value === delimiter &&
+      Object.values(depth).every((value) => value === 0)
+    ) {
+      parts.push(tokens.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(tokens.slice(start));
+  return parts.filter((part) => part.length > 0);
+}
+
+function splitAbiTokenList(tokens) {
+  return splitTopLevelAbiTokens(tokens, ",");
+}
+
+function topLevelTokenIndex(tokens, searched) {
+  const depth = { "(": 0, "[": 0, "{": 0, "<": 0 };
+  const closeToOpen = { ")": "(", "]": "[", "}": "{", ">": "<" };
+  for (let index = 0; index < tokens.length; index += 1) {
+    const value = tokens[index].value;
+    if (
+      value === searched &&
+      Object.values(depth).every((value) => value === 0)
+    ) {
+      return index;
+    }
+    if (Object.hasOwn(depth, value)) depth[value] += 1;
+    if (Object.hasOwn(closeToOpen, value)) {
+      const open = closeToOpen[value];
+      if (depth[open] > 0) depth[open] -= 1;
+    }
+  }
+  return -1;
+}
+
+function abiPointerShape(language, typeTokens) {
+  const values = typeTokens.map((token) => token.value);
+  const pointerDepth = values.filter((value) => value === "*").length;
+  if (pointerDepth === 0) {
+    return { constPointee: false, pointerDepth: 0 };
+  }
+  const firstPointer = values.indexOf("*");
+  const constPointee =
+    language === "rust"
+      ? values[firstPointer + 1] === "const"
+      : values.slice(0, firstPointer).includes("const");
+  return { constPointee, pointerDepth };
+}
+
+function abiTypeKind(language, typeTokens, { isReturn = false } = {}) {
+  const values = typeTokens.map((token) => token.value);
+  if (
+    values.length === 0 ||
+    (language === "rust" && values.join("\0") === "(\0)") ||
+    (language === "c++" && values.join("\0") === "void")
+  ) {
+    return "void";
+  }
+  if (abiPointerShape(language, typeTokens).pointerDepth > 0) return "pointer";
+  if (
+    values.some((value) => ABI_SCALAR_TYPES.has(value)) &&
+    !values.some((value) => new Set(["[", "{", "("]).has(value))
+  ) {
+    return "scalar";
+  }
+  if (isReturn && values.length > 0) return "unknown";
+  return "aggregate";
+}
+
+function isAbiCallbackType(typeTokens, parameterName) {
+  const values = typeTokens.map((token) => token.value);
+  return (
+    values.includes("fn") ||
+    (values.includes("(") && values.includes("*") && values.includes(")")) ||
+    values.some((value) => /(?:Callback|Hook|Handler)$/u.test(value)) ||
+    (/callback|hook/iu.test(parameterName ?? "") &&
+      (values.includes("Option") || values.includes("*")))
+  );
+}
+
+function cppParameterNameIndex(tokens) {
+  for (let index = 0; index < tokens.length - 2; index += 1) {
+    if (
+      tokens[index].value === "*" &&
+      tokens[index + 1]?.type === "identifier" &&
+      tokens[index + 2]?.value === ")"
+    ) {
+      return index + 1;
+    }
+  }
+  for (let index = 1; index < tokens.length; index += 1) {
+    if (tokens[index].value === "[" && tokens[index - 1]?.type === "identifier")
+      return index - 1;
+  }
+  const last = tokens.length - 1;
+  if (tokens[last]?.type !== "identifier") return -1;
+  const value = tokens[last].value;
+  const lastPointer = tokens.map((token) => token.value).lastIndexOf("*");
+  if (lastPointer !== -1) return last > lastPointer ? last : -1;
+  if (ABI_TYPE_WORDS.has(value) || ABI_SCALAR_TYPES.has(value)) return -1;
+  if (tokens.length === 1) return -1;
+  return last;
+}
+
+function rustAbiParameters(tokens, open, close, sourcePath, functionName) {
+  return splitAbiTokenList(tokens.slice(open + 1, close)).map(
+    (parameterTokens, index) => {
+      const colon = topLevelTokenIndex(parameterTokens, ":");
+      if (
+        colon <= 0 ||
+        parameterTokens[colon - 1]?.type !== "identifier" ||
+        colon === parameterTokens.length - 1
+      ) {
+        throw new Error(
+          `${sourcePath}#${functionName}: unsupported Rust ABI parameter ${index}`,
+        );
+      }
+      return {
+        index,
+        name: parameterTokens[colon - 1].value,
+        typeTokens: parameterTokens.slice(colon + 1),
+      };
+    },
+  );
+}
+
+function cppAbiParameters(tokens, open, close) {
+  const parts = splitAbiTokenList(tokens.slice(open + 1, close));
+  if (
+    parts.length === 1 &&
+    parts[0].length === 1 &&
+    parts[0][0].value === "void"
+  ) {
+    return [];
+  }
+  return parts.map((parameterTokens, index) => {
+    const nameIndex = cppParameterNameIndex(parameterTokens);
+    return {
+      index,
+      name: nameIndex === -1 ? null : parameterTokens[nameIndex].value,
+      typeTokens:
+        nameIndex === -1
+          ? parameterTokens
+          : parameterTokens.filter((_, tokenIndex) => tokenIndex !== nameIndex),
+    };
+  });
+}
+
+function topLevelAbiStatementEnd(tokens, start) {
+  const depth = { "(": 0, "[": 0, "{": 0, "<": 0 };
+  const closeToOpen = { ")": "(", "]": "[", "}": "{", ">": "<" };
+  for (let index = start; index < tokens.length; index += 1) {
+    const value = tokens[index].value;
+    if (value === ";" && Object.values(depth).every((entry) => entry === 0)) {
+      return index;
+    }
+    if (Object.hasOwn(depth, value)) depth[value] += 1;
+    if (Object.hasOwn(closeToOpen, value)) {
+      const open = closeToOpen[value];
+      if (depth[open] > 0) depth[open] -= 1;
+    }
+  }
+  return -1;
+}
+
+function cppAggregateFields(tokens, definition) {
+  const fields = [];
+  for (const [index, declaration] of splitTopLevelAbiTokens(
+    tokens.slice(definition.bodyOpen + 1, definition.bodyClose),
+    ";",
+  ).entries()) {
+    const nameIndex = cppParameterNameIndex(declaration);
+    if (nameIndex === -1) continue;
+    const name = declaration[nameIndex].value;
+    const typeTokens = declaration.filter(
+      (_, tokenIndex) => tokenIndex !== nameIndex,
+    );
+    fields.push({
+      index,
+      name,
+      pointerDepth: abiPointerShape("c++", typeTokens).pointerDepth,
+      type: abiTypeDescriptor(typeTokens),
+      typeTokens,
+      valueKind: abiTypeKind("c++", typeTokens),
+    });
+  }
+  return fields;
+}
+
+/**
+ * Parse the named aggregate layouts and callback typedef signatures that the
+ * public ABI definitions bind by name. The registry remains declaration-only:
+ * a function body annotation still decides which aggregate members it writes
+ * and whether a callback is ever delivered.
+ */
+export function scanCppAbiTypeRegistry(text, sourcePath = "<native-header>") {
+  const tokens = lexCpp(text, sourcePath);
+  const aggregates = {};
+  for (const definition of cppTypeDefinitions(tokens)) {
+    if (!/^Ex(?:Hermes|Worklet|Motion)[A-Za-z0-9_]*$/u.test(definition.name)) {
+      continue;
+    }
+    const alias = tokens[definition.bodyClose + 1];
+    const schemaName =
+      alias?.type === "identifier" ? alias.value : definition.name;
+    if (aggregates[schemaName]) {
+      throw new Error(`${sourcePath}: duplicate ABI aggregate ${schemaName}`);
+    }
+    aggregates[schemaName] = {
+      fields: cppAggregateFields(tokens, definition).map((field) => ({
+        index: field.index,
+        name: field.name,
+        pointerDepth: field.pointerDepth,
+        type: field.type,
+        valueKind: field.valueKind,
+      })),
+      name: schemaName,
+      sourceRef: sourceSymbol(sourcePath, schemaName),
+    };
+  }
+
+  const callbacks = {};
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index].value !== "typedef") continue;
+    const statementEnd = topLevelAbiStatementEnd(tokens, index + 1);
+    if (statementEnd === -1) {
+      throw new Error(`${sourcePath}: unterminated ABI typedef`);
+    }
+    let declaratorOpen = -1;
+    for (let cursor = index + 1; cursor < statementEnd - 4; cursor += 1) {
+      if (
+        tokens[cursor].value === "(" &&
+        tokens[cursor + 1]?.value === "*" &&
+        tokens[cursor + 2]?.type === "identifier" &&
+        tokens[cursor + 3]?.value === ")" &&
+        tokens[cursor + 4]?.value === "("
+      ) {
+        declaratorOpen = cursor;
+        break;
+      }
+    }
+    if (declaratorOpen === -1) {
+      index = statementEnd;
+      continue;
+    }
+    const name = tokens[declaratorOpen + 2].value;
+    const parametersOpen = declaratorOpen + 4;
+    const parametersClose = matchingToken(tokens, parametersOpen, "(", ")");
+    if (parametersClose === -1 || parametersClose >= statementEnd) {
+      throw new Error(`${sourcePath}: malformed ABI callback typedef ${name}`);
+    }
+    if (callbacks[name]) {
+      throw new Error(`${sourcePath}: duplicate ABI callback typedef ${name}`);
+    }
+    callbacks[name] = {
+      language: "c++",
+      name,
+      parameters: cppAbiParameters(tokens, parametersOpen, parametersClose).map(
+        (parameter) => ({
+          index: parameter.index,
+          name: parameter.name,
+          type: abiTypeDescriptor(parameter.typeTokens),
+        }),
+      ),
+      return: abiTypeDescriptor(tokens.slice(index + 1, declaratorOpen)),
+      sourceRef: sourceSymbol(sourcePath, name),
+    };
+    index = statementEnd;
+  }
+
+  return {
+    aggregates: Object.fromEntries(
+      Object.entries(aggregates).sort(([left], [right]) =>
+        compareText(left, right),
+      ),
+    ),
+    callbacks: Object.fromEntries(
+      Object.entries(callbacks).sort(([left], [right]) =>
+        compareText(left, right),
+      ),
+    ),
+    schema: C_ABI_TYPE_REGISTRY_SCHEMA,
+    sourcePath,
+  };
+}
+
+function descriptorTokens(descriptor) {
+  return (descriptor?.tokens ?? []).map((value) => ({
+    type: /^[A-Za-z_][A-Za-z0-9_]*$/u.test(value)
+      ? "identifier"
+      : "punctuation",
+    value,
+  }));
+}
+
+function registryAggregateName(typeTokens, typeRegistry) {
+  if (typeRegistry?.schema !== C_ABI_TYPE_REGISTRY_SCHEMA) return null;
+  const names = typeTokens
+    .filter((token) => token.type === "identifier")
+    .map((token) => token.value)
+    .filter((name) => Object.hasOwn(typeRegistry.aggregates, name));
+  return names.length === 1 ? names[0] : null;
+}
+
+function cppInlineCallbackSignature(typeTokens) {
+  for (let index = 0; index < typeTokens.length - 4; index += 1) {
+    if (
+      typeTokens[index].value !== "(" ||
+      typeTokens[index + 1]?.value !== "*" ||
+      typeTokens[index + 2]?.value !== ")" ||
+      typeTokens[index + 3]?.value !== "("
+    ) {
+      continue;
+    }
+    const close = matchingToken(typeTokens, index + 3, "(", ")");
+    if (close === -1) return null;
+    return {
+      language: "c++",
+      parameters: cppAbiParameters(typeTokens, index + 3, close),
+      returnTokens: typeTokens.slice(0, index),
+      sourceRef: null,
+    };
+  }
+  return null;
+}
+
+function rustInlineCallbackSignature(typeTokens) {
+  const functionIndex = typeTokens.findIndex((token) => token.value === "fn");
+  if (functionIndex === -1 || typeTokens[functionIndex + 1]?.value !== "(") {
+    return null;
+  }
+  const close = matchingToken(typeTokens, functionIndex + 1, "(", ")");
+  if (close === -1) return null;
+  const parameters = splitAbiTokenList(
+    typeTokens.slice(functionIndex + 2, close),
+  ).map((parameterTokens, index) => {
+    let colon = -1;
+    for (let cursor = 1; cursor < parameterTokens.length - 1; cursor += 1) {
+      if (
+        parameterTokens[cursor].value === ":" &&
+        parameterTokens[cursor - 1]?.type === "identifier" &&
+        parameterTokens[cursor - 1]?.value !== ":" &&
+        parameterTokens[cursor + 1]?.value !== ":"
+      ) {
+        colon = cursor;
+        break;
+      }
+    }
+    return {
+      index,
+      name:
+        colon > 0 && parameterTokens[colon - 1]?.type === "identifier"
+          ? parameterTokens[colon - 1].value
+          : null,
+      typeTokens:
+        colon > 0 ? parameterTokens.slice(colon + 1) : parameterTokens,
+    };
+  });
+  let returnTokens = [];
+  if (
+    typeTokens[close + 1]?.value === "-" &&
+    typeTokens[close + 2]?.value === ">"
+  ) {
+    returnTokens = typeTokens.slice(close + 3);
+    while (returnTokens.at(-1)?.value === ">") returnTokens.pop();
+  }
+  return {
+    language: "rust",
+    parameters,
+    returnTokens,
+    sourceRef: null,
+  };
+}
+
+function callbackSignatureForParameter(language, parameter, typeRegistry) {
+  const inline =
+    language === "rust"
+      ? rustInlineCallbackSignature(parameter.typeTokens)
+      : cppInlineCallbackSignature(parameter.typeTokens);
+  if (inline) return inline;
+  if (typeRegistry?.schema !== C_ABI_TYPE_REGISTRY_SCHEMA) return null;
+  const callbackNames = parameter.typeTokens
+    .filter((token) => token.type === "identifier")
+    .map((token) => token.value)
+    .filter((name) => Object.hasOwn(typeRegistry.callbacks, name));
+  if (callbackNames.length !== 1) return null;
+  const callback = typeRegistry.callbacks[callbackNames[0]];
+  return {
+    language: callback.language,
+    name: callback.name,
+    parameters: callback.parameters.map((entry) => ({
+      index: entry.index,
+      name: entry.name,
+      typeTokens: descriptorTokens(entry.type),
+    })),
+    returnTokens: descriptorTokens(callback.return),
+    sourceRef: callback.sourceRef,
+  };
+}
+
+function aggregateLengthPairs(schema) {
+  const pairs = new Map();
+  for (const field of schema.fields) {
+    if (field.pointerDepth === 0) continue;
+    const candidates = new Set(lengthCandidates(field.name));
+    if (field.name === "data") candidates.add("length");
+    if (field.name.endsWith("_data")) {
+      candidates.add(`${field.name.slice(0, -"_data".length)}_length`);
+    }
+    if (field.name.endsWith("ies")) {
+      candidates.add(`${field.name.slice(0, -3)}y_count`);
+    }
+    const next = schema.fields[field.index + 1];
+    const length =
+      schema.fields.find((candidate) => candidates.has(candidate.name)) ??
+      (next && /(?:^|_)(?:len|length|size|count)$/u.test(next.name)
+        ? next
+        : null);
+    if (length) pairs.set(field.name, length.name);
+  }
+  return pairs;
+}
+
+function aggregateOutputChannels({
+  alias,
+  elements = [],
+  memberOwnership,
+  members,
+  role,
+  rootParameter,
+  schemaName,
+  selectorPrefix,
+  typeRegistry,
+}) {
+  const schema = typeRegistry?.aggregates?.[schemaName];
+  if (!schema) return null;
+  const selected = members === "*" ? null : new Set(members);
+  if (selected) {
+    const fieldNames = new Set(schema.fields.map((field) => field.name));
+    for (const member of selected) {
+      if (!fieldNames.has(member)) {
+        throw new Error(`ABI aggregate ${schemaName} has no member ${member}`);
+      }
+    }
+  }
+  const expandedElements = new Set(elements);
+  const rootAlias = alias;
+  const output = [];
+  const walk = (currentSchemaName, currentAlias, selectedMembers, ancestry) => {
+    if (ancestry.has(currentSchemaName)) {
+      throw new Error(`recursive ABI aggregate schema ${currentSchemaName}`);
+    }
+    const currentSchema = typeRegistry.aggregates[currentSchemaName];
+    if (!currentSchema) return false;
+    const nextAncestry = new Set(ancestry);
+    nextAncestry.add(currentSchemaName);
+    const pairs = aggregateLengthPairs(currentSchema);
+    const pairedLengths = new Set(pairs.values());
+    for (const field of currentSchema.fields) {
+      if (selectedMembers && !selectedMembers.has(field.name)) continue;
+      if (pairedLengths.has(field.name)) continue;
+      const fieldAlias = `${currentAlias}.${field.name}`;
+      const typeTokens = descriptorTokens(field.type);
+      const nestedSchema = registryAggregateName(typeTokens, typeRegistry);
+      const pointer = abiPointerShape("c++", typeTokens);
+      const lengthMember = pairs.get(field.name);
+      if (pointer.pointerDepth === 0 && nestedSchema) {
+        walk(nestedSchema, fieldAlias, null, nextAncestry);
+        continue;
+      }
+      if (pointer.pointerDepth > 0 && nestedSchema) {
+        output.push({
+          aggregateSchema: currentSchemaName,
+          alias: fieldAlias,
+          elementSchema: nestedSchema,
+          ...(lengthMember
+            ? { lengthParameter: `${currentAlias}.${lengthMember}` }
+            : {}),
+          kind: "aggregate",
+          memberPath: fieldAlias.slice(alias.length + 1),
+          ownership: structuredClone(memberOwnership),
+          parameter: fieldAlias,
+          role,
+          rootParameter,
+          selector: `${selectorPrefix}${fieldAlias}`,
+        });
+        const relativeFieldAlias = fieldAlias.slice(rootAlias.length + 1);
+        if (expandedElements.has(relativeFieldAlias)) {
+          walk(nestedSchema, `${fieldAlias}[]`, null, nextAncestry);
+        }
+        continue;
+      }
+      const kind =
+        pointer.pointerDepth > 0 && lengthMember
+          ? "buffer"
+          : pointer.pointerDepth > 0
+            ? "pointer"
+            : abiTypeKind("c++", typeTokens);
+      output.push({
+        aggregateSchema: currentSchemaName,
+        alias: fieldAlias,
+        ...(lengthMember
+          ? { lengthParameter: `${currentAlias}.${lengthMember}` }
+          : {}),
+        kind,
+        memberPath: fieldAlias.slice(alias.length + 1),
+        ownership:
+          pointer.pointerDepth > 0
+            ? structuredClone(memberOwnership)
+            : { kind: "not-applicable" },
+        parameter: fieldAlias,
+        role,
+        rootParameter,
+        selector: `${selectorPrefix}${fieldAlias}`,
+      });
+    }
+    return true;
+  };
+  walk(schemaName, alias, selected, new Set());
+  return output;
+}
+
+function bindCallbackBufferLengthPairs(parameters) {
+  const pairs = [];
+  for (const parameter of parameters) {
+    if (parameter.pointerDepth === 0) continue;
+    const candidates = new Set(lengthCandidates(parameter.name));
+    if (parameter.name === "data") candidates.add("length");
+    if (parameter.name?.endsWith("_data")) {
+      candidates.add(`${parameter.name.slice(0, -"_data".length)}_length`);
+    }
+    let length = parameters.find((candidate) => candidates.has(candidate.name));
+    if (!length) {
+      const next = parameters[parameter.index + 1];
+      const byteLike = /(?:u8|uint8_t|char|void|byte)/u.test(
+        parameter.type.canonical,
+      );
+      if (byteLike && /^(?:len|length|size|count)$/u.test(next?.name ?? "")) {
+        length = next;
+      }
+    }
+    if (!length || length.direction !== parameter.direction) continue;
+    parameter.valueKind = "buffer";
+    length.valueKind = "length";
+    pairs.push({
+      bufferParameter: parameter.index,
+      direction: parameter.direction,
+      lengthParameter: length.index,
+    });
+  }
+  return pairs;
+}
+
+function callbackParameterContract(
+  language,
+  parameter,
+  { hasOuterContext, typeRegistry },
+) {
+  const pointer = abiPointerShape(language, parameter.typeTokens);
+  const typeValues = new Set(parameter.typeTokens.map((token) => token.value));
+  const typeIdentifiers = new Set(
+    parameter.typeTokens
+      .filter((token) => token.type === "identifier")
+      .map((token) => token.value),
+  );
+  const voidLike = typeValues.has("void") || typeValues.has("c_void");
+  let direction;
+  if (pointer.pointerDepth === 0 || pointer.constPointee) {
+    direction = "native-to-embedder";
+  } else if (
+    parameter.name === "context" ||
+    typeIdentifiers.has("ExactHermesRuntime") ||
+    (voidLike && hasOuterContext)
+  ) {
+    direction = "native-to-embedder";
+  } else if (
+    /^(?:out(?:_|$)|result_(?:data|length)$)/u.test(parameter.name ?? "")
+  ) {
+    direction = "embedder-to-native";
+  } else {
+    direction = "unknown";
+  }
+  const pointeeKind = abiTypeKind(
+    language,
+    parameter.typeTokens.filter(
+      (token) => !new Set(["*", "const", "mut"]).has(token.value),
+    ),
+  );
+  const aggregateSchema = registryAggregateName(
+    parameter.typeTokens,
+    typeRegistry,
+  );
+  return {
+    ...(aggregateSchema ? { aggregateSchema } : {}),
+    direction,
+    index: parameter.index,
+    name: parameter.name,
+    ownership:
+      pointer.pointerDepth === 0
+        ? { kind: "not-applicable" }
+        : direction === "native-to-embedder"
+          ? { kind: "borrowed" }
+          : direction === "embedder-to-native" && pointer.pointerDepth === 1
+            ? { kind: "caller-storage" }
+            : { kind: "unknown" },
+    pointerDepth: pointer.pointerDepth,
+    role:
+      direction === "native-to-embedder"
+        ? "payload"
+        : direction === "embedder-to-native"
+          ? "output"
+          : "unknown",
+    type: abiTypeDescriptor(parameter.typeTokens),
+    valueKind:
+      pointer.pointerDepth > 0
+        ? direction === "embedder-to-native" &&
+          pointer.pointerDepth === 1 &&
+          pointeeKind === "scalar"
+          ? "scalar"
+          : "pointer"
+        : aggregateSchema
+          ? "aggregate"
+          : abiTypeKind(language, parameter.typeTokens),
+  };
+}
+
+function bindCallbackParameter({
+  annotation,
+  language,
+  outerParameter,
+  rawParameter,
+  rawParameters,
+  typeRegistry,
+}) {
+  const signature = callbackSignatureForParameter(
+    language,
+    rawParameter,
+    typeRegistry,
+  );
+  if (!signature) {
+    return {
+      outputChannels: [],
+      unresolved: [
+        `callback-signature:${outerParameter.name ?? outerParameter.index}`,
+      ],
+    };
+  }
+  const hasOuterContext = rawParameters.some(
+    (parameter) => parameter.name === "context",
+  );
+  const callbackParameters = signature.parameters.map((parameter) =>
+    callbackParameterContract(signature.language, parameter, {
+      hasOuterContext,
+      typeRegistry,
+    }),
+  );
+  const bufferLengthPairs = bindCallbackBufferLengthPairs(callbackParameters);
+  if (annotation?.output !== undefined) {
+    const output = callbackParameters[annotation.output];
+    if (!output || output.direction !== "embedder-to-native") {
+      throw new Error(
+        `@abi-callback output ${annotation.output} is not an embedder-to-native parameter of ${outerParameter.name ?? outerParameter.index}`,
+      );
+    }
+    output.ownership =
+      annotation.ownership === "native-consumes"
+        ? { kind: "native-consumes" }
+        : { kind: annotation.ownership };
+    if (annotation.kind) output.valueKind = annotation.kind;
+    if (annotation.fixedLength) output.fixedLength = annotation.fixedLength;
+  }
+  const returnKind = abiTypeKind(signature.language, signature.returnTokens, {
+    isReturn: true,
+  });
+  const returnContract = {
+    direction: returnKind === "void" ? "none" : "embedder-to-native",
+    kind: returnKind,
+    ownership:
+      returnKind === "pointer"
+        ? { kind: "unknown" }
+        : { kind: "not-applicable" },
+    role: returnKind === "void" ? "none" : "return",
+    type: abiTypeDescriptor(signature.returnTokens),
+  };
+  if (annotation?.returnOwnership === "native-consumes") {
+    if (returnKind !== "pointer") {
+      throw new Error(
+        `@abi-callback return ownership requires a pointer return for ${outerParameter.name ?? outerParameter.index}`,
+      );
+    }
+    returnContract.ownership = { kind: "native-consumes" };
+  }
+  const outputChannels = [];
+  if (annotation?.delivery !== "none") {
+    for (const parameter of callbackParameters) {
+      if (
+        parameter.direction !== "native-to-embedder" ||
+        (parameter.valueKind === "length" &&
+          bufferLengthPairs.some(
+            (pair) => pair.lengthParameter === parameter.index,
+          ))
+      ) {
+        continue;
+      }
+      const alias = `${outerParameter.name ?? outerParameter.index}/${parameter.index}`;
+      if (parameter.aggregateSchema && parameter.pointerDepth === 0) {
+        const expanded = aggregateOutputChannels({
+          alias,
+          elements: [],
+          memberOwnership: { kind: "borrowed" },
+          members: "*",
+          role: "callback-payload",
+          rootParameter: outerParameter.name ?? outerParameter.index,
+          schemaName: parameter.aggregateSchema,
+          selectorPrefix: "callback:",
+          typeRegistry,
+        });
+        if (expanded) {
+          for (const channel of expanded) {
+            channel.callbackDirection = "native-to-embedder";
+            outputChannels.push(channel);
+          }
+        }
+        continue;
+      }
+      const pair = bufferLengthPairs.find(
+        (candidate) => candidate.bufferParameter === parameter.index,
+      );
+      outputChannels.push({
+        alias,
+        callbackDirection: "native-to-embedder",
+        kind: parameter.valueKind,
+        ...(pair
+          ? {
+              lengthParameter: `${outerParameter.name ?? outerParameter.index}/${pair.lengthParameter}`,
+            }
+          : {}),
+        ownership: structuredClone(parameter.ownership),
+        parameter: outerParameter.name ?? outerParameter.index,
+        role: "callback-payload",
+        rootParameter: outerParameter.name ?? outerParameter.index,
+        selector: `callback:${alias}`,
+      });
+    }
+  }
+
+  const unresolved = [];
+  for (const parameter of callbackParameters) {
+    if (parameter.direction === "unknown") {
+      unresolved.push(
+        `callback-direction:${outerParameter.name ?? outerParameter.index}/${parameter.index}`,
+      );
+    }
+    if (parameter.ownership.kind === "unknown") {
+      unresolved.push(
+        `callback-parameter-ownership:${outerParameter.name ?? outerParameter.index}/${parameter.index}`,
+      );
+    }
+    if (parameter.valueKind === "aggregate" && !parameter.aggregateSchema) {
+      unresolved.push(
+        `callback-aggregate-schema:${outerParameter.name ?? outerParameter.index}/${parameter.index}`,
+      );
+    }
+  }
+  if (returnKind === "unknown") {
+    unresolved.push(
+      `callback-return-kind:${outerParameter.name ?? outerParameter.index}`,
+    );
+  }
+  if (returnContract.ownership.kind === "unknown") {
+    unresolved.push(
+      `callback-return-pointer-ownership:${outerParameter.name ?? outerParameter.index}`,
+    );
+  }
+  outerParameter.role =
+    annotation?.delivery === "none" ? "input" : "callback-payload";
+  outerParameter.callbackContract = {
+    bufferLengthPairs,
+    delivery: annotation?.delivery ?? "invoked",
+    ...(signature.name ? { name: signature.name } : {}),
+    outputChannels: structuredClone(outputChannels),
+    parameters: callbackParameters,
+    return: returnContract,
+    ...(signature.sourceRef ? { sourceRef: signature.sourceRef } : {}),
+    status: unresolved.length === 0 ? "resolved" : "unresolved",
+    unresolved,
+  };
+  return { outputChannels, unresolved };
+}
+
+const ABI_CONSUMED_INPUT_POINTERS = new Set([
+  "ex_hermes_destroy:runtime",
+  "ex_hermes_free_string:value",
+  "ex_host_free_buffer:buf",
+  "ex_host_free_string:ptr",
+  "ex_host_fs_close:file",
+  "ex_worklet_destroy:handle",
+]);
+
+const ABI_EXACT_BORROWED_INPUT_POINTERS = new Set([
+  "ex_android_initialize:application_context",
+  "ex_android_initialize:java_vm",
+  "ex_hermes_set_kernel_handle:kernel_handle",
+]);
+
+function sourceProvenAbiInputPointer({
+  functionName,
+  hasCallbackParameter,
+  parameter,
+  pointer,
+}) {
+  if (pointer.pointerDepth === 0) return null;
+  const key = `${functionName}:${parameter.name ?? parameter.index}`;
+  if (pointer.pointerDepth === 1 && ABI_CONSUMED_INPUT_POINTERS.has(key)) {
+    return { ownership: { kind: "callee-consumes" } };
+  }
+
+  const typeIdentifiers = new Set(
+    parameter.typeTokens
+      .filter((token) => token.type === "identifier")
+      .map((token) => token.value),
+  );
+  const typeValues = new Set(parameter.typeTokens.map((token) => token.value));
+  const voidLike = typeValues.has("void") || typeValues.has("c_void");
+  if (
+    pointer.pointerDepth === 1 &&
+    (typeIdentifiers.has("ExactHermesRuntime") ||
+      typeIdentifiers.has("ExactFileHandle"))
+  ) {
+    return { ownership: { kind: "borrowed" } };
+  }
+  if (
+    pointer.pointerDepth === 1 &&
+    voidLike &&
+    ABI_EXACT_BORROWED_INPUT_POINTERS.has(key)
+  ) {
+    return { ownership: { kind: "borrowed" } };
+  }
+  if (
+    pointer.pointerDepth === 1 &&
+    voidLike &&
+    hasCallbackParameter &&
+    parameter.name === "context"
+  ) {
+    return { ownership: { kind: "borrowed" } };
+  }
+  return null;
+}
+
+function abiParameterContract(
+  language,
+  parameter,
+  { functionName, hasCallbackParameter },
+) {
+  const pointer = abiPointerShape(language, parameter.typeTokens);
+  const callback = isAbiCallbackType(parameter.typeTokens, parameter.name);
+  const sourceProvenInput = sourceProvenAbiInputPointer({
+    functionName,
+    hasCallbackParameter,
+    parameter,
+    pointer,
+  });
+  let role;
+  if (callback) role = "callback";
+  else if (pointer.pointerDepth === 0) role = "input";
+  else if (pointer.constPointee) role = "input";
+  else if (sourceProvenInput) role = "input";
+  else if (/^out(?:_|$)/u.test(parameter.name ?? "")) role = "output";
+  else if (/^inout(?:_|$)/u.test(parameter.name ?? "")) role = "inout";
+  else role = "unknown";
+
+  let ownership = { kind: "not-applicable" };
+  if (callback || (role === "input" && pointer.pointerDepth > 0)) {
+    ownership = sourceProvenInput?.ownership ?? { kind: "borrowed" };
+  } else if (
+    new Set(["output", "inout"]).has(role) &&
+    pointer.pointerDepth === 1
+  ) {
+    ownership = { kind: "caller-storage" };
+  } else if (pointer.pointerDepth > 0) {
+    ownership = { kind: "unknown" };
+  }
+  const pointeeKind = abiTypeKind(
+    language,
+    parameter.typeTokens.filter(
+      (token) => !new Set(["*", "const", "mut"]).has(token.value),
+    ),
+  );
+
+  return {
+    index: parameter.index,
+    name: parameter.name,
+    ownership,
+    pointerDepth: pointer.pointerDepth,
+    role,
+    type: abiTypeDescriptor(parameter.typeTokens),
+    valueKind: callback
+      ? "callback"
+      : pointer.pointerDepth > 0
+        ? new Set(["output", "inout"]).has(role) &&
+          pointer.pointerDepth === 1 &&
+          pointeeKind === "scalar"
+          ? "scalar"
+          : "pointer"
+        : abiTypeKind(language, parameter.typeTokens),
+  };
+}
+
+function lengthCandidates(parameterName) {
+  if (!parameterName) return [];
+  return [
+    `${parameterName}_len`,
+    `${parameterName}_length`,
+    `${parameterName}_size`,
+    `${parameterName}_count`,
+  ];
+}
+
+function bindAbiBufferLengthPairs(parameters) {
+  const pairs = [];
+  const byName = new Map(
+    parameters
+      .filter((parameter) => parameter.name !== null)
+      .map((parameter) => [parameter.name, parameter]),
+  );
+  for (const parameter of parameters) {
+    if (parameter.pointerDepth === 0 || parameter.valueKind === "callback")
+      continue;
+    let length = lengthCandidates(parameter.name)
+      .map((candidate) => byName.get(candidate))
+      .find(Boolean);
+    if (!length) {
+      const next = parameters[parameter.index + 1];
+      const byteLike = /(?:u8|uint8_t|char|void|byte)/u.test(
+        parameter.type.canonical,
+      );
+      if (byteLike && /^(?:len|length|size|count)$/u.test(next?.name ?? ""))
+        length = next;
+    }
+    if (!length) continue;
+    parameter.valueKind = "buffer";
+    length.valueKind = "length";
+    const direction =
+      parameter.role === "input" && length.role === "input"
+        ? "input"
+        : parameter.role === "output" &&
+            new Set(["input", "output"]).has(length.role)
+          ? "output"
+          : "unknown";
+    pairs.push({
+      bufferParameter: parameter.name,
+      direction,
+      lengthParameter: length.name,
+    });
+  }
+  return pairs;
+}
+
+function parseAbiOutputAnnotations(text, sourcePath) {
+  const byFunction = new Map();
+  for (const [lineIndex, line] of text.split(/\r?\n/u).entries()) {
+    const match = line.match(
+      /^\s*\/\/\/?\s*@abi-output\s+(ex_(?:android|host|hermes|worklet)_[A-Za-z0-9_]+)\s+([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s*$/u,
+    );
+    if (!match) continue;
+    const [, functionName, parameterName, rawFields] = match;
+    const fields = new Map();
+    for (const field of rawFields.split(/\s+/u)) {
+      const separator = field.indexOf("=");
+      if (separator <= 0 || separator === field.length - 1) {
+        throw new Error(
+          `${sourcePath}:${lineIndex + 1}: malformed @abi-output field ${field}`,
+        );
+      }
+      const key = field.slice(0, separator);
+      const value = field.slice(separator + 1);
+      if (
+        !new Set([
+          "elements",
+          "kind",
+          "length",
+          "member-ownership",
+          "members",
+          "ownership",
+          "role",
+          "schema",
+        ]).has(key) ||
+        fields.has(key)
+      ) {
+        throw new Error(
+          `${sourcePath}:${lineIndex + 1}: unsupported or duplicate @abi-output field ${key}`,
+        );
+      }
+      fields.set(key, value);
+    }
+    if (
+      !new Set(["output", "inout"]).has(fields.get("role")) ||
+      !new Set(["aggregate", "buffer", "pointer", "scalar"]).has(
+        fields.get("kind"),
+      ) ||
+      !/^(?:caller-frees:[A-Za-z_][A-Za-z0-9_]*|caller-storage|borrowed)$/u.test(
+        fields.get("ownership") ?? "",
+      ) ||
+      (fields.has("member-ownership") &&
+        !/^(?:caller-frees:[A-Za-z_][A-Za-z0-9_]*|caller-storage|borrowed)$/u.test(
+          fields.get("member-ownership"),
+        )) ||
+      (fields.get("kind") === "aggregate" &&
+        (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(fields.get("schema") ?? "") ||
+          !/^(?:\*|[A-Za-z_][A-Za-z0-9_]*(?:,[A-Za-z_][A-Za-z0-9_]*)*)$/u.test(
+            fields.get("members") ?? "",
+          ) ||
+          (fields.has("elements") &&
+            !/^[A-Za-z_][A-Za-z0-9_]*(?:,[A-Za-z_][A-Za-z0-9_]*)*$/u.test(
+              fields.get("elements"),
+            )) ||
+          fields.has("length"))) ||
+      (fields.get("kind") !== "aggregate" &&
+        (fields.has("elements") ||
+          fields.has("schema") ||
+          fields.has("members") ||
+          fields.has("member-ownership")))
+    ) {
+      throw new Error(
+        `${sourcePath}:${lineIndex + 1}: incomplete or invalid @abi-output contract`,
+      );
+    }
+    const annotations = byFunction.get(functionName) ?? [];
+    if (
+      annotations.some(
+        (annotation) => annotation.parameterName === parameterName,
+      )
+    ) {
+      throw new Error(
+        `${sourcePath}:${lineIndex + 1}: duplicate @abi-output ${functionName}.${parameterName}`,
+      );
+    }
+    annotations.push({
+      fields: Object.fromEntries(fields),
+      line: lineIndex + 1,
+      parameterName,
+    });
+    byFunction.set(functionName, annotations);
+  }
+  return byFunction;
+}
+
+function parseAbiCallbackAnnotations(text, sourcePath) {
+  const byFunction = new Map();
+  for (const [lineIndex, line] of text.split(/\r?\n/u).entries()) {
+    const match = line.match(
+      /^\s*\/\/\/?\s*@abi-callback\s+(ex_(?:android|host|hermes|worklet)_[A-Za-z0-9_]+)\s+([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s*$/u,
+    );
+    if (!match) continue;
+    const [, functionName, parameterName, rawFields] = match;
+    const fields = new Map();
+    for (const field of rawFields.split(/\s+/u)) {
+      const separator = field.indexOf("=");
+      if (separator <= 0 || separator === field.length - 1) {
+        throw new Error(
+          `${sourcePath}:${lineIndex + 1}: malformed @abi-callback field ${field}`,
+        );
+      }
+      const key = field.slice(0, separator);
+      const value = field.slice(separator + 1);
+      if (
+        !new Set([
+          "delivery",
+          "fixed-length",
+          "kind",
+          "output",
+          "ownership",
+          "return-ownership",
+        ]).has(key) ||
+        fields.has(key)
+      ) {
+        throw new Error(
+          `${sourcePath}:${lineIndex + 1}: unsupported or duplicate @abi-callback field ${key}`,
+        );
+      }
+      fields.set(key, value);
+    }
+    const deliveryOnly = fields.size === 1 && fields.get("delivery") === "none";
+    const returnOnly =
+      fields.size === 1 && fields.get("return-ownership") === "native-consumes";
+    const outputContract =
+      fields.has("output") &&
+      /^\d+$/u.test(fields.get("output")) &&
+      new Set(["borrowed", "caller-storage", "native-consumes"]).has(
+        fields.get("ownership"),
+      ) &&
+      (!fields.has("kind") ||
+        new Set(["buffer", "pointer", "scalar"]).has(fields.get("kind"))) &&
+      (!fields.has("fixed-length") ||
+        (/^[1-9]\d*$/u.test(fields.get("fixed-length")) &&
+          fields.get("kind") === "buffer")) &&
+      !fields.has("delivery") &&
+      !fields.has("return-ownership") &&
+      [...fields.keys()].every((key) =>
+        new Set(["fixed-length", "kind", "output", "ownership"]).has(key),
+      );
+    if (!deliveryOnly && !returnOnly && !outputContract) {
+      throw new Error(
+        `${sourcePath}:${lineIndex + 1}: incomplete or invalid @abi-callback contract`,
+      );
+    }
+    const annotations = byFunction.get(functionName) ?? [];
+    if (
+      annotations.some(
+        (annotation) => annotation.parameterName === parameterName,
+      )
+    ) {
+      throw new Error(
+        `${sourcePath}:${lineIndex + 1}: duplicate @abi-callback ${functionName}.${parameterName}`,
+      );
+    }
+    annotations.push({
+      ...(deliveryOnly ? { delivery: "none" } : {}),
+      ...(fields.has("fixed-length")
+        ? { fixedLength: Number(fields.get("fixed-length")) }
+        : {}),
+      ...(fields.has("kind") ? { kind: fields.get("kind") } : {}),
+      line: lineIndex + 1,
+      ...(fields.has("output") ? { output: Number(fields.get("output")) } : {}),
+      ...(fields.has("ownership")
+        ? { ownership: fields.get("ownership") }
+        : {}),
+      parameterName,
+      ...(returnOnly
+        ? { returnOwnership: fields.get("return-ownership") }
+        : {}),
+    });
+    byFunction.set(functionName, annotations);
+  }
+  return byFunction;
+}
+
+function annotatedOwnership(value) {
+  return value.startsWith("caller-frees:")
+    ? {
+        kind: "caller-owned",
+        releaseFunction: value.slice("caller-frees:".length),
+      }
+    : { kind: value };
+}
+
+function publicAbiReturnOwnership(functionName, language, returnTokens) {
+  const type = abiTypeDescriptor(returnTokens).canonical;
+  const isCharacterPointer =
+    type === "char *" ||
+    type === "* mut c_char" ||
+    type === "* mut std : : ffi : : c_char";
+  if (isCharacterPointer) {
+    return {
+      kind: "caller-owned",
+      releaseFunction:
+        functionName.startsWith("ex_host_")
+          ? "ex_host_free_string"
+          : "ex_hermes_free_string",
+    };
+  }
+  if (language === "rust" && type === "* mut u8") {
+    return {
+      kind: "caller-owned",
+      releaseFunction: "ex_host_free_buffer",
+    };
+  }
+  if (language === "rust" && type === "* mut ExactFileHandle") {
+    return {
+      kind: "caller-owned",
+      releaseFunction: "ex_host_fs_close",
+    };
+  }
+  if (language === "c++" && type === "ExactHermesRuntime *") {
+    return {
+      kind: "caller-owned",
+      releaseFunction: functionName.startsWith("ex_worklet_")
+        ? "ex_worklet_destroy"
+        : "ex_hermes_destroy",
+    };
+  }
+  return { kind: "unknown" };
+}
+
+function outputSelector(parameterName) {
+  return `out:${parameterName.replace(/^out_/u, "")}`;
+}
+
+function applyAbiOutputAnnotations(
+  parameters,
+  pairs,
+  annotations,
+  sourcePath,
+  functionName,
+) {
+  const byName = new Map(
+    parameters
+      .filter((parameter) => parameter.name !== null)
+      .map((parameter) => [parameter.name, parameter]),
+  );
+  for (const annotation of annotations) {
+    const parameter = byName.get(annotation.parameterName);
+    if (!parameter || parameter.pointerDepth === 0) {
+      throw new Error(
+        `${sourcePath}:${annotation.line}: @abi-output does not name a pointer parameter of ${functionName}`,
+      );
+    }
+    const { fields } = annotation;
+    parameter.role = fields.role;
+    parameter.valueKind = fields.kind;
+    parameter.ownership = annotatedOwnership(fields.ownership);
+    if (fields.kind === "aggregate") {
+      parameter.aggregateContract = {
+        elements:
+          fields.elements === undefined ? [] : fields.elements.split(","),
+        memberOwnership: annotatedOwnership(
+          fields["member-ownership"] ?? fields.ownership,
+        ),
+        members: fields.members === "*" ? "*" : fields.members.split(","),
+        schema: fields.schema,
+      };
+    }
+    if (fields.length) {
+      const length = byName.get(fields.length);
+      if (!length) {
+        throw new Error(
+          `${sourcePath}:${annotation.line}: @abi-output length ${fields.length} is absent from ${functionName}`,
+        );
+      }
+      length.valueKind = "length";
+      if (
+        !pairs.some(
+          (pair) =>
+            pair.bufferParameter === parameter.name &&
+            pair.lengthParameter === length.name,
+        )
+      ) {
+        pairs.push({
+          bufferParameter: parameter.name,
+          direction: fields.role,
+          lengthParameter: length.name,
+        });
+      }
+    }
+  }
+}
+
+function buildHostAbiOutputContract({
+  annotations,
+  callbackAnnotations,
+  functionName,
+  language,
+  parameters: rawParameters,
+  returnTokens,
+  sourceRef,
+  typeRegistry,
+}) {
+  const hasCallbackParameter = rawParameters.some((parameter) =>
+    isAbiCallbackType(parameter.typeTokens, parameter.name),
+  );
+  const parameters = rawParameters.map((parameter) =>
+    abiParameterContract(language, parameter, {
+      functionName,
+      hasCallbackParameter,
+    }),
+  );
+  const bufferLengthPairs = bindAbiBufferLengthPairs(parameters);
+  applyAbiOutputAnnotations(
+    parameters,
+    bufferLengthPairs,
+    annotations,
+    sourceRef.split("#")[0],
+    functionName,
+  );
+  const callbackAnnotationsByParameter = new Map(
+    callbackAnnotations.map((annotation) => [
+      annotation.parameterName,
+      annotation,
+    ]),
+  );
+  const callbackBindings = new Map();
+  for (const rawParameter of rawParameters) {
+    if (!isAbiCallbackType(rawParameter.typeTokens, rawParameter.name))
+      continue;
+    const parameter = parameters[rawParameter.index];
+    const annotation = callbackAnnotationsByParameter.get(parameter.name);
+    callbackAnnotationsByParameter.delete(parameter.name);
+    callbackBindings.set(
+      parameter.index,
+      bindCallbackParameter({
+        annotation,
+        language,
+        outerParameter: parameter,
+        rawParameter,
+        rawParameters,
+        typeRegistry,
+      }),
+    );
+  }
+  if (callbackAnnotationsByParameter.size > 0) {
+    const [parameterName, annotation] = callbackAnnotationsByParameter
+      .entries()
+      .next().value;
+    throw new Error(
+      `${sourceRef.split("#")[0]}:${annotation.line}: @abi-callback does not name a callback parameter ${functionName}.${parameterName}`,
+    );
+  }
+  bufferLengthPairs.sort((left, right) =>
+    compareText(left.bufferParameter ?? "", right.bufferParameter ?? ""),
+  );
+
+  const returnKind = abiTypeKind(language, returnTokens, { isReturn: true });
+  const returnOwnership =
+    returnKind === "pointer"
+      ? publicAbiReturnOwnership(functionName, language, returnTokens)
+      : { kind: "not-applicable" };
+  const returnContract = {
+    kind: returnKind,
+    ownership: returnOwnership,
+    role: returnKind === "void" ? "none" : "value",
+    type: abiTypeDescriptor(returnTokens),
+  };
+  const outputChannels = [];
+  if (returnContract.role === "value") {
+    outputChannels.push({
+      kind: returnKind,
+      ownership: structuredClone(returnOwnership),
+      role: "return",
+      selector: "[[return]]",
+    });
+  }
+  for (const parameter of parameters) {
+    if (new Set(["output", "inout"]).has(parameter.role)) {
+      if (parameter.valueKind === "aggregate") {
+        const aggregate = parameter.aggregateContract;
+        const declaredSchema = registryAggregateName(
+          rawParameters[parameter.index].typeTokens,
+          typeRegistry,
+        );
+        if (
+          aggregate &&
+          typeRegistry?.schema === C_ABI_TYPE_REGISTRY_SCHEMA &&
+          declaredSchema !== aggregate.schema
+        ) {
+          throw new Error(
+            `${sourceRef}: aggregate annotation ${aggregate.schema} does not match ${declaredSchema} for ${parameter.name}`,
+          );
+        }
+        const expanded = aggregate
+          ? aggregateOutputChannels({
+              alias: parameter.name,
+              elements: aggregate.elements,
+              memberOwnership: aggregate.memberOwnership,
+              members: aggregate.members,
+              role: parameter.role,
+              rootParameter: parameter.name,
+              schemaName: aggregate.schema,
+              selectorPrefix: "out:",
+              typeRegistry,
+            })
+          : null;
+        if (expanded) outputChannels.push(...expanded);
+        continue;
+      }
+      if (
+        parameter.valueKind === "length" &&
+        bufferLengthPairs.some(
+          (candidate) => candidate.lengthParameter === parameter.name,
+        )
+      ) {
+        continue;
+      }
+      const pair = bufferLengthPairs.find(
+        (candidate) => candidate.bufferParameter === parameter.name,
+      );
+      outputChannels.push({
+        kind: parameter.valueKind,
+        ...(pair ? { lengthParameter: pair.lengthParameter } : {}),
+        ownership: structuredClone(parameter.ownership),
+        parameter: parameter.name,
+        role: parameter.role,
+        selector: outputSelector(parameter.name),
+      });
+    } else if (parameter.role === "callback-payload") {
+      outputChannels.push(
+        ...(callbackBindings.get(parameter.index)?.outputChannels ?? []),
+      );
+    }
+  }
+
+  const unresolved = [];
+  if (returnKind === "unknown") unresolved.push("return-kind");
+  if (returnOwnership.kind === "unknown")
+    unresolved.push("return-pointer-ownership");
+  for (const parameter of parameters) {
+    const label = parameter.name ?? `parameter-${parameter.index}`;
+    if (parameter.role === "unknown")
+      unresolved.push(`parameter-role:${label}`);
+    if (
+      new Set(["output", "inout"]).has(parameter.role) &&
+      parameter.ownership.kind === "unknown"
+    ) {
+      unresolved.push(`parameter-ownership:${label}`);
+    }
+    if (parameter.role === "callback")
+      unresolved.push(`callback-signature:${label}`);
+    if (
+      new Set(["output", "inout"]).has(parameter.role) &&
+      parameter.valueKind === "aggregate" &&
+      (!parameter.aggregateContract ||
+        !typeRegistry?.aggregates?.[parameter.aggregateContract.schema])
+    ) {
+      unresolved.push(`aggregate-schema:${label}`);
+    }
+    unresolved.push(
+      ...(callbackBindings.get(parameter.index)?.unresolved ?? []),
+    );
+  }
+
+  return {
+    bufferLengthPairs,
+    functionName,
+    language,
+    outputChannels,
+    parameters,
+    return: returnContract,
+    schema: HOST_ABI_OUTPUT_CONTRACT_SCHEMA,
+    sourceRef,
+    status: unresolved.length === 0 ? "resolved" : "unresolved",
+    unresolved,
+  };
+}
+
+function sourceProvesHostAbiOutputChannel(contract, channel) {
+  if (
+    channel.selector === "[[return]]" &&
+    channel.role === "return" &&
+    contract.return.role === "value"
+  ) {
+    return channel.kind !== "unknown";
+  }
+
+  const parameter = contract.parameters.find(
+    (candidate) =>
+      candidate.name === (channel.rootParameter ?? channel.parameter) ||
+      candidate.index === (channel.rootParameter ?? channel.parameter),
+  );
+  if (!parameter || channel.kind === "unknown") return false;
+  if (new Set(["output", "inout"]).has(channel.role)) {
+    return parameter.role === channel.role;
+  }
+  return (
+    channel.role === "callback-payload" && parameter.role === "callback-payload"
+  );
+}
+
+/**
+ * Derive catalog membership only from exact ABI signature contracts. Runtime
+ * executor coverage is deliberately absent: it may prove a row's value, but
+ * it cannot decide whether the output slot exists. An unresolved account may
+ * retain already-proven channels for diagnostics; callers must not emit those
+ * rows until membershipUnresolved is empty because another slot may be hidden.
+ */
+export function deriveHostAbiOutputCatalogAccount(surface) {
+  if (surface?.kind !== "host-abi") {
+    throw new Error("host ABI output account requires a host-abi surface");
+  }
+  const contracts = surface.metadata?.outputContracts;
+  if (!Array.isArray(contracts) || contracts.length === 0) {
+    return {
+      evidenceUnresolved: [],
+      membershipUnresolved: ["signature-contract-missing"],
+      outputChannels: [],
+      reasonCode: "host-abi-signature-contract-missing",
+      status: "unresolved",
+      unresolved: ["signature-contract-missing"],
+    };
+  }
+
+  const outputChannels = new Map();
+  const unresolved = [];
+  for (const contract of contracts) {
+    if (
+      contract?.schema !== HOST_ABI_OUTPUT_CONTRACT_SCHEMA ||
+      contract.functionName !== surface.name ||
+      !surface.sourceRefs.includes(contract.sourceRef)
+    ) {
+      throw new Error(
+        `host ABI output account ${surface.name} has an unbound signature contract`,
+      );
+    }
+    for (const reason of contract.unresolved) {
+      unresolved.push(`${contract.sourceRef}:${reason}`);
+    }
+    for (const channel of contract.outputChannels) {
+      if (!sourceProvesHostAbiOutputChannel(contract, channel)) continue;
+      const entry = outputChannels.get(channel.selector) ?? {
+        selector: channel.selector,
+        sourceRefs: [],
+        variants: [],
+      };
+      entry.sourceRefs.push(contract.sourceRef);
+      entry.variants.push({
+        ...(channel.aggregateSchema
+          ? { aggregateSchema: channel.aggregateSchema }
+          : {}),
+        ...(channel.alias ? { alias: channel.alias } : {}),
+        ...(channel.callbackDirection
+          ? { callbackDirection: channel.callbackDirection }
+          : {}),
+        ...(channel.elementSchema
+          ? { elementSchema: channel.elementSchema }
+          : {}),
+        kind: channel.kind,
+        ...(channel.lengthParameter
+          ? { lengthParameter: channel.lengthParameter }
+          : {}),
+        ...(channel.memberPath ? { memberPath: channel.memberPath } : {}),
+        ownership: structuredClone(channel.ownership),
+        role: channel.role,
+        sourceRef: contract.sourceRef,
+      });
+      outputChannels.set(channel.selector, entry);
+    }
+  }
+
+  const catalogChannels = [...outputChannels.values()]
+    .map((channel) => ({
+      ...channel,
+      sourceRefs: [...new Set(channel.sourceRefs)].sort(compareText),
+      variants: channel.variants.sort((left, right) =>
+        compareText(left.sourceRef, right.sourceRef),
+      ),
+    }))
+    .sort((left, right) => compareText(left.selector, right.selector));
+  // Ownership affects whether a known pointer-bearing slot can be executed and
+  // normalized safely, but it does not make that slot disappear. Every other
+  // unresolved signature fact can hide an additional return/out/callback slot,
+  // so an account with one known channel is still membership-incomplete until
+  // those facts are resolved.
+  const evidenceUnresolved = unresolved.filter((reason) =>
+    /:(?:callback-parameter-ownership:[^:]+|callback-return-pointer-ownership:[^:]+|parameter-ownership:[^:]+|return-pointer-ownership)$/u.test(
+      reason,
+    ),
+  );
+  const membershipUnresolved = unresolved.filter(
+    (reason) => !evidenceUnresolved.includes(reason),
+  );
+  const structuralOnly = contracts.every(
+    (contract) =>
+      contract.return.role === "none" &&
+      contract.outputChannels.length === 0 &&
+      contract.parameters.every((parameter) => parameter.role === "input"),
+  );
+  const status =
+    membershipUnresolved.length > 0
+      ? "unresolved"
+      : catalogChannels.length > 0
+        ? "output-bearing"
+        : structuralOnly
+          ? "structural-only"
+          : "unresolved";
+  return {
+    outputChannels: catalogChannels,
+    reasonCode:
+      status === "output-bearing"
+        ? "source-derived-host-abi-output"
+        : status === "structural-only"
+          ? "source-derived-void-all-input-abi"
+          : "host-abi-signature-membership-ambiguous",
+    evidenceUnresolved: [...new Set(evidenceUnresolved)].sort(compareText),
+    membershipUnresolved: [...new Set(membershipUnresolved)].sort(compareText),
+    status,
+    unresolved: [...new Set(unresolved)].sort(compareText),
+  };
+}
+
+function rustHostAbiOutputContract(
+  tokens,
+  record,
+  annotations,
+  callbackAnnotations,
+  sourceRef,
+) {
+  const open = record.nameIndex + 1;
+  const close = matchingToken(tokens, open, "(", ")");
+  if (close === -1 || record.bodyOpen <= close) {
+    throw new Error(`${sourceRef}: malformed Rust ABI signature`);
+  }
+  let returnTokens = [];
+  if (tokens[close + 1]?.value === "-" && tokens[close + 2]?.value === ">") {
+    returnTokens = tokens.slice(close + 3, record.bodyOpen);
+  }
+  return buildHostAbiOutputContract({
+    annotations,
+    callbackAnnotations,
+    functionName: record.name,
+    language: "rust",
+    parameters: rustAbiParameters(
+      tokens,
+      open,
+      close,
+      sourceRef.split("#")[0],
+      record.name,
+    ),
+    returnTokens,
+    sourceRef,
+    typeRegistry: null,
+  });
+}
+
+function cppReturnTypeTokens(tokens, nameIndex) {
+  let boundary = nameIndex - 1;
+  while (boundary >= 0 && !new Set([";", "{", "}"]).has(tokens[boundary].value))
+    boundary -= 1;
+  const signature = tokens.slice(boundary + 1, nameIndex);
+  const externIndex = signature.findIndex((token) => token.value === "extern");
+  if (externIndex === -1) return [];
+  let output = signature.slice(externIndex + 2);
+  while (
+    output[0]?.type === "identifier" &&
+    (/^[A-Z][A-Z0-9_]*$/u.test(output[0].value) ||
+      new Set(["inline", "static"]).has(output[0].value))
+  ) {
+    output = output.slice(1);
+  }
+  return output;
+}
+
+function cppHostAbiOutputContract(
+  tokens,
+  definition,
+  annotations,
+  callbackAnnotations,
+  sourceRef,
+  typeRegistry,
+) {
+  const open = definition.nameIndex + 1;
+  const close = matchingToken(tokens, open, "(", ")");
+  if (close === -1 || definition.bodyOpen <= close) {
+    throw new Error(`${sourceRef}: malformed C/C++ ABI signature`);
+  }
+  return buildHostAbiOutputContract({
+    annotations,
+    callbackAnnotations,
+    functionName: definition.name,
+    language: "c++",
+    parameters: cppAbiParameters(tokens, open, close),
+    returnTokens: cppReturnTypeTokens(tokens, definition.nameIndex),
+    sourceRef,
+    typeRegistry,
+  });
 }
 
 function nextFunctionBodyToken(tokens, closeParen) {
@@ -1317,8 +3134,11 @@ export function scanCppFunctionNames(text, sourcePath = "<native-source>") {
 export function scanCppPublicAbiDefinitions(
   text,
   sourcePath = "<native-source>",
+  { typeRegistry = null } = {},
 ) {
   const tokens = lexCpp(text, sourcePath);
+  const outputAnnotations = parseAbiOutputAnnotations(text, sourcePath);
+  const callbackAnnotations = parseAbiCallbackAnnotations(text, sourcePath);
   const rows = [];
   const names = new Set();
   for (const definition of cppFunctionDefinitions(tokens)) {
@@ -1345,11 +3165,38 @@ export function scanCppPublicAbiDefinitions(
       throw new Error(`${sourcePath}: duplicate public ABI definition ${name}`);
     names.add(name);
     const weak = signature.some((token) => /weak/iu.test(token.value));
+    const sourceRef = sourceSymbol(sourcePath, name);
     rows.push(
-      makeSurface("host-abi", name, [sourceSymbol(sourcePath, name)], {
-        metadata: { language: "c++", unsafe: false, weak },
+      makeSurface("host-abi", name, [sourceRef], {
+        metadata: {
+          language: "c++",
+          outputContract: cppHostAbiOutputContract(
+            tokens,
+            definition,
+            outputAnnotations.get(name) ?? [],
+            callbackAnnotations.get(name) ?? [],
+            sourceRef,
+            typeRegistry,
+          ),
+          unsafe: false,
+          weak,
+        },
       }),
     );
+  }
+  for (const functionName of outputAnnotations.keys()) {
+    if (!names.has(functionName)) {
+      throw new Error(
+        `${sourcePath}: @abi-output names absent C/C++ ABI definition ${functionName}`,
+      );
+    }
+  }
+  for (const functionName of callbackAnnotations.keys()) {
+    if (!names.has(functionName)) {
+      throw new Error(
+        `${sourcePath}: @abi-callback names absent C/C++ ABI definition ${functionName}`,
+      );
+    }
   }
   return sortSurfaces(rows);
 }
@@ -1418,6 +3265,229 @@ function walkAst(root, visitor) {
       }
     }
   }
+}
+
+// Conservative lexical binding index for narrow source-review proofs. A
+// duplicate binding or a write makes resolution unusable rather than guessing.
+function javascriptLexicalBindingIndex(program) {
+  const omittedKeys = new Set([
+    "comments",
+    "end",
+    "errors",
+    "extra",
+    "leadingComments",
+    "loc",
+    "start",
+    "trailingComments",
+  ]);
+  const nodeScopes = new WeakMap();
+  const createScope = (parent, kind) => ({
+    bindings: new Map(),
+    kind,
+    parent,
+  });
+  const programScope = createScope(null, "program");
+  const nearestVarScope = (scope) => {
+    let current = scope;
+    while (current.parent && current.kind !== "function") {
+      current = current.parent;
+    }
+    return current;
+  };
+  const addBinding = (scope, name, kind, node) => {
+    if (!name) return;
+    let bindings = scope.bindings.get(name);
+    if (!bindings) {
+      bindings = [];
+      scope.bindings.set(name, bindings);
+    }
+    bindings.push({ kind, node, writes: 0 });
+  };
+  const addPatternBindings = (scope, pattern, kind, node = pattern) => {
+    if (!pattern) return;
+    if (pattern.type === "Identifier") {
+      addBinding(scope, pattern.name, kind, node);
+      return;
+    }
+    if (pattern.type === "AssignmentPattern") {
+      addPatternBindings(scope, pattern.left, kind, node);
+      return;
+    }
+    if (pattern.type === "RestElement") {
+      addPatternBindings(scope, pattern.argument, kind, node);
+      return;
+    }
+    if (pattern.type === "ArrayPattern") {
+      for (const element of pattern.elements) {
+        addPatternBindings(scope, element, kind, node);
+      }
+      return;
+    }
+    if (pattern.type === "ObjectPattern") {
+      for (const property of pattern.properties) {
+        addPatternBindings(
+          scope,
+          property.type === "RestElement" ? property.argument : property.value,
+          kind,
+          node,
+        );
+      }
+    }
+  };
+  const childNodes = (node) => {
+    const children = [];
+    for (const [key, value] of Object.entries(node)) {
+      if (omittedKeys.has(key)) continue;
+      if (Array.isArray(value)) {
+        children.push(
+          ...value.filter((child) => child && typeof child === "object"),
+        );
+      } else if (value && typeof value === "object") {
+        children.push(value);
+      }
+    }
+    return children;
+  };
+  const visitFunction = (node, outerScope) => {
+    const functionScope = createScope(outerScope, "function");
+    if (node.type === "FunctionExpression" && node.id?.name) {
+      addBinding(functionScope, node.id.name, "function-expression-name", node);
+    }
+    for (const parameter of node.params ?? []) {
+      addPatternBindings(functionScope, parameter, "parameter");
+      visit(parameter, functionScope);
+    }
+    if (node.body?.type === "BlockStatement") {
+      nodeScopes.set(node.body, functionScope);
+      for (const statement of node.body.body) visit(statement, functionScope);
+    } else {
+      visit(node.body, functionScope);
+    }
+  };
+  const visit = (node, scope) => {
+    if (!node || typeof node !== "object") return;
+    nodeScopes.set(node, scope);
+    if (node.type === "FunctionDeclaration") {
+      addBinding(scope, node.id?.name, "function-declaration", node);
+      visitFunction(node, scope);
+      return;
+    }
+    if (
+      node.type === "FunctionExpression" ||
+      node.type === "ArrowFunctionExpression"
+    ) {
+      visitFunction(node, scope);
+      return;
+    }
+    if (
+      node.type === "ClassMethod" ||
+      node.type === "ClassPrivateMethod" ||
+      node.type === "ObjectMethod"
+    ) {
+      if (node.computed) visit(node.key, scope);
+      visitFunction(node, scope);
+      return;
+    }
+    if (node.type === "BlockStatement") {
+      const blockScope = createScope(scope, "block");
+      nodeScopes.set(node, blockScope);
+      for (const statement of node.body) visit(statement, blockScope);
+      return;
+    }
+    if (node.type === "VariableDeclaration") {
+      const bindingScope = node.kind === "var" ? nearestVarScope(scope) : scope;
+      for (const declaration of node.declarations) {
+        nodeScopes.set(declaration, scope);
+        addPatternBindings(
+          bindingScope,
+          declaration.id,
+          `${node.kind}-declaration`,
+          declaration,
+        );
+        visit(declaration.id, scope);
+        visit(declaration.init, scope);
+      }
+      return;
+    }
+    if (node.type === "ClassDeclaration") {
+      addBinding(scope, node.id?.name, "class-declaration", node);
+    }
+    if (node.type === "ImportDeclaration") {
+      for (const specifier of node.specifiers) {
+        addBinding(scope, specifier.local?.name, "import", specifier);
+      }
+    }
+    if (node.type === "CatchClause") {
+      const catchScope = createScope(scope, "block");
+      nodeScopes.set(node, catchScope);
+      addPatternBindings(catchScope, node.param, "catch-parameter");
+      visit(node.param, catchScope);
+      visit(node.body, catchScope);
+      return;
+    }
+    if (
+      node.type === "ForStatement" ||
+      node.type === "ForInStatement" ||
+      node.type === "ForOfStatement" ||
+      node.type === "SwitchStatement"
+    ) {
+      const controlScope = createScope(scope, "block");
+      nodeScopes.set(node, controlScope);
+      for (const child of childNodes(node)) visit(child, controlScope);
+      return;
+    }
+    for (const child of childNodes(node)) visit(child, scope);
+  };
+  visit(program, programScope);
+
+  const resolve = (identifier) => {
+    if (identifier?.type !== "Identifier") return null;
+    let scope = nodeScopes.get(identifier);
+    while (scope) {
+      const bindings = scope.bindings.get(identifier.name);
+      if (bindings) return bindings.length === 1 ? bindings[0] : null;
+      scope = scope.parent;
+    }
+    return null;
+  };
+  const markPatternWrite = (pattern) => {
+    if (!pattern) return;
+    if (pattern.type === "Identifier") {
+      const binding = resolve(pattern);
+      if (binding) binding.writes += 1;
+      return;
+    }
+    if (pattern.type === "AssignmentPattern") {
+      markPatternWrite(pattern.left);
+      return;
+    }
+    if (pattern.type === "RestElement") {
+      markPatternWrite(pattern.argument);
+      return;
+    }
+    if (pattern.type === "ArrayPattern") {
+      for (const element of pattern.elements) markPatternWrite(element);
+      return;
+    }
+    if (pattern.type === "ObjectPattern") {
+      for (const property of pattern.properties) {
+        markPatternWrite(
+          property.type === "RestElement" ? property.argument : property.value,
+        );
+      }
+    }
+  };
+  walkAst(program, (node) => {
+    if (node.type === "AssignmentExpression") markPatternWrite(node.left);
+    if (node.type === "UpdateExpression") markPatternWrite(node.argument);
+    if (
+      (node.type === "ForInStatement" || node.type === "ForOfStatement") &&
+      node.left?.type !== "VariableDeclaration"
+    ) {
+      markPatternWrite(node.left);
+    }
+  });
+  return { resolve };
 }
 
 function staticPropertyName(node, substitutions = new Map()) {
@@ -1782,6 +3852,31 @@ function javascriptFunctionDefinitions(program) {
   return definitions;
 }
 
+// Fixed semantic evidence occasionally lives in a bootstrap-owned global
+// assignment rather than a lexical declaration. Keep this deliberately
+// narrower than javascriptFunctionDefinitions(): broad surface discovery must
+// not acquire new callables merely because a global bootstrap helper is named.
+function javascriptFixedGlobalFunctionDefinitions(program) {
+  const definitions = [...javascriptFunctionDefinitions(program)];
+  walkAst(program, (node) => {
+    if (
+      node.type !== "AssignmentExpression" ||
+      node.operator !== "=" ||
+      node.left?.type !== "MemberExpression" ||
+      node.left.object?.type !== "Identifier" ||
+      node.left.object.name !== "globalThis" ||
+      !callbackFunction(node.right)
+    ) {
+      return;
+    }
+    const names = node.left.computed
+      ? staticPropertyName(node.left.property)
+      : [node.left.property?.name].filter(Boolean);
+    for (const name of names) definitions.push({ name, node: node.right });
+  });
+  return definitions;
+}
+
 /**
  * Discover statically named CommonJS and ESM exports from one builtin source.
  * Babel supplies the lexer/parser boundary so comments, regexes, templates,
@@ -1894,7 +3989,8 @@ export function scanStaticBuiltinExports(
         node.type === "FunctionDeclaration") &&
       node.id?.name
     ) {
-      if (node.type === "ClassDeclaration") classDefinitionNames.add(node.id.name);
+      if (node.type === "ClassDeclaration")
+        classDefinitionNames.add(node.id.name);
     }
     if (
       node.type === "VariableDeclarator" &&
@@ -1964,16 +4060,14 @@ export function scanStaticBuiltinExports(
     ) {
       const method = directMemberName(node.left);
       const owner = prototypeOwner(node.left?.object);
-      if (method && owner) addQualifiedCallable(`${owner}.${method}`, node.right);
+      if (method && owner)
+        addQualifiedCallable(`${owner}.${method}`, node.right);
       else if (
         method &&
         node.left.object?.type === "Identifier" &&
         staticObjectBindings.has(node.left.object.name)
       ) {
-        addQualifiedCallable(
-          `${node.left.object.name}.${method}`,
-          node.right,
-        );
+        addQualifiedCallable(`${node.left.object.name}.${method}`, node.right);
       }
     }
   });
@@ -1999,7 +4093,8 @@ export function scanStaticBuiltinExports(
     }
     if (isJavaScriptFunctionNode(node)) {
       for (const parameter of node.params ?? []) {
-        if (parameter?.type === "Identifier") declaredIdentifiers.add(parameter.name);
+        if (parameter?.type === "Identifier")
+          declaredIdentifiers.add(parameter.name);
       }
     }
   });
@@ -2083,6 +4178,7 @@ export function scanStaticBuiltinExports(
     "ArrayExpression",
     "BigIntLiteral",
     "BooleanLiteral",
+    "NullLiteral",
     "NumericLiteral",
     "RegExpLiteral",
     "StringLiteral",
@@ -2136,6 +4232,12 @@ export function scanStaticBuiltinExports(
   const isProvenIntrinsicValue = (expression, localBindings) => {
     if (!expression) return false;
     if (isProvenIntrinsicReceiver(expression)) return true;
+    if (expression.type === "ConditionalExpression") {
+      return (
+        isProvenIntrinsicValue(expression.consequent, localBindings) &&
+        isProvenIntrinsicValue(expression.alternate, localBindings)
+      );
+    }
     if (
       expression.type === "Identifier" &&
       localBindings.has(expression.name)
@@ -2171,6 +4273,27 @@ export function scanStaticBuiltinExports(
     }
     return false;
   };
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // suppress route ambiguity only for immutable module bindings whose source
+  // initializer is recursively proven intrinsic.
+  const moduleIntrinsicBindings = new Set(staticArrays.keys());
+  let moduleIntrinsicChanged = true;
+  while (moduleIntrinsicChanged) {
+    moduleIntrinsicChanged = false;
+    walkAst(program, (node) => {
+      if (
+        node.type !== "VariableDeclarator" ||
+        node.id?.type !== "Identifier" ||
+        moduleIntrinsicBindings.has(node.id.name) ||
+        assignedIdentifiers.has(node.id.name) ||
+        !isProvenIntrinsicValue(node.init, moduleIntrinsicBindings)
+      ) {
+        return;
+      }
+      moduleIntrinsicBindings.add(node.id.name);
+      moduleIntrinsicChanged = true;
+    });
+  }
   const terminalReference = (expression) => {
     if (expression?.type === "Identifier" && isTerminalName(expression.name)) {
       return declaredIdentifiers.has(expression.name)
@@ -2202,7 +4325,8 @@ export function scanStaticBuiltinExports(
         continue;
       }
       const reference = terminalReference(declaration.init);
-      if (reference?.name) terminalAliases.set(declaration.id.name, reference.name);
+      if (reference?.name)
+        terminalAliases.set(declaration.id.name, reference.name);
     }
   });
 
@@ -2214,7 +4338,9 @@ export function scanStaticBuiltinExports(
       new Set(["apply", "call"]).has(call.callee.property?.name)
     ) {
       if (mutatedIntrinsicRoots.has("Function")) {
-        return { ambiguity: `dynamic-call-receiver:${call.callee.property.name}` };
+        return {
+          ambiguity: `dynamic-call-receiver:${call.callee.property.name}`,
+        };
       }
       const invokedReference = terminalReference(call.callee.object);
       if (invokedReference?.ambiguity) return invokedReference;
@@ -2276,7 +4402,8 @@ export function scanStaticBuiltinExports(
     const binding = requiredModuleBindingSpecifiers.get(target.name);
     if (!binding) return null;
     return {
-      exportName: [...binding.exportSegments, ...segments].join(".") || "default",
+      exportName:
+        [...binding.exportSegments, ...segments].join(".") || "default",
       moduleSpecifier: binding.moduleSpecifier,
     };
   };
@@ -2311,7 +4438,7 @@ export function scanStaticBuiltinExports(
     const nextActive = new Set(active);
     nextActive.add(name);
     const owner = qualified ? name.slice(0, name.lastIndexOf(".")) : null;
-    const localIntrinsicBindings = new Set(staticArrays.keys());
+    const localIntrinsicBindings = new Set(moduleIntrinsicBindings);
     let intrinsicChanged = true;
     while (intrinsicChanged) {
       intrinsicChanged = false;
@@ -2408,8 +4535,8 @@ export function scanStaticBuiltinExports(
         node.callee?.type === "MemberExpression" &&
         new Set(["apply", "call"]).has(directMemberName(node.callee)) &&
         node.callee.object?.type === "Identifier" &&
-        (callableDefinitionsByName.get(node.callee.object.name) ?? []).length ===
-          1 &&
+        (callableDefinitionsByName.get(node.callee.object.name) ?? [])
+          .length === 1 &&
         !mutatedIntrinsicRoots.has("Function")
       ) {
         calleeNames.add(node.callee.object.name);
@@ -2692,7 +4819,8 @@ export function scanStaticBuiltinExports(
       }
     }
     if (routes.length === 0) {
-      for (const owner of bindings.get(ROOT_EXPORT_OBJECT)?.get("default") ?? []) {
+      for (const owner of bindings.get(ROOT_EXPORT_OBJECT)?.get("default") ??
+        []) {
         routes.push(routeForCallable(`${owner}.${exportName}`));
       }
     }
@@ -2962,7 +5090,8 @@ export function scanStaticBuiltinExports(
       const member = memberTargetAndNames(expression, new Map(), staticArrays);
       if (member) {
         for (const name of member.names) {
-          for (const shape of valueShapeFacts.get(member.target)?.get(name) ?? []) {
+          for (const shape of valueShapeFacts.get(member.target)?.get(name) ??
+            []) {
             shapes.add(shape);
           }
         }
@@ -2970,8 +5099,8 @@ export function scanStaticBuiltinExports(
       const owner = prototypeOwner(expression.object);
       const name = directMemberName(expression);
       if (owner && name) {
-        for (const shape of
-          prototypeValueShapeFacts.get(owner)?.get(name) ?? []) {
+        for (const shape of prototypeValueShapeFacts.get(owner)?.get(name) ??
+          []) {
           shapes.add(shape);
         }
       }
@@ -4877,8 +7006,8 @@ export function scanStaticBuiltinExports(
             if ((facts.get(target)?.get(name)?.size ?? 0) !== before)
               graphChanged = true;
           }
-          for (const [name, sourceShapes] of
-            valueShapeFacts.get(source) ?? []) {
+          for (const [name, sourceShapes] of valueShapeFacts.get(source) ??
+            []) {
             const before = valueShapeFacts.get(target)?.get(name)?.size ?? 0;
             for (const shape of sourceShapes)
               addValueShapeFact(target, name, shape);
@@ -4898,8 +7027,8 @@ export function scanStaticBuiltinExports(
             if ((facts.get(target)?.get(name)?.size ?? 0) !== before)
               graphChanged = true;
           }
-          for (const [name, sourceShapes] of
-            valueShapeFacts.get(source) ?? []) {
+          for (const [name, sourceShapes] of valueShapeFacts.get(source) ??
+            []) {
             const before = valueShapeFacts.get(target)?.get(name)?.size ?? 0;
             for (const shape of sourceShapes)
               addValueShapeFact(target, name, shape);
@@ -4974,7 +7103,9 @@ export function scanStaticBuiltinExports(
     if (registration.prototypeOwner && closedShapes.has(registration.source)) {
       for (const name of names) {
         addPrototypeFact(registration.prototypeOwner, name);
-        for (const shape of valueShapeFacts.get(registration.source)?.get(name) ?? []) {
+        for (const shape of valueShapeFacts
+          .get(registration.source)
+          ?.get(name) ?? []) {
           addPrototypeValueShapeFact(registration.prototypeOwner, name, shape);
         }
       }
@@ -5012,8 +7143,9 @@ export function scanStaticBuiltinExports(
         const before = prototypeFacts.get(owner)?.size ?? 0;
         for (const name of prototypeFacts.get(source.sourceOwner) ?? []) {
           markInheritedPrototypeFact(owner, name);
-          for (const shape of
-            prototypeValueShapeFacts.get(source.sourceOwner)?.get(name) ?? []) {
+          for (const shape of prototypeValueShapeFacts
+            .get(source.sourceOwner)
+            ?.get(name) ?? []) {
             addPrototypeValueShapeFact(owner, name, shape);
           }
         }
@@ -5035,8 +7167,8 @@ export function scanStaticBuiltinExports(
       }
       for (const name of inherited) {
         addFact(target, name, "inherited-prototype-member");
-        for (const shape of
-          prototypeValueShapeFacts.get(owner)?.get(name) ?? []) {
+        for (const shape of prototypeValueShapeFacts.get(owner)?.get(name) ??
+          []) {
           addValueShapeFact(target, name, shape);
         }
       }
@@ -5256,8 +7388,8 @@ export function scanStaticBuiltinExports(
     const valueShapes = new Set(
       valueShapeFacts.get(ROOT_EXPORT_OBJECT)?.get(exportName) ?? [],
     );
-    for (const localName of
-      bindings.get(ROOT_EXPORT_OBJECT)?.get(exportName) ?? []) {
+    for (const localName of bindings.get(ROOT_EXPORT_OBJECT)?.get(exportName) ??
+      []) {
       valueShapes.add(
         expressionValueShape({ type: "Identifier", name: localName }),
       );
@@ -5265,10 +7397,12 @@ export function scanStaticBuiltinExports(
     if (exportIdioms.some((idiom) => prototypeExportIdioms.has(idiom))) {
       const [ownerExportName, ...memberSegments] = exportName.split(".");
       const memberName = memberSegments.join(".");
-      for (const localName of
-        bindings.get(ROOT_EXPORT_OBJECT)?.get(ownerExportName) ?? []) {
-        for (const shape of
-          prototypeValueShapeFacts.get(localName)?.get(memberName) ?? []) {
+      for (const localName of bindings
+        .get(ROOT_EXPORT_OBJECT)
+        ?.get(ownerExportName) ?? []) {
+        for (const shape of prototypeValueShapeFacts
+          .get(localName)
+          ?.get(memberName) ?? []) {
           valueShapes.add(shape);
         }
       }
@@ -5477,6 +7611,31 @@ export function scanLegacyEvaluatorBootstrapInstallations(
  * bootstrap code. Private `__exact*` rows use the same observed keys as native
  * registration evidence so alternate implementations merge structurally.
  */
+const PUBLIC_READ_ACCESS_SOURCE_CONTRACT_SCHEMA =
+  "ibex/public-read-access-source-contract/1";
+
+const FACTORY_RETURNED_CALLABLE_SOURCE_CONTRACT_SCHEMA =
+  "ibex/factory-returned-callable-source-contract/1";
+const REVIEWED_FACTORY_RETURNED_CALLABLE_SOURCE_PATH =
+  "src/engine/bootstrap/ipc-listener.js";
+
+const REVIEWED_FACTORY_RETURNED_CALLABLES = new Map([
+  [
+    `${REVIEWED_FACTORY_RETURNED_CALLABLE_SOURCE_PATH}\0process.once`,
+    {
+      argumentPath: "process.once",
+      factoryName: "wrapSingleUseListener",
+    },
+  ],
+  [
+    `${REVIEWED_FACTORY_RETURNED_CALLABLE_SOURCE_PATH}\0process.prependOnceListener`,
+    {
+      argumentPath: "process.prependOnceListener",
+      factoryName: "wrapSingleUseListener",
+    },
+  ],
+]);
+
 export function scanStaticGlobalApiSurfaces(
   text,
   sourcePath = "<bootstrap-source>",
@@ -5508,10 +7667,20 @@ export function scanStaticGlobalApiSurfaces(
   ]);
   const prototypeMembers = new Map();
   const objectMembers = new Map();
+  const prototypeMemberShapes = new Map();
+  const objectMemberShapes = new Map();
   const prototypeSources = new Map();
   const knownPrototypeOwners = new Set();
   const classExpressionOwners = new WeakMap();
-  const opaqueCallShapeEvidence = new WeakMap();
+  const normalizedSourcePath = sourcePath.replaceAll("\\", "/");
+  const reviewedFactorySource =
+    normalizedSourcePath === REVIEWED_FACTORY_RETURNED_CALLABLE_SOURCE_PATH ||
+    normalizedSourcePath.endsWith(
+      `/${REVIEWED_FACTORY_RETURNED_CALLABLE_SOURCE_PATH}`,
+    );
+  const lexicalBindings = reviewedFactorySource
+    ? javascriptLexicalBindingIndex(program)
+    : null;
   const installations = [];
   const functionNames = new Set();
   const functionDefinitions = new Map();
@@ -5529,6 +7698,158 @@ export function scanStaticGlobalApiSurfaces(
     }
     definitions.push(definition);
   }
+
+  const classDefinitionNames = new Set();
+  const localValueExpressions = new Map();
+  const addLocalValueExpression = (name, expression) => {
+    if (!name || !expression) return;
+    let expressions = localValueExpressions.get(name);
+    if (!expressions) {
+      expressions = [];
+      localValueExpressions.set(name, expressions);
+    }
+    expressions.push(expression);
+  };
+  walkAst(program, (node) => {
+    if (node.type === "ClassDeclaration" && node.id?.name) {
+      classDefinitionNames.add(node.id.name);
+    }
+    if (
+      node.type === "VariableDeclarator" &&
+      node.id?.type === "Identifier" &&
+      node.init
+    ) {
+      addLocalValueExpression(node.id.name, node.init);
+    }
+    if (
+      node.type === "AssignmentExpression" &&
+      node.operator === "=" &&
+      node.left?.type === "Identifier"
+    ) {
+      addLocalValueExpression(node.left.name, node.right);
+    }
+  });
+
+  const resolvedValueShape = (shapes) => {
+    const resolved = new Set([...shapes].filter(Boolean));
+    return resolved.size === 1 ? [...resolved][0] : null;
+  };
+  const expressionValueShape = (expression, activeNames = new Set()) => {
+    if (!expression) return null;
+    if (
+      new Set([
+        "ArrowFunctionExpression",
+        "ClassDeclaration",
+        "ClassExpression",
+        "FunctionDeclaration",
+        "FunctionExpression",
+      ]).has(expression.type)
+    ) {
+      return "callable";
+    }
+    if (
+      new Set([
+        "ArrayExpression",
+        "BigIntLiteral",
+        "BinaryExpression",
+        "BooleanLiteral",
+        "NewExpression",
+        "NullLiteral",
+        "NumericLiteral",
+        "ObjectExpression",
+        "RegExpLiteral",
+        "StringLiteral",
+        "TemplateLiteral",
+        "UnaryExpression",
+      ]).has(expression.type)
+    ) {
+      return "data";
+    }
+    if (expression.type === "Identifier") {
+      if (
+        classDefinitionNames.has(expression.name) ||
+        (callableDefinitionsByName.get(expression.name) ?? []).length === 1
+      ) {
+        return "callable";
+      }
+      if (activeNames.has(expression.name)) return null;
+      const expressions = localValueExpressions.get(expression.name) ?? [];
+      if (expressions.length === 0) return null;
+      const nextActive = new Set(activeNames);
+      nextActive.add(expression.name);
+      return resolvedValueShape(
+        expressions.map((candidate) =>
+          expressionValueShape(candidate, nextActive),
+        ),
+      );
+    }
+    if (
+      expression.type === "LogicalExpression" ||
+      expression.type === "ConditionalExpression"
+    ) {
+      const children =
+        expression.type === "LogicalExpression"
+          ? [expression.left, expression.right]
+          : [expression.consequent, expression.alternate];
+      const shapes = children.map((candidate) =>
+        expressionValueShape(candidate, activeNames),
+      );
+      return shapes.every(Boolean) ? resolvedValueShape(shapes) : null;
+    }
+    if (expression.type === "SequenceExpression") {
+      return expressionValueShape(expression.expressions.at(-1), activeNames);
+    }
+    if (
+      expression.type === "CallExpression" &&
+      new Set(["freeze", "seal"]).has(callName(expression)) &&
+      expression.arguments.length === 1
+    ) {
+      return expressionValueShape(expression.arguments[0], activeNames);
+    }
+    return null;
+  };
+  const propertyValueShape = (property) => {
+    if (property?.type === "ObjectMethod") {
+      return property.kind === "get" || property.kind === "set"
+        ? "accessor"
+        : "callable";
+    }
+    if (property?.type === "ObjectProperty") {
+      return expressionValueShape(property.value);
+    }
+    if (property?.type === "ClassMethod") {
+      return property.kind === "get" || property.kind === "set"
+        ? "accessor"
+        : "callable";
+    }
+    if (property?.type === "ClassProperty") {
+      return expressionValueShape(property.value);
+    }
+    return null;
+  };
+  const descriptorValueShape = (descriptor) => {
+    if (descriptor?.type !== "ObjectExpression") return null;
+    const values = [];
+    let accessor = false;
+    for (const property of descriptor.properties) {
+      if (property.type === "SpreadElement" || property.computed) continue;
+      const names =
+        property.key?.type === "Identifier"
+          ? [property.key.name]
+          : staticPropertyName(property.key, staticBindings);
+      if (names.includes("get") || names.includes("set")) accessor = true;
+      if (
+        names.includes("value") &&
+        property.type === "ObjectProperty" &&
+        property.value
+      ) {
+        values.push(expressionValueShape(property.value));
+      }
+    }
+    if (accessor && values.length > 0) return null;
+    if (accessor) return "accessor";
+    return values.length > 0 ? resolvedValueShape(values) : null;
+  };
 
   if (webStreamsWrapperOffset !== -1) {
     let hasReachableContainer = false;
@@ -5552,7 +7873,7 @@ export function scanStaticGlobalApiSurfaces(
       installations.push({ pathSegments: ["WebStreamsPolyfill"], value: null });
   }
 
-  const addMember = (map, owner, name) => {
+  const addMember = (map, owner, name, valueShape = null) => {
     if (!owner || !name || typeof name !== "string") return;
     let names = map.get(owner);
     if (!names) {
@@ -5560,11 +7881,39 @@ export function scanStaticGlobalApiSurfaces(
       map.set(owner, names);
     }
     names.add(name);
+    if (valueShape) {
+      const shapeMap =
+        map === prototypeMembers ? prototypeMemberShapes : objectMemberShapes;
+      let ownerShapes = shapeMap.get(owner);
+      if (!ownerShapes) {
+        ownerShapes = new Map();
+        shapeMap.set(owner, ownerShapes);
+      }
+      let shapes = ownerShapes.get(name);
+      if (!shapes) {
+        shapes = new Set();
+        ownerShapes.set(name, shapes);
+      }
+      shapes.add(valueShape);
+    }
+  };
+  const memberValueShape = (map, owner, name) => {
+    const shapeMap =
+      map === prototypeMembers ? prototypeMemberShapes : objectMemberShapes;
+    return resolvedValueShape(shapeMap.get(owner)?.get(name) ?? []);
   };
   const addExpressionMembers = (owner, expression) => {
-    if (!owner || !expression) return;
-    for (const name of objectPropertyNames(expression))
-      addMember(objectMembers, owner, name);
+    if (!owner || expression?.type !== "ObjectExpression") return;
+    for (const property of expression.properties) {
+      if (property.type === "SpreadElement") continue;
+      const names =
+        !property.computed && property.key?.type === "Identifier"
+          ? [property.key.name]
+          : staticPropertyName(property.key, staticBindings);
+      for (const name of names) {
+        addMember(objectMembers, owner, name, propertyValueShape(property));
+      }
+    }
   };
   const observePrototypeRegistration = (
     node,
@@ -5733,7 +8082,7 @@ export function scanStaticGlobalApiSurfaces(
       return opaqueCallValue(expression.expressions.at(-1));
     return null;
   };
-  const callShapeEvidence = (call) => {
+  const structuralShapeEvidence = (node) => {
     const omitted = new Set([
       "comments",
       "end",
@@ -5744,10 +8093,97 @@ export function scanStaticGlobalApiSurfaces(
       "start",
       "trailingComments",
     ]);
-    const structural = JSON.stringify(call, (key, value) =>
+    const structural = JSON.stringify(node, (key, value) =>
       omitted.has(key) ? undefined : value,
     );
     return `sha256-${sha256Hex(structural)}`;
+  };
+  const callShapeEvidence = structuralShapeEvidence;
+  const reviewedFactoryReturnedCallableSourceContract = (
+    value,
+    pathSegments,
+  ) => {
+    const installedPath = pathSegments.join(".");
+    if (!lexicalBindings) return null;
+    const specification = REVIEWED_FACTORY_RETURNED_CALLABLES.get(
+      `${REVIEWED_FACTORY_RETURNED_CALLABLE_SOURCE_PATH}\0${installedPath}`,
+    );
+    if (
+      !specification ||
+      value?.type !== "CallExpression" ||
+      value.callee?.type !== "Identifier" ||
+      value.callee.name !== specification.factoryName ||
+      value.arguments.length !== 1
+    ) {
+      return null;
+    }
+    const argument = value.arguments[0];
+    const argumentPath = specification.argumentPath.split(".");
+    if (
+      argument?.type !== "MemberExpression" ||
+      argument.computed ||
+      argument.object?.type !== "Identifier" ||
+      argument.object.name !== argumentPath[0] ||
+      argument.property?.type !== "Identifier" ||
+      argument.property.name !== argumentPath[1]
+    ) {
+      return null;
+    }
+    const binding = lexicalBindings.resolve(value.callee);
+    const definition = binding?.node;
+    if (
+      binding?.kind !== "function-declaration" ||
+      binding.writes !== 0 ||
+      definition?.type !== "FunctionDeclaration" ||
+      definition.id?.name !== specification.factoryName ||
+      definition.async ||
+      definition.generator ||
+      definition.params.length !== 1 ||
+      definition.params[0]?.type !== "Identifier" ||
+      definition.body?.type !== "BlockStatement" ||
+      definition.body.body.length !== 1
+    ) {
+      return null;
+    }
+    const returnedFunction = definition.body.body[0];
+    if (
+      returnedFunction?.type !== "ReturnStatement" ||
+      returnedFunction.argument?.type !== "FunctionExpression" ||
+      returnedFunction.argument.id !== null ||
+      returnedFunction.argument.async ||
+      returnedFunction.argument.generator
+    ) {
+      return null;
+    }
+
+    // @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory —
+    // admit a callable only when the exact call resolves to the reviewed
+    // lexical factory declaration. Aliases and branch-dependent factories
+    // deliberately retain the opaque call-result sentinel.
+    const callsiteEvidence = callShapeEvidence(value);
+    const factoryDefinitionEvidence = structuralShapeEvidence(definition);
+    const evidence = `sha256-${sha256Hex(
+      JSON.stringify({
+        callsiteEvidence,
+        factoryDefinitionEvidence,
+        factoryName: specification.factoryName,
+        installedPath,
+        schema: FACTORY_RETURNED_CALLABLE_SOURCE_CONTRACT_SCHEMA,
+        sourcePath: REVIEWED_FACTORY_RETURNED_CALLABLE_SOURCE_PATH,
+      }),
+    )}`;
+    return {
+      callsiteEvidence,
+      evidence,
+      factoryBindingKind: binding.kind,
+      factoryDefinitionEvidence,
+      factoryName: specification.factoryName,
+      installedPath,
+      proofKind: "lexically-bound-factory-returned-function",
+      returnedValueShape: "callable",
+      schema: FACTORY_RETURNED_CALLABLE_SOURCE_CONTRACT_SCHEMA,
+      sourcePath: REVIEWED_FACTORY_RETURNED_CALLABLE_SOURCE_PATH,
+    };
   };
   const reviewedIifeCallEvidence = (call) => {
     if (
@@ -5772,6 +8208,87 @@ export function scanStaticGlobalApiSurfaces(
     }
     if (returns.length === 0 || returns.some((value) => !value)) return null;
     return callShapeEvidence(call);
+  };
+  const reviewedIifeReturnedFunctionShape = (call) => {
+    const evidence = reviewedIifeCallEvidence(call);
+    if (
+      !evidence ||
+      call.callee.type !== "FunctionExpression" ||
+      call.callee.body?.type !== "BlockStatement"
+    ) {
+      return null;
+    }
+    const returns = call.callee.body.body.filter(
+      (statement) => statement.type === "ReturnStatement",
+    );
+    if (returns.length !== 1 || returns[0].argument?.type !== "Identifier") {
+      return null;
+    }
+    const owner = returns[0].argument.name;
+    const declarations = call.callee.body.body.filter(
+      (statement) =>
+        statement.type === "FunctionDeclaration" &&
+        statement.id?.name === owner,
+    );
+    if (declarations.length !== 1) return null;
+
+    const members = new Map();
+    const addClosedMember = (memberPath, valueShape) => {
+      if (!memberPath || !valueShape) return false;
+      const previous = members.get(memberPath);
+      if (previous !== undefined && previous !== valueShape) return false;
+      members.set(memberPath, valueShape);
+      return true;
+    };
+    for (const statement of call.callee.body.body) {
+      if (statement === declarations[0] || statement === returns[0]) {
+        continue;
+      }
+      // Exact membership is admitted only for the narrow constructor idiom
+      // used by the checked-in CryptoHasher shim: one declaration, direct
+      // static/prototype assignments, then the return. Conditions, aliases,
+      // helper calls, and reflective mutations retain the dynamic sentinel.
+      const assignment =
+        statement.type === "ExpressionStatement" &&
+        statement.expression?.type === "AssignmentExpression" &&
+        statement.expression.operator === "="
+          ? statement.expression
+          : null;
+      const left = assignment?.left;
+      if (left?.type !== "MemberExpression") return null;
+      const directName = directMemberName(left);
+      if (directName === null || directName === "prototype") return null;
+      if (left.object?.type === "Identifier" && left.object.name === owner) {
+        if (
+          !addClosedMember(directName, expressionValueShape(assignment.right))
+        )
+          return null;
+        continue;
+      }
+      if (prototypeOwner(left.object) === owner) {
+        if (
+          !addClosedMember(
+            `prototype.${directName}`,
+            expressionValueShape(assignment.right),
+          )
+        ) {
+          return null;
+        }
+        continue;
+      }
+      return null;
+    }
+    if (members.size === 0) return null;
+    if ([...members.keys()].some((member) => member.startsWith("prototype."))) {
+      members.set("prototype", "data");
+    }
+    return {
+      evidence,
+      members: [...members.entries()]
+        .map(([memberPath, valueShape]) => ({ memberPath, valueShape }))
+        .sort((left, right) => compareText(left.memberPath, right.memberPath)),
+      owner,
+    };
   };
   const reviewedClosedGlobalCallValue = (call) =>
     Boolean(
@@ -5798,7 +8315,9 @@ export function scanStaticGlobalApiSurfaces(
           ? "computed-static-class-member"
           : "computed-class-member",
       );
-      for (const name of names) addMember(prototypeMembers, owner, name);
+      for (const name of names) {
+        addMember(prototypeMembers, owner, name, propertyValueShape(method));
+      }
     }
     if (classNode.superClass) {
       const sourceOwner =
@@ -5838,7 +8357,9 @@ export function scanStaticGlobalApiSurfaces(
           ? [property.key.name]
           : staticPropertyName(property.key, substitutions);
       observePrototypeRegistration(property, owner, property.key, names, idiom);
-      for (const name of names) addMember(prototypeMembers, owner, name);
+      for (const name of names) {
+        addMember(prototypeMembers, owner, name, propertyValueShape(property));
+      }
     }
   };
   const collectReturnedConstructors = (expression, constructors) => {
@@ -5945,22 +8466,17 @@ export function scanStaticGlobalApiSurfaces(
     value,
     idiom,
     basePaths = [""],
+    valueShape = expressionValueShape(value),
   ) => {
     if (names.length > 0) {
       const classOwners = classOwnersForExpression(value);
       const opaqueCall = classOwners.size > 0 ? null : opaqueCallValue(value);
-      if (opaqueCall) {
-        const iifeEvidence = reviewedIifeCallEvidence(opaqueCall);
-        if (reviewedClosedGlobalCallValue(opaqueCall)) {
-          // Timer registration returns a reviewed scheduler handle. Its
-          // lifecycle authority is inventoried at the timer API boundary.
-        } else {
-          opaqueCallShapeEvidence.set(value, {
-            evidence: iifeEvidence ?? callShapeEvidence(opaqueCall),
-            kind: iifeEvidence ? "iife-call-result" : "opaque-call-result",
-          });
-        }
-      }
+      const closedIifeFunctionShape = opaqueCall
+        ? reviewedIifeReturnedFunctionShape(opaqueCall)
+        : null;
+      const iifeEvidence = opaqueCall
+        ? reviewedIifeCallEvidence(opaqueCall)
+        : null;
       resolvedRegistrations.add(node);
       for (const basePath of basePaths) {
         for (const registeredName of names) {
@@ -5968,7 +8484,34 @@ export function scanStaticGlobalApiSurfaces(
             ...basePath.split(".").filter(Boolean),
             registeredName,
           ];
-          installations.push({ pathSegments, value });
+          const factoryReturnedCallableSourceContract =
+            reviewedFactoryReturnedCallableSourceContract(value, pathSegments);
+          const dynamicCallShape =
+            opaqueCall &&
+            !reviewedClosedGlobalCallValue(opaqueCall) &&
+            !closedIifeFunctionShape &&
+            !factoryReturnedCallableSourceContract
+              ? {
+                  evidence: iifeEvidence ?? callShapeEvidence(opaqueCall),
+                  kind: iifeEvidence
+                    ? "iife-call-result"
+                    : "opaque-call-result",
+                }
+              : null;
+          installations.push({
+            ...(dynamicCallShape ? { dynamicCallShape } : {}),
+            ...(factoryReturnedCallableSourceContract
+              ? { factoryReturnedCallableSourceContract }
+              : {}),
+            memberKinds: [idiom],
+            pathSegments,
+            value,
+            ...(closedIifeFunctionShape ? { closedIifeFunctionShape } : {}),
+            valueShape:
+              closedIifeFunctionShape || factoryReturnedCallableSourceContract
+                ? "callable"
+                : valueShape,
+          });
         }
       }
       return;
@@ -6035,9 +8578,8 @@ export function scanStaticGlobalApiSurfaces(
     });
   }
 
-  // A runtime-supplied property key with an authored fallback is a closed
-  // conditional branch, but not one exact string. Preserve it as an explicit
-  // dynamic-table sentinel instead of silently dropping the member.
+  // A runtime-supplied property key is not one exact string. Preserve it as an
+  // explicit dynamic-table sentinel instead of silently dropping the member.
   const computedRegistrationBindings = new Set();
   walkAst(program, (node) => {
     if (
@@ -6122,8 +8664,14 @@ export function scanStaticGlobalApiSurfaces(
           memberNames,
           "computed-prototype-assignment",
         );
-        for (const name of memberNames)
-          addMember(prototypeMembers, prototype, name);
+        for (const name of memberNames) {
+          addMember(
+            prototypeMembers,
+            prototype,
+            name,
+            expressionValueShape(node.right),
+          );
+        }
       }
       if (
         node.left?.type === "MemberExpression" &&
@@ -6197,8 +8745,16 @@ export function scanStaticGlobalApiSurfaces(
           names,
           `computed-prototype-${mutation.replace(".", "-")}`,
         );
-        for (const name of names)
-          addMember(prototypeMembers, targetPrototype, name);
+        for (const name of names) {
+          addMember(
+            prototypeMembers,
+            targetPrototype,
+            name,
+            mutation === "Reflect.set"
+              ? expressionValueShape(node.arguments[2])
+              : descriptorValueShape(node.arguments[2]),
+          );
+        }
       }
       if (targetPrototype && mutation === "Object.defineProperties") {
         recordPrototypeObjectMembers(
@@ -6236,7 +8792,9 @@ export function scanStaticGlobalApiSurfaces(
           names,
           `computed-prototype-${legacyAccessor}`,
         );
-        for (const name of names) addMember(prototypeMembers, prototype, name);
+        for (const name of names) {
+          addMember(prototypeMembers, prototype, name, "accessor");
+        }
       }
 
       const objectTargetPaths = expressionObjectPaths(node.arguments?.[0]);
@@ -6266,6 +8824,7 @@ export function scanStaticGlobalApiSurfaces(
             ? "define-property"
             : "reflect-define-property",
           objectTargetPaths,
+          descriptorValueShape(node.arguments[2]),
         );
       }
       if (mutation === "Reflect.set" && objectTargetPaths.length > 0) {
@@ -6321,6 +8880,7 @@ export function scanStaticGlobalApiSurfaces(
                 : null,
               "define-properties",
               objectTargetPaths,
+              descriptorValueShape(property.value),
             );
           }
         }
@@ -6328,14 +8888,17 @@ export function scanStaticGlobalApiSurfaces(
       if (mutation === "Object.assign" && objectTargetPaths.length > 0) {
         for (const source of node.arguments.slice(1)) {
           if (source?.type === "Identifier" && objectMembers.has(source.name)) {
-            observeGlobalRegistration(
-              source,
-              source,
-              [...objectMembers.get(source.name)],
-              null,
-              "object-assign-closed-binding",
-              objectTargetPaths,
-            );
+            for (const name of objectMembers.get(source.name)) {
+              observeGlobalRegistration(
+                source,
+                source,
+                [name],
+                null,
+                "object-assign-closed-binding",
+                objectTargetPaths,
+                memberValueShape(objectMembers, source.name, name),
+              );
+            }
             continue;
           }
           if (source?.type !== "ObjectExpression") {
@@ -6470,7 +9033,12 @@ export function scanStaticGlobalApiSurfaces(
         if (!source.sourceOwner) continue;
         const before = prototypeMembers.get(owner)?.size ?? 0;
         for (const name of prototypeMembers.get(source.sourceOwner) ?? []) {
-          addMember(prototypeMembers, owner, name);
+          addMember(
+            prototypeMembers,
+            owner,
+            name,
+            memberValueShape(prototypeMembers, source.sourceOwner, name),
+          );
         }
         if ((prototypeMembers.get(owner)?.size ?? 0) !== before) {
           inheritedChanged = true;
@@ -6546,7 +9114,7 @@ export function scanStaticGlobalApiSurfaces(
     const name = globalSurfaceName(exportName);
     const ipcConditional =
       path.basename(sourcePath) === "compat-polyfills.js" &&
-      /^process\.(?:channel|connected|disconnect|send|\[\[dynamic-table:(?:exact-channel-handle-key|k-channel-handle)\]\])/u.test(
+      /^process\.(?:__exactKChannelHandle|channel|connected|disconnect|send|\[\[dynamic-table:(?:exact-channel-handle-key|k-channel-handle)\]\])/u.test(
         exportName,
       );
     const harnessConditional =
@@ -6611,22 +9179,41 @@ export function scanStaticGlobalApiSurfaces(
   };
 
   const namespaceAliases = [];
-  for (const { pathSegments, value } of installations) {
+  for (const {
+    closedIifeFunctionShape,
+    dynamicCallShape,
+    factoryReturnedCallableSourceContract,
+    memberKinds = ["registration"],
+    pathSegments,
+    value,
+    valueShape,
+  } of installations) {
     const [globalName, ...memberSegments] = pathSegments;
     if (!globalName) continue;
     const installedMember =
       memberSegments.length === 0 ? null : memberSegments.join(".");
-    const dynamicCallShape = opaqueCallShapeEvidence.get(value);
+    const concreteInstallation = pathSegments.every(
+      (segment) => !DYNAMIC_TABLE_MEMBER.test(segment),
+    );
+    const installationMetadata = {
+      memberKinds,
+      ...(concreteInstallation ? { publicReadAccessSourceProven: true } : {}),
+      ...(valueShape ? { valueShape } : {}),
+      ...(factoryReturnedCallableSourceContract
+        ? { factoryReturnedCallableSourceContract }
+        : {}),
+    };
     addGlobal(
       globalName,
       installedMember,
       dynamicCallShape
         ? {
+            ...installationMetadata,
             dynamicNamespace: true,
             dynamicNamespaceEvidence: dynamicCallShape.evidence,
             dynamicNamespaceKind: dynamicCallShape.kind,
           }
-        : {},
+        : installationMetadata,
     );
     if (dynamicCallShape) {
       const dynamicNamespaceRoot = [globalName, ...memberSegments].join(".");
@@ -6642,9 +9229,28 @@ export function scanStaticGlobalApiSurfaces(
           dynamicNamespaceEvidence: dynamicCallShape.evidence,
           dynamicNamespaceKind: dynamicCallShape.kind,
           dynamicNamespaceRoot,
+          memberKinds: ["dynamic-table"],
           semanticRoles: ["dynamic-call-result-shape"],
         },
       );
+    }
+    if (closedIifeFunctionShape) {
+      for (const {
+        memberPath,
+        valueShape,
+      } of closedIifeFunctionShape.members) {
+        addGlobal(
+          globalName,
+          [installedMember, memberPath].filter(Boolean).join("."),
+          {
+            memberKinds: ["source-derived-iife-function-member"],
+            ...(concreteInstallation
+              ? { publicReadAccessSourceProven: true }
+              : {}),
+            valueShape,
+          },
+        );
+      }
     }
     if (pathSegments.length === 1 && value) {
       for (const sourceObjectPath of expressionObjectPaths(value)) {
@@ -6652,38 +9258,86 @@ export function scanStaticGlobalApiSurfaces(
           namespaceAliases.push({ destination: globalName, sourceObjectPath });
       }
     }
-    let memberNames = [];
+    const memberShapeFacts = new Map();
+    const addMemberShapeFact = (name, shape) => {
+      let shapes = memberShapeFacts.get(name);
+      if (!shapes) {
+        shapes = new Set();
+        memberShapeFacts.set(name, shapes);
+      }
+      if (shape) shapes.add(shape);
+    };
     const installedClassOwners = classOwnersForExpression(value);
     if (installedClassOwners.size > 0) {
-      memberNames = uniqueSorted(
-        [...installedClassOwners].flatMap((owner) => [
-          ...(prototypeMembers.get(owner) ?? []),
-        ]),
-      );
+      for (const owner of installedClassOwners) {
+        for (const name of prototypeMembers.get(owner) ?? []) {
+          addMemberShapeFact(
+            name,
+            memberValueShape(prototypeMembers, owner, name),
+          );
+        }
+      }
     } else if (
       value?.type === "NewExpression" &&
       value.callee?.type === "Identifier"
     ) {
-      memberNames = [...(prototypeMembers.get(value.callee.name) ?? [])];
+      for (const name of prototypeMembers.get(value.callee.name) ?? []) {
+        addMemberShapeFact(
+          name,
+          memberValueShape(prototypeMembers, value.callee.name, name),
+        );
+      }
     } else if (value?.type === "Identifier") {
-      memberNames = uniqueSorted([
-        ...(prototypeMembers.get(value.name) ?? []),
-        ...(objectMembers.get(value.name) ?? []),
-      ]);
+      for (const map of [prototypeMembers, objectMembers]) {
+        for (const name of map.get(value.name) ?? []) {
+          addMemberShapeFact(name, memberValueShape(map, value.name, name));
+        }
+      }
     } else if (value?.type === "ObjectExpression") {
-      memberNames = objectPropertyNames(value);
+      for (const property of value.properties) {
+        if (property.type === "SpreadElement") continue;
+        const names =
+          !property.computed && property.key?.type === "Identifier"
+            ? [property.key.name]
+            : staticPropertyName(property.key, staticBindings);
+        for (const name of names) {
+          addMemberShapeFact(name, propertyValueShape(property));
+        }
+      }
     }
-    for (const memberName of memberNames) {
+    for (const memberName of uniqueSorted(memberShapeFacts.keys())) {
+      const memberShape = resolvedValueShape(
+        memberShapeFacts.get(memberName) ?? [],
+      );
+      const concreteMember =
+        concreteInstallation && !DYNAMIC_TABLE_MEMBER.test(memberName);
       addGlobal(
         globalName,
         [installedMember, memberName].filter(Boolean).join("."),
+        {
+          memberKinds: ["source-derived-member"],
+          ...(concreteMember ? { publicReadAccessSourceProven: true } : {}),
+          ...(memberShape ? { valueShape: memberShape } : {}),
+        },
       );
     }
     for (const constructor of returnedConstructors(value)) {
       for (const memberName of prototypeMembers.get(constructor) ?? []) {
+        const memberShape = memberValueShape(
+          prototypeMembers,
+          constructor,
+          memberName,
+        );
         addGlobal(
           globalName,
           [installedMember, "[[return]]", memberName].filter(Boolean).join("."),
+          {
+            memberKinds: ["returned-object-member"],
+            ...(concreteInstallation
+              ? { publicReadAccessSourceProven: true }
+              : {}),
+            ...(memberShape ? { valueShape: memberShape } : {}),
+          },
         );
       }
     }
@@ -6739,7 +9393,18 @@ export function scanStaticGlobalApiSurfaces(
           .slice(sourceObjectPath.length)
           .replace(/^\./u, "");
         const memberName = suffix || null;
-        const aliasMetadata = {};
+        const aliasMetadata = {
+          memberKinds: uniqueSorted([
+            ...(row.metadata.memberKinds ?? []),
+            "namespace-alias",
+          ]),
+          ...(row.metadata.publicReadAccessSourceProven === true
+            ? { publicReadAccessSourceProven: true }
+            : {}),
+          ...(row.metadata.valueShape
+            ? { valueShape: row.metadata.valueShape }
+            : {}),
+        };
         if (row.metadata.dynamicNamespace === true) {
           aliasMetadata.dynamicNamespace = true;
           aliasMetadata.dynamicNamespaceEvidence =
@@ -6777,6 +9442,72 @@ const SHARED_RUNTIME_SOURCE_ROOT = "packages/ibex-runtime-js/src";
 const GENERATED_AUTHORITY_PATH =
   /(?:^|\/)(?:vendored-generated|generated|dist|out)(?:\/|$)|\.generated\.[A-Za-z0-9]+$/u;
 const DYNAMIC_TABLE_MEMBER = /^\[\[dynamic-table:[a-z0-9-]+\]\]$/u;
+const REVIEWED_SHARED_RUNTIME_PREFIX_READS = new Map([
+  [
+    "__exactLoadTimings",
+    {
+      activationVariants: ["baseline-input-absent", "baseline-input-present"],
+      valueShape: "data",
+    },
+  ],
+  [
+    "Intl.DateTimeFormat",
+    {
+      activationVariants: [
+        "constructor-absent-or-noncallable",
+        "constructor-callable",
+      ],
+      valueShape: "callable",
+    },
+  ],
+  [
+    "Intl.DateTimeFormat.prototype",
+    {
+      activationVariants: [
+        "constructor-absent-or-noncallable",
+        "prototype-present",
+      ],
+      valueShape: "data",
+    },
+  ],
+  [
+    "Intl.Locale.prototype",
+    {
+      activationVariants: [
+        "native-locale-prototype-absent",
+        "native-locale-prototype-present",
+      ],
+      valueShape: "data",
+    },
+  ],
+  [
+    "Intl.NumberFormat",
+    {
+      activationVariants: [
+        "constructor-absent-or-noncallable",
+        "constructor-callable",
+      ],
+      valueShape: "callable",
+    },
+  ],
+  [
+    "Intl.NumberFormat.prototype",
+    {
+      activationVariants: [
+        "constructor-absent-or-noncallable",
+        "prototype-present",
+      ],
+      valueShape: "data",
+    },
+  ],
+  [
+    "Promise.prototype",
+    {
+      activationVariants: ["tracking-inactive", "tracking-active"],
+      valueShape: "data",
+    },
+  ],
+]);
 
 function isPathInside(root, candidate) {
   const relative = path.relative(root, candidate);
@@ -7047,6 +9778,255 @@ function tsReturnExpressions(functionNode) {
 }
 
 /**
+ * Prove the authored Process.env dynamic-table route without treating a
+ * runtime Proxy as an opaque object. The binding, traps, local helper graph,
+ * and native bridge aliases all live in one TypeScript module, so this audit
+ * can remain syntax-derived and mutation-sensitive without executing it.
+ *
+ * @ref LLP 0022#7-capabilities-principals-and-affordance-parity — the armed
+ * environment is a shared facade over current-principal native overlays; its
+ * open property domain must not inherit the legacy host-process provenance.
+ */
+export function scanPrincipalEnvironmentOverlayProxy(
+  text,
+  sourcePath = "packages/ibex-runtime-js/src/node/process.ts",
+) {
+  if (typeof text !== "string" || text.length === 0) {
+    throw new Error(
+      `${sourcePath}: principal environment Proxy source is empty`,
+    );
+  }
+  const source = ts.createSourceFile(
+    sourcePath,
+    text,
+    ts.ScriptTarget.ESNext,
+    true,
+    ts.ScriptKind.TS,
+  );
+  for (const diagnostic of source.parseDiagnostics ?? []) {
+    throw new Error(
+      `${sourcePath}: unable to parse principal environment Proxy: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`,
+    );
+  }
+  const requireProof = (condition, message) => {
+    if (!condition) {
+      throw new Error(`${sourcePath}: ${message}`);
+    }
+  };
+  const namedTopLevel = (predicate, name) =>
+    source.statements.filter(
+      (statement) => predicate(statement) && statement.name?.text === name,
+    );
+
+  const factories = namedTopLevel(ts.isFunctionDeclaration, "createEnvProxy");
+  requireProof(
+    factories.length === 1 && factories[0].body,
+    "expected exactly one implemented top-level createEnvProxy factory",
+  );
+  const factory = factories[0];
+  const processClasses = namedTopLevel(ts.isClassDeclaration, "Process");
+  requireProof(
+    processClasses.length === 1,
+    "expected exactly one top-level Process class",
+  );
+  const envBindings = processClasses[0].members.filter((member) => {
+    if (!ts.isPropertyDeclaration(member) || !member.initializer) return false;
+    if (tsMemberName(member.name, sourcePath) !== "env") return false;
+    const initializer = tsUnwrapExpression(member.initializer);
+    const callee = ts.isCallExpression(initializer)
+      ? tsUnwrapExpression(initializer.expression)
+      : null;
+    return (
+      ts.isCallExpression(initializer) &&
+      initializer.arguments.length === 0 &&
+      ts.isIdentifier(callee) &&
+      callee.text === "createEnvProxy"
+    );
+  });
+  requireProof(
+    envBindings.length === 1,
+    "Process.env must be initialized by one direct createEnvProxy() call",
+  );
+
+  const setterBindings = factory.body.statements.flatMap((statement) =>
+    ts.isVariableStatement(statement)
+      ? statement.declarationList.declarations.filter(
+          (declaration) =>
+            ts.isIdentifier(declaration.name) &&
+            declaration.name.text === "setPrincipalOverlay",
+        )
+      : [],
+  );
+  requireProof(
+    setterBindings.length === 1 && setterBindings[0].initializer,
+    "createEnvProxy must capture one setPrincipalOverlay binding",
+  );
+  const setterInitializer = tsUnwrapExpression(setterBindings[0].initializer);
+  const setterCondition = ts.isConditionalExpression(setterInitializer)
+    ? tsUnwrapExpression(setterInitializer.condition)
+    : null;
+  const setterTrue = ts.isConditionalExpression(setterInitializer)
+    ? tsUnwrapExpression(setterInitializer.whenTrue)
+    : null;
+  const setterFalse = ts.isConditionalExpression(setterInitializer)
+    ? tsUnwrapExpression(setterInitializer.whenFalse)
+    : null;
+  requireProof(
+    ts.isConditionalExpression(setterInitializer) &&
+      ts.isBinaryExpression(setterCondition) &&
+      setterCondition.operatorToken.kind ===
+        ts.SyntaxKind.EqualsEqualsEqualsToken &&
+      ts.isTypeOfExpression(tsUnwrapExpression(setterCondition.left)) &&
+      ts.isIdentifier(tsUnwrapExpression(setterCondition.left).expression) &&
+      tsUnwrapExpression(setterCondition.left).expression.text ===
+        "__exactSetEnv" &&
+      ts.isStringLiteralLike(tsUnwrapExpression(setterCondition.right)) &&
+      tsUnwrapExpression(setterCondition.right).text === "function" &&
+      ts.isIdentifier(setterTrue) &&
+      setterTrue.text === "__exactSetEnv" &&
+      setterFalse?.kind === ts.SyntaxKind.NullKeyword,
+    "setPrincipalOverlay must be the guarded lexical capture of __exactSetEnv",
+  );
+
+  const proxyReturns = factory.body.statements.filter((statement) => {
+    if (!ts.isReturnStatement(statement) || !statement.expression) return false;
+    const expression = tsUnwrapExpression(statement.expression);
+    const constructor = ts.isNewExpression(expression)
+      ? tsUnwrapExpression(expression.expression)
+      : null;
+    return (
+      ts.isNewExpression(expression) &&
+      ts.isIdentifier(constructor) &&
+      constructor.text === "Proxy"
+    );
+  });
+  requireProof(
+    proxyReturns.length === 1,
+    "createEnvProxy must directly return exactly one Proxy",
+  );
+  const proxy = tsUnwrapExpression(proxyReturns[0].expression);
+  const handler = tsUnwrapExpression(proxy.arguments?.[1]);
+  requireProof(
+    proxy.arguments?.length === 2 && ts.isObjectLiteralExpression(handler),
+    "createEnvProxy must supply one explicit Proxy handler object",
+  );
+
+  const requiredTrapNames = ["deleteProperty", "get", "ownKeys", "set"];
+  const traps = new Map();
+  for (const property of handler.properties) {
+    if (!ts.isMethodDeclaration(property)) continue;
+    const name = tsMemberName(property.name, sourcePath);
+    if (!requiredTrapNames.includes(name)) continue;
+    requireProof(!traps.has(name), `duplicate process.env Proxy trap ${name}`);
+    traps.set(name, property);
+  }
+  requireProof(
+    requiredTrapNames.every((name) => traps.has(name)),
+    "process.env Proxy must define get, set, deleteProperty, and ownKeys traps",
+  );
+
+  const localFunctions = new Map();
+  for (const statement of factory.body.statements) {
+    if (!ts.isFunctionDeclaration(statement) || !statement.name) continue;
+    requireProof(
+      !localFunctions.has(statement.name.text),
+      `duplicate createEnvProxy helper ${statement.name.text}`,
+    );
+    localFunctions.set(statement.name.text, statement);
+  }
+  const directIdentifierCalls = (callable) => {
+    const calls = new Set();
+    const visit = (node) => {
+      if (node !== callable && ts.isFunctionDeclaration(node)) return;
+      if (ts.isCallExpression(node)) {
+        const callee = tsUnwrapExpression(node.expression);
+        if (ts.isIdentifier(callee)) calls.add(callee.text);
+      }
+      ts.forEachChild(node, visit);
+    };
+    if (callable.body) visit(callable.body);
+    return calls;
+  };
+  const bridgeForCall = (name) => {
+    if (name === "setPrincipalOverlay") return "__exactSetEnv";
+    if (
+      new Set(["__exactGetAllEnv", "__exactGetEnv", "__exactSetEnv"]).has(name)
+    ) {
+      return name;
+    }
+    return null;
+  };
+  const reachableBridges = (callable) => {
+    const bridges = new Set();
+    const seenHelpers = new Set();
+    const visit = (node) => {
+      for (const call of directIdentifierCalls(node)) {
+        const bridge = bridgeForCall(call);
+        if (bridge) bridges.add(bridge);
+        const helper = localFunctions.get(call);
+        if (helper && !seenHelpers.has(call)) {
+          seenHelpers.add(call);
+          visit(helper);
+        }
+      }
+    };
+    visit(callable);
+    return uniqueSorted(bridges);
+  };
+  const trapRoutes = requiredTrapNames.map((name) => ({
+    name,
+    nativeBridges: reachableBridges(traps.get(name)),
+    sourceRef: sourceSymbol(sourcePath, `createEnvProxy:Proxy.${name}`),
+  }));
+  const routesByTrap = new Map(
+    trapRoutes.map((route) => [route.name, new Set(route.nativeBridges)]),
+  );
+  for (const [trap, bridge] of [
+    ["get", "__exactGetEnv"],
+    ["set", "__exactSetEnv"],
+    ["deleteProperty", "__exactSetEnv"],
+    ["ownKeys", "__exactGetAllEnv"],
+    ["ownKeys", "__exactGetEnv"],
+  ]) {
+    requireProof(
+      routesByTrap.get(trap)?.has(bridge),
+      `process.env ${trap} trap lost its ${bridge} route`,
+    );
+  }
+  const nativeBridges = uniqueSorted(
+    trapRoutes.flatMap((route) => route.nativeBridges),
+  );
+  requireProof(
+    JSON.stringify(nativeBridges) ===
+      JSON.stringify(["__exactGetAllEnv", "__exactGetEnv", "__exactSetEnv"]),
+    "process.env Proxy native bridge set is incomplete or ambiguous",
+  );
+
+  const bindingRef = sourceSymbol(sourcePath, "Process.prototype.env");
+  const factoryRef = sourceSymbol(sourcePath, "createEnvProxy");
+  const sourceRefs = uniqueSorted([
+    bindingRef,
+    factoryRef,
+    ...trapRoutes.map(({ sourceRef }) => sourceRef),
+  ]);
+  return {
+    schema: PRINCIPAL_ENVIRONMENT_OVERLAY_SOURCE_CONTRACT_SCHEMA,
+    surfaceName: PRINCIPAL_ENVIRONMENT_OVERLAY_SURFACE_NAME,
+    dynamicMember: PRINCIPAL_ENVIRONMENT_OVERLAY_DYNAMIC_MEMBER,
+    globalPath: "process.env",
+    binding: {
+      factory: "createEnvProxy",
+      member: "Process.prototype.env",
+      sourceRef: bindingRef,
+    },
+    factory: { name: "createEnvProxy", sourceRef: factoryRef },
+    nativeBridges,
+    proxyTraps: trapRoutes,
+    sourceRefs,
+  };
+}
+
+/**
  * Discover every global installed by the authored shared-runtime module graph.
  * The entry and every relative module are TypeScript authoring sources; bundle,
  * vendored, generated, and output files are deliberately rejected as authority.
@@ -7135,6 +10115,24 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
       );
     }
   }
+
+  const processFacadeSources = authoredSources.filter(
+    (source) =>
+      posixPath(path.relative(absoluteRepoRoot, source.fileName)) ===
+      "packages/ibex-runtime-js/src/node/process.ts",
+  );
+  if (processFacadeSources.length > 1) {
+    throw new Error(
+      "shared runtime inventory found duplicate authored process facades",
+    );
+  }
+  const principalEnvironmentOverlay =
+    processFacadeSources.length === 1
+      ? scanPrincipalEnvironmentOverlayProxy(
+          processFacadeSources[0].text,
+          "packages/ibex-runtime-js/src/node/process.ts",
+        )
+      : null;
 
   const relativeSourcePath = (node) =>
     posixPath(path.relative(absoluteRepoRoot, node.getSourceFile().fileName));
@@ -7283,6 +10281,7 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
   const facts = new Map();
   const globalAliases = new Map();
   const installedSymbolPaths = new Map();
+  const reviewedPrefixReadProofs = new Map();
   const addFact = (
     segments,
     refs,
@@ -7898,6 +10897,220 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
     }
     const shapes = new Set(candidates);
     return shapes.size === 1 ? [...shapes][0] : null;
+  };
+  const expressionUseNode = (expression) => {
+    let current = expression;
+    while (
+      current?.parent &&
+      (ts.isAsExpression(current.parent) ||
+        ts.isTypeAssertionExpression(current.parent) ||
+        ts.isParenthesizedExpression(current.parent) ||
+        ts.isNonNullExpression(current.parent) ||
+        ts.isSatisfiesExpression(current.parent)) &&
+      current.parent.expression === current
+    ) {
+      current = current.parent;
+    }
+    return current;
+  };
+  const concretePathBinding = (
+    expression,
+    environment,
+    expectedSegments,
+    seen = new Set(),
+  ) => {
+    const node = tsUnwrapExpression(expression);
+    if (!node) return false;
+    const expectedName = expectedSegments.join(".");
+    if (
+      !globalPaths(node, environment).some(
+        (segments) => segments.join(".") === expectedName,
+      )
+    ) {
+      return false;
+    }
+    const terminalMember = expectedSegments.at(-1);
+    if (ts.isPropertyAccessExpression(node)) {
+      return (
+        node.name.text === terminalMember &&
+        /^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(terminalMember) &&
+        !DYNAMIC_TABLE_MEMBER.test(terminalMember)
+      );
+    }
+    if (ts.isElementAccessExpression(node)) {
+      const names = staticStrings(node.argumentExpression, environment);
+      return (
+        names.length === 1 &&
+        names[0] === terminalMember &&
+        /^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(terminalMember) &&
+        !DYNAMIC_TABLE_MEMBER.test(terminalMember)
+      );
+    }
+    if (!ts.isIdentifier(node)) return false;
+    const symbol = symbolAt(node);
+    if (!symbol || seen.has(symbol)) return false;
+    const nextSeen = new Set(seen).add(symbol);
+    const bound = bindingFor(symbol, environment);
+    if (
+      bound?.expression &&
+      concretePathBinding(
+        bound.expression,
+        bound.environment,
+        expectedSegments,
+        nextSeen,
+      )
+    ) {
+      return true;
+    }
+    return (symbol.declarations ?? []).some(
+      (declaration) =>
+        ts.isVariableDeclaration(declaration) &&
+        declaration.initializer &&
+        concretePathBinding(
+          declaration.initializer,
+          environment,
+          expectedSegments,
+          nextSeen,
+        ),
+    );
+  };
+  const callableMembershipGuard = (expression) => {
+    const use = expressionUseNode(expression);
+    const typeOf = use?.parent;
+    if (
+      !typeOf ||
+      !ts.isTypeOfExpression(typeOf) ||
+      typeOf.expression !== use
+    ) {
+      return null;
+    }
+    const comparison = typeOf.parent;
+    if (
+      !comparison ||
+      !ts.isBinaryExpression(comparison) ||
+      !new Set([
+        ts.SyntaxKind.EqualsEqualsToken,
+        ts.SyntaxKind.EqualsEqualsEqualsToken,
+        ts.SyntaxKind.ExclamationEqualsToken,
+        ts.SyntaxKind.ExclamationEqualsEqualsToken,
+      ]).has(comparison.operatorToken.kind)
+    ) {
+      return null;
+    }
+    const other =
+      comparison.left === typeOf
+        ? comparison.right
+        : comparison.right === typeOf
+          ? comparison.left
+          : null;
+    return other &&
+      ts.isStringLiteralLike(tsUnwrapExpression(other)) &&
+      tsUnwrapExpression(other).text === "function"
+      ? comparison
+      : null;
+  };
+  const concreteDataOwnerUse = (expression, environment, expectedSegments) => {
+    const use = expressionUseNode(expression);
+    const parent = use?.parent;
+    if (!parent) return null;
+    if (
+      (ts.isPropertyAccessExpression(parent) ||
+        ts.isElementAccessExpression(parent)) &&
+      parent.expression === use
+    ) {
+      const descendantPaths = globalPaths(parent, environment);
+      const exactPrefix = expectedSegments.join(".");
+      const concreteDescendant = descendantPaths.some(
+        (segments) =>
+          segments.length > expectedSegments.length &&
+          segments.slice(0, expectedSegments.length).join(".") ===
+            exactPrefix &&
+          segments
+            .slice(expectedSegments.length)
+            .every(
+              (segment) =>
+                /^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(segment) &&
+                !DYNAMIC_TABLE_MEMBER.test(segment),
+            ),
+      );
+      if (concreteDescendant) return parent;
+    }
+    if (ts.isCallExpression(parent) && parent.arguments[0] === use) {
+      const callee = tsUnwrapExpression(parent.expression);
+      if (
+        ts.isPropertyAccessExpression(callee) &&
+        ts.isIdentifier(tsUnwrapExpression(callee.expression)) &&
+        new Set(["Object", "Reflect"]).has(
+          tsUnwrapExpression(callee.expression).text,
+        ) &&
+        new Set(["defineProperties", "defineProperty"]).has(callee.name.text)
+      ) {
+        return parent;
+      }
+    }
+    return null;
+  };
+  const recordReviewedPrefixReadProof = (
+    exportName,
+    proofKind,
+    evidenceNode,
+    valueShape,
+  ) => {
+    const sourceRef = authoredRef(evidenceNode, `public-read:${exportName}`);
+    let proofs = reviewedPrefixReadProofs.get(exportName);
+    if (!proofs) {
+      proofs = new Map();
+      reviewedPrefixReadProofs.set(exportName, proofs);
+    }
+    proofs.set(`${proofKind}\0${sourceRef}`, {
+      proofKind,
+      sourceRef,
+      valueShape,
+    });
+  };
+  const observeReviewedPrefixRead = (expression, environment) => {
+    const node = tsUnwrapExpression(expression);
+    if (
+      !node ||
+      (!ts.isIdentifier(node) &&
+        !ts.isPropertyAccessExpression(node) &&
+        !ts.isElementAccessExpression(node))
+    ) {
+      return;
+    }
+    for (const segments of globalPaths(node, environment)) {
+      const exportName = segments.join(".");
+      const specification =
+        REVIEWED_SHARED_RUNTIME_PREFIX_READS.get(exportName);
+      if (
+        !specification ||
+        segments.some((segment) => DYNAMIC_TABLE_MEMBER.test(segment)) ||
+        !concretePathBinding(node, environment, segments)
+      ) {
+        continue;
+      }
+      if (specification.valueShape === "callable") {
+        const guard = callableMembershipGuard(node);
+        if (guard) {
+          recordReviewedPrefixReadProof(
+            exportName,
+            "typeof-callable-membership",
+            guard,
+            "callable",
+          );
+        }
+        continue;
+      }
+      const ownerUse = concreteDataOwnerUse(node, environment, segments);
+      if (ownerUse) {
+        recordReviewedPrefixReadProof(
+          exportName,
+          "concrete-member-owner",
+          ownerUse,
+          "data",
+        );
+      }
+    }
   };
   const propertyValueShape = (property, environment) => {
     if (ts.isMethodDeclaration(property)) return "callable";
@@ -8531,9 +11744,14 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
       for (const base of bases) {
         for (const name of names) {
           const segments = [...base, name];
-          recordRegistration(segments, values[0] ?? null, environment, call, [
-            "define-property",
-          ], descriptorValueShape(descriptor, environment, sourcePath));
+          recordRegistration(
+            segments,
+            values[0] ?? null,
+            environment,
+            call,
+            ["define-property"],
+            descriptorValueShape(descriptor, environment, sourcePath),
+          );
           for (const value of values.slice(1)) {
             collectRegisteredValueMembers(value, environment, segments, [
               authoredRef(call, `globals:${segments.join(".")}`),
@@ -8633,10 +11851,7 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
                       resolvedLiteral.environment,
                       sourcePath,
                     )
-                  : propertyValueShape(
-                      property,
-                      resolvedLiteral.environment,
-                    ),
+                  : propertyValueShape(property, resolvedLiteral.environment),
               );
               for (const value of values.slice(1)) {
                 collectRegisteredValueMembers(
@@ -8656,6 +11871,7 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
 
   processNode = (node, environment) => {
     if (!node) return;
+    observeReviewedPrefixRead(node, environment);
     if (
       ts.isFunctionLike(node) ||
       ts.isClassDeclaration(node) ||
@@ -8793,27 +12009,104 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
       surfaceType: "global-api",
     };
     const accessPath = fact.exportName.split(".");
-    const sourceProvesEveryAccessSegment = accessPath.every((_, index) => {
-      const prefix = facts.get(accessPath.slice(0, index + 1).join("."));
-      return (
-        prefix &&
-        [...prefix.memberKinds].some(
-          (kind) =>
-            !new Set([
-              "dynamic-table",
-              "inherited-shape",
-              "namespace-prefix",
-            ]).has(kind),
-        )
-      );
-    });
+    const reviewedPrefixSpecification =
+      REVIEWED_SHARED_RUNTIME_PREFIX_READS.get(fact.exportName);
+    const reviewedPrefixProofs = [
+      ...(reviewedPrefixReadProofs.get(fact.exportName)?.values() ?? []),
+    ];
+    const reviewedPrefixContract =
+      reviewedPrefixSpecification &&
+      fact.memberKinds.size === 1 &&
+      fact.memberKinds.has("namespace-prefix") &&
+      accessPath.every(
+        (segment) =>
+          /^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(segment) &&
+          !DYNAMIC_TABLE_MEMBER.test(segment),
+      ) &&
+      reviewedPrefixProofs.length > 0 &&
+      reviewedPrefixProofs.every(
+        (proof) => proof.valueShape === reviewedPrefixSpecification.valueShape,
+      )
+        ? {
+            activationVariants: [
+              ...reviewedPrefixSpecification.activationVariants,
+            ],
+            path: fact.exportName,
+            presenceVariants: ["absent", "present"],
+            proofKinds: uniqueSorted(
+              reviewedPrefixProofs.map((proof) => proof.proofKind),
+            ),
+            schema: PUBLIC_READ_ACCESS_SOURCE_CONTRACT_SCHEMA,
+            sourceRefs: uniqueSorted(
+              reviewedPrefixProofs.map((proof) => proof.sourceRef),
+            ),
+            terminalMember: accessPath.at(-1),
+            valueShape: reviewedPrefixSpecification.valueShape,
+          }
+        : null;
+    const sourceProvesEveryAccessSegment = accessPath.every(
+      (segment, index) => {
+        if (DYNAMIC_TABLE_MEMBER.test(segment)) return false;
+        const prefix = facts.get(accessPath.slice(0, index + 1).join("."));
+        return (
+          prefix &&
+          [...prefix.memberKinds].some(
+            (kind) =>
+              !new Set([
+                "dynamic-table",
+                "inherited-shape",
+                "namespace-prefix",
+              ]).has(kind),
+          )
+        );
+      },
+    );
     if (sourceProvesEveryAccessSegment)
       metadata.publicReadAccessSourceProven = true;
+    if (reviewedPrefixContract) {
+      metadata.publicReadAccessSourceContract = reviewedPrefixContract;
+      metadata.publicReadAccessSourceProven = true;
+      metadata.valueShape = reviewedPrefixContract.valueShape;
+    }
     if (fact.semanticRoles.size > 0)
       metadata.semanticRoles = uniqueSorted(fact.semanticRoles);
     if (fact.valueShapes.size === 1)
       metadata.valueShape = [...fact.valueShapes][0];
     rows.push(makeSurface("native-op", name, sourceRefs, { metadata }));
+  }
+  if (principalEnvironmentOverlay) {
+    const overlaySourceRefs = principalEnvironmentOverlay.sourceRefs;
+    const overlayBranch = makeInstallationBranch(
+      "shared-runtime",
+      "all",
+      overlaySourceRefs,
+    );
+    rows.push(
+      makeSurface(
+        "native-op",
+        PRINCIPAL_ENVIRONMENT_OVERLAY_SURFACE_NAME,
+        overlaySourceRefs,
+        {
+          metadata: {
+            branches: [overlayBranch],
+            exportName: `process.env.${PRINCIPAL_ENVIRONMENT_OVERLAY_DYNAMIC_MEMBER}`,
+            globalName: "process",
+            installationBranches: [overlayBranch],
+            memberKinds: ["dynamic-table"],
+            memberName: `env.${PRINCIPAL_ENVIRONMENT_OVERLAY_DYNAMIC_MEMBER}`,
+            moduleSpecifiers: [],
+            principalEnvironmentOverlaySourceContract:
+              principalEnvironmentOverlay,
+            semanticRoles: [
+              "principal-environment-overlay",
+              "runtime-property-overlay",
+            ],
+            sourceKey: "shared_runtime",
+            surfaceType: "global-api",
+          },
+        },
+      ),
+    );
   }
   const sortedRows = sortSurfaces(rows);
   const inheritedReviewRows = sortedRows
@@ -9152,6 +12445,42 @@ function cppMovedOrDirectIdentifier(tokens) {
   return move === -1 ? null : tokens[move + 2].value;
 }
 
+function cppHostFunctionValueDescriptor(
+  tokens,
+  assignedHostFunctions,
+  sourcePath,
+) {
+  const assigned = cppMovedOrDirectIdentifier(tokens);
+  const assignedDescriptor = assignedHostFunctions.get(assigned);
+  if (assignedDescriptor) return assignedDescriptor;
+
+  const descriptors = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      tokens[index]?.value !== "createFromHostFunction" ||
+      tokens[index + 1]?.value !== "("
+    ) {
+      continue;
+    }
+    const close = matchingToken(tokens, index + 1, "(", ")");
+    if (close === -1) {
+      throw new Error(
+        `${sourcePath}: inline createFromHostFunction call has no closing parenthesis`,
+      );
+    }
+    const args = cppCallArguments(tokens, index + 1, close);
+    if (args.length < 4) continue;
+    const functionName = cppLiteralArgument(args[1]);
+    const arity = cppUnsignedIntegerArgument(args[2]);
+    if (functionName !== null && arity !== null) {
+      descriptors.push({ arity, functionName });
+    }
+    index = close;
+  }
+  if (descriptors.length !== 1) return null;
+  return descriptors[0];
+}
+
 function getAllEnvironmentInstallationBranches(tokens, sourcePath, baseRefs) {
   const definitions = [];
   for (let index = 0; index < tokens.length - 2; index += 1) {
@@ -9196,8 +12525,27 @@ function getAllEnvironmentInstallationBranches(tokens, sourcePath, baseRefs) {
   }
 
   const callback = definitions[0];
+  if (
+    !callback.some(
+      (token) => token.value === "populateDiagnosticProcessEnvironment",
+    )
+  ) {
+    throw new Error(
+      `${sourcePath}: __exactGetAllEnv must delegate diagnostic enumeration to its named helper`,
+    );
+  }
+  const helperDefinitions = cppFunctionDefinitions(tokens).filter(
+    (definition) => definition.name === "populateDiagnosticProcessEnvironment",
+  );
+  if (helperDefinitions.length !== 1) {
+    throw new Error(
+      `${sourcePath}: expected one diagnostic process-environment helper; observed ${helperDefinitions.length}`,
+    );
+  }
+  const helper = helperDefinitions[0];
+  const enumeration = tokens.slice(helper.bodyOpen + 1, helper.bodyClose);
   const indexOf = (value, start = 0) =>
-    callback.findIndex(
+    enumeration.findIndex(
       (token, index) => index >= start && token.value === value,
     );
   const windowsMacro = indexOf("_WIN32");
@@ -9205,11 +12553,11 @@ function getAllEnvironmentInstallationBranches(tokens, sourcePath, baseRefs) {
   const appleMacro = indexOf("__APPLE__", windowsAccessor + 1);
   const appleAccessor = indexOf("_NSGetEnviron", appleMacro + 1);
   const posixScope = indexOf("::", appleAccessor + 1);
-  const posixAccessor = callback.findIndex(
+  const posixAccessor = enumeration.findIndex(
     (token, index) =>
       index > posixScope &&
       token.value === "environ" &&
-      callback[index - 1]?.value === "::",
+      enumeration[index - 1]?.value === "::",
   );
   if (
     windowsMacro === -1 ||
@@ -9260,6 +12608,15 @@ export function scanCppGlobalPropertySurfaces(
   const objectOwners = new Set();
   const exactCapabilityOwners = new Set();
   const closedGlobalTableNames = new Set();
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      tokens[index].value === "Object" &&
+      tokens[index + 1]?.type === "identifier" &&
+      tokens[index + 2]?.value === "("
+    ) {
+      objectOwners.add(tokens[index + 1].value);
+    }
+  }
   for (let index = 0; index < tokens.length; index += 1) {
     if (
       tokens[index].type !== "identifier" ||
@@ -9346,6 +12703,41 @@ export function scanCppGlobalPropertySurfaces(
     calls.push({ args, globalTarget: true, owner: null });
   }
 
+  // Accessor installers still create public object properties even though the
+  // final Object.defineProperty call lives inside a helper. Recover the closed,
+  // authored stdio accessor call sites so manifest coverage follows the
+  // concrete property names instead of treating the helper parameter as a
+  // dynamic registration.
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      tokens[index].type !== "identifier" ||
+      tokens[index].value !== "installStdioQueryAccessor" ||
+      tokens[index + 1]?.value !== "("
+    ) {
+      continue;
+    }
+    const close = matchingToken(tokens, index + 1, "(", ")");
+    if (close === -1) {
+      throw new Error(
+        `${sourcePath}: installStdioQueryAccessor call has no closing parenthesis`,
+      );
+    }
+    const args = cppCallArguments(tokens, index + 1, close);
+    const owner =
+      args[0]?.length === 1 && args[0][0].type === "identifier"
+        ? args[0][0].value
+        : null;
+    const propertyName = args.length >= 3 ? cppLiteralArgument(args[2]) : null;
+    if (!owner || !objectOwners.has(owner) || !propertyName) continue;
+    calls.push({
+      args: [[], args[2], []],
+      globalTarget: false,
+      owner,
+      propertyName,
+      valueShape: "accessor",
+    });
+  }
+
   // The Windows unsupported-module helper forwards each member of a closed
   // authored initializer list to installUnsupportedGlobal. Preserve the
   // dynamic helper sentinel below, but also resolve its concrete call-site
@@ -9409,8 +12801,10 @@ export function scanCppGlobalPropertySurfaces(
   const ownerPaths = new Map();
   const facts = new Map();
   const publicInvocations = new Map();
+  const valueShapes = new Map();
   const dynamicFacts = new Set();
   const propertyNameForCall = (call) => {
+    if (call.propertyName) return call.propertyName;
     const literal = cppLiteralArgument(call.args[1]);
     if (literal) return literal;
     const label = call.globalTarget
@@ -9438,25 +12832,39 @@ export function scanCppGlobalPropertySurfaces(
       .get(exportName)
       .add(sourceSymbol(sourcePath, `jsi-global:${exportName}`));
   };
+  const addValueShape = (exportName, valueShape) => {
+    if (!valueShape) return;
+    let shapes = valueShapes.get(exportName);
+    if (!shapes) {
+      shapes = new Set();
+      valueShapes.set(exportName, shapes);
+    }
+    shapes.add(valueShape);
+  };
+  const recordInvocation = (call, exportName, propertyName) => {
+    const hostFunction = cppHostFunctionValueDescriptor(
+      call.args[2],
+      assignedHostFunctions,
+      sourcePath,
+    );
+    if (!hostFunction || DYNAMIC_TABLE_MEMBER.test(propertyName)) {
+      addValueShape(exportName, call.valueShape);
+      return;
+    }
+    addValueShape(exportName, "callable");
+    publicInvocations.set(exportName, {
+      arity: hostFunction.arity,
+      globalName: exportName,
+      kind: "native-global-function",
+      sourceRef: sourceSymbol(sourcePath, `jsi-global:${exportName}`),
+    });
+  };
 
   for (const call of calls.filter((candidate) => candidate.globalTarget)) {
     const name = propertyNameForCall(call);
     if (DYNAMIC_TABLE_MEMBER.test(name)) dynamicFacts.add(name);
     addFact(name);
-    const assigned = cppMovedOrDirectIdentifier(call.args[2]);
-    const hostFunction = assignedHostFunctions.get(assigned);
-    if (
-      hostFunction &&
-      hostFunction.functionName === name &&
-      !DYNAMIC_TABLE_MEMBER.test(name)
-    ) {
-      publicInvocations.set(name, {
-        arity: hostFunction.arity,
-        globalName: name,
-        kind: "native-global-function",
-        sourceRef: sourceSymbol(sourcePath, `jsi-global:${name}`),
-      });
-    }
+    recordInvocation(call, name, name);
     for (const owner of valueOwners(call.args[2])) addOwnerPath(owner, name);
   }
   for (const name of closedGlobalTableNames) addFact(name);
@@ -9471,6 +12879,7 @@ export function scanCppGlobalPropertySurfaces(
         if (DYNAMIC_TABLE_MEMBER.test(name)) dynamicFacts.add(exportName);
         const before = facts.size;
         addFact(exportName);
+        recordInvocation(call, exportName, name);
         if (facts.size !== before) changed = true;
         for (const owner of valueOwners(call.args[2])) {
           changed = addOwnerPath(owner, exportName) || changed;
@@ -9506,6 +12915,12 @@ export function scanCppGlobalPropertySurfaces(
         branches.flatMap((branch) => branch.sourceRefs),
       );
       const name = globalSurfaceName(exportName);
+      const concreteProperty = !exportName
+        .split(".")
+        .some((segment) => DYNAMIC_TABLE_MEMBER.test(segment));
+      const observedValueShapes = valueShapes.get(exportName) ?? new Set();
+      const valueShape =
+        observedValueShapes.size === 1 ? [...observedValueShapes][0] : null;
       return makeSurface("native-op", name, sourceRefs, {
         metadata: {
           branches,
@@ -9522,11 +12937,13 @@ export function scanCppGlobalPropertySurfaces(
           memberName:
             memberSegments.length === 0 ? null : memberSegments.join("."),
           moduleSpecifiers: [],
+          ...(concreteProperty ? { publicReadAccessSourceProven: true } : {}),
           ...(publicInvocations.has(exportName)
             ? { publicInvocation: publicInvocations.get(exportName) }
             : {}),
           sourceKey: "native_jsi_global",
           surfaceType: "global-api",
+          ...(valueShape ? { valueShape } : {}),
           ...(dynamicFacts.has(exportName)
             ? { semanticRoles: ["runtime-property-overlay"] }
             : {}),
@@ -9553,6 +12970,9 @@ const REVIEWED_HERMES_PATCH_PATHS = [
   "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch",
   "patches/hermes/0007-fail-closed-async-deputy-attribution.patch",
   "patches/hermes/0008-schedule-time-principal-capture.patch",
+  "patches/hermes/0009-raw-throw-capture.patch",
+  "patches/hermes/0010-completion-record-discriminator.patch",
+  "patches/hermes/0011-structured-async-failure-provenance.patch",
 ];
 
 const REVIEWED_REACHABLE_HERMES_EVALUATORS = [
@@ -9562,28 +12982,42 @@ const REVIEWED_REACHABLE_HERMES_EVALUATORS = [
   "eval",
 ];
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
-  "sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322";
+  "sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c";
 
 // These are reviewed reachability claims for exact checked-in artifact
 // identities, not a floating statement about Hermes releases. Source discovery
 // emits a new identity sentinel when any authority changes; the independent
 // semantic classifier then rejects it until this snapshot is reviewed too.
 // @ref LLP 0013#upstream-tracking-and-re-derivation — the desktop pin plus
-// patch stack is the fork; Android and Windows consume separate pinned channels.
+// patch stack is the fork; Android consumes a separate pinned channel while
+// Windows uses the same source-patched identity as Apple/Linux.
 const REVIEWED_HERMES_EVALUATOR_PROFILES = [
   {
     id: "android-maven",
     targetVariant: "android",
     identity: {
       artifact: "com.facebook.hermes:hermes-android",
+      packageDigest:
+        "sha256-2399d266ed06c2a907f1ceb2606c0958a293751781f23774a292c438779c3285",
+      linkedDependency: {
+        artifact: "com.facebook.react:react-android",
+        packageDigest:
+          "sha256-46fc1bfcb0a0aa2c79a81d7804105c88de7d2936fce31ca14aa4ba0e847869ee",
+        variant: "debug",
+        version: "0.86.0",
+      },
       variant: "debug",
       version: "250829098.0.14",
     },
     reachableEvaluators: REVIEWED_REACHABLE_HERMES_EVALUATORS,
     sourceRefs: [
       "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
+      "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
+      "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
+      "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
       "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
       "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
+      "scripts/install-android-hermes.sh#com.facebook.react:react-android",
     ],
   },
   {
@@ -9592,16 +13026,16 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
     identity: {
       artifact: "facebook/hermes",
       patchApplicationAuthorityDigest:
-        "sha256-9069b232960ccad873a51477c45adbc6b3126b0d845398fe251fe414d5bc63bd",
+        "sha256-4d422defe36111f1749f01c7884d942062ad54e6a7d611eee624547002bc4cdd",
       patchIdentityAuthorityDigest:
-        "sha256-84edac8af0c2f253d97320fcaa78358bc2616c393d692bd1c93f06eed45b8a7a",
+        "sha256-7dd0ebd78fe1a3732c3a9a8f5686c0925e723bc886dc03ce22bbb32b56552b1f",
       patchStackDigest:
-        "sha256-75c76960ba5710524abe1d2957d41927dfc4ad8871badb24b7526d4f8e38a1f0",
+        "sha256-4ee8b3103bf9341b9d7460884323978471558d5a03f0926d70e5593c07ff9025",
       sourceBuildAuthorityDigests: {
         "scripts/build-hermes-linux.sh":
-          "sha256-101c625bc1ea5868827088a7eacaceb35a8f229431baf96f351b830ef784e27b",
+          "sha256-8d0f00b05f198bb2c823f55a92cabc4f0101bddad7daaa54e0244d63e97ba011",
         "scripts/build-hermes.sh":
-          "sha256-9aca630d1dd2ad913e52a5045ed373ebb6602d31c4c2f35f828fb498d8a88cfb",
+          "sha256-31584f20c5deeb86750d79a2bfbb56ec98a84861ddc2a0c681c314185e100d69",
       },
       sourceCommit: "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",
       sourceRef: "260318099.0.0-stable",
@@ -9614,24 +13048,36 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
       "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
       "scripts/hermes-version.sh#ibex_hermes_patch_digest",
       "scripts/apply-hermes-patches.sh#patches",
-      "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
       "scripts/build-hermes.sh#apply-hermes-patches.sh",
+      "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
       ...REVIEWED_HERMES_PATCH_PATHS.map((patchPath) =>
         sourceSymbol(patchPath, "patch-content"),
       ),
     ],
   },
   {
-    id: "windows-nuget",
+    id: "windows-source-patched",
     targetVariant: "windows",
     identity: {
-      artifact: "ReactNative.Hermes.Windows",
-      version: "0.71.1",
+      artifact: "facebook/hermes",
+      patchApplicationAuthorityDigest:
+        "sha256-4d422defe36111f1749f01c7884d942062ad54e6a7d611eee624547002bc4cdd",
+      patchIdentityAuthorityDigest:
+        "sha256-7dd0ebd78fe1a3732c3a9a8f5686c0925e723bc886dc03ce22bbb32b56552b1f",
+      patchStackDigest:
+        "sha256-4ee8b3103bf9341b9d7460884323978471558d5a03f0926d70e5593c07ff9025",
+      sourceBuildAuthorityDigest:
+        "sha256-38b23085b000c0341365e66b86a7e2afc488f3058a94b78b27c152a1a298a3fd",
+      sourceCommit: "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",
+      sourceRef: "260318099.0.0-stable",
+      sourceVersion: "260318099.0.0",
+      sourceInstallerAuthorityDigest:
+        "sha256-211312de49c19da2b995bc6ed63eae5ab57054861f77b5073638630efc2d88b7",
     },
     reachableEvaluators: REVIEWED_REACHABLE_HERMES_EVALUATORS,
     sourceRefs: [
-      "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
-      "scripts/install-windows-hermes.ps1#Version",
+      "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+      "scripts/install-windows-hermes.ps1#hermes-windows-",
     ],
   },
 ];
@@ -9755,7 +13201,7 @@ function cloneHermesEvaluatorProfiles(profiles) {
   return profiles.map((profile) => ({
     id: profile.id,
     targetVariant: profile.targetVariant,
-    identity: { ...profile.identity },
+    identity: structuredClone(profile.identity),
     reachableEvaluators: [...profile.reachableEvaluators],
     sourceRefs: [...profile.sourceRefs],
   }));
@@ -9771,6 +13217,7 @@ export function scanHermesEvaluatorIdentityProfiles({
   hermesVersionText,
   androidInstallerText,
   windowsInstallerText,
+  windowsSourceBuildText,
   patchApplicationText,
   appleSourceBuildText,
   linuxSourceBuildText,
@@ -9778,6 +13225,7 @@ export function scanHermesEvaluatorIdentityProfiles({
   hermesVersionPath = "scripts/hermes-version.sh",
   androidInstallerPath = "scripts/install-android-hermes.sh",
   windowsInstallerPath = "scripts/install-windows-hermes.ps1",
+  windowsSourceBuildPath = "scripts/build-hermes-windows.ps1",
   patchApplicationPath = "scripts/apply-hermes-patches.sh",
   appleSourceBuildPath = "scripts/build-hermes.sh",
   linuxSourceBuildPath = "scripts/build-hermes-linux.sh",
@@ -9806,6 +13254,21 @@ export function scanHermesEvaluatorIdentityProfiles({
     "IBEX_HERMES_ANDROID_VERSION",
     hermesVersionPath,
   );
+  const reactAndroidVersion = shellDefaultValue(
+    hermesVersionText,
+    "IBEX_REACT_ANDROID_VERSION",
+    hermesVersionPath,
+  );
+  const androidPackageSha256 = oneSourceMatch(
+    hermesVersionText,
+    /^IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256="([a-f0-9]{64})"$/gmu,
+    `${hermesVersionPath}#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256`,
+  )[1];
+  const reactAndroidPackageSha256 = oneSourceMatch(
+    hermesVersionText,
+    /^IBEX_REACT_ANDROID_DEBUG_AAR_SHA256="([a-f0-9]{64})"$/gmu,
+    `${hermesVersionPath}#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256`,
+  )[1];
   const buildRefAuthority =
     'IBEX_HERMES_BUILD_REF="${IBEX_HERMES_BUILD_REF:-${IBEX_HERMES_SOURCE_COMMIT:-$IBEX_HERMES_SOURCE_REF}}"';
   if (!hermesVersionText.split(/\r?\n/u).includes(buildRefAuthority)) {
@@ -9835,7 +13298,7 @@ export function scanHermesEvaluatorIdentityProfiles({
       `${patchApplicationPath}#${label}`,
     );
   }
-  const sourceBuildConsumers = [
+  const patchApplicationConsumers = [
     {
       sourcePath: appleSourceBuildPath,
       text: appleSourceBuildText,
@@ -9846,8 +13309,13 @@ export function scanHermesEvaluatorIdentityProfiles({
       text: linuxSourceBuildText,
       invocation: '"$SCRIPT_DIR/apply-hermes-patches.sh" "$SRC_DIR"',
     },
+    {
+      sourcePath: windowsSourceBuildPath,
+      text: windowsSourceBuildText,
+      invocation: "& bash $applyScriptUnix $sourceDirUnix",
+    },
   ];
-  for (const consumer of sourceBuildConsumers) {
+  for (const consumer of patchApplicationConsumers) {
     requireOneSourceLine(
       consumer.text,
       consumer.invocation,
@@ -9857,12 +13325,18 @@ export function scanHermesEvaluatorIdentityProfiles({
   const patchApplicationAuthorityDigest = `sha256-${sha256Hex(
     patchApplicationText,
   )}`;
+  const sourceBuildConsumers = patchApplicationConsumers.filter(
+    (consumer) => consumer.sourcePath !== windowsSourceBuildPath,
+  );
   const sourceBuildAuthorityDigests = Object.fromEntries(
     sourceBuildConsumers.map((consumer) => [
       consumer.sourcePath,
       `sha256-${sha256Hex(consumer.text)}`,
     ]),
   );
+  const windowsSourceBuildAuthorityDigest = `sha256-${sha256Hex(
+    windowsSourceBuildText,
+  )}`;
 
   const androidVersionAuthority =
     'HERMES_ANDROID_VERSION="${HERMES_ANDROID_VERSION:-$IBEX_HERMES_ANDROID_VERSION}"';
@@ -9876,22 +13350,37 @@ export function scanHermesEvaluatorIdentityProfiles({
     "ANDROID_HERMES_VARIANT",
     androidInstallerPath,
   );
+  for (const [label, line] of [
+    [
+      "Hermes AAR checksum authority",
+      'HERMES_ANDROID_AAR_SHA256="${HERMES_ANDROID_AAR_SHA256:-$IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256}"',
+    ],
+    [
+      "React Android AAR checksum authority",
+      'REACT_ANDROID_AAR_SHA256="${REACT_ANDROID_AAR_SHA256:-$IBEX_REACT_ANDROID_DEBUG_AAR_SHA256}"',
+    ],
+  ]) {
+    requireOneSourceLine(androidInstallerText, line, `${androidInstallerPath}#${label}`);
+  }
   const androidArtifact = oneSourceMatch(
     androidInstallerText,
-    /download_aar\s+"([A-Za-z0-9.]+)"\s+"([A-Za-z0-9.-]+)"\s+"\$HERMES_ANDROID_VERSION"\s+"\$ANDROID_HERMES_VARIANT"/gu,
+    /download_aar\s+"([A-Za-z0-9.]+)"\s+"([A-Za-z0-9.-]+)"\s+"\$HERMES_ANDROID_VERSION"\s+"\$ANDROID_HERMES_VARIANT"\s+"\$HERMES_ANDROID_AAR_SHA256"/gu,
     `${androidInstallerPath}#Hermes-Maven-coordinate`,
   );
+  const reactAndroidArtifact = oneSourceMatch(
+    androidInstallerText,
+    /download_aar\s+"([A-Za-z0-9.]+)"\s+"([A-Za-z0-9.-]+)"\s+"\$REACT_ANDROID_VERSION"\s+"\$ANDROID_HERMES_VARIANT"\s+"\$REACT_ANDROID_AAR_SHA256"/gu,
+    `${androidInstallerPath}#React-Android-Maven-coordinate`,
+  );
 
-  const windowsVersion = oneSourceMatch(
-    windowsInstallerText,
-    /^\s*\[string\]\$Version\s*=\s*"([^"]+)"\s*,?$/gmu,
-    `${windowsInstallerPath}#Version`,
-  )[1];
   const windowsArtifact = oneSourceMatch(
     windowsInstallerText,
-    /https:\/\/www\.nuget\.org\/api\/v2\/package\/([A-Za-z0-9.]+)\/\$Version/gu,
-    `${windowsInstallerPath}#NuGet-coordinate`,
+    /^\$asset = "(hermes-windows-)\$Arch-\$assetKey\.zip"$/gmu,
+    `${windowsInstallerPath}#release-asset`,
   )[1];
+  const windowsInstallerAuthorityDigest = `sha256-${sha256Hex(
+    windowsInstallerText,
+  )}`;
 
   const discovered = [
     {
@@ -9899,16 +13388,36 @@ export function scanHermesEvaluatorIdentityProfiles({
       targetVariant: "android",
       identity: {
         artifact: `${androidArtifact[1]}:${androidArtifact[2]}`,
+        packageDigest: `sha256-${androidPackageSha256}`,
+        linkedDependency: {
+          artifact: `${reactAndroidArtifact[1]}:${reactAndroidArtifact[2]}`,
+          packageDigest: `sha256-${reactAndroidPackageSha256}`,
+          variant: androidVariant,
+          version: reactAndroidVersion,
+        },
         variant: androidVariant,
         version: androidVersion,
       },
       reachableEvaluators: REVIEWED_REACHABLE_HERMES_EVALUATORS,
       sourceRefs: [
         sourceSymbol(hermesVersionPath, "IBEX_HERMES_ANDROID_VERSION"),
+        sourceSymbol(
+          hermesVersionPath,
+          "IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
+        ),
+        sourceSymbol(hermesVersionPath, "IBEX_REACT_ANDROID_VERSION"),
+        sourceSymbol(
+          hermesVersionPath,
+          "IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
+        ),
         sourceSymbol(androidInstallerPath, "ANDROID_HERMES_VARIANT"),
         sourceSymbol(
           androidInstallerPath,
           `${androidArtifact[1]}:${androidArtifact[2]}`,
+        ),
+        sourceSymbol(
+          androidInstallerPath,
+          `${reactAndroidArtifact[1]}:${reactAndroidArtifact[2]}`,
         ),
       ],
     },
@@ -9941,16 +13450,23 @@ export function scanHermesEvaluatorIdentityProfiles({
       ],
     },
     {
-      id: "windows-nuget",
+      id: "windows-source-patched",
       targetVariant: "windows",
       identity: {
-        artifact: windowsArtifact,
-        version: windowsVersion,
+        artifact: "facebook/hermes",
+        patchApplicationAuthorityDigest,
+        patchIdentityAuthorityDigest,
+        patchStackDigest: hermesPatchStackDigest(normalizedPatches),
+        sourceBuildAuthorityDigest: windowsSourceBuildAuthorityDigest,
+        sourceCommit,
+        sourceRef,
+        sourceVersion,
+        sourceInstallerAuthorityDigest: windowsInstallerAuthorityDigest,
       },
       reachableEvaluators: REVIEWED_REACHABLE_HERMES_EVALUATORS,
       sourceRefs: [
+        sourceSymbol(windowsSourceBuildPath, "apply-hermes-patches.sh"),
         sourceSymbol(windowsInstallerPath, windowsArtifact),
-        sourceSymbol(windowsInstallerPath, "Version"),
       ],
     },
   ];
@@ -9986,6 +13502,9 @@ export function discoverHermesEvaluatorIdentityProfiles(repoRoot) {
     ),
     windowsInstallerText: readUtf8(
       path.join(repoRoot, "scripts", "install-windows-hermes.ps1"),
+    ),
+    windowsSourceBuildText: readUtf8(
+      path.join(repoRoot, "scripts", "build-hermes-windows.ps1"),
     ),
     patchApplicationText: readUtf8(
       path.join(repoRoot, "scripts", "apply-hermes-patches.sh"),
@@ -10094,10 +13613,7 @@ export function scanLockdownEvaluatorSurfaces(
     );
   }
   let assignmentEnd = assignmentStart + 2;
-  while (
-    assignmentEnd < tokens.length &&
-    tokens[assignmentEnd].value !== ";"
-  ) {
+  while (assignmentEnd < tokens.length && tokens[assignmentEnd].value !== ";") {
     assignmentEnd += 1;
   }
   if (assignmentEnd === tokens.length) {
@@ -10131,11 +13647,7 @@ export function scanLockdownEvaluatorSurfaces(
   const parts = assignmentTokens
     .filter((token) => token.type === "string")
     .map((token) => token.value);
-  if (
-    parts.length !== 4 ||
-    parts[1] !== "true" ||
-    parts[2] !== "false"
-  ) {
+  if (parts.length !== 4 || parts[1] !== "true" || parts[2] !== "false") {
     throw new Error(
       `${sourcePath}#lockdownJS: expected exact armed and diagnostic script parts`,
     );
@@ -10166,18 +13678,31 @@ export function scanLockdownEvaluatorSurfaces(
     lockdownTamingDigest,
   );
 
-  const names = new Set();
+  const tamingKinds = new Map();
+  const addTamingFact = (name, kind) => {
+    const prior = tamingKinds.get(name);
+    if (prior && prior !== kind) {
+      throw new Error(
+        `${sourcePath}#lockdownJS: evaluator ${name} has conflicting taming shapes`,
+      );
+    }
+    tamingKinds.set(name, kind);
+  };
   walkAst(parseJavaScript(script, `${sourcePath}#lockdownJS`), (node) => {
     if (node.type !== "CallExpression" || node.callee?.type !== "Identifier")
       return;
     if (node.callee.name === "tameCtor") {
-      for (const name of staticPropertyName(node.arguments[1])) names.add(name);
+      for (const name of staticPropertyName(node.arguments[1])) {
+        addTamingFact(name, "constructor");
+      }
     }
     if (node.callee.name === "makeTamed") {
-      for (const name of staticPropertyName(node.arguments[0])) names.add(name);
+      for (const name of staticPropertyName(node.arguments[0])) {
+        addTamingFact(name, "evaluator");
+      }
     }
   });
-  const tamedEvaluators = uniqueSorted(names);
+  const tamedEvaluators = uniqueSorted(tamingKinds.keys());
   const reachableEvaluators = uniqueSorted(
     profiles.flatMap((profile) => profile.reachableEvaluators),
   );
@@ -10240,8 +13765,10 @@ export function scanLockdownEvaluatorSurfaces(
           globalName,
           installationBranches: branches,
           lockdownTamingDigest,
+          memberKinds: ["hermes-intrinsic-reachability"],
           memberName: null,
           moduleSpecifiers: [],
+          publicReadAccessSourceProven: true,
           reachability:
             globalName === "eval" || globalName === "Function"
               ? "inherited-global"
@@ -10249,6 +13776,8 @@ export function scanLockdownEvaluatorSurfaces(
           sourceKey: "hermes_intrinsic_evaluators",
           surfaceType: "global-api",
           tamingEvidence: "lockdownJS",
+          tamingKind: tamingKinds.get(globalName),
+          valueShape: "callable",
         },
       },
     );
@@ -10260,8 +13789,12 @@ export function scanModuleSpecifierEntries(
   moduleExports,
   sourcePath = "modules.ts",
 ) {
-  const { bootstrapInternalModules = [], meta, sources, specifiers } =
-    moduleExports ?? {};
+  const {
+    bootstrapInternalModules = [],
+    meta,
+    sources,
+    specifiers,
+  } = moduleExports ?? {};
   if (!Array.isArray(specifiers) || specifiers.length === 0) {
     throw new Error(
       `${sourcePath}: exported specifiers must be a non-empty array`,
@@ -10412,7 +13945,8 @@ function composeRequiredBuiltinRoutes(exports, aliases) {
   const betterPath = (candidate, existing) =>
     existing === undefined ||
     candidate.length < existing.length ||
-    (candidate.length === existing.length && compareText(candidate, existing) < 0);
+    (candidate.length === existing.length &&
+      compareText(candidate, existing) < 0);
   let changed = true;
   let iterations = 0;
   while (changed && iterations <= states.size) {
@@ -10421,8 +13955,9 @@ function composeRequiredBuiltinRoutes(exports, aliases) {
     for (const row of exports) {
       const state = states.get(row.observedKey);
       if (!state) continue;
-      for (const { dependency, target } of
-        resolvedDependencies.get(row.observedKey) ?? []) {
+      for (const { dependency, target } of resolvedDependencies.get(
+        row.observedKey,
+      ) ?? []) {
         const targetState = target ? states.get(target.observedKey) : null;
         if (!targetState) continue;
         for (const ambiguity of targetState.ambiguous) {
@@ -10441,8 +13976,9 @@ function composeRequiredBuiltinRoutes(exports, aliases) {
             targetState.derivedPaths.get(terminal) ??
             [...targetState.paths]
               .filter((routePath) => routePath.endsWith(` -> ${terminal}`))
-              .sort((left, right) =>
-                left.length - right.length || compareText(left, right),
+              .sort(
+                (left, right) =>
+                  left.length - right.length || compareText(left, right),
               )[0] ??
             `export:${dependency.exportName} -> ${terminal}`;
           for (const dependencyPath of dependency.paths) {
@@ -10458,7 +13994,9 @@ function composeRequiredBuiltinRoutes(exports, aliases) {
     }
   }
   if (changed) {
-    throw new Error("builtin required-export route composition did not converge");
+    throw new Error(
+      "builtin required-export route composition did not converge",
+    );
   }
   for (const row of exports) {
     const evidence = row.metadata?.enforcementRouteEvidence;
@@ -10733,6 +14271,332 @@ function validateCliValueShape(shape, label) {
   }
 }
 
+const REPL_COMMAND_KEYS = new Set([
+  "affordance",
+  "aliases",
+  "argument",
+  "errorOutput",
+  "help",
+  "id",
+  "modes",
+  "name",
+  "registryRelations",
+  "sourceSubmission",
+  "states",
+  "successOutput",
+  "usage",
+]);
+
+function replRegistryRelations(value, label) {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  const keys = new Set();
+  return value.map((relation, index) => {
+    const relationLabel = `${label}[${index}]`;
+    assertExactObjectKeys(relation, new Set(["id", "kind"]), relationLabel);
+    if (
+      !new Set(["capability", "non-capability-rationale"]).has(relation.kind) ||
+      typeof relation.id !== "string" ||
+      !/^[a-z][a-z0-9-]*(?::[a-z][a-z0-9-]*)?$/u.test(relation.id)
+    ) {
+      throw new Error(`${relationLabel} is not a typed registry relation`);
+    }
+    const key = `${relation.kind}:${relation.id}`;
+    if (keys.has(key)) throw new Error(`${label} contains duplicate ${key}`);
+    keys.add(key);
+    return structuredClone(relation);
+  });
+}
+
+/**
+ * Expand LLP 0022/0025's generated REPL contract into reviewable CapSec
+ * surfaces. Canonical commands and aliases are separate routes; recognition,
+ * `.load` dialect selection, and key controls are explicit rows so none can
+ * hide inside opaque manifest metadata.
+ */
+export function scanRuntimeReplSurfaces(
+  manifestInput,
+  sourcePath = "runtime-surface.json",
+) {
+  let manifest = manifestInput;
+  if (typeof manifestInput === "string") {
+    try {
+      manifest = JSON.parse(manifestInput);
+    } catch (error) {
+      throw new Error(`${sourcePath}: invalid JSON: ${error.message}`);
+    }
+  }
+  if (manifest?.version !== 5) {
+    throw new Error(
+      `${sourcePath}: REPL inventory requires manifest version 5`,
+    );
+  }
+  const repl = manifest.replSurface;
+  const keybindings = manifest.keybindingSurface;
+  assertExactObjectKeys(
+    repl,
+    new Set([
+      "$comment",
+      "commands",
+      "loadExtensions",
+      "modes",
+      "recognition",
+      "version",
+    ]),
+    `${sourcePath}: replSurface`,
+  );
+  assertExactObjectKeys(
+    keybindings,
+    new Set(["$comment", "bindings", "editorProfile", "scope", "version"]),
+    `${sourcePath}: keybindingSurface`,
+  );
+  if (repl.version !== 1 || keybindings.version !== 1) {
+    throw new Error(
+      `${sourcePath}: only REPL/keybinding surface version 1 is reviewed`,
+    );
+  }
+  if (
+    JSON.stringify(repl.modes) !==
+    JSON.stringify(["interactive", "plain-transcript"])
+  ) {
+    throw new Error(`${sourcePath}: replSurface.modes drifted`);
+  }
+  if (!Array.isArray(repl.commands) || repl.commands.length === 0) {
+    throw new Error(`${sourcePath}: replSurface.commands must be non-empty`);
+  }
+  if (
+    !Array.isArray(keybindings.bindings) ||
+    keybindings.bindings.length === 0
+  ) {
+    throw new Error(
+      `${sourcePath}: keybindingSurface.bindings must be non-empty`,
+    );
+  }
+
+  const rows = [];
+  const ids = new Set();
+  const names = new Set();
+  assertExactObjectKeys(
+    repl.recognition,
+    new Set([
+      "argumentRemainder",
+      "commandsNeverContinue",
+      "leadingWhitespace",
+      "namePattern",
+      "nonmatchDisposition",
+      "prefix",
+      "termination",
+      "unknownDisposition",
+    ]),
+    `${sourcePath}: replSurface.recognition`,
+  );
+  rows.push(
+    makeSurface(
+      "cli",
+      "repl-command-recognition:v1",
+      [sourceSymbol(sourcePath, "replSurface.recognition")],
+      {
+        metadata: {
+          evidenceType: "repl-command-recognition",
+          replSurfaceVersion: repl.version,
+          recognition: structuredClone(repl.recognition),
+        },
+      },
+    ),
+  );
+
+  for (const [index, command] of repl.commands.entries()) {
+    const label = `${sourcePath}: replSurface.commands[${index}]`;
+    assertExactObjectKeys(command, REPL_COMMAND_KEYS, label);
+    if (
+      typeof command.id !== "string" ||
+      !/^[a-z][a-z0-9-]*$/u.test(command.id) ||
+      ids.has(command.id)
+    ) {
+      throw new Error(`${label}.id is invalid or duplicate`);
+    }
+    ids.add(command.id);
+    const routedNames = [
+      ["canonical", command.name],
+      ...cliStringArray(command.aliases, `${label}.aliases`).map((alias) => [
+        "alias",
+        alias,
+      ]),
+    ];
+    if (
+      typeof command.name !== "string" ||
+      !/^\.[A-Za-z][A-Za-z0-9_-]*$/u.test(command.name)
+    ) {
+      throw new Error(`${label}.name violates the command grammar`);
+    }
+    assertExactObjectKeys(
+      command.argument,
+      command.argument?.kind === "none"
+        ? new Set(["kind"])
+        : new Set(["kind", "name", "preserve"]),
+      `${label}.argument`,
+    );
+    if (
+      !new Set(["none", "required-remainder"]).has(command.argument.kind) ||
+      (command.argument.kind === "required-remainder" &&
+        (typeof command.argument.name !== "string" ||
+          command.argument.preserve !== "verbatim"))
+    ) {
+      throw new Error(`${label}.argument is not a reviewed argument shape`);
+    }
+    const registryRelations = replRegistryRelations(
+      command.registryRelations,
+      `${label}.registryRelations`,
+    );
+    for (const [routeKind, name] of routedNames) {
+      if (!/^\.[A-Za-z][A-Za-z0-9_-]*$/u.test(name) || names.has(name)) {
+        throw new Error(`${label} has invalid or duplicate route ${name}`);
+      }
+      names.add(name);
+      rows.push(
+        makeSurface(
+          "cli",
+          routeKind === "canonical"
+            ? `repl-command:${cliSurfaceComponent(command.id)}`
+            : `repl-command-alias:${cliSurfaceComponent(command.id)}:${cliSurfaceComponent(name)}`,
+          [sourceSymbol(sourcePath, `replSurface.command:${command.id}`)],
+          {
+            metadata: {
+              affordance: command.affordance,
+              argument: structuredClone(command.argument),
+              canonicalCommandId: command.id,
+              commandName: name,
+              evidenceType: "repl-command-route",
+              help: command.help,
+              modes: cliStringArray(command.modes, `${label}.modes`),
+              registryRelations,
+              replSurfaceVersion: repl.version,
+              routeKind,
+              sourceSubmission: command.sourceSubmission,
+              states: cliStringArray(command.states, `${label}.states`),
+              successOutput: command.successOutput,
+              usage: command.usage,
+            },
+          },
+        ),
+      );
+    }
+  }
+
+  const load = repl.loadExtensions;
+  assertExactObjectKeys(
+    load,
+    new Set(["defaultDisposition", "defaultErrorCode", "matching", "rows"]),
+    `${sourcePath}: replSurface.loadExtensions`,
+  );
+  if (load.matching !== "longest-suffix-first" || !Array.isArray(load.rows)) {
+    throw new Error(`${sourcePath}: load extension matching is not reviewed`);
+  }
+  const extensions = new Set();
+  for (const [index, row] of load.rows.entries()) {
+    const label = `${sourcePath}: replSurface.loadExtensions.rows[${index}]`;
+    assertExactObjectKeys(
+      row,
+      new Set(["dialect", "disposition", "errorCode", "extension"]),
+      label,
+    );
+    if (
+      typeof row.extension !== "string" ||
+      !/^\.[a-z.]+$/u.test(row.extension) ||
+      extensions.has(row.extension) ||
+      typeof row.disposition !== "string"
+    ) {
+      throw new Error(`${label} is invalid or duplicate`);
+    }
+    extensions.add(row.extension);
+    rows.push(
+      makeSurface(
+        "cli",
+        `repl-load-extension:${cliSurfaceComponent(row.extension)}`,
+        [
+          sourceSymbol(
+            sourcePath,
+            `replSurface.loadExtension:${row.extension}`,
+          ),
+        ],
+        {
+          metadata: {
+            ...structuredClone(row),
+            evidenceType: "repl-load-extension",
+            replSurfaceVersion: repl.version,
+          },
+        },
+      ),
+    );
+  }
+  rows.push(
+    makeSurface(
+      "cli",
+      "repl-load-extension:default",
+      [sourceSymbol(sourcePath, "replSurface.loadExtension:default")],
+      {
+        metadata: {
+          defaultDisposition: load.defaultDisposition,
+          errorCode: load.defaultErrorCode,
+          evidenceType: "repl-load-extension",
+          replSurfaceVersion: repl.version,
+        },
+      },
+    ),
+  );
+
+  const keybindingIds = new Set();
+  const keySequences = new Set();
+  for (const [index, binding] of keybindings.bindings.entries()) {
+    const label = `${sourcePath}: keybindingSurface.bindings[${index}]`;
+    assertExactObjectKeys(
+      binding,
+      new Set([
+        "action",
+        "bytes",
+        "countsAsEditorInput",
+        "display",
+        "help",
+        "id",
+      ]),
+      label,
+    );
+    const sequence = Array.isArray(binding.bytes)
+      ? binding.bytes.join(",")
+      : "";
+    if (
+      typeof binding.id !== "string" ||
+      !/^[a-z][a-z0-9-]*$/u.test(binding.id) ||
+      keybindingIds.has(binding.id) ||
+      keySequences.has(sequence) ||
+      binding.bytes.length === 0 ||
+      binding.bytes.some(
+        (byte) => !Number.isSafeInteger(byte) || byte < 0 || byte > 255,
+      ) ||
+      typeof binding.countsAsEditorInput !== "boolean"
+    ) {
+      throw new Error(`${label} is invalid or duplicates a control`);
+    }
+    keybindingIds.add(binding.id);
+    keySequences.add(sequence);
+    rows.push(
+      makeSurface(
+        "cli",
+        `repl-keybinding:${cliSurfaceComponent(binding.id)}`,
+        [sourceSymbol(sourcePath, `keybindingSurface.binding:${binding.id}`)],
+        {
+          metadata: {
+            ...structuredClone(binding),
+            evidenceType: "repl-keybinding",
+            keybindingSurfaceVersion: keybindings.version,
+          },
+        },
+      ),
+    );
+  }
+  assertUniqueObservedKeys(rows, `${sourcePath} REPL surface inventory`);
+  return sortSurfaces(rows);
+}
+
 function cliValueShapeRows(kind, pathName, id, shape, sourcePath, refPrefix) {
   const prefix = `${kind}:${cliSurfaceComponent(pathName)}:${cliSurfaceComponent(id)}`;
   const refs = [sourceSymbol(sourcePath, refPrefix)];
@@ -10843,8 +14707,8 @@ export function scanRuntimeCliSurfaces(
     }
   }
   const rows = scanRuntimeCommandClasses(manifest, sourcePath);
-  if (manifest.version !== 4) {
-    throw new Error(`${sourcePath}: recursive CLI manifest version must be 4`);
+  if (manifest.version !== 5) {
+    throw new Error(`${sourcePath}: recursive CLI manifest version must be 5`);
   }
   assertExactObjectKeys(
     manifest.clapSurface,
@@ -10947,6 +14811,7 @@ export function scanRuntimeCliSurfaces(
       assertExactObjectKeys(
         option,
         new Set([
+          "global",
           "hidden",
           "hiddenAliases",
           "id",
@@ -10988,6 +14853,9 @@ export function scanRuntimeCliSurfaces(
         throw new Error(`${optionLabel}.names has an invalid option route`);
       }
       validateCliValueShape(option.valueShape, `${optionLabel}.valueShape`);
+      if (option.global !== undefined && option.global !== true) {
+        throw new Error(`${optionLabel}.global must be true when present`);
+      }
       const ref = `clapSurface.command:${command.path}:option:${option.id}`;
       const refs = [sourceSymbol(sourcePath, ref)];
       rows.push(
@@ -10999,6 +14867,7 @@ export function scanRuntimeCliSurfaces(
             metadata: {
               commandPath: command.path,
               evidenceType: "cli-option-route",
+              global: option.global === true,
               hidden: option.hidden === true,
               id: option.id,
               valueShape: option.valueShape,
@@ -11371,6 +15240,53 @@ function mergeDynamicNamespaceEvidence(existing, row, label) {
   }
 }
 
+function mergeFactoryReturnedCallableEvidence(existing, row, label) {
+  const claims = [existing, row].filter(
+    (candidate) =>
+      candidate.metadata?.factoryReturnedCallableSourceContract !== undefined,
+  );
+  if (claims.length === 0) return;
+  for (const claim of claims) {
+    const contract = claim.metadata.factoryReturnedCallableSourceContract;
+    if (
+      contract?.schema !== FACTORY_RETURNED_CALLABLE_SOURCE_CONTRACT_SCHEMA ||
+      contract.proofKind !== "lexically-bound-factory-returned-function" ||
+      contract.factoryBindingKind !== "function-declaration" ||
+      contract.factoryName !== "wrapSingleUseListener" ||
+      contract.returnedValueShape !== "callable" ||
+      contract.sourcePath !== REVIEWED_FACTORY_RETURNED_CALLABLE_SOURCE_PATH ||
+      contract.installedPath !== claim.metadata.exportName ||
+      !new Set(["process.once", "process.prependOnceListener"]).has(
+        contract.installedPath,
+      ) ||
+      ![
+        contract.callsiteEvidence,
+        contract.evidence,
+        contract.factoryDefinitionEvidence,
+      ].every((evidence) => /^sha256-[a-f0-9]{64}$/u.test(evidence ?? ""))
+    ) {
+      throw new Error(
+        `${label}: malformed factory-returned callable evidence for ${claim.observedKey}`,
+      );
+    }
+  }
+  const contracts = new Map(
+    claims.map((claim) => {
+      const contract = claim.metadata.factoryReturnedCallableSourceContract;
+      return [contract.evidence, contract];
+    }),
+  );
+  if (contracts.size !== 1) {
+    throw new Error(
+      `${label}: conflicting factory-returned callable evidence for ${row.observedKey}`,
+    );
+  }
+  existing.metadata ??= {};
+  existing.metadata.factoryReturnedCallableSourceContract = structuredClone(
+    contracts.values().next().value,
+  );
+}
+
 function mergeSurfaceEvidence(rows, label) {
   const merged = new Map();
   for (const row of rows) {
@@ -11421,6 +15337,25 @@ function mergeSurfaceEvidence(rows, label) {
     // install `eval`; merging its route must not erase pin-bound taming proof.
     mergeHermesEvaluatorEvidence(existing, row, label);
     mergeDynamicNamespaceEvidence(existing, row, label);
+    mergeFactoryReturnedCallableEvidence(existing, row, label);
+    const readClaims = [existing, row].filter(
+      (candidate) => candidate.metadata?.publicReadAccessSourceProven === true,
+    );
+    if (readClaims.length > 0) {
+      existing.metadata ??= {};
+      existing.metadata.publicReadAccessSourceProven = true;
+      const valueShapes = readClaims.map(
+        (candidate) => candidate.metadata?.valueShape ?? null,
+      );
+      const resolvedShape =
+        valueShapes.every(
+          (valueShape) => valueShape !== null && valueShape === valueShapes[0],
+        ) && valueShapes.length > 0
+          ? valueShapes[0]
+          : null;
+      if (resolvedShape) existing.metadata.valueShape = resolvedShape;
+      else delete existing.metadata.valueShape;
+    }
     for (const listKey of ["memberKinds", "semanticRoles"]) {
       if (existing.metadata?.[listKey] || row.metadata?.[listKey]) {
         existing.metadata ??= {};
@@ -11736,23 +15671,83 @@ export function scanNativeLifecycleSurfaces(
 
 const LOADER_FUNCTION_NAME =
   /(?:builtin|capabilit|compile|import|load|module|principal|resolve)/iu;
+const CROSS_TARGET_AUTHENTICATED_RESOLVER_FUNCTIONS = new Set([
+  "authenticated_resolver_base_dir",
+  "canonicalize",
+  "metadata",
+  "new",
+  "read_link",
+  "resolve_direct_file_meta_authenticated",
+  "resolve_meta_authenticated",
+  "resolve_meta_from_authenticated_bound_package",
+  "symlink_metadata",
+]);
 
-function containsKindMember(node) {
-  let found = false;
-  walkAst(node, (candidate) => {
-    if (
-      candidate.type === "MemberExpression" &&
-      ((!candidate.computed &&
-        candidate.property?.type === "Identifier" &&
-        candidate.property.name === "kind") ||
-        (candidate.computed &&
-          candidate.property?.type === "StringLiteral" &&
-          candidate.property.value === "kind"))
-    ) {
-      found = true;
+function authenticatedResolverTargetMetadata(name, targetVariant = null) {
+  if (targetVariant) return { targetVariant };
+  if (!CROSS_TARGET_AUTHENTICATED_RESOLVER_FUNCTIONS.has(name)) return {};
+  return {
+    branches: [
+      {
+        id: "descriptor-relative-posix",
+        implementationDisposition: "concrete",
+        targetVariant: "posix",
+      },
+      {
+        id: "windows-unsupported",
+        implementationDisposition: "unsupported-stub",
+        targetVariant: "windows",
+      },
+    ],
+  };
+}
+
+function isKindMember(node) {
+  if (!(
+    node?.type === "MemberExpression" &&
+    ((!node.computed &&
+      node.property?.type === "Identifier" &&
+      node.property.name === "kind") ||
+      (node.computed &&
+        node.property?.type === "StringLiteral" &&
+        node.property.value === "kind"))
+  )) {
+    return false;
+  }
+
+  // The authenticated loader now carries principal records whose discriminator
+  // is also named `kind` (`root` / `package`). They are authority identities,
+  // not module-format branches. Keep the source-derived module-kind inventory
+  // open to genuinely new record kinds while excluding only the structurally
+  // distinct principal owners.
+  const owner = staticMemberChain(node.object);
+  return !owner?.some((segment) => /principal/iu.test(segment));
+}
+
+function directLoaderKindLiteral(node) {
+  if (
+    node.type === "BinaryExpression" &&
+    new Set(["==", "===", "!=", "!=="]).has(node.operator)
+  ) {
+    if (isKindMember(node.left) && node.right?.type === "StringLiteral") {
+      return node.right.value;
     }
-  });
-  return found;
+    if (isKindMember(node.right) && node.left?.type === "StringLiteral") {
+      return node.left.value;
+    }
+  }
+  if (
+    node.type === "LogicalExpression" &&
+    new Set(["||", "??"]).has(node.operator)
+  ) {
+    if (isKindMember(node.left) && node.right?.type === "StringLiteral") {
+      return node.right.value;
+    }
+    if (isKindMember(node.right) && node.left?.type === "StringLiteral") {
+      return node.left.value;
+    }
+  }
+  return null;
 }
 
 function normalizeLoaderKind(value) {
@@ -11787,25 +15782,11 @@ export function scanJavaScriptLoaderSurfaces(
     );
   }
   walkAst(program, (node) => {
-    if (
-      new Set([
-        "BinaryExpression",
-        "ConditionalExpression",
-        "LogicalExpression",
-      ]).has(node.type) &&
-      containsKindMember(node)
-    ) {
-      walkAst(node, (candidate) => {
-        if (
-          candidate.type === "StringLiteral" &&
-          /^[A-Za-z][A-Za-z0-9_-]*$/u.test(candidate.value)
-        ) {
-          const kind = normalizeLoaderKind(candidate.value);
-          if (!kindRefs.has(kind)) kindRefs.set(kind, 0);
-          kindRefs.set(kind, kindRefs.get(kind) + 1);
-        }
-      });
-    }
+    const literal = directLoaderKindLiteral(node);
+    if (literal === null || !/^[A-Za-z][A-Za-z0-9_-]*$/u.test(literal)) return;
+    const kind = normalizeLoaderKind(literal);
+    if (!kindRefs.has(kind)) kindRefs.set(kind, 0);
+    kindRefs.set(kind, kindRefs.get(kind) + 1);
   });
 
   for (const [name, occurrenceCount] of functionCounts) {
@@ -12041,6 +16022,7 @@ export function scanJavaScriptLoaderRoutes(
     ["loadInternal", "entry:load-internal"],
     ["localRequire", "entry:local-require"],
     ["moduleDynamicImport", "entry:module-dynamic-import"],
+    ["moduleStaticImport", "entry:module-static-import"],
   ]);
   for (const [definition, route] of definitionRoutes) {
     if (!definitions.has(definition)) {
@@ -12106,10 +16088,17 @@ export function scanRustLoaderSurfaces(text, sourcePath = "<loader-source>") {
 
   for (const definition of rustFunctionDefinitions(tokens)) {
     if (!LOADER_FUNCTION_NAME.test(definition.name)) continue;
-    functionCounts.set(
-      definition.name,
-      (functionCounts.get(definition.name) ?? 0) + 1,
+    const observed = functionCounts.get(definition.name) ?? {
+      occurrenceCount: 0,
+      targetVariants: new Set(),
+    };
+    observed.occurrenceCount += 1;
+    const targetVariant = rustImmediateCfgTargetVariant(
+      tokens,
+      definition.fnIndex,
     );
+    if (targetVariant) observed.targetVariants.add(targetVariant);
+    functionCounts.set(definition.name, observed);
   }
 
   for (let index = 0; index < tokens.length; index += 1) {
@@ -12125,14 +16114,22 @@ export function scanRustLoaderSurfaces(text, sourcePath = "<loader-source>") {
     }
   }
 
-  for (const [name, occurrenceCount] of functionCounts) {
+  for (const [name, observed] of functionCounts) {
+    const targetVariant =
+      observed.targetVariants.size === 1
+        ? [...observed.targetVariants][0]
+        : null;
     rows.push(
       makeSurface(
         "loader",
         `function:rust:${name}`,
         [sourceSymbol(sourcePath, name)],
         {
-          metadata: { evidenceType: "loader-function", occurrenceCount },
+          metadata: {
+            evidenceType: "loader-function",
+            occurrenceCount: observed.occurrenceCount,
+            ...authenticatedResolverTargetMetadata(name, targetVariant),
+          },
         },
       ),
     );
@@ -12173,6 +16170,9 @@ function rustQualifiedCallPath(tokens, terminalIndex) {
 function qualifiedLoaderAuthorityOperation(segments) {
   const joined = segments.join("::");
   const terminal = segments.at(-1);
+  if (/^libc::(?:open|openat)$/u.test(joined)) return "open";
+  if (/^libc::(?:fstat|fstatat)$/u.test(joined)) return "metadata";
+  if (joined === "libc::readlinkat") return "read_link";
   const authorityPrefix =
     /^(?:std::(?:env|fs|io|net|process)|(?:async_std|tokio)::(?:fs|io|net|process))::/u.test(
       joined,
@@ -12182,22 +16182,23 @@ function qualifiedLoaderAuthorityOperation(segments) {
     );
   if (!authorityPrefix) return null;
   if (/(?:^|::)Command::new$/u.test(joined)) return "command-new";
+  if (/(?:^|::)File::from$/u.test(joined)) return "from-owned-fd";
   if (/^(?:std::)?env::/u.test(joined)) return `env-${terminal}`;
   if (/^std::process::/u.test(joined)) return `process-${terminal}`;
   return terminal;
 }
 
-function loaderExternalCallIdentity(tokens, index, localNames) {
+function loaderExternalCallIdentity(tokens, index, localTargets) {
   if (tokens[index]?.type !== "identifier" || tokens[index + 1]?.value !== "(")
     return null;
   const name = tokens[index].value;
   if (new Set(["if", "loop", "match", "return", "while"]).has(name)) {
     return null;
   }
+  if (localTargets.length > 0) return null;
   const qualified = rustQualifiedCallPath(tokens, index);
   if (qualified.length > 1) return `qualified:${qualified.join("::")}`;
   if (tokens[index - 1]?.value === ".") return `method:${name}`;
-  if (localNames.has(name)) return null;
   return `call:${name}`;
 }
 
@@ -12211,56 +16212,964 @@ export function scanRustLoaderRoutes(sources) {
   if (!Array.isArray(sources) || sources.length === 0) {
     throw new Error("Rust loader route scan requires source inputs");
   }
+
+  const moduleIdForSourcePath = (sourcePath) => {
+    const segments = sourcePath.split("/");
+    const file = segments.at(-1) ?? sourcePath;
+    const stem = file.replace(/\.rs$/u, "");
+    return stem === "mod" ? (segments.at(-2) ?? stem) : stem;
+  };
+  const implScopes = (tokens) => {
+    const scopes = [];
+    const firstTypeIdentifier = (start, end) => {
+      let cursor = start;
+      if (tokens[cursor]?.value === "<") {
+        let depth = 0;
+        while (cursor < end) {
+          if (tokens[cursor]?.value === "<") depth += 1;
+          if (tokens[cursor]?.value === ">") {
+            depth -= 1;
+            if (depth === 0) {
+              cursor += 1;
+              break;
+            }
+          }
+          cursor += 1;
+        }
+      }
+      while (cursor < end) {
+        if (tokens[cursor]?.type === "identifier") {
+          let name = tokens[cursor].value;
+          while (
+            tokens[cursor + 1]?.value === ":" &&
+            tokens[cursor + 2]?.value === ":" &&
+            tokens[cursor + 3]?.type === "identifier"
+          ) {
+            name = tokens[cursor + 3].value;
+            cursor += 3;
+          }
+          return name;
+        }
+        cursor += 1;
+      }
+      return null;
+    };
+
+    for (let index = 0; index < tokens.length; index += 1) {
+      if (tokens[index]?.value !== "impl") continue;
+      let bodyOpen = index + 1;
+      while (
+        bodyOpen < tokens.length &&
+        !new Set(["{", ";"]).has(tokens[bodyOpen]?.value)
+      ) {
+        bodyOpen += 1;
+      }
+      if (tokens[bodyOpen]?.value !== "{") continue;
+      const bodyClose = matchingToken(tokens, bodyOpen, "{", "}");
+      if (bodyClose === -1) continue;
+      let forIndex = -1;
+      for (let cursor = index + 1; cursor < bodyOpen; cursor += 1) {
+        if (tokens[cursor]?.value === "for") forIndex = cursor;
+      }
+      const trait =
+        forIndex === -1
+          ? null
+          : firstTypeIdentifier(index + 1, forIndex);
+      const selfType = firstTypeIdentifier(
+        forIndex === -1 ? index + 1 : forIndex + 1,
+        bodyOpen,
+      );
+      if (selfType) {
+        scopes.push({ bodyClose, bodyOpen, selfType, trait });
+      }
+    }
+    return scopes;
+  };
+
   const records = [];
   for (const source of sources) {
     const tokens = rustProductionTokens(source.text, source.sourcePath);
-    for (const definition of rustFunctionDefinitions(tokens)) {
-      records.push({ definition, sourcePath: source.sourcePath, tokens });
+    const definitions = rustFunctionDefinitions(tokens);
+    const sourceRecords = definitions.map((definition) => ({
+      definition,
+      id: `${source.sourcePath}#fn-${definition.nameIndex}`,
+      moduleId: moduleIdForSourcePath(source.sourcePath),
+      sourcePath: source.sourcePath,
+      targetVariant: rustImmediateCfgTargetVariant(tokens, definition.fnIndex),
+      tokens,
+    }));
+    const scopes = implScopes(tokens);
+    for (const record of sourceRecords) {
+      const lexicalParent = sourceRecords
+        .filter(
+          (candidate) =>
+            candidate.definition.bodyOpen < record.definition.fnIndex &&
+            candidate.definition.bodyClose > record.definition.bodyClose,
+        )
+        .sort(
+          (left, right) =>
+            right.definition.bodyOpen - left.definition.bodyOpen,
+        )[0];
+      const enclosingImpl = scopes
+        .filter(
+          (scope) =>
+            scope.bodyOpen < record.definition.fnIndex &&
+            scope.bodyClose > record.definition.bodyClose,
+        )
+        .sort((left, right) => right.bodyOpen - left.bodyOpen)[0];
+      const directImplMember =
+        enclosingImpl &&
+        enclosingImpl.bodyOpen >
+          (lexicalParent?.definition.bodyOpen ?? Number.NEGATIVE_INFINITY);
+      record.lexicalParentFnId = lexicalParent?.id ?? null;
+      record.implSelfType = directImplMember
+        ? enclosingImpl.selfType
+        : null;
+      record.implTrait = directImplMember ? enclosingImpl.trait : null;
+      const parameters = new Map();
+      const parametersOpen = tokens.findIndex(
+        (token, index) =>
+          index > record.definition.nameIndex &&
+          index < record.definition.bodyOpen &&
+          token.value === "(",
+      );
+      const parametersClose =
+        parametersOpen === -1
+          ? -1
+          : matchingToken(tokens, parametersOpen, "(", ")");
+      record.parametersClose = parametersClose;
+      if (parametersClose !== -1) {
+        for (
+          let cursor = parametersOpen + 1;
+          cursor < parametersClose - 1;
+          cursor += 1
+        ) {
+          if (
+            tokens[cursor]?.type !== "identifier" ||
+            tokens[cursor + 1]?.value !== ":" ||
+            tokens[cursor + 2]?.value === ":"
+          ) {
+            continue;
+          }
+          let typeCursor = cursor + 2;
+          while (
+            typeCursor < parametersClose &&
+            tokens[typeCursor]?.type !== "identifier"
+          ) {
+            typeCursor += 1;
+          }
+          if (tokens[typeCursor]?.type === "identifier") {
+            let typeName = tokens[typeCursor].value;
+            while (
+              tokens[typeCursor + 1]?.value === ":" &&
+              tokens[typeCursor + 2]?.value === ":" &&
+              tokens[typeCursor + 3]?.type === "identifier"
+            ) {
+              typeName = tokens[typeCursor + 3].value;
+              typeCursor += 3;
+            }
+            parameters.set(tokens[cursor].value, typeName);
+          }
+        }
+      }
+      record.parameterTypes = parameters;
+      record.definitionId = record.implSelfType
+        ? `${record.moduleId}::${record.implSelfType}${record.implTrait ? ` as ${record.implTrait}` : ""}::${record.definition.name}`
+        : record.lexicalParentFnId
+          ? `${lexicalParent.definitionId ?? `${record.moduleId}::${lexicalParent.definition.name}`}::${record.definition.name}`
+          : `${record.moduleId}::${record.definition.name}`;
     }
-  }
-  const byName = new Map();
-  for (const record of records) {
-    const values = byName.get(record.definition.name) ?? [];
-    values.push(record);
-    byName.set(record.definition.name, values);
+    records.push(...sourceRecords);
   }
 
-  const ignoredAmbiguousCallees = new Set([
-    "clone",
-    "default",
-    "from",
-    "into",
-    "new",
+  const byId = new Map(records.map((record) => [record.id, record]));
+  const byName = new Map();
+  const freeByModuleAndName = new Map();
+  const methodByModuleTypeAndName = new Map();
+  const append = (map, key, record) => {
+    const values = map.get(key) ?? [];
+    values.push(record);
+    map.set(key, values);
+  };
+  for (const record of records) {
+    append(byName, record.definition.name, record);
+    if (record.implSelfType) {
+      append(
+        methodByModuleTypeAndName,
+        `${record.moduleId}\0${record.implSelfType}\0${record.definition.name}`,
+        record,
+      );
+    } else if (!record.lexicalParentFnId) {
+      append(
+        freeByModuleAndName,
+        `${record.moduleId}\0${record.definition.name}`,
+        record,
+      );
+    }
+  }
+  const moduleIds = new Set(records.map((record) => record.moduleId));
+  const locallyImplementedTypes = new Set(
+    records.map((record) => record.implSelfType).filter(Boolean),
+  );
+  const reviewedRustValueTypes = new Set([
+    ...locallyImplementedTypes,
+    "Command",
+    "DirEntry",
+    "File",
+    "OpenOptions",
+    "Path",
+    "PathBuf",
+    "ReadDir",
+    "ResolvedModule",
   ]);
-  const localCalls = (record) => {
-    const calls = new Set();
+  for (const record of records) {
+    const returnTokens = record.tokens.slice(
+      Math.max(record.parametersClose + 1, record.definition.nameIndex + 1),
+      record.definition.bodyOpen,
+    );
+    record.returnType = returnTokens.some(
+      (token) => token.value === "Self",
+    )
+      ? record.implSelfType
+      : returnTokens.find(
+          (token) =>
+            token.type === "identifier" &&
+            reviewedRustValueTypes.has(token.value),
+        )?.value ?? null;
+  }
+  const externalReturnType = (tokens, index, receiverType = null) => {
+    const qualified = rustQualifiedCallPath(tokens, index).join("::");
+    if (/(?:^|::)File::(?:from|from_raw_fd)$/u.test(qualified)) return "File";
+    if (/(?:^|::)Command::new$/u.test(qualified)) return "Command";
+    if (/(?:^|::)OpenOptions::new$/u.test(qualified)) return "OpenOptions";
+    if (/(?:^|::)Path::new$/u.test(qualified)) return "Path";
+    if (/(?:^|::)PathBuf::from$/u.test(qualified)) return "PathBuf";
+    if (/^(?:std::)?fs::read_dir$/u.test(qualified)) return "ReadDir";
+    if (receiverType === "OpenOptions" && tokens[index]?.value === "open") {
+      return "File";
+    }
+    return null;
+  };
+  const reviewedLetPostfixType = (receiverType, method) => {
+    if (new Set(["context", "with_context"]).has(method)) return receiverType;
+    if (receiverType === "OpenOptions") {
+      if (method === "open") return "File";
+      if (
+        new Set([
+          "append",
+          "create",
+          "create_new",
+          "custom_flags",
+          "read",
+          "truncate",
+          "write",
+        ]).has(method)
+      ) {
+        return "OpenOptions";
+      }
+    }
+    if (receiverType === "Command") {
+      if (
+        new Set([
+          "arg",
+          "args",
+          "current_dir",
+          "env",
+          "env_clear",
+          "env_remove",
+          "stderr",
+          "stdin",
+          "stdout",
+        ]).has(method)
+      ) {
+        return "Command";
+      }
+    }
+    if (receiverType === "ReadDir" && method === "collect") {
+      return "VecDirEntry";
+    }
+    if (receiverType === "PathBuf" && method === "as_path") return "Path";
+    return null;
+  };
+  const exactReviewedLetRhsType = (
+    tokens,
+    rhsStart,
+    statementEnd,
+    candidate,
+  ) => {
+    const [callIndex, initialType, callDepth] = candidate;
+    const unsafeWrapper =
+      tokens[rhsStart]?.value === "unsafe" &&
+      tokens[rhsStart + 1]?.value === "{" &&
+      matchingToken(tokens, rhsStart + 1, "{", "}") === statementEnd - 1;
+    if (callDepth !== (unsafeWrapper ? 1 : 0)) return null;
+    let cursor = matchingToken(tokens, callIndex + 1, "(", ")") + 1;
+    if (cursor === 0) return null;
+    let inferredType = initialType;
+    const valueEnd = unsafeWrapper ? statementEnd - 1 : statementEnd;
+    while (cursor < valueEnd) {
+      if (tokens[cursor]?.value === "?") {
+        cursor += 1;
+        continue;
+      }
+      if (
+        tokens[cursor]?.value !== "." ||
+        tokens[cursor + 1]?.type !== "identifier"
+      ) {
+        return null;
+      }
+      const method = tokens[cursor + 1].value;
+      inferredType = reviewedLetPostfixType(inferredType, method);
+      if (!inferredType) return null;
+      let argsOpen = cursor + 2;
+      while (argsOpen < valueEnd && tokens[argsOpen]?.value !== "(") {
+        argsOpen += 1;
+      }
+      if (tokens[argsOpen]?.value !== "(") return null;
+      const argsClose = matchingToken(tokens, argsOpen, "(", ")");
+      if (argsClose === -1 || argsClose >= valueEnd) return null;
+      cursor = argsClose + 1;
+    }
+    return cursor === valueEnd ? inferredType : null;
+  };
+  for (const record of records) {
+    const inferred = new Map(record.parameterTypes);
     const { bodyOpen, bodyClose } = record.definition;
     for (let index = bodyOpen + 1; index < bodyClose; index += 1) {
-      const token = record.tokens[index];
+      if (record.tokens[index]?.value !== "let") continue;
+      let bindingCursor = index + 1;
+      if (record.tokens[bindingCursor]?.value === "mut") bindingCursor += 1;
+      let binding = null;
       if (
-        token?.type !== "identifier" ||
-        record.tokens[index + 1]?.value !== "(" ||
-        ignoredAmbiguousCallees.has(token.value) ||
-        !byName.has(token.value)
+        record.tokens[bindingCursor]?.value === "Ok" &&
+        record.tokens[bindingCursor + 1]?.value === "(" &&
+        record.tokens[bindingCursor + 2]?.type === "identifier" &&
+        record.tokens[bindingCursor + 3]?.value === ")"
+      ) {
+        binding = record.tokens[bindingCursor + 2].value;
+      } else if (record.tokens[bindingCursor]?.type === "identifier") {
+        binding = record.tokens[bindingCursor].value;
+      }
+      if (!binding) continue;
+
+      let equalsIndex = bindingCursor + 1;
+      while (
+        equalsIndex < bodyClose &&
+        !new Set(["=", ";"]).has(record.tokens[equalsIndex]?.value)
+      ) {
+        equalsIndex += 1;
+      }
+      if (record.tokens[equalsIndex]?.value !== "=") continue;
+
+      let statementEnd = equalsIndex + 1;
+      const delimiterStack = [];
+      while (statementEnd < bodyClose) {
+        const value = record.tokens[statementEnd]?.value;
+        if (new Set(["(", "[", "{"]).has(value)) {
+          delimiterStack.push(value);
+        } else if (new Set([")", "]", "}"]).has(value)) {
+          delimiterStack.pop();
+        } else if (
+          delimiterStack.length === 0 &&
+          new Set(["else", ";"]).has(value)
+        ) {
+          break;
+        }
+        statementEnd += 1;
+      }
+
+      let explicitType = null;
+      const colonIndex = record.tokens.findIndex(
+        (token, cursor) =>
+          cursor > bindingCursor &&
+          cursor < equalsIndex &&
+          token.value === ":" &&
+          record.tokens[cursor + 1]?.value !== ":",
+      );
+      if (colonIndex !== -1) {
+        explicitType = record.tokens
+          .slice(colonIndex + 1, equalsIndex)
+          .find(
+            (token) =>
+              token.type === "identifier" &&
+              reviewedRustValueTypes.has(token.value),
+          )?.value;
+      }
+
+      let expressionDepth = 0;
+      let hasTopLevelControl = false;
+      let hasTopLevelComma = false;
+      let firstRhsCallIndex = null;
+      const candidates = [];
+      for (let cursor = equalsIndex + 1; cursor < statementEnd; cursor += 1) {
+        const value = record.tokens[cursor]?.value;
+        if (new Set(["(", "[", "{"]).has(value)) expressionDepth += 1;
+        if (new Set([")", "]", "}"]).has(value)) expressionDepth -= 1;
+        if (expressionDepth === 0 && new Set(["if", "match"]).has(value)) {
+          hasTopLevelControl = true;
+        }
+        if (expressionDepth === 0 && value === ",") hasTopLevelComma = true;
+        if (
+          record.tokens[cursor]?.type !== "identifier" ||
+          record.tokens[cursor + 1]?.value !== "("
+        ) {
+          continue;
+        }
+        firstRhsCallIndex ??= cursor;
+        const qualifiedType = externalReturnType(record.tokens, cursor);
+        if (qualifiedType) {
+          candidates.push([cursor, qualifiedType, expressionDepth]);
+        }
+        if (
+          record.tokens[cursor - 1]?.value === "." &&
+          record.tokens[cursor - 2]?.type === "identifier"
+        ) {
+          const receiver = record.tokens[cursor - 2].value;
+          const receiverType =
+            inferred.get(receiver) ??
+            (receiver === "self" ? record.implSelfType : null);
+          if (receiverType) {
+            const targets =
+              methodByModuleTypeAndName.get(
+                `${record.moduleId}\0${receiverType}\0${record.tokens[cursor].value}`,
+              ) ?? [];
+            if (targets.length === 1 && targets[0].returnType) {
+              candidates.push([
+                cursor,
+                targets[0].returnType,
+                expressionDepth,
+              ]);
+            } else {
+              const externalType = externalReturnType(
+                record.tokens,
+                cursor,
+                receiverType,
+              );
+              if (externalType) {
+                candidates.push([cursor, externalType, expressionDepth]);
+              }
+            }
+          }
+        }
+      }
+      const rhsStart = equalsIndex + 1;
+      const outerTupleClose =
+        record.tokens[rhsStart]?.value === "("
+          ? matchingToken(record.tokens, rhsStart, "(", ")")
+          : -1;
+      const hasOuterTuple =
+        outerTupleClose === statementEnd - 1 &&
+        record.tokens
+          .slice(rhsStart + 1, outerTupleClose)
+          .some((token) => token.value === ",");
+
+      let inferredType = explicitType ?? null;
+      if (
+        !inferredType &&
+        !hasTopLevelControl &&
+        !hasTopLevelComma &&
+        !hasOuterTuple &&
+        candidates.length === 1 &&
+        candidates[0][0] === firstRhsCallIndex
+      ) {
+        inferredType = exactReviewedLetRhsType(
+          record.tokens,
+          rhsStart,
+          statementEnd,
+          candidates[0],
+        );
+      }
+      if (inferredType) inferred.set(binding, inferredType);
+    }
+    record.inferredReceiverTypes = inferred;
+    record.scopedReceiverTypes = [];
+  }
+  const nestedDefinitionRanges = new Map();
+  for (const record of records) {
+    nestedDefinitionRanges.set(
+      record.id,
+      new Map(
+        records
+          .filter(
+            (candidate) =>
+              candidate.sourcePath === record.sourcePath &&
+              candidate.id !== record.id &&
+              candidate.definition.fnIndex > record.definition.bodyOpen &&
+              candidate.definition.bodyClose < record.definition.bodyClose,
+          )
+          .map((candidate) => [
+            candidate.definition.fnIndex,
+            candidate.definition.bodyClose,
+          ]),
+      ),
+    );
+  }
+  const requireUnambiguous = (candidates, label) => {
+    if (candidates.length > 1) {
+      throw new Error(
+        `ambiguous Rust loader local call ${label}: ${candidates
+          .map((candidate) => candidate.definitionId)
+          .join(", ")}`,
+      );
+    }
+    return candidates;
+  };
+  const localCallTargets = (record, index) => {
+    const token = record.tokens[index];
+    if (
+      token?.type !== "identifier" ||
+      record.tokens[index + 1]?.value !== "(" ||
+      new Set(["if", "loop", "match", "return", "while"]).has(token.value)
+    ) {
+      return [];
+    }
+
+    if (record.tokens[index - 1]?.value === ".") {
+      const receiver = record.tokens[index - 2];
+      let receiverType =
+        receiver?.type === "identifier" && receiver.value === "self"
+          ? record.implSelfType
+          : null;
+      if (receiver?.type === "identifier") {
+        receiverType ??=
+          record.inferredReceiverTypes.get(receiver.value) ?? null;
+      }
+      if (
+        !receiverType &&
+        receiver?.type === "identifier" &&
+        record.tokens[index - 3]?.value === "." &&
+        record.tokens[index - 4]?.value === "self" &&
+        record.implSelfType === "ModuleLoader" &&
+        receiver.value === "environment"
+      ) {
+        receiverType = "CapturedModuleLoaderEnvironment";
+      }
+      if (
+        !receiverType &&
+        receiver?.type === "identifier" &&
+        record.tokens[index - 3]?.value === ":" &&
+        record.tokens[index - 4]?.value === ":" &&
+        record.tokens[index - 5]?.value === "TransformEngine"
+      ) {
+        receiverType = "TransformEngine";
+      }
+      if (!receiverType) {
+        let closeIndex = index - 2;
+        if (record.tokens[closeIndex]?.value === "?") closeIndex -= 1;
+        if (record.tokens[closeIndex]?.value === ")") {
+          const openIndex = matchingOpeningToken(
+            record.tokens,
+            closeIndex,
+            "(",
+            ")",
+          );
+          const callIndex = openIndex - 1;
+          if (record.tokens[callIndex]?.type === "identifier") {
+            const targets = localCallTargets(record, callIndex);
+            if (targets.length === 1) {
+              receiverType = targets[0].returnType;
+            }
+            receiverType ??= externalReturnType(
+              record.tokens,
+              callIndex,
+            );
+          }
+        }
+      }
+      if (
+        !receiverType &&
+        record.moduleId === "transpile" &&
+        record.definition.name === "selected_engine_cache_tag" &&
+        token.value === "cache_tag"
+      ) {
+        receiverType = "TransformEngine";
+      }
+      if (!receiverType) return [];
+      return requireUnambiguous(
+        methodByModuleTypeAndName.get(
+          `${record.moduleId}\0${receiverType}\0${token.value}`,
+        ) ?? [],
+        `${record.definitionId}:${receiver?.value ?? "expression"}.${token.value}`,
+      );
+    }
+
+    const qualified = rustQualifiedCallPath(record.tokens, index);
+    if (qualified.length > 1) {
+      const qualifier = qualified.at(-2);
+      if (qualifier === "Self") {
+        if (!record.implSelfType) return [];
+        return requireUnambiguous(
+          methodByModuleTypeAndName.get(
+            `${record.moduleId}\0${record.implSelfType}\0${token.value}`,
+          ) ?? [],
+          `${record.definitionId}:Self::${token.value}`,
+        );
+      }
+      const qualifiedModule = moduleIds.has(qualifier)
+        ? qualifier
+        : record.moduleId;
+      const candidates = [
+        ...(methodByModuleTypeAndName.get(
+          `${qualifiedModule}\0${qualifier}\0${token.value}`,
+        ) ?? []),
+        ...(moduleIds.has(qualifier)
+          ? (freeByModuleAndName.get(`${qualifier}\0${token.value}`) ?? [])
+          : []),
+      ];
+      return requireUnambiguous(
+        candidates,
+        `${record.definitionId}:${qualified.join("::")}`,
+      );
+    }
+
+    const sameName = byName.get(token.value) ?? [];
+    if (
+      record.definition.name === token.value &&
+      !record.implSelfType &&
+      record.lexicalParentFnId
+    ) {
+      return [record];
+    }
+    let scopeId = record.id;
+    while (scopeId) {
+      const nested = sameName.filter(
+        (candidate) =>
+          !candidate.implSelfType && candidate.lexicalParentFnId === scopeId,
+      );
+      if (nested.length > 0) {
+        return requireUnambiguous(
+          nested,
+          `${record.definitionId}:nested:${token.value}`,
+        );
+      }
+      scopeId = byId.get(scopeId)?.lexicalParentFnId ?? null;
+    }
+    return requireUnambiguous(
+      freeByModuleAndName.get(`${record.moduleId}\0${token.value}`) ?? [],
+      `${record.definitionId}:free:${token.value}`,
+    );
+  };
+
+  const reviewedFieldType = (ownerType, field) => {
+    if (ownerType === "ResolvedModule" && field === "path") {
+      return "OptionPathBuf";
+    }
+    return null;
+  };
+  const exactReadDirOkFilterMap = (tokens, callIndex) => {
+    const argsOpen = callIndex + 1;
+    const argsClose = matchingToken(tokens, argsOpen, "(", ")");
+    if (argsClose === -1) return false;
+    const body = tokens.slice(argsOpen + 1, argsClose).map((token) => token.value);
+    return (
+      body.length === 7 &&
+      body[0] === "|" &&
+      body[2] === "|" &&
+      body[3] === body[1] &&
+      body[4] === "." &&
+      body[5] === "ok" &&
+      body[6] === "("
+    ) || (
+      body.length === 8 &&
+      body[0] === "|" &&
+      body[2] === "|" &&
+      body[3] === body[1] &&
+      body[4] === "." &&
+      body[5] === "ok" &&
+      body[6] === "(" &&
+      body[7] === ")"
+    );
+  };
+  const reviewedMethodValueType = (receiverType, method, tokens, callIndex) => {
+    if (receiverType === "OpenOptions") {
+      if (method === "open") return "File";
+      if (
+        new Set([
+          "append",
+          "create",
+          "create_new",
+          "custom_flags",
+          "read",
+          "truncate",
+          "write",
+        ]).has(method)
+      ) {
+        return "OpenOptions";
+      }
+    }
+    if (receiverType === "Command") {
+      if (
+        new Set([
+          "arg",
+          "args",
+          "current_dir",
+          "env",
+          "env_clear",
+          "env_remove",
+          "stderr",
+          "stdin",
+          "stdout",
+        ]).has(method)
+      ) {
+        return "Command";
+      }
+    }
+    if (receiverType === "OptionPathBuf" && method === "as_deref") {
+      return "OptionPath";
+    }
+    if (receiverType === "OptionPath" && method === "ok_or_else") {
+      return "Path";
+    }
+    if (receiverType === "PathBuf" && method === "as_path") return "Path";
+    if (
+      new Set(["Path", "PathBuf"]).has(receiverType) &&
+      method === "canonicalize"
+    ) {
+      return "PathBuf";
+    }
+    if (receiverType === "ReadDir") {
+      if (method === "collect") return "VecDirEntry";
+      if (method === "filter_map" && exactReadDirOkFilterMap(tokens, callIndex)) {
+        return "IteratorDirEntry";
+      }
+    }
+    if (receiverType === "VecDirEntry") {
+      if (new Set(["filter", "iter", "into_iter"]).has(method)) {
+        return "IteratorDirEntry";
+      }
+    }
+    if (receiverType === "IteratorDirEntry" && method === "filter") {
+      return "IteratorDirEntry";
+    }
+    return externalReturnType(tokens, callIndex, receiverType);
+  };
+
+  const expressionTypeAtEnd = (record, rawEndIndex, seen = new Set()) => {
+    let endIndex = rawEndIndex;
+    while (new Set(["?", "&", "mut"]).has(record.tokens[endIndex]?.value)) {
+      endIndex -= 1;
+    }
+    if (endIndex < record.definition.bodyOpen || seen.has(endIndex)) return null;
+    seen.add(endIndex);
+    const end = record.tokens[endIndex];
+    if (end?.type === "identifier") {
+      if (
+        record.tokens[endIndex - 1]?.value === "." &&
+        record.tokens[endIndex - 2]?.type === "identifier"
+      ) {
+        const ownerType = expressionTypeAtEnd(record, endIndex - 2, seen);
+        const fieldType = reviewedFieldType(ownerType, end.value);
+        if (fieldType) return fieldType;
+      }
+      return (
+        record.inferredReceiverTypes.get(end.value) ??
+        (end.value === "self" ? record.implSelfType : null)
+      );
+    }
+    if (end?.value !== ")") return null;
+    const openIndex = matchingOpeningToken(
+      record.tokens,
+      endIndex,
+      "(",
+      ")",
+    );
+    if (openIndex <= record.definition.bodyOpen) return null;
+    const callIndex = openIndex - 1;
+    if (record.tokens[callIndex]?.type !== "identifier") return null;
+    if (record.tokens[callIndex - 1]?.value === ".") {
+      const receiverType = expressionTypeAtEnd(record, callIndex - 2, seen);
+      if (!receiverType) return null;
+      const localTargets =
+        methodByModuleTypeAndName.get(
+          `${record.moduleId}\0${receiverType}\0${record.tokens[callIndex].value}`,
+        ) ?? [];
+      if (localTargets.length > 1) {
+        throw new Error(
+          `ambiguous Rust loader receiver type ${record.definitionId}:${receiverType}.${record.tokens[callIndex].value}`,
+        );
+      }
+      return (
+        localTargets[0]?.returnType ??
+        reviewedMethodValueType(
+          receiverType,
+          record.tokens[callIndex].value,
+          record.tokens,
+          callIndex,
+        )
+      );
+    }
+    const localTargets = localCallTargets(record, callIndex);
+    if (localTargets.length === 1 && localTargets[0].returnType) {
+      return localTargets[0].returnType;
+    }
+    return externalReturnType(record.tokens, callIndex);
+  };
+
+  for (const record of records) {
+    const { bodyOpen, bodyClose } = record.definition;
+    for (let index = bodyOpen + 1; index < bodyClose; index += 1) {
+      if (
+        record.tokens[index]?.value === "for" &&
+        record.tokens[index + 1]?.type === "identifier"
+      ) {
+        let inIndex = index + 2;
+        while (inIndex < bodyClose && record.tokens[inIndex]?.value !== "in") {
+          inIndex += 1;
+        }
+        let loopBodyOpen = inIndex + 1;
+        while (
+          loopBodyOpen < bodyClose &&
+          record.tokens[loopBodyOpen]?.value !== "{"
+        ) {
+          loopBodyOpen += 1;
+        }
+        const sourceType = expressionTypeAtEnd(
+          record,
+          loopBodyOpen - 1,
+        );
+        if (sourceType === "VecDirEntry") {
+          const loopBodyClose = matchingToken(
+            record.tokens,
+            loopBodyOpen,
+            "{",
+            "}",
+          );
+          record.scopedReceiverTypes.push({
+            end: loopBodyClose,
+            name: record.tokens[index + 1].value,
+            start: loopBodyOpen,
+            type: "DirEntry",
+          });
+        }
+      }
+      if (
+        record.tokens[index]?.value !== "|" ||
+        record.tokens[index + 1]?.type !== "identifier" ||
+        record.tokens[index + 2]?.value !== "|" ||
+        record.tokens[index - 1]?.value !== "("
       ) {
         continue;
       }
-      calls.add(token.value);
+      const callIndex = index - 2;
+      if (record.tokens[callIndex - 1]?.value !== ".") continue;
+      const receiverType = expressionTypeAtEnd(record, callIndex - 2);
+      if (!new Set(["IteratorDirEntry", "VecDirEntry"]).has(receiverType)) {
+        continue;
+      }
+      const callClose = matchingToken(
+        record.tokens,
+        index - 1,
+        "(",
+        ")",
+      );
+      record.scopedReceiverTypes.push({
+        end: callClose,
+        name: record.tokens[index + 1].value,
+        start: index + 2,
+        type: "DirEntry",
+      });
     }
-    return calls;
+  }
+
+  const receiverTypeAt = (record, receiver, index) => {
+    const scoped = record.scopedReceiverTypes
+      .filter(
+        (scope) =>
+          scope.name === receiver && scope.start < index && scope.end > index,
+      )
+      .sort((left, right) => right.start - left.start)[0];
+    return scoped?.type ?? record.inferredReceiverTypes.get(receiver) ?? null;
+  };
+  const localCallCache = new Map();
+  const localCalls = (record) => {
+    if (localCallCache.has(record.id)) return localCallCache.get(record.id);
+    const calls = new Map();
+    const { bodyOpen, bodyClose } = record.definition;
+    for (let index = bodyOpen + 1; index < bodyClose; index += 1) {
+      const nestedClose = nestedDefinitionRanges.get(record.id)?.get(index);
+      if (nestedClose !== undefined) {
+        index = nestedClose;
+        continue;
+      }
+      for (const target of localCallTargets(record, index)) {
+        calls.set(target.id, target);
+      }
+    }
+    const resolved = [...calls.values()];
+    localCallCache.set(record.id, resolved);
+    return resolved;
   };
 
+  const freeRoot = (moduleId, name) => ({ kind: "free", moduleId, name });
+  const methodRoot = (moduleId, selfType, name, trait = null) => ({
+    kind: "method",
+    moduleId,
+    name,
+    selfType,
+    trait,
+  });
   const categories = new Map([
     [
       "resolution",
       [
-        "normalize_import_target",
-        "resolve",
-        "resolve_meta",
-        "resolve_package_import",
+        freeRoot("module_loader", "normalize_import_target"),
+        freeRoot("module_loader", "open_resolver_boundary"),
+        methodRoot("module_loader", "AuthenticatedResolverInputs", "new"),
+        methodRoot(
+          "module_loader",
+          "AuthenticatedResolverInputs",
+          "parse_manifest",
+        ),
+        methodRoot(
+          "module_loader",
+          "AuthenticatedResolverInputs",
+          "uncaptured_package_manifest_probes",
+        ),
+        methodRoot("module_loader", "ModuleLoader", "resolve"),
+        methodRoot(
+          "module_loader",
+          "ModuleLoader",
+          "resolve_direct_file_meta_authenticated",
+        ),
+        methodRoot("module_loader", "ModuleLoader", "resolve_meta"),
+        methodRoot(
+          "module_loader",
+          "ModuleLoader",
+          "resolve_meta_authenticated",
+        ),
+        methodRoot(
+          "module_loader",
+          "ModuleLoader",
+          "resolve_meta_from_authenticated_bound_package",
+        ),
+        methodRoot(
+          "module_loader",
+          "ModuleLoader",
+          "resolve_package_import",
+        ),
+        ...[
+          "canonicalize",
+          "metadata",
+          "read",
+          "read_link",
+          "read_to_string",
+          "symlink_metadata",
+        ].map((name) =>
+          methodRoot(
+            "module_loader",
+            "BoundedResolverFileSystem",
+            name,
+            "ResolverFileSystem",
+          ),
+        ),
       ],
     ],
-    ["load", ["load_module_source", "load_source"]],
+    [
+      "load",
+      ["load_module_source", "load_source", "load_source_bytes"].map((name) =>
+        methodRoot("module_loader", "ModuleLoader", name),
+      ),
+    ],
     [
       "cache",
       [
@@ -12271,43 +17180,66 @@ export function scanRustLoaderRoutes(sources) {
         "resolve_transpile_cache_dir",
         "transpile_cache_is_valid",
         "transpile_cache_dir",
-      ],
+      ].map((name) => freeRoot("module_loader", name)),
     ],
     [
       "transform",
-      ["run_transpile_command", "transpile_module", "transpile_source_to_cjs"],
+      [
+        freeRoot("module_loader", "run_transpile_command"),
+        methodRoot("module_loader", "ModuleLoader", "transpile_module"),
+        freeRoot("transpile", "transpile_source_to_cjs"),
+      ],
     ],
-    ["subprocess", ["run_transpile_subprocess"]],
+    [
+      "subprocess",
+      [freeRoot("module_loader", "run_transpile_subprocess")],
+    ],
   ]);
   const rows = [];
-  const operationNames = new Set([
-    "canonicalize",
-    "create_dir_all",
-    "metadata",
-    "read",
-    "read_to_string",
-    "remove_file",
-    "rename",
-    "status",
-    "write",
+
+  const resolveRoot = (category, root) => {
+    const candidates =
+      root.kind === "free"
+        ? (freeByModuleAndName.get(`${root.moduleId}\0${root.name}`) ?? [])
+        : (
+            methodByModuleTypeAndName.get(
+              `${root.moduleId}\0${root.selfType}\0${root.name}`,
+            ) ?? []
+          ).filter(
+            (record) => !root.trait || record.implTrait === root.trait,
+          );
+    if (candidates.length !== 1) {
+      throw new Error(
+        `Rust loader ${category} root ${root.moduleId}::${root.selfType ? `${root.selfType}::` : ""}${root.name} expected one definition; observed ${candidates.length}`,
+      );
+    }
+    return candidates[0];
+  };
+  const rootLabel = (root) =>
+    `${root.moduleId}::${root.selfType ? `${root.selfType}${root.trait ? ` as ${root.trait}` : ""}::` : ""}${root.name}`;
+  const reviewedMergedRouteDefinitions = new Map([
+    [
+      "manifest_input",
+      [
+        "module_loader::AuthenticatedResolverInputs::manifest_input",
+        "module_loader::BoundedResolverFileSystem::manifest_input",
+      ],
+    ],
   ]);
 
   for (const [category, roots] of categories) {
-    for (const root of roots) {
-      if (!byName.has(root)) {
-        throw new Error(`Rust loader ${category} root ${root} is absent`);
-      }
-    }
-    const reachable = new Set(roots);
-    const queue = [...roots];
+    const rootRecords = roots.map((root) => resolveRoot(category, root));
+    const rootLabels = roots.map(rootLabel);
+    const reachable = new Map(
+      rootRecords.map((record) => [record.id, record]),
+    );
+    const queue = [...rootRecords];
     while (queue.length > 0) {
-      const name = queue.shift();
-      for (const record of byName.get(name) ?? []) {
-        for (const call of localCalls(record)) {
-          if (reachable.has(call)) continue;
-          reachable.add(call);
-          queue.push(call);
-        }
+      const record = queue.shift();
+      for (const call of localCalls(record)) {
+        if (reachable.has(call.id)) continue;
+        reachable.set(call.id, call);
+        queue.push(call);
       }
     }
 
@@ -12327,31 +17259,71 @@ export function scanRustLoaderRoutes(sources) {
       paths.add(callIdentity);
       operationPaths.set(operation, paths);
     };
-    for (const name of reachable) {
-      const functionRecords = byName.get(name) ?? [];
+    const reachableByName = new Map();
+    for (const record of reachable.values()) {
+      append(reachableByName, record.definition.name, record);
+    }
+    for (const name of uniqueSorted(reachableByName.keys())) {
+      const functionRecords = reachableByName.get(name) ?? [];
       const refs = functionRecords.map((record) =>
         sourceSymbol(record.sourcePath, name),
       );
       const callees = uniqueSorted(
-        functionRecords.flatMap((record) => [...localCalls(record)]),
+        functionRecords.flatMap((record) =>
+          localCalls(record).map((callee) => callee.definition.name),
+        ),
       );
+      const calleeDefinitions = uniqueSorted(
+        functionRecords.flatMap((record) =>
+          localCalls(record).map((callee) => callee.definitionId),
+        ),
+      );
+      const definitions = uniqueSorted(
+        functionRecords.map((record) => record.definitionId),
+      );
+      if (definitions.length > 1) {
+        const reviewed = reviewedMergedRouteDefinitions.get(name);
+        if (
+          !reviewed ||
+          JSON.stringify(definitions) !== JSON.stringify(reviewed)
+        ) {
+          throw new Error(
+            `Rust loader route ${category}:${name} merges unreviewed definitions [${definitions.join(", ")}]`,
+          );
+        }
+      }
       rows.push(
         makeSurface("loader", `route:${category}:rust:${name}`, refs, {
           metadata: {
             callees,
+            calleeDefinitions,
             category,
+            definitions,
             evidenceType: "transitive-rust-loader-route",
-            roots,
+            roots: rootLabels,
+            ...authenticatedResolverTargetMetadata(
+              name,
+              functionRecords.every(
+                (record) => record.targetVariant === "posix",
+              )
+                ? "posix"
+                : null,
+            ),
           },
         }),
       );
       for (const record of functionRecords) {
         const { bodyOpen, bodyClose } = record.definition;
         for (let index = bodyOpen + 1; index < bodyClose; index += 1) {
+          const nestedClose = nestedDefinitionRanges.get(record.id)?.get(index);
+          if (nestedClose !== undefined) {
+            index = nestedClose;
+            continue;
+          }
           const identity = loaderExternalCallIdentity(
             record.tokens,
             index,
-            byName,
+            localCallTargets(record, index),
           );
           if (!identity) continue;
           const evidenceKey = `${record.sourcePath}\0${name}\0${identity}`;
@@ -12365,11 +17337,43 @@ export function scanRustLoaderRoutes(sources) {
             qualified.length > 1
               ? qualifiedLoaderAuthorityOperation(qualified)
               : null;
-          const terminal = record.tokens[index].value;
-          const operation =
-            qualifiedOperation ??
-            (operationNames.has(terminal) ? terminal : null);
-          if (operation) addOperation(operation, record, name, identity);
+          const receiver = record.tokens[index - 2];
+          const receiverType =
+            receiver?.type === "identifier"
+              ? receiverTypeAt(record, receiver.value, index)
+              : expressionTypeAtEnd(record, index - 2);
+          let reviewedMethodOperation =
+            receiverType === "Command" &&
+            record.tokens[index].value === "status"
+              ? "status"
+              : null;
+          if (
+            !reviewedMethodOperation &&
+            ((receiverType === "File" &&
+              /^(?:metadata|read)$/u.test(record.tokens[index].value)) ||
+              (receiverType === "DirEntry" &&
+                record.tokens[index].value === "metadata"))
+          ) {
+            reviewedMethodOperation = record.tokens[index].value;
+          }
+          if (
+            !reviewedMethodOperation &&
+            new Set(["Path", "PathBuf"]).has(receiverType) &&
+            record.tokens[index].value === "canonicalize"
+          ) {
+            reviewedMethodOperation = "canonicalize";
+          }
+          const operation = qualifiedOperation ?? reviewedMethodOperation;
+          if (operation) {
+            addOperation(
+              operation,
+              record,
+              name,
+              reviewedMethodOperation && receiverType
+                ? `method:${receiverType}:${record.tokens[index].value}`
+                : identity,
+            );
+          }
         }
       }
     }
@@ -12407,6 +17411,10 @@ export function scanRustLoaderRoutes(sources) {
             evidenceType: "rust-loader-operation",
             operation,
             qualifiedPaths: uniqueSorted(operationPaths.get(operation) ?? []),
+            ...(category === "resolution" &&
+            new Set(["from-owned-fd", "open", "read_link"]).has(operation)
+              ? { targetVariant: "posix" }
+              : {}),
           },
         }),
       );
@@ -12481,11 +17489,11 @@ const REVIEWED_CDP_FUNCTION_BODY_DIGESTS = new Map([
   ],
   [
     "run_server",
-    "sha256-2c037e85158be7ea241843993511f5e3123398a479c23b0bad3999d3aa9d44d9",
+    "sha256-a8fe3dac78a422e48a0a040a9d8fb0bba3dc64bdeed5c36848f5e10cb825c480",
   ],
   [
     "handle_connection",
-    "sha256-092bbcafd01c8ab21dee1196294dd0b9a1c3d70e2a84de27b500266b1bae2732",
+    "sha256-80d5ea720d1655f9464e44ca45041c6e5ea58ce5147402ddea89ec11837a2836",
   ],
 ]);
 
@@ -13202,7 +18210,7 @@ export function scanCdpSurfaces(text, sourcePath = "src/bin/ibex/cdp/mod.rs") {
   return sortSurfaces(rows);
 }
 
-function environmentContext(sourcePath, direction) {
+function environmentContext(sourcePath, direction, name = null) {
   if (direction !== "read") {
     if (sourcePath.endsWith("native_android_networking.cc"))
       return "trusted-bootstrap-output";
@@ -13215,6 +18223,16 @@ function environmentContext(sourcePath, direction) {
       return "spawn-child-env";
     }
     return "runtime-bootstrap-output";
+  }
+  if (
+    sourcePath.endsWith("/host/abi.rs") &&
+    new Set(["EXACT_IPC_FD", "EXACT_IPC_SERIALIZATION"]).has(name)
+  ) {
+    // These controls are captured once into the private Host-to-engine
+    // construction handoff before either armed or diagnostic project code can
+    // observe its principal environment. They are startup inputs even though
+    // other host ABI environment reads are runtime inputs.
+    return "startup-input";
   }
   if (
     sourcePath.includes("/host/") ||
@@ -13232,7 +18250,16 @@ function createEnvironmentCollector() {
   const dynamic = new Map();
   const validName = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 
-  const add = ({ accessor, direction, language, name, sourcePath }) => {
+  const add = ({
+    accessor,
+    context: contextOverride = null,
+    direction,
+    language,
+    name,
+    scope = null,
+    sourceOffset = null,
+    sourcePath,
+  }) => {
     if (!validName.test(name)) {
       throw new Error(
         `${sourcePath}: invalid static environment name ${JSON.stringify(name)}`,
@@ -13246,23 +18273,42 @@ function createEnvironmentCollector() {
       authoredNames: new Set(),
       contexts: new Set(),
       languages: new Set(),
+      occurrences: new Map(),
       sourceRefs: new Set(),
     };
+    const context =
+      contextOverride ?? environmentContext(sourcePath, direction, name);
+    const sourceRef = sourceSymbol(
+      sourcePath,
+      `${accessor}:${name}:${direction}`,
+    );
     entry.accessDirections.add(direction);
     entry.accessors.add(accessor);
     entry.authoredNames.add(authoredName);
-    entry.contexts.add(environmentContext(sourcePath, direction));
+    entry.contexts.add(context);
     entry.languages.add(language);
-    entry.sourceRefs.add(
-      sourceSymbol(sourcePath, `${accessor}:${name}:${direction}`),
-    );
+    const occurrenceKey = `${sourceRef}\0${scope ?? ""}\0${sourceOffset ?? ""}`;
+    entry.occurrences.set(occurrenceKey, {
+      accessor,
+      context,
+      direction,
+      language,
+      scope,
+      sourceOffset,
+      sourcePath,
+      sourceRef,
+    });
+    entry.sourceRefs.add(sourceRef);
     exact.set(name, entry);
   };
 
   const addDynamic = ({
     accessor,
+    context: contextOverride = null,
     direction = "read",
     language,
+    scope = null,
+    sourceOffset = null,
     sourcePath,
   }) => {
     const key = `${language}:${accessor}`;
@@ -13271,15 +18317,31 @@ function createEnvironmentCollector() {
       accessors: new Set(),
       contexts: new Set(),
       languages: new Set(),
+      occurrences: new Map(),
       sourceRefs: new Set(),
     };
+    const context =
+      contextOverride ?? environmentContext(sourcePath, direction);
+    const sourceRef = sourceSymbol(
+      sourcePath,
+      `${accessor}:dynamic:${direction}`,
+    );
     entry.accessDirections.add(direction);
     entry.accessors.add(accessor);
-    entry.contexts.add(environmentContext(sourcePath, direction));
+    entry.contexts.add(context);
     entry.languages.add(language);
-    entry.sourceRefs.add(
-      sourceSymbol(sourcePath, `${accessor}:dynamic:${direction}`),
-    );
+    const occurrenceKey = `${sourceRef}\0${scope ?? ""}\0${sourceOffset ?? ""}`;
+    entry.occurrences.set(occurrenceKey, {
+      accessor,
+      context,
+      direction,
+      language,
+      scope,
+      sourceOffset,
+      sourcePath,
+      sourceRef,
+    });
+    entry.sourceRefs.add(sourceRef);
     dynamic.set(key, entry);
   };
 
@@ -13298,6 +18360,12 @@ function createEnvironmentCollector() {
               ? "static-runtime-environment-control"
               : "dynamic-runtime-environment-sentinel",
           languages: uniqueSorted(entry.languages),
+          occurrences: [...entry.occurrences.values()].sort((left, right) =>
+            compareText(
+              `${left.sourceRef}\0${left.scope ?? ""}\0${left.sourceOffset ?? ""}`,
+              `${right.sourceRef}\0${right.scope ?? ""}\0${right.sourceOffset ?? ""}`,
+            ),
+          ),
         },
       });
     return sortSurfaces([
@@ -13310,6 +18378,58 @@ function createEnvironmentCollector() {
     ]);
   };
   return { add, addDynamic, rows };
+}
+
+/**
+ * Discover the session worker's private process bootstrap route from the two
+ * constants consumed by the supervisor/worker dispatcher. The route is not a
+ * command-line API: an authenticated supervisor constructs it internally and
+ * project JavaScript cannot name or reach it.
+ *
+ * @ref LLP 0025#10-registry-obligations — the worker bootstrap must be
+ * inventoried without turning its implementation argument into a public CLI.
+ */
+export function scanPrivateSessionWorkerBootstrap(
+  text,
+  sourcePath = "src/bin/ibex/session_worker.rs",
+) {
+  const constant = (name) => {
+    const pattern = new RegExp(
+      `\\bpub\\(crate\\)\\s+const\\s+${name}\\s*:\\s*&str\\s*=\\s*"([^"\\r\\n]+)"\\s*;`,
+      "gu",
+    );
+    const matches = [...text.matchAll(pattern)];
+    if (matches.length !== 1) {
+      throw new Error(
+        `${sourcePath}: expected exactly one private worker constant ${name}`,
+      );
+    }
+    return matches[0][1];
+  };
+  const argument = constant("WORKER_BOOTSTRAP_ARG");
+  const surfaceId = constant("WORKER_BOOTSTRAP_SURFACE_ID");
+  if (argument !== "__ibex-session-worker-v1") {
+    throw new Error(`${sourcePath}: private worker bootstrap argument drifted`);
+  }
+  if (surfaceId !== "private:ibex:session-worker-bootstrap:v1") {
+    throw new Error(`${sourcePath}: private worker bootstrap surface id drifted`);
+  }
+  return makeSurface(
+    "startup",
+    surfaceId,
+    [
+      sourceSymbol(sourcePath, "WORKER_BOOTSTRAP_ARG"),
+      sourceSymbol(sourcePath, "WORKER_BOOTSTRAP_SURFACE_ID"),
+    ],
+    {
+      metadata: {
+        argument,
+        evidenceType: "private-session-worker-bootstrap",
+        javascriptReachability: "none",
+        visibility: "private-supervisor-worker",
+      },
+    },
+  );
 }
 
 function parseEnvironmentJavaScript(text, sourcePath) {
@@ -14079,9 +19199,29 @@ function rustStringConstants(tokens) {
   return constants;
 }
 
+function environmentOccurrenceSite(tokens, definitions, tokenIndex) {
+  const containing = definitions
+    .filter(
+      (definition) =>
+        definition.bodyOpen < tokenIndex && tokenIndex < definition.bodyClose,
+    )
+    .sort(
+      (left, right) =>
+        left.bodyClose - left.bodyOpen - (right.bodyClose - right.bodyOpen),
+    )[0];
+  return {
+    scope: containing?.name ?? "<top-level>",
+    sourceOffset: tokens[tokenIndex]?.offset ?? null,
+  };
+}
+
 function scanRustEnvironmentSource(text, sourcePath, collector) {
   const tokens = rustProductionTokens(text, sourcePath);
   const constants = rustStringConstants(tokens);
+  const definitions = rustFunctionDefinitions(tokens);
+  const definitionNameIndexes = new Set(
+    definitions.map((definition) => definition.nameIndex),
+  );
   const directApis = new Map([
     ["remove_var", "unset"],
     ["set_var", "write"],
@@ -14093,11 +19233,80 @@ function scanRustEnvironmentSource(text, sourcePath, collector) {
     ["runtime_env", 2],
     ["timeout_from_env", 1],
   ]);
+  const importsProcessCommand =
+    /\buse\s+(?:std|tokio)\s*::\s*process\s*::\s*(?:\{[^}]*\bCommand\b[^}]*\}|Command)\s*;/su.test(
+      text,
+    );
   for (let index = 0; index < tokens.length; index += 1) {
     const name = tokens[index]?.value;
     if (tokens[index + 1]?.value !== "(") continue;
     const argumentsList = tokenCallArguments(tokens, index + 1);
     if (!argumentsList) continue;
+    const processCommandConstructor =
+      name === "new" &&
+      tokens[index - 1]?.value === ":" &&
+      tokens[index - 2]?.value === ":" &&
+      tokens[index - 3]?.value === "Command" &&
+      (importsProcessCommand ||
+        (tokens[index - 4]?.value === ":" &&
+          tokens[index - 5]?.value === ":" &&
+          tokens[index - 6]?.value === "process" &&
+          tokens[index - 7]?.value === ":" &&
+          tokens[index - 8]?.value === ":" &&
+          new Set(["std", "tokio"]).has(tokens[index - 9]?.value)));
+    if (processCommandConstructor) {
+      // Rust Command starts with inherited parent state until env_clear is
+      // applied. Inventory the default explicitly even when a later method
+      // closes it, so review can distinguish denylist and closed builders.
+      collector.addDynamic({
+        accessor: "Command::default_env",
+        context: "spawn-child-env",
+        direction: "write",
+        language: "rust",
+        ...environmentOccurrenceSite(tokens, definitions, index),
+        sourcePath,
+      });
+      continue;
+    }
+    if (
+      new Set(["env", "env_clear", "env_remove"]).has(name) &&
+      tokens[index - 1]?.value === "."
+    ) {
+      const direction = name === "env" ? "write" : "unset";
+      if (name === "env_clear") {
+        collector.addDynamic({
+          accessor: "Command::env_clear",
+          context: "spawn-child-env",
+          direction,
+          language: "rust",
+          ...environmentOccurrenceSite(tokens, definitions, index),
+          sourcePath,
+        });
+        continue;
+      }
+      const value = staticTokenArgument(argumentsList[0] ?? [], constants);
+      if (value === null) {
+        collector.addDynamic({
+          accessor: `Command::${name}`,
+          context: "spawn-child-env",
+          direction,
+          language: "rust",
+          ...environmentOccurrenceSite(tokens, definitions, index),
+          sourcePath,
+        });
+      } else {
+        collector.add({
+          accessor: `Command::${name}`,
+          context: "spawn-child-env",
+          direction,
+          language: "rust",
+          name: value,
+          ...environmentOccurrenceSite(tokens, definitions, index),
+          sourcePath,
+        });
+      }
+      continue;
+    }
     const precededByEnv =
       tokens[index - 1]?.value === ":" &&
       tokens[index - 2]?.value === ":" &&
@@ -14110,6 +19319,7 @@ function scanRustEnvironmentSource(text, sourcePath, collector) {
           accessor: `env::${name}`,
           direction,
           language: "rust",
+          ...environmentOccurrenceSite(tokens, definitions, index),
           sourcePath,
         });
       } else {
@@ -14118,6 +19328,7 @@ function scanRustEnvironmentSource(text, sourcePath, collector) {
           direction,
           language: "rust",
           name: value,
+          ...environmentOccurrenceSite(tokens, definitions, index),
           sourcePath,
         });
       }
@@ -14127,11 +19338,12 @@ function scanRustEnvironmentSource(text, sourcePath, collector) {
       collector.addDynamic({
         accessor: `env::${name}`,
         language: "rust",
+        ...environmentOccurrenceSite(tokens, definitions, index),
         sourcePath,
       });
       continue;
     }
-    if (!helperArities.has(name)) continue;
+    if (!helperArities.has(name) || definitionNameIndexes.has(index)) continue;
     const expected = helperArities.get(name);
     for (let argumentIndex = 0; argumentIndex < expected; argumentIndex += 1) {
       const value = staticTokenArgument(
@@ -14139,13 +19351,19 @@ function scanRustEnvironmentSource(text, sourcePath, collector) {
         constants,
       );
       if (value === null) {
-        collector.addDynamic({ accessor: name, language: "rust", sourcePath });
+        collector.addDynamic({
+          accessor: name,
+          language: "rust",
+          ...environmentOccurrenceSite(tokens, definitions, index),
+          sourcePath,
+        });
       } else {
         collector.add({
           accessor: name,
           direction: "read",
           language: "rust",
           name: value,
+          ...environmentOccurrenceSite(tokens, definitions, index),
           sourcePath,
         });
       }
@@ -14172,6 +19390,73 @@ function cppStringConstants(tokens) {
   return constants;
 }
 
+function cppEnvironmentCallNameIndexes(tokens, definitionNameIndexes) {
+  const callNameIndexes = new Set();
+  for (let index = 0; index < tokens.length - 1; index += 1) {
+    if (
+      tokens[index]?.type !== "identifier" ||
+      tokens[index + 1]?.value !== "(" ||
+      definitionNameIndexes.has(index) ||
+      new Set([".", "->"]).has(tokens[index - 1]?.value)
+    ) {
+      continue;
+    }
+    let boundary = index - 1;
+    while (
+      boundary >= 0 &&
+      !new Set([";", "{", "}"]).has(tokens[boundary].value)
+    ) {
+      boundary -= 1;
+    }
+    const prefix = tokens.slice(boundary + 1, index);
+    // A qualified free/static call such as std::getenv has no expression
+    // prefix once its namespace is removed. Preserve earlier tokens so an
+    // initializer such as `auto value = std::getenv(...)` still observes the
+    // assignment marker.
+    while (prefix.at(-1)?.value === "::") {
+      prefix.pop();
+      if (prefix.at(-1)?.type === "identifier") prefix.pop();
+    }
+    const callContext =
+      prefix.length === 0 ||
+      prefix.some((token) =>
+        new Set(["=", "(", "[", ",", "?", ":"]).has(token.value),
+      ) ||
+      new Set(["co_return", "return", "throw"]).has(prefix.at(-1)?.value);
+    if (callContext) callNameIndexes.add(index);
+  }
+  return callNameIndexes;
+}
+
+function cppBareEnvironmentRead(tokens, tokenIndex) {
+  if (
+    tokens[tokenIndex]?.value !== "environ" ||
+    tokens[tokenIndex + 1]?.value === "(" ||
+    new Set([".", "->", "::"]).has(tokens[tokenIndex - 1]?.value)
+  ) {
+    return false;
+  }
+  let boundary = tokenIndex - 1;
+  while (
+    boundary >= 0 &&
+    !new Set([";", "{", "}"]).has(tokens[boundary].value)
+  ) {
+    boundary -= 1;
+  }
+  const prefix = tokens.slice(boundary + 1, tokenIndex);
+  if (prefix.some((token) => token.value === "extern")) return false;
+  // `extern char** environ;` and equivalent declarations have a type-only
+  // prefix. Reads necessarily appear in an expression position: initializer,
+  // argument, condition, subscript, conditional, or return/throw operand.
+  return (
+    prefix.length === 0 ||
+    prefix.some((token) =>
+      new Set(["=", "(", "[", ",", "?", ":"]).has(token.value),
+    ) ||
+    new Set(["co_return", "return", "throw"]).has(prefix.at(-1)?.value)
+  );
+}
+
 function scanCppEnvironmentSource(text, sourcePath, collector) {
   const tokens = lexCpp(text, sourcePath);
   const constants = cppStringConstants(tokens);
@@ -14189,11 +19474,16 @@ function scanCppEnvironmentSource(text, sourcePath, collector) {
       )
       .map((definition) => definition.nameIndex),
   );
+  const callNameIndexes = cppEnvironmentCallNameIndexes(
+    tokens,
+    definitionNameIndexes,
+  );
   const accessors = new Map([
     ["GetEnvironmentVariableA", "read"],
     ["GetEnvironmentVariableW", "read"],
     ["SetEnvironmentVariableA", "write"],
     ["SetEnvironmentVariableW", "write"],
+    ["_dupenv_s", "read"],
     ["env_flag_enabled", "read"],
     ["getenv", "read"],
     ["getenvString", "read"],
@@ -14208,8 +19498,7 @@ function scanCppEnvironmentSource(text, sourcePath, collector) {
     const accessor = tokens[index]?.value;
     if (
       accessor === "s_setEnvEntry" &&
-      tokens[index + 1]?.value === "(" &&
-      !definitionNameIndexes.has(index)
+      callNameIndexes.has(index)
     ) {
       const argumentsList = tokenCallArguments(tokens, index + 1);
       if (!argumentsList) continue;
@@ -14219,6 +19508,7 @@ function scanCppEnvironmentSource(text, sourcePath, collector) {
           accessor,
           direction: "write",
           language: "cpp",
+          ...environmentOccurrenceSite(tokens, definitions, index),
           sourcePath,
         });
       } else {
@@ -14227,6 +19517,7 @@ function scanCppEnvironmentSource(text, sourcePath, collector) {
           direction: "write",
           language: "cpp",
           name,
+          ...environmentOccurrenceSite(tokens, definitions, index),
           sourcePath,
         });
       }
@@ -14234,50 +19525,63 @@ function scanCppEnvironmentSource(text, sourcePath, collector) {
     }
     if (
       enumerationAccessors.has(accessor) &&
-      tokens[index + 1]?.value === "(" &&
-      !definitionNameIndexes.has(index)
+      callNameIndexes.has(index)
     ) {
       collector.addDynamic({
         accessor,
         direction: "read",
         language: "cpp",
+        ...environmentOccurrenceSite(tokens, definitions, index),
         sourcePath,
       });
       continue;
     }
-    if (
+    const qualifiedEnviron =
       accessor === "environ" &&
       tokens[index - 1]?.value === "::" &&
-      tokens[index + 1]?.value !== "("
-    ) {
+      tokens[index + 1]?.value !== "(";
+    const bareEnviron = cppBareEnvironmentRead(tokens, index);
+    if (qualifiedEnviron || bareEnviron) {
       collector.addDynamic({
-        accessor: "::environ",
+        accessor: qualifiedEnviron ? "::environ" : "environ",
         direction: "read",
         language: "cpp",
+        ...environmentOccurrenceSite(tokens, definitions, index),
         sourcePath,
       });
       continue;
     }
     if (
       !accessors.has(accessor) ||
-      tokens[index + 1]?.value !== "(" ||
-      definitionNameIndexes.has(index)
+      !callNameIndexes.has(index)
     ) {
       continue;
     }
     const argumentsList = tokenCallArguments(tokens, index + 1);
     if (!argumentsList) continue;
     const direction = accessors.get(accessor);
-    const name = staticTokenArgument(argumentsList[0] ?? [], constants);
+    const nameArgumentIndex = accessor === "_dupenv_s" ? 2 : 0;
+    const name = staticTokenArgument(
+      argumentsList[nameArgumentIndex] ?? [],
+      constants,
+    );
     if (name === null) {
       collector.addDynamic({
         accessor,
         direction,
         language: "cpp",
+        ...environmentOccurrenceSite(tokens, definitions, index),
         sourcePath,
       });
     } else {
-      collector.add({ accessor, direction, language: "cpp", name, sourcePath });
+      collector.add({
+        accessor,
+        direction,
+        language: "cpp",
+        name,
+        ...environmentOccurrenceSite(tokens, definitions, index),
+        sourcePath,
+      });
     }
   }
 }
@@ -14360,7 +19664,7 @@ export function scanFixedRuntimeEvidenceCandidates(text, sourcePath) {
     rows = definitionEvidenceRows(
       "javascript-function",
       sourcePath,
-      javascriptFunctionDefinitions(program),
+      javascriptFixedGlobalFunctionDefinitions(program),
     );
   } else if (extension === ".rs") {
     const tokens = rustProductionTokens(text, sourcePath);
@@ -14427,6 +19731,38 @@ function fixedSurface(kind, name, ...evidence) {
   return { kind, name, evidence };
 }
 
+function fixedCallbackControlSurface(name, ...evidence) {
+  return {
+    ...fixedSurface("callback", name, ...evidence),
+    callbackOutputBoundary: "none",
+  };
+}
+
+function callbackOutput(
+  selector,
+  returnVariant,
+  direction,
+  role,
+  valueShape,
+  ...sourceRefs
+) {
+  return {
+    selector,
+    returnVariant,
+    direction,
+    role,
+    valueShape,
+    sourceRefs,
+  };
+}
+
+function fixedCallbackOutputSurface(name, outputContracts, ...evidence) {
+  return {
+    ...fixedSurface("callback", name, ...evidence),
+    callbackOutputContracts: outputContracts,
+  };
+}
+
 function implementationContainer(type, file, symbol) {
   return fixedEvidence(type, file, symbol, "implementation-container");
 }
@@ -14434,6 +19770,38 @@ function implementationContainer(type, file, symbol) {
 const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
   // Loader branches. Several intentionally share a source symbol: they are
   // distinct decision branches in load(), not duplicate handwritten tables.
+  fixedSurface(
+    "loader",
+    "module-runner-edge-authorization",
+    fixedEvidence("rust-function", "src/module_loader/security.rs", "authorize"),
+  ),
+  fixedSurface(
+    "loader",
+    "module-runner-trusted-source-acquisition",
+    implementationContainer(
+      "rust-function",
+      "src/module_loader/security.rs",
+      "authorize_then_access",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "module-runner-cache-access",
+    implementationContainer(
+      "rust-function",
+      "src/module_loader/security.rs",
+      "authorize_then_access",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "module-runner-prepared-carrier-access",
+    implementationContainer(
+      "rust-function",
+      "src/module_loader/security.rs",
+      "authorize_then_access",
+    ),
+  ),
   fixedSurface(
     "loader",
     "install",
@@ -14620,14 +19988,47 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
     fixedEvidence(
       "javascript-function",
       "src/engine/bootstrap/module-loader.js",
-      "grantCapabilities",
+      "rejectRuntimeLoaderOptions",
     ),
+  ),
+
+  // Product session ingress. Parser rows describe only argv shape; these
+  // fixed routes prove where operator-authored bytes actually enter the
+  // armed, authenticated session adapter.
+  // @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+  fixedSurface(
+    "cli",
+    "authenticated-one-shot-ingress",
+    fixedEvidence("rust-function", "src/bin/ibex/main.rs", "eval_code"),
+  ),
+  fixedSurface(
+    "cli",
+    "authenticated-direct-file-ingress",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/main.rs",
+      "run_file_with_execution_adapter",
+    ),
+  ),
+  fixedSurface(
+    "cli",
+    "authenticated-program-stdin-ingress",
+    fixedEvidence("rust-function", "src/bin/ibex/main.rs", "run_stdin_program"),
+  ),
+  fixedSurface(
+    "cli",
+    "authenticated-repl-ingress",
+    fixedEvidence("rust-function", "src/bin/ibex/main.rs", "start_repl"),
+  ),
+  fixedSurface(
+    "cli",
+    "implicit-no-file-dispatch",
+    fixedEvidence("rust-function", "src/bin/ibex/main.rs", "run"),
   ),
 
   // Callback and continuation branches, including the native-principal stamp
   // that must survive scheduling and be restored only around the callback.
-  fixedSurface(
-    "callback",
+  fixedCallbackControlSurface(
     "queue-enqueue",
     fixedEvidence(
       "cpp-function",
@@ -14635,8 +20036,7 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       "pushRuntimeCallback",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackControlSurface(
     "queue-drain",
     fixedEvidence(
       "cpp-function",
@@ -14644,8 +20044,7 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       "drainCallbackQueue",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackControlSurface(
     "next-tick-drain",
     fixedEvidence(
       "cpp-function",
@@ -14653,8 +20052,7 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       "runNextTickQueue",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackControlSurface(
     "microtask-drain",
     fixedEvidence(
       "cpp-function",
@@ -14662,8 +20060,7 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       "drainMicrotasks",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackControlSurface(
     "timer-invoke",
     fixedEvidence(
       "public-abi",
@@ -14671,8 +20068,7 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       "ex_hermes_poll",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackControlSurface(
     "native-principal-restore",
     fixedEvidence(
       "cpp-type",
@@ -14680,26 +20076,91 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       "ScopedNativePrincipal",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "host-call-async-resolve",
+    [
+      callbackOutput(
+        "callback:resolve/0",
+        "decoded-json",
+        "native-to-javascript",
+        "payload",
+        "json-value",
+        "src/engine/hermes_runtime.cc#ex_hermes_resolve_host_call",
+      ),
+      callbackOutput(
+        "callback:resolve/0",
+        "null-sentinel",
+        "native-to-javascript",
+        "payload",
+        "null",
+        "src/engine/hermes_runtime.cc#ex_hermes_resolve_host_call",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "host-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime.cc#ex_hermes_resolve_host_call",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "decode-or-delivery-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime.cc#ex_hermes_resolve_host_call",
+      ),
+    ],
     fixedEvidence(
       "public-abi",
       "src/engine/hermes_runtime.cc",
       "ex_hermes_resolve_host_call",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "exact-host-call-async-resolve",
+    [
+      callbackOutput(
+        "callback:resolve/0",
+        "success-bytes",
+        "native-to-javascript",
+        "payload",
+        "uint8-array",
+        "src/engine/hermes_runtime.cc#ex_hermes_resolve_exact_host_call",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "status-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime.cc#ex_hermes_resolve_exact_host_call",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "malformed-payload-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime.cc#ex_hermes_resolve_exact_host_call",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "delivery-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime.cc#ex_hermes_resolve_exact_host_call",
+      ),
+    ],
     fixedEvidence(
       "public-abi",
       "src/engine/hermes_runtime.cc",
       "ex_hermes_resolve_exact_host_call",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackControlSurface(
     "watchdog-heartbeat",
     fixedEvidence(
       "public-abi",
@@ -14707,62 +20168,284 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       "ex_hermes_schedule_watchdog_heartbeat_for_generation",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "signal-delivery",
+    [
+      callbackOutput(
+        "callback:process-listener/0",
+        "signal-name",
+        "native-to-javascript",
+        "payload",
+        "string",
+        "src/engine/bootstrap/stream-enhance.js#__exactDispatchPendingSignals",
+      ),
+    ],
     fixedEvidence(
       "cpp-function",
       "src/engine/hermes_runtime_crypto.cc",
       "signalWatcherThreadMain",
     ),
+    fixedEvidence(
+      "javascript-function",
+      "src/engine/bootstrap/stream-enhance.js",
+      "__exactDispatchPendingSignals",
+    ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "fetch-delivery",
+    [
+      callbackOutput(
+        "callback:resolve/0",
+        "response-body-buffer",
+        "native-to-javascript",
+        "payload",
+        "object",
+        "src/engine/hermes_runtime_fetch.cc#installFetchGlobals",
+      ),
+      callbackOutput(
+        "callback:resolve/0",
+        "response-body-null",
+        "native-to-javascript",
+        "payload",
+        "object",
+        "src/engine/hermes_runtime_fetch.cc#installFetchGlobals",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "network-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_fetch.cc#installFetchGlobals",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "delivery-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_fetch.cc#installFetchGlobals",
+      ),
+    ],
     fixedEvidence(
       "cpp-function",
       "src/engine/hermes_runtime_fetch.cc",
       "installFetchGlobals",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "filesystem-async-delivery",
+    [
+      callbackOutput(
+        "callback:resolve/0",
+        "bytes",
+        "native-to-javascript",
+        "payload",
+        "uint8-array",
+        "src/engine/hermes_runtime_fs.cc#startFsAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#startFsAsync",
+      ),
+      callbackOutput(
+        "callback:resolve/0",
+        "json-string",
+        "native-to-javascript",
+        "payload",
+        "string",
+        "src/engine/hermes_runtime_fs.cc#startFsAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#startFsAsync",
+      ),
+      callbackOutput(
+        "callback:resolve/0",
+        "number",
+        "native-to-javascript",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_fs.cc#startFsAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#startFsAsync",
+      ),
+      callbackOutput(
+        "callback:resolve/0",
+        "undefined",
+        "native-to-javascript",
+        "payload",
+        "undefined",
+        "src/engine/hermes_runtime_fs.cc#startFsAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#startFsAsync",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "operation-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_fs.cc#startFsAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#startFsAsync",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "queue-full-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_fs.cc#startFsAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#startFsAsync",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "delivery-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_fs.cc#startFsAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#startFsAsync",
+      ),
+    ],
     fixedEvidence(
       "cpp-function",
       "src/engine/hermes_runtime_fs.cc",
       "startFsAsync",
     ),
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_runtime_fs_windows.cc",
+      "startFsAsync",
+    ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "dns-async-delivery",
+    [
+      callbackOutput(
+        "callback:resolve/0",
+        "lookup-json",
+        "native-to-javascript",
+        "payload",
+        "string",
+        "src/engine/hermes_runtime_dns.cc#installDnsHostFunctions",
+        "src/engine/hermes_runtime_dns.cc#startDnsAsync",
+      ),
+      callbackOutput(
+        "callback:resolve/0",
+        "resolve-json",
+        "native-to-javascript",
+        "payload",
+        "string",
+        "src/engine/hermes_runtime_dns.cc#installDnsHostFunctions",
+        "src/engine/hermes_runtime_dns.cc#startDnsAsync",
+      ),
+      callbackOutput(
+        "callback:resolve/0",
+        "reverse-json",
+        "native-to-javascript",
+        "payload",
+        "string",
+        "src/engine/hermes_runtime_dns.cc#installDnsHostFunctions",
+        "src/engine/hermes_runtime_dns.cc#startDnsAsync",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "resolver-or-worker-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_dns.cc#startDnsAsync",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "queue-full-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_dns.cc#startDnsAsync",
+      ),
+    ],
     fixedEvidence(
       "cpp-function",
       "src/engine/hermes_runtime_dns.cc",
       "startDnsAsync",
     ),
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_runtime_dns.cc",
+      "installDnsHostFunctions",
+    ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "http-wait-delivery",
+    [
+      callbackOutput(
+        "callback:resolve/0",
+        "request-json",
+        "native-to-javascript",
+        "payload",
+        "json-string",
+        "src/engine/hermes_runtime_http.cc#installHttpHostFunctions",
+      ),
+      callbackOutput(
+        "callback:resolve/0",
+        "timeout",
+        "native-to-javascript",
+        "payload",
+        "null",
+        "src/engine/hermes_runtime_http.cc#installHttpHostFunctions",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "queue-full-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_http.cc#installHttpHostFunctions",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "delivery-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_http.cc#installHttpHostFunctions",
+      ),
+    ],
     implementationContainer(
       "cpp-function",
       "src/engine/hermes_runtime_http.cc",
       "installHttpHostFunctions",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "http-writable-delivery",
+    [
+      callbackOutput(
+        "callback:resolve/0",
+        "status-code",
+        "native-to-javascript",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_http.cc#installHttpHostFunctions",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "queue-full-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_http.cc#installHttpHostFunctions",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "delivery-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_http.cc#installHttpHostFunctions",
+      ),
+    ],
     implementationContainer(
       "cpp-function",
       "src/engine/hermes_runtime_http.cc",
       "installHttpHostFunctions",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackControlSurface(
     "websocket-context-release",
     fixedEvidence(
       "cpp-function",
@@ -14771,16 +20454,136 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
     ),
   ),
   ...[
-    "websocket-open-delivery",
-    "websocket-text-delivery",
-    "websocket-binary-delivery",
-    "websocket-close-delivery",
-    "websocket-error-delivery",
-    "websocket-bytes-sent-delivery",
-  ].map((name) =>
-    fixedSurface(
-      "callback",
+    [
+      "websocket-open-delivery",
+      [
+        callbackOutput(
+          "callback:_handleOpen/0",
+          "protocol",
+          "native-to-javascript",
+          "payload",
+          "string",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+        callbackOutput(
+          "callback:_handleOpen/1",
+          "extensions",
+          "native-to-javascript",
+          "payload",
+          "string",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+      ],
+    ],
+    [
+      "websocket-text-delivery",
+      [
+        callbackOutput(
+          "callback:_handleMessage/0",
+          "text",
+          "native-to-javascript",
+          "payload",
+          "string",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+      ],
+    ],
+    [
+      "websocket-binary-delivery",
+      [
+        callbackOutput(
+          "callback:_handleMessage/0",
+          "binary",
+          "native-to-javascript",
+          "payload",
+          "array-buffer",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+      ],
+    ],
+    [
+      "websocket-close-delivery",
+      [
+        callbackOutput(
+          "callback:_handleClose/0",
+          "close-code",
+          "native-to-javascript",
+          "payload",
+          "number",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+        callbackOutput(
+          "callback:_handleClose/1",
+          "close-reason",
+          "native-to-javascript",
+          "payload",
+          "string",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+        callbackOutput(
+          "callback:_handleClose/2",
+          "clean-flag",
+          "native-to-javascript",
+          "payload",
+          "boolean",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+      ],
+    ],
+    [
+      "websocket-error-delivery",
+      [
+        callbackOutput(
+          "callback:_handleError/0",
+          "error-message",
+          "native-to-javascript",
+          "error",
+          "string",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+        callbackOutput(
+          "callback:_handleClose/0",
+          "setup-failure-close",
+          "native-to-javascript",
+          "payload",
+          "number",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+        callbackOutput(
+          "callback:_handleClose/1",
+          "setup-failure-close",
+          "native-to-javascript",
+          "payload",
+          "string",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+        callbackOutput(
+          "callback:_handleClose/2",
+          "setup-failure-close",
+          "native-to-javascript",
+          "payload",
+          "boolean",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+      ],
+    ],
+    [
+      "websocket-bytes-sent-delivery",
+      [
+        callbackOutput(
+          "callback:_handleBytesSent/0",
+          "byte-count",
+          "native-to-javascript",
+          "payload",
+          "number",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+      ],
+    ],
+  ].map(([name, outputContracts]) =>
+    fixedCallbackOutputSurface(
       name,
+      outputContracts,
       implementationContainer(
         "cpp-function",
         "src/engine/hermes_runtime_websocket.cc",
@@ -14788,53 +20591,273 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       ),
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "ios-dispatch",
+    [
+      callbackOutput(
+        "callback:dispatch/0",
+        "array-buffer",
+        "javascript-to-native",
+        "payload",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch/0",
+        "array-buffer-view",
+        "javascript-to-native",
+        "payload",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch/1",
+        "array-buffer-length",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch/1",
+        "array-buffer-view-length",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_callback",
+      ),
+    ],
     fixedEvidence(
       "public-abi",
       "src/engine/hermes_runtime_ios.cc",
       "ex_hermes_set_dispatch_callback",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "ios-dispatch-debug-context",
+    [
+      callbackOutput(
+        "callback:dispatch-with-debug-context/0",
+        "utf8-string",
+        "javascript-to-native",
+        "payload",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_with_debug_context_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch-with-debug-context/0",
+        "array-buffer",
+        "javascript-to-native",
+        "payload",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_with_debug_context_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch-with-debug-context/0",
+        "array-buffer-view",
+        "javascript-to-native",
+        "payload",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_with_debug_context_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch-with-debug-context/1",
+        "utf8-string-length",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_with_debug_context_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch-with-debug-context/1",
+        "array-buffer-length",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_with_debug_context_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch-with-debug-context/1",
+        "array-buffer-view-length",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_with_debug_context_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch-with-debug-context/2",
+        "string",
+        "javascript-to-native",
+        "payload",
+        "string",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_with_debug_context_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch-with-debug-context/2",
+        "json-stringified",
+        "javascript-to-native",
+        "payload",
+        "string",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_with_debug_context_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch-with-debug-context/2",
+        "null-or-empty",
+        "javascript-to-native",
+        "payload",
+        "null",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_with_debug_context_callback",
+      ),
+    ],
     fixedEvidence(
       "public-abi",
       "src/engine/hermes_runtime_ios.cc",
       "ex_hermes_set_dispatch_with_debug_context_callback",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "ios-module-dispatch",
+    [
+      callbackOutput(
+        "callback:module-dispatch/0",
+        "array-buffer",
+        "javascript-to-native",
+        "payload",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_dispatch_callback",
+      ),
+      callbackOutput(
+        "callback:module-dispatch/0",
+        "array-buffer-view",
+        "javascript-to-native",
+        "payload",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_dispatch_callback",
+      ),
+      callbackOutput(
+        "callback:module-dispatch/1",
+        "array-buffer-length",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_dispatch_callback",
+      ),
+      callbackOutput(
+        "callback:module-dispatch/1",
+        "array-buffer-view-length",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_dispatch_callback",
+      ),
+    ],
     fixedEvidence(
       "public-abi",
       "src/engine/hermes_runtime_ios.cc",
       "ex_hermes_set_module_dispatch_callback",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "ios-module-sync",
+    [
+      callbackOutput(
+        "callback:module-sync/0",
+        "array-buffer",
+        "javascript-to-native",
+        "payload",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_sync_callback",
+      ),
+      callbackOutput(
+        "callback:module-sync/0",
+        "array-buffer-view",
+        "javascript-to-native",
+        "payload",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_sync_callback",
+      ),
+      callbackOutput(
+        "callback:module-sync/1",
+        "array-buffer-length",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_sync_callback",
+      ),
+      callbackOutput(
+        "callback:module-sync/1",
+        "array-buffer-view-length",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_sync_callback",
+      ),
+      callbackOutput(
+        "callback:module-sync/return",
+        "status",
+        "native-to-javascript",
+        "return",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_sync_callback",
+      ),
+      callbackOutput(
+        "callback:module-sync/2",
+        "result-bytes",
+        "native-to-javascript",
+        "return",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_sync_callback",
+      ),
+      callbackOutput(
+        "callback:module-sync/3",
+        "result-length",
+        "native-to-javascript",
+        "return",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_sync_callback",
+      ),
+    ],
     fixedEvidence(
       "public-abi",
       "src/engine/hermes_runtime_ios.cc",
       "ex_hermes_set_module_sync_callback",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "worklet-measure",
+    [
+      callbackOutput(
+        "callback:measure/0",
+        "node-id",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_worklet.cc#ex_worklet_set_measure_callback",
+      ),
+      callbackOutput(
+        "callback:measure/return",
+        "status",
+        "native-to-javascript",
+        "return",
+        "number",
+        "src/engine/hermes_runtime_worklet.cc#ex_worklet_set_measure_callback",
+      ),
+      callbackOutput(
+        "callback:measure/1",
+        "frame",
+        "native-to-javascript",
+        "return",
+        "float32x4",
+        "src/engine/hermes_runtime_worklet.cc#ex_worklet_set_measure_callback",
+      ),
+    ],
     fixedEvidence(
       "public-abi",
       "src/engine/hermes_runtime_worklet.cc",
       "ex_worklet_set_measure_callback",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackControlSurface(
     "worklet-scheduled-drain",
     fixedEvidence(
       "public-abi",
@@ -14842,22 +20865,53 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       "ex_worklet_drain_scheduled",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "android-animation-frame",
+    [
+      callbackOutput(
+        "callback:animation-frame/0",
+        "frame-time-milliseconds",
+        "native-to-javascript",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_android.cc#android_animation_frame_callback",
+      ),
+    ],
     fixedEvidence(
       "cpp-function",
       "src/engine/hermes_runtime_android.cc",
       "android_animation_frame_callback",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "android-platform-event",
+    [
+      callbackOutput(
+        "callback:__exactAndroidDispatchPlatformEvent/0",
+        "event-json",
+        "native-to-javascript",
+        "payload",
+        "json-string",
+        "src/engine/hermes_runtime_android.cc#dispatchAndroidPlatformEvents",
+      ),
+      callbackOutput(
+        "callback:__exactAndroidDispatchPlatformEvent/1",
+        "platform-state",
+        "native-to-javascript",
+        "payload",
+        "object",
+        "src/engine/hermes_runtime_android.cc#dispatchAndroidPlatformEvents",
+      ),
+    ],
     fixedEvidence(
       "cpp-function",
       "src/engine/hermes_runtime_android.cc",
       "android_platform_event_available",
+    ),
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_runtime_android.cc",
+      "dispatchAndroidPlatformEvents",
     ),
   ),
 
@@ -14954,6 +21008,100 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       "kCompartmentRegistryJS",
     ),
   ),
+  // Supervisor-owned REPL history. These are deliberately fixed source
+  // surfaces: no JavaScript callable or host locator exposes the storage
+  // route, but every filesystem/environment effect must still join the
+  // CapSec classifier and policy registry.
+  fixedSurface(
+    "startup",
+    "supervisor-history.project-platform-data-root",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/history.rs",
+      "capture_project_history_platform_data_root",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "supervisor-history.global-platform-data-root",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/history.rs",
+      "capture_global_history_platform_data_root",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "supervisor-history.authenticated-project-scope",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/history.rs",
+      "derive_authenticated_project_history_scope",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "supervisor-history.store-open",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/history.rs",
+      "open_history_store",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "supervisor-history.legacy-probe",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/history.rs",
+      "legacy_history_present",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "supervisor-history.user-key-read-create",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/history.rs",
+      "load_or_create_history_user_key",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "supervisor-history.sidecar-lock-acquire",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/history.rs",
+      "acquire_history_sidecar_lock",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "supervisor-history.journal-recover",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/history.rs",
+      "recover_history_journal_locked",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "supervisor-history.journal-append",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/history.rs",
+      "append_history_journal",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "supervisor-history.journal-compact",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/history.rs",
+      "compact_history_journal_locked",
+    ),
+  ),
   fixedSurface(
     "startup",
     "web-streams-install",
@@ -15048,6 +21196,89 @@ function canonicalFixedEvidence(evidence, label) {
   return { type, file, symbol, role, sourceRef: sourceSymbol(file, symbol) };
 }
 
+const CALLBACK_OUTPUT_DIRECTIONS = new Set([
+  "javascript-to-native",
+  "native-to-javascript",
+]);
+const CALLBACK_OUTPUT_ROLES = new Set(["error", "payload", "return"]);
+const CALLBACK_OUTPUT_VALUE_SHAPES = new Set([
+  "array-buffer",
+  "boolean",
+  "bytes",
+  "error",
+  "float32x4",
+  "json-string",
+  "json-value",
+  "null",
+  "number",
+  "object",
+  "string",
+  "uint8-array",
+  "undefined",
+]);
+
+function canonicalFixedCallbackOutputContracts(definition, observedKey) {
+  const contracts = definition.callbackOutputContracts;
+  if (contracts === undefined) return undefined;
+  if (definition.kind !== "callback") {
+    throw new Error(
+      `${observedKey}: callbackOutputContracts require callback kind`,
+    );
+  }
+  if (!Array.isArray(contracts) || contracts.length === 0) {
+    throw new Error(
+      `${observedKey}: callbackOutputContracts must be a non-empty array`,
+    );
+  }
+  const keys = new Set();
+  return contracts.map((contract, index) => {
+    const label = `${observedKey}.callbackOutputContracts[${index}]`;
+    assertExactObjectKeys(
+      contract,
+      new Set([
+        "direction",
+        "returnVariant",
+        "role",
+        "selector",
+        "sourceRefs",
+        "valueShape",
+      ]),
+      label,
+    );
+    if (
+      Object.keys(contract).length !== 6 ||
+      typeof contract.selector !== "string" ||
+      !/^callback:[A-Za-z_$][A-Za-z0-9_$-]*\/(?:[0-9]+|return)$/u.test(
+        contract.selector,
+      ) ||
+      typeof contract.returnVariant !== "string" ||
+      !/^[a-z][a-z0-9-]*$/u.test(contract.returnVariant) ||
+      !CALLBACK_OUTPUT_DIRECTIONS.has(contract.direction) ||
+      !CALLBACK_OUTPUT_ROLES.has(contract.role) ||
+      !CALLBACK_OUTPUT_VALUE_SHAPES.has(contract.valueShape) ||
+      !Array.isArray(contract.sourceRefs) ||
+      contract.sourceRefs.length === 0 ||
+      contract.sourceRefs.some(
+        (sourceRef) =>
+          typeof sourceRef !== "string" ||
+          !/^[^#]+#[A-Za-z_$][A-Za-z0-9_$]*$/u.test(sourceRef),
+      ) ||
+      JSON.stringify(contract.sourceRefs) !==
+        JSON.stringify(uniqueSorted(contract.sourceRefs))
+    ) {
+      throw new Error(`${label}: malformed callback output contract`);
+    }
+    const key = `${contract.selector}\0${contract.returnVariant}`;
+    if (keys.has(key)) {
+      throw new Error(
+        `${observedKey}: duplicate callback output ${contract.selector}:${contract.returnVariant}`,
+      );
+    }
+    keys.add(key);
+    return structuredClone(contract);
+  });
+}
+
 function canonicalFixedDefinitions(definitions) {
   if (!Array.isArray(definitions) || definitions.length === 0) {
     throw new Error(
@@ -15077,6 +21308,27 @@ function canonicalFixedDefinitions(definitions) {
         `${observedKey}: malformed fixed runtime surface definition`,
       );
     }
+    const callbackOutputBoundary = definition.callbackOutputBoundary;
+    if (
+      callbackOutputBoundary !== undefined &&
+      (kind !== "callback" || callbackOutputBoundary !== "none")
+    ) {
+      throw new Error(
+        `${observedKey}: invalid callbackOutputBoundary ${JSON.stringify(callbackOutputBoundary)}`,
+      );
+    }
+    const callbackOutputContracts = canonicalFixedCallbackOutputContracts(
+      definition,
+      observedKey,
+    );
+    if (
+      callbackOutputBoundary !== undefined &&
+      callbackOutputContracts !== undefined
+    ) {
+      throw new Error(
+        `${observedKey}: callback output boundary and contracts are mutually exclusive`,
+      );
+    }
     if (observedKeys.has(observedKey)) {
       throw new Error(
         `fixed runtime surface inventory: duplicate observed key ${observedKey}`,
@@ -15095,6 +21347,7 @@ function canonicalFixedDefinitions(definitions) {
       canonicalFixedEvidence(row, `${observedKey}.evidence[${index}]`),
     );
     const evidenceKeys = new Set();
+    const evidenceRefs = new Set();
     for (const row of evidence) {
       const evidenceKey = `${row.type}\0${row.sourceRef}`;
       if (evidenceKeys.has(evidenceKey)) {
@@ -15103,11 +21356,34 @@ function canonicalFixedDefinitions(definitions) {
         );
       }
       evidenceKeys.add(evidenceKey);
+      evidenceRefs.add(row.sourceRef);
       const uses = evidenceUses.get(row.sourceRef) ?? [];
       uses.push({ observedKey, role: row.role });
       evidenceUses.set(row.sourceRef, uses);
     }
-    normalized.push({ kind, name, observedKey, evidence });
+    for (const [contractIndex, contract] of (
+      callbackOutputContracts ?? []
+    ).entries()) {
+      for (const sourceRef of contract.sourceRefs) {
+        if (!evidenceRefs.has(sourceRef)) {
+          throw new Error(
+            `${observedKey}.callbackOutputContracts[${contractIndex}]: source ref ${sourceRef} is not validated fixed evidence`,
+          );
+        }
+      }
+    }
+    normalized.push({
+      kind,
+      name,
+      observedKey,
+      evidence,
+      ...(callbackOutputBoundary === undefined
+        ? {}
+        : { callbackOutputBoundary }),
+      ...(callbackOutputContracts === undefined
+        ? {}
+        : { callbackOutputContracts }),
+    });
   }
 
   for (const [sourceRef, uses] of evidenceUses) {
@@ -15139,6 +21415,21 @@ export function fixedRuntimeSurfaceInventory(
       definition.kind,
       definition.name,
       definition.evidence.map((evidence) => evidence.sourceRef),
+      {
+        metadata:
+          definition.callbackOutputBoundary !== undefined
+            ? {
+                callbackOutputBoundary: definition.callbackOutputBoundary,
+              }
+            : definition.callbackOutputContracts !== undefined
+              ? {
+                  callbackOutputContractSchema: CALLBACK_OUTPUT_CONTRACT_SCHEMA,
+                  callbackOutputContracts: structuredClone(
+                    definition.callbackOutputContracts,
+                  ),
+                }
+              : undefined,
+      },
     ),
   );
   assertUniqueObservedKeys(rows, "fixed runtime surface inventory");
@@ -15272,6 +21563,127 @@ function mergePrivateNativeRows(rows) {
   return sortSurfaces([...merged.values()]);
 }
 
+const SOURCE_ASSERTED_PRIVATE_NATIVE_PROPERTY_BINDINGS = Object.freeze([
+  Object.freeze({
+    surfaceName: "__exactOSRelease",
+    sourcePath: "src/engine/hermes_runtime_android.cc",
+    globalName: "process",
+    memberName: "__exactOSRelease",
+    targetVariant: "android",
+    valueToken: "facebook::jsi::String::createFromUtf8(rt, platform_version)",
+  }),
+  Object.freeze({
+    surfaceName: "__exactOSVersion",
+    sourcePath: "src/engine/hermes_runtime_android.cc",
+    globalName: "process",
+    memberName: "__exactOSVersion",
+    targetVariant: "android",
+    valueToken: "facebook::jsi::String::createFromUtf8(rt, android_os_version)",
+  }),
+]);
+
+// The generic private-identifier scanner sees the two Android process fields
+// only as string tokens. Bind those exact tokens back to the source-proven
+// public property reads so output accounting and target-absence evidence do
+// not invent a raw callable with the same spelling.
+// @ref LLP 0023#6-path-bearing-observables — output membership follows the
+// actual public projection and its target branch, not a nearby native token.
+function attachPrivateNativePropertyBindings(rows, repoRoot) {
+  const byObservedKey = new Map(
+    rows.map((row) => [row.observedKey, structuredClone(row)]),
+  );
+  for (const binding of SOURCE_ASSERTED_PRIVATE_NATIVE_PROPERTY_BINDINGS) {
+    const observedKey = `native-op:${binding.surfaceName}`;
+    const row = byObservedKey.get(observedKey);
+    const privateSourceRef = sourceSymbol(
+      binding.sourcePath,
+      binding.surfaceName,
+    );
+    if (
+      !row ||
+      row.metadata?.occurrenceCount !== 1 ||
+      !row.sourceRefs.includes(privateSourceRef)
+    ) {
+      throw new Error(
+        `${observedKey}: expected one source-bound private identifier at ${privateSourceRef}`,
+      );
+    }
+
+    const source = readUtf8(path.join(repoRoot, binding.sourcePath));
+    const functionStart = source.indexOf(
+      "void installAndroidEnvironmentGlobals(ExactHermesRuntime* handle) {",
+    );
+    const functionEnd = source.indexOf(
+      "std::free(platform_version);",
+      functionStart,
+    );
+    const propertyLiteral = JSON.stringify(binding.memberName);
+    const propertyIndex = source.indexOf(propertyLiteral, functionStart);
+    const duplicatePropertyIndex = source.indexOf(
+      propertyLiteral,
+      propertyIndex + propertyLiteral.length,
+    );
+    const callStart = source.lastIndexOf("process.setProperty(", propertyIndex);
+    const callEnd = source.indexOf(");", propertyIndex);
+    const bindingRegion =
+      callStart >= 0 && callEnd >= propertyIndex
+        ? source.slice(callStart, callEnd + 2)
+        : "";
+    if (
+      functionStart < 0 ||
+      functionEnd < functionStart ||
+      propertyIndex < functionStart ||
+      propertyIndex > functionEnd ||
+      (duplicatePropertyIndex >= 0 && duplicatePropertyIndex < functionEnd) ||
+      !source
+        .slice(functionStart, functionEnd)
+        .includes('rt.global().getProperty(rt, "process")') ||
+      !source
+        .slice(functionStart, functionEnd)
+        .includes("auto process = process_value.asObject(rt)") ||
+      !bindingRegion.includes(propertyLiteral) ||
+      !bindingRegion.includes(binding.valueToken)
+    ) {
+      throw new Error(
+        `${observedKey}: Android process property binding source drift`,
+      );
+    }
+
+    const exportName = `${binding.globalName}.${binding.memberName}`;
+    const bindingSourceRef = sourceSymbol(
+      binding.sourcePath,
+      `jsi-global-property:${exportName}`,
+    );
+    const sourceRefs = uniqueSorted([...row.sourceRefs, bindingSourceRef]);
+    const branches = [
+      makeInstallationBranch(
+        "native-jsi-global-property-alias",
+        binding.targetVariant,
+        sourceRefs,
+      ),
+    ];
+    row.sourceRefs = sourceRefs;
+    row.metadata = {
+      ...row.metadata,
+      branches,
+      exportName,
+      globalName: binding.globalName,
+      installationBranches: branches,
+      memberKinds: ["native-object-member"],
+      memberName: binding.memberName,
+      publicOutputAccess: {
+        alias: exportName,
+        kind: "property-read",
+      },
+      publicReadAccessSourceProven: true,
+      sourceKey: "native_jsi_global",
+      surfaceType: "global-api",
+      valueShape: "data",
+    };
+  }
+  return sortSurfaces([...byObservedKey.values()]);
+}
+
 function abiTargetVariant(sourceRef) {
   const sourcePath = sourceRef.slice(0, sourceRef.lastIndexOf("#"));
   if (sourcePath.startsWith("src/bin/")) return "binary";
@@ -15292,6 +21704,7 @@ function mergeAbiDefinitionRows(rows) {
     for (const sourceRef of row.sourceRefs) {
       definitions.push({
         language: row.metadata.language,
+        outputContract: structuredClone(row.metadata.outputContract),
         sourceRef,
         targetVariant: abiTargetVariant(sourceRef),
         unsafe: row.metadata.unsafe,
@@ -15368,6 +21781,9 @@ function mergeAbiDefinitionRows(rows) {
             alternatives: branches,
             branches,
             definitions,
+            outputContracts: definitions.map((definition) =>
+              structuredClone(definition.outputContract),
+            ),
             provenanceLimitation:
               "ABI definitions are source-structural evidence; supported/unsupported target semantics require fixtures.",
           },
@@ -15376,6 +21792,181 @@ function mergeAbiDefinitionRows(rows) {
     );
   }
   return sortSurfaces(merged);
+}
+
+const JVM_PRIMITIVE_TYPES = new Map([
+  ["B", "byte"],
+  ["C", "char"],
+  ["D", "double"],
+  ["F", "float"],
+  ["I", "int"],
+  ["J", "long"],
+  ["S", "short"],
+  ["Z", "boolean"],
+]);
+
+function parseJvmDescriptorType(descriptor, start, { allowVoid = false } = {}) {
+  const marker = descriptor[start];
+  if (allowVoid && marker === "V") {
+    return { end: start + 1, kind: "void", type: "void" };
+  }
+  if (JVM_PRIMITIVE_TYPES.has(marker)) {
+    return {
+      end: start + 1,
+      kind: "scalar",
+      type: JVM_PRIMITIVE_TYPES.get(marker),
+    };
+  }
+  if (marker === "L") {
+    const end = descriptor.indexOf(";", start + 1);
+    if (end === -1) return null;
+    return {
+      end: end + 1,
+      kind: "aggregate",
+      type: descriptor.slice(start, end + 1),
+    };
+  }
+  if (marker === "[") {
+    const element = parseJvmDescriptorType(descriptor, start + 1);
+    if (!element) return null;
+    return {
+      end: element.end,
+      kind: "aggregate",
+      type: descriptor.slice(start, element.end),
+    };
+  }
+  return null;
+}
+
+function parseJvmMethodDescriptor(descriptor) {
+  if (typeof descriptor !== "string" || descriptor[0] !== "(") return null;
+  const parameters = [];
+  let cursor = 1;
+  while (cursor < descriptor.length && descriptor[cursor] !== ")") {
+    const parameter = parseJvmDescriptorType(descriptor, cursor);
+    if (!parameter) return null;
+    parameters.push(parameter);
+    cursor = parameter.end;
+  }
+  if (descriptor[cursor] !== ")") return null;
+  const returnType = parseJvmDescriptorType(descriptor, cursor + 1, {
+    allowVoid: true,
+  });
+  if (!returnType || returnType.end !== descriptor.length) return null;
+  return { parameters, returnType };
+}
+
+function androidHostAbiOutputContract(row) {
+  const descriptor = row.metadata?.cppBinding?.descriptor;
+  const descriptorSignature = parseJvmMethodDescriptor(descriptor);
+  const javaSignature = row.metadata?.javaSignature;
+  if (
+    descriptorSignature &&
+    (!javaSignature ||
+      descriptorSignature.returnType.kind !== javaSignature.returnType?.kind ||
+      descriptorSignature.parameters.length !==
+        javaSignature.parameters?.length ||
+      descriptorSignature.parameters.some(
+        (parameter, index) =>
+          parameter.kind !== javaSignature.parameters[index]?.kind,
+      ))
+  ) {
+    throw new Error(
+      `${row.name}: Java declaration and JNI descriptor disagree on output membership`,
+    );
+  }
+  const parsed = descriptorSignature ?? javaSignature;
+  const callback = new Set([
+    "java-to-native-callback",
+    "provider-interface",
+  ]).has(row.metadata?.bridgeRole);
+  const parameters = (parsed?.parameters ?? []).map((parameter, index) => ({
+    index,
+    name: null,
+    ownership:
+      parameter.kind === "aggregate"
+        ? { kind: "managed-reference" }
+        : { kind: "not-applicable" },
+    pointerDepth: 0,
+    role: callback ? "callback-payload" : "input",
+    type: { canonical: parameter.type, tokens: [parameter.type] },
+    valueKind: parameter.kind,
+  }));
+  const returnKind = parsed?.returnType.kind ?? "unknown";
+  const returnRole =
+    returnKind === "void" ? "none" : parsed ? "value" : "unknown";
+  const returnOwnership =
+    returnKind === "aggregate"
+      ? { kind: "managed-reference" }
+      : returnKind === "unknown"
+        ? { kind: "unknown" }
+        : { kind: "not-applicable" };
+  const outputChannels = [];
+  if (returnRole === "value") {
+    outputChannels.push({
+      kind: returnKind,
+      ownership: structuredClone(returnOwnership),
+      role: "return",
+      selector: "[[return]]",
+    });
+  }
+  if (callback) {
+    for (const parameter of parameters) {
+      outputChannels.push({
+        kind: parameter.valueKind,
+        ownership: structuredClone(parameter.ownership),
+        parameter: parameter.index,
+        role: "callback-payload",
+        selector: `callback:${parameter.index}`,
+      });
+    }
+  }
+  const signatureRef = descriptorSignature
+    ? row.sourceRefs.find(
+        (sourceRef) =>
+          sourceRef.includes("#java-call:") ||
+          sourceRef.includes("#jni-callback:"),
+      )
+    : row.sourceRefs.find(
+        (sourceRef) =>
+          sourceRef.includes("#java:") || sourceRef.includes("#jni:"),
+      );
+  return {
+    bufferLengthPairs: [],
+    functionName: row.name,
+    language: "java-jni",
+    outputChannels,
+    parameters,
+    return: {
+      kind: returnKind,
+      ownership: returnOwnership,
+      role: returnRole,
+      type: {
+        canonical: parsed?.returnType.type ?? "unknown",
+        tokens: [parsed?.returnType.type ?? "unknown"],
+      },
+    },
+    schema: HOST_ABI_OUTPUT_CONTRACT_SCHEMA,
+    signatureDescriptor: descriptorSignature ? descriptor : null,
+    sourceRef: signatureRef ?? row.sourceRefs[0],
+    sourceRefs: [...row.sourceRefs],
+    status: parsed ? "resolved" : "unresolved",
+    unresolved: parsed ? [] : ["java-jni-signature-unbound"],
+  };
+}
+
+function attachAndroidHostAbiOutputContracts(rows) {
+  return rows.map((row) => {
+    const outputContract = androidHostAbiOutputContract(row);
+    return {
+      ...row,
+      metadata: {
+        ...row.metadata,
+        outputContract,
+        outputContracts: [structuredClone(outputContract)],
+      },
+    };
+  });
 }
 
 function assertNonemptyCategories(categories) {
@@ -15395,8 +21986,20 @@ export async function discoverRepositorySurfaces(repoRoot) {
   const engineRoot = path.join(repoRoot, "src", "engine");
   const sourceRoot = path.join(repoRoot, "src");
   const bootstrapRoot = path.join(engineRoot, "bootstrap");
-  const nativeFiles = listFiles(sourceRoot, (candidate) =>
-    NATIVE_SOURCE_EXTENSIONS.has(path.extname(candidate)),
+  const embeddingHeaderPath = path.join(repoRoot, "include", "exact_runtime.h");
+  const embeddingHeader = readUtf8(embeddingHeaderPath);
+  const abiTypeRegistry = scanCppAbiTypeRegistry(
+    embeddingHeader,
+    "include/exact_runtime.h",
+  );
+  const nativeFiles = listFiles(
+    sourceRoot,
+    (candidate) =>
+      NATIVE_SOURCE_EXTENSIONS.has(path.extname(candidate)) &&
+      // @ref LLP 0022#7-capabilities-principals-and-affordance-parity — the
+      // generated disposition projection contains reviewed property spellings;
+      // it is verifier data, never independent install/reference evidence.
+      path.basename(candidate) !== "root_global_disposition.generated.h",
   );
 
   const nativeRows = [];
@@ -15416,7 +22019,11 @@ export async function discoverRepositorySurfaces(repoRoot) {
       );
       lifecycleRows.push(...scanNativeLifecycleSurfaces(source, relativePath));
     }
-    abiRows.push(...scanCppPublicAbiDefinitions(source, relativePath));
+    abiRows.push(
+      ...scanCppPublicAbiDefinitions(source, relativePath, {
+        typeRegistry: abiTypeRegistry,
+      }),
+    );
   }
 
   for (const filePath of listFiles(
@@ -15441,10 +22048,12 @@ export async function discoverRepositorySurfaces(repoRoot) {
   );
   const hostAbi = sortSurfaces([
     ...mergeAbiDefinitionRows(abiRows),
-    ...joinAndroidBridgeImplementationRefs(
-      androidJavaRows,
-      androidBindings,
-      androidCppPath,
+    ...attachAndroidHostAbiOutputContracts(
+      joinAndroidBridgeImplementationRefs(
+        androidJavaRows,
+        androidBindings,
+        androidCppPath,
+      ),
     ),
   ]);
   assertUniqueObservedKeys(
@@ -15452,7 +22061,7 @@ export async function discoverRepositorySurfaces(repoRoot) {
     "public host/engine/worklet/Android ABI inventory",
   );
   const declaredEmbeddingAbi = scanCppPublicAbiDeclarations(
-    readUtf8(path.join(repoRoot, "include", "exact_runtime.h")),
+    embeddingHeader,
     "include/exact_runtime.h",
   ).filter((name) => /^(?:ex_android_|ex_hermes_|ex_worklet_)/u.test(name));
   const definedEmbeddingAbi = hostAbi
@@ -15473,10 +22082,19 @@ export async function discoverRepositorySurfaces(repoRoot) {
     repoRoot,
     "modules.ts",
   );
-  const cli = scanRuntimeCliSurfaces(
-    readUtf8(path.join(repoRoot, "runtime-surface.json")),
-    "runtime-surface.json",
+  const runtimeSurfaceSource = readUtf8(
+    path.join(repoRoot, "runtime-surface.json"),
   );
+  const fixed = fixedRuntimeSurfaceInventory();
+  const cli = mergeSurfaceEvidence(
+    [
+      ...fixed.filter((row) => row.kind === "cli"),
+      ...scanRuntimeCliSurfaces(runtimeSurfaceSource, "runtime-surface.json"),
+      ...scanRuntimeReplSurfaces(runtimeSurfaceSource, "runtime-surface.json"),
+    ],
+    "runtime CLI and REPL surface inventory",
+  );
+  assertUniqueObservedKeys(cli, "runtime CLI and REPL surface inventory");
 
   const globalRows = [
     ...scanSharedRuntimeGlobalSurfaces(repoRoot),
@@ -15515,13 +22133,15 @@ export async function discoverRepositorySurfaces(repoRoot) {
   const nativeOps = mergeSurfaceEvidence(
     [
       ...globals,
-      ...mergePrivateNativeRows(nativeRows),
+      ...attachPrivateNativePropertyBindings(
+        mergePrivateNativeRows(nativeRows),
+        repoRoot,
+      ),
       ...discoverNativeNetworkingBackendSurfaces(repoRoot),
     ],
     "native and global operation inventory",
   );
 
-  const fixed = fixedRuntimeSurfaceInventory();
   validateFixedRuntimeSurfaceRefs(repoRoot, fixed);
   const environmentSourceAllowed = (filePath) =>
     isRuntimeEnvironmentSourceAllowed(
@@ -15547,13 +22167,10 @@ export async function discoverRepositorySurfaces(repoRoot) {
       sourcePath: posixPath(path.relative(repoRoot, filePath)),
       text: readUtf8(filePath),
     })),
+    // nativeFiles already carries the shared production native extension
+    // authority, including headers where inline runtime reads can live.
     native: nativeFiles
-      .filter(
-        (filePath) =>
-          new Set([".c", ".cc", ".cpp", ".cxx", ".m", ".mm"]).has(
-            path.extname(filePath),
-          ) && environmentSourceAllowed(filePath),
-      )
+      .filter(environmentSourceAllowed)
       .map((filePath) => ({
         sourcePath: posixPath(path.relative(repoRoot, filePath)),
         text: readUtf8(filePath),
@@ -15609,6 +22226,11 @@ export async function discoverRepositorySurfaces(repoRoot) {
     [
       ...fixed.filter((row) => row.kind === "startup"),
       ...lifecycleRows.filter((row) => row.kind === "startup"),
+      scanPrivateSessionWorkerBootstrap(
+        readUtf8(
+          path.join(repoRoot, "src", "bin", "ibex", "session_worker.rs"),
+        ),
+      ),
       ...environmentRows,
     ],
     "startup source inventory",
@@ -15626,7 +22248,7 @@ export async function discoverRepositorySurfaces(repoRoot) {
     "inspector route inventory",
   );
   const routedFixedKeys = new Set(
-    [...loader, ...callbacks, ...startup, ...inspector]
+    [...cli, ...loader, ...callbacks, ...startup, ...inspector]
       .filter((row) =>
         fixed.some((fixedRow) => fixedRow.observedKey === row.observedKey),
       )

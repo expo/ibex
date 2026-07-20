@@ -102,6 +102,7 @@ void installTimerGlobals(ExactHermesRuntime* handle) {
             false,
             true,
             currentPrincipalId(),
+            exactCurrentAsyncEvaluationAssociation(handle),
             exactCollectTypedPrincipalStack(),
             std::move(callback),
             std::move(callbackArgs),
@@ -123,7 +124,15 @@ void installTimerGlobals(ExactHermesRuntime* handle) {
           return facebook::jsi::Value::undefined();
         }
         uint64_t id = static_cast<uint64_t>(args[0].asNumber());
-        handle->timers.erase(id);
+        auto it = handle->timers.find(id);
+        // @ref LLP 0021#handles-dynamic-authority-and-generations — cancellation
+        // is authority-reducing only for the principal that owns the retained
+        // timer. A guessed process-global numeric id must not cancel another
+        // principal's work.
+        if (it != handle->timers.end() &&
+            it->second.principal == currentPrincipalId()) {
+          handle->timers.erase(it);
+        }
         return facebook::jsi::Value::undefined();
       });
 
@@ -155,6 +164,7 @@ void installTimerGlobals(ExactHermesRuntime* handle) {
             true,
             true,
             currentPrincipalId(),
+            exactCurrentAsyncEvaluationAssociation(handle),
             exactCollectTypedPrincipalStack(),
             std::move(callback),
             std::move(callbackArgs),
@@ -176,7 +186,11 @@ void installTimerGlobals(ExactHermesRuntime* handle) {
           return facebook::jsi::Value::undefined();
         }
         uint64_t id = static_cast<uint64_t>(args[0].asNumber());
-        handle->timers.erase(id);
+        auto it = handle->timers.find(id);
+        if (it != handle->timers.end() &&
+            it->second.principal == currentPrincipalId()) {
+          handle->timers.erase(it);
+        }
         return facebook::jsi::Value::undefined();
       });
 
@@ -197,8 +211,10 @@ void installTimerGlobals(ExactHermesRuntime* handle) {
         runtime.queueMicrotask(callback);
 #else
         handle->next_tick.push_back(
-            NextTickEntry{currentPrincipalId(), exactCollectTypedPrincipalStack(),
-                          std::move(callback), {}});
+            NextTickEntry{exactAllocateAsyncEventIdentity(handle),
+                          currentPrincipalId(),
+                          exactCurrentAsyncEvaluationAssociation(handle),
+                          exactCollectTypedPrincipalStack(), std::move(callback), {}});
 #endif
         return facebook::jsi::Value::undefined();
       });
@@ -215,7 +231,10 @@ void installTimerGlobals(ExactHermesRuntime* handle) {
         if (count > 0 && args[0].isNumber()) {
           uint64_t id = static_cast<uint64_t>(args[0].asNumber());
           auto it = handle->timers.find(id);
-          if (it != handle->timers.end()) {
+          // @ref LLP 0021#handles-dynamic-authority-and-generations — retained
+          // control-plane state is mutable only by its authenticated owner.
+          if (it != handle->timers.end() &&
+              it->second.principal == currentPrincipalId()) {
             it->second.referenced = true;
           }
         }
@@ -234,7 +253,8 @@ void installTimerGlobals(ExactHermesRuntime* handle) {
         if (count > 0 && args[0].isNumber()) {
           uint64_t id = static_cast<uint64_t>(args[0].asNumber());
           auto it = handle->timers.find(id);
-          if (it != handle->timers.end()) {
+          if (it != handle->timers.end() &&
+              it->second.principal == currentPrincipalId()) {
             it->second.referenced = false;
           }
         }

@@ -23,7 +23,7 @@ const STARTUP_ENVIRONMENT_BATCH_COMMAND = Object.freeze([
   "--bin",
   "ibex",
   "--features",
-  "capsec-conformance-observer",
+  "capsec-conformance-observer,openssl-crypto",
   "capsec_public_startup_environment_batch",
   "--",
   "--test-threads=1",
@@ -39,7 +39,7 @@ const STARTUP_ENVIRONMENT_SOURCES = new Map([
       sourceRef: "src/builtins/http.js#process.env:NODE_DEBUG:read",
       mechanism: "builtin-module-load",
       moduleSpecifier: "node:http",
-      preloadModuleSpecifiers: ["node:util"],
+      preloadModuleSpecifiers: ["node:events", "node:stream", "node:util"],
       selectedBranchId: "absent",
       supportedScenarios: new Set(["allow", "deny", "branch-selection"]),
     }),
@@ -52,7 +52,7 @@ const STARTUP_ENVIRONMENT_SOURCES = new Map([
         "src/builtins/events.js#process.env:EXACT_DEBUG_EMIT_LISTENER:read",
       mechanism: "event-emitter-emit",
       moduleSpecifier: "node:events",
-      preloadModuleSpecifiers: ["node:events"],
+      preloadModuleSpecifiers: [],
       selectedBranchId: "absent",
       supportedScenarios: new Set(["allow", "deny", "branch-selection"]),
     }),
@@ -177,9 +177,11 @@ export function authoredStartupEnvironmentProbe({
         },
         principalMode,
       },
-      // The hardened process.env proxy converts a denied native read to
-      // undefined. The source therefore takes its safe absent branch while
-      // the observer independently records the requested-stage denial.
+      // Armed process.env has an empty base and exact per-principal overlays.
+      // The hardened proxy converts a denied overlay read to undefined. The
+      // source therefore takes its safe absent branch while the observer
+      // independently records the requested-stage denial.
+      // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
       expectedResult: "return",
       expectedTypedDecisionCount: publicDenial ? 1 : 2,
       expectedTypedStages: publicDenial

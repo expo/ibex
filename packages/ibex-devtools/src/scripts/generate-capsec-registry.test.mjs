@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  assertOutputDispositionEvidenceMatchesReport,
   buildTargetCells,
   generatedRegistryPaths,
   generatedRegistryOutputCatalog,
@@ -16,6 +17,11 @@ import {
   renderCapsecRegistry,
   runCapsecRegistryGenerator,
 } from "./generate-capsec-registry.mjs";
+import {
+  OUTPUT_DISPOSITIONS,
+  OUTPUT_KEY_FIELDS,
+  canonicalOutputDispositionKey,
+} from "./capsec-output-dispositions.mjs";
 
 function renderedEntries(result) {
   return [...result.rendered.entries()].map(([filePath, content]) => [
@@ -41,10 +47,166 @@ afterAll(() => {
 });
 
 describe("LLP 0021 WP1 capsec registry generator", () => {
+  test("keeps per-target publication artifacts outside the source-derived output identity", () => {
+    expect(
+      generatedRegistryOutputCatalog.some((row) =>
+        row.path.startsWith("capsec/conformance/"),
+      ),
+    ).toBe(false);
+    for (const publicationPath of [
+      "capsec/generated/target-advertisements.json",
+      "capsec/generated/target-matrix.md",
+      "capsec/registry/target-cells.json",
+    ]) {
+      expect(
+        generatedRegistryOutputCatalog.find(
+          (row) => row.path === publicationPath,
+        )?.digestBound,
+      ).toBe(false);
+    }
+  });
+
+  test("binds each promoted report to its own output evidence bytes and exact execution identity", () => {
+    const target = {
+      triple: "aarch64-apple-darwin",
+      features: ["native-lockdown"],
+    };
+    const engine = {
+      engineArtifactPath: "/exact/hermes",
+      kind: "hermes",
+      binaryDigest: `sha256-${"A".repeat(43)}`,
+      object: { platform: "apple", volume: "dev:1", file: "ino:2" },
+      targetArchitecture: "aarch64",
+      structuralFeatures: [...target.features],
+    };
+    const evidence = {
+      status: "verified",
+      sourceRevision: "a".repeat(40),
+      sourceTreeDigest: `sha256-${"B".repeat(43)}`,
+      target,
+      engine,
+    };
+    const rawContentDigest = `sha256-${"C".repeat(43)}`;
+    const report = {
+      bindings: {
+        sourceRevision: evidence.sourceRevision,
+        sourceTreeDigest: evidence.sourceTreeDigest,
+        target: structuredClone(target),
+        engine: structuredClone(engine),
+        outputDispositionEvidenceRawContentDigest: rawContentDigest,
+      },
+    };
+    expect(() =>
+      assertOutputDispositionEvidenceMatchesReport(
+        evidence,
+        report,
+        rawContentDigest,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertOutputDispositionEvidenceMatchesReport(
+        { status: "unpromotable" },
+        report,
+        rawContentDigest,
+      ),
+    ).toThrow(/raw digest or exact source, target, and loaded-engine binding/);
+
+    const substitutions = [
+      (value) => {
+        value.sourceRevision = "b".repeat(40);
+      },
+      (value) => {
+        value.sourceTreeDigest = `sha256-${"C".repeat(43)}`;
+      },
+      (value) => {
+        value.target.triple = "x86_64-apple-darwin";
+      },
+      (value) => {
+        value.target.features = ["native-compartments"];
+      },
+      (value) => {
+        value.engine.engineArtifactPath = "/other/hermes";
+      },
+      (value) => {
+        value.engine.binaryDigest = `sha256-${"D".repeat(43)}`;
+      },
+      (value) => {
+        value.engine.object.file = "ino:3";
+      },
+      (value) => {
+        value.engine.structuralFeatures = ["native-compartments"];
+      },
+    ];
+    for (const substitute of substitutions) {
+      const changed = structuredClone(evidence);
+      substitute(changed);
+      expect(() =>
+        assertOutputDispositionEvidenceMatchesReport(
+          changed,
+          report,
+          rawContentDigest,
+        ),
+      ).toThrow(/raw digest or exact source, target, and loaded-engine binding/);
+    }
+    expect(() =>
+      assertOutputDispositionEvidenceMatchesReport(
+        evidence,
+        report,
+        `sha256-${"D".repeat(43)}`,
+      ),
+    ).toThrow(/raw digest/);
+
+    const otherTarget = {
+      triple: "x86_64-pc-windows-msvc",
+      features: ["native-lockdown"],
+    };
+    const otherEvidence = structuredClone(evidence);
+    otherEvidence.target = otherTarget;
+    otherEvidence.engine.targetArchitecture = "x86_64";
+    otherEvidence.engine.structuralFeatures = [...otherTarget.features];
+    const otherDigest = `sha256-${"E".repeat(43)}`;
+    const otherReport = {
+      bindings: {
+        sourceRevision: otherEvidence.sourceRevision,
+        sourceTreeDigest: otherEvidence.sourceTreeDigest,
+        target: structuredClone(otherTarget),
+        engine: structuredClone(otherEvidence.engine),
+        outputDispositionEvidenceRawContentDigest: otherDigest,
+      },
+    };
+    expect(() =>
+      assertOutputDispositionEvidenceMatchesReport(
+        otherEvidence,
+        otherReport,
+        otherDigest,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertOutputDispositionEvidenceMatchesReport(
+        evidence,
+        otherReport,
+        rawContentDigest,
+      ),
+    ).toThrow(/raw digest or exact source, target, and loaded-engine binding/);
+    expect(() =>
+      assertOutputDispositionEvidenceMatchesReport(
+        otherEvidence,
+        report,
+        rawContentDigest,
+      ),
+    ).toThrow(/raw digest or exact source, target, and loaded-engine binding/);
+  });
+
   test("reopens promotion evidence only as digest-addressed regular files", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-capsec-promotion-"));
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "ibex-capsec-promotion-"),
+    );
     try {
-      const directory = path.join(root, "conformance", "recipe-catalogs");
+      const directory = path.join(
+        root,
+        "conformance",
+        "output-disposition-evidence",
+      );
       fs.mkdirSync(directory, { recursive: true });
       const text = '{"profile":"ibex/capsec/1"}\n';
       const digest = `sha256-${crypto
@@ -55,9 +217,9 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
       fs.writeFileSync(artifactPath, text);
       expect(
         readImmutablePromotionArtifact(
-          "recipe-catalogs",
+          "output-disposition-evidence",
           digest,
-          "test recipe catalog",
+          "test output-disposition evidence",
           root,
         ),
       ).toEqual({ profile: "ibex/capsec/1" });
@@ -65,9 +227,9 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
       fs.writeFileSync(artifactPath, '{"profile":"tampered"}\n');
       expect(() =>
         readImmutablePromotionArtifact(
-          "recipe-catalogs",
+          "output-disposition-evidence",
           digest,
-          "test recipe catalog",
+          "test output-disposition evidence",
           root,
         ),
       ).toThrow(/raw content digest differs/);
@@ -78,9 +240,20 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
       fs.symlinkSync(targetPath, artifactPath);
       expect(() =>
         readImmutablePromotionArtifact(
-          "recipe-catalogs",
+          "output-disposition-evidence",
           digest,
-          "test recipe catalog",
+          "test output-disposition evidence",
+          root,
+        ),
+      ).toThrow(/not an immutable regular file/);
+
+      fs.unlinkSync(artifactPath);
+      fs.linkSync(targetPath, artifactPath);
+      expect(() =>
+        readImmutablePromotionArtifact(
+          "output-disposition-evidence",
+          digest,
+          "test output-disposition evidence",
           root,
         ),
       ).toThrow(/not an immutable regular file/);
@@ -96,7 +269,11 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
     };
     const coverage = {
       edges: [
-        { id: "edge.effects", classification: "effects", effectMode: "conjunctive" },
+        {
+          id: "edge.effects",
+          classification: "effects",
+          effectMode: "conjunctive",
+        },
         { id: "edge.closed", classification: "closed" },
         { id: "edge.absent", classification: "closed" },
       ],
@@ -141,14 +318,28 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
         },
       },
     ]).cells;
-    expect(cells.map(({ edgeId, disposition, fixtures }) => ({
-      edgeId,
-      disposition,
-      fixtures,
-    }))).toEqual([
-      { edgeId: "edge.absent", disposition: "absent", fixtures: ["fixture.absent"] },
-      { edgeId: "edge.closed", disposition: "closed", fixtures: ["fixture.closed"] },
-      { edgeId: "edge.effects", disposition: "enforced", fixtures: ["fixture.effects"] },
+    expect(
+      cells.map(({ edgeId, disposition, fixtures }) => ({
+        edgeId,
+        disposition,
+        fixtures,
+      })),
+    ).toEqual([
+      {
+        edgeId: "edge.absent",
+        disposition: "absent",
+        fixtures: ["fixture.absent"],
+      },
+      {
+        edgeId: "edge.closed",
+        disposition: "closed",
+        fixtures: ["fixture.closed"],
+      },
+      {
+        edgeId: "edge.effects",
+        disposition: "enforced",
+        fixtures: ["fixture.effects"],
+      },
     ]);
   });
 
@@ -175,6 +366,9 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
         observedReferences:
           first.implementationManifest.counts.observedReferences,
         outputs: first.rendered.size,
+        ingressObligations: first.ingressObligationCounts.obligations,
+        outputDispositionEvidence:
+          first.outputDispositionDataset.evidence.status,
       });
     },
     SOURCE_RENDER_TIMEOUT_MS,
@@ -242,7 +436,7 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
       const catalogSuffixes = generatedRegistryOutputCatalog
         .map((row) => row.path)
         .sort();
-      expect(renderedPaths).toHaveLength(11);
+      expect(renderedPaths).toHaveLength(generatedRegistryOutputCatalog.length);
       expect(
         renderedPaths.map((filePath) =>
           catalogSuffixes.find((suffix) => filePath.endsWith(`/${suffix}`)),
@@ -265,6 +459,19 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
           (row) => row.path === "capsec/generated/implementation-manifest.json",
         ),
       ).toBe(false);
+      expect(
+        result.implementationManifest.outputs.some((row) =>
+          row.path.startsWith("capsec/conformance/"),
+        ),
+      ).toBe(false);
+      expect(
+        result.implementationManifest.sourceDatasets.some((source) =>
+          source.startsWith("conformance/"),
+        ),
+      ).toBe(false);
+      expect(result.implementationManifest.sourceDatasets).toContain(
+        "registry/output-disposition-evidence.json",
+      );
       for (const outputPath of [
         generatedRegistryPaths.surfaceDocs,
         generatedRegistryPaths.targetDocs,
@@ -278,6 +485,103 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
   );
 
   test(
+    "generates a total seven-part output dataset without claiming absent live evidence",
+    async () => {
+      const result = await renderBaseline();
+      const catalog = result.outputShapeCatalog;
+      const dataset = result.outputDispositionDataset;
+      expect(catalog.counts).toEqual({
+        coverageSurfaces: 7_284,
+        outputBearingSurfaces: 5_729,
+        structuralOnlySurfaces: 1_551,
+        unresolvedSurfaces: 4,
+        catalogRows: 6_397,
+        parameterizedBindings: 1,
+        sourceInventoryRows: 5_990,
+        structuredRows: 407,
+      });
+      expect(catalog.surfaceAccounts).toHaveLength(
+        result.coverage.edges.length,
+      );
+      expect(
+        new Set(catalog.surfaceAccounts.map((account) => account.surfaceId)),
+      ).toEqual(new Set(result.coverage.edges.map((edge) => edge.id)));
+      expect(dataset.rows).toHaveLength(catalog.rows.length);
+      expect(dataset.dispositions).toEqual(OUTPUT_DISPOSITIONS);
+      expect(dataset.evidence.status).toBe("unpromotable");
+      expect(catalog.discovery.status).toBe("unpromotable");
+      expect(catalog.catalogKeyDigest).toBe(dataset.catalogKeyDigest);
+      expect(
+        catalog.rows.map((row) => canonicalOutputDispositionKey(row.key)),
+      ).toEqual(
+        dataset.rows.map((row) => canonicalOutputDispositionKey(row.key)),
+      );
+      expect(
+        dataset.rows.every(
+          (row) =>
+            JSON.stringify(Object.keys(row.key).sort()) ===
+            JSON.stringify([...OUTPUT_KEY_FIELDS].sort()),
+        ),
+      ).toBe(true);
+      expect(new Set(dataset.rows.map((row) => row.disposition))).toEqual(
+        new Set(OUTPUT_DISPOSITIONS),
+      );
+      for (const alias of [
+        "process.argv[0]",
+        "process.execArgv[]",
+        "import.meta.url",
+        "import.meta.dirname",
+        "module.__exactPackageRoot",
+        "module.paths[]",
+        "resolver.path",
+        "error.path",
+        "source-map.sources[]",
+        "Error.stack frame source",
+        "Dirent.parentPath",
+        "FileHandle.path",
+        "ExactFile.name",
+        "Bun.main",
+      ]) {
+        expect(dataset.rows.some((row) => row.key.alias === alias)).toBe(true);
+      }
+      expect(
+        dataset.rows.some(
+          (row) =>
+            row.key.alias === "import.meta.dirname" &&
+            row.key.sourceKind === "synthetic" &&
+            row.disposition === "absent",
+        ),
+      ).toBe(true);
+      expect(
+        dataset.rows.some(
+          (row) =>
+            row.key.alias === "error.dest" &&
+            row.disposition === "virtual-absolute",
+        ),
+      ).toBe(true);
+      expect(
+        dataset.rows.some(
+          (row) =>
+            row.key.alias === "sourceURL" &&
+            row.key.sourceKind === "synthetic" &&
+            row.disposition === "synthetic-source-id",
+        ),
+      ).toBe(true);
+      expect(
+        JSON.parse(
+          result.rendered.get(generatedRegistryPaths.outputShapeCatalog),
+        ),
+      ).toEqual(catalog);
+      expect(
+        JSON.parse(
+          result.rendered.get(generatedRegistryPaths.outputDispositions),
+        ),
+      ).toEqual(dataset);
+    },
+    SOURCE_RENDER_TIMEOUT_MS,
+  );
+
+  test(
     "uses printable canonical target keys in every language binding",
     async () => {
       const result = await renderBaseline();
@@ -286,13 +590,15 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
           .map((row) => row.branchId)
           .sort(),
       );
-      expect(result.binding.enforcementBranchIds).toEqual([
-        ...new Set(
-          result.implementationManifest.surfaces.map(
-            (row) => row.enforcementBranchId,
+      expect(result.binding.enforcementBranchIds).toEqual(
+        [
+          ...new Set(
+            result.implementationManifest.surfaces.map(
+              (row) => row.enforcementBranchId,
+            ),
           ),
-        ),
-      ].sort());
+        ].sort(),
+      );
       expect(
         result.binding.implementationBranchIds.every(
           (branchId) => !branchId.includes("\u0000"),

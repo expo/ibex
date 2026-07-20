@@ -1,0 +1,89 @@
+{
+  "schema": "ibex/module-runner-spike-manifest/1",
+  "fixtures": [
+    {
+      "id": "live-mutation",
+      "entry": "entry.js",
+      "modules": ["entry.js", "counter.js"],
+      "expected": { "stdout": ["0", "1"] },
+      "tags": ["live-binding"]
+    },
+    {
+      "id": "direct-cycle",
+      "entry": "entry.js",
+      "modules": ["entry.js", "a.js", "b.js"],
+      "expected": { "stdout": ["A:B"] },
+      "tags": ["cycle", "hoisting"]
+    },
+    {
+      "id": "tdz-cycle",
+      "entry": "entry.js",
+      "modules": ["entry.js", "a.js", "b.js"],
+      "expected": { "errorName": "ReferenceError", "messageIncludes": "uninitialized export" },
+      "tags": ["cycle", "tdz"]
+    },
+    {
+      "id": "star-ambiguity",
+      "entry": "entry.js",
+      "modules": ["entry.js", "hub.js", "left.js", "right.js"],
+      "expected": { "stdout": ["left,right"] },
+      "tags": ["re-export", "namespace"]
+    },
+    {
+      "id": "named-re-export",
+      "entry": "entry.js",
+      "modules": ["entry.js", "hub.js", "dep.js"],
+      "expected": { "stdout": ["named:41"] },
+      "tags": ["re-export"]
+    },
+    {
+      "id": "import-meta",
+      "entry": "entry.js",
+      "modules": ["entry.js"],
+      "expected": { "stdout": ["fixture:///entry.js", "true"] },
+      "tags": ["import-meta"]
+    },
+    {
+      "id": "top-level-await",
+      "entry": "entry.js",
+      "modules": ["entry.js", "dep.js"],
+      "expected": { "stdout": ["42"] },
+      "tags": ["tla", "async-graph"]
+    },
+    {
+      "id": "dynamic-import",
+      "entry": "entry.js",
+      "modules": ["entry.js", "dep.js"],
+      "expected": { "stdout": ["dynamic:7"] },
+      "tags": ["dynamic-import", "tla"]
+    },
+    {
+      "id": "typescript-jsx",
+      "entry": "entry.tsx",
+      "modules": ["entry.tsx"],
+      "expected": { "stdout": ["section:ok"] },
+      "tags": ["typescript", "jsx"]
+    },
+    {
+      "id": "hermes-for-of-capture",
+      "entry": "entry.js",
+      "modules": ["entry.js"],
+      "expected": { "stdout": ["a,b"] },
+      "tags": ["hermes-compat", "llp-0019"]
+    },
+    {
+      "id": "composed-source-map",
+      "entry": "entry.ts",
+      "modules": ["entry.ts"],
+      "expected": { "errorName": "Error", "messageIncludes": "mapped failure", "sourceLine": 3 },
+      "tags": ["source-map", "typescript"]
+    },
+    {
+      "id": "module-goal-strictness",
+      "entry": "entry.js",
+      "modules": ["entry.js"],
+      "expected": { "stdout": ["undefined", "undefined", "ReferenceError"] },
+      "tags": ["strict-goal", "wrapper-hygiene"]
+    }
+  ]
+}

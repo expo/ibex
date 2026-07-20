@@ -24,13 +24,15 @@ function exactFields(value, fields) {
 
 function artifactObjectIdentity(canonicalArtifactPath, target) {
   const triple = target?.triple ?? "";
-  if (triple.includes("-windows-")) {
-    throw new Error(
-      "Windows loaded-image file identity is not independently supported",
-    );
-  }
   const metadata = fs.statSync(canonicalArtifactPath, { bigint: true });
   if (!metadata.isFile()) throw new Error("engine artifact is not a file");
+  if (triple.includes("-windows-")) {
+    return {
+      platform: "windows",
+      volume: `volume:${metadata.dev}`,
+      file: `file:${metadata.ino}`,
+    };
+  }
   return {
     platform: triple.includes("-apple-")
       ? "apple"

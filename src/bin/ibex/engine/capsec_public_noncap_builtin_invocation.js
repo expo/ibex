@@ -1,8 +1,50 @@
 (function runNonCapabilityBuiltinInvocation(config) {
   var own = Object.prototype.hasOwnProperty;
+  var sourceOperationAttempted = false;
 
   function valueType(value) {
     return value === null ? "null" : typeof value;
+  }
+
+  // Output-shape capture is deliberately non-coercing. Primitive values are
+  // retained exactly; functions, symbols, and undefined use the established
+  // null payload; compound values retain their actual shape without invoking
+  // toJSON, getters, proxy enumeration, or user String conversion.
+  function rawReturn(value) {
+    var shape = value === null
+      ? "null"
+      : (Array.isArray(value) ? "array" : typeof value);
+    var encoded = null;
+    if (
+      shape === "null" ||
+      shape === "boolean" ||
+      shape === "number" ||
+      shape === "string"
+    ) {
+      encoded = value;
+    } else if (shape === "bigint") {
+      encoded = String(value);
+    } else if (shape === "array") {
+      encoded = [];
+    }
+    return {
+      kind: "return",
+      rawValueShape: shape,
+      value: encoded,
+      errorCode: null,
+    };
+  }
+
+  function rawThrow(error) {
+    return {
+      kind: "throw",
+      rawValueShape: "throw",
+      value: null,
+      errorCode:
+        error && typeof error.code === "string" && error.code.length > 0
+          ? error.code
+          : "ERR_IBEX_PUBLIC_BUILTIN_THROW",
+    };
   }
 
   function failure(kind, extra) {
@@ -24,6 +66,9 @@
     var access = descriptor.access;
     var value = moduleValue;
     if (access.kind === "module-value") {
+      if (config.kind === "builtin-export-read") {
+        sourceOperationAttempted = true;
+      }
       return { value: value };
     }
     for (var index = 0; index < access.path.length; index++) {
@@ -90,6 +135,9 @@
             }),
           };
         }
+      }
+      if (last && config.kind === "builtin-export-read") {
+        sourceOperationAttempted = true;
       }
       value = holder[key];
     }
@@ -227,7 +275,12 @@
           actualType: typeof target,
         });
       }
-      return failure("return", { valueType: valueType(target) });
+      var readSuccess = { valueType: valueType(target) };
+      if (config.captureRawOutput === true) {
+        readSuccess.sourceOperationAttempted = sourceOperationAttempted;
+        readSuccess.rawOutput = rawReturn(target);
+      }
+      return failure("return", readSuccess);
     }
 
     if (config.kind !== "builtin-export-call") {
@@ -335,6 +388,7 @@
       bindings,
     );
     try {
+      sourceOperationAttempted = true;
       if (dispatchKind === "construct") {
         result = Reflect.construct(target, callArguments);
       } else {
@@ -349,6 +403,19 @@
         receiver._closeNativeStream();
         cleanupPerformed = true;
       }
+    }
+    if (config.captureRawOutput === true) {
+      var capturedSuccess = {
+        valueType: valueType(result),
+        dispatchKind: dispatchKind,
+        bodyEntryProof: "normal-return-from-source-call",
+        sourceOperationAttempted: sourceOperationAttempted,
+        rawOutput: rawReturn(result),
+      };
+      if (setup.kind === "zlib-owner") {
+        capturedSuccess.cleanupPerformed = cleanupPerformed;
+      }
+      return failure("return", capturedSuccess);
     }
     var actualResultType = valueType(result);
     if (actualResultType !== config.bodyEntryProof.resultType) {
@@ -368,6 +435,14 @@
     }
     return failure("return", success);
   } catch (error) {
+    if (config.captureRawOutput === true && sourceOperationAttempted) {
+      var capturedThrow = {
+        sourceOperationAttempted: true,
+        rawOutput: rawThrow(error),
+      };
+      if (cleanupPerformed) capturedThrow.cleanupPerformed = true;
+      return failure("throw", capturedThrow);
+    }
     var thrown = {
       errorName: String((error && error.name) || "Error"),
       errorMessage: String((error && error.message) || error),

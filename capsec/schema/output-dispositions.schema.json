@@ -1,0 +1,258 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/output-dispositions.schema.json",
+  "title": "Ibex generated output-disposition dataset",
+  "type": "object",
+  "required": [
+    "outputDispositionDatasetSchema",
+    "profile",
+    "catalogKeyDigest",
+    "evidence",
+    "dispositions",
+    "rows",
+    "counts"
+  ],
+  "properties": {
+    "outputDispositionDatasetSchema": {
+      "const": "ibex/capsec-output-dispositions/2"
+    },
+    "profile": { "const": "ibex/capsec/1" },
+    "catalogKeyDigest": { "$ref": "#/$defs/digest" },
+    "evidence": { "$ref": "#/$defs/evidenceState" },
+    "dispositions": {
+      "type": "array",
+      "minItems": 11,
+      "maxItems": 11,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/disposition" }
+    },
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/decision" }
+    },
+    "counts": { "$ref": "#/$defs/counts" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]{43}$"
+    },
+    "disposition": {
+      "enum": [
+        "virtual-absolute",
+        "virtual-relative",
+        "virtual-basename",
+        "synthetic-source-id",
+        "absent",
+        "closed",
+        "refused",
+        "typed-logical",
+        "reserved-constant",
+        "private-native-path",
+        "non-path"
+      ]
+    },
+    "key": {
+      "type": "object",
+      "required": [
+        "surfaceId",
+        "output",
+        "alias",
+        "mode",
+        "sourceKind",
+        "returnVariant",
+        "contextId"
+      ],
+      "properties": {
+        "surfaceId": {
+          "type": "string",
+          "pattern": "^surface\\.[a-z0-9.]+$"
+        },
+        "output": { "$ref": "#/$defs/nonEmptyString" },
+        "alias": { "$ref": "#/$defs/nonEmptyString" },
+        "mode": { "$ref": "#/$defs/nonEmptyString" },
+        "sourceKind": { "$ref": "#/$defs/nonEmptyString" },
+        "returnVariant": { "$ref": "#/$defs/nonEmptyString" },
+        "contextId": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9.-]+$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "expectation": {
+      "type": "object",
+      "required": ["outcome", "normalizedValue"],
+      "properties": {
+        "outcome": {
+          "enum": ["absent", "return", "throw", "typed-return"]
+        },
+        "normalizedValue": { "$ref": "#/$defs/nonEmptyString" }
+      },
+      "additionalProperties": false
+    },
+    "decision": {
+      "type": "object",
+      "required": ["key", "disposition", "expectation", "rationale"],
+      "properties": {
+        "key": { "$ref": "#/$defs/key" },
+        "disposition": { "$ref": "#/$defs/disposition" },
+        "expectation": { "$ref": "#/$defs/expectation" },
+        "rationale": { "$ref": "#/$defs/nonEmptyString" }
+      },
+      "additionalProperties": false
+    },
+    "evidenceState": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["unpromotable", "verified"] },
+        "reason": { "$ref": "#/$defs/nonEmptyString" },
+        "sourceRevision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "sourceTreeDigest": { "$ref": "#/$defs/digest" },
+        "target": { "$ref": "#/$defs/target" },
+        "engine": { "$ref": "#/$defs/engine" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "unpromotable" } },
+            "required": ["status"]
+          },
+          "then": {
+            "required": ["reason"],
+            "properties": {
+              "reason": { "$ref": "#/$defs/nonEmptyString" },
+              "sourceRevision": false,
+              "sourceTreeDigest": false,
+              "target": false,
+              "engine": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "status": { "const": "verified" } },
+            "required": ["status"]
+          },
+          "then": {
+            "required": [
+              "sourceRevision",
+              "sourceTreeDigest",
+              "target",
+              "engine"
+            ],
+            "properties": {
+              "reason": false,
+              "sourceRevision": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "sourceTreeDigest": { "$ref": "#/$defs/digest" },
+              "target": { "$ref": "#/$defs/target" },
+              "engine": { "$ref": "#/$defs/engine" }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "target": {
+      "type": "object",
+      "required": ["triple", "features"],
+      "properties": {
+        "triple": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+){2,}$"
+        },
+        "features": { "$ref": "#/$defs/stableIdSet" }
+      },
+      "additionalProperties": false
+    },
+    "engine": {
+      "type": "object",
+      "required": [
+        "engineArtifactPath",
+        "kind",
+        "binaryDigest",
+        "object",
+        "targetArchitecture",
+        "structuralFeatures"
+      ],
+      "properties": {
+        "engineArtifactPath": { "$ref": "#/$defs/nonEmptyString" },
+        "kind": { "const": "hermes" },
+        "binaryDigest": { "$ref": "#/$defs/digest" },
+        "object": {
+          "type": "object",
+          "required": ["platform", "volume", "file"],
+          "properties": {
+            "platform": { "enum": ["android", "apple", "unix", "windows"] },
+            "volume": { "$ref": "#/$defs/nonEmptyString" },
+            "file": { "$ref": "#/$defs/nonEmptyString" }
+          },
+          "additionalProperties": false
+        },
+        "targetArchitecture": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "structuralFeatures": { "$ref": "#/$defs/stableIdSet" }
+      },
+      "additionalProperties": false
+    },
+    "stableIdSet": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9.-]*$"
+      }
+    },
+    "counts": {
+      "type": "object",
+      "required": ["catalogRows", "dispositionRows", "byDisposition"],
+      "properties": {
+        "catalogRows": { "type": "integer", "minimum": 1 },
+        "dispositionRows": { "type": "integer", "minimum": 1 },
+        "byDisposition": {
+          "type": "object",
+          "required": [
+            "virtual-absolute",
+            "virtual-relative",
+            "virtual-basename",
+            "synthetic-source-id",
+            "absent",
+            "closed",
+            "refused",
+            "typed-logical",
+            "reserved-constant",
+            "private-native-path",
+            "non-path"
+          ],
+          "properties": {
+            "virtual-absolute": { "type": "integer", "minimum": 1 },
+            "virtual-relative": { "type": "integer", "minimum": 1 },
+            "virtual-basename": { "type": "integer", "minimum": 1 },
+            "synthetic-source-id": { "type": "integer", "minimum": 1 },
+            "absent": { "type": "integer", "minimum": 1 },
+            "closed": { "type": "integer", "minimum": 1 },
+            "refused": { "type": "integer", "minimum": 1 },
+            "typed-logical": { "type": "integer", "minimum": 1 },
+            "reserved-constant": { "type": "integer", "minimum": 1 },
+            "private-native-path": { "type": "integer", "minimum": 1 },
+            "non-path": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

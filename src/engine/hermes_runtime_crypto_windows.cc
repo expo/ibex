@@ -444,10 +444,18 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactStdinRead"),
       1,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        int32_t stdinRoute = ex_host_session_descriptor_read_route(0);
+        if (stdinRoute == 1) {
+          return facebook::jsi::String::createFromUtf8(runtime, "");
+        }
+        if (stdinRoute != 0) {
+          throw facebook::jsi::JSError(
+              runtime, "EACCES: permission denied, read 'fd 0'");
+        }
         return facebook::jsi::Value::null();
       });
   rt.global().setProperty(rt, "__exactStdinRead", std::move(stdinReadFn));

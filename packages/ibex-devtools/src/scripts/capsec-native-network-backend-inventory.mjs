@@ -585,7 +585,7 @@ function assertSourceMarkers(sourcePath, scan) {
   );
   const required =
     sourcePath === "src/engine/native_fetch_linux.cc"
-      ? ["curl_easy_perform", "posix_spawnp"]
+      ? ["curl_easy_perform", "posix_spawn"]
       : sourcePath === "src/engine/native_websocket_linux.cc"
         ? ["curl_ws_recv"]
         : sourcePath === "src/engine/native_fetch_macos.mm"

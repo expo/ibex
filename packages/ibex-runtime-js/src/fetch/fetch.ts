@@ -21,6 +21,10 @@ import type {
 import { requireCapability, Capabilities } from '../security/Capabilities';
 import { cookieJar, getRuntimeOrigin } from './cookie-jar.js';
 import { getTextEncoder, normalizeBlobContentType, readableStreamToUint8Array } from './body.js';
+import {
+  isBootstrapCompatibilityControlFixed,
+  readBootstrapCompatibilityControl,
+} from '../core/host-inputs.js';
 
 /**
  * Global reference to the native fetch module.
@@ -1643,6 +1647,11 @@ function getRuntimeEnvObject(): Record<string, string | undefined> | null {
 }
 
 function readRuntimeEnv(key: string): string | undefined {
+  const bootstrapValue = readBootstrapCompatibilityControl(key);
+  if (
+    bootstrapValue !== undefined ||
+    isBootstrapCompatibilityControlFixed(key)
+  ) return bootstrapValue;
   const env = getRuntimeEnvObject();
   if (!env) {
     return undefined;

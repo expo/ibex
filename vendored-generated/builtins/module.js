@@ -1066,12 +1066,14 @@ var runtimeModuleManifest = (/* @__PURE__ */ __commonJSMin(((exports, module) =>
 var builtinList = runtimeModuleManifest.moduleBuiltinList.slice();
 runtimeModuleManifest.nodeOnlyBuiltinModules.slice();
 var builtinRuntimeSpecifiers = runtimeModuleManifest.moduleBuiltinRuntimeSpecifiers;
+var privateCreateRequire = module && typeof module.__exactCreateRequire === "function" ? module.__exactCreateRequire : null;
 var builtinSpecifierSet = Object.create(null);
 for (var i = 0; i < builtinRuntimeSpecifiers.length; i++) builtinSpecifierSet[builtinRuntimeSpecifiers[i]] = true;
 function isBuiltin(specifier) {
 	return typeof specifier === "string" && builtinSpecifierSet[specifier] === true;
 }
 function createRequire(filename) {
+	if (privateCreateRequire) return privateCreateRequire(filename);
 	if (typeof filename === "object" && filename !== null && filename.href) filename = filename.href;
 	if (typeof filename === "string" && filename.indexOf("file://") === 0) filename = filename.slice(7);
 	filename = String(filename || "");
@@ -1083,42 +1085,28 @@ function createRequire(filename) {
 	}
 	function resolveFromFilename(specifier) {
 		if (isBuiltin(specifier) || specifier.indexOf("node:") === 0) return specifier;
-		var resolver = typeof globalThis.__exactModuleResolveMeta === "function" ? globalThis.__exactModuleResolveMeta : typeof globalThis.__exactModuleResolve === "function" ? globalThis.__exactModuleResolve : null;
-		if (resolver) {
-			var resolved = resolver(specifier, filename);
-			if (typeof resolved === "string") try {
-				var record = JSON.parse(resolved);
-				if (record && record.error) throw new Error(record.error);
-				return record && (record.path || record.id) || specifier;
-			} catch (parseErr) {
-				if (resolved.charAt(0) === "{") throw parseErr;
-				return resolved;
-			}
-			if (resolved && (resolved.path || resolved.id)) return resolved.path || resolved.id;
-		}
-		if (specifier.charAt(0) === "." && parentDir) return parentDir + "/" + specifier;
+		if (specifier.charAt(0) === "." && parentDir) return globalThis.require.resolve(parentDir + "/" + specifier);
 		if (globalThis.require && globalThis.require.resolve) return globalThis.require.resolve(specifier);
 		return specifier;
 	}
 	var _require = function(specifier) {
+		if (arguments.length > 1) return globalThis.require(specifier, void 0);
 		if (isBuiltin(specifier) || specifier.indexOf("node:") === 0) return globalThis.require(specifier);
 		return globalThis.require(resolveFromFilename(specifier));
 	};
 	_require.resolve = function(specifier) {
+		if (arguments.length > 1) return globalThis.require.resolve(specifier, void 0);
 		return resolveFromFilename(specifier);
 	};
 	_require.resolve.paths = function(specifier) {
 		return globalThis.require.resolve.paths ? globalThis.require.resolve.paths(specifier) : null;
 	};
-	_require.cache = globalThis.require.cache || {};
-	_require.main = globalThis.require.main || void 0;
 	return _require;
 }
 var Module = {
 	builtinModules: builtinList.slice(),
 	isBuiltin,
 	createRequire,
-	_cache: {},
 	_pathCache: {},
 	_extensions: {
 		".js": true,

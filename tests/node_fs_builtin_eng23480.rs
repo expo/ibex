@@ -55,6 +55,8 @@ fn write_text(path: &Path, contents: &str) {
 
 fn run_app(tag: &str, app: &str, timeout: Duration) -> AppRun {
     let dir = unique_dir(tag);
+    let home = dir.join("home");
+    std::fs::create_dir_all(&home).expect("create isolated home");
     write_text(&dir.join("app.js"), app);
     let mut cmd = Command::new(IBEX);
     cmd.arg("capsec")
@@ -62,6 +64,11 @@ fn run_app(tag: &str, app: &str, timeout: Duration) -> AppRun {
         .arg("app.js")
         .current_dir(&dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
+        // The runtime's bundle cache is intentionally persistent, but this
+        // fresh-process contract must not inherit cache-pruning latency from
+        // unrelated tests or the developer's machine.
+        .env("HOME", &home)
+        .env("XDG_CACHE_HOME", home.join(".cache"))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -296,13 +303,28 @@ var path = require('path');
 var d = fs.mkdtempSync(path.join(os.tmpdir(), 'eng23480-ue-'));
 var f = path.join(d, 'x.txt');
 fs.writeFileSync(f, 'x');
-fs.watch(f, { persistent: false }, function() {});
+var watcher = fs.watch(f, { persistent: false }, function() {});
+var watchdog = require('timers').setTimeout(function() {
+  console.log('watcher-held-loop|true');
+  watcher.close();
+}, 3000);
+watchdog.unref();
 console.log('created-watcher|true');
 "#;
-    // The unref'd poll timer must not keep the process alive: the run has to
-    // finish well inside the timeout instead of hanging until killed.
-    let run = run_app("unref-exit", app, Duration::from_secs(15));
+    // Authenticated audit startup can exceed 15 seconds in an unoptimized
+    // build. The in-app watchdog preserves the tighter semantic check: if the
+    // watcher is accidentally referenced, it keeps the loop alive long enough
+    // for the unref'd watchdog to emit the failure sentinel and close it.
+    let run = run_app("unref-exit", app, Duration::from_secs(60));
     assert_lines(&run, &["created-watcher|true"]);
+    assert!(
+        !run.stdout
+            .lines()
+            .any(|line| line == "watcher-held-loop|true"),
+        "persistent:false watcher held the event loop\nstdout:\n{}\nstderr:\n{}",
+        run.stdout,
+        run.stderr
+    );
 }
 
 #[cfg(unix)]

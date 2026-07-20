@@ -1,0 +1,111 @@
+{
+  "schema": "ibex/module-loader-performance-baseline/2",
+  "runtimeIdentity": {
+    "$comment": "Runtime identity authority (LLP 0012): every claim the Ibex runtime makes about what it is derives from this file. Consumers span TS, Rust, and C++ across two load stages, so the authority is language-neutral JSON with generated bindings (identity.generated.ts, identity_generated.rs) produced by `bun packages/ibex-devtools/src/scripts/generate-runtime-identity.ts`. Policy (LLP 0012#decision): Node-primary — versions.node is pinned to the Node release the vendored compat corpus tracks; every other ambient key must be truthful (no v8/uv/openssl/modules masquerade; the compat harness injects fixture-fidelity keys per test, they never ship ambient). The Bun-shaped surface is opt-in via --compat=bun, which also sets versions.bun so detection stays coherent in both states.",
+    "version": 1,
+    "name": "ibex",
+    "processTitle": "ibex",
+    "userAgent": "Ibex/0.1.0 (Hermes)",
+    "release": {
+      "name": "node"
+    },
+    "versions": {
+      "ibex": "0.1.0",
+      "node": "24.13.1",
+      "hermes": "1.0.0"
+    },
+    "compat": {
+      "bun": {
+        "versionWhenEnabled": "1.2.0"
+      }
+    },
+    "llp": "0012"
+  },
+  "platform": {
+    "os": "darwin",
+    "arch": "arm64",
+    "release": "25.5.0",
+    "cpu": "Apple M5 Max"
+  },
+  "revision": "c18aa547191d89f23fa619851a814afa49470f98",
+  "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+  "ibexBinaryBytes": 55929312,
+  "graphModules": 40,
+  "measurementConditions": {
+    "hostContentionObserved": true,
+    "usableForPerformanceBudget": false,
+    "preparedProfileRequiresDigestVerifiedBundleArtifact": true,
+    "transpileProfilesRequireDigestVerifiedCacheArtifact": true,
+    "note": "Unrelated build processes were active during runtime sampling; retain values as provenance, not as an accepted performance budget."
+  },
+  "profiles": {
+    "directSourceMjs": {
+      "cold": {
+        "samples": 5,
+        "minMs": 126.3,
+        "medianMs": 147.002,
+        "meanMs": 154.627,
+        "maxMs": 218.05
+      },
+      "warm": {
+        "samples": 5,
+        "minMs": 111.377,
+        "medianMs": 131.315,
+        "meanMs": 129.628,
+        "maxMs": 144.894
+      }
+    },
+    "swcSelectedTs": {
+      "cold": {
+        "samples": 5,
+        "minMs": 547.912,
+        "medianMs": 615.348,
+        "meanMs": 717.974,
+        "maxMs": 1129.347
+      },
+      "warm": {
+        "samples": 5,
+        "minMs": 120.882,
+        "medianMs": 174.306,
+        "meanMs": 162.738,
+        "maxMs": 192.405
+      }
+    },
+    "scannerSelectedJs": {
+      "cold": {
+        "samples": 5,
+        "minMs": 318.487,
+        "medianMs": 352.575,
+        "meanMs": 354.541,
+        "maxMs": 414.634
+      },
+      "warm": {
+        "samples": 5,
+        "minMs": 114.334,
+        "medianMs": 139.966,
+        "meanMs": 134.302,
+        "maxMs": 143.034
+      }
+    },
+    "preparedRolldownMjs": {
+      "cold": {
+        "samples": 5,
+        "minMs": 1326.996,
+        "medianMs": 1394.025,
+        "meanMs": 1433.742,
+        "maxMs": 1632.79
+      },
+      "warm": {
+        "samples": 5,
+        "minMs": 463.951,
+        "medianMs": 505.218,
+        "meanMs": 506.991,
+        "maxMs": 579.859
+      }
+    }
+  },
+  "compile": {
+    "cleanBuildSeconds": 174.2,
+    "note": "Measured with /usr/bin/time -p, a fresh CARGO_TARGET_DIR, cargo build --release --bin ibex, and matching authenticated Hermes compiler/headers/framework inputs."
+  }
+}

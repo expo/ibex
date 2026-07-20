@@ -24,13 +24,18 @@ pub mod cdp;
 // @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory — the
 // committed binding exposes generated registry identities without duplicating
 // decision logic in handwritten Rust.
+pub mod cache_topology;
 pub mod capsec_registry_generated;
 pub mod engine;
 pub mod host;
 pub mod identity_generated;
 pub mod module_loader;
+pub mod repl_surface;
+pub mod session_constants;
+pub mod session_lifecycle;
 #[cfg(feature = "host-http-server")]
 mod sync;
+pub mod vfs;
 
 use anyhow::Result;
 use std::path::PathBuf;

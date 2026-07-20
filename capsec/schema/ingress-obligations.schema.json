@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/ingress-obligations.schema.json",
+  "title": "Ibex authenticated-code-ingress obligations",
+  "type": "object",
+  "required": [
+    "ingressObligationsSchema",
+    "profile",
+    "rationaleId",
+    "supportingSurfaces",
+    "obligations",
+    "rows"
+  ],
+  "properties": {
+    "ingressObligationsSchema": {
+      "const": "ibex/capsec-ingress-obligations/1"
+    },
+    "profile": { "const": "ibex/capsec/1" },
+    "rationaleId": { "const": "authenticated-code-ingress" },
+    "supportingSurfaces": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/supportingSurface" }
+    },
+    "obligations": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/obligation" }
+    },
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/row" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "stableId": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+    },
+    "actionId": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/actionId"
+    },
+    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "surface": {
+      "type": "object",
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": { "enum": ["cli", "host-abi"] },
+        "name": { "$ref": "#/$defs/nonEmptyString" }
+      },
+      "additionalProperties": false
+    },
+    "supportingSurface": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "role",
+            "edgeId",
+            "surface",
+            "classification",
+            "rationaleId"
+          ],
+          "properties": {
+            "role": {
+              "enum": [
+                "bootstrap-seal",
+                "session-binding",
+                "submission-admission",
+                "submission-settlement"
+              ]
+            },
+            "edgeId": { "$ref": "#/$defs/stableId" },
+            "surface": { "$ref": "#/$defs/surface" },
+            "classification": { "const": "non-capability" },
+            "rationaleId": { "$ref": "#/$defs/stableId" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "role",
+            "edgeId",
+            "surface",
+            "classification",
+            "cap"
+          ],
+          "properties": {
+            "role": {
+              "enum": [
+                "diagnostic-evaluator",
+                "unauthenticated-bare-evaluator"
+              ]
+            },
+            "edgeId": { "$ref": "#/$defs/stableId" },
+            "surface": { "$ref": "#/$defs/surface" },
+            "classification": { "const": "closed" },
+            "cap": { "$ref": "#/$defs/actionId" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "obligationId": {
+      "enum": [
+        "armed-session-bound",
+        "bare-eval-post-bootstrap-refused",
+        "checked-native-module-graph",
+        "checked-session-lowering",
+        "endowments-projected",
+        "exact-ordinal-required",
+        "file-argv-bound",
+        "file-program-adapter-bound",
+        "file-vfs-source-bound",
+        "implicit-route-derived",
+        "inline-session-adapter-bound",
+        "javascript-origin-refused",
+        "load-vfs-source-bound",
+        "product-route-plan-bound",
+        "repl-session-adapter-bound",
+        "replay-refused",
+        "request-bytes-bound",
+        "root-attribution-derived",
+        "source-goal-derived",
+        "synthetic-source-label-derived",
+        "time-same-authenticated-submission",
+        "wrong-session-refused"
+      ]
+    },
+    "sourceEvidence": {
+      "type": "object",
+      "required": ["path", "tokens"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[a-zA-Z0-9_./-]+$"
+        },
+        "tokens": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "obligation": {
+      "type": "object",
+      "required": ["id", "assertion", "sourceEvidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/obligationId" },
+        "assertion": { "$ref": "#/$defs/nonEmptyString" },
+        "sourceEvidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/sourceEvidence" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "row": {
+      "type": "object",
+      "required": ["edgeId", "surface", "obligationIds"],
+      "properties": {
+        "edgeId": { "$ref": "#/$defs/stableId" },
+        "surface": { "$ref": "#/$defs/surface" },
+        "obligationIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/obligationId" }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

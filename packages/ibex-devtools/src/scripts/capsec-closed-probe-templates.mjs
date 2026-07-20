@@ -9,6 +9,10 @@
 
 import crypto from "node:crypto";
 import { canonicalJson } from "./capsec-contract.mjs";
+import {
+  reviewedArmedNativeAbsentSurface,
+  reviewedArmedSharedRuntimeSealedSurface,
+} from "./capsec-armed-root-closures.mjs";
 
 const CLOSED_BATCH_COMMAND = Object.freeze([
   "cargo",
@@ -16,7 +20,7 @@ const CLOSED_BATCH_COMMAND = Object.freeze([
   "--bin",
   "ibex",
   "--features",
-  "capsec-conformance-observer",
+  "capsec-conformance-observer,openssl-crypto",
   "capsec_public_closed_recipe_batch",
   "--",
   "--test-threads=1",
@@ -63,7 +67,7 @@ const CLI_COMMAND_TEMPLATES = new Map([
 
 const REJECTION_FRAGMENTS = Object.freeze({
   evaluation: [
-    "closes ad-hoc evaluation, REPL, and debug commands",
+    "production capability enforcement closes debug commands",
   ],
   inspector: [
     "closes compatibility, inspector",
@@ -80,6 +84,117 @@ const TAMED_EVALUATOR_ACCESS = new Map([
   ["global:Function", "global-function"],
   ["global:AsyncFunction", "async-function-constructor"],
   ["global:GeneratorFunction", "generator-function-constructor"],
+]);
+
+const TERMINAL_BUILTIN_SPECIFIERS = new Map([
+  ["node_async_hooks", ["async_hooks", "node:async_hooks"]],
+  [
+    "node_inspector",
+    [
+      "inspector",
+      "inspector/promises",
+      "node:inspector",
+      "node:inspector/promises",
+    ],
+  ],
+  ["node_vm", ["node:vm", "vm"]],
+  ["node_wasi", ["node:wasi", "wasi"]],
+  ["node_worker_threads", ["node:worker_threads", "worker_threads"]],
+]);
+
+const CLOSED_SQLITE_EXTENSION_EXPORTS = new Map([
+  ["Database.loadExtension", "Database"],
+  ["default.loadExtension", "default"],
+]);
+const CLOSED_SQLITE_CRSQLITE_EXPORTS = new Map([
+  ["Database.enableCrSqlite", "Database"],
+  ["default.enableCrSqlite", "default"],
+]);
+const CLOSED_SQLITE_MODULE_SPECIFIERS = Object.freeze([
+  "bun:sqlite",
+  "exact:sqlite",
+]);
+const CLOSED_SQLITE_CRSQLITE_TERMINALS = Object.freeze([
+  "__exactCrSqlitePath",
+  "__exactSqliteLoadCrSqlite",
+  "__exactSqliteLoadExtension",
+]);
+
+const DEBUGGER_ABI_FUNCTIONS = new Map([
+  ["enable", ["ex_hermes_debugger_enable", "integer-zero"]],
+  ["eval", ["ex_hermes_debugger_eval", "null-pointer"]],
+  ["get-script-source", ["ex_hermes_debugger_get_script_source", "null-pointer"]],
+  ["get-scripts", ["ex_hermes_debugger_get_scripts", "null-pointer"]],
+  ["next-event", ["ex_hermes_debugger_next_event", "null-pointer"]],
+  ["pause", ["ex_hermes_debugger_pause", "no-event"]],
+  [
+    "remove-breakpoint",
+    ["ex_hermes_debugger_remove_breakpoint", "no-event"],
+  ],
+  ["resume", ["ex_hermes_debugger_resume", "no-event"]],
+  ["set-breakpoint", ["ex_hermes_debugger_set_breakpoint", "null-pointer"]],
+]);
+
+const SHARED_RUNTIME_ABSENT_GLOBALS = new Set([
+  "__exactAllowNativesSyntax",
+  "__exactCompatEval",
+  "__exactDebugModuleSource",
+  "__exactDebugModuleSources",
+  "__exactDebugModuleSources.length",
+  "__exactInstallAsyncIpcListenerPatch",
+  "__exactInstallProcessIpcBootstrap",
+  "__exactNativeWrapState",
+  "__exactNativeWrapState.Pipe",
+  "__exactNativeWrapState.TCP",
+  "__exactNativeWrapState.TCPConnectWrap",
+  "__exactNativeWrapState.UV_EINVAL",
+  "__exactNativeWrapState.byFd",
+  "__exactNativeWrapState.pipeConstants",
+  "__exactNativeWrapState.tcpConstants",
+  "__exactStreamWrapState",
+  "__exactSyncTrackedIpcListenersAfterDispatch",
+  "global:Bun.gc",
+  "global:Cache",
+  "global:Cache.add",
+  "global:Cache.addAll",
+  "global:Cache.delete",
+  "global:Cache.keys",
+  "global:Cache.match",
+  "global:Cache.matchAll",
+  "global:Cache.put",
+  "global:CacheStorage",
+  "global:CacheStorage.delete",
+  "global:CacheStorage.has",
+  "global:CacheStorage.keys",
+  "global:CacheStorage.match",
+  "global:CacheStorage.open",
+  "global:Exact.gc",
+]);
+
+const EXACT_RUNTIME_CANDIDATE_TRIPLES = new Set([
+  "aarch64-apple-darwin",
+  "x86_64-pc-windows-msvc",
+]);
+
+function reviewedSharedRuntimeAbsentSurface(surfaceName) {
+  return (
+    SHARED_RUNTIME_ABSENT_GLOBALS.has(surfaceName) ||
+    reviewedArmedSharedRuntimeSealedSurface(surfaceName)
+  );
+}
+
+const APP_RUNTIME_ABSENT_WORKLET_GLOBALS = new Set([
+  "global:measure",
+  "global:scheduleOnAppRuntime",
+  "global:worklet",
+  "global:worklet.capture",
+  "global:worklet.captureGet",
+  "global:worklet.captureSet",
+  "global:worklet.clamp",
+  "global:worklet.lerp",
+  "global:worklet.output",
+  "global:worklet.runOnJS",
+  "global:worklet.sharedValue",
 ]);
 
 const EXACT_OPERATION_MANIFEST_DIGEST =
@@ -260,6 +375,71 @@ function tamedEvaluatorProbe({
         kind: "tamed-evaluator",
         globalName: metadata.exportName,
         accessMode,
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
+function moduleRunnerNamespaceProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+}) {
+  if (
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const surfaceName = "ex_hermes_module_record_namespace_json";
+  if (surfaceObservedKey !== `host-abi:${surfaceName}`) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  if (
+    live?.kind !== "host-abi" ||
+    live.name !== surfaceName ||
+    !Array.isArray(live.sourceRefs) ||
+    canonicalJson(live.sourceRefs) !==
+      canonicalJson([`src/engine/hermes_module_runner.cc#${surfaceName}`]) ||
+    live.metadata?.definitions?.length !== 1 ||
+    live.metadata.definitions[0].language !== "c++" ||
+    live.metadata.definitions[0].sourceRef !== live.sourceRefs[0] ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    edge.cap !== "runtime:inspect" ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-module-runner-namespace",
+    surfaceObservedKey,
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(live.metadata),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "host-abi",
+      surfaceName,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "module-runner-namespace",
+        expectedError:
+          "native ModuleRecord namespace read refused (-1): module namespace inspection is closed under armed startup",
       },
       expectedResult: "closed",
       expectedTypedDecisionCount: 0,
@@ -523,6 +703,104 @@ function startupEnvironmentProbe({
 }
 
 function loaderExecutableKindProbe({
+  plan: _plan,
+  route: _route,
+  liveByObservedKey: _liveByObservedKey,
+  coverageByObservedKey: _coverageByObservedKey,
+}) {
+  // Armed project imports resolve through the authenticated VFS resolver, not
+  // the older `resolve_with_oxc` facet named by these inventory rows. Its
+  // public error is intentionally normalized, so a failed `.node`/`.wasm`
+  // import cannot prove which private branch rejected it. Leave both claims
+  // residual until an exact source-bound executor exists.
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+  return null;
+}
+
+function terminalBuiltinImportProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+}) {
+  if (
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length > 1
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  if (!surfaceObservedKey.startsWith("builtin:")) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const metadata = live?.metadata;
+  const moduleSpecifiers = TERMINAL_BUILTIN_SPECIFIERS.get(
+    metadata?.sourceKey,
+  );
+  if (!moduleSpecifiers) return null;
+  const terminalBuiltinRoot = moduleSpecifiers[0]
+    .replace(/^node:/u, "")
+    .split("/")[0];
+  const exportSurface = metadata.surfaceType === "export";
+  const expectedSurfaceName = exportSurface
+    ? `export:${metadata.sourceKey}:${metadata.exportName}`
+    : live.name;
+  if (
+    live.kind !== "builtin" ||
+    live.name !== expectedSurfaceName ||
+    live.observedKey !== `builtin:${expectedSurfaceName}` ||
+    metadata.importReachability !== "public" ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length !== 1 ||
+    (exportSurface
+      ? canonicalJson(metadata.publicModuleSpecifiers) !==
+        canonicalJson(moduleSpecifiers)
+      : metadata.moduleBuiltin !== true ||
+        metadata.bundleExternal !== true ||
+        !moduleSpecifiers.includes(live.name)) ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    (route.alternatives.length === 1 &&
+      route.alternatives[0].terminalObservedKey !== surfaceObservedKey)
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-terminal-builtin",
+    surfaceObservedKey,
+    sourceKey: metadata.sourceKey,
+    ...(exportSurface ? { exportName: metadata.exportName } : {}),
+    moduleSpecifiers: [...moduleSpecifiers],
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(metadata),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "builtin",
+      surfaceName: live.name,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "terminal-builtin-import",
+        terminalBuiltinRoot,
+        moduleSpecifiers: [...moduleSpecifiers],
+        expectedRejectionFragment: "Import denied:",
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
+function sqliteExtensionLoadProbe({
   plan,
   route,
   liveByObservedKey,
@@ -536,41 +814,47 @@ function loaderExecutableKindProbe({
     return null;
   }
   const surfaceObservedKey = route.surfaceObservedKeys[0];
-  if (!surfaceObservedKey.startsWith("loader:")) return null;
   const live = liveByObservedKey.get(surfaceObservedKey);
   const edge = coverageByObservedKey.get(surfaceObservedKey);
-  // The filename guard returns before ModuleType::Addon/Wasm is inspected.
-  // Only the resolve_with_oxc facet is public-source executable; the later
-  // kind branches remain honest residuals.
-  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
-  const fixedKind = live?.name?.endsWith("-module")
-    ? live.name.slice(0, -"-module".length)
-    : null;
-  const loaderKind = fixedKind;
+  const metadata = live?.metadata;
+  const constructorExportName = CLOSED_SQLITE_EXTENSION_EXPORTS.get(
+    metadata?.exportName,
+  );
+  const expectedSourceRef =
+    `packages/ibex-runtime-js/src/sqlite/module.js#exports:${metadata?.exportName}`;
   if (
-    !new Set(["native-addon", "wasm"]).has(loaderKind) ||
-    live?.kind !== "loader" ||
-    live.metadata != null ||
-    !Array.isArray(live.sourceRefs) ||
-    canonicalJson(live.sourceRefs) !==
-      canonicalJson(["src/module_loader/mod.rs#resolve_with_oxc"]) ||
+    constructorExportName === undefined ||
+    live?.kind !== "builtin" ||
+    live.name !== `export:exact_sqlite:${metadata.exportName}` ||
+    live.observedKey !== `builtin:${live.name}` ||
+    metadata.sourceKey !== "exact_sqlite" ||
+    metadata.surfaceType !== "export" ||
+    metadata.valueShape !== "callable" ||
+    metadata.importReachability !== "public" ||
+    canonicalJson(metadata.publicModuleSpecifiers) !==
+      canonicalJson(CLOSED_SQLITE_MODULE_SPECIFIERS) ||
+    canonicalJson(metadata.moduleSpecifiers) !==
+      canonicalJson(CLOSED_SQLITE_MODULE_SPECIFIERS) ||
+    canonicalJson(metadata.enforcementRouteEvidence?.terminals) !==
+      canonicalJson(["__exactSqliteLoadExtension"]) ||
+    canonicalJson(live.sourceRefs) !== canonicalJson([expectedSourceRef]) ||
     edge?.id !== plan.edgeIds[0] ||
     edge.classification !== "closed" ||
-    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+    edge.cap !== "ffi:load" ||
+    route.alternatives[0].terminalObservedKey !==
+      "native-op:__exactSqliteLoadExtension"
   ) {
     return null;
   }
-  const extension = loaderKind === "native-addon" ? ".node" : ".wasm";
-  const rejectionFragment =
-    loaderKind === "native-addon"
-      ? "Native addons are closed"
-      : "WebAssembly modules are closed";
   const sourceDescriptor = {
-    kind: "closed-loader-executable-kind",
-    loaderKind,
-    extension,
+    kind: "closed-sqlite-extension-load",
+    surfaceObservedKey,
+    sourceKey: metadata.sourceKey,
+    exportName: metadata.exportName,
+    constructorExportName,
+    moduleSpecifiers: [...CLOSED_SQLITE_MODULE_SPECIFIERS],
     sourceRefs: structuredClone(live.sourceRefs),
-    sourceMetadata: structuredClone(live.metadata ?? null),
+    sourceMetadata: structuredClone(metadata),
   };
   return {
     kind: "public-surface-invocation",
@@ -579,15 +863,448 @@ function loaderExecutableKindProbe({
     invocation: {
       invocationSchema: "ibex/capsec-closed-surface-invocation/1",
       kind: "closed-surface",
-      surfaceKind: "loader",
+      surfaceKind: "builtin",
       surfaceName: live.name,
       sourceDescriptor,
       sourceDescriptorDigest: taggedDigest(sourceDescriptor),
       operation: {
-        kind: "loader-executable-file",
-        loaderKind,
-        extension,
-        rejectionFragment,
+        kind: "sqlite-extension-load",
+        constructorExportName,
+        methodName: "loadExtension",
+        moduleSpecifiers: [...CLOSED_SQLITE_MODULE_SPECIFIERS],
+        databasePath: ":memory:",
+        extensionPath: "ibex-capsec-closed-extension",
+        expectedRejectionFragment: "Extension loading not supported",
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
+function sqliteCrSqliteEnableProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+}) {
+  if (
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== CLOSED_SQLITE_CRSQLITE_TERMINALS.length ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const metadata = live?.metadata;
+  const constructorExportName = CLOSED_SQLITE_CRSQLITE_EXPORTS.get(
+    metadata?.exportName,
+  );
+  const expectedSourceRef =
+    `packages/ibex-runtime-js/src/sqlite/module.js#exports:${metadata?.exportName}`;
+  const routeTerminals = route.alternatives
+    .map((alternative) => alternative.terminalObservedKey)
+    .sort();
+  const expectedRouteTerminals = CLOSED_SQLITE_CRSQLITE_TERMINALS.map(
+    (terminal) => `native-op:${terminal}`,
+  ).sort();
+  if (
+    constructorExportName === undefined ||
+    live?.kind !== "builtin" ||
+    live.name !== `export:exact_sqlite:${metadata.exportName}` ||
+    live.observedKey !== `builtin:${live.name}` ||
+    metadata.sourceKey !== "exact_sqlite" ||
+    metadata.surfaceType !== "export" ||
+    metadata.valueShape !== "callable" ||
+    metadata.importReachability !== "public" ||
+    canonicalJson(metadata.publicModuleSpecifiers) !==
+      canonicalJson(CLOSED_SQLITE_MODULE_SPECIFIERS) ||
+    canonicalJson(metadata.moduleSpecifiers) !==
+      canonicalJson(CLOSED_SQLITE_MODULE_SPECIFIERS) ||
+    canonicalJson(
+      [...(metadata.enforcementRouteEvidence?.terminals ?? [])].sort(),
+    ) !==
+      canonicalJson([...CLOSED_SQLITE_CRSQLITE_TERMINALS].sort()) ||
+    canonicalJson(live.sourceRefs) !== canonicalJson([expectedSourceRef]) ||
+    canonicalJson(routeTerminals) !== canonicalJson(expectedRouteTerminals) ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    edge.cap !== "ffi:load"
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-sqlite-crsqlite-enable",
+    surfaceObservedKey,
+    sourceKey: metadata.sourceKey,
+    exportName: metadata.exportName,
+    constructorExportName,
+    moduleSpecifiers: [...CLOSED_SQLITE_MODULE_SPECIFIERS],
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(metadata),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "builtin",
+      surfaceName: live.name,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "sqlite-cr-sqlite-enable",
+        constructorExportName,
+        methodName: "enableCrSqlite",
+        moduleSpecifiers: [...CLOSED_SQLITE_MODULE_SPECIFIERS],
+        databasePath: ":memory:",
+        expectedRejectionFragment:
+          "cr-sqlite extension not available. The Ibex runtime must be built with cr-sqlite support.",
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
+function debuggerAbiDisabledProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+  target,
+}) {
+  if (
+    !EXACT_RUNTIME_CANDIDATE_TRIPLES.has(target?.triple) ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const hostAbi = surfaceObservedKey.startsWith("host-abi:");
+  const nativePrefix = "native-op:inspector.debugger-";
+  const selected = hostAbi
+    ? [...DEBUGGER_ABI_FUNCTIONS].find(
+        ([, [functionName]]) =>
+          surfaceObservedKey === `host-abi:${functionName}`,
+      )
+    : surfaceObservedKey.startsWith(nativePrefix)
+      ? [
+          surfaceObservedKey.slice(nativePrefix.length),
+          DEBUGGER_ABI_FUNCTIONS.get(
+            surfaceObservedKey.slice(nativePrefix.length),
+          ),
+        ]
+      : null;
+  if (!selected) return null;
+  const [operationSlug, operation] = selected;
+  if (!operation) return null;
+  const [functionName, expectedCallResult] = operation;
+  const defaultSourceRef =
+    `src/engine/hermes_runtime_debugger.cc#${functionName}`;
+  const windowsSourceRef =
+    `src/engine/hermes_runtime_platform_windows.cc#${functionName}`;
+  if (
+    !live ||
+    live.observedKey !== surfaceObservedKey ||
+    !new Set(["host-abi", "native-op"]).has(live.kind) ||
+    canonicalJson(live.sourceRefs) !==
+      canonicalJson([defaultSourceRef, windowsSourceRef]) ||
+    (hostAbi
+      ? live.name !== functionName ||
+        canonicalJson(
+          live.metadata?.definitions?.map((definition) => [
+            definition.targetVariant,
+            definition.sourceRef,
+          ]),
+        ) !==
+          canonicalJson([
+            ["default", defaultSourceRef],
+            ["windows", windowsSourceRef],
+          ])
+      : live.name !== `inspector.debugger-${operationSlug}` ||
+        live.metadata != null) ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const selectedSourceRef =
+    target.triple === "x86_64-pc-windows-msvc"
+      ? windowsSourceRef
+      : defaultSourceRef;
+  const sourceDescriptor = {
+    kind: "closed-debugger-abi",
+    surfaceObservedKey,
+    functionName,
+    selectedSourceRef,
+    targetTriple: target.triple,
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(live.metadata ?? null),
+  };
+  const expectedError =
+    `debugger ABI ${functionName} is unavailable in the no-debugger exact target`;
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: live.kind,
+      surfaceName: live.name,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "debugger-abi-disabled",
+        functionName,
+        expectedCallResult,
+        expectedError,
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
+function sharedRuntimeGlobalAbsenceProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+  target,
+}) {
+  if (
+    !EXACT_RUNTIME_CANDIDATE_TRIPLES.has(target?.triple) ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const prefix = "native-op:";
+  if (!surfaceObservedKey.startsWith(prefix)) return null;
+  const surfaceName = surfaceObservedKey.slice(prefix.length);
+  if (!reviewedSharedRuntimeAbsentSurface(surfaceName)) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const metadata = live?.metadata;
+  const branches = metadata?.installationBranches;
+  const sharedRuntimeInstallation = metadata?.sourceKey === "shared_runtime";
+  const reviewedSharedRuntimeBranch =
+    branches?.[0]?.route === "shared-runtime" &&
+    branches[0].targetVariant === "all";
+  const reviewedComposedSharedRuntimeBranch =
+    branches?.[0]?.route === "composed:legacy-bootstrap+shared-runtime" &&
+    branches[0].targetVariant === "default" &&
+    canonicalJson(branches[0].routes) ===
+      canonicalJson(["legacy-bootstrap", "shared-runtime"]);
+  const reviewedInstallation =
+    Array.isArray(branches) &&
+    branches.length === 1 &&
+    canonicalJson(branches[0].sourceRefs) === canonicalJson(live?.sourceRefs) &&
+    (sharedRuntimeInstallation
+      ? reviewedSharedRuntimeBranch || reviewedComposedSharedRuntimeBranch
+      : branches[0].route === "legacy-bootstrap" &&
+        branches[0].targetVariant === "default");
+  const expectedExportName =
+    metadata?.memberName == null
+      ? metadata?.globalName
+      : `${metadata?.globalName}.${metadata?.memberName}`;
+  if (
+    live?.kind !== "native-op" ||
+    live.name !== surfaceName ||
+    metadata?.surfaceType !== "global-api" ||
+    typeof metadata.globalName !== "string" ||
+    !["string", "object"].includes(typeof metadata.memberName) ||
+    (metadata.memberName !== null && typeof metadata.memberName !== "string") ||
+    metadata.exportName !== expectedExportName ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length === 0 ||
+    !reviewedInstallation ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-shared-runtime-global-absence",
+    surfaceObservedKey,
+    globalName: metadata.globalName,
+    ...(metadata.memberName === null
+      ? {}
+      : { memberName: metadata.memberName }),
+    targetTriple: target.triple,
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(metadata),
+  };
+  const expectedError =
+    `armed shared runtime does not expose ${metadata.exportName}`;
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "native-op",
+      surfaceName,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "shared-runtime-global-absence",
+        globalName: metadata.globalName,
+        memberName: metadata.memberName,
+        expectedError,
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
+function armedNativeGlobalAbsenceProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+  target,
+}) {
+  if (
+    !EXACT_RUNTIME_CANDIDATE_TRIPLES.has(target?.triple) ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const prefix = "native-op:";
+  if (!surfaceObservedKey.startsWith(prefix)) return null;
+  const surfaceName = surfaceObservedKey.slice(prefix.length);
+  const directArmedGlobal = reviewedArmedNativeAbsentSurface(surfaceName);
+  const appRuntimeAbsentWorkletGlobal =
+    APP_RUNTIME_ABSENT_WORKLET_GLOBALS.has(surfaceName);
+  if (!directArmedGlobal && !appRuntimeAbsentWorkletGlobal) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const metadata = live?.metadata;
+  const branches = metadata?.installationBranches;
+  const publicInvocation = metadata?.publicInvocation;
+  const defaultBranch = branches?.find(
+    (branch) =>
+      branch.route === "native-jsi-global" &&
+      branch.targetVariant === "default",
+  );
+  const workletBranch = branches?.find(
+    (branch) =>
+      ["evaluated-native-script", "native-jsi-global"].includes(
+        branch.route,
+      ) &&
+      branch.targetVariant === "worklet",
+  );
+  const globalName = metadata?.globalName;
+  const expectedExportName =
+    metadata?.memberName == null
+      ? globalName
+      : `${globalName}.${metadata.memberName}`;
+  const reviewedDirectGlobal =
+    directArmedGlobal &&
+    metadata?.sourceKey === "native_jsi_global" &&
+    globalName === surfaceName &&
+    metadata?.memberName === null &&
+    canonicalJson(metadata?.memberKinds) === canonicalJson(["native-root"]) &&
+    publicInvocation?.kind === "native-global-function" &&
+    publicInvocation.globalName === globalName &&
+    Number.isSafeInteger(publicInvocation.arity) &&
+    publicInvocation.arity >= 0 &&
+    typeof publicInvocation.sourceRef === "string" &&
+    defaultBranch?.sourceRefs.includes(publicInvocation.sourceRef);
+  const reviewedWorkletGlobal =
+    appRuntimeAbsentWorkletGlobal &&
+    `global:${expectedExportName}` === surfaceName &&
+    Array.isArray(branches) &&
+    branches.length === 1 &&
+    canonicalJson(workletBranch?.sourceRefs) === canonicalJson(live?.sourceRefs) &&
+    (metadata?.sourceKey === "native_jsi_global"
+      ? workletBranch?.route === "native-jsi-global" &&
+        canonicalJson(metadata?.memberKinds) ===
+          canonicalJson([
+            metadata?.memberName === null
+              ? "native-root"
+              : "native-object-member",
+          ])
+      : metadata?.sourceKey === "evaluated_native_script" &&
+        workletBranch?.route === "evaluated-native-script" &&
+        metadata.evaluatedScript === "kPrelude" &&
+        canonicalJson(metadata.sourceUrls) ===
+          canonicalJson(["worklet-prelude.js"]));
+  if (
+    live?.kind !== "native-op" ||
+    live.name !== surfaceName ||
+    metadata?.surfaceType !== "global-api" ||
+    metadata?.exportName !== expectedExportName ||
+    (!reviewedDirectGlobal && !reviewedWorkletGlobal) ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length === 0 ||
+    !Array.isArray(branches) ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-armed-native-global-absence",
+    surfaceObservedKey,
+    globalName,
+    ...(metadata.memberName === null
+      ? {}
+      : { memberName: metadata.memberName }),
+    targetTriple: target.triple,
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(metadata),
+  };
+  const expectedError = `armed runtime does not expose ${expectedExportName}`;
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "native-op",
+      surfaceName,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "armed-native-global-absence",
+        globalName,
+        memberName: metadata.memberName,
+        expectedError,
       },
       expectedResult: "closed",
       expectedTypedDecisionCount: 0,
@@ -614,7 +1331,14 @@ export function authoredClosedPublicProbe(options) {
     cliControlProbe(options) ??
     exactUnendowedOperationProbe(options) ??
     tamedEvaluatorProbe(options) ??
-    loaderExecutableKindProbe(options)
+    moduleRunnerNamespaceProbe(options) ??
+    loaderExecutableKindProbe(options) ??
+    sqliteExtensionLoadProbe(options) ??
+    sqliteCrSqliteEnableProbe(options) ??
+    terminalBuiltinImportProbe(options) ??
+    debuggerAbiDisabledProbe(options) ??
+    armedNativeGlobalAbsenceProbe(options) ??
+    sharedRuntimeGlobalAbsenceProbe(options)
   );
 }
 

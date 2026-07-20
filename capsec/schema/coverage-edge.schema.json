@@ -169,6 +169,7 @@
         "effectOwnerSource": {
           "enum": [
             "descriptor-owner",
+            "frame-set",
             "innermost-nontransparent-frame",
             "loader-referrer",
             "root",
@@ -187,6 +188,34 @@
           ]
         },
         "barriers": { "$ref": "#/$defs/barriers" }
+      },
+      "additionalProperties": false
+    },
+    "closedNoEffectBranch": {
+      "type": "object",
+      "required": ["id", "when", "disposition"],
+      "properties": {
+        "id": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        },
+        "when": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["fact", "equals"],
+            "properties": {
+              "fact": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "equals": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "disposition": { "const": "no-effect" }
       },
       "additionalProperties": false
     },
@@ -234,6 +263,7 @@
         "effectOwnerSource": {
           "enum": [
             "descriptor-owner",
+            "frame-set",
             "innermost-nontransparent-frame",
             "loader-referrer",
             "root",
@@ -344,7 +374,12 @@
         "cap": {
           "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/actionId"
         },
-        "rationale": { "type": "string", "minLength": 1 }
+        "rationale": { "type": "string", "minLength": 1 },
+        "logicalBranches": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/closedNoEffectBranch" }
+        }
       },
       "additionalProperties": false
     }

@@ -25,9 +25,13 @@
 //!
 //! The guard is armed only when a compartment is bound to some package's Domain
 //! (`__exactSetCompartmentFor`). The workload requires a trivial `arm-pkg`; under
-//! `IBEX_COMPARTMENTS=1` the loader binds its compartment, arming the guard for
-//! the whole process. The bench reads `armed=<bool>` back from the run to
-//! confirm the flag actually flipped (not just the env var).
+//! `IBEX_COMPARTMENTS=1` the diagnostic fixture loader binds its compartment,
+//! arming the guard for the whole process. The bench uses `ibex capsec audit`
+//! with `EXACT_COMPAT_TEST=1`: this deliberately exercises the fixture loader
+//! while ordinary production execution remains fail-closed until this exact
+//! engine target has a verified advertisement. The bench reads `armed=<bool>`
+//! back from the run to confirm the flag actually flipped (not just the env
+//! var).
 //!
 //! ## Running
 //!
@@ -40,8 +44,9 @@
 //! startup-free inner loop time) more honestly.
 //!
 //! Tunable via env: `BENCH_ITERS`, `BENCH_SAMPLES`, `BENCH_WARMUP`, and
-//! `IBEX_BENCH_BIN` (override the `ibex` binary path, e.g. to reuse an existing
-//! debug build for a quick reduced-iteration check).
+//! `IBEX_BENCH_BIN` (override the `ibex` binary path). Cargo-test execution, or
+//! a debug binary with none of those measurement controls set, runs one small
+//! correctness-only A/B pair and prints no performance verdict.
 //!
 //! ## Caveat
 //!
@@ -86,13 +91,18 @@ struct RunResult {
     armed: bool,
 }
 
-/// Run one arm of the benchmark: `ibex run app.js`, with the compartment guard
-/// either armed (`IBEX_COMPARTMENTS=1`) or not. Times the whole subprocess and
-/// parses the workload's self-reported inner-loop time + arming signal.
+/// Run one arm through the explicit diagnostic fixture route, with the
+/// compartment guard either armed (`IBEX_COMPARTMENTS=1`) or not. Times the
+/// whole subprocess and parses the workload's self-reported inner-loop time +
+/// arming signal.
 fn run_arm(bin: &Path, app: &Path, iters: u64, active: bool) -> RunResult {
     let mut cmd = Command::new(bin);
-    cmd.arg("run").arg(app);
+    cmd.args(["capsec", "audit"]).arg(app);
     cmd.env("BENCH_ITERS", iters.to_string());
+    // Fixture mode bypasses the normal audit bundler (which always requests
+    // compartments), preserving IBEX_COMPARTMENTS as the sole A/B toggle.
+    cmd.env("EXACT_COMPAT_TEST", "1");
+    cmd.env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1");
     // Keep the two arms otherwise identical.
     cmd.env_remove("IBEX_LOCKDOWN");
     cmd.env_remove("IBEX_PER_PACKAGE_CHUNKS");
@@ -145,6 +155,44 @@ fn run_arm(bin: &Path, app: &Path, iters: u64, active: bool) -> RunResult {
     }
 }
 
+fn cargo_test_invocation() -> bool {
+    std::env::args_os().any(|arg| arg == "--test")
+}
+
+fn debug_binary(path: &Path) -> bool {
+    path.components().any(|part| part.as_os_str() == "debug")
+}
+
+fn measurement_controls_set() -> bool {
+    ["BENCH_ITERS", "BENCH_SAMPLES", "BENCH_WARMUP"]
+        .iter()
+        .any(|key| std::env::var_os(key).is_some())
+}
+
+fn verify_preconditions(base: &RunResult, active: &RunResult) {
+    let mut failed = false;
+    if base.armed {
+        eprintln!(
+            "FAIL: baseline arm reported the compartment guard ARMED — the A/B is not clean."
+        );
+        failed = true;
+    }
+    if !active.armed {
+        eprintln!("FAIL: active arm did NOT report the compartment guard armed — IBEX_COMPARTMENTS did not take effect (unpatched engine? the bench needs the compartment-capable engine).");
+        failed = true;
+    }
+    if base.result != active.result {
+        eprintln!(
+            "FAIL: arms computed different results (baseline={}, active={}); the workloads diverged — the A/B is not comparing like with like.",
+            base.result, active.result
+        );
+        failed = true;
+    }
+    if failed {
+        std::process::exit(1);
+    }
+}
+
 fn median(mut xs: Vec<f64>) -> f64 {
     xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let n = xs.len();
@@ -166,9 +214,6 @@ fn median(mut xs: Vec<f64>) -> f64 {
 fn main() {
     let bin = ibex_bin();
     let app = fixture_app();
-    let iters = env_num("BENCH_ITERS", 12_000_000);
-    let samples = env_num("BENCH_SAMPLES", 15).max(1) as usize;
-    let warmup = env_num("BENCH_WARMUP", 3) as usize;
 
     if !bin.exists() {
         eprintln!(
@@ -177,6 +222,27 @@ fn main() {
         );
         std::process::exit(1);
     }
+
+    let smoke = cargo_test_invocation() || (debug_binary(&bin) && !measurement_controls_set());
+    if smoke {
+        let iters = env_num("BENCH_ITERS", 100_000);
+        eprintln!(
+            "compartment_overhead: correctness smoke (one diagnostic baseline/active pair; no performance verdict)"
+        );
+        eprintln!("  binary : {}", bin.display());
+        eprintln!("  iters  : {iters}");
+        let base = run_arm(&bin, &app, iters, false);
+        let active = run_arm(&bin, &app, iters, true);
+        verify_preconditions(&base, &active);
+        println!(
+            "PASS: diagnostic A/B produced identical results with guard false/true as expected."
+        );
+        return;
+    }
+
+    let iters = env_num("BENCH_ITERS", 12_000_000);
+    let samples = env_num("BENCH_SAMPLES", 15).max(1) as usize;
+    let warmup = env_num("BENCH_WARMUP", 3) as usize;
 
     eprintln!("compartment_overhead: LLP 0013 Goal 3 steady-state A/B");
     eprintln!("  binary : {}", bin.display());
@@ -233,24 +299,20 @@ fn main() {
     // meaningless — fail loudly rather than report a bogus ≈0% and exit 0 (which a
     // CI job keying on exit code would read as a clean pass). This also catches an
     // unpatched engine where IBEX_COMPARTMENTS is a no-op.
-    let mut precondition_failed = false;
-    if base_armed_any {
-        eprintln!(
-            "FAIL: baseline arm reported the compartment guard ARMED — the A/B is not clean."
-        );
-        precondition_failed = true;
-    }
-    if !act_armed_all {
-        eprintln!("FAIL: active arm did NOT report the compartment guard armed — IBEX_COMPARTMENTS did not take effect (unpatched engine? the bench needs the compartment-capable engine).");
-        precondition_failed = true;
-    }
-    if let (Some(b), Some(a)) = (&base_result, &act_result) {
-        if b != a {
-            eprintln!("FAIL: arms computed different results (baseline={b}, active={a}); the workloads diverged — the A/B is not comparing like with like.");
-            precondition_failed = true;
-        }
-    }
-    if precondition_failed {
+    if base_armed_any || !act_armed_all || base_result != act_result {
+        let base = RunResult {
+            wall_ms: bw,
+            inner_ms: bi,
+            result: base_result.unwrap_or_default(),
+            armed: base_armed_any,
+        };
+        let active = RunResult {
+            wall_ms: aw,
+            inner_ms: ai,
+            result: act_result.unwrap_or_default(),
+            armed: act_armed_all,
+        };
+        verify_preconditions(&base, &active);
         std::process::exit(1);
     }
 

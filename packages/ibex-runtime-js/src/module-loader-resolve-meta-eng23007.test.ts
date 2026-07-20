@@ -27,14 +27,44 @@ const loaderSource = readFileSync(
 );
 
 const RESOLVED_PATH = '/virtual/pkg/broken.ts';
+const TYPED_RESOLVED_PATH = '/project/pkg/broken.ts';
+const RESOLVED_LOGICAL_PATH = {
+  schema: 'ibex/logical-path/1',
+  sessionHandle: 'mrs0000000000000001',
+  virtualPath: TYPED_RESOLVED_PATH,
+  logicalPath: {
+    root: 'project',
+    components: [
+      { encoding: 'utf8', value: 'pkg' },
+      { encoding: 'utf8', value: 'broken.ts' },
+    ],
+    hostBound: null,
+  },
+  bindingOwner: null,
+};
 // The specifier under test. The loader also resolves builtins during its own
 // bootstrap, so assertions target this specifier rather than exact call lists.
 const TARGET = './broken';
+const STATIC_PARENT = './static-parent';
+const STATIC_DEPENDENCY = './static-dependency';
+const LOWERED_DYNAMIC_PARENT = './lowered-dynamic-parent';
 
-type Calls = { meta: string[]; full: string[] };
+type Calls = {
+  meta: string[];
+  full: string[];
+  metaKinds: Array<{ specifier: string; kind: number }>;
+  fullKinds: Array<{ specifier: string; kind: number }>;
+  fullReferrers: Array<{ specifier: string; referrer: string }>;
+};
 
 function makeSandbox(opts: { withMeta: boolean }): { sandbox: any; calls: Calls } {
-  const calls: Calls = { meta: [], full: [] };
+  const calls: Calls = {
+    meta: [],
+    full: [],
+    metaKinds: [],
+    fullKinds: [],
+    fullReferrers: [],
+  };
   const sandbox: any = {};
   sandbox.globalThis = sandbox;
   sandbox.console = console;
@@ -45,9 +75,19 @@ function makeSandbox(opts: { withMeta: boolean }): { sandbox: any; calls: Calls 
   // Metadata-only bridge: returns the resolved path with NO `source` — it never
   // reads or transpiles the module body.
   if (opts.withMeta) {
-    sandbox.__exactModuleResolveMeta = function (specifier: string) {
+    sandbox.__exactModuleResolveMeta = function (
+      specifier: string,
+      _referrer: string,
+      kind: number,
+    ) {
       calls.meta.push(specifier);
-      return JSON.stringify({ id: specifier, kind: 'esm', path: RESOLVED_PATH });
+      calls.metaKinds.push({ specifier, kind });
+      return JSON.stringify({
+        schema: 'ibex/module-resolution/1',
+        id: '/private/host/pkg/broken.ts',
+        kind: 'esm',
+        path: RESOLVED_LOGICAL_PATH,
+      });
     };
   }
 
@@ -56,10 +96,40 @@ function makeSandbox(opts: { withMeta: boolean }): { sandbox: any; calls: Calls 
   // stay benign for other specifiers; for OUR specifier under the meta config it
   // throws — as if the body had a syntax error that fails transpile — so a
   // regression that routes require.resolve('./broken') here fails loudly.
-  sandbox.__exactModuleResolve = function (specifier: string) {
+  sandbox.__exactModuleResolve = function (
+    specifier: string,
+    referrer: string,
+    kind: number,
+  ) {
     calls.full.push(specifier);
+    calls.fullKinds.push({ specifier, kind });
+    calls.fullReferrers.push({ specifier, referrer });
     if (opts.withMeta && specifier === TARGET) {
       throw new Error('full resolver (load+transpile) must not run for require.resolve');
+    }
+    if (specifier === STATIC_PARENT) {
+      return JSON.stringify({
+        id: specifier,
+        kind: 'esm',
+        path: '/virtual/static-parent.mjs',
+        source: `import value from '${STATIC_DEPENDENCY}'; export default value;`,
+      });
+    }
+    if (specifier === STATIC_DEPENDENCY) {
+      return JSON.stringify({
+        id: specifier,
+        kind: 'cjs',
+        path: '/virtual/static-dependency.cjs',
+        source: 'module.exports = 42;',
+      });
+    }
+    if (specifier === LOWERED_DYNAMIC_PARENT) {
+      return JSON.stringify({
+        id: specifier,
+        kind: 'cjs',
+        path: '/virtual/lowered-dynamic-parent.cjs',
+        source: `module.exports = globalThis["import"]('${TARGET}');`,
+      });
     }
     return JSON.stringify({
       id: specifier,
@@ -80,8 +150,9 @@ function makeSandbox(opts: { withMeta: boolean }): { sandbox: any; calls: Calls 
 test('require.resolve uses the metadata-only bridge and never loads/transpiles the body', () => {
   const { sandbox, calls } = makeSandbox({ withMeta: true });
   const resolved = sandbox.require.resolve(TARGET);
-  expect(resolved).toBe(RESOLVED_PATH);
+  expect(resolved).toBe(TYPED_RESOLVED_PATH);
   expect(calls.meta).toContain(TARGET);
+  expect(calls.metaKinds).toContainEqual({ specifier: TARGET, kind: 0 });
   // The full read+transpile bridge must be untouched by require.resolve for the
   // target. If the body had a syntax error, require.resolve still succeeds
   // (Node semantics) because resolution never parses the body.
@@ -95,4 +166,26 @@ test('require.resolve falls back to the full bridge when the meta binding is abs
   expect(calls.full).toContain(TARGET);
   // No meta binding was installed, so it can never have been consulted.
   expect(calls.meta).toEqual([]);
+});
+
+test('dynamic import carries its typed resolution kind to the full bridge', async () => {
+  const { sandbox, calls } = makeSandbox({ withMeta: false });
+  await sandbox.import(TARGET);
+  expect(calls.fullKinds).toContainEqual({ specifier: TARGET, kind: 2 });
+});
+
+test('compiler-lowered dynamic import retains its module referrer', async () => {
+  const { sandbox, calls } = makeSandbox({ withMeta: false });
+  await sandbox.require(LOWERED_DYNAMIC_PARENT);
+  expect(calls.fullReferrers).toContainEqual({
+    specifier: TARGET,
+    referrer: '/virtual/lowered-dynamic-parent.cjs',
+  });
+  expect(calls.fullKinds).toContainEqual({ specifier: TARGET, kind: 2 });
+});
+
+test('transformed static import carries a distinct typed resolution kind', () => {
+  const { sandbox, calls } = makeSandbox({ withMeta: false });
+  sandbox.require(STATIC_PARENT);
+  expect(calls.fullKinds).toContainEqual({ specifier: STATIC_DEPENDENCY, kind: 1 });
 });

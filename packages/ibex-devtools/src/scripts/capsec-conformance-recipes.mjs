@@ -15,7 +15,11 @@
 
 import crypto from "node:crypto";
 import { canonicalJson } from "./capsec-contract.mjs";
-import { fixtureExecutionPlans } from "./capsec-conformance.mjs";
+import { internalObserverActionStagesForEdge } from "./capsec-builtin-effects-output-templates.mjs";
+import {
+  fixtureCatalogForTarget,
+  fixtureExecutionPlans,
+} from "./capsec-conformance.mjs";
 import {
   authoredNonCapabilityBuiltinProbe,
   nonCapabilityBuiltinProbeResidualReason,
@@ -26,6 +30,11 @@ import { authoredClosedPublicProbe } from "./capsec-closed-probe-templates.mjs";
 import { authoredStartupPublicProbe } from "./capsec-startup-probe-templates.mjs";
 import { authoredStartupEnvironmentProbe } from "./capsec-startup-environment-probe-templates.mjs";
 import { authoredTargetAbsenceProbe } from "./capsec-target-absence-probe-templates.mjs";
+import { buildRootGlobalDispositionManifest } from "./capsec-root-global-dispositions.mjs";
+import {
+  applicableImplementationBranchIds,
+  targetApplicabilityForVariant,
+} from "./capsec-target-branches.mjs";
 
 const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
 const canonicalSet = (values) => [...new Set(values)].sort(compareText);
@@ -62,6 +71,15 @@ const ADAPTER_SCENARIOS = new Set([
   "malformed",
   "missing-attribution",
   "wrong-principal",
+]);
+
+const RATIONALE_ONLY_CALLBACK_SCENARIOS = new Set([
+  "attribution-missing-deny",
+  "generation-recheck",
+  "principal-restore",
+  "snapshot-mismatch-deny",
+  "cannot-widen-authority",
+  "post-lockdown-invariant",
 ]);
 
 const ROOT_PRINCIPAL = Object.freeze({
@@ -284,16 +302,50 @@ const DISCOVERY_OR_LATER = new Set([
   "cleanup",
 ]);
 
+// Direct-adapter recipes are fixed contract vectors rather than filesystem
+// observations. Materialize requested-only path exemplars on the adapter's
+// synthetic bound volume, with stable per-path identities, when a declared
+// edge exercises a later stage.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+function conformancePathObject(requested, role) {
+  return {
+    platform: "unix",
+    volume: "dev-1",
+    file: `recipe-${role}-${taggedDigest(requested).slice(7, 23)}`,
+  };
+}
+
 function occurrenceResourceAtStage(input, stage) {
   const resource = clone(input);
   const commitOrLater = COMMIT_OR_LATER.has(stage);
   const discoveryOrLater = DISCOVERY_OR_LATER.has(stage);
   if (resource.kind === "path-occurrence") {
     if (!discoveryOrLater) {
+      resource.objectState = "unknown";
       delete resource.parentObject;
       delete resource.finalObject;
+      delete resource.finalObjectGeneration;
+    } else {
+      if (resource.objectState === "unknown") resource.objectState = "existing";
+      resource.parentObject ??= conformancePathObject(
+        resource.requested,
+        "parent",
+      );
+      if (resource.objectState === "existing") {
+        resource.finalObject ??= conformancePathObject(
+          resource.requested,
+          "final",
+        );
+      } else {
+        delete resource.finalObject;
+        delete resource.finalObjectGeneration;
+      }
     }
-    if (!commitOrLater) delete resource.retainedHandle;
+    if (commitOrLater) {
+      resource.retainedHandle ??= `recipe-handle-${taggedDigest(resource.requested).slice(7, 23)}`;
+    } else {
+      delete resource.retainedHandle;
+    }
   } else if (resource.kind === "network-occurrence") {
     const publicAddress = "93.184.216.34";
     if (stage === "requested") {
@@ -372,6 +424,37 @@ function effectsForPlan(plan, coverageByEdge) {
   return [...unique.values()].sort((left, right) =>
     compareText(left.cap, right.cap),
   );
+}
+
+// Source-bound native filesystem terminals can perform retained-object checks
+// at stages deliberately narrower than the public registry lifecycle. Keep an
+// authored recipe from naming a stage that is present in neither contract.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+export function nativeExpectedStageContractViolation({
+  actionIds,
+  expectedStages,
+  semanticEffects,
+  coverageEdges,
+}) {
+  const selectedActions = new Set(actionIds);
+  const allowedStages = new Set();
+  const addActionStages = (rows) => {
+    for (const row of rows) {
+      if (!selectedActions.has(row.actionId ?? row.cap)) continue;
+      for (const stage of row.stages ?? []) allowedStages.add(stage);
+    }
+  };
+  addActionStages(semanticEffects);
+  for (const edge of coverageEdges) {
+    addActionStages(edge.effects ?? []);
+    addActionStages(internalObserverActionStagesForEdge(edge));
+  }
+  const unbound = canonicalSet(
+    expectedStages.filter((stage) => !allowedStages.has(stage)),
+  );
+  return unbound.length === 0
+    ? null
+    : `expected native stages are outside the registry and source-bound internal contracts: ${unbound.join(",")}`;
 }
 
 function adapterProbeForPlan(
@@ -556,6 +639,9 @@ const harnessNoopCallbackArgument = () => ({ kind: "harness-noop-callback" });
 const harnessLoopbackClientHandleArgument = () => ({
   kind: "harness-loopback-client-handle",
 });
+const harnessFsFileDescriptorArgument = () => ({
+  kind: "harness-fs-file-descriptor",
+});
 const harnessSqliteDatabaseHandleArgument = () => ({
   kind: "harness-sqlite-database-handle",
 });
@@ -586,6 +672,24 @@ const sqliteMemorySetup = (withStatement = false) => [
       ]
     : []),
 ];
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+// retained filesystem controls receive a source-bound descriptor created by
+// the harness before the zero-decision invocation is observed.
+const fsReadFileSetup = () => [
+  {
+    kind: "fs-read-file",
+    globalName: "__exactFsOpen",
+    requiredSourceArity: 4,
+  },
+];
+const fsWriteFileSetup = (path) => [
+  {
+    kind: "fs-write-file",
+    globalName: "__exactFsOpen",
+    path,
+    requiredSourceArity: 4,
+  },
+];
 const nativeResultArgument = (
   globalName,
   requiredSourceArity,
@@ -613,12 +717,11 @@ const nativeResultPropertyArgument = (
   arguments: argumentsList,
 });
 const generatedKeyArgument = (keyType, property, options = null) =>
-  nativeResultPropertyArgument(
-    property,
-    "__exactGenerateKeyPairSync",
-    3,
-    [literalArgument(keyType), literalArgument(options), literalArgument(null)],
-  );
+  nativeResultPropertyArgument(property, "__exactGenerateKeyPairSync", 3, [
+    literalArgument(keyType),
+    literalArgument(options),
+    literalArgument(null),
+  ]);
 const nativeNoEffectTemplate = (
   requiredSourceArity,
   argumentsList = [],
@@ -653,11 +756,26 @@ const nativeSystemInfoTemplate = (name) =>
   Object.freeze({
     actionIds: ["sys:read"],
     arguments: [],
-    expectedDecisionCounts: { allow: 2, deny: 1 },
-    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDecisionCounts: {
+      allow: 2,
+      deny: 1,
+      malformed: 2,
+      "missing-attribution": 2,
+      "wrong-principal": 2,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
     expectedStages: {
       allow: ["requested", "commit"],
       deny: ["requested"],
+      malformed: ["requested", "commit"],
+      "missing-attribution": ["requested", "commit"],
+      "wrong-principal": ["requested", "commit"],
     },
     requiredFloor: [
       {
@@ -666,6 +784,29 @@ const nativeSystemInfoTemplate = (name) =>
       },
     ],
     requiredSourceArity: 0,
+    setup: [],
+  });
+// @ref LLP 0023#53-cwd-visibility-is-an-explicit-information-grant — cwd is
+// session state with its own typed action, not generic host system information.
+const nativeCwdObserveTemplate = () =>
+  Object.freeze({
+    actionIds: ["path:cwd-observe"],
+    arguments: [],
+    expectedDecisionCounts: { allow: 2, deny: 1 },
+    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDenyMessageFragment: "filesystem policy denied",
+    expectedStages: {
+      allow: ["requested", "commit"],
+      deny: ["requested"],
+    },
+    requiredFloor: [
+      {
+        cap: "path:cwd-observe",
+        resource: { kind: "session-state", name: "cwd" },
+      },
+    ],
+    requiredSourceArity: 0,
+    publicAccessObservedKey: "native-op:global:process.cwd",
     setup: [],
   });
 const nativeCachedSystemInfoTemplate = (name, numericName) =>
@@ -706,18 +847,33 @@ const nativeEnvironmentReadTemplate = (name) =>
   Object.freeze({
     actionIds: ["env:read"],
     arguments: [literalArgument(name)],
-    expectedDecisionCounts: { allow: 2, deny: 1 },
-    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDecisionCounts: {
+      allow: 2,
+      deny: 1,
+      malformed: 2,
+      "missing-attribution": 2,
+      "wrong-principal": 2,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
     expectedStages: {
       allow: ["requested", "commit"],
       deny: ["requested"],
+      malformed: ["requested", "commit"],
+      "missing-attribution": ["requested", "commit"],
+      "wrong-principal": ["requested", "commit"],
     },
     requiredFloor: [
       {
         cap: "env:read",
         resource: {
           kind: "environment-name",
-          target: "broker-base",
+          target: "principal-overlay",
           name,
         },
       },
@@ -729,11 +885,26 @@ const nativePrintTemplate = () =>
   Object.freeze({
     actionIds: ["stdio:write"],
     arguments: [literalArgument("ibex-capsec-print")],
-    expectedDecisionCounts: { allow: 3, deny: 1 },
-    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDecisionCounts: {
+      allow: 3,
+      deny: 1,
+      malformed: 3,
+      "missing-attribution": 3,
+      "wrong-principal": 3,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
     expectedStages: {
       allow: ["requested", "commit", "repeat"],
       deny: ["requested"],
+      malformed: ["requested", "commit", "repeat"],
+      "missing-attribution": ["requested", "commit", "repeat"],
+      "wrong-principal": ["requested", "commit", "repeat"],
     },
     requiredFloor: [
       {
@@ -755,22 +926,65 @@ const projectPathExactResource = (...components) => ({
     components: components.map((value) => ({ encoding: "utf8", value })),
   },
 });
-const projectPathTreeResource = (...components) => ({
-  kind: "path-tree",
-  path: {
-    root: "project",
-    components: components.map((value) => ({ encoding: "utf8", value })),
-  },
-});
-const nativeProjectMetadataTemplate = () =>
+// A direct native path beneath `/project/target` first authorizes the complete
+// requested spelling, discovers the authenticated project root, then requests
+// and repeat-authorizes each retained component. A missing leaf adds a second
+// requested decision for the dangling spelling plus absent-create discovery.
+// Keep these sequences shared so a recipe cannot silently regress to the
+// pre-component-walk evidence shape.
+// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+const NATIVE_EXISTING_PROJECT_CHILD_STAGES = Object.freeze([
+  "requested",
+  "discovery",
+  "requested",
+  "repeat",
+  "requested",
+  "repeat",
+]);
+const NATIVE_MISSING_PROJECT_CHILD_STAGES = Object.freeze([
+  "requested",
+  "discovery",
+  "requested",
+  "repeat",
+  "requested",
+  "requested",
+  "discovery",
+]);
+const existingProjectChildStages = (...tail) => [
+  ...NATIVE_EXISTING_PROJECT_CHILD_STAGES,
+  ...tail,
+];
+const missingProjectChildStages = (...tail) => [
+  ...NATIVE_MISSING_PROJECT_CHILD_STAGES,
+  ...tail,
+];
+const nativeProjectMetadataTemplate = (
+  allowStages = ["requested", "discovery", "requested", "repeat"],
+) =>
   Object.freeze({
     actionIds: ["fs:list"],
     arguments: [literalArgument("Cargo.toml"), literalArgument(null)],
-    expectedDecisionCounts: { allow: 3, deny: 1 },
-    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDecisionCounts: {
+      allow: allowStages.length,
+      deny: 1,
+      malformed: allowStages.length,
+      "missing-attribution": allowStages.length,
+      "wrong-principal": allowStages.length,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
-      allow: ["requested", "discovery", "repeat"],
+      allow: allowStages,
       deny: ["requested"],
+      malformed: allowStages,
+      "missing-attribution": allowStages,
+      "wrong-principal": allowStages,
     },
     requiredFloor: [
       {
@@ -781,15 +995,166 @@ const nativeProjectMetadataTemplate = () =>
     requiredSourceArity: 2,
     setup: [],
   });
+const nativeProjectStatfsTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list"],
+    arguments: [literalArgument("Cargo.toml")],
+    expectedDecisionCounts: {
+      allow: 6,
+      deny: 1,
+      malformed: 6,
+      "missing-attribution": 6,
+      "wrong-principal": 6,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedDenyMessageFragment: "filesystem policy denied",
+    expectedStages: {
+      allow: [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "repeat",
+        "repeat",
+      ],
+      deny: ["requested"],
+      malformed: [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "repeat",
+        "repeat",
+      ],
+      "missing-attribution": [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "repeat",
+        "repeat",
+      ],
+      "wrong-principal": [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "repeat",
+        "repeat",
+      ],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+    ],
+    requiredSourceArity: 1,
+    setup: [],
+  });
+const nativeProjectTruncateTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list", "fs:write"],
+    arguments: [
+      literalArgument("target/ibex-capsec-truncate"),
+      literalArgument(2),
+    ],
+    expectedCleanup: "removed-owned-file",
+    expectedDecisionCounts: {
+      allow: 8,
+      deny: 1,
+      malformed: 8,
+      "missing-attribution": 8,
+      "wrong-principal": 8,
+    },
+    expectedObservedActionIds: {
+      malformed: ["fs:list", "fs:write"],
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedDenyMessageFragment: "filesystem policy denied",
+    expectedStages: {
+      allow: existingProjectChildStages("commit", "repeat"),
+      deny: ["requested"],
+      malformed: existingProjectChildStages("commit", "repeat"),
+      "missing-attribution": existingProjectChildStages("commit", "repeat"),
+      "wrong-principal": existingProjectChildStages("commit", "repeat"),
+    },
+    requiredFloor: ["fs:list", "fs:write"].map((cap) => ({
+      cap,
+      resource: projectPathExactResource("target", "ibex-capsec-truncate"),
+    })),
+    requiredSourceArity: 2,
+    setup: [],
+    unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+  });
 const nativeProjectReadFileTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list", "fs:read"],
     arguments: [literalArgument("Cargo.toml"), literalArgument(null)],
-    expectedDecisionCounts: { allow: 4, deny: 1 },
-    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDecisionCounts: {
+      allow: 6,
+      deny: 1,
+      malformed: 6,
+      "missing-attribution": 6,
+      "wrong-principal": 6,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedObservedActionIds: {
+      malformed: ["fs:list", "fs:read"],
+    },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
-      allow: ["requested", "discovery", "commit", "repeat"],
+      allow: [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "commit",
+        "repeat",
+      ],
       deny: ["requested"],
+      malformed: [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "commit",
+        "repeat",
+      ],
+      "missing-attribution": [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "commit",
+        "repeat",
+      ],
+      "wrong-principal": [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "commit",
+        "repeat",
+      ],
     },
     requiredFloor: [
       {
@@ -799,6 +1164,421 @@ const nativeProjectReadFileTemplate = () =>
       {
         cap: "fs:read",
         resource: projectPathExactResource("Cargo.toml"),
+      },
+    ],
+    requiredSourceArity: 2,
+    setup: [],
+  });
+const nativeProjectMkdirTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list", "fs:write"],
+    arguments: [
+      literalArgument("target/ibex-capsec-mkdir"),
+      literalArgument(false),
+      literalArgument(-1),
+    ],
+    expectedCleanup: "removed-created-directory",
+    expectedDecisionCounts: {
+      allow: 7,
+      deny: 1,
+      malformed: 7,
+      "missing-attribution": 7,
+      "wrong-principal": 7,
+    },
+    expectedObservedActionIds: {
+      malformed: ["fs:list", "fs:write"],
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedDenyMessageFragment: "filesystem policy denied",
+    expectedStages: {
+      allow: missingProjectChildStages(),
+      deny: ["requested"],
+      malformed: missingProjectChildStages(),
+      "missing-attribution": missingProjectChildStages(),
+      "wrong-principal": missingProjectChildStages(),
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("target", "ibex-capsec-mkdir"),
+      },
+      {
+        cap: "fs:write",
+        resource: projectPathExactResource("target", "ibex-capsec-mkdir"),
+      },
+    ],
+    requiredSourceArity: 3,
+    setup: [],
+  });
+const nativeProjectWriteFileTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list", "fs:write"],
+    arguments: [
+      literalArgument("target/ibex-capsec-write-file"),
+      nativeResultArgument("__exactStringToUtf8Bytes", 1, [
+        literalArgument("ibex-capsec-write-file"),
+      ]),
+      literalArgument(null),
+    ],
+    expectedCleanup: "removed-owned-file",
+    expectedDecisionCounts: {
+      allow: 9,
+      deny: 1,
+      malformed: 9,
+      "missing-attribution": 9,
+      "wrong-principal": 9,
+    },
+    expectedObservedActionIds: {
+      malformed: ["fs:list", "fs:write"],
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedDenyMessageFragment: "filesystem policy denied",
+    expectedStages: {
+      allow: missingProjectChildStages("commit", "repeat"),
+      deny: ["requested"],
+      malformed: missingProjectChildStages("commit", "repeat"),
+      "missing-attribution": missingProjectChildStages("commit", "repeat"),
+      "wrong-principal": missingProjectChildStages("commit", "repeat"),
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("target", "ibex-capsec-write-file"),
+      },
+      {
+        cap: "fs:write",
+        resource: projectPathExactResource("target", "ibex-capsec-write-file"),
+      },
+    ],
+    requiredSourceArity: 3,
+    setup: [],
+  });
+const nativeProjectAppendFileTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list", "fs:write"],
+    arguments: [
+      literalArgument("target/ibex-capsec-append-file"),
+      nativeResultArgument("__exactStringToUtf8Bytes", 1, [
+        literalArgument("ibex-capsec-append-suffix"),
+      ]),
+      literalArgument(null),
+    ],
+    expectedCleanup: "removed-owned-file",
+    expectedDecisionCounts: {
+      allow: 8,
+      deny: 1,
+      malformed: 8,
+      "missing-attribution": 8,
+      "wrong-principal": 8,
+    },
+    expectedObservedActionIds: {
+      malformed: ["fs:list", "fs:write"],
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedDenyMessageFragment: "filesystem policy denied",
+    expectedStages: {
+      allow: existingProjectChildStages("commit", "repeat"),
+      deny: ["requested"],
+      malformed: existingProjectChildStages("commit", "repeat"),
+      "missing-attribution": existingProjectChildStages("commit", "repeat"),
+      "wrong-principal": existingProjectChildStages("commit", "repeat"),
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("target", "ibex-capsec-append-file"),
+      },
+      {
+        cap: "fs:write",
+        resource: projectPathExactResource("target", "ibex-capsec-append-file"),
+      },
+    ],
+    requiredSourceArity: 3,
+    setup: [],
+  });
+const nativeProjectFsOpenTemplate = ({
+  actionIds,
+  async = false,
+  flags,
+  fixture,
+}) => {
+  // The synchronous facade performs its typed access-class request before the
+  // shared retained-component walk. The async facade enters that walk directly
+  // while it still owns the runtime thread.
+  const openStages = !async
+    ? ["requested", ...existingProjectChildStages("commit")]
+    : existingProjectChildStages("commit");
+  return Object.freeze({
+    actionIds,
+    arguments: [
+      literalArgument(`target/${fixture}`),
+      literalArgument(flags),
+      literalArgument(0o666),
+      literalArgument(null),
+    ],
+    expectedCleanup: "closed-fs-file-descriptor-removed-owned-file",
+    expectedDecisionCounts: {
+      allow: openStages.length,
+      "branch-selection": openStages.length,
+      deny: 1,
+      malformed: openStages.length,
+      "missing-attribution": openStages.length,
+      "wrong-principal": openStages.length,
+    },
+    expectedObservedActionIds: {
+      malformed: actionIds,
+    },
+    expectedResults: {
+      allow: "return",
+      "branch-selection": "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedDenyMessageFragment: "filesystem policy denied",
+    expectedStages: {
+      allow: openStages,
+      "branch-selection": openStages,
+      deny: ["requested"],
+      malformed: openStages,
+      "missing-attribution": openStages,
+      "wrong-principal": openStages,
+    },
+    requiredFloor: actionIds.map((cap) => ({
+      cap,
+      resource: projectPathExactResource("target", fixture),
+    })),
+    requiredSourceArity: 4,
+    setup: [],
+    ...(async
+      ? {
+          additionalAllowedCoverageObservedKeys: ["native-op:__exactFsOpen"],
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+        }
+      : {}),
+  });
+};
+const nativeRetainedFsFstatTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list"],
+    additionalAllowedCoverageObservedKeys: ["native-op:__exactFsOpen"],
+    arguments: [harnessFsFileDescriptorArgument()],
+    expectedCleanup: "closed-fs-file-descriptor",
+    expectedDecisionCounts: {
+      allow: 1,
+      malformed: 1,
+      "missing-attribution": 1,
+      "wrong-principal": 1,
+    },
+    expectedObservedActionIds: {
+      allow: ["fs:list"],
+      malformed: ["fs:list"],
+      "missing-attribution": ["fs:list"],
+      "wrong-principal": ["fs:list"],
+    },
+    expectedResults: {
+      allow: "return",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["repeat"],
+      malformed: ["repeat"],
+      "missing-attribution": ["repeat"],
+      "wrong-principal": ["repeat"],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+      {
+        cap: "fs:read",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+    ],
+    requiredSourceArity: 1,
+    setup: fsReadFileSetup(),
+    unsupportedTargetReason: "native-public-operation-not-typed-on-target",
+    unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+  });
+const nativeRetainedFsWriteTemplate = ({
+  path,
+  argumentsList = [],
+  requiredSourceArity = 1,
+  unsupportedTargetTriples = [],
+}) =>
+  Object.freeze({
+    actionIds: ["fs:write"],
+    additionalAllowedCoverageObservedKeys: ["native-op:__exactFsOpen"],
+    arguments: [harnessFsFileDescriptorArgument(), ...argumentsList],
+    expectedCleanup: "closed-fs-file-descriptor-removed-owned-file",
+    expectedDecisionCounts: {
+      allow: 1,
+      malformed: 1,
+      "missing-attribution": 1,
+      "wrong-principal": 1,
+    },
+    expectedObservedActionIds: {
+      allow: ["fs:write"],
+      malformed: ["fs:write"],
+      "missing-attribution": ["fs:write"],
+      "wrong-principal": ["fs:write"],
+    },
+    expectedResults: {
+      allow: "return",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["repeat"],
+      malformed: ["repeat"],
+      "missing-attribution": ["repeat"],
+      "wrong-principal": ["repeat"],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource(...path.split("/")),
+      },
+      {
+        cap: "fs:write",
+        resource: projectPathExactResource(...path.split("/")),
+      },
+    ],
+    requiredSourceArity,
+    setup: fsWriteFileSetup(path),
+    ...(unsupportedTargetTriples.length > 0
+      ? { unsupportedTargetTriples }
+      : {}),
+  });
+const nativeRetainedFsAsyncWriteTemplate = ({
+  path,
+  operation,
+  argumentsList = [],
+}) =>
+  Object.freeze({
+    actionIds: ["fs:write"],
+    additionalAllowedCoverageObservedKeys: ["native-op:__exactFsOpen"],
+    arguments: [
+      literalArgument(operation),
+      harnessFsFileDescriptorArgument(),
+      ...argumentsList,
+    ],
+    completion: {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    },
+    expectedCleanup: "closed-fs-file-descriptor-removed-owned-file",
+    expectedDecisionCounts: {
+      allow: 1,
+      "branch-selection": 1,
+      malformed: 1,
+      "missing-attribution": 1,
+      "wrong-principal": 1,
+    },
+    expectedObservedActionIds: {
+      allow: ["fs:write"],
+      "branch-selection": ["fs:write"],
+      malformed: ["fs:write"],
+      "missing-attribution": ["fs:write"],
+      "wrong-principal": ["fs:write"],
+    },
+    expectedResults: {
+      allow: "return",
+      "branch-selection": "return",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["repeat"],
+      "branch-selection": ["repeat"],
+      malformed: ["repeat"],
+      "missing-attribution": ["repeat"],
+      "wrong-principal": ["repeat"],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource(...path.split("/")),
+      },
+      {
+        cap: "fs:write",
+        resource: projectPathExactResource(...path.split("/")),
+      },
+    ],
+    requiredSourceArity: 4,
+    setup: fsWriteFileSetup(path),
+    unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+  });
+const nativeProjectReaddirTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list"],
+    arguments: [
+      literalArgument("target/ibex-capsec-readdir"),
+      literalArgument(null),
+    ],
+    expectedCleanup: "removed-owned-directory",
+    expectedDecisionCounts: {
+      allow: 9,
+      deny: 1,
+      malformed: 9,
+      "missing-attribution": 9,
+      "wrong-principal": 9,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedDenyMessageFragment: "filesystem policy denied",
+    expectedStages: {
+      allow: existingProjectChildStages("repeat", "repeat", "repeat"),
+      deny: ["requested"],
+      malformed: existingProjectChildStages("repeat", "repeat", "repeat"),
+      "missing-attribution": existingProjectChildStages(
+        "repeat",
+        "repeat",
+        "repeat",
+      ),
+      "wrong-principal": existingProjectChildStages(
+        "repeat",
+        "repeat",
+        "repeat",
+      ),
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("target", "ibex-capsec-readdir"),
       },
     ],
     requiredSourceArity: 2,
@@ -822,6 +1602,7 @@ const NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT = new Map([
   ["__exactEnsureWebStorage", 0],
   ["__exactGrantCapability", 2],
   ["__exactRegisterPackage", 4],
+  ["__exactResolveManifestBuiltinInternal", 1],
   ["__exactSetActiveModuleId", 1],
   ["__exactSetPendingPackageId", 1],
   ["__hostCall", 2],
@@ -831,6 +1612,12 @@ const NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT = new Map([
 
 export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["print", nativePrintTemplate()],
+  ["__exactAppendFile", nativeProjectAppendFileTemplate()],
+  ["__exactMkdir", nativeProjectMkdirTemplate()],
+  ["__exactReaddir", nativeProjectReaddirTemplate()],
+  ["__exactWriteFile", nativeProjectWriteFileTemplate()],
+  ["__exactStatfs", nativeProjectStatfsTemplate()],
+  ["__exactTruncate", nativeProjectTruncateTemplate()],
   [
     "__exactAuthorizeSystemInfo",
     nativeCachedSystemInfoTemplate("platform", 11),
@@ -854,6 +1641,171 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     ]),
   ],
   [
+    "clearTimeout",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("setTimeout", 2, [
+        harnessNoopCallbackArgument(),
+        literalArgument(60_000),
+      ]),
+    ]),
+  ],
+  [
+    "clearInterval",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("setInterval", 2, [
+        harnessNoopCallbackArgument(),
+        literalArgument(60_000),
+      ]),
+    ]),
+  ],
+  [
+    "__exactTimerRef",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("setTimeout", 2, [
+        harnessNoopCallbackArgument(),
+        literalArgument(60_000),
+      ]),
+    ]),
+  ],
+  [
+    "__exactTimerUnref",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("setTimeout", 2, [
+        harnessNoopCallbackArgument(),
+        literalArgument(60_000),
+      ]),
+    ]),
+  ],
+  [
+    "__exactHandleScoped",
+    nativeNoEffectTemplate(2, [literalArgument(0), literalArgument("fs:read")]),
+  ],
+  ["__exactRevokeHandle", nativeNoEffectTemplate(1, [literalArgument(0)])],
+  [
+    "__exactPermissionRequest",
+    nativeNoEffectTemplate(1, [literalArgument("capsec:unknown")]),
+  ],
+  [
+    "__exactPermissionRevoke",
+    nativeNoEffectTemplate(1, [literalArgument("capsec:unknown")]),
+  ],
+  [
+    "__exactPermissionStatus",
+    nativeNoEffectTemplate(1, [literalArgument("capsec:unknown")]),
+  ],
+  [
+    "__exactTypedPermissionRequest",
+    nativeNoEffectTemplate(1, [literalArgument({})]),
+  ],
+  [
+    "__exactTypedPermissionRevoke",
+    nativeNoEffectTemplate(1, [literalArgument("unknown-grant")]),
+  ],
+  ["__exactTypedHandleMint", nativeNoEffectTemplate(1, [literalArgument({})])],
+  [
+    "__exactTypedHandleRevoke",
+    nativeNoEffectTemplate(1, [literalArgument("unknown-handle")]),
+  ],
+  ["__exactHttpOwner", nativeNoEffectTemplate(1, [literalArgument(0)])],
+  [
+    "__exactHttpRespondAbort",
+    nativeNoEffectTemplate(2, [literalArgument(0), literalArgument(0)]),
+  ],
+  [
+    "__exactHttpClose",
+    nativeNoEffectTemplate(2, [literalArgument(0), literalArgument(0)]),
+  ],
+  [
+    "__exactHttpSetRef",
+    nativeNoEffectTemplate(2, [literalArgument(0), literalArgument(0)]),
+  ],
+  [
+    "__exactSpawnCloseStdin",
+    nativeNoEffectTemplate(2, [literalArgument(0), literalArgument("stdin")]),
+  ],
+  ["__exactSpawnDispose", nativeNoEffectTemplate(1, [literalArgument(0)])],
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // authority helpers must prove their exact refusal branches without
+  // fabricating a capability or retained process handle.
+  ["__exactCapabilityCheck", nativeNoEffectTemplate(1)],
+  ["__exactCreateHandle", nativeNoEffectTemplate(1)],
+  [
+    "__exactSpawnSetReferenced",
+    Object.freeze({
+      actionIds: [],
+      arguments: [literalArgument(0), literalArgument(false)],
+      expectedDecisionCounts: { "non-capability": 0 },
+      expectedResults: { "non-capability": "invalid-handle" },
+      expectedStages: { "non-capability": [] },
+      requiredSourceArity: 2,
+      setup: [],
+    }),
+  ],
+  [
+    "__exactFsClose",
+    Object.freeze({
+      ...nativeNoEffectTemplate(
+        1,
+        [harnessFsFileDescriptorArgument()],
+        fsReadFileSetup(),
+        "consumed-fs-file-descriptor",
+      ),
+      requiredFloor: [
+        {
+          cap: "fs:list",
+          resource: projectPathExactResource("Cargo.toml"),
+        },
+        {
+          cap: "fs:read",
+          resource: projectPathExactResource("Cargo.toml"),
+        },
+      ],
+    }),
+  ],
+  [
+    "__exactFsCloseAsync",
+    Object.freeze({
+      ...nativeNoEffectTemplate(
+        1,
+        [harnessFsFileDescriptorArgument()],
+        fsReadFileSetup(),
+        "consumed-fs-file-descriptor",
+      ),
+      completion: {
+        kind: "event-loop-quiescence",
+        timeoutMilliseconds: 1_000,
+      },
+      requiredFloor: [
+        {
+          cap: "fs:list",
+          resource: projectPathExactResource("Cargo.toml"),
+        },
+        {
+          cap: "fs:read",
+          resource: projectPathExactResource("Cargo.toml"),
+        },
+      ],
+    }),
+  ],
+  ["__exactFsFstatSync", nativeRetainedFsFstatTemplate()],
+  [
+    "__exactFsFsyncSync",
+    nativeRetainedFsWriteTemplate({ path: "target/ibex-capsec-fsync" }),
+  ],
+  [
+    "__exactFsFdatasyncSync",
+    nativeRetainedFsWriteTemplate({ path: "target/ibex-capsec-fdatasync" }),
+  ],
+  [
+    "__exactFsFtruncateSync",
+    nativeRetainedFsWriteTemplate({
+      path: "target/ibex-capsec-ftruncate",
+      argumentsList: [literalArgument(2)],
+      requiredSourceArity: 2,
+      unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+    }),
+  ],
+  [
     "__exactTcpConnect",
     Object.freeze({
       actionIds: ["network:connect"],
@@ -864,9 +1816,24 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       expectedStages: {
         allow: ["requested", "candidate", "commit"],
         deny: ["requested"],
+        malformed: ["requested", "candidate", "commit"],
+        "missing-attribution": ["requested", "candidate", "commit"],
+        "wrong-principal": ["requested", "candidate", "commit"],
       },
-      expectedDecisionCounts: { allow: 3, deny: 1 },
-      expectedResults: { allow: "return", deny: "permission-denied" },
+      expectedDecisionCounts: {
+        allow: 3,
+        deny: 1,
+        malformed: 3,
+        "missing-attribution": 3,
+        "wrong-principal": 3,
+      },
+      expectedResults: {
+        allow: "return",
+        deny: "permission-denied",
+        malformed: "return",
+        "missing-attribution": "return",
+        "wrong-principal": "return",
+      },
       requiredSourceArity: 4,
       setup: [{ kind: "tcp-loopback-listener" }],
     }),
@@ -953,6 +1920,142 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     ]),
   ],
   [
+    "__exactEcdhDeriveBits",
+    nativeNoEffectTemplate(3, [
+      literalArgument("P-256"),
+      generatedKeyArgument("ec", "privateKey", { namedCurve: "P-256" }),
+      generatedKeyArgument("ec", "publicKey", { namedCurve: "P-256" }),
+    ]),
+  ],
+  [
+    "__exactEcdsaSign",
+    nativeNoEffectTemplate(4, [
+      literalArgument("P-256"),
+      literalArgument("SHA-256"),
+      generatedKeyArgument("ec", "privateKey", { namedCurve: "P-256" }),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactEcdsaVerify",
+    nativeNoEffectTemplate(5, [
+      literalArgument("P-256"),
+      literalArgument("SHA-256"),
+      generatedKeyArgument("ec", "publicKey", { namedCurve: "P-256" }),
+      nativeResultArgument("__exactEcdsaSign", 4, [
+        literalArgument("P-256"),
+        literalArgument("SHA-256"),
+        generatedKeyArgument("ec", "privateKey", { namedCurve: "P-256" }),
+        literalArgument("ibex"),
+      ]),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactEd25519Sign",
+    nativeNoEffectTemplate(2, [
+      generatedKeyArgument("ed25519", "privateKey"),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactEd25519Verify",
+    nativeNoEffectTemplate(3, [
+      generatedKeyArgument("ed25519", "publicKey"),
+      nativeResultArgument("__exactEd25519Sign", 2, [
+        generatedKeyArgument("ed25519", "privateKey"),
+        literalArgument("ibex"),
+      ]),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactEvpCipherEncrypt",
+    nativeNoEffectTemplate(4, [
+      literalArgument("aes-128-cbc"),
+      literalArgument("0123456789abcdef"),
+      literalArgument("fedcba9876543210"),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactEvpCipherDecrypt",
+    nativeNoEffectTemplate(5, [
+      literalArgument("aes-128-cbc"),
+      literalArgument("0123456789abcdef"),
+      literalArgument("fedcba9876543210"),
+      nativeResultArgument("__exactEvpCipherEncrypt", 4, [
+        literalArgument("aes-128-cbc"),
+        literalArgument("0123456789abcdef"),
+        literalArgument("fedcba9876543210"),
+        literalArgument("ibex"),
+      ]),
+      literalArgument(null),
+    ]),
+  ],
+  [
+    "__exactExportKeyPkcs8",
+    nativeNoEffectTemplate(2, [
+      literalArgument("rsa"),
+      generatedKeyArgument("rsa", "privateKey", { modulusLength: 1024 }),
+    ]),
+  ],
+  [
+    "__exactExportKeySpki",
+    nativeNoEffectTemplate(2, [
+      literalArgument("rsa"),
+      generatedKeyArgument("rsa", "publicKey", { modulusLength: 1024 }),
+    ]),
+  ],
+  [
+    "__exactImportKeyPkcs8",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("__exactExportKeyPkcs8", 2, [
+        literalArgument("rsa"),
+        generatedKeyArgument("rsa", "privateKey", { modulusLength: 1024 }),
+      ]),
+    ]),
+  ],
+  [
+    "__exactImportKeySpki",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("__exactExportKeySpki", 2, [
+        literalArgument("rsa"),
+        generatedKeyArgument("rsa", "publicKey", { modulusLength: 1024 }),
+      ]),
+    ]),
+  ],
+  [
+    "__exactRsaOaepEncrypt",
+    nativeNoEffectTemplate(4, [
+      generatedKeyArgument("rsa", "publicKey", { modulusLength: 1024 }),
+      literalArgument("SHA-256"),
+      literalArgument(""),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactRsaOaepDecrypt",
+    nativeNoEffectTemplate(4, [
+      generatedKeyArgument("rsa", "privateKey", { modulusLength: 1024 }),
+      literalArgument("SHA-256"),
+      literalArgument(""),
+      nativeResultArgument("__exactRsaOaepEncrypt", 4, [
+        generatedKeyArgument("rsa", "publicKey", { modulusLength: 1024 }),
+        literalArgument("SHA-256"),
+        literalArgument(""),
+        literalArgument("ibex"),
+      ]),
+    ]),
+  ],
+  [
+    "__exactX25519DeriveBits",
+    nativeNoEffectTemplate(2, [
+      generatedKeyArgument("x25519", "privateKey"),
+      generatedKeyArgument("x25519", "publicKey"),
+    ]),
+  ],
+  [
     "__exactBrotliCompressSync",
     nativeNoEffectTemplate(2, [literalArgument("ibex"), literalArgument(4)]),
   ],
@@ -1013,7 +2116,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     ]),
   ],
   ["__exactGetCpuCount", nativeSystemInfoTemplate("cpus")],
-  ["__exactGetCwd", nativeSystemInfoTemplate("cwd")],
+  ["__exactGetCwd", nativeCwdObserveTemplate()],
   ["__exactGetEnv", nativeEnvironmentReadTemplate("PATH")],
   ["__exactGetFreeMem", nativeSystemInfoTemplate("memory")],
   ["__exactGetHostname", nativeSystemInfoTemplate("hostname")],
@@ -1028,8 +2131,27 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["__exactGetUserInfo", nativeSystemInfoTemplate("user")],
   ["__exactLstat", nativeProjectMetadataTemplate()],
   ["__exactReadFile", nativeProjectReadFileTemplate()],
-  ["__exactRealpath", nativeProjectMetadataTemplate()],
-  ["__exactStat", nativeProjectMetadataTemplate()],
+  [
+    "__exactRealpath",
+    nativeProjectMetadataTemplate([
+      "requested",
+      "discovery",
+      "requested",
+      "repeat",
+      "repeat",
+      "repeat",
+    ]),
+  ],
+  [
+    "__exactStat",
+    nativeProjectMetadataTemplate([
+      "requested",
+      "discovery",
+      "requested",
+      "repeat",
+      "repeat",
+    ]),
+  ],
   [
     "__exactHashRaw",
     nativeNoEffectTemplate(2, [
@@ -1140,58 +2262,78 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ],
   [
     "__exactZlibCheckOwner",
-    nativeNoEffectTemplate(1, [
-      nativeResultArgument("__exactZlibCreate", 5, [
-        literalArgument(0),
-        literalArgument(0),
-        literalArgument(-1),
-        literalArgument(0),
-        literalArgument(null),
-      ]),
-    ], [], "closed-zlib-stream"),
+    nativeNoEffectTemplate(
+      1,
+      [
+        nativeResultArgument("__exactZlibCreate", 5, [
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(-1),
+          literalArgument(0),
+          literalArgument(null),
+        ]),
+      ],
+      [],
+      "closed-zlib-stream",
+    ),
   ],
   [
     "__exactZlibClose",
-    nativeNoEffectTemplate(1, [
-      nativeResultArgument("__exactZlibCreate", 5, [
-        literalArgument(0),
-        literalArgument(0),
-        literalArgument(-1),
-        literalArgument(0),
-        literalArgument(null),
-      ]),
-    ], [], "consumed-zlib-stream"),
+    nativeNoEffectTemplate(
+      1,
+      [
+        nativeResultArgument("__exactZlibCreate", 5, [
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(-1),
+          literalArgument(0),
+          literalArgument(null),
+        ]),
+      ],
+      [],
+      "consumed-zlib-stream",
+    ),
   ],
   [
     "__exactZlibParams",
-    nativeNoEffectTemplate(3, [
-      nativeResultArgument("__exactZlibCreate", 5, [
+    nativeNoEffectTemplate(
+      3,
+      [
+        nativeResultArgument("__exactZlibCreate", 5, [
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(-1),
+          literalArgument(0),
+          literalArgument(null),
+        ]),
+        literalArgument(6),
         literalArgument(0),
-        literalArgument(0),
-        literalArgument(-1),
-        literalArgument(0),
-        literalArgument(null),
-      ]),
-      literalArgument(6),
-      literalArgument(0),
-    ], [], "closed-zlib-stream"),
+      ],
+      [],
+      "closed-zlib-stream",
+    ),
   ],
   [
     "__exactZlibWrite",
-    nativeNoEffectTemplate(6, [
-      nativeResultArgument("__exactZlibCreate", 5, [
+    nativeNoEffectTemplate(
+      6,
+      [
+        nativeResultArgument("__exactZlibCreate", 5, [
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(-1),
+          literalArgument(0),
+          literalArgument(null),
+        ]),
+        literalArgument("ibex"),
         literalArgument(0),
-        literalArgument(0),
-        literalArgument(-1),
-        literalArgument(0),
-        literalArgument(null),
-      ]),
-      literalArgument("ibex"),
-      literalArgument(0),
-      literalArgument(true),
-      literalArgument(false),
-      literalArgument(1024),
-    ], [], "closed-zlib-stream"),
+        literalArgument(true),
+        literalArgument(false),
+        literalArgument(1024),
+      ],
+      [],
+      "closed-zlib-stream",
+    ),
   ],
   [
     "__exactTlsOwnerToken",
@@ -1255,21 +2397,31 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ],
   [
     "__exactTlsEngineWritePlain",
-    nativeNoEffectTemplate(2, [
-      tlsEngineArgument(),
-      nativeResultArgument("__exactStringToUtf8Bytes", 1, [
-        literalArgument("ibex"),
-      ]),
-    ], [], "closed-tls-engine"),
+    nativeNoEffectTemplate(
+      2,
+      [
+        tlsEngineArgument(),
+        nativeResultArgument("__exactStringToUtf8Bytes", 1, [
+          literalArgument("ibex"),
+        ]),
+      ],
+      [],
+      "closed-tls-engine",
+    ),
   ],
   [
     "__exactTlsEngineWriteTls",
-    nativeNoEffectTemplate(2, [
-      tlsEngineArgument(),
-      nativeResultArgument("__exactStringToUtf8Bytes", 1, [
-        literalArgument(""),
-      ]),
-    ], [], "closed-tls-engine"),
+    nativeNoEffectTemplate(
+      2,
+      [
+        tlsEngineArgument(),
+        nativeResultArgument("__exactStringToUtf8Bytes", 1, [
+          literalArgument(""),
+        ]),
+      ],
+      [],
+      "closed-tls-engine",
+    ),
   ],
   [
     "__exactUdpClose",
@@ -1297,7 +2449,111 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ],
 ]);
 
+const NATIVE_EFFECT_NON_DENY_SCENARIOS = Object.freeze([
+  "allow",
+  "branch-selection",
+  "malformed",
+  "missing-attribution",
+  "wrong-principal",
+]);
+
+function nativeEffectDecisionCounts(nonDenyCount) {
+  return Object.freeze({
+    ...Object.fromEntries(
+      NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [
+        scenario,
+        nonDenyCount,
+      ]),
+    ),
+    deny: 1,
+  });
+}
+
+function nativeEffectStages(nonDenyStages) {
+  const trace = Object.freeze([...nonDenyStages]);
+  return Object.freeze({
+    ...Object.fromEntries(
+      NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [scenario, trace]),
+    ),
+    deny: Object.freeze(["requested"]),
+  });
+}
+
 const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
+  [
+    "__exactFsFdAsync",
+    new Map([
+      [
+        "durability-write",
+        nativeRetainedFsAsyncWriteTemplate({
+          path: "target/ibex-capsec-fdasync-durability",
+          operation: "fsync",
+          argumentsList: [literalArgument(0), literalArgument(0)],
+        }),
+      ],
+    ]),
+  ],
+  [
+    "__exactFsOpen",
+    new Map([
+      [
+        "read",
+        nativeProjectFsOpenTemplate({
+          actionIds: ["fs:list", "fs:read"],
+          flags: "r",
+          fixture: "ibex-capsec-fsopen-read",
+        }),
+      ],
+      [
+        "read-write",
+        nativeProjectFsOpenTemplate({
+          actionIds: ["fs:list", "fs:read", "fs:write"],
+          flags: "r+",
+          fixture: "ibex-capsec-fsopen-read-write",
+        }),
+      ],
+      [
+        "write",
+        nativeProjectFsOpenTemplate({
+          actionIds: ["fs:list", "fs:write"],
+          flags: "a",
+          fixture: "ibex-capsec-fsopen-write",
+        }),
+      ],
+    ]),
+  ],
+  [
+    "__exactFsOpenAsync",
+    new Map([
+      [
+        "read",
+        nativeProjectFsOpenTemplate({
+          actionIds: ["fs:list", "fs:read"],
+          async: true,
+          flags: "r",
+          fixture: "ibex-capsec-fsopen-async-read",
+        }),
+      ],
+      [
+        "read-write",
+        nativeProjectFsOpenTemplate({
+          actionIds: ["fs:list", "fs:read", "fs:write"],
+          async: true,
+          flags: "r+",
+          fixture: "ibex-capsec-fsopen-async-read-write",
+        }),
+      ],
+      [
+        "write",
+        nativeProjectFsOpenTemplate({
+          actionIds: ["fs:list", "fs:write"],
+          async: true,
+          flags: "a",
+          fixture: "ibex-capsec-fsopen-async-write",
+        }),
+      ],
+    ]),
+  ],
   [
     "__exactFsPathAsync",
     new Map([
@@ -1317,18 +2573,10 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             kind: "event-loop-quiescence",
             timeoutMilliseconds: 1_000,
           },
-          additionalAllowedCoverageObservedKeys: [
-            "native-op:__exactMkdir",
-          ],
+          additionalAllowedCoverageObservedKeys: ["native-op:__exactMkdir"],
           expectedCleanup: "removed-created-directory",
-          expectedDecisionCounts: {
-            allow: 4,
-            "branch-selection": 4,
-            deny: 1,
-            malformed: 4,
-            "missing-attribution": 4,
-            "wrong-principal": 4,
-          },
+          expectedDecisionCounts: nativeEffectDecisionCounts(7),
+          expectedDenyMessageFragment: "filesystem policy denied",
           expectedObservedActionIds: {
             malformed: ["fs:list", "fs:write"],
           },
@@ -1340,29 +2588,15 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             "missing-attribution": "return",
             "wrong-principal": "return",
           },
-          expectedStages: {
-            allow: ["requested", "discovery", "discovery", "commit"],
-            "branch-selection": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-            ],
-            deny: ["requested"],
-            malformed: ["requested", "discovery", "discovery", "commit"],
-            "missing-attribution": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-            ],
-            "wrong-principal": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-            ],
-          },
+          expectedStages: nativeEffectStages([
+            "requested",
+            "discovery",
+            "requested",
+            "repeat",
+            "requested",
+            "requested",
+            "discovery",
+          ]),
           requiredFloor: [
             {
               cap: "fs:list",
@@ -1376,88 +2610,6 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
               resource: projectPathExactResource(
                 "target",
                 "ibex-capsec-fspathasync-mkdir",
-              ),
-            },
-          ],
-          requiredSourceArity: 6,
-          setup: [],
-        }),
-      ],
-      [
-        "mkdtemp",
-        Object.freeze({
-          actionIds: ["fs:list", "fs:write"],
-          arguments: [
-            literalArgument("mkdtemp"),
-            literalArgument("target/ibex-capsec-fspathasync-mkdtemp/"),
-            literalArgument(null),
-            literalArgument(0),
-            literalArgument(0),
-            literalArgument(0),
-          ],
-          completion: {
-            kind: "event-loop-quiescence",
-            timeoutMilliseconds: 1_000,
-          },
-          additionalAllowedCoverageObservedKeys: [
-            "native-op:__exactMkdir",
-          ],
-          expectedCleanup: "removed-created-directory",
-          expectedDecisionCounts: {
-            allow: 4,
-            "branch-selection": 4,
-            deny: 1,
-            malformed: 4,
-            "missing-attribution": 4,
-            "wrong-principal": 4,
-          },
-          expectedObservedActionIds: {
-            malformed: ["fs:list", "fs:write"],
-          },
-          expectedResults: {
-            allow: "return",
-            "branch-selection": "return",
-            deny: "permission-denied",
-            malformed: "return",
-            "missing-attribution": "return",
-            "wrong-principal": "return",
-          },
-          expectedStages: {
-            allow: ["requested", "discovery", "discovery", "commit"],
-            "branch-selection": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-            ],
-            deny: ["requested"],
-            malformed: ["requested", "discovery", "discovery", "commit"],
-            "missing-attribution": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-            ],
-            "wrong-principal": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-            ],
-          },
-          requiredFloor: [
-            {
-              cap: "fs:list",
-              resource: projectPathTreeResource(
-                "target",
-                "ibex-capsec-fspathasync-mkdtemp",
-              ),
-            },
-            {
-              cap: "fs:write",
-              resource: projectPathTreeResource(
-                "target",
-                "ibex-capsec-fspathasync-mkdtemp",
               ),
             },
           ],
@@ -1481,17 +2633,9 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             kind: "event-loop-quiescence",
             timeoutMilliseconds: 1_000,
           },
-          additionalAllowedCoverageObservedKeys: [
-            "native-op:__exactReaddir",
-          ],
-          expectedDecisionCounts: {
-            allow: 4,
-            "branch-selection": 4,
-            deny: 1,
-            malformed: 4,
-            "missing-attribution": 4,
-            "wrong-principal": 4,
-          },
+          additionalAllowedCoverageObservedKeys: ["native-op:__exactReaddir"],
+          expectedDecisionCounts: nativeEffectDecisionCounts(7),
+          expectedDenyMessageFragment: "filesystem policy denied",
           expectedResults: {
             allow: "return",
             "branch-selection": "return",
@@ -1500,29 +2644,15 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             "missing-attribution": "return",
             "wrong-principal": "return",
           },
-          expectedStages: {
-            allow: ["requested", "discovery", "repeat", "repeat"],
-            "branch-selection": [
-              "requested",
-              "discovery",
-              "repeat",
-              "repeat",
-            ],
-            deny: ["requested"],
-            malformed: ["requested", "discovery", "repeat", "repeat"],
-            "missing-attribution": [
-              "requested",
-              "discovery",
-              "repeat",
-              "repeat",
-            ],
-            "wrong-principal": [
-              "requested",
-              "discovery",
-              "repeat",
-              "repeat",
-            ],
-          },
+          expectedStages: nativeEffectStages([
+            "requested",
+            "discovery",
+            "requested",
+            "repeat",
+            "repeat",
+            "repeat",
+            "repeat",
+          ]),
           requiredFloor: [
             {
               cap: "fs:list",
@@ -1549,17 +2679,9 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             kind: "event-loop-quiescence",
             timeoutMilliseconds: 1_000,
           },
-          additionalAllowedCoverageObservedKeys: [
-            "native-op:__exactRealpath",
-          ],
-          expectedDecisionCounts: {
-            allow: 4,
-            "branch-selection": 4,
-            deny: 1,
-            malformed: 4,
-            "missing-attribution": 4,
-            "wrong-principal": 4,
-          },
+          additionalAllowedCoverageObservedKeys: ["native-op:__exactRealpath"],
+          expectedDecisionCounts: nativeEffectDecisionCounts(6),
+          expectedDenyMessageFragment: "filesystem policy denied",
           expectedResults: {
             allow: "return",
             "branch-selection": "return",
@@ -1568,29 +2690,14 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             "missing-attribution": "return",
             "wrong-principal": "return",
           },
-          expectedStages: {
-            allow: ["requested", "discovery", "repeat", "repeat"],
-            "branch-selection": [
-              "requested",
-              "discovery",
-              "repeat",
-              "repeat",
-            ],
-            deny: ["requested"],
-            malformed: ["requested", "discovery", "repeat", "repeat"],
-            "missing-attribution": [
-              "requested",
-              "discovery",
-              "repeat",
-              "repeat",
-            ],
-            "wrong-principal": [
-              "requested",
-              "discovery",
-              "repeat",
-              "repeat",
-            ],
-          },
+          expectedStages: nativeEffectStages([
+            "requested",
+            "discovery",
+            "requested",
+            "repeat",
+            "repeat",
+            "repeat",
+          ]),
           requiredFloor: [
             {
               cap: "fs:list",
@@ -1617,14 +2724,9 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             kind: "event-loop-quiescence",
             timeoutMilliseconds: 1_000,
           },
-          expectedDecisionCounts: {
-            allow: 4,
-            "branch-selection": 4,
-            deny: 1,
-            malformed: 4,
-            "missing-attribution": 4,
-            "wrong-principal": 4,
-          },
+          additionalAllowedCoverageObservedKeys: ["native-op:__exactStatfs"],
+          expectedDecisionCounts: nativeEffectDecisionCounts(6),
+          expectedDenyMessageFragment: "filesystem policy denied",
           expectedResults: {
             allow: "return",
             "branch-selection": "return",
@@ -1633,29 +2735,14 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             "missing-attribution": "return",
             "wrong-principal": "return",
           },
-          expectedStages: {
-            allow: ["requested", "discovery", "repeat", "repeat"],
-            "branch-selection": [
-              "requested",
-              "discovery",
-              "repeat",
-              "repeat",
-            ],
-            deny: ["requested"],
-            malformed: ["requested", "discovery", "repeat", "repeat"],
-            "missing-attribution": [
-              "requested",
-              "discovery",
-              "repeat",
-              "repeat",
-            ],
-            "wrong-principal": [
-              "requested",
-              "discovery",
-              "repeat",
-              "repeat",
-            ],
-          },
+          expectedStages: nativeEffectStages([
+            "requested",
+            "discovery",
+            "requested",
+            "repeat",
+            "repeat",
+            "repeat",
+          ]),
           requiredFloor: [
             {
               cap: "fs:list",
@@ -1682,15 +2769,10 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             kind: "event-loop-quiescence",
             timeoutMilliseconds: 1_000,
           },
+          additionalAllowedCoverageObservedKeys: ["native-op:__exactTruncate"],
           expectedCleanup: "removed-owned-file",
-          expectedDecisionCounts: {
-            allow: 5,
-            "branch-selection": 5,
-            deny: 1,
-            malformed: 5,
-            "missing-attribution": 5,
-            "wrong-principal": 5,
-          },
+          expectedDecisionCounts: nativeEffectDecisionCounts(8),
+          expectedDenyMessageFragment: "filesystem policy denied",
           expectedObservedActionIds: {
             malformed: ["fs:list", "fs:write"],
           },
@@ -1702,44 +2784,16 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             "missing-attribution": "return",
             "wrong-principal": "return",
           },
-          expectedStages: {
-            allow: [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-              "repeat",
-            ],
-            "branch-selection": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-              "repeat",
-            ],
-            deny: ["requested"],
-            malformed: [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-              "repeat",
-            ],
-            "missing-attribution": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-              "repeat",
-            ],
-            "wrong-principal": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-              "repeat",
-            ],
-          },
+          expectedStages: nativeEffectStages([
+            "requested",
+            "discovery",
+            "requested",
+            "repeat",
+            "requested",
+            "repeat",
+            "commit",
+            "repeat",
+          ]),
           requiredFloor: [
             {
               cap: "fs:list",
@@ -1753,6 +2807,126 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
               resource: projectPathExactResource(
                 "target",
                 "ibex-capsec-fspathasync-truncate",
+              ),
+            },
+          ],
+          requiredSourceArity: 6,
+          setup: [],
+        }),
+      ],
+      [
+        "chmod",
+        Object.freeze({
+          actionIds: ["fs:list", "fs:write"],
+          arguments: [
+            literalArgument("chmod"),
+            literalArgument("target/ibex-capsec-fspathasync-chmod"),
+            literalArgument(null),
+            literalArgument(0o600),
+            literalArgument(0),
+            literalArgument(0),
+          ],
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          expectedCleanup: "removed-owned-file",
+          expectedDecisionCounts: nativeEffectDecisionCounts(8),
+          expectedDenyMessageFragment: "filesystem policy denied",
+          expectedObservedActionIds: {
+            malformed: ["fs:list", "fs:write"],
+          },
+          expectedResults: {
+            allow: "return",
+            "branch-selection": "return",
+            deny: "permission-denied",
+            malformed: "return",
+            "missing-attribution": "return",
+            "wrong-principal": "return",
+          },
+          expectedStages: nativeEffectStages([
+            "requested",
+            "discovery",
+            "requested",
+            "repeat",
+            "requested",
+            "repeat",
+            "commit",
+            "repeat",
+          ]),
+          requiredFloor: [
+            {
+              cap: "fs:list",
+              resource: projectPathExactResource(
+                "target",
+                "ibex-capsec-fspathasync-chmod",
+              ),
+            },
+            {
+              cap: "fs:write",
+              resource: projectPathExactResource(
+                "target",
+                "ibex-capsec-fspathasync-chmod",
+              ),
+            },
+          ],
+          requiredSourceArity: 6,
+          setup: [],
+        }),
+      ],
+      [
+        "utime",
+        Object.freeze({
+          actionIds: ["fs:list", "fs:write"],
+          arguments: [
+            literalArgument("utime"),
+            literalArgument("target/ibex-capsec-fspathasync-utime"),
+            literalArgument(null),
+            literalArgument(1),
+            literalArgument(2),
+            literalArgument(0),
+          ],
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          expectedCleanup: "removed-owned-file",
+          expectedDecisionCounts: nativeEffectDecisionCounts(8),
+          expectedDenyMessageFragment: "filesystem policy denied",
+          expectedObservedActionIds: {
+            malformed: ["fs:list", "fs:write"],
+          },
+          expectedResults: {
+            allow: "return",
+            "branch-selection": "return",
+            deny: "permission-denied",
+            malformed: "return",
+            "missing-attribution": "return",
+            "wrong-principal": "return",
+          },
+          expectedStages: nativeEffectStages([
+            "requested",
+            "discovery",
+            "requested",
+            "repeat",
+            "requested",
+            "repeat",
+            "commit",
+            "repeat",
+          ]),
+          requiredFloor: [
+            {
+              cap: "fs:list",
+              resource: projectPathExactResource(
+                "target",
+                "ibex-capsec-fspathasync-utime",
+              ),
+            },
+            {
+              cap: "fs:write",
+              resource: projectPathExactResource(
+                "target",
+                "ibex-capsec-fspathasync-utime",
               ),
             },
           ],
@@ -1777,6 +2951,7 @@ function logicalBranchIdForPlan(plan, scenario) {
 }
 
 const NATIVE_PUBLIC_CONDITIONAL_PROBE_TEMPLATES = new Map([
+  ["__exactGetAllEnv", nativeConditionalNoEffectTemplate(0)],
   [
     "__exactSqliteOpen",
     nativeConditionalNoEffectTemplate(2, [
@@ -1908,8 +3083,9 @@ function bindNativeArgumentSources(argument, liveByObservedKey) {
   ) {
     return clone(argument);
   }
-  const producer = liveByObservedKey.get(
-    `native-op:${argument.globalName}`,
+  const producer = (
+    liveByObservedKey.get(`native-op:${argument.globalName}`) ??
+    liveByObservedKey.get(`native-op:global:${argument.globalName}`)
   )?.metadata?.publicInvocation;
   if (
     !producer ||
@@ -1938,6 +3114,8 @@ function bindNativeArgumentSources(argument, liveByObservedKey) {
 function bindNativeSetupSources(setup, liveByObservedKey) {
   if (
     !new Set([
+      "fs-read-file",
+      "fs-write-file",
       "sqlite-memory-database",
       "sqlite-memory-statement",
       "tcp-loopback-client",
@@ -1945,9 +3123,8 @@ function bindNativeSetupSources(setup, liveByObservedKey) {
   ) {
     return clone(setup);
   }
-  const producer = liveByObservedKey.get(
-    `native-op:${setup.globalName}`,
-  )?.metadata?.publicInvocation;
+  const producer = liveByObservedKey.get(`native-op:${setup.globalName}`)
+    ?.metadata?.publicInvocation;
   if (
     !producer ||
     producer.kind !== "native-global-function" ||
@@ -1958,9 +3135,10 @@ function bindNativeSetupSources(setup, liveByObservedKey) {
     );
   }
   const sourceDescriptor = clone(producer);
+  const boundSetup = clone(setup);
+  delete boundSetup.requiredSourceArity;
   return {
-    kind: setup.kind,
-    globalName: setup.globalName,
+    ...boundSetup,
     sourceDescriptor,
     sourceDescriptorDigest: taggedDigest(sourceDescriptor),
   };
@@ -1971,8 +3149,11 @@ function nativePublicProbeForPlan({
   scenario,
   route,
   liveByObservedKey,
+  rootDispositionsByObservedKey,
+  coverageByEdge,
   coverageByObservedKey,
   adapterProbe,
+  target,
 }) {
   const targetAbsence = plan.expectedObservation.kind === "target-absence";
   const surfaceObservedKey = targetAbsence
@@ -2028,7 +3209,7 @@ function nativePublicProbeForPlan({
           "--bin",
           "ibex",
           "--features",
-          "capsec-conformance-observer",
+          "capsec-conformance-observer,openssl-crypto",
           "capsec_public_native_recipe_batch",
           "--",
           "--test-threads=1",
@@ -2086,6 +3267,14 @@ function nativePublicProbeForPlan({
       unavailableReason: "native-public-arguments-not-authored",
     };
   }
+  if (template.unsupportedTargetTriples?.includes(target.triple)) {
+    return {
+      probe: null,
+      unavailableReason:
+        template.unsupportedTargetReason ??
+        "native-public-operation-not-installed-on-target",
+    };
+  }
   if (
     !Object.hasOwn(template.expectedStages, scenario) ||
     !Object.hasOwn(template.expectedDecisionCounts, scenario) ||
@@ -2119,8 +3308,9 @@ function nativePublicProbeForPlan({
   const sourceDescriptor = clone(invocation);
   const expectedStages = template.expectedStages[scenario];
   const additionalAllowedCoverageEdgeIds = [];
-  for (const observedKey of
-    template.additionalAllowedCoverageObservedKeys ?? []) {
+  const additionalAllowedCoverageEdges = [];
+  for (const observedKey of template.additionalAllowedCoverageObservedKeys ??
+    []) {
     const additionalEdge = coverageByObservedKey.get(observedKey);
     if (!additionalEdge?.id) {
       return {
@@ -2129,6 +3319,19 @@ function nativePublicProbeForPlan({
       };
     }
     additionalAllowedCoverageEdgeIds.push(additionalEdge.id);
+    additionalAllowedCoverageEdges.push(additionalEdge);
+  }
+  const stageContractViolation = nativeExpectedStageContractViolation({
+    actionIds: plan.actionIds,
+    expectedStages,
+    semanticEffects: effectsForPlan(plan, coverageByEdge),
+    coverageEdges: [
+      ...plan.edgeIds.map((edgeId) => coverageByEdge.get(edgeId)),
+      ...additionalAllowedCoverageEdges,
+    ],
+  });
+  if (stageContractViolation) {
+    throw new Error(`${plan.fixtureId}: ${stageContractViolation}`);
   }
   const expectedActionIds = template.expectedObservedActionIds?.[scenario]
     ? clone(template.expectedObservedActionIds[scenario])
@@ -2139,6 +3342,63 @@ function nativePublicProbeForPlan({
             .flatMap((adapterCase) => adapterCase.actionIds),
         )
       : clone(plan.actionIds);
+  let publicAccess = null;
+  if (template.publicAccessObservedKey) {
+    const conformantDisposition = (observedKey) => {
+      const rows = rootDispositionsByObservedKey.get(observedKey) ?? [];
+      const selectedIds = new Set(
+        applicableImplementationBranchIds(
+          rows.map((row) => ({
+            branchId: row.installId,
+            targetVariant: row.branch.targetVariant,
+            targetApplicability: targetApplicabilityForVariant(
+              row.branch.targetVariant,
+            ),
+          })),
+          target,
+        ),
+      );
+      const candidates = rows
+        .filter((row) => selectedIds.has(row.installId))
+        .filter((row) => row.branch.activation === "always");
+      return candidates.length === 1 ? candidates[0] : null;
+    };
+    const privateTerminal = conformantDisposition(surfaceObservedKey);
+    const publicFacade = conformantDisposition(
+      template.publicAccessObservedKey,
+    );
+    if (
+      privateTerminal?.disposition !== "private" ||
+      privateTerminal.liveExpectation !== "absent" ||
+      typeof privateTerminal.privateConsumer !== "string" ||
+      publicFacade?.liveExpectation !== "reachable" ||
+      publicFacade.disposition === "private" ||
+      publicFacade.property?.root?.kind !== "string" ||
+      !publicFacade.property.path?.every((key) => key.kind === "string")
+    ) {
+      return {
+        probe: null,
+        unavailableReason: "native-public-private-facade-disposition-drift",
+      };
+    }
+    publicAccess = {
+      kind: "captured-private-global-function",
+      observedKey: publicFacade.observedKey,
+      installId: publicFacade.installId,
+      path: [
+        publicFacade.property.root.value,
+        ...publicFacade.property.path.map((key) => key.value),
+      ],
+      sourceRefs: clone(publicFacade.branch.sourceRefs),
+      privateTerminal: {
+        observedKey: privateTerminal.observedKey,
+        installId: privateTerminal.installId,
+        privateConsumer: privateTerminal.privateConsumer,
+        liveExpectation: privateTerminal.liveExpectation,
+      },
+      expectedDenyMessageFragment: "filesystem policy denied",
+    };
+  }
   return {
     unavailableReason: null,
     probe: {
@@ -2152,17 +3412,30 @@ function nativePublicProbeForPlan({
         "--bin",
         "ibex",
         "--features",
-        "capsec-conformance-observer",
+        "capsec-conformance-observer,openssl-crypto",
         "capsec_public_native_recipe_batch",
         "--",
         "--test-threads=1",
       ],
       invocation: {
         invocationSchema: "ibex/capsec-native-global-invocation/1",
-        kind: "native-global-function",
+        kind: publicAccess
+          ? "private-native-facade-function"
+          : "native-global-function",
         globalName: invocation.globalName,
         sourceDescriptor,
         sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        ...(publicAccess
+          ? {
+              publicAccess,
+              publicAccessDigest: taggedDigest(publicAccess),
+            }
+          : {}),
+        ...(template.expectedDenyMessageFragment && !publicAccess
+          ? {
+              expectedDenyMessageFragment: template.expectedDenyMessageFragment,
+            }
+          : {}),
         arguments: template.arguments.map((argument) =>
           bindNativeArgumentSources(argument, liveByObservedKey),
         ),
@@ -2279,7 +3552,7 @@ function conditionalHostAbiProbeForPlan({
       "--bin",
       "ibex",
       "--features",
-      "capsec-conformance-observer",
+      "capsec-conformance-observer,openssl-crypto",
       "capsec_public_native_recipe_batch",
       "--",
       "--test-threads=1",
@@ -2294,6 +3567,185 @@ function conditionalHostAbiProbeForPlan({
         kind: "sqlite-memory",
         selectedBranch: clone(sourceDescriptor.selectedBranch),
       },
+      expectedResult: "return",
+      expectedTypedStages: [],
+      expectedTypedDecisionCount: 0,
+      allowedCoverageEdgeIds: clone(plan.edgeIds),
+      expectedActionIds: [],
+    },
+  };
+}
+
+// @ref LLP 0021#module-initialization-and-trusted-source-acquisition — loader
+// admission and source/cache/carrier reads are control-plane operations, so
+// their public proof must execute with zero host-effect decisions.
+const MODULE_RUNNER_LOADER_OPERATIONS = new Map([
+  ["module-runner-edge-authorization", "authorize-edge"],
+  ["module-runner-trusted-source-acquisition", "source-acquisition"],
+  ["module-runner-cache-access", "cache-read"],
+  ["module-runner-prepared-carrier-access", "prepared-carrier-read"],
+]);
+
+// Authored dynamic-import and CommonJS require edges deliberately select the
+// compatibility loader before target discovery, so their four native link
+// ABIs cannot receive production-path execution credit here.
+// @ref LLP 0026#6-top-level-await-and-dynamic-import — deferred edges stay outside the native runner until call-time identity is enforceable.
+// Production also owns generation 1 through runtime teardown rather than
+// calling the public unpin ABI, so that ABI remains residual independently.
+// @ref LLP 0027#esmcommonjs-interop-matrix — the single-generation runtime pin is released only by owner-thread teardown.
+const MODULE_RUNNER_SOURCE_GRAPH_HOST_ABIS = new Set([
+  "ex_hermes_commonjs_create_record",
+  "ex_hermes_commonjs_record_create_esm_adapter",
+  "ex_hermes_commonjs_record_declare_export",
+  "ex_hermes_commonjs_record_evaluate",
+  "ex_hermes_graph_context_create",
+  "ex_hermes_graph_context_retain",
+  "ex_hermes_module_compile_factory",
+  "ex_hermes_module_create_record",
+  "ex_hermes_module_load_carrier_factory",
+  "ex_hermes_module_pin_generation",
+  "ex_hermes_module_record_declare_export",
+  "ex_hermes_module_record_instantiate",
+  "ex_hermes_module_record_link_dependency",
+  "ex_hermes_module_record_link_export",
+  "ex_hermes_module_record_link_import",
+  "ex_hermes_module_record_poll_evaluation",
+  "ex_hermes_module_record_run_declare",
+  "ex_hermes_module_record_run_execute",
+  "ex_hermes_module_release_handle",
+]);
+
+function moduleRunnerLoaderProbeForPlan({
+  plan,
+  scenario,
+  route,
+  liveByObservedKey,
+}) {
+  if (
+    plan.classification !== "non-capability" ||
+    scenario !== "non-capability" ||
+    plan.actionIds.length !== 0 ||
+    plan.edgeIds.length !== 1 ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const prefix = "loader:";
+  if (!surfaceObservedKey.startsWith(prefix)) return null;
+  const surfaceName = surfaceObservedKey.slice(prefix.length);
+  const operation = MODULE_RUNNER_LOADER_OPERATIONS.get(surfaceName);
+  if (!operation) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  if (
+    live?.kind !== "loader" ||
+    live.name !== surfaceName ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length !== 1 ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "module-loader-function",
+    surfaceName,
+    sourceRefs: clone(live.sourceRefs),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [
+      "cargo",
+      "test",
+      "--bin",
+      "ibex",
+      "--features",
+      "capsec-conformance-observer,openssl-crypto",
+      "capsec_public_native_recipe_batch",
+      "--",
+      "--test-threads=1",
+    ],
+    invocation: {
+      invocationSchema: "ibex/capsec-module-loader-invocation/1",
+      kind: "module-loader-authority",
+      surfaceName,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: { kind: operation },
+      expectedResult: "return",
+      expectedTypedStages: [],
+      expectedTypedDecisionCount: 0,
+      allowedCoverageEdgeIds: clone(plan.edgeIds),
+      expectedActionIds: [],
+    },
+  };
+}
+
+function moduleRunnerHostAbiProbeForPlan({
+  plan,
+  scenario,
+  route,
+  liveByObservedKey,
+}) {
+  if (
+    plan.classification !== "non-capability" ||
+    scenario !== "non-capability" ||
+    plan.actionIds.length !== 0 ||
+    plan.edgeIds.length !== 1 ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const prefix = "host-abi:";
+  if (!surfaceObservedKey.startsWith(prefix)) return null;
+  const functionName = surfaceObservedKey.slice(prefix.length);
+  if (!MODULE_RUNNER_SOURCE_GRAPH_HOST_ABIS.has(functionName)) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  if (
+    live?.kind !== "host-abi" ||
+    live.name !== functionName ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length !== 1 ||
+    !Array.isArray(live.metadata?.definitions) ||
+    live.metadata.definitions.length !== 1 ||
+    live.metadata.definitions[0].language !== "c++" ||
+    live.metadata.definitions[0].sourceRef !== live.sourceRefs[0] ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "host-abi-function",
+    functionName,
+    sourceRefs: clone(live.sourceRefs),
+    sourceMetadata: clone(live.metadata),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [
+      "cargo",
+      "test",
+      "--bin",
+      "ibex",
+      "--features",
+      "capsec-conformance-observer,openssl-crypto",
+      "capsec_public_native_recipe_batch",
+      "--",
+      "--test-threads=1",
+    ],
+    invocation: {
+      invocationSchema: "ibex/capsec-host-abi-invocation/1",
+      kind: "host-abi-function",
+      functionName,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: { kind: "module-runner-source-graph" },
       expectedResult: "return",
       expectedTypedStages: [],
       expectedTypedDecisionCount: 0,
@@ -2326,6 +3778,11 @@ function residualReasons({
     publicSurfaceProbe.invocation.expectedTypedDecisionCount > 0 &&
     Array.isArray(publicSurfaceProbe.invocation.allowedCoverageEdgeIds) &&
     publicSurfaceProbe.invocation.allowedCoverageEdgeIds.length > 0;
+  const terminalBuiltinClosureProbe =
+    publicSurfaceProbe?.invocation?.invocationSchema ===
+      "ibex/capsec-closed-surface-invocation/1" &&
+    publicSurfaceProbe?.invocation?.operation?.kind ===
+      "terminal-builtin-import";
   if (plan.expectedObservation.kind === "target-absence") {
     if (!publicSurfaceProbe) {
       reasons.push("target-absence-probe-not-authored");
@@ -2380,7 +3837,8 @@ function residualReasons({
   if (
     route.alternatives.length === 0 &&
     plan.expectedObservation.kind !== "target-absence" &&
-    !callbackInvariantProbe
+    !callbackInvariantProbe &&
+    !terminalBuiltinClosureProbe
   ) {
     reasons.push("no-static-enforcement-terminal");
   }
@@ -2393,7 +3851,8 @@ function residualReasons({
   if (
     route.ambiguousCallees.length > 0 &&
     !callbackInvariantProbe &&
-    !effectBuiltinProbe
+    !effectBuiltinProbe &&
+    !terminalBuiltinClosureProbe
   ) {
     reasons.push("ambiguous-static-enforcement-route");
   }
@@ -2457,6 +3916,21 @@ export function buildConformanceRecipeCatalog({
   const liveByObservedKey = new Map(
     liveSurfaces.map((surface) => [surface.observedKey, surface]),
   );
+  const rootGlobalDispositions = buildRootGlobalDispositionManifest({
+    globals:
+      inventory.globals ??
+      liveSurfaces.filter(
+        (surface) => surface.metadata?.surfaceType === "global-api",
+      ),
+    coverage,
+  });
+  const rootDispositionsByObservedKey = new Map();
+  for (const row of rootGlobalDispositions.rows) {
+    const dispositions =
+      rootDispositionsByObservedKey.get(row.observedKey) ?? [];
+    dispositions.push(row);
+    rootDispositionsByObservedKey.set(row.observedKey, dispositions);
+  }
   const occurrences = occurrenceExamples.occurrences ?? [];
   const selectors = selectorExamples.selectors ?? [];
   const definitionByAction = definitionMap(capabilityDefinitions);
@@ -2486,6 +3960,7 @@ export function buildConformanceRecipeCatalog({
       route,
       liveByObservedKey,
       coverageByObservedKey,
+      target,
     });
     const startupPublicSurfaceProbe = authoredStartupPublicProbe({
       plan,
@@ -2531,8 +4006,11 @@ export function buildConformanceRecipeCatalog({
       scenario,
       route,
       liveByObservedKey,
+      rootDispositionsByObservedKey,
+      coverageByEdge,
       coverageByObservedKey,
       adapterProbe,
+      target,
     });
     const conditionalHostAbiProbe = conditionalHostAbiProbeForPlan({
       plan,
@@ -2541,18 +4019,41 @@ export function buildConformanceRecipeCatalog({
       liveByObservedKey,
       coverageByEdge,
     });
+    const moduleRunnerLoaderProbe = moduleRunnerLoaderProbeForPlan({
+      plan,
+      scenario,
+      route,
+      liveByObservedKey,
+    });
+    const moduleRunnerHostAbiProbe = moduleRunnerHostAbiProbeForPlan({
+      plan,
+      scenario,
+      route,
+      liveByObservedKey,
+    });
+    const rationaleOnlyCallbackScenario =
+      RATIONALE_ONLY_CALLBACK_SCENARIOS.has(scenario);
+    // These fixtures require the bound carrier's exact callback/control
+    // mechanism. A generic native read/call probe must not fill the gap after
+    // the exact callback author declines the row.
+    // @ref LLP 0016#weak-points-and-biggest-risks — attribution is secured
+    // per channel, not by a structural chokepoint shared by every carrier.
     const authoredPublicSurfaceProbes = callbackInvariantProbe
       ? [callbackInvariantProbe]
-      : [
-          nativePublicSurface.probe ? null : targetAbsenceProbe,
-          closedPublicSurfaceProbe,
-          startupPublicSurfaceProbe,
-          startupEnvironmentPublicSurfaceProbe,
-          effectBuiltinPublicSurfaceProbe,
-          nonCapabilityBuiltinPublicSurfaceProbe,
-          conditionalHostAbiProbe,
-          nativePublicSurface.probe,
-        ].filter((probe) => probe !== null);
+      : rationaleOnlyCallbackScenario
+        ? []
+        : [
+            nativePublicSurface.probe ? null : targetAbsenceProbe,
+            closedPublicSurfaceProbe,
+            startupPublicSurfaceProbe,
+            startupEnvironmentPublicSurfaceProbe,
+            effectBuiltinPublicSurfaceProbe,
+            nonCapabilityBuiltinPublicSurfaceProbe,
+            conditionalHostAbiProbe,
+            moduleRunnerLoaderProbe,
+            moduleRunnerHostAbiProbe,
+            nativePublicSurface.probe,
+          ].filter((probe) => probe !== null);
     if (authoredPublicSurfaceProbes.length > 1) {
       throw new Error(
         `${plan.fixtureId}: multiple public probe authors claimed one fixture`,
@@ -2682,6 +4183,50 @@ export function validateRecipeCatalog(
     canonicalJson(summarize(recipeCatalog.recipes))
   ) {
     throw new Error("recipe catalog summary disagrees with its recipe rows");
+  }
+  return recipeCatalog;
+}
+
+/**
+ * Validate an externally supplied recipe catalog against an independently
+ * rebuilt plan from the current repository inputs. Incomplete catalogs remain
+ * valid here; this proves provenance and exact content, not promotability.
+ */
+export function validateCurrentSourceRecipeCatalog(
+  recipeCatalog,
+  {
+    coverage,
+    implementation,
+    inventory,
+    occurrenceExamples,
+    selectorExamples,
+    capabilityDefinitions,
+    target,
+  },
+) {
+  const catalog = fixtureCatalogForTarget({
+    coverage,
+    implementation,
+    target,
+  });
+  const expectedFixtureIds = fixtureExecutionPlans(catalog).map(
+    (plan) => plan.fixtureId,
+  );
+  validateRecipeCatalog(recipeCatalog, { expectedFixtureIds, target });
+  const derivedRecipeCatalog = buildConformanceRecipeCatalog({
+    catalog,
+    coverage,
+    implementation,
+    inventory,
+    occurrenceExamples,
+    selectorExamples,
+    capabilityDefinitions,
+    target,
+  });
+  if (canonicalJson(recipeCatalog) !== canonicalJson(derivedRecipeCatalog)) {
+    throw new Error(
+      "executable recipe catalog differs from the current source-derived public recipe plan",
+    );
   }
   return recipeCatalog;
 }

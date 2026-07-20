@@ -1,0 +1,5558 @@
+{
+  "schema": "ibex/session-semantics-fixtures/1",
+  "modelVersion": 1,
+  "modelSource": {
+    "path": "packages/ibex-devtools/src/scripts/session-semantics-model.mjs",
+    "digest": "sha256-U02UpYG32hnYcshxZNle3VH9Y99P8nNpcRlE9oCTbrE"
+  },
+  "valueEncoding": {
+    "empty": {
+      "$sessionValue": "empty"
+    },
+    "undefined": {
+      "$sessionValue": "undefined"
+    },
+    "note": "Fixture values are inert JSON symbols; the model never evaluates them."
+  },
+  "gates": [
+    {
+      "id": "gate-1-model-conformance",
+      "compares": "implementation vs reference model",
+      "domain": "every session",
+      "selfContainedCoverage": "generated model fixtures and an observation comparator",
+      "status": "external-harness-implemented",
+      "harness": {
+        "kind": "external-rust-test",
+        "cargoTarget": "bin:ibex",
+        "requiredFeatures": [
+          "capsec-conformance-observer"
+        ],
+        "sourcePath": "src/bin/ibex/session_semantics_conformance.rs",
+        "testName": "session_semantics_conformance::implementation_matches_reference_model_gate",
+        "cargoArgs": [
+          "test",
+          "--bin",
+          "ibex",
+          "--features",
+          "capsec-conformance-observer",
+          "session_semantics_conformance::implementation_matches_reference_model_gate",
+          "--",
+          "--test-threads=1"
+        ]
+      }
+    },
+    {
+      "id": "gate-2-model-validation",
+      "compares": "reference model vs one growing script on the same engine and lowering",
+      "domain": "restricted class",
+      "selfContainedCoverage": "executable restricted-class classifier and exclusion fixtures",
+      "status": "external-harness-implemented",
+      "harness": {
+        "kind": "external-rust-test",
+        "cargoTarget": "bin:ibex",
+        "requiredFeatures": [
+          "capsec-conformance-observer"
+        ],
+        "sourcePath": "src/bin/ibex/session_semantics_conformance.rs",
+        "testName": "session_semantics_conformance::reference_model_matches_same_engine_growing_script_gate",
+        "cargoArgs": [
+          "test",
+          "--bin",
+          "ibex",
+          "--features",
+          "capsec-conformance-observer",
+          "session_semantics_conformance::reference_model_matches_same_engine_growing_script_gate",
+          "--",
+          "--test-threads=1"
+        ]
+      }
+    },
+    {
+      "id": "gate-2b-model-correctness",
+      "compares": "reference rows vs fresh-process standards Script semantics",
+      "domain": "descriptor and created/adopted rows",
+      "selfContainedCoverage": "fresh Node subprocess probes with owner-authored expected observations",
+      "status": "self-contained-probes-runnable"
+    },
+    {
+      "id": "gate-3-lowering-fidelity",
+      "compares": "production-lowered outcomes vs direct Hermes outcomes for the complete named single-input branch corpus",
+      "domain": "ReferenceLowering and StatementLowering branches reachable after checked Script parsing, with owner-authored expected differences and explicit direct-oracle exclusions",
+      "selfContainedCoverage": "63 lowering obligations across 37 owner-authored cases; 4 named source-goal exclusions remain independently gated",
+      "status": "external-harness-implemented",
+      "harness": {
+        "kind": "external-rust-test",
+        "cargoTarget": "bin:ibex",
+        "requiredFeatures": [
+          "capsec-conformance-observer"
+        ],
+        "sourcePath": "src/bin/ibex/session_semantics_conformance.rs",
+        "testName": "session_semantics_conformance::single_input_lowering_fidelity_gate",
+        "cargoArgs": [
+          "test",
+          "--bin",
+          "ibex",
+          "--features",
+          "capsec-conformance-observer",
+          "session_semantics_conformance::single_input_lowering_fidelity_gate",
+          "--",
+          "--test-threads=1"
+        ]
+      }
+    }
+  ],
+  "restrictedClass": {
+    "exclusions": [
+      "cross-input-redeclaration",
+      "forward-reference-or-assignment",
+      "failure",
+      "import",
+      "top-level-await",
+      "directive-prologue",
+      "declared-global-mutation",
+      "runtime-owned-binding"
+    ],
+    "cases": [
+      {
+        "id": "eligible",
+        "expectedExclusions": [],
+        "observedExclusions": []
+      },
+      {
+        "id": "cross-input-redeclaration",
+        "expectedExclusions": [
+          "cross-input-redeclaration",
+          "forward-reference-or-assignment"
+        ],
+        "observedExclusions": [
+          "cross-input-redeclaration",
+          "forward-reference-or-assignment"
+        ]
+      },
+      {
+        "id": "forward-reference",
+        "expectedExclusions": [
+          "forward-reference-or-assignment"
+        ],
+        "observedExclusions": [
+          "forward-reference-or-assignment"
+        ]
+      },
+      {
+        "id": "failure",
+        "expectedExclusions": [
+          "failure"
+        ],
+        "observedExclusions": [
+          "failure"
+        ]
+      },
+      {
+        "id": "import",
+        "expectedExclusions": [
+          "import"
+        ],
+        "observedExclusions": [
+          "import"
+        ]
+      },
+      {
+        "id": "top-level-await",
+        "expectedExclusions": [
+          "top-level-await"
+        ],
+        "observedExclusions": [
+          "top-level-await"
+        ]
+      },
+      {
+        "id": "directive-prologue",
+        "expectedExclusions": [
+          "directive-prologue"
+        ],
+        "observedExclusions": [
+          "directive-prologue"
+        ]
+      },
+      {
+        "id": "declared-global-mutation",
+        "expectedExclusions": [
+          "declared-global-mutation"
+        ],
+        "observedExclusions": [
+          "declared-global-mutation"
+        ]
+      },
+      {
+        "id": "runtime-owned-binding",
+        "expectedExclusions": [
+          "runtime-owned-binding"
+        ],
+        "observedExclusions": [
+          "runtime-owned-binding"
+        ]
+      }
+    ]
+  },
+  "matrixRows": [
+    {
+      "id": "absent-var-create",
+      "prior": "absent",
+      "declaration": "var",
+      "operation": "create-var",
+      "result": "create non-configurable writable enumerable own property",
+      "populate": "created"
+    },
+    {
+      "id": "absent-function-create",
+      "prior": "absent",
+      "declaration": "function",
+      "operation": "create-function",
+      "result": "create reset-descriptor own property holding the function",
+      "populate": "created"
+    },
+    {
+      "id": "var-own-var-noop",
+      "prior": "var-own",
+      "declaration": "var",
+      "operation": "adopt-var",
+      "result": "leave the property descriptor and value untouched",
+      "populate": "unchanged"
+    },
+    {
+      "id": "var-own-function-overwrite",
+      "prior": "var-own",
+      "declaration": "function",
+      "operation": "overwrite-function",
+      "result": "overwrite with the reset descriptor and function value",
+      "populate": "unchanged"
+    },
+    {
+      "id": "var-deleted-var-recreate",
+      "prior": "var-deleted",
+      "declaration": "var",
+      "operation": "create-var",
+      "result": "recreate the missing own property as a fresh var",
+      "populate": "created"
+    },
+    {
+      "id": "var-deleted-function-recreate",
+      "prior": "var-deleted",
+      "declaration": "function",
+      "operation": "create-function",
+      "result": "recreate the missing own property as a fresh function",
+      "populate": "created"
+    },
+    {
+      "id": "kindless-own-var-adopt",
+      "prior": "kindless-own",
+      "declaration": "var",
+      "operation": "adopt-var",
+      "result": "adopt without changing the existing descriptor or value",
+      "populate": "adopted"
+    },
+    {
+      "id": "kindless-own-function-overwrite",
+      "prior": "kindless-own",
+      "declaration": "function",
+      "operation": "overwrite-function",
+      "result": "overwrite with the reset descriptor and function value",
+      "populate": "not-created"
+    },
+    {
+      "id": "inherited-var-create-own",
+      "prior": "inherited",
+      "declaration": "var",
+      "operation": "create-var",
+      "result": "create a fresh own property initialized to undefined",
+      "populate": "created"
+    },
+    {
+      "id": "inherited-function-create-own",
+      "prior": "inherited",
+      "declaration": "function",
+      "operation": "create-function",
+      "result": "create a fresh own property holding the function",
+      "populate": "created"
+    },
+    {
+      "id": "object-name-to-lexical-shadow",
+      "prior": "object-name",
+      "declaration": "lexical",
+      "operation": "create-lexical",
+      "result": "create an uninitialized lexical cell; leave the property untouched",
+      "populate": "not-applicable"
+    },
+    {
+      "id": "lexical-to-var-replace",
+      "prior": "lexical",
+      "declaration": "var",
+      "operation": "replace-lexical-then-var",
+      "result": "remove only the lexical cell, then apply the object-record var row",
+      "populate": "per-object-row"
+    },
+    {
+      "id": "lexical-to-function-replace",
+      "prior": "lexical",
+      "declaration": "function",
+      "operation": "replace-lexical-then-function",
+      "result": "remove only the lexical cell, then apply the object-record function row",
+      "populate": "per-object-row"
+    },
+    {
+      "id": "lexical-to-lexical-replace",
+      "prior": "lexical",
+      "declaration": "lexical",
+      "operation": "create-lexical",
+      "result": "replace the lexical cell; leave the object record untouched",
+      "populate": "not-applicable"
+    }
+  ],
+  "restrictedGlobalRows": [
+    {
+      "id": "no-own-property",
+      "ownProperty": false,
+      "configurable": null,
+      "sessionCreated": false,
+      "restricted": false
+    },
+    {
+      "id": "configurable-own-property",
+      "ownProperty": true,
+      "configurable": true,
+      "sessionCreated": false,
+      "restricted": false
+    },
+    {
+      "id": "nonconfigurable-adopted-property",
+      "ownProperty": true,
+      "configurable": false,
+      "sessionCreated": false,
+      "restricted": true
+    },
+    {
+      "id": "nonconfigurable-session-created-property",
+      "ownProperty": true,
+      "configurable": false,
+      "sessionCreated": true,
+      "restricted": false
+    }
+  ],
+  "standardsProbes": [
+    {
+      "id": "absent-var-creates-nonconfigurable-own-property",
+      "relation": "matches-model",
+      "modelScenario": "absent-var",
+      "expected": {
+        "configurable": false,
+        "enumerable": true,
+        "hasOwn": true,
+        "valueUndefined": true,
+        "writable": true
+      }
+    },
+    {
+      "id": "kindless-configurable-property-is-adopted",
+      "relation": "matches-model",
+      "modelScenario": "adopted-var",
+      "expected": {
+        "configurable": true,
+        "enumerable": false,
+        "value": "before",
+        "writable": false
+      }
+    },
+    {
+      "id": "inherited-name-gets-fresh-own-var",
+      "relation": "matches-model",
+      "modelScenario": "inherited-var",
+      "expected": {
+        "configurable": false,
+        "enumerable": true,
+        "hasOwn": true,
+        "valueUndefined": true,
+        "writable": true
+      }
+    },
+    {
+      "id": "bare-var-object-is-a-noop",
+      "relation": "matches-model",
+      "modelScenario": "bare-var-object",
+      "expected": {
+        "configurable": true,
+        "enumerable": false,
+        "identityPreserved": true,
+        "writable": true
+      }
+    },
+    {
+      "id": "function-object-clobbers-the-builtin",
+      "relation": "matches-model",
+      "modelScenario": "function-object",
+      "expected": {
+        "configurable": false,
+        "enumerable": true,
+        "identityPreserved": false,
+        "valueType": "function",
+        "writable": true
+      }
+    },
+    {
+      "id": "function-overwrite-does-not-free-a-restricted-name",
+      "relation": "matches-model",
+      "modelScenario": "function-restricted-name",
+      "expected": {
+        "secondOutcome": "SyntaxError"
+      }
+    },
+    {
+      "id": "cross-input-var-to-let-is-an-expected-deviation",
+      "relation": "expected-deviation",
+      "modelScenario": "cross-input-var-to-let",
+      "deviation": "a-cross-input-redeclaration",
+      "expected": {
+        "secondOutcome": "SyntaxError"
+      }
+    }
+  ],
+  "loweringFidelity": {
+    "obligations": [
+      "reference.identifier-read",
+      "reference.simple-assignment",
+      "reference.compound-assignment",
+      "reference.logical-assignment",
+      "reference.prefix-update",
+      "reference.postfix-update",
+      "reference.bare-call-unbound",
+      "reference.optional-call-unbound",
+      "reference.tagged-template-unbound",
+      "reference.member-call-receiver",
+      "reference.optional-member-call-receiver",
+      "reference.constructor-reference",
+      "reference.shorthand-property",
+      "reference.typeof-name",
+      "reference.delete-name",
+      "pattern.array-binding",
+      "pattern.object-binding",
+      "pattern.default-initializer",
+      "pattern.rest-binding",
+      "pattern.array-assignment",
+      "pattern.object-assignment",
+      "statement.directive-prologue",
+      "statement.strict-input",
+      "statement.sloppy-top-level-this",
+      "statement.expression",
+      "statement.block",
+      "statement.if-consequent",
+      "statement.if-alternate",
+      "statement.if-update-empty",
+      "statement.labeled",
+      "statement.break-preserved",
+      "statement.while",
+      "statement.continue-preserved",
+      "statement.do-while",
+      "statement.for-var-init",
+      "statement.for-lexical-init",
+      "statement.for-in-var-head",
+      "statement.for-of-var-head",
+      "statement.switch",
+      "statement.try-block",
+      "statement.throw-preserved",
+      "statement.catch",
+      "statement.finally-update-empty",
+      "statement.finally-abrupt-update-empty",
+      "statement.finally-throw-authoritative",
+      "statement.root-var-declaration",
+      "statement.root-let-declaration",
+      "statement.root-const-declaration",
+      "statement.function-hoist",
+      "statement.class-initialize",
+      "statement.block-var-declaration",
+      "statement.block-lexical-declaration",
+      "statement.annex-b-publication",
+      "statement.empty-preserved",
+      "statement.debugger-preserved",
+      "source-profile.with-refusal",
+      "completion.declaration-update-empty",
+      "completion.empty-discriminator",
+      "completion.undefined-value",
+      "observation.safe-string-display",
+      "repair.hermes-finally-update-empty",
+      "repair.session-tdz",
+      "repair.runtime-const"
+    ],
+    "cases": [
+      {
+        "id": "references-members-constructors-and-hoisting",
+        "source": "function G3Box(value) { this.value = value; } let g3box = new G3Box(7); let g3object = { value: 5, method() { return this.value; }, optional() { return this.value + 1; } }; g3box.value * 100 + g3object.method() * 10 + g3object.optional?.();",
+        "covers": [
+          "reference.identifier-read",
+          "reference.member-call-receiver",
+          "reference.optional-member-call-receiver",
+          "reference.constructor-reference",
+          "statement.expression",
+          "statement.function-hoist"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "bare-optional-and-tagged-calls-are-unbound",
+        "source": "let g3bare = function () { return this === globalThis; }; let g3optional = function () { return this === globalThis; }; let g3tag = function (strings) { return (this === globalThis ? 100 : 0) + strings[0].length; }; (g3bare() ? 1000 : 0) + (g3optional?.() ? 100 : 0) + g3tag`abc`;",
+        "covers": [
+          "reference.bare-call-unbound",
+          "reference.optional-call-unbound",
+          "reference.tagged-template-unbound"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "assignment-operator-families",
+        "source": "let g3assign = 1; g3assign = 4; g3assign += 3; g3assign *= 2; g3assign &&= g3assign + 1; let g3zero = 0; g3zero ||= 5; let g3nil = null; g3nil ??= 6; g3assign + g3zero + g3nil;",
+        "covers": [
+          "reference.simple-assignment",
+          "reference.compound-assignment",
+          "reference.logical-assignment"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "prefix-and-postfix-updates",
+        "source": "let g3counter = 4; let g3post = g3counter++; let g3pre = ++g3counter; let g3postDec = g3counter--; let g3preDec = --g3counter; g3post * 1000 + g3pre * 100 + g3postDec * 10 + g3preDec;",
+        "covers": [
+          "reference.prefix-update",
+          "reference.postfix-update"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "array-binding-default-rest-and-assignment",
+        "source": "let g3calls = 0; let [g3a = ++g3calls, ...g3rest] = [undefined, 2, 3]; let g3b = 0; let g3tail = []; [g3b, ...g3tail] = g3rest; g3a * 1000 + g3b * 100 + g3tail[0] * 10 + g3calls;",
+        "covers": [
+          "pattern.array-binding",
+          "pattern.default-initializer",
+          "pattern.rest-binding",
+          "pattern.array-assignment"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "object-binding-default-rest-and-assignment",
+        "source": "let g3fallback = function () { return 4; }; let { a: g3objectA, b: g3objectB = g3fallback(), ...g3objectRest } = { a: 2, c: 3 }; let g3target = 0; let g3targetRest = {}; ({ c: g3target, ...g3targetRest } = g3objectRest); g3objectA * 1000 + g3objectB * 100 + g3target * 10 + Object.keys(g3targetRest).length;",
+        "covers": [
+          "pattern.object-binding",
+          "pattern.default-initializer",
+          "pattern.rest-binding",
+          "pattern.object-assignment"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "object-shorthand-reference",
+        "source": "let g3shorthand = 8; ({ g3shorthand }).g3shorthand;",
+        "covers": [
+          "reference.shorthand-property"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "typeof-and-delete-name-operations",
+        "source": "globalThis.g3deletable = 9; let g3type = typeof g3deletable; let g3removed = delete g3deletable; g3type === 'number' && g3removed && typeof g3deletable === 'undefined';",
+        "covers": [
+          "reference.typeof-name",
+          "reference.delete-name"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "directive-prologue-completion",
+        "source": "'gate-3-directive';",
+        "covers": [
+          "statement.directive-prologue",
+          "observation.safe-string-display"
+        ],
+        "oracle": {
+          "kind": "expected-difference",
+          "rationale": "safe-display-quotes-string-completions",
+          "direct": {
+            "outcome": "value",
+            "display": "gate-3-directive"
+          },
+          "lowered": {
+            "outcome": "value",
+            "display": "\"gate-3-directive\""
+          }
+        }
+      },
+      {
+        "id": "strict-input-keeps-bare-call-this-undefined",
+        "source": "'use strict'; function g3strictReceiver() { return this === undefined; } g3strictReceiver();",
+        "covers": [
+          "statement.strict-input",
+          "reference.bare-call-unbound"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "sloppy-top-level-this",
+        "source": "this === globalThis;",
+        "covers": [
+          "statement.sloppy-top-level-this"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "block-update-empty",
+        "source": "1; { 2; let g3blockValue = 3; }",
+        "covers": [
+          "statement.block",
+          "completion.declaration-update-empty"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "if-consequent-and-alternate-completions",
+        "source": "if (true) { 1; } else { 2; } if (false) { 3; } else { 4; }",
+        "covers": [
+          "statement.if-consequent",
+          "statement.if-alternate"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "if-empty-preserves-prior-completion",
+        "source": "7; if (false) { 8; }",
+        "covers": [
+          "statement.if-update-empty"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "labeled-break-preserves-completion",
+        "source": "g3label: { 1; break g3label; 2; }",
+        "covers": [
+          "statement.labeled",
+          "statement.break-preserved"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "while-completion",
+        "source": "let g3while = 0; while (g3while < 3) { g3while++; g3while * 10; if (g3while < 3) continue; }",
+        "covers": [
+          "statement.while",
+          "statement.continue-preserved"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "do-while-completion",
+        "source": "let g3do = 0; do { ++g3do; g3do; } while (g3do < 2);",
+        "covers": [
+          "statement.do-while"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "for-var-initializer-completion",
+        "source": "for (var g3forVar = 0; g3forVar < 3; g3forVar++) { g3forVar; }",
+        "covers": [
+          "statement.for-var-init"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "for-lexical-initializer-completion",
+        "source": "for (let g3forLet = 0; g3forLet < 3; g3forLet++) { g3forLet; }",
+        "covers": [
+          "statement.for-lexical-init"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "for-in-var-head-completion",
+        "source": "let g3keys = 0; for (var g3key in { a: 1, b: 2 }) { g3keys += g3key === 'a' ? 1 : 10; g3keys; }",
+        "covers": [
+          "statement.for-in-var-head"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "for-of-var-pattern-head-completion",
+        "source": "let g3sum = 0; for (var [g3left, g3right] of [[1, 2], [3, 4]]) { g3sum += g3left + g3right; g3sum; }",
+        "covers": [
+          "statement.for-of-var-head",
+          "pattern.array-assignment"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "switch-fallthrough-completion",
+        "source": "let g3switch = 2; switch (g3switch) { case 1: 1; break; case 2: 2; case 3: 3; break; default: 4; }",
+        "covers": [
+          "statement.switch"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "try-catch-finally-update-empty",
+        "source": "try { throw 4; } catch (g3caught) { g3caught + 1; } finally { 8; }",
+        "covers": [
+          "statement.try-block",
+          "statement.throw-preserved",
+          "statement.catch",
+          "statement.finally-update-empty",
+          "repair.hermes-finally-update-empty"
+        ],
+        "oracle": {
+          "kind": "expected-difference",
+          "rationale": "hermes-finally-does-not-apply-update-empty",
+          "direct": {
+            "outcome": "value",
+            "display": "8"
+          },
+          "lowered": {
+            "outcome": "value",
+            "display": "5"
+          }
+        }
+      },
+      {
+        "id": "abrupt-finally-break-restores-try-completion",
+        "source": "g3finally: try { 6; } finally { 8; break g3finally; }",
+        "covers": [
+          "statement.finally-abrupt-update-empty",
+          "statement.labeled",
+          "repair.hermes-finally-update-empty"
+        ],
+        "oracle": {
+          "kind": "expected-difference",
+          "rationale": "hermes-finally-does-not-apply-update-empty",
+          "direct": {
+            "outcome": "value",
+            "display": "8"
+          },
+          "lowered": {
+            "outcome": "value",
+            "display": "6"
+          }
+        }
+      },
+      {
+        "id": "abrupt-finally-continue-restores-try-completion",
+        "source": "for (let g3finallyIndex = 0; g3finallyIndex < 3; g3finallyIndex++) { try { g3finallyIndex + 1; } finally { 99; continue; } }",
+        "covers": [
+          "statement.finally-abrupt-update-empty",
+          "statement.continue-preserved",
+          "repair.hermes-finally-update-empty"
+        ],
+        "oracle": {
+          "kind": "expected-difference",
+          "rationale": "hermes-finally-does-not-apply-update-empty",
+          "direct": {
+            "outcome": "value",
+            "display": "99"
+          },
+          "lowered": {
+            "outcome": "value",
+            "display": "3"
+          }
+        }
+      },
+      {
+        "id": "throwing-finally-remains-authoritative",
+        "source": "try { 1; } finally { throw new TypeError('gate-3-finalizer'); }",
+        "covers": [
+          "statement.finally-throw-authoritative",
+          "statement.throw-preserved"
+        ],
+        "oracle": {
+          "kind": "matching-throw",
+          "rationale": "a-thrown-finalizer-replaces-the-try-completion",
+          "direct": {
+            "outcome": "runtime-error",
+            "messageIncludes": "gate-3-finalizer"
+          },
+          "lowered": {
+            "outcome": "throw",
+            "errorClass": "type-error",
+            "messageIncludes": "gate-3-finalizer"
+          }
+        }
+      },
+      {
+        "id": "root-declarations-preserve-prior-completion",
+        "source": "9; var g3rootVar = 1; let g3rootLet = 2; const g3rootConst = 3; class G3RootClass {}",
+        "covers": [
+          "statement.root-var-declaration",
+          "statement.root-let-declaration",
+          "statement.root-const-declaration",
+          "statement.class-initialize",
+          "completion.declaration-update-empty"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "function-declaration-hoists-before-call",
+        "source": "g3hoisted(); function g3hoisted() { return 12; }",
+        "covers": [
+          "statement.function-hoist"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "class-session-cell-remains-mutable",
+        "source": "class G3MutableClass {} G3MutableClass = 'replacement'; G3MutableClass === 'replacement';",
+        "covers": [
+          "statement.class-initialize",
+          "reference.simple-assignment"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "block-var-and-lexical-declarations",
+        "source": "{ var g3blockVar = 5; let g3blockLexical = 7; g3blockLexical; } g3blockVar;",
+        "covers": [
+          "statement.block-var-declaration",
+          "statement.block-lexical-declaration"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "sloppy-annex-b-block-function-publication",
+        "source": "if (true) { function g3annexB() { return 13; } } g3annexB();",
+        "covers": [
+          "statement.annex-b-publication"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "empty-and-debugger-statements-preserve-completion",
+        "source": "1; debugger; ;",
+        "covers": [
+          "statement.empty-preserved",
+          "statement.debugger-preserved"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "with-statement-is-explicitly-refused",
+        "source": "with ({ value: 1 }) { value; }",
+        "covers": [
+          "source-profile.with-refusal"
+        ],
+        "oracle": {
+          "kind": "matching-refusal",
+          "rationale": "shipping-hermes-and-the-session-profile-both-refuse-with",
+          "direct": {
+            "outcome": "compile-error"
+          },
+          "lowered": {
+            "outcome": "checked-parser-error",
+            "messageIncludes": "The 'with' statement is not supported"
+          }
+        }
+      },
+      {
+        "id": "undefined-is-a-value",
+        "source": "void 0;",
+        "covers": [
+          "completion.undefined-value"
+        ],
+        "oracle": {
+          "kind": "expected-difference",
+          "rationale": "legacy-seam-collapses-undefined-and-empty",
+          "direct": {
+            "outcome": "legacy-empty-or-undefined"
+          },
+          "lowered": {
+            "outcome": "value",
+            "display": "undefined"
+          }
+        }
+      },
+      {
+        "id": "empty-completion-is-not-undefined",
+        "source": "let g3empty = 1;",
+        "covers": [
+          "completion.empty-discriminator"
+        ],
+        "oracle": {
+          "kind": "expected-difference",
+          "rationale": "legacy-seam-collapses-undefined-and-empty",
+          "direct": {
+            "outcome": "legacy-empty-or-undefined"
+          },
+          "lowered": {
+            "outcome": "empty"
+          }
+        }
+      },
+      {
+        "id": "session-tdz-repairs-hermes",
+        "source": "g3tdz; let g3tdz = 1;",
+        "covers": [
+          "repair.session-tdz"
+        ],
+        "oracle": {
+          "kind": "expected-difference",
+          "rationale": "hermes-has-no-session-lexical-tdz",
+          "direct": {
+            "outcome": "legacy-empty-or-undefined"
+          },
+          "lowered": {
+            "outcome": "throw",
+            "errorClass": "reference-error"
+          }
+        }
+      },
+      {
+        "id": "runtime-const-repairs-hermes",
+        "source": "const g3constant = 1; let g3constResult = ''; try { g3constant = 2; } catch (g3constError) { g3constResult = g3constError.name; } g3constResult === 'TypeError' && g3constant === 1;",
+        "covers": [
+          "repair.runtime-const"
+        ],
+        "oracle": {
+          "kind": "expected-difference",
+          "rationale": "hermes-rejects-const-assignment-before-runtime",
+          "direct": {
+            "outcome": "compile-error"
+          },
+          "lowered": {
+            "outcome": "value",
+            "display": "true"
+          }
+        }
+      }
+    ],
+    "directOracleExclusions": [
+      {
+        "id": "script-static-import",
+        "owner": "OBL-PARSER-GOAL",
+        "reason": "Hermes has no same-source Script-plus-static-import direct oracle; import ordering and binding publication use the §3/§4 source-goal fixture family."
+      },
+      {
+        "id": "dynamic-import-expression",
+        "owner": "OBL-PARSER-GOAL",
+        "reason": "Hermes has no same-source dynamic-import execution oracle; the importModule rewrite remains covered by dedicated loader and ingress fixtures rather than being counted as an equality row."
+      },
+      {
+        "id": "script-top-level-await",
+        "owner": "OBL-PARSER-GOAL",
+        "reason": "Hermes has no same-source top-level-await direct oracle; settlement and non-assimilation use the dedicated authenticated TLA fixtures."
+      },
+      {
+        "id": "script-plus-extensions-parser-goal",
+        "owner": "OBL-PARSER-GOAL",
+        "reason": "Gate 3 begins after the checked dual-parse frontend produces a Script outline; unmodified Hermes has no same-source sloppy Script-plus-import-plus-TLA goal, so the dedicated source-goal fixtures own this evidence."
+      }
+    ]
+  },
+  "fixtures": [
+    {
+      "id": "var-created-then-lexical-shadows",
+      "gates": [
+        "gate-1-model-conformance"
+      ],
+      "expectedDeviation": "a-cross-input-redeclaration",
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "var",
+                "name": "x"
+              }
+            ],
+            "steps": [
+              {
+                "op": "assign",
+                "name": "x",
+                "value": 1,
+                "completion": {
+                  "$sessionValue": "empty"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "let",
+                "name": "x"
+              }
+            ],
+            "steps": [
+              {
+                "op": "initialize",
+                "name": "x",
+                "value": 2
+              }
+            ]
+          }
+        },
+        {
+          "type": "read",
+          "name": "x"
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "x",
+                "declarationKind": "var",
+                "matrixRows": [
+                  "absent-var-create"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "x"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "x",
+                "declarationKind": "let",
+                "matrixRows": [
+                  "object-name-to-lexical-shadow"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": {
+                    "type": "data",
+                    "value": 1,
+                    "writable": true,
+                    "enumerable": true,
+                    "configurable": false
+                  }
+                },
+                "binding": {
+                  "record": "declarative",
+                  "cellId": 1
+                },
+                "initializedAtInstantiation": false,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "read",
+          "name": "x",
+          "value": 2
+        }
+      ],
+      "final": {
+        "declarativeRecord": {
+          "x": {
+            "id": 1,
+            "kind": "let",
+            "initialized": true,
+            "value": 2
+          }
+        },
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            },
+            "x": {
+              "type": "data",
+              "value": 1,
+              "writable": true,
+              "enumerable": true,
+              "configurable": false
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [
+          "x"
+        ],
+        "sessionCreatedVars": [
+          "x"
+        ],
+        "lastValue": {
+          "value": {
+            "$sessionValue": "undefined"
+          },
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "success",
+          "phase": 6,
+          "completion": {
+            "$sessionValue": "empty"
+          },
+          "journal": [
+            {
+              "name": "x",
+              "declarationKind": "let",
+              "matrixRows": [
+                "object-name-to-lexical-shadow"
+              ],
+              "displaced": {
+                "declarative": null,
+                "object": {
+                  "type": "data",
+                  "value": 1,
+                  "writable": true,
+                  "enumerable": true,
+                  "configurable": false
+                }
+              },
+              "binding": {
+                "record": "declarative",
+                "cellId": 1
+              },
+              "initializedAtInstantiation": false,
+              "lastValueBefore": null,
+              "lastValueMutationGenerationAtInstantiation": 0,
+              "fate": "committed"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "bare-var-object-adopts-without-clobber",
+      "gates": [
+        "gate-1-model-conformance",
+        "gate-2b-model-correctness"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "var",
+                "name": "Object"
+              }
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "Object",
+                "declarationKind": "var",
+                "matrixRows": [
+                  "kindless-own-var-adopt"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": {
+                    "type": "data",
+                    "value": {
+                      "$sessionValue": "builtin",
+                      "name": "Object"
+                    },
+                    "writable": true,
+                    "enumerable": false,
+                    "configurable": true
+                  }
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "Object"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        }
+      ],
+      "final": {
+        "declarativeRecord": {},
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            },
+            "Object": {
+              "type": "data",
+              "value": {
+                "$sessionValue": "builtin",
+                "name": "Object"
+              },
+              "writable": true,
+              "enumerable": false,
+              "configurable": true
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [
+          "Object"
+        ],
+        "sessionCreatedVars": [],
+        "lastValue": {
+          "value": {
+            "$sessionValue": "undefined"
+          },
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "success",
+          "phase": 6,
+          "completion": {
+            "$sessionValue": "empty"
+          },
+          "journal": [
+            {
+              "name": "Object",
+              "declarationKind": "var",
+              "matrixRows": [
+                "kindless-own-var-adopt"
+              ],
+              "displaced": {
+                "declarative": null,
+                "object": {
+                  "type": "data",
+                  "value": {
+                    "$sessionValue": "builtin",
+                    "name": "Object"
+                  },
+                  "writable": true,
+                  "enumerable": false,
+                  "configurable": true
+                }
+              },
+              "binding": {
+                "record": "object",
+                "property": "Object"
+              },
+              "initializedAtInstantiation": true,
+              "lastValueBefore": null,
+              "lastValueMutationGenerationAtInstantiation": 0,
+              "fate": "committed"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "function-object-clobbers-without-creation-provenance",
+      "gates": [
+        "gate-1-model-conformance",
+        "gate-2b-model-correctness"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "function",
+                "name": "Object",
+                "value": {
+                  "$sessionValue": "function",
+                  "name": "Object",
+                  "revision": 2
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "Object",
+                "declarationKind": "function",
+                "matrixRows": [
+                  "kindless-own-function-overwrite"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": {
+                    "type": "data",
+                    "value": {
+                      "$sessionValue": "builtin",
+                      "name": "Object"
+                    },
+                    "writable": true,
+                    "enumerable": false,
+                    "configurable": true
+                  }
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "Object"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        }
+      ],
+      "final": {
+        "declarativeRecord": {},
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            },
+            "Object": {
+              "type": "data",
+              "value": {
+                "$sessionValue": "function",
+                "name": "Object",
+                "revision": 2
+              },
+              "writable": true,
+              "enumerable": true,
+              "configurable": false
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [
+          "Object"
+        ],
+        "sessionCreatedVars": [],
+        "lastValue": {
+          "value": {
+            "$sessionValue": "undefined"
+          },
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "success",
+          "phase": 6,
+          "completion": {
+            "$sessionValue": "empty"
+          },
+          "journal": [
+            {
+              "name": "Object",
+              "declarationKind": "function",
+              "matrixRows": [
+                "kindless-own-function-overwrite"
+              ],
+              "displaced": {
+                "declarative": null,
+                "object": {
+                  "type": "data",
+                  "value": {
+                    "$sessionValue": "builtin",
+                    "name": "Object"
+                  },
+                  "writable": true,
+                  "enumerable": false,
+                  "configurable": true
+                }
+              },
+              "binding": {
+                "record": "object",
+                "property": "Object"
+              },
+              "initializedAtInstantiation": true,
+              "lastValueBefore": null,
+              "lastValueMutationGenerationAtInstantiation": 0,
+              "fate": "committed"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "var-undefined-cannot-launder-restricted-global",
+      "gates": [
+        "gate-1-model-conformance",
+        "gate-2b-model-correctness"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "var",
+                "name": "undefined"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "let",
+                "name": "undefined"
+              }
+            ],
+            "steps": [
+              {
+                "op": "initialize",
+                "name": "undefined",
+                "value": 1
+              }
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "undefined",
+                "declarationKind": "var",
+                "matrixRows": [
+                  "kindless-own-var-adopt"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": {
+                    "type": "data",
+                    "value": {
+                      "$sessionValue": "undefined"
+                    },
+                    "writable": false,
+                    "enumerable": false,
+                    "configurable": false
+                  }
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "undefined"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "throw",
+            "phase": 3,
+            "error": {
+              "type": "SyntaxError",
+              "name": "undefined",
+              "predicate": "ModifiedHasRestrictedGlobalProperty"
+            },
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": []
+          }
+        }
+      ],
+      "final": {
+        "declarativeRecord": {},
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            },
+            "undefined": {
+              "type": "data",
+              "value": {
+                "$sessionValue": "undefined"
+              },
+              "writable": false,
+              "enumerable": false,
+              "configurable": false
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [
+          "undefined"
+        ],
+        "sessionCreatedVars": [],
+        "lastValue": {
+          "value": {
+            "$sessionValue": "undefined"
+          },
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "throw",
+          "phase": 3,
+          "error": {
+            "type": "SyntaxError",
+            "name": "undefined",
+            "predicate": "ModifiedHasRestrictedGlobalProperty"
+          },
+          "completion": {
+            "$sessionValue": "empty"
+          },
+          "journal": []
+        }
+      }
+    },
+    {
+      "id": "function-overwrite-does-not-launder-provenance",
+      "gates": [
+        "gate-1-model-conformance",
+        "gate-2b-model-correctness"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "function",
+                "name": "p",
+                "value": {
+                  "$sessionValue": "function",
+                  "name": "p",
+                  "revision": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "let",
+                "name": "p"
+              }
+            ],
+            "steps": [
+              {
+                "op": "initialize",
+                "name": "p",
+                "value": 1
+              }
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "p",
+                "declarationKind": "function",
+                "matrixRows": [
+                  "kindless-own-function-overwrite"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": {
+                    "type": "data",
+                    "value": "endowment",
+                    "writable": true,
+                    "enumerable": true,
+                    "configurable": false
+                  }
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "p"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "throw",
+            "phase": 3,
+            "error": {
+              "type": "SyntaxError",
+              "name": "p",
+              "predicate": "ModifiedHasRestrictedGlobalProperty"
+            },
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": []
+          }
+        }
+      ],
+      "final": {
+        "declarativeRecord": {},
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            },
+            "p": {
+              "type": "data",
+              "value": {
+                "$sessionValue": "function",
+                "name": "p",
+                "revision": 1
+              },
+              "writable": true,
+              "enumerable": true,
+              "configurable": false
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [
+          "p"
+        ],
+        "sessionCreatedVars": [],
+        "lastValue": {
+          "value": {
+            "$sessionValue": "undefined"
+          },
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "throw",
+          "phase": 3,
+          "error": {
+            "type": "SyntaxError",
+            "name": "p",
+            "predicate": "ModifiedHasRestrictedGlobalProperty"
+          },
+          "completion": {
+            "$sessionValue": "empty"
+          },
+          "journal": []
+        }
+      }
+    },
+    {
+      "id": "inherited-var-creates-own-property",
+      "gates": [
+        "gate-1-model-conformance",
+        "gate-2b-model-correctness"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "var",
+                "name": "inheritedName"
+              }
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "inheritedName",
+                "declarationKind": "var",
+                "matrixRows": [
+                  "inherited-var-create-own"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "inheritedName"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        }
+      ],
+      "final": {
+        "declarativeRecord": {},
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            },
+            "inheritedName": {
+              "type": "data",
+              "value": {
+                "$sessionValue": "undefined"
+              },
+              "writable": true,
+              "enumerable": true,
+              "configurable": false
+            }
+          },
+          "inherited": {
+            "inheritedName": {
+              "type": "data",
+              "value": "prototype-value",
+              "writable": true,
+              "enumerable": true,
+              "configurable": false
+            }
+          }
+        },
+        "varDeclaredNames": [
+          "inheritedName"
+        ],
+        "sessionCreatedVars": [
+          "inheritedName"
+        ],
+        "lastValue": {
+          "value": {
+            "$sessionValue": "undefined"
+          },
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "success",
+          "phase": 6,
+          "completion": {
+            "$sessionValue": "empty"
+          },
+          "journal": [
+            {
+              "name": "inheritedName",
+              "declarationKind": "var",
+              "matrixRows": [
+                "inherited-var-create-own"
+              ],
+              "displaced": {
+                "declarative": null,
+                "object": null
+              },
+              "binding": {
+                "record": "object",
+                "property": "inheritedName"
+              },
+              "initializedAtInstantiation": true,
+              "lastValueBefore": null,
+              "lastValueMutationGenerationAtInstantiation": 0,
+              "fate": "committed"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "uninitialized-lexical-restores-displaced-cell",
+      "gates": [
+        "gate-1-model-conformance"
+      ],
+      "expectedDeviation": "c-uninitialized-lexical-rollback",
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "const",
+                "name": "x"
+              }
+            ],
+            "steps": [
+              {
+                "op": "initialize",
+                "name": "x",
+                "value": 1
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "let",
+                "name": "x"
+              }
+            ],
+            "steps": [
+              {
+                "op": "throw",
+                "message": "initializer failed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "read",
+          "name": "x"
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "x",
+                "declarationKind": "const",
+                "matrixRows": [
+                  "object-name-to-lexical-shadow"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "declarative",
+                  "cellId": 1
+                },
+                "initializedAtInstantiation": false,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "throw",
+            "phase": 6,
+            "error": {
+              "type": "Error",
+              "message": "initializer failed"
+            },
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "x",
+                "declarationKind": "let",
+                "matrixRows": [
+                  "lexical-to-lexical-replace"
+                ],
+                "displaced": {
+                  "declarative": {
+                    "id": 1,
+                    "kind": "const",
+                    "initialized": true,
+                    "value": 1
+                  },
+                  "object": null
+                },
+                "binding": {
+                  "record": "declarative",
+                  "cellId": 2
+                },
+                "initializedAtInstantiation": false,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "rolled-back"
+              }
+            ]
+          }
+        },
+        {
+          "type": "read",
+          "name": "x",
+          "value": 1
+        }
+      ],
+      "final": {
+        "declarativeRecord": {
+          "x": {
+            "id": 1,
+            "kind": "const",
+            "initialized": true,
+            "value": 1
+          }
+        },
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [],
+        "sessionCreatedVars": [],
+        "lastValue": {
+          "value": {
+            "$sessionValue": "undefined"
+          },
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "throw",
+          "phase": 6,
+          "error": {
+            "type": "Error",
+            "message": "initializer failed"
+          },
+          "completion": {
+            "$sessionValue": "empty"
+          },
+          "journal": [
+            {
+              "name": "x",
+              "declarationKind": "let",
+              "matrixRows": [
+                "lexical-to-lexical-replace"
+              ],
+              "displaced": {
+                "declarative": {
+                  "id": 1,
+                  "kind": "const",
+                  "initialized": true,
+                  "value": 1
+                },
+                "object": null
+              },
+              "binding": {
+                "record": "declarative",
+                "cellId": 2
+              },
+              "initializedAtInstantiation": false,
+              "lastValueBefore": null,
+              "lastValueMutationGenerationAtInstantiation": 0,
+              "fate": "rolled-back"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "initialized-lexical-commits-on-throw",
+      "gates": [
+        "gate-1-model-conformance"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "let",
+                "name": "x"
+              }
+            ],
+            "steps": [
+              {
+                "op": "initialize",
+                "name": "x",
+                "value": 1
+              },
+              {
+                "op": "throw",
+                "message": "after initialization"
+              }
+            ]
+          }
+        },
+        {
+          "type": "read",
+          "name": "x"
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "throw",
+            "phase": 6,
+            "error": {
+              "type": "Error",
+              "message": "after initialization"
+            },
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "x",
+                "declarationKind": "let",
+                "matrixRows": [
+                  "object-name-to-lexical-shadow"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "declarative",
+                  "cellId": 1
+                },
+                "initializedAtInstantiation": false,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "read",
+          "name": "x",
+          "value": 1
+        }
+      ],
+      "final": {
+        "declarativeRecord": {
+          "x": {
+            "id": 1,
+            "kind": "let",
+            "initialized": true,
+            "value": 1
+          }
+        },
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [],
+        "sessionCreatedVars": [],
+        "lastValue": {
+          "value": {
+            "$sessionValue": "undefined"
+          },
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "throw",
+          "phase": 6,
+          "error": {
+            "type": "Error",
+            "message": "after initialization"
+          },
+          "completion": {
+            "$sessionValue": "empty"
+          },
+          "journal": [
+            {
+              "name": "x",
+              "declarationKind": "let",
+              "matrixRows": [
+                "object-name-to-lexical-shadow"
+              ],
+              "displaced": {
+                "declarative": null,
+                "object": null
+              },
+              "binding": {
+                "record": "declarative",
+                "cellId": 1
+              },
+              "initializedAtInstantiation": false,
+              "lastValueBefore": null,
+              "lastValueMutationGenerationAtInstantiation": 0,
+              "fate": "committed"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "destructuring-commits-per-initialized-cell",
+      "gates": [
+        "gate-1-model-conformance"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "let",
+                "name": "a"
+              },
+              {
+                "kind": "let",
+                "name": "b"
+              }
+            ],
+            "steps": [
+              {
+                "op": "initialize",
+                "name": "a",
+                "value": 1
+              },
+              {
+                "op": "throw",
+                "message": "iterator failed before b"
+              }
+            ]
+          }
+        },
+        {
+          "type": "read",
+          "name": "a"
+        },
+        {
+          "type": "typeof",
+          "name": "b"
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "throw",
+            "phase": 6,
+            "error": {
+              "type": "Error",
+              "message": "iterator failed before b"
+            },
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "a",
+                "declarationKind": "let",
+                "matrixRows": [
+                  "object-name-to-lexical-shadow"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "declarative",
+                  "cellId": 1
+                },
+                "initializedAtInstantiation": false,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              },
+              {
+                "name": "b",
+                "declarationKind": "let",
+                "matrixRows": [
+                  "object-name-to-lexical-shadow"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "declarative",
+                  "cellId": 2
+                },
+                "initializedAtInstantiation": false,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "rolled-back"
+              }
+            ]
+          }
+        },
+        {
+          "type": "read",
+          "name": "a",
+          "value": 1
+        },
+        {
+          "type": "typeof",
+          "name": "b",
+          "value": "undefined"
+        }
+      ],
+      "final": {
+        "declarativeRecord": {
+          "a": {
+            "id": 1,
+            "kind": "let",
+            "initialized": true,
+            "value": 1
+          }
+        },
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [],
+        "sessionCreatedVars": [],
+        "lastValue": {
+          "value": {
+            "$sessionValue": "undefined"
+          },
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "throw",
+          "phase": 6,
+          "error": {
+            "type": "Error",
+            "message": "iterator failed before b"
+          },
+          "completion": {
+            "$sessionValue": "empty"
+          },
+          "journal": [
+            {
+              "name": "a",
+              "declarationKind": "let",
+              "matrixRows": [
+                "object-name-to-lexical-shadow"
+              ],
+              "displaced": {
+                "declarative": null,
+                "object": null
+              },
+              "binding": {
+                "record": "declarative",
+                "cellId": 1
+              },
+              "initializedAtInstantiation": false,
+              "lastValueBefore": null,
+              "lastValueMutationGenerationAtInstantiation": 0,
+              "fate": "committed"
+            },
+            {
+              "name": "b",
+              "declarationKind": "let",
+              "matrixRows": [
+                "object-name-to-lexical-shadow"
+              ],
+              "displaced": {
+                "declarative": null,
+                "object": null
+              },
+              "binding": {
+                "record": "declarative",
+                "cellId": 2
+              },
+              "initializedAtInstantiation": false,
+              "lastValueBefore": null,
+              "lastValueMutationGenerationAtInstantiation": 0,
+              "fate": "rolled-back"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "var-commits-and-displaces-lexical-on-throw",
+      "gates": [
+        "gate-1-model-conformance"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "let",
+                "name": "x"
+              }
+            ],
+            "steps": [
+              {
+                "op": "initialize",
+                "name": "x",
+                "value": 1
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "var",
+                "name": "x"
+              }
+            ],
+            "steps": [
+              {
+                "op": "assign",
+                "name": "x",
+                "value": 2,
+                "completion": {
+                  "$sessionValue": "empty"
+                }
+              },
+              {
+                "op": "throw",
+                "message": "after var assignment"
+              }
+            ]
+          }
+        },
+        {
+          "type": "read",
+          "name": "x"
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "x",
+                "declarationKind": "let",
+                "matrixRows": [
+                  "object-name-to-lexical-shadow"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "declarative",
+                  "cellId": 1
+                },
+                "initializedAtInstantiation": false,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "throw",
+            "phase": 6,
+            "error": {
+              "type": "Error",
+              "message": "after var assignment"
+            },
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "x",
+                "declarationKind": "var",
+                "matrixRows": [
+                  "lexical-to-var-replace",
+                  "absent-var-create"
+                ],
+                "displaced": {
+                  "declarative": {
+                    "id": 1,
+                    "kind": "let",
+                    "initialized": true,
+                    "value": 1
+                  },
+                  "object": null
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "x"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "read",
+          "name": "x",
+          "value": 2
+        }
+      ],
+      "final": {
+        "declarativeRecord": {},
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            },
+            "x": {
+              "type": "data",
+              "value": 2,
+              "writable": true,
+              "enumerable": true,
+              "configurable": false
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [
+          "x"
+        ],
+        "sessionCreatedVars": [
+          "x"
+        ],
+        "lastValue": {
+          "value": {
+            "$sessionValue": "undefined"
+          },
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "throw",
+          "phase": 6,
+          "error": {
+            "type": "Error",
+            "message": "after var assignment"
+          },
+          "completion": {
+            "$sessionValue": "empty"
+          },
+          "journal": [
+            {
+              "name": "x",
+              "declarationKind": "var",
+              "matrixRows": [
+                "lexical-to-var-replace",
+                "absent-var-create"
+              ],
+              "displaced": {
+                "declarative": {
+                  "id": 1,
+                  "kind": "let",
+                  "initialized": true,
+                  "value": 1
+                },
+                "object": null
+              },
+              "binding": {
+                "record": "object",
+                "property": "x"
+              },
+              "initializedAtInstantiation": true,
+              "lastValueBefore": null,
+              "lastValueMutationGenerationAtInstantiation": 0,
+              "fate": "committed"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "throwing-import-publishes-no-declarations",
+      "gates": [
+        "gate-1-model-conformance"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "import",
+                "name": "imported",
+                "value": 7
+              },
+              {
+                "kind": "var",
+                "name": "w"
+              }
+            ],
+            "importSteps": [
+              {
+                "op": "define-global",
+                "name": "moduleSideEffect",
+                "descriptor": {
+                  "type": "data",
+                  "value": 1,
+                  "writable": true,
+                  "enumerable": true,
+                  "configurable": true
+                }
+              },
+              {
+                "op": "throw",
+                "message": "module failed"
+              }
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "throw",
+            "phase": 4,
+            "error": {
+              "type": "Error",
+              "message": "module failed"
+            },
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": []
+          }
+        }
+      ],
+      "final": {
+        "declarativeRecord": {},
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            },
+            "moduleSideEffect": {
+              "type": "data",
+              "value": 1,
+              "writable": true,
+              "enumerable": true,
+              "configurable": true
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [],
+        "sessionCreatedVars": [],
+        "lastValue": {
+          "value": {
+            "$sessionValue": "undefined"
+          },
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "throw",
+          "phase": 4,
+          "error": {
+            "type": "Error",
+            "message": "module failed"
+          },
+          "completion": {
+            "$sessionValue": "empty"
+          },
+          "journal": []
+        }
+      }
+    },
+    {
+      "id": "phase-five-recheck-prevents-partial-instantiation",
+      "gates": [
+        "gate-1-model-conformance"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "import",
+                "name": "imported",
+                "value": 7
+              },
+              {
+                "kind": "var",
+                "name": "x"
+              },
+              {
+                "kind": "var",
+                "name": "y"
+              }
+            ],
+            "importSteps": [
+              {
+                "op": "prevent-extensions"
+              }
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "throw",
+            "phase": 5,
+            "error": {
+              "type": "TypeError",
+              "name": "x",
+              "predicate": "CanDeclareGlobalVar"
+            },
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": []
+          }
+        }
+      ],
+      "final": {
+        "declarativeRecord": {},
+        "objectRecord": {
+          "extensible": false,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [],
+        "sessionCreatedVars": [],
+        "lastValue": {
+          "value": {
+            "$sessionValue": "undefined"
+          },
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "throw",
+          "phase": 5,
+          "error": {
+            "type": "TypeError",
+            "name": "x",
+            "predicate": "CanDeclareGlobalVar"
+          },
+          "completion": {
+            "$sessionValue": "empty"
+          },
+          "journal": []
+        }
+      }
+    },
+    {
+      "id": "import-cell-is-initialized-and-read-only",
+      "gates": [
+        "gate-1-model-conformance"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "import",
+                "name": "imported",
+                "value": 42
+              }
+            ],
+            "steps": [
+              {
+                "op": "throw",
+                "message": "after import commit"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "steps": [
+              {
+                "op": "assign",
+                "name": "imported",
+                "value": 43
+              }
+            ]
+          }
+        },
+        {
+          "type": "read",
+          "name": "imported"
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "throw",
+            "phase": 6,
+            "error": {
+              "type": "Error",
+              "message": "after import commit"
+            },
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "imported",
+                "declarationKind": "import",
+                "matrixRows": [
+                  "object-name-to-lexical-shadow"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "declarative",
+                  "cellId": 1
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "throw",
+            "phase": 6,
+            "error": {
+              "type": "TypeError",
+              "message": "assignment to read-only import imported"
+            },
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": []
+          }
+        },
+        {
+          "type": "read",
+          "name": "imported",
+          "value": 42
+        }
+      ],
+      "final": {
+        "declarativeRecord": {
+          "imported": {
+            "id": 1,
+            "kind": "import",
+            "initialized": true,
+            "value": 42
+          }
+        },
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [],
+        "sessionCreatedVars": [],
+        "lastValue": {
+          "value": {
+            "$sessionValue": "undefined"
+          },
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "throw",
+          "phase": 6,
+          "error": {
+            "type": "TypeError",
+            "message": "assignment to read-only import imported"
+          },
+          "completion": {
+            "$sessionValue": "empty"
+          },
+          "journal": []
+        }
+      }
+    },
+    {
+      "id": "last-value-updates-only-on-displayed-ack",
+      "gates": [
+        "gate-1-model-conformance"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "display-ack",
+          "value": 1,
+          "disposition": "displayed"
+        },
+        {
+          "type": "display-ack",
+          "value": 2,
+          "disposition": "fallback"
+        },
+        {
+          "type": "read",
+          "name": "$_"
+        }
+      ],
+      "events": [
+        {
+          "type": "display-ack",
+          "result": {
+            "updated": true,
+            "reason": "displayed"
+          }
+        },
+        {
+          "type": "display-ack",
+          "result": {
+            "updated": false,
+            "reason": "display-fallback"
+          }
+        },
+        {
+          "type": "read",
+          "name": "$_",
+          "value": 1
+        }
+      ],
+      "final": {
+        "declarativeRecord": {},
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [],
+        "sessionCreatedVars": [],
+        "lastValue": {
+          "value": 1,
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": null
+      }
+    },
+    {
+      "id": "last-value-user-mutation-disables-auto-update",
+      "gates": [
+        "gate-1-model-conformance"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "display-ack",
+          "value": 1,
+          "disposition": "displayed"
+        },
+        {
+          "type": "assign",
+          "name": "$_",
+          "value": 7
+        },
+        {
+          "type": "display-ack",
+          "value": 9,
+          "disposition": "displayed"
+        },
+        {
+          "type": "read",
+          "name": "$_"
+        }
+      ],
+      "events": [
+        {
+          "type": "display-ack",
+          "result": {
+            "updated": true,
+            "reason": "displayed"
+          }
+        },
+        {
+          "type": "assign",
+          "name": "$_",
+          "value": 7
+        },
+        {
+          "type": "display-ack",
+          "result": {
+            "updated": false,
+            "reason": "auto-update-disabled"
+          }
+        },
+        {
+          "type": "read",
+          "name": "$_",
+          "value": 7
+        }
+      ],
+      "final": {
+        "declarativeRecord": {},
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [],
+        "sessionCreatedVars": [],
+        "lastValue": {
+          "value": 7,
+          "autoUpdateEnabled": false,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 1,
+          "disableReason": "mutation:setter-fired",
+          "pendingNotice": true
+        },
+        "activeJournal": null,
+        "lastTransaction": null
+      }
+    },
+    {
+      "id": "last-value-uninitialized-lexical-disable-rolls-back",
+      "gates": [
+        "gate-1-model-conformance"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "let",
+                "name": "$_"
+              }
+            ],
+            "steps": [
+              {
+                "op": "throw",
+                "message": "before initializer"
+              }
+            ]
+          }
+        },
+        {
+          "type": "display-ack",
+          "value": 5,
+          "disposition": "displayed"
+        },
+        {
+          "type": "read",
+          "name": "$_"
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "throw",
+            "phase": 6,
+            "error": {
+              "type": "Error",
+              "message": "before initializer"
+            },
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "$_",
+                "declarationKind": "let",
+                "matrixRows": [
+                  "object-name-to-lexical-shadow"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": {
+                    "type": "accessor",
+                    "getter": "ibex/session-last-value-getter/1",
+                    "setter": "ibex/session-last-value-setter/1",
+                    "enumerable": false,
+                    "configurable": true
+                  }
+                },
+                "binding": {
+                  "record": "declarative",
+                  "cellId": 1
+                },
+                "initializedAtInstantiation": false,
+                "lastValueBefore": {
+                  "value": {
+                    "$sessionValue": "undefined"
+                  },
+                  "autoUpdateEnabled": true,
+                  "getterIdentity": "ibex/session-last-value-getter/1",
+                  "setterIdentity": "ibex/session-last-value-setter/1",
+                  "mutationGeneration": 0,
+                  "disableReason": null,
+                  "pendingNotice": false
+                },
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "rolled-back"
+              }
+            ]
+          }
+        },
+        {
+          "type": "display-ack",
+          "result": {
+            "updated": true,
+            "reason": "displayed"
+          }
+        },
+        {
+          "type": "read",
+          "name": "$_",
+          "value": 5
+        }
+      ],
+      "final": {
+        "declarativeRecord": {},
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [],
+        "sessionCreatedVars": [],
+        "lastValue": {
+          "value": 5,
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "throw",
+          "phase": 6,
+          "error": {
+            "type": "Error",
+            "message": "before initializer"
+          },
+          "completion": {
+            "$sessionValue": "empty"
+          },
+          "journal": [
+            {
+              "name": "$_",
+              "declarationKind": "let",
+              "matrixRows": [
+                "object-name-to-lexical-shadow"
+              ],
+              "displaced": {
+                "declarative": null,
+                "object": {
+                  "type": "accessor",
+                  "getter": "ibex/session-last-value-getter/1",
+                  "setter": "ibex/session-last-value-setter/1",
+                  "enumerable": false,
+                  "configurable": true
+                }
+              },
+              "binding": {
+                "record": "declarative",
+                "cellId": 1
+              },
+              "initializedAtInstantiation": false,
+              "lastValueBefore": {
+                "value": {
+                  "$sessionValue": "undefined"
+                },
+                "autoUpdateEnabled": true,
+                "getterIdentity": "ibex/session-last-value-getter/1",
+                "setterIdentity": "ibex/session-last-value-setter/1",
+                "mutationGeneration": 0,
+                "disableReason": null,
+                "pendingNotice": false
+              },
+              "lastValueMutationGenerationAtInstantiation": 0,
+              "fate": "rolled-back"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "last-value-initialized-lexical-disable-commits",
+      "gates": [
+        "gate-1-model-conformance"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "let",
+                "name": "$_"
+              }
+            ],
+            "steps": [
+              {
+                "op": "initialize",
+                "name": "$_",
+                "value": 5
+              },
+              {
+                "op": "throw",
+                "message": "after initializer"
+              }
+            ]
+          }
+        },
+        {
+          "type": "display-ack",
+          "value": 9,
+          "disposition": "displayed"
+        },
+        {
+          "type": "read",
+          "name": "$_"
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "throw",
+            "phase": 6,
+            "error": {
+              "type": "Error",
+              "message": "after initializer"
+            },
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "$_",
+                "declarationKind": "let",
+                "matrixRows": [
+                  "object-name-to-lexical-shadow"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": {
+                    "type": "accessor",
+                    "getter": "ibex/session-last-value-getter/1",
+                    "setter": "ibex/session-last-value-setter/1",
+                    "enumerable": false,
+                    "configurable": true
+                  }
+                },
+                "binding": {
+                  "record": "declarative",
+                  "cellId": 1
+                },
+                "initializedAtInstantiation": false,
+                "lastValueBefore": {
+                  "value": {
+                    "$sessionValue": "undefined"
+                  },
+                  "autoUpdateEnabled": true,
+                  "getterIdentity": "ibex/session-last-value-getter/1",
+                  "setterIdentity": "ibex/session-last-value-setter/1",
+                  "mutationGeneration": 0,
+                  "disableReason": null,
+                  "pendingNotice": false
+                },
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "display-ack",
+          "result": {
+            "updated": false,
+            "reason": "auto-update-disabled"
+          }
+        },
+        {
+          "type": "read",
+          "name": "$_",
+          "value": 5
+        }
+      ],
+      "final": {
+        "declarativeRecord": {
+          "$_": {
+            "id": 1,
+            "kind": "let",
+            "initialized": true,
+            "value": 5
+          }
+        },
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [],
+        "sessionCreatedVars": [],
+        "lastValue": {
+          "value": {
+            "$sessionValue": "undefined"
+          },
+          "autoUpdateEnabled": false,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": "declaration:let",
+          "pendingNotice": true
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "throw",
+          "phase": 6,
+          "error": {
+            "type": "Error",
+            "message": "after initializer"
+          },
+          "completion": {
+            "$sessionValue": "empty"
+          },
+          "journal": [
+            {
+              "name": "$_",
+              "declarationKind": "let",
+              "matrixRows": [
+                "object-name-to-lexical-shadow"
+              ],
+              "displaced": {
+                "declarative": null,
+                "object": {
+                  "type": "accessor",
+                  "getter": "ibex/session-last-value-getter/1",
+                  "setter": "ibex/session-last-value-setter/1",
+                  "enumerable": false,
+                  "configurable": true
+                }
+              },
+              "binding": {
+                "record": "declarative",
+                "cellId": 1
+              },
+              "initializedAtInstantiation": false,
+              "lastValueBefore": {
+                "value": {
+                  "$sessionValue": "undefined"
+                },
+                "autoUpdateEnabled": true,
+                "getterIdentity": "ibex/session-last-value-getter/1",
+                "setterIdentity": "ibex/session-last-value-setter/1",
+                "mutationGeneration": 0,
+                "disableReason": null,
+                "pendingNotice": false
+              },
+              "lastValueMutationGenerationAtInstantiation": 0,
+              "fate": "committed"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "same-input-lexical-var-collision-is-atomic",
+      "gates": [
+        "gate-1-model-conformance"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "var",
+                "name": "x"
+              },
+              {
+                "kind": "let",
+                "name": "x"
+              }
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "throw",
+            "phase": 2,
+            "error": {
+              "type": "SyntaxError",
+              "message": "lexical declaration x collides with a var-scoped declaration"
+            },
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": []
+          }
+        }
+      ],
+      "final": {
+        "declarativeRecord": {},
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [],
+        "sessionCreatedVars": [],
+        "lastValue": {
+          "value": {
+            "$sessionValue": "undefined"
+          },
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "throw",
+          "phase": 2,
+          "error": {
+            "type": "SyntaxError",
+            "message": "lexical declaration x collides with a var-scoped declaration"
+          },
+          "completion": {
+            "$sessionValue": "empty"
+          },
+          "journal": []
+        }
+      }
+    },
+    {
+      "id": "same-input-var-function-function-wins",
+      "gates": [
+        "gate-1-model-conformance",
+        "gate-2-model-validation"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "var",
+                "name": "f"
+              },
+              {
+                "kind": "function",
+                "name": "f",
+                "value": {
+                  "$sessionValue": "function",
+                  "name": "f",
+                  "revision": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "read",
+          "name": "f"
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "f",
+                "declarationKind": "function",
+                "matrixRows": [
+                  "absent-function-create"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "f"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "read",
+          "name": "f",
+          "value": {
+            "$sessionValue": "function",
+            "name": "f",
+            "revision": 1
+          }
+        }
+      ],
+      "final": {
+        "declarativeRecord": {},
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            },
+            "f": {
+              "type": "data",
+              "value": {
+                "$sessionValue": "function",
+                "name": "f",
+                "revision": 1
+              },
+              "writable": true,
+              "enumerable": true,
+              "configurable": false
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [
+          "f"
+        ],
+        "sessionCreatedVars": [
+          "f"
+        ],
+        "lastValue": {
+          "value": {
+            "$sessionValue": "undefined"
+          },
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "success",
+          "phase": 6,
+          "completion": {
+            "$sessionValue": "empty"
+          },
+          "journal": [
+            {
+              "name": "f",
+              "declarationKind": "function",
+              "matrixRows": [
+                "absent-function-create"
+              ],
+              "displaced": {
+                "declarative": null,
+                "object": null
+              },
+              "binding": {
+                "record": "object",
+                "property": "f"
+              },
+              "initializedAtInstantiation": true,
+              "lastValueBefore": null,
+              "lastValueMutationGenerationAtInstantiation": 0,
+              "fate": "committed"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "const-assignment-throws-without-changing-value",
+      "gates": [
+        "gate-1-model-conformance",
+        "gate-2-model-validation"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "const",
+                "name": "c"
+              }
+            ],
+            "steps": [
+              {
+                "op": "initialize",
+                "name": "c",
+                "value": 9
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "steps": [
+              {
+                "op": "assign",
+                "name": "c",
+                "value": 10
+              }
+            ]
+          }
+        },
+        {
+          "type": "read",
+          "name": "c"
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "c",
+                "declarationKind": "const",
+                "matrixRows": [
+                  "object-name-to-lexical-shadow"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "declarative",
+                  "cellId": 1
+                },
+                "initializedAtInstantiation": false,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "throw",
+            "phase": 6,
+            "error": {
+              "type": "TypeError",
+              "message": "assignment to read-only const c"
+            },
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": []
+          }
+        },
+        {
+          "type": "read",
+          "name": "c",
+          "value": 9
+        }
+      ],
+      "final": {
+        "declarativeRecord": {
+          "c": {
+            "id": 1,
+            "kind": "const",
+            "initialized": true,
+            "value": 9
+          }
+        },
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [],
+        "sessionCreatedVars": [],
+        "lastValue": {
+          "value": {
+            "$sessionValue": "undefined"
+          },
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "throw",
+          "phase": 6,
+          "error": {
+            "type": "TypeError",
+            "message": "assignment to read-only const c"
+          },
+          "completion": {
+            "$sessionValue": "empty"
+          },
+          "journal": []
+        }
+      }
+    },
+    {
+      "id": "class-cell-initializes-and-remains-mutable",
+      "gates": [
+        "gate-1-model-conformance",
+        "gate-2-model-validation"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "class",
+                "name": "C"
+              }
+            ],
+            "steps": [
+              {
+                "op": "initialize",
+                "name": "C",
+                "value": {
+                  "$sessionValue": "class",
+                  "name": "C"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "steps": [
+              {
+                "op": "assign",
+                "name": "C",
+                "value": "replacement"
+              }
+            ]
+          }
+        },
+        {
+          "type": "read",
+          "name": "C"
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "C",
+                "declarationKind": "class",
+                "matrixRows": [
+                  "object-name-to-lexical-shadow"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "declarative",
+                  "cellId": 1
+                },
+                "initializedAtInstantiation": false,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": "replacement",
+            "journal": []
+          }
+        },
+        {
+          "type": "read",
+          "name": "C",
+          "value": "replacement"
+        }
+      ],
+      "final": {
+        "declarativeRecord": {
+          "C": {
+            "id": 1,
+            "kind": "class",
+            "initialized": true,
+            "value": "replacement"
+          }
+        },
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [],
+        "sessionCreatedVars": [],
+        "lastValue": {
+          "value": {
+            "$sessionValue": "undefined"
+          },
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "success",
+          "phase": 6,
+          "completion": "replacement",
+          "journal": []
+        }
+      }
+    },
+    {
+      "id": "adopted-configurable-property-can-delete-and-recreate",
+      "gates": [
+        "gate-1-model-conformance",
+        "gate-2b-model-correctness"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "var",
+                "name": "q"
+              }
+            ]
+          }
+        },
+        {
+          "type": "delete-global",
+          "name": "q"
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "var",
+                "name": "q"
+              }
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "q",
+                "declarationKind": "var",
+                "matrixRows": [
+                  "kindless-own-var-adopt"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": {
+                    "type": "data",
+                    "value": "before",
+                    "writable": false,
+                    "enumerable": false,
+                    "configurable": true
+                  }
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "q"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "delete-global",
+          "name": "q",
+          "deleted": true
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "q",
+                "declarationKind": "var",
+                "matrixRows": [
+                  "var-deleted-var-recreate"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "q"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        }
+      ],
+      "final": {
+        "declarativeRecord": {},
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            },
+            "q": {
+              "type": "data",
+              "value": {
+                "$sessionValue": "undefined"
+              },
+              "writable": true,
+              "enumerable": true,
+              "configurable": false
+            }
+          },
+          "inherited": {}
+        },
+        "varDeclaredNames": [
+          "q"
+        ],
+        "sessionCreatedVars": [
+          "q"
+        ],
+        "lastValue": {
+          "value": {
+            "$sessionValue": "undefined"
+          },
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "success",
+          "phase": 6,
+          "completion": {
+            "$sessionValue": "empty"
+          },
+          "journal": [
+            {
+              "name": "q",
+              "declarationKind": "var",
+              "matrixRows": [
+                "var-deleted-var-recreate"
+              ],
+              "displaced": {
+                "declarative": null,
+                "object": null
+              },
+              "binding": {
+                "record": "object",
+                "property": "q"
+              },
+              "initializedAtInstantiation": true,
+              "lastValueBefore": null,
+              "lastValueMutationGenerationAtInstantiation": 0,
+              "fate": "committed"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "all-cross-kind-matrix-rows-are-executable",
+      "gates": [
+        "gate-1-model-conformance"
+      ],
+      "expectedDeviation": null,
+      "program": [
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "var",
+                "name": "absentVar"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "function",
+                "name": "absentFunction",
+                "value": {
+                  "$sessionValue": "function",
+                  "name": "absentFunction",
+                  "revision": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "var",
+                "name": "varOwnVar"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "var",
+                "name": "varOwnVar"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "var",
+                "name": "varOwnFunction"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "function",
+                "name": "varOwnFunction",
+                "value": {
+                  "$sessionValue": "function",
+                  "name": "varOwnFunction",
+                  "revision": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "var",
+                "name": "deletedVar"
+              }
+            ]
+          }
+        },
+        {
+          "type": "delete-global",
+          "name": "deletedVar"
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "var",
+                "name": "deletedVar"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "var",
+                "name": "deletedFunction"
+              }
+            ]
+          }
+        },
+        {
+          "type": "delete-global",
+          "name": "deletedFunction"
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "function",
+                "name": "deletedFunction",
+                "value": {
+                  "$sessionValue": "function",
+                  "name": "deletedFunction",
+                  "revision": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "var",
+                "name": "adoptedVar"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "function",
+                "name": "adoptedFunction",
+                "value": {
+                  "$sessionValue": "function",
+                  "name": "adoptedFunction",
+                  "revision": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "var",
+                "name": "inheritedVar"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "function",
+                "name": "inheritedFunction",
+                "value": {
+                  "$sessionValue": "function",
+                  "name": "inheritedFunction",
+                  "revision": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "let",
+                "name": "objectToLexical"
+              }
+            ],
+            "steps": [
+              {
+                "op": "initialize",
+                "name": "objectToLexical",
+                "value": "lexical"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "let",
+                "name": "lexicalToVar"
+              }
+            ],
+            "steps": [
+              {
+                "op": "initialize",
+                "name": "lexicalToVar",
+                "value": 1
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "var",
+                "name": "lexicalToVar"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "let",
+                "name": "lexicalToFunction"
+              }
+            ],
+            "steps": [
+              {
+                "op": "initialize",
+                "name": "lexicalToFunction",
+                "value": 1
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "function",
+                "name": "lexicalToFunction",
+                "value": {
+                  "$sessionValue": "function",
+                  "name": "lexicalToFunction",
+                  "revision": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "let",
+                "name": "lexicalToLexical"
+              }
+            ],
+            "steps": [
+              {
+                "op": "initialize",
+                "name": "lexicalToLexical",
+                "value": 1
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "input": {
+            "declarations": [
+              {
+                "kind": "const",
+                "name": "lexicalToLexical"
+              }
+            ],
+            "steps": [
+              {
+                "op": "initialize",
+                "name": "lexicalToLexical",
+                "value": 2
+              }
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "absentVar",
+                "declarationKind": "var",
+                "matrixRows": [
+                  "absent-var-create"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "absentVar"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "absentFunction",
+                "declarationKind": "function",
+                "matrixRows": [
+                  "absent-function-create"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "absentFunction"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "varOwnVar",
+                "declarationKind": "var",
+                "matrixRows": [
+                  "absent-var-create"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "varOwnVar"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "varOwnVar",
+                "declarationKind": "var",
+                "matrixRows": [
+                  "var-own-var-noop"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": {
+                    "type": "data",
+                    "value": {
+                      "$sessionValue": "undefined"
+                    },
+                    "writable": true,
+                    "enumerable": true,
+                    "configurable": false
+                  }
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "varOwnVar"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "varOwnFunction",
+                "declarationKind": "var",
+                "matrixRows": [
+                  "absent-var-create"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "varOwnFunction"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "varOwnFunction",
+                "declarationKind": "function",
+                "matrixRows": [
+                  "var-own-function-overwrite"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": {
+                    "type": "data",
+                    "value": {
+                      "$sessionValue": "undefined"
+                    },
+                    "writable": true,
+                    "enumerable": true,
+                    "configurable": false
+                  }
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "varOwnFunction"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "deletedVar",
+                "declarationKind": "var",
+                "matrixRows": [
+                  "kindless-own-var-adopt"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": {
+                    "type": "data",
+                    "value": "delete-var",
+                    "writable": true,
+                    "enumerable": true,
+                    "configurable": true
+                  }
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "deletedVar"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "delete-global",
+          "name": "deletedVar",
+          "deleted": true
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "deletedVar",
+                "declarationKind": "var",
+                "matrixRows": [
+                  "var-deleted-var-recreate"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "deletedVar"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "deletedFunction",
+                "declarationKind": "var",
+                "matrixRows": [
+                  "kindless-own-var-adopt"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": {
+                    "type": "data",
+                    "value": "delete-function",
+                    "writable": true,
+                    "enumerable": true,
+                    "configurable": true
+                  }
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "deletedFunction"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "delete-global",
+          "name": "deletedFunction",
+          "deleted": true
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "deletedFunction",
+                "declarationKind": "function",
+                "matrixRows": [
+                  "var-deleted-function-recreate"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "deletedFunction"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "adoptedVar",
+                "declarationKind": "var",
+                "matrixRows": [
+                  "kindless-own-var-adopt"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": {
+                    "type": "data",
+                    "value": "adopted-var",
+                    "writable": true,
+                    "enumerable": true,
+                    "configurable": true
+                  }
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "adoptedVar"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "adoptedFunction",
+                "declarationKind": "function",
+                "matrixRows": [
+                  "kindless-own-function-overwrite"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": {
+                    "type": "data",
+                    "value": "adopted-function",
+                    "writable": true,
+                    "enumerable": true,
+                    "configurable": true
+                  }
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "adoptedFunction"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "inheritedVar",
+                "declarationKind": "var",
+                "matrixRows": [
+                  "inherited-var-create-own"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "inheritedVar"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "inheritedFunction",
+                "declarationKind": "function",
+                "matrixRows": [
+                  "inherited-function-create-own"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "inheritedFunction"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "objectToLexical",
+                "declarationKind": "let",
+                "matrixRows": [
+                  "object-name-to-lexical-shadow"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": {
+                    "type": "data",
+                    "value": "under-lexical",
+                    "writable": true,
+                    "enumerable": true,
+                    "configurable": true
+                  }
+                },
+                "binding": {
+                  "record": "declarative",
+                  "cellId": 1
+                },
+                "initializedAtInstantiation": false,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "lexicalToVar",
+                "declarationKind": "let",
+                "matrixRows": [
+                  "object-name-to-lexical-shadow"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "declarative",
+                  "cellId": 2
+                },
+                "initializedAtInstantiation": false,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "lexicalToVar",
+                "declarationKind": "var",
+                "matrixRows": [
+                  "lexical-to-var-replace",
+                  "absent-var-create"
+                ],
+                "displaced": {
+                  "declarative": {
+                    "id": 2,
+                    "kind": "let",
+                    "initialized": true,
+                    "value": 1
+                  },
+                  "object": null
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "lexicalToVar"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "lexicalToFunction",
+                "declarationKind": "let",
+                "matrixRows": [
+                  "object-name-to-lexical-shadow"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "declarative",
+                  "cellId": 3
+                },
+                "initializedAtInstantiation": false,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "lexicalToFunction",
+                "declarationKind": "function",
+                "matrixRows": [
+                  "lexical-to-function-replace",
+                  "absent-function-create"
+                ],
+                "displaced": {
+                  "declarative": {
+                    "id": 3,
+                    "kind": "let",
+                    "initialized": true,
+                    "value": 1
+                  },
+                  "object": null
+                },
+                "binding": {
+                  "record": "object",
+                  "property": "lexicalToFunction"
+                },
+                "initializedAtInstantiation": true,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "lexicalToLexical",
+                "declarationKind": "let",
+                "matrixRows": [
+                  "object-name-to-lexical-shadow"
+                ],
+                "displaced": {
+                  "declarative": null,
+                  "object": null
+                },
+                "binding": {
+                  "record": "declarative",
+                  "cellId": 4
+                },
+                "initializedAtInstantiation": false,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "result": {
+            "outcome": "success",
+            "phase": 6,
+            "completion": {
+              "$sessionValue": "empty"
+            },
+            "journal": [
+              {
+                "name": "lexicalToLexical",
+                "declarationKind": "const",
+                "matrixRows": [
+                  "lexical-to-lexical-replace"
+                ],
+                "displaced": {
+                  "declarative": {
+                    "id": 4,
+                    "kind": "let",
+                    "initialized": true,
+                    "value": 1
+                  },
+                  "object": null
+                },
+                "binding": {
+                  "record": "declarative",
+                  "cellId": 5
+                },
+                "initializedAtInstantiation": false,
+                "lastValueBefore": null,
+                "lastValueMutationGenerationAtInstantiation": 0,
+                "fate": "committed"
+              }
+            ]
+          }
+        }
+      ],
+      "final": {
+        "declarativeRecord": {
+          "lexicalToLexical": {
+            "id": 5,
+            "kind": "const",
+            "initialized": true,
+            "value": 2
+          },
+          "objectToLexical": {
+            "id": 1,
+            "kind": "let",
+            "initialized": true,
+            "value": "lexical"
+          }
+        },
+        "objectRecord": {
+          "extensible": true,
+          "own": {
+            "$_": {
+              "type": "accessor",
+              "getter": "ibex/session-last-value-getter/1",
+              "setter": "ibex/session-last-value-setter/1",
+              "enumerable": false,
+              "configurable": true
+            },
+            "absentFunction": {
+              "type": "data",
+              "value": {
+                "$sessionValue": "function",
+                "name": "absentFunction",
+                "revision": 1
+              },
+              "writable": true,
+              "enumerable": true,
+              "configurable": false
+            },
+            "absentVar": {
+              "type": "data",
+              "value": {
+                "$sessionValue": "undefined"
+              },
+              "writable": true,
+              "enumerable": true,
+              "configurable": false
+            },
+            "adoptedFunction": {
+              "type": "data",
+              "value": {
+                "$sessionValue": "function",
+                "name": "adoptedFunction",
+                "revision": 1
+              },
+              "writable": true,
+              "enumerable": true,
+              "configurable": false
+            },
+            "adoptedVar": {
+              "type": "data",
+              "value": "adopted-var",
+              "writable": true,
+              "enumerable": true,
+              "configurable": true
+            },
+            "deletedFunction": {
+              "type": "data",
+              "value": {
+                "$sessionValue": "function",
+                "name": "deletedFunction",
+                "revision": 1
+              },
+              "writable": true,
+              "enumerable": true,
+              "configurable": false
+            },
+            "deletedVar": {
+              "type": "data",
+              "value": {
+                "$sessionValue": "undefined"
+              },
+              "writable": true,
+              "enumerable": true,
+              "configurable": false
+            },
+            "inheritedFunction": {
+              "type": "data",
+              "value": {
+                "$sessionValue": "function",
+                "name": "inheritedFunction",
+                "revision": 1
+              },
+              "writable": true,
+              "enumerable": true,
+              "configurable": false
+            },
+            "inheritedVar": {
+              "type": "data",
+              "value": {
+                "$sessionValue": "undefined"
+              },
+              "writable": true,
+              "enumerable": true,
+              "configurable": false
+            },
+            "lexicalToFunction": {
+              "type": "data",
+              "value": {
+                "$sessionValue": "function",
+                "name": "lexicalToFunction",
+                "revision": 1
+              },
+              "writable": true,
+              "enumerable": true,
+              "configurable": false
+            },
+            "lexicalToVar": {
+              "type": "data",
+              "value": {
+                "$sessionValue": "undefined"
+              },
+              "writable": true,
+              "enumerable": true,
+              "configurable": false
+            },
+            "objectToLexical": {
+              "type": "data",
+              "value": "under-lexical",
+              "writable": true,
+              "enumerable": true,
+              "configurable": true
+            },
+            "varOwnFunction": {
+              "type": "data",
+              "value": {
+                "$sessionValue": "function",
+                "name": "varOwnFunction",
+                "revision": 1
+              },
+              "writable": true,
+              "enumerable": true,
+              "configurable": false
+            },
+            "varOwnVar": {
+              "type": "data",
+              "value": {
+                "$sessionValue": "undefined"
+              },
+              "writable": true,
+              "enumerable": true,
+              "configurable": false
+            }
+          },
+          "inherited": {
+            "inheritedFunction": {
+              "type": "data",
+              "value": "inherited-function",
+              "writable": true,
+              "enumerable": true,
+              "configurable": true
+            },
+            "inheritedVar": {
+              "type": "data",
+              "value": "inherited-var",
+              "writable": true,
+              "enumerable": true,
+              "configurable": true
+            }
+          }
+        },
+        "varDeclaredNames": [
+          "absentFunction",
+          "absentVar",
+          "adoptedFunction",
+          "adoptedVar",
+          "deletedFunction",
+          "deletedVar",
+          "inheritedFunction",
+          "inheritedVar",
+          "lexicalToFunction",
+          "lexicalToVar",
+          "varOwnFunction",
+          "varOwnVar"
+        ],
+        "sessionCreatedVars": [
+          "absentFunction",
+          "absentVar",
+          "deletedFunction",
+          "deletedVar",
+          "inheritedFunction",
+          "inheritedVar",
+          "lexicalToFunction",
+          "lexicalToVar",
+          "varOwnFunction",
+          "varOwnVar"
+        ],
+        "lastValue": {
+          "value": {
+            "$sessionValue": "undefined"
+          },
+          "autoUpdateEnabled": true,
+          "getterIdentity": "ibex/session-last-value-getter/1",
+          "setterIdentity": "ibex/session-last-value-setter/1",
+          "mutationGeneration": 0,
+          "disableReason": null,
+          "pendingNotice": false
+        },
+        "activeJournal": null,
+        "lastTransaction": {
+          "outcome": "success",
+          "phase": 6,
+          "completion": {
+            "$sessionValue": "empty"
+          },
+          "journal": [
+            {
+              "name": "lexicalToLexical",
+              "declarationKind": "const",
+              "matrixRows": [
+                "lexical-to-lexical-replace"
+              ],
+              "displaced": {
+                "declarative": {
+                  "id": 4,
+                  "kind": "let",
+                  "initialized": true,
+                  "value": 1
+                },
+                "object": null
+              },
+              "binding": {
+                "record": "declarative",
+                "cellId": 5
+              },
+              "initializedAtInstantiation": false,
+              "lastValueBefore": null,
+              "lastValueMutationGenerationAtInstantiation": 0,
+              "fate": "committed"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "The generated artifact records, but does not execute or attest a passing result from, the external Rust harnesses for Gates 1, 2, and 3.",
+    "Gate 2's self-contained portion is the exact restricted-class classifier; its named external harness supplies the shipping Hermes engine and production lowering.",
+    "Gate 3 is complete for the named ReferenceLowering/StatementLowering branch obligations after checked Script parsing; static/dynamic import and top-level await have no same-source direct-Hermes oracle, while the implemented dual-parse Script-plus-extensions frontend remains an explicit direct-oracle exclusion rather than a missing production parser goal.",
+    "The action IR models declaration and environment semantics; it is not a JavaScript parser or a substitute for syntax-directed lowering tests.",
+    "Import steps model visible ordering and interference but do not execute module code.",
+    "The $_ accessor-identity model shares the pure-JavaScript exact-descriptor ABA limitation documented by LLP 0024."
+  ]
+}

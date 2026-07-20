@@ -6,7 +6,7 @@
 # not a GC pointer, so DomainBuildMeta needs no change. Ibex sets it when a
 # package's bytecode is loaded; frame-derived attribution reads it back.
 diff --git a/include/hermes/VM/Domain.h b/include/hermes/VM/Domain.h
-index b25e6b67a..9a37c7c5c 100644
+index b25e6b67a5e37a25ded246e6cfb9e32fabd13177..9a37c7c5c6278a6958e93879b4c72f01df6f998d 100644
 --- a/include/hermes/VM/Domain.h
 +++ b/include/hermes/VM/Domain.h
 @@ -105,6 +105,14 @@ class Domain final : public GCCell {

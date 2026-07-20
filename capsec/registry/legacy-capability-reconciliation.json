@@ -104,12 +104,12 @@
     },
     {
       "legacyCapability": "process:cwd",
-      "destinationDisposition": "closed",
-      "migrationKind": "close",
-      "replacementActions": ["process:cwd"],
-      "currentStatus": "partial",
-      "resourceSemantics": "Shared process current-directory mutation has no positive selector in the initial profile.",
-      "rationale": "Keep closed unless cwd is virtualized or scoped without changing other principals' resolution."
+      "destinationDisposition": "authorable",
+      "migrationKind": "decompose",
+      "replacementActions": ["path:cwd-mutate", "path:cwd-observe"],
+      "currentStatus": "enforced",
+      "resourceSemantics": "Observation names the authenticated session-state cwd; mutation names an exact logical target and is core-root-only, session-scoped, and conjunctive with directory metadata authority.",
+      "rationale": "The shared-process condition is met because cwd is runtime-local and never calls host chdir. Root intentionally moves every principal's within-runtime resolution base, while package-attributed mutation remains denied."
     },
     {
       "legacyCapability": "device:location",

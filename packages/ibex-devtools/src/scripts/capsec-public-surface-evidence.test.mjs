@@ -5,7 +5,10 @@ import {
   buildPublicFixtureEvidence,
   buildPublicSurfaceExecutionArtifact,
   mergePublicBatchExecutions,
+  nativeAsyncWorkerTerminal,
+  validateNativeFilesystemDenialRecipeDescriptor,
   validatePublicSurfaceExecutionArtifact,
+  validateStartupEnvironmentRecipeDescriptor,
 } from "./capsec-public-surface-evidence.mjs";
 import {
   computeRecipeCatalogDigest,
@@ -36,6 +39,14 @@ const coverage = {
     {
       id: "edge.terminal",
       surface: { kind: "native-op", name: "__exactPublic" },
+    },
+    {
+      id: "edge.mkdir-worker",
+      surface: { kind: "native-op", name: "__exactMkdir" },
+    },
+    {
+      id: "edge.fsopen-worker",
+      surface: { kind: "native-op", name: "__exactFsOpen" },
     },
     {
       id: "edge.callback-terminal",
@@ -98,6 +109,14 @@ const coverage = {
       id: "edge.exact-closed",
       classification: "closed",
       surface: { kind: "native-op", name: "global:exact.invokeHostAsync" },
+    },
+    {
+      id: "edge.module-runner-namespace-closed",
+      classification: "closed",
+      surface: {
+        kind: "host-abi",
+        name: "ex_hermes_module_record_namespace_json",
+      },
     },
   ],
 };
@@ -383,7 +402,10 @@ function completeNoncapBuiltinAbsenceCatalog() {
   recipe.terminalObservedKey = surfaceObservedKey;
   recipe.route.surfaceObservedKeys = [surfaceObservedKey];
   recipe.route.alternatives = [
-    { terminalObservedKey: surfaceObservedKey, proofPaths: [surfaceObservedKey] },
+    {
+      terminalObservedKey: surfaceObservedKey,
+      proofPaths: [surfaceObservedKey],
+    },
   ];
   recipe.publicSurfaceProbe.surfaceObservedKey = surfaceObservedKey;
   recipe.publicSurfaceProbe.invocation = {
@@ -740,8 +762,7 @@ function completeClosedLoaderCatalog() {
   recipe.fixtureId = "fixture.loader.native-addon.closed";
   recipe.terminalObservedKey = "loader:native-addon-module";
   recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
-  recipe.route.alternatives[0].terminalObservedKey =
-    recipe.terminalObservedKey;
+  recipe.route.alternatives[0].terminalObservedKey = recipe.terminalObservedKey;
   recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
   Object.assign(recipe.publicSurfaceProbe.invocation, {
     surfaceKind: "loader",
@@ -753,6 +774,457 @@ function completeClosedLoaderCatalog() {
       loaderKind: "native-addon",
       extension: ".node",
       rejectionFragment: "Native addons are closed",
+      publicErrorCode: "ERR_IBEX_MODULE_RESOLUTION",
+      publicErrorMessage: "Module resolution failed",
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function completeClosedTerminalBuiltinCatalog() {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const sourceDescriptor = {
+    kind: "closed-terminal-builtin",
+    surfaceObservedKey: "builtin:export:node_vm:runInNewContext",
+    sourceKey: "node_vm",
+    exportName: "runInNewContext",
+    moduleSpecifiers: ["node:vm", "vm"],
+    sourceRefs: ["src/builtins/vm.js#exports:runInNewContext"],
+    sourceMetadata: {
+      surfaceType: "export",
+      sourceKey: "node_vm",
+      exportName: "runInNewContext",
+      importReachability: "public",
+      publicModuleSpecifiers: ["node:vm", "vm"],
+    },
+  };
+  recipe.fixtureId = "fixture.builtin.vm.run-in-new-context.closed";
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "builtin",
+    surfaceName: "export:node_vm:runInNewContext",
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "terminal-builtin-import",
+      terminalBuiltinRoot: "vm",
+      moduleSpecifiers: ["node:vm", "vm"],
+      expectedRejectionFragment: "Import denied:",
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function completeClosedSqliteExtensionCatalog() {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const exportName = "Database.loadExtension";
+  const moduleSpecifiers = ["bun:sqlite", "exact:sqlite"];
+  const sourceDescriptor = {
+    kind: "closed-sqlite-extension-load",
+    surfaceObservedKey:
+      "builtin:export:exact_sqlite:Database.loadExtension",
+    sourceKey: "exact_sqlite",
+    exportName,
+    constructorExportName: "Database",
+    moduleSpecifiers,
+    sourceRefs: [
+      "packages/ibex-runtime-js/src/sqlite/module.js#exports:Database.loadExtension",
+    ],
+    sourceMetadata: {
+      surfaceType: "export",
+      sourceKey: "exact_sqlite",
+      exportName,
+      valueShape: "callable",
+      importReachability: "public",
+      moduleSpecifiers,
+      publicModuleSpecifiers: moduleSpecifiers,
+      enforcementRouteEvidence: {
+        terminals: ["__exactSqliteLoadExtension"],
+      },
+    },
+  };
+  recipe.fixtureId = "fixture.builtin.sqlite.load-extension.closed";
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives = [
+    {
+      terminalObservedKey: "native-op:__exactSqliteLoadExtension",
+      proofPaths: [
+        `${recipe.terminalObservedKey} -> native-op:__exactSqliteLoadExtension`,
+      ],
+    },
+  ];
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "builtin",
+    surfaceName: "export:exact_sqlite:Database.loadExtension",
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "sqlite-extension-load",
+      constructorExportName: "Database",
+      methodName: "loadExtension",
+      moduleSpecifiers,
+      databasePath: ":memory:",
+      extensionPath: "ibex-capsec-closed-extension",
+      expectedRejectionFragment: "Extension loading not supported",
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function completeClosedSqliteCrSqliteCatalog() {
+  const catalog = structuredClone(completeClosedSqliteExtensionCatalog());
+  const recipe = catalog.recipes[0];
+  const exportName = "Database.enableCrSqlite";
+  const sourceDescriptor = recipe.publicSurfaceProbe.invocation.sourceDescriptor;
+  Object.assign(sourceDescriptor, {
+    kind: "closed-sqlite-crsqlite-enable",
+    surfaceObservedKey:
+      "builtin:export:exact_sqlite:Database.enableCrSqlite",
+    exportName,
+    sourceRefs: [
+      "packages/ibex-runtime-js/src/sqlite/module.js#exports:Database.enableCrSqlite",
+    ],
+  });
+  Object.assign(sourceDescriptor.sourceMetadata, {
+    exportName,
+    enforcementRouteEvidence: {
+      terminals: [
+        "__exactCrSqlitePath",
+        "__exactSqliteLoadCrSqlite",
+        "__exactSqliteLoadExtension",
+      ],
+    },
+  });
+  recipe.fixtureId = "fixture.builtin.sqlite.enable-crsqlite.closed";
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives = [
+    "__exactCrSqlitePath",
+    "__exactSqliteLoadCrSqlite",
+    "__exactSqliteLoadExtension",
+  ].map((terminal) => ({
+    terminalObservedKey: `native-op:${terminal}`,
+    proofPaths: [`${recipe.terminalObservedKey} -> native-op:${terminal}`],
+  }));
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceName: "export:exact_sqlite:Database.enableCrSqlite",
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "sqlite-cr-sqlite-enable",
+      constructorExportName: "Database",
+      methodName: "enableCrSqlite",
+      moduleSpecifiers: ["bun:sqlite", "exact:sqlite"],
+      databasePath: ":memory:",
+      expectedRejectionFragment:
+        "cr-sqlite extension not available. The Ibex runtime must be built with cr-sqlite support.",
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function completeClosedDebuggerAbiCatalog() {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const functionName = "ex_hermes_debugger_eval";
+  const defaultSourceRef =
+    `src/engine/hermes_runtime_debugger.cc#${functionName}`;
+  const windowsSourceRef =
+    `src/engine/hermes_runtime_platform_windows.cc#${functionName}`;
+  const alternatives = [
+    ["default", defaultSourceRef],
+    ["windows", windowsSourceRef],
+  ].map(([targetVariant, sourceRef]) => ({
+    id: targetVariant,
+    kind: "alternative",
+    sourceRefs: [sourceRef],
+    stubDisposition: "not-structurally-proven",
+    targetVariant,
+  }));
+  const outputContract = (sourceRef) => ({
+    bufferLengthPairs: [],
+    functionName,
+    language: "c++",
+    outputChannels: [
+      {
+        kind: "pointer",
+        ownership: {
+          kind: "caller-owned",
+          releaseFunction: "ex_hermes_free_string",
+        },
+        role: "return",
+        selector: "[[return]]",
+      },
+    ],
+    parameters: [],
+    return: {
+      kind: "pointer",
+      ownership: {
+        kind: "caller-owned",
+        releaseFunction: "ex_hermes_free_string",
+      },
+      role: "value",
+      type: { canonical: "char *", tokens: ["char", "*"] },
+    },
+    schema: "ibex/host-abi-output-contract/1",
+    sourceRef,
+    status: "resolved",
+    unresolved: [],
+  });
+  const outputContracts = [
+    outputContract(defaultSourceRef),
+    outputContract(windowsSourceRef),
+  ];
+  const sourceDescriptor = {
+    kind: "closed-debugger-abi",
+    surfaceObservedKey: `host-abi:${functionName}`,
+    functionName,
+    selectedSourceRef: defaultSourceRef,
+    targetTriple: "aarch64-apple-darwin",
+    sourceRefs: [defaultSourceRef, windowsSourceRef],
+    sourceMetadata: {
+      alternatives,
+      branches: structuredClone(alternatives),
+      definitions: [
+        ["default", defaultSourceRef],
+        ["windows", windowsSourceRef],
+      ].map(([targetVariant, sourceRef], index) => ({
+        language: "c++",
+        outputContract: structuredClone(outputContracts[index]),
+        sourceRef,
+        targetVariant,
+        unsafe: false,
+        weak: false,
+      })),
+      outputContracts,
+      provenanceLimitation:
+        "ABI definitions are source-structural evidence; supported/unsupported target semantics require fixtures.",
+    },
+  };
+  recipe.fixtureId = "fixture.debugger.eval.closed";
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "host-abi",
+    surfaceName: functionName,
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "debugger-abi-disabled",
+      functionName,
+      expectedCallResult: "null-pointer",
+      expectedError:
+        `debugger ABI ${functionName} is unavailable in the no-debugger exact target`,
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function completeClosedSharedRuntimeGlobalCatalog({
+  globalName = "CacheStorage",
+  memberName = "open",
+  route = "legacy-bootstrap",
+  routes = ["legacy-bootstrap"],
+  sourceKey = "global_module_loader",
+  sourceRefs = ["src/engine/bootstrap/module-loader.js#CacheStorage.open"],
+  surfaceName = "global:CacheStorage.open",
+  targetTriple = "aarch64-apple-darwin",
+  targetVariant = "default",
+} = {}) {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const exportName =
+    memberName === null ? globalName : `${globalName}.${memberName}`;
+  const branch = {
+    branchKind: "single",
+    id: targetVariant,
+    kind: "single",
+    route,
+    routes,
+    sourceRefs,
+    targetVariant,
+  };
+  const sourceDescriptor = {
+    kind: "closed-shared-runtime-global-absence",
+    surfaceObservedKey: `native-op:${surfaceName}`,
+    globalName,
+    ...(memberName === null ? {} : { memberName }),
+    targetTriple,
+    sourceRefs,
+    sourceMetadata: {
+      branches: [structuredClone(branch)],
+      exportName,
+      globalName,
+      installationBranches: [structuredClone(branch)],
+      memberName,
+      moduleSpecifiers: [],
+      sourceKey,
+      surfaceType: "global-api",
+    },
+  };
+  recipe.fixtureId = `fixture.shared-runtime.${exportName}.closed`;
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "native-op",
+    surfaceName,
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "shared-runtime-global-absence",
+      globalName,
+      memberName,
+      expectedError: `armed shared runtime does not expose ${exportName}`,
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function completeClosedArmedNativeGlobalCatalog() {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const sourceRefs = [
+    "src/engine/hermes_runtime.cc#__exactExit",
+    "src/engine/hermes_runtime.cc#jsi-global:__exactExit",
+  ];
+  const sourceDescriptor = {
+    kind: "closed-armed-native-global-absence",
+    surfaceObservedKey: "native-op:__exactExit",
+    globalName: "__exactExit",
+    targetTriple: "aarch64-apple-darwin",
+    sourceRefs,
+    sourceMetadata: {
+      exportName: "__exactExit",
+      globalName: "__exactExit",
+      installationBranches: [
+        {
+          route: "native-jsi-global",
+          sourceRefs,
+          targetVariant: "default",
+        },
+      ],
+      memberKinds: ["native-root"],
+      memberName: null,
+      publicInvocation: {
+        arity: 1,
+        globalName: "__exactExit",
+        kind: "native-global-function",
+        sourceRef: sourceRefs[1],
+      },
+      sourceKey: "native_jsi_global",
+      surfaceType: "global-api",
+    },
+  };
+  recipe.fixtureId = "fixture.armed-native.exact-exit.closed";
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "native-op",
+    surfaceName: "__exactExit",
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "armed-native-global-absence",
+      globalName: "__exactExit",
+      memberName: null,
+      expectedError: "armed runtime does not expose __exactExit",
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function completeClosedArmedWorkletGlobalCatalog({
+  evaluated = false,
+  targetTriple = "aarch64-apple-darwin",
+} = {}) {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const globalName = evaluated ? "worklet" : "measure";
+  const memberName = evaluated ? "capture" : null;
+  const exportName =
+    memberName === null ? globalName : `${globalName}.${memberName}`;
+  const surfaceName = `global:${exportName}`;
+  const route = evaluated ? "evaluated-native-script" : "native-jsi-global";
+  const sourceRef = evaluated
+    ? "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.capture"
+    : "src/engine/hermes_runtime_worklet.cc#jsi-global:measure";
+  const sourceMetadata = {
+    exportName,
+    globalName,
+    installationBranches: [
+      {
+        route,
+        routes: [route],
+        sourceRefs: [sourceRef],
+        targetVariant: "worklet",
+      },
+    ],
+    memberKinds: [evaluated ? "source-derived-member" : "native-root"],
+    memberName,
+    sourceKey: evaluated ? "evaluated_native_script" : "native_jsi_global",
+    surfaceType: "global-api",
+    ...(evaluated
+      ? {
+          evaluatedScript: "kPrelude",
+          sourceUrls: ["worklet-prelude.js"],
+        }
+      : {
+          publicInvocation: {
+            arity: 1,
+            globalName,
+            kind: "native-global-function",
+            sourceRef,
+          },
+        }),
+  };
+  const sourceDescriptor = {
+    kind: "closed-armed-native-global-absence",
+    surfaceObservedKey: `native-op:${surfaceName}`,
+    globalName,
+    ...(memberName === null ? {} : { memberName }),
+    targetTriple,
+    sourceRefs: [sourceRef],
+    sourceMetadata,
+  };
+  recipe.fixtureId = `fixture.armed-worklet.${exportName}.closed`;
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey = recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "native-op",
+    surfaceName,
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "armed-native-global-absence",
+      globalName,
+      memberName,
+      expectedError: `armed runtime does not expose ${exportName}`,
     },
   });
   catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
@@ -783,8 +1255,7 @@ function completeClosedExactCatalog() {
   recipe.edgeIds = ["edge.exact-closed"];
   recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
   recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
-  recipe.route.alternatives[0].terminalObservedKey =
-    recipe.terminalObservedKey;
+  recipe.route.alternatives[0].terminalObservedKey = recipe.terminalObservedKey;
   recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
   Object.assign(recipe.publicSurfaceProbe.invocation, {
     surfaceKind: "native-op",
@@ -833,8 +1304,7 @@ function completeStartupCatalog() {
   });
   recipe.expectedObservation.branchId = "edge.startup.main";
   recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
-  recipe.route.alternatives[0].terminalObservedKey =
-    recipe.terminalObservedKey;
+  recipe.route.alternatives[0].terminalObservedKey = recipe.terminalObservedKey;
   recipe.route.alternatives[0].proofPaths = [recipe.terminalObservedKey];
   recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
   Object.assign(recipe.publicSurfaceProbe.invocation, {
@@ -892,7 +1362,34 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
     invocation.operation.kind === "cli-control"
       ? invocation.operation.expectedRejectionFragments.join("; ")
       : invocation.operation.kind === "loader-executable-file"
-        ? invocation.operation.rejectionFragment
+        ? invocation.operation.publicErrorMessage
+        : invocation.operation.kind === "terminal-builtin-import"
+          ? invocation.operation.moduleSpecifiers
+              .map(
+                (specifier) =>
+                  `${specifier}: ${invocation.operation.expectedRejectionFragment} '${specifier}'`,
+              )
+              .join("\n")
+        : invocation.operation.kind === "sqlite-extension-load"
+          ? invocation.operation.moduleSpecifiers
+              .map(
+                (specifier) =>
+                  `${specifier}: ${invocation.operation.expectedRejectionFragment}`,
+              )
+              .join("\n")
+        : invocation.operation.kind === "sqlite-cr-sqlite-enable"
+          ? invocation.operation.moduleSpecifiers
+              .map(
+                (specifier) =>
+                  `${specifier}: ${invocation.operation.expectedRejectionFragment}`,
+              )
+              .join("\n")
+        : invocation.operation.kind === "debugger-abi-disabled"
+          ? invocation.operation.expectedError
+        : invocation.operation.kind === "shared-runtime-global-absence"
+          ? invocation.operation.expectedError
+        : invocation.operation.kind === "armed-native-global-absence"
+          ? invocation.operation.expectedError
         : invocation.operation.kind === "exact-unendowed-operation"
           ? invocation.operation.expectedError
           : "production capability startup rejects closed environment controls: EX_SKIP_STARTUP_MODULE_LOADER";
@@ -912,8 +1409,17 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
         mechanism: invocation.operation.kind,
         errorName: "ClosedSurface",
         errorMessage,
+        ...(invocation.operation.kind === "loader-executable-file"
+          ? { errorCode: invocation.operation.publicErrorCode }
+          : {}),
         engineExecuted:
           invocation.operation.kind === "loader-executable-file" ||
+          invocation.operation.kind === "terminal-builtin-import" ||
+          invocation.operation.kind === "sqlite-extension-load" ||
+          invocation.operation.kind === "sqlite-cr-sqlite-enable" ||
+          invocation.operation.kind === "debugger-abi-disabled" ||
+          invocation.operation.kind === "shared-runtime-global-absence" ||
+          invocation.operation.kind === "armed-native-global-absence" ||
           invocation.operation.kind === "exact-unendowed-operation",
         projectCodeExecuted,
       },
@@ -997,6 +1503,7 @@ function completeCallbackCatalog() {
   const recipe = catalog.recipes[0];
   const sourceDescriptor = {
     kind: "callback-security-invariant",
+    proofScope: "source-bound-rationale-invariant",
     scenario: "generation-recheck",
     rationaleId: "callback-attribution-carrier",
     surfaceObservedKey: "native-op:__exactCallbackCarrier",
@@ -1069,6 +1576,7 @@ function completeExactCallbackCatalog() {
   ];
   const sourceDescriptor = {
     kind: "callback-security-invariant",
+    proofScope: "source-bound-exact-mechanism",
     scenario: "non-capability",
     rationaleId: "callback-attribution-carrier",
     surfaceObservedKey,
@@ -1186,7 +1694,7 @@ function completeStartupEnvironmentCatalog(scenario = "allow") {
     selectedBranch,
     executionMechanism: "builtin-module-load",
     moduleSpecifier: "node:http",
-    preloadModuleSpecifiers: ["node:util"],
+    preloadModuleSpecifiers: ["node:events", "node:stream", "node:util"],
     principalMode: scenario === "deny" ? "package-denied" : "root-authorized",
     auxiliaryDecisionEdgeId: "edge.callback-terminal",
   };
@@ -1228,15 +1736,13 @@ function completeStartupEnvironmentCatalog(scenario = "allow") {
       operation: {
         kind: "builtin-module-load",
         moduleSpecifier: "node:http",
-        preloadModuleSpecifiers: ["node:util"],
+        preloadModuleSpecifiers: ["node:events", "node:stream", "node:util"],
         environment: { name: "NODE_DEBUG", presence: "absent" },
         principalMode: sourceDescriptor.principalMode,
       },
       expectedResult: "return",
       expectedTypedDecisionCount: denial ? 1 : 2,
-      expectedTypedStages: denial
-        ? ["requested"]
-        : ["requested", "commit"],
+      expectedTypedStages: denial ? ["requested"] : ["requested", "commit"],
       expectedTypedOutcomes: denial ? ["deny"] : ["allow", "allow"],
       expectedTypedReasons: denial
         ? ["principal-denial"]
@@ -1285,10 +1791,10 @@ function startupEnvironmentRuntimeObservation(recipe) {
             kind: "environment-occurrence",
             requested: {
               kind: "environment-name",
-              target: "broker-base",
+              target: "principal-overlay",
               name: "NODE_DEBUG",
             },
-            valueOrigin: "broker-base",
+            valueOrigin: "principal-overlay",
           },
         },
       ],
@@ -1400,7 +1906,9 @@ function globalReadCatalog() {
           exportName: "Exact.version",
           globalName: "Exact",
           memberKinds: ["object-property"],
-          sourceRefs: ["packages/ibex-runtime-js/src/bootstrap.ts#Exact.version"],
+          sourceRefs: [
+            "packages/ibex-runtime-js/src/bootstrap.ts#Exact.version",
+          ],
           valueShape: "data",
           access: {
             kind: "source-proven-property-path",
@@ -1465,10 +1973,88 @@ function globalReadObservation(recipe) {
   };
 }
 
+function privateCwdFacadeCatalog() {
+  const catalog = globalReadCatalog();
+  const recipe = catalog.recipes[0];
+  const sourceDescriptor = {
+    kind: "native-global-function",
+    globalName: "__exactGetCwd",
+    arity: 0,
+    sourceRef: "src/engine/hermes_runtime.cc#jsi-global:__exactGetCwd",
+  };
+  const publicAccess = {
+    kind: "captured-private-global-function",
+    observedKey: "native-op:global:process.cwd",
+    installId: "root-global.process.cwd.2583c1a2d2ca2d7b",
+    path: ["process", "cwd"],
+    sourceRefs: [
+      "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:process",
+      "packages/ibex-runtime-js/src/node/process.ts#Process.prototype.cwd",
+      "src/engine/bootstrap/compat-polyfills.js#process.cwd",
+      "src/engine/hermes_runtime_process_setup.cc#jsi-global:process.cwd",
+    ],
+    privateTerminal: {
+      observedKey: "native-op:__exactGetCwd",
+      installId: "root-global.exactgetcwd.9b3be5b1ccdb728e",
+      privateConsumer: "trusted-path-process-builtins",
+      liveExpectation: "absent",
+    },
+    expectedDenyMessageFragment: "filesystem policy denied",
+  };
+  recipe.fixtureId = "fixture.native.private-cwd-facade.non-capability";
+  recipe.terminalObservedKey = "native-op:__exactGetCwd";
+  recipe.route.surfaceObservedKeys = ["native-op:__exactGetCwd"];
+  recipe.route.alternatives = [
+    {
+      terminalObservedKey: "native-op:__exactGetCwd",
+      proofPaths: ["native-op:global:process.cwd -> native-op:__exactGetCwd"],
+    },
+  ];
+  Object.assign(recipe.publicSurfaceProbe, {
+    surfaceObservedKey: "native-op:__exactGetCwd",
+    invocation: {
+      invocationSchema: "ibex/capsec-native-global-invocation/1",
+      kind: "private-native-facade-function",
+      globalName: "__exactGetCwd",
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      publicAccess,
+      publicAccessDigest: taggedDigest(publicAccess),
+      arguments: [],
+      requiredFloor: [],
+      setup: [],
+      expectedResult: "return",
+      expectedTypedStages: [],
+      expectedTypedDecisionCount: 0,
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function privateCwdFacadeObservation(recipe) {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      globalName: invocation.globalName,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      result: { kind: "return", valueType: "string" },
+      executionProof: { kind: "native-return", bodyEntered: true },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [],
+  };
+}
+
 function callbackRuntimeObservation(recipe) {
   const invocation = recipe.publicSurfaceProbe.invocation;
-  const auxiliaryEdgeId =
-    invocation.sourceDescriptor.auxiliaryDecisionEdgeId;
+  const auxiliaryEdgeId = invocation.sourceDescriptor.auxiliaryDecisionEdgeId;
   const packagePrincipal = {
     kind: "package",
     name: "image-lib",
@@ -1693,8 +2279,7 @@ describe("CapSec public-surface promotion evidence", () => {
       [
         "caller-selected completion timeout",
         (_value, authoredRecipe) => {
-          authoredRecipe.publicSurfaceProbe.invocation.completion.timeoutMilliseconds =
-            5_000;
+          authoredRecipe.publicSurfaceProbe.invocation.completion.timeoutMilliseconds = 5_000;
         },
         /escaped its observation session/,
       ],
@@ -1938,7 +2523,7 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/wrong rejection/);
   });
 
-  test("accepts executable-loader closure only after the loaded engine rejects it", () => {
+  test("rejects normalized VFS failures as evidence for a legacy loader facet", () => {
     const catalog = completeClosedLoaderCatalog();
     const recipe = catalog.recipes[0];
     expect(() =>
@@ -1948,68 +2533,468 @@ describe("CapSec public-surface promotion evidence", () => {
         runtimeObservation: closedRuntimeObservation(recipe),
         coverage,
       }),
-    ).not.toThrow();
-    const wrongRejection = closedRuntimeObservation(recipe);
-    wrongRejection.invocation.result.errorMessage = "generic syntax error";
-    expect(() =>
-      buildPublicFixtureEvidence({
-        recipe,
-        engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: wrongRejection,
-        coverage,
-      }),
-    ).toThrow(/did not fail closed at resolution/);
-    const noEngine = closedRuntimeObservation(recipe);
-    noEngine.invocation.result.engineExecuted = false;
-    expect(() =>
-      buildPublicFixtureEvidence({
-        recipe,
-        engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: noEngine,
-        coverage,
-      }),
-    ).toThrow(/did not fail closed at resolution/);
-    const mismatchedKind = structuredClone(recipe);
-    mismatchedKind.publicSurfaceProbe.invocation.operation.extension = ".wasm";
-    expect(() =>
-      buildPublicFixtureEvidence({
-        recipe: mismatchedKind,
-        engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: closedRuntimeObservation(mismatchedKind),
-        coverage,
-      }),
-    ).toThrow(/executed extension guard/);
+    ).toThrow(/cannot prove the legacy loader facet/);
+  });
 
-    const unexecutedKindFacet = structuredClone(recipe);
-    unexecutedKindFacet.terminalObservedKey = "loader:kind:native-addon";
-    unexecutedKindFacet.route.surfaceObservedKeys = [
-      unexecutedKindFacet.terminalObservedKey,
-    ];
-    unexecutedKindFacet.route.alternatives[0].terminalObservedKey =
-      unexecutedKindFacet.terminalObservedKey;
-    unexecutedKindFacet.publicSurfaceProbe.surfaceObservedKey =
-      unexecutedKindFacet.terminalObservedKey;
-    const kindInvocation = unexecutedKindFacet.publicSurfaceProbe.invocation;
-    kindInvocation.surfaceName = "kind:native-addon";
-    kindInvocation.sourceDescriptor.sourceRefs = [
-      "src/module_loader/mod.rs#kind:native-addon",
-    ];
-    kindInvocation.sourceDescriptor.sourceMetadata = {
-      evidenceType: "loader-kind-branch",
-      loaderKind: "native-addon",
-      occurrenceCount: 1,
-    };
-    kindInvocation.sourceDescriptorDigest = taggedDigest(
-      kindInvocation.sourceDescriptor,
+  test("accepts terminal builtin closure only when every public alias is denied", () => {
+    const catalog = completeClosedTerminalBuiltinCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const directImportGate = structuredClone(recipe);
+    directImportGate.route.alternatives = [];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: directImportGate,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(directImportGate),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const unboundDirectImportGate = structuredClone(directImportGate);
+    unboundDirectImportGate.route.surfaceObservedKeys = [];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: unboundDirectImportGate,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(unboundDirectImportGate),
+        coverage,
+      }),
+    ).toThrow(/outside the bound route/);
+
+    const oneAlias = closedRuntimeObservation(recipe);
+    oneAlias.invocation.result.errorMessage =
+      "node:vm: Import denied: 'node:vm'";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: oneAlias,
+        coverage,
+      }),
+    ).toThrow(/aliases did not fail closed/);
+
+    const drifted = structuredClone(recipe);
+    drifted.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey =
+      "node_wasi";
+    drifted.publicSurfaceProbe.invocation.sourceDescriptorDigest = taggedDigest(
+      drifted.publicSurfaceProbe.invocation.sourceDescriptor,
     );
     expect(() =>
       buildPublicFixtureEvidence({
-        recipe: unexecutedKindFacet,
+        recipe: drifted,
         engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: closedRuntimeObservation(unexecutedKindFacet),
+        runtimeObservation: closedRuntimeObservation(drifted),
         coverage,
       }),
-    ).toThrow(/executed extension guard/);
+    ).toThrow(/authenticated import gate/);
+  });
+
+  test("accepts SQLite extension closure only through both public aliases", () => {
+    const catalog = completeClosedSqliteExtensionCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const oneAlias = closedRuntimeObservation(recipe);
+    oneAlias.invocation.result.errorMessage =
+      "exact:sqlite: Extension loading not supported";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: oneAlias,
+        coverage,
+      }),
+    ).toThrow(/every public alias/);
+
+    const drifted = structuredClone(recipe);
+    drifted.publicSurfaceProbe.invocation.operation.databasePath =
+      "fixture.sqlite";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: drifted,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(drifted),
+        coverage,
+      }),
+    ).toThrow(/public memory-database call/);
+
+    const handLabeledRoute = structuredClone(recipe);
+    handLabeledRoute.route.alternatives[0].terminalObservedKey =
+      recipe.terminalObservedKey;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: handLabeledRoute,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(handLabeledRoute),
+        coverage,
+      }),
+    ).toThrow(/public memory-database call/);
+  });
+
+  test("accepts cr-sqlite closure only through both public aliases", () => {
+    const catalog = completeClosedSqliteCrSqliteCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const oneAlias = closedRuntimeObservation(recipe);
+    oneAlias.invocation.result.errorMessage =
+      "exact:sqlite: cr-sqlite extension not available. The Ibex runtime must be built with cr-sqlite support.";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: oneAlias,
+        coverage,
+      }),
+    ).toThrow(/every public alias/);
+
+    const drifted = structuredClone(recipe);
+    drifted.publicSurfaceProbe.invocation.operation.methodName =
+      "loadExtension";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: drifted,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(drifted),
+        coverage,
+      }),
+    ).toThrow(/public memory-database call/);
+  });
+
+  test("accepts debugger ABI closure only for the physical no-debugger target result", () => {
+    const catalog = completeClosedDebuggerAbiCatalog();
+    const recipe = catalog.recipes[0];
+    const execution = buildPublicFixtureEvidence({
+      recipe,
+      engineBinaryDigest: engine.binaryDigest,
+      runtimeObservation: closedRuntimeObservation(recipe),
+      coverage,
+    });
+    expect(() =>
+      buildPublicSurfaceExecutionArtifact({
+        recipeCatalog: catalog,
+        sourceRevision: "a".repeat(40),
+        sourceTreeDigest:
+          "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+        target,
+        engine,
+        coverage,
+        executions: [execution],
+      }),
+    ).not.toThrow();
+
+    const missingContracts = structuredClone(recipe);
+    delete missingContracts.publicSurfaceProbe.invocation.sourceDescriptor
+      .sourceMetadata.outputContracts;
+    missingContracts.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        missingContracts.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: missingContracts,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(missingContracts),
+        coverage,
+      }),
+    ).toThrow(/physical no-debugger target/);
+
+    const mismatchedDefinitionContract = structuredClone(recipe);
+    mismatchedDefinitionContract.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata.definitions[0].outputContract.status =
+      "unresolved";
+    mismatchedDefinitionContract.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        mismatchedDefinitionContract.publicSurfaceProbe.invocation
+          .sourceDescriptor,
+      );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: mismatchedDefinitionContract,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(
+          mismatchedDefinitionContract,
+        ),
+        coverage,
+      }),
+    ).toThrow(/physical no-debugger target/);
+
+    const windows = structuredClone(recipe);
+    windows.publicSurfaceProbe.invocation.sourceDescriptor.targetTriple =
+      "x86_64-pc-windows-msvc";
+    windows.publicSurfaceProbe.invocation.sourceDescriptor.selectedSourceRef =
+      "src/engine/hermes_runtime_platform_windows.cc#ex_hermes_debugger_eval";
+    windows.publicSurfaceProbe.invocation.sourceDescriptorDigest = taggedDigest(
+      windows.publicSurfaceProbe.invocation.sourceDescriptor,
+    );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: windows,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(windows),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const wrongTargetSource = structuredClone(recipe);
+    wrongTargetSource.publicSurfaceProbe.invocation.sourceDescriptor.targetTriple =
+      "x86_64-pc-windows-msvc";
+    wrongTargetSource.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        wrongTargetSource.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongTargetSource,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(wrongTargetSource),
+        coverage,
+      }),
+    ).toThrow(/physical no-debugger target/);
+
+    const wrongResult = structuredClone(recipe);
+    wrongResult.publicSurfaceProbe.invocation.operation.expectedCallResult =
+      "no-event";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongResult,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(wrongResult),
+        coverage,
+      }),
+    ).toThrow(/physical no-debugger target/);
+
+    const wrongError = closedRuntimeObservation(recipe);
+    wrongError.invocation.result.errorMessage = "generic debugger error";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongError,
+        coverage,
+      }),
+    ).toThrow(/no-debugger physical result/);
+  });
+
+  test("accepts shared-runtime global closure only for a reviewed installation path", () => {
+    const catalog = completeClosedSharedRuntimeGlobalCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const options of [
+      {
+        globalName: "Bun",
+        memberName: "accessibility.get",
+        route: "shared-runtime",
+        routes: ["shared-runtime"],
+        sourceKey: "shared_runtime",
+        sourceRefs: [
+          "packages/ibex-runtime-js/src/core/accessibility.ts#get.get",
+        ],
+        surfaceName: "global:Bun.accessibility.get",
+        targetTriple: "x86_64-pc-windows-msvc",
+        targetVariant: "all",
+      },
+      {
+        globalName: "MessagePort",
+        memberName: "postMessage",
+        route: "shared-runtime",
+        routes: ["shared-runtime"],
+        sourceKey: "shared_runtime",
+        sourceRefs: [
+          "packages/ibex-runtime-js/src/messaging.ts#MessagePort.prototype.postMessage",
+        ],
+        surfaceName: "global:MessagePort.postMessage",
+        targetVariant: "all",
+      },
+      {
+        globalName: "localStorage",
+        memberName: null,
+        route: "composed:legacy-bootstrap+shared-runtime",
+        routes: ["legacy-bootstrap", "shared-runtime"],
+        sourceKey: "shared_runtime",
+        sourceRefs: ["src/engine/bootstrap/web-storage.js#localStorage"],
+        surfaceName: "global:localStorage",
+        targetTriple: "x86_64-pc-windows-msvc",
+      },
+    ]) {
+      const reviewed = completeClosedSharedRuntimeGlobalCatalog(options)
+        .recipes[0];
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: reviewed,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: closedRuntimeObservation(reviewed),
+          coverage,
+        }),
+      ).not.toThrow();
+    }
+
+    const wrongRoute = structuredClone(recipe);
+    wrongRoute.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata.installationBranches[0].route =
+      "shared-runtime";
+    wrongRoute.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        wrongRoute.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongRoute,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(wrongRoute),
+        coverage,
+      }),
+    ).toThrow(/reviewed installation path/);
+
+    const widenedComposition =
+      completeClosedSharedRuntimeGlobalCatalog({
+        globalName: "localStorage",
+        memberName: null,
+        route: "composed:legacy-bootstrap+shared-runtime",
+        routes: ["shared-runtime", "legacy-bootstrap"],
+        sourceKey: "shared_runtime",
+        sourceRefs: ["src/engine/bootstrap/web-storage.js#localStorage"],
+        surfaceName: "global:localStorage",
+      }).recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: widenedComposition,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(widenedComposition),
+        coverage,
+      }),
+    ).toThrow(/reviewed installation path/);
+
+    const present = closedRuntimeObservation(recipe);
+    present.invocation.result.engineExecuted = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: present,
+        coverage,
+      }),
+    ).toThrow(/not physically absent/);
+  });
+
+  test("accepts armed native global closure only for a source-derived JSI path", () => {
+    const catalog = completeClosedArmedNativeGlobalCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const windows = structuredClone(recipe);
+    windows.publicSurfaceProbe.invocation.sourceDescriptor.targetTriple =
+      "x86_64-pc-windows-msvc";
+    windows.publicSurfaceProbe.invocation.sourceDescriptorDigest = taggedDigest(
+      windows.publicSurfaceProbe.invocation.sourceDescriptor,
+    );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: windows,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(windows),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const workletCatalog of [
+      completeClosedArmedWorkletGlobalCatalog(),
+      completeClosedArmedWorkletGlobalCatalog({
+        evaluated: true,
+        targetTriple: "x86_64-pc-windows-msvc",
+      }),
+    ]) {
+      const worklet = workletCatalog.recipes[0];
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: worklet,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: closedRuntimeObservation(worklet),
+          coverage,
+        }),
+      ).not.toThrow();
+    }
+
+    const driftedWorklet = completeClosedArmedWorkletGlobalCatalog({
+      evaluated: true,
+    }).recipes[0];
+    driftedWorklet.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata.sourceUrls =
+      ["invented-worklet.js"];
+    driftedWorklet.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        driftedWorklet.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: driftedWorklet,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(driftedWorklet),
+        coverage,
+      }),
+    ).toThrow(/source-derived JSI path/);
+
+    const inventedSource = structuredClone(recipe);
+    inventedSource.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata.publicInvocation.sourceRef =
+      "src/engine/hermes_runtime.cc#invented";
+    inventedSource.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        inventedSource.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: inventedSource,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(inventedSource),
+        coverage,
+      }),
+    ).toThrow(/source-derived JSI path/);
+
+    const present = closedRuntimeObservation(recipe);
+    present.invocation.result.engineExecuted = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: present,
+        coverage,
+      }),
+    ).toThrow(/not physically absent/);
   });
 
   test("accepts Exact closure only for the authenticated unendowed operation", () => {
@@ -2105,10 +3090,8 @@ describe("CapSec public-surface promotion evidence", () => {
       }),
     ).not.toThrow();
     const inheritedRecipe = structuredClone(recipe);
-    inheritedRecipe.publicSurfaceProbe.invocation.sourceDescriptor.memberKinds = [
-      "inherited",
-      "static",
-    ];
+    inheritedRecipe.publicSurfaceProbe.invocation.sourceDescriptor.memberKinds =
+      ["inherited", "static"];
     inheritedRecipe.publicSurfaceProbe.invocation.sourceDescriptorDigest =
       taggedDigest(
         inheritedRecipe.publicSurfaceProbe.invocation.sourceDescriptor,
@@ -2149,6 +3132,140 @@ describe("CapSec public-surface promotion evidence", () => {
         recipe,
         engineBinaryDigest: engine.binaryDigest,
         runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/execution proof disagrees/);
+  });
+
+  test("binds the private cwd facade to exact manifest provenance", () => {
+    const catalog = privateCwdFacadeCatalog();
+    const recipe = catalog.recipes[0];
+    const observation = privateCwdFacadeObservation(recipe);
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const driftedPath = structuredClone(recipe);
+    driftedPath.publicSurfaceProbe.invocation.publicAccess.path = [
+      "process",
+      "chdir",
+    ];
+    driftedPath.publicSurfaceProbe.invocation.publicAccessDigest = taggedDigest(
+      driftedPath.publicSurfaceProbe.invocation.publicAccess,
+    );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: driftedPath,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/private native facade provenance drift/);
+
+    const staleDigest = structuredClone(recipe);
+    staleDigest.publicSurfaceProbe.invocation.publicAccessDigest =
+      "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: staleDigest,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/private native facade provenance drift/);
+  });
+
+  test("accepts armed environment enumeration only when its object is empty", () => {
+    const recipe = completeCatalog().recipes[0];
+    Object.assign(recipe, {
+      fixtureId: "fixture.native.get-all-env.empty",
+      classification: "effects",
+      scenario: "branch-selection",
+      actionIds: [],
+      terminalObservedKey: "native-op:__exactGetAllEnv",
+    });
+    recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+    recipe.route.alternatives[0].terminalObservedKey =
+      recipe.terminalObservedKey;
+    recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    Object.assign(invocation, {
+      invocationSchema: "ibex/capsec-native-global-invocation/1",
+      kind: "native-global-function",
+      globalName: "__exactGetAllEnv",
+      sourceDescriptor: {
+        kind: "native-global-function",
+        globalName: "__exactGetAllEnv",
+        arity: 0,
+        sourceRef:
+          "src/engine/hermes_runtime.cc#jsi-global:__exactGetAllEnv",
+      },
+      arguments: [],
+      requiredFloor: [],
+      setup: [],
+      expectedResult: "return",
+      expectedTypedStages: [],
+      expectedTypedDecisionCount: 0,
+      expectedActionIds: [],
+    });
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    delete invocation.moduleSpecifier;
+    delete invocation.exportName;
+
+    const observation = runtimeObservation(recipe);
+    Object.assign(observation.invocation, {
+      kind: invocation.kind,
+      globalName: invocation.globalName,
+      result: {
+        kind: "return",
+        globalName: invocation.globalName,
+        valueType: "object",
+        cleanup: "none",
+        valuePropertyCount: 0,
+      },
+      executionProof: {
+        kind: "armed-empty-environment-enumeration",
+        bodyEntered: true,
+        propertyCount: 0,
+      },
+    });
+    delete observation.invocation.moduleSpecifier;
+    delete observation.invocation.exportName;
+    observation.typedDecisions = [];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const nonempty = structuredClone(observation);
+    nonempty.invocation.result.valuePropertyCount = 1;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: nonempty,
+        coverage,
+      }),
+    ).toThrow(/authored cleanup/);
+
+    const weakProof = structuredClone(observation);
+    weakProof.invocation.executionProof.propertyCount = 1;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: weakProof,
         coverage,
       }),
     ).toThrow(/execution proof disagrees/);
@@ -2240,6 +3357,348 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/unknown or missing fields/);
+  });
+
+  test("accepts only the exact retained-object invalid-handle refusal", () => {
+    const recipe = completeCatalog().recipes[0];
+    Object.assign(recipe, {
+      classification: "non-capability",
+      scenario: "non-capability",
+      actionIds: [],
+      edgeIds: ["edge.terminal"],
+      terminalObservedKey: "native-op:__exactSpawnSetReferenced",
+    });
+    recipe.route = {
+      surfaceObservedKeys: [recipe.terminalObservedKey],
+      alternatives: [
+        {
+          terminalObservedKey: recipe.terminalObservedKey,
+          proofPaths: [recipe.terminalObservedKey],
+        },
+      ],
+      ambiguousCallees: [],
+    };
+    recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    Object.assign(invocation, {
+      invocationSchema: "ibex/capsec-native-global-invocation/1",
+      kind: "native-global-function",
+      globalName: "__exactSpawnSetReferenced",
+      sourceDescriptor: {
+        kind: "native-global-function",
+        globalName: "__exactSpawnSetReferenced",
+        arity: 2,
+        sourceRef:
+          "src/engine/hermes_runtime_process.cc#jsi-global:__exactSpawnSetReferenced",
+      },
+      arguments: [
+        { kind: "json-literal", value: 0 },
+        { kind: "json-literal", value: false },
+      ],
+      requiredFloor: [],
+      setup: [],
+      expectedResult: "invalid-handle",
+      expectedTypedStages: [],
+      expectedTypedDecisionCount: 0,
+      expectedActionIds: [],
+      allowedCoverageEdgeIds: ["edge.terminal"],
+    });
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    delete invocation.moduleSpecifier;
+    delete invocation.exportName;
+
+    const observation = {
+      observationSchema: "ibex/capsec-runtime-public-observation/1",
+      invocation: {
+        invocationSchema: invocation.invocationSchema,
+        kind: invocation.kind,
+        surfaceObservedKey: recipe.terminalObservedKey,
+        globalName: invocation.globalName,
+        sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+        result: {
+          kind: "throw",
+          globalName: invocation.globalName,
+          errorName: "Error",
+          errorMessage: "__exactSpawnSetReferenced: invalid handle",
+        },
+        executionProof: {
+          kind: "retained-object-refusal",
+          bodyEntered: true,
+        },
+      },
+      legacyObservationCount: 0,
+      typedDecisions: [],
+    };
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    observation.invocation.result.errorMessage = "unrelated invalid handle";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/exact retained-object refusal/);
+  });
+
+  test("accepts platform-cased generic permission-denial messages", () => {
+    const recipe = completeCatalog().recipes[0];
+    recipe.scenario = "deny";
+    recipe.publicSurfaceProbe.invocation.expectedResult =
+      "permission-denied";
+    const observation = runtimeObservation(recipe);
+    observation.invocation.result = {
+      kind: "throw",
+      errorName: "Error",
+      errorMessage:
+        "EACCES: permission denied, lstat '/project/capsec-stat-fixture.txt'",
+    };
+    observation.typedDecisions[0].evidence.outcome = "deny";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    observation.invocation.result.errorMessage = "unrelated filesystem error";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/public invocation did not deny/);
+  });
+
+  test("binds the native async dispatcher to its exact worker terminal", () => {
+    const recipe = completeCatalog().recipes[0];
+    recipe.terminalObservedKey = "native-op:__exactFsPathAsync";
+    recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+    recipe.route.alternatives = [
+      {
+        terminalObservedKey: recipe.terminalObservedKey,
+        proofPaths: [recipe.terminalObservedKey],
+      },
+    ];
+    recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    Object.assign(invocation, {
+      invocationSchema: "ibex/capsec-native-global-invocation/1",
+      kind: "native-global-function",
+      globalName: "__exactFsPathAsync",
+      sourceDescriptor: {
+        kind: "native-global-function",
+        globalName: "__exactFsPathAsync",
+        arity: 6,
+        sourceRef:
+          "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsPathAsync",
+      },
+      arguments: [
+        { kind: "json-literal", value: "mkdir" },
+        { kind: "json-literal", value: "target/owned-directory" },
+        { kind: "json-literal", value: null },
+        { kind: "json-literal", value: 0 },
+        { kind: "json-literal", value: 0 },
+        { kind: "json-literal", value: 0 },
+      ],
+      requiredFloor: [],
+      setup: [],
+      expectedCleanup: "none",
+      expectedDenyMessageFragment: "filesystem policy denied",
+      completion: {
+        kind: "event-loop-quiescence",
+        timeoutMilliseconds: 1_000,
+      },
+      allowedCoverageEdgeIds: ["edge.mkdir-worker"],
+    });
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    delete invocation.moduleSpecifier;
+    delete invocation.exportName;
+
+    const observation = runtimeObservation(recipe);
+    delete observation.invocation.moduleSpecifier;
+    delete observation.invocation.exportName;
+    Object.assign(observation.invocation, {
+      kind: invocation.kind,
+      globalName: invocation.globalName,
+      result: {
+        kind: "return",
+        globalName: invocation.globalName,
+        valueType: "undefined",
+        cleanup: "none",
+      },
+      executionProof: { kind: "native-return", bodyEntered: true },
+      completion: {
+        kind: "event-loop-quiescence",
+        timeoutMilliseconds: 1_000,
+        status: "quiescent",
+      },
+    });
+    observation.typedDecisions[0].decisionSet.atomicityGroup =
+      "edge.mkdir-worker.decision";
+    observation.typedDecisions[0].gates[0].coverageEdgeId =
+      "edge.mkdir-worker";
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const deniedRecipe = structuredClone(recipe);
+    deniedRecipe.publicSurfaceProbe.invocation.expectedResult =
+      "permission-denied";
+    const denied = structuredClone(observation);
+    denied.invocation.result = {
+      kind: "throw",
+      globalName: invocation.globalName,
+      errorName: "Error",
+      errorMessage: "filesystem policy denied",
+    };
+    denied.invocation.executionProof.kind = "typed-permission-denial";
+    denied.typedDecisions[0].evidence.outcome = "deny";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: deniedRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: denied,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const wrongWorker = structuredClone(observation);
+    wrongWorker.typedDecisions[0].decisionSet.atomicityGroup =
+      "edge.terminal.decision";
+    wrongWorker.typedDecisions[0].gates[0].coverageEdgeId = "edge.terminal";
+    const wrongWorkerRecipe = structuredClone(recipe);
+    wrongWorkerRecipe.publicSurfaceProbe.invocation.allowedCoverageEdgeIds = [
+      "edge.mkdir-worker",
+      "edge.terminal",
+    ];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongWorkerRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongWorker,
+        coverage,
+      }),
+    ).toThrow(/source-selected worker/);
+  });
+
+  test("keeps the native async worker-terminal account exact", () => {
+    const descriptor = (operation, overrides = {}) => ({
+      invocationSchema: "ibex/capsec-native-global-invocation/1",
+      kind: "native-global-function",
+      globalName: "__exactFsPathAsync",
+      arguments: [{ kind: "json-literal", value: operation }],
+      ...overrides,
+    });
+    const expected = new Map([
+      ["mkdir", "native-op:__exactMkdir"],
+      ["readdir", "native-op:__exactReaddir"],
+      ["realpath", "native-op:__exactRealpath"],
+      ["statfs", "native-op:__exactStatfs"],
+      ["truncate", "native-op:__exactTruncate"],
+    ]);
+
+    for (const [operation, terminal] of expected) {
+      expect(nativeAsyncWorkerTerminal(descriptor(operation))).toBe(terminal);
+    }
+    for (const globalName of [
+      "__exactFsFdAsync",
+      "__exactFsFchmodSync",
+      "__exactFsFdatasyncSync",
+      "__exactFsFstatSync",
+      "__exactFsFsyncSync",
+      "__exactFsFtruncateSync",
+      "__exactFsFutimesSync",
+      "__exactFsOpenAsync",
+    ]) {
+      expect(
+        nativeAsyncWorkerTerminal(
+          descriptor("unrelated", { globalName, arguments: [] }),
+        ),
+      ).toBe("native-op:__exactFsOpen");
+    }
+    expect(nativeAsyncWorkerTerminal(descriptor("mkdtemp"))).toBeNull();
+    expect(nativeAsyncWorkerTerminal(descriptor("chmod"))).toBeNull();
+    expect(
+      nativeAsyncWorkerTerminal(
+        descriptor("unrelated", {
+          globalName: "__exactFsOpen",
+          arguments: [],
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      nativeAsyncWorkerTerminal(
+        descriptor("mkdir", { globalName: "__exactMkdir" }),
+      ),
+    ).toBeNull();
+    expect(
+      nativeAsyncWorkerTerminal(
+        descriptor("mkdir", { arguments: [{ kind: "generated-value" }] }),
+      ),
+    ).toBeNull();
+  });
+
+  test("keeps native filesystem denial expectations on the reviewed globals", () => {
+    const descriptor = (globalName, expectedDenyMessageFragment) => ({
+      invocationSchema: "ibex/capsec-native-global-invocation/1",
+      kind: "native-global-function",
+      globalName,
+      expectedDenyMessageFragment,
+    });
+    for (const globalName of [
+      "__exactAppendFile",
+      "__exactFsOpen",
+      "__exactFsOpenAsync",
+      "__exactFsPathAsync",
+      "__exactLstat",
+      "__exactMkdir",
+      "__exactReadFile",
+      "__exactReaddir",
+      "__exactRealpath",
+      "__exactStat",
+      "__exactStatfs",
+      "__exactTruncate",
+      "__exactWriteFile",
+    ]) {
+      expect(() =>
+        validateNativeFilesystemDenialRecipeDescriptor(
+          descriptor(globalName, "filesystem policy denied"),
+        ),
+      ).not.toThrow();
+    }
+    expect(() =>
+      validateNativeFilesystemDenialRecipeDescriptor(
+        descriptor("__exactUnknownFsOperation", "filesystem policy denied"),
+      ),
+    ).toThrow(/unreviewed native denial expectation/);
+    expect(() =>
+      validateNativeFilesystemDenialRecipeDescriptor(
+        descriptor("__exactLstat", "Permission denied"),
+      ),
+    ).toThrow(/unreviewed native denial expectation/);
   });
 
   test("accepts a source-bound zero-effect host ABI branch with cleanup", () => {
@@ -2336,92 +3795,288 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/did not prove bounded cleanup/);
   });
 
-  test("accepts callback invariants only with exact typed outcomes and reasons", () => {
+  test("accepts exact module-loader authority access with no CapSec decision", () => {
+    const catalog = completeCatalog();
+    const recipe = catalog.recipes[0];
+    const sourceDescriptor = {
+      kind: "module-loader-function",
+      surfaceName: "module-runner-cache-access",
+      sourceRefs: ["src/module_loader/security.rs#authorize_then_access"],
+    };
+    Object.assign(recipe, {
+      fixtureId: "fixture.module-loader.cache.non-capability",
+      classification: "non-capability",
+      scenario: "non-capability",
+      edgeIds: ["edge.module-loader-cache"],
+      actionIds: [],
+      terminalObservedKey: "loader:module-runner-cache-access",
+      route: {
+        surfaceObservedKeys: ["loader:module-runner-cache-access"],
+        alternatives: [
+          {
+            terminalObservedKey: "loader:module-runner-cache-access",
+            proofPaths: ["loader:module-runner-cache-access"],
+          },
+        ],
+        ambiguousCallees: [],
+      },
+    });
+    recipe.publicSurfaceProbe = {
+      kind: "public-surface-invocation",
+      surfaceObservedKey: recipe.terminalObservedKey,
+      command: ["cargo", "test", "capsec_public_native_recipe_batch"],
+      invocation: {
+        invocationSchema: "ibex/capsec-module-loader-invocation/1",
+        kind: "module-loader-authority",
+        surfaceName: "module-runner-cache-access",
+        sourceDescriptor,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        operation: { kind: "cache-read" },
+        expectedResult: "return",
+        expectedTypedStages: [],
+        expectedTypedDecisionCount: 0,
+        allowedCoverageEdgeIds: ["edge.module-loader-cache"],
+        expectedActionIds: [],
+      },
+    };
+    const observation = {
+      observationSchema: "ibex/capsec-runtime-public-observation/1",
+      invocation: {
+        invocationSchema: "ibex/capsec-module-loader-invocation/1",
+        kind: "module-loader-authority",
+        surfaceObservedKey: recipe.terminalObservedKey,
+        surfaceName: "module-runner-cache-access",
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        result: {
+          kind: "return",
+          surfaceName: "module-runner-cache-access",
+          operation: "cache-read",
+          accessExecuted: true,
+          cleanup: "none",
+        },
+      },
+      legacyObservationCount: 0,
+      typedDecisions: [],
+    };
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+    observation.invocation.result.accessExecuted = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/did not prove its exact access/);
+  });
+
+  test("accepts a source-bound module-runner ABI only when the graph enters it", () => {
+    const catalog = completeCatalog();
+    const recipe = catalog.recipes[0];
+    const functionName = "ex_hermes_module_compile_factory";
+    const sourceDescriptor = {
+      kind: "host-abi-function",
+      functionName,
+      sourceRefs: [`src/engine/hermes_module_runner.cc#${functionName}`],
+      sourceMetadata: {
+        definitions: [
+          {
+            language: "c++",
+            sourceRef: `src/engine/hermes_module_runner.cc#${functionName}`,
+            targetVariant: "default",
+          },
+        ],
+      },
+    };
+    Object.assign(recipe, {
+      fixtureId: "fixture.module-runner.compile.non-capability",
+      classification: "non-capability",
+      scenario: "non-capability",
+      edgeIds: ["edge.module-runner-compile"],
+      actionIds: [],
+      terminalObservedKey: `host-abi:${functionName}`,
+      route: {
+        surfaceObservedKeys: [`host-abi:${functionName}`],
+        alternatives: [
+          {
+            terminalObservedKey: `host-abi:${functionName}`,
+            proofPaths: [`host-abi:${functionName}`],
+          },
+        ],
+        ambiguousCallees: [],
+      },
+    });
+    recipe.publicSurfaceProbe = {
+      kind: "public-surface-invocation",
+      surfaceObservedKey: recipe.terminalObservedKey,
+      command: ["cargo", "test", "capsec_public_native_recipe_batch"],
+      invocation: {
+        invocationSchema: "ibex/capsec-host-abi-invocation/1",
+        kind: "host-abi-function",
+        functionName,
+        sourceDescriptor,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        operation: { kind: "module-runner-source-graph" },
+        expectedResult: "return",
+        expectedTypedStages: [],
+        expectedTypedDecisionCount: 0,
+        allowedCoverageEdgeIds: ["edge.module-runner-compile"],
+        expectedActionIds: [],
+      },
+    };
+    const observation = {
+      observationSchema: "ibex/capsec-runtime-public-observation/1",
+      invocation: {
+        invocationSchema: "ibex/capsec-host-abi-invocation/1",
+        kind: "host-abi-function",
+        surfaceObservedKey: recipe.terminalObservedKey,
+        functionName,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        result: {
+          kind: "return",
+          functionName,
+          operation: "module-runner-source-graph",
+          observedFunctionNames: [functionName],
+          cleanup: "released-module-graph",
+        },
+      },
+      legacyObservationCount: 0,
+      typedDecisions: [],
+    };
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+    observation.invocation.result.observedFunctionNames = [];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/did not enter the exact host ABI/);
+  });
+
+  test("accepts armed module namespace closure only at the exact ABI", () => {
+    const catalog = completeCatalog();
+    const recipe = catalog.recipes[0];
+    const functionName = "ex_hermes_module_record_namespace_json";
+    const surfaceObservedKey = `host-abi:${functionName}`;
+    const sourceDescriptor = {
+      kind: "closed-module-runner-namespace",
+      surfaceObservedKey,
+      sourceRefs: [`src/engine/hermes_module_runner.cc#${functionName}`],
+      sourceMetadata: {
+        definitions: [
+          {
+            language: "c++",
+            sourceRef: `src/engine/hermes_module_runner.cc#${functionName}`,
+          },
+        ],
+      },
+    };
+    const expectedError =
+      "native ModuleRecord namespace read refused (-1): module namespace inspection is closed under armed startup";
+    Object.assign(recipe, {
+      fixtureId: "fixture.module-runner.namespace.closed",
+      classification: "closed",
+      scenario: "closed",
+      edgeIds: ["edge.module-runner-namespace-closed"],
+      actionIds: [],
+      terminalObservedKey: surfaceObservedKey,
+      route: {
+        surfaceObservedKeys: [surfaceObservedKey],
+        alternatives: [
+          { terminalObservedKey: surfaceObservedKey, proofPaths: [surfaceObservedKey] },
+        ],
+        ambiguousCallees: [],
+      },
+    });
+    recipe.publicSurfaceProbe = {
+      kind: "public-surface-invocation",
+      surfaceObservedKey,
+      command: ["cargo", "test", "capsec_public_closed_recipe_batch"],
+      invocation: {
+        invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+        kind: "closed-surface",
+        surfaceKind: "host-abi",
+        surfaceName: functionName,
+        sourceDescriptor,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        operation: { kind: "module-runner-namespace", expectedError },
+        expectedResult: "closed",
+        expectedTypedDecisionCount: 0,
+        expectedTypedStages: [],
+        allowedCoverageEdgeIds: [],
+        expectedActionIds: [],
+      },
+    };
+    const observation = {
+      observationSchema: "ibex/capsec-runtime-public-observation/1",
+      invocation: {
+        invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+        kind: "closed-surface",
+        surfaceObservedKey,
+        surfaceKind: "host-abi",
+        surfaceName: functionName,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        result: {
+          kind: "closed",
+          surfaceKind: "host-abi",
+          surfaceName: functionName,
+          mechanism: "module-runner-namespace",
+          errorName: "ClosedSurface",
+          errorMessage: expectedError,
+          engineExecuted: true,
+          projectCodeExecuted: false,
+        },
+      },
+      legacyObservationCount: 0,
+      typedDecisions: [],
+    };
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+    observation.invocation.result.errorMessage = "different rejection";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/did not fail closed/);
+  });
+
+  test("rejects rationale-only callback checks as public fixture evidence", () => {
     const catalog = completeCallbackCatalog();
     const recipe = catalog.recipes[0];
     const observed = callbackRuntimeObservation(recipe);
-    const execution = buildPublicFixtureEvidence({
-      recipe,
-      engineBinaryDigest: engine.binaryDigest,
-      runtimeObservation: observed,
-      coverage,
-    });
-    expect(execution.evidence.terminalObservedKey).toBe(
-      recipe.publicSurfaceProbe.surfaceObservedKey,
-    );
-
-    const wrongReason = structuredClone(observed);
-    wrongReason.typedDecisions[2].evidence.evidence[0].reason =
-      "dynamic-session";
-    expect(() =>
-      buildPublicFixtureEvidence({
-        recipe,
-        engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: wrongReason,
-        coverage,
-      }),
-    ).toThrow(/typed reason disagrees/);
-
-    const wrongCheck = structuredClone(observed);
-    wrongCheck.invocation.result.checks.scheduledDecisionRechecked = false;
-    expect(() =>
-      buildPublicFixtureEvidence({
-        recipe,
-        engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: wrongCheck,
-        coverage,
-      }),
-    ).toThrow(/did not prove a post-revocation decision recheck/);
-
-    const legacy = structuredClone(observed);
-    legacy.legacyObservationCount = 1;
-    expect(() =>
-      buildPublicFixtureEvidence({
-        recipe,
-        engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: legacy,
-        coverage,
-      }),
-    ).toThrow(/malformed runtime public observation/);
-
-    const wrongAuxiliary = structuredClone(recipe);
-    wrongAuxiliary.publicSurfaceProbe.invocation.allowedCoverageEdgeIds = [
-      "edge.terminal",
-    ];
-    expect(() =>
-      buildPublicFixtureEvidence({
-        recipe: wrongAuxiliary,
-        engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: observed,
-        coverage,
-      }),
-    ).toThrow(/auxiliary decision is not coverage-bound/);
-
-    const wrongAuxiliaryAction = structuredClone(recipe);
-    wrongAuxiliaryAction.publicSurfaceProbe.invocation.expectedActionIds = [
-      "fs:read",
-    ];
-    expect(() =>
-      buildPublicFixtureEvidence({
-        recipe: wrongAuxiliaryAction,
-        engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: observed,
-        coverage,
-      }),
-    ).toThrow(/auxiliary decision is not coverage-bound/);
-
-    const driftedCoverage = structuredClone(coverage);
-    driftedCoverage.edges.find(
-      (edge) => edge.id === "edge.callback-terminal",
-    ).effects[0].cap = "fs:read";
     expect(() =>
       buildPublicFixtureEvidence({
         recipe,
         engineBinaryDigest: engine.binaryDigest,
         runtimeObservation: observed,
-        coverage: driftedCoverage,
+        coverage,
       }),
-    ).toThrow(/auxiliary decision is not coverage-bound/);
+    ).toThrow(/callback invariant runtime invocation descriptor drift/);
   });
 
   test("accepts Exact non-capability evidence only from its bound ABI lifecycle", () => {
@@ -2436,6 +4091,21 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).not.toThrow();
+
+    const wrongScope = structuredClone(recipe);
+    wrongScope.publicSurfaceProbe.invocation.sourceDescriptor.proofScope =
+      "terminal-body-entry";
+    wrongScope.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(wrongScope.publicSurfaceProbe.invocation.sourceDescriptor);
+    const wrongScopeObservation = exactCallbackRuntimeObservation(wrongScope);
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongScope,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongScopeObservation,
+        coverage,
+      }),
+    ).toThrow(/callback invariant runtime invocation descriptor drift/);
 
     const wrongMechanism = structuredClone(recipe);
     wrongMechanism.publicSurfaceProbe.invocation.sourceDescriptor.executionMechanism =
@@ -2489,6 +4159,16 @@ describe("CapSec public-surface promotion evidence", () => {
     const catalog = completeStartupEnvironmentCatalog("allow");
     const recipe = catalog.recipes[0];
     const observed = startupEnvironmentRuntimeObservation(recipe);
+
+    const incompleteSourceSet = structuredClone(recipe);
+    incompleteSourceSet.publicSurfaceProbe.invocation.sourceDescriptor.liveSourceRefs.pop();
+    incompleteSourceSet.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        incompleteSourceSet.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    expect(() =>
+      validateStartupEnvironmentRecipeDescriptor(incompleteSourceSet),
+    ).toThrow(/startup environment runtime invocation descriptor drift/);
 
     const wrongResource = structuredClone(observed);
     wrongResource.typedDecisions[0].decisionSet.effects[0].resource.requested.name =
@@ -2588,9 +4268,9 @@ describe("CapSec public-surface promotion evidence", () => {
   });
 
   test("rejects hand-labeled callback terminals", () => {
-    const catalog = completeCallbackCatalog();
+    const catalog = completeExactCallbackCatalog();
     const recipe = catalog.recipes[0];
-    const observed = callbackRuntimeObservation(recipe);
+    const observed = exactCallbackRuntimeObservation(recipe);
     observed.invocation.surfaceObservedKey = "native-op:__exactHandLabel";
     expect(() =>
       buildPublicFixtureEvidence({

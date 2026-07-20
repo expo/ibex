@@ -3572,9 +3572,10 @@ Socket.prototype.resume = function() {
       if (bytes == null && typeof globalThis === 'object' && globalThis.__exactStreamWrapState) {
         bytes = globalThis.__exactStreamWrapState[globalThis.__exactStreamWrapReadBytesOrErrorIndex || 0];
       }
-      var eof = typeof globalThis === 'object' && globalThis.__exactUvEOFValue !== undefined
-        ? globalThis.__exactUvEOFValue
-        : -4095;
+      // Keep the libuv EOF sentinel immutable inside the builtin instead of
+      // accepting a project-writable global override.
+      // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces — internal transport sentinels are not project globals
+      var eof = -4095;
       if (bytes === eof || bytes === null) {
         _handleSocketEOF(self);
         return;

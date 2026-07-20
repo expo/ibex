@@ -42,7 +42,7 @@ struct RouteAlternative {
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum PublicSurfaceProbe {
-    EffectBuiltin(EffectBuiltinPublicSurfaceProbe),
+    EffectBuiltin(Box<EffectBuiltinPublicSurfaceProbe>),
     Other {
         #[serde(flatten)]
         _fields: BTreeMap<String, serde_json::Value>,
@@ -84,6 +84,116 @@ struct PublicBatchArtifact {
     recipe_catalog_digest: String,
     loaded_engine_identity: ibex_runtime::engine::LoadedEngineBinaryIdentity,
     executions: Vec<serde_json::Value>,
+}
+
+/// Test-only armed engine facade. Public builtin source must enter through an
+/// authenticated submission even though this harness preserves the compact
+/// `eval_immediate` call shape used to separate preload from observation. The
+/// facade also consumes the engine's bounded native publication stream.
+/// @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+/// @ref LLP 0025#11-delegated-obligations — OBL-UNIT-PUBLICATION requires
+/// every authenticated unit to reach a controller with paired identities.
+struct AuthenticatedBuiltinEngine {
+    host: crate::host::Host,
+    engine: HermesEngine,
+    publications: AuthenticatedPublicationTracker,
+}
+
+impl AuthenticatedBuiltinEngine {
+    async fn eval_immediate(&mut self, source: &str) -> anyhow::Result<Option<String>> {
+        use capsec_semantics::model::{LogicalPath, LogicalRoot};
+
+        self.drain_publications("before authenticated effect-builtin evaluation")?;
+        let session = self.host.mint_armed_session_token()?;
+        let mut sequence =
+            ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())?;
+        let request = sequence
+            .mint_repl(LogicalPath {
+                root: LogicalRoot::Project,
+                components: Vec::new(),
+                host_bound: None,
+            })?
+            .authorize_inline()
+            .bind_bytes(source.as_bytes().to_vec())
+            .into_request()?;
+        let ordinal = request.submission_ordinal();
+        let evaluation = self
+            .engine
+            .evaluate_authenticated(&session, request)
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "authenticated effect-builtin submission {ordinal} failed: {error:#}"
+                )
+            });
+        let publications =
+            self.drain_publications("after authenticated effect-builtin evaluation");
+        let evaluation = match (evaluation, publications) {
+            (Err(evaluation_error), Err(publication_error)) => anyhow::bail!(
+                "authenticated effect-builtin submission {ordinal} failed ({evaluation_error:#}) and its publication stream failed ({publication_error:#})"
+            ),
+            (Err(error), Ok(())) | (Ok(_), Err(error)) => return Err(error),
+            (Ok(evaluation), Ok(())) => evaluation,
+        };
+        match evaluation {
+            AuthenticatedEvaluation::Empty => Ok(None),
+            AuthenticatedEvaluation::Value { display, receipt } => {
+                let release = match receipt {
+                    Some(receipt) => self.engine.release_undisplayed_value(receipt).await,
+                    None => Err(anyhow::anyhow!(
+                        "authenticated effect-builtin submission {ordinal} lost its value receipt"
+                    )),
+                };
+                let publications =
+                    self.drain_publications("after authenticated effect-builtin value release");
+                match (release, publications) {
+                    (Err(release_error), Err(publication_error)) => anyhow::bail!(
+                        "authenticated effect-builtin submission {ordinal} failed to release its value ({release_error:#}) and its publication stream failed ({publication_error:#})"
+                    ),
+                    (Err(error), Ok(())) | (Ok(()), Err(error)) => return Err(error),
+                    (Ok(()), Ok(())) => {}
+                }
+                match display.kind {
+                    AuthenticatedDisplayKind::Undefined => Ok(None),
+                    AuthenticatedDisplayKind::String => serde_json::from_str(&display.text)
+                        .map(Some)
+                        .map_err(|error| {
+                            anyhow::anyhow!(
+                                "authenticated effect-builtin submission {ordinal} returned an invalid string display: {error}"
+                            )
+                        }),
+                    _ => Ok(Some(display.text)),
+                }
+            }
+            AuthenticatedEvaluation::Throw(thrown) => anyhow::bail!(
+                "authenticated effect-builtin submission {ordinal} threw: {thrown:?}"
+            ),
+            AuthenticatedEvaluation::Cancelled => anyhow::bail!(
+                "authenticated effect-builtin submission {ordinal} was cancelled"
+            ),
+            AuthenticatedEvaluation::Lifecycle(code) => anyhow::bail!(
+                "authenticated effect-builtin submission {ordinal} exited with lifecycle code {code}"
+            ),
+        }
+    }
+
+    fn drain_publications(&mut self, context: &str) -> anyhow::Result<()> {
+        self.publications.drain(&self.engine, context)
+    }
+
+    fn finish(&mut self) -> anyhow::Result<()> {
+        let publications = self.drain_publications("authenticated effect-builtin engine finish");
+        let due = self
+            .publications
+            .require_no_due_schedules("authenticated effect-builtin engine finish");
+        match (publications, due) {
+            (Err(publication_error), Err(due_error)) => anyhow::bail!(
+                "authenticated effect-builtin engine publication stream failed ({publication_error:#}) and retained due schedules ({due_error:#})"
+            ),
+            (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+            (Ok(()), Ok(())) => Ok(()),
+        }
+    }
 }
 
 fn tagged_jcs_digest(value: &serde_json::Value) -> String {
@@ -191,10 +301,7 @@ fn builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
         .collect()
 }
 
-fn invocation_script(
-    invocation: &BuiltinInvocation,
-    arguments: &[serde_json::Value],
-) -> String {
+fn invocation_script(invocation: &BuiltinInvocation, arguments: &[serde_json::Value]) -> String {
     format!(
         "JSON.stringify((function(){{var m={};var e={};try{{var api=require(m);var f=api[e];if(typeof f!==\"function\")return {{kind:\"missing\",moduleSpecifier:m,exportName:e}};var value=Reflect.apply(f,api,{});return {{kind:\"return\",moduleSpecifier:m,exportName:e,valueType:value===null?\"null\":typeof value}};}}catch(error){{return {{kind:\"throw\",moduleSpecifier:m,exportName:e,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}};}}}})())",
         serde_json::to_string(&invocation.module_specifier).expect("serialize builtin module"),
@@ -269,10 +376,7 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
                 _fixture_root: Some(fixture_root),
                 project_root: Some(project_root),
                 arguments: vec![serde_json::Value::String(
-                    fixture_path
-                        .to_str()
-                        .expect("builtin fixture path must be UTF-8")
-                        .to_owned(),
+                    "/project/capsec-stat-fixture.txt".to_owned(),
                 )],
             }
         }
@@ -323,10 +427,7 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
                 _fixture_root: Some(fixture_root),
                 project_root: Some(project_root),
                 arguments: vec![serde_json::Value::String(
-                    fixture_path
-                        .to_str()
-                        .expect("builtin directory path must be UTF-8")
-                        .to_owned(),
+                    "/project/capsec-directory-fixture".to_owned(),
                 )],
             }
         }
@@ -404,7 +505,9 @@ fn validate_observation(
             assert!(
                 invocation_result["errorMessage"]
                     .as_str()
-                    .is_some_and(|message| message.contains("Permission denied")),
+                    .is_some_and(|message| message
+                        .to_ascii_lowercase()
+                        .contains("permission denied")),
                 "{}: denial threw the wrong error: {invocation_result}",
                 recipe.fixture_id
             );
@@ -465,11 +568,7 @@ fn validate_observation(
             );
         }
         let public_denial = recipe.scenario == "deny";
-        let expected_outcome = if public_denial {
-            "deny"
-        } else {
-            "allow"
-        };
+        let expected_outcome = if public_denial { "deny" } else { "allow" };
         assert_eq!(decision["evidence"]["outcome"], expected_outcome);
         let decisive = decision["evidence"]["evidence"]
             .as_array()
@@ -480,30 +579,52 @@ fn validate_observation(
             "{}: builtin decision must have one decisive authority row",
             recipe.fixture_id
         );
-        let (expected_stratum, expected_reason, expected_source_prefix) =
-            if public_denial {
-                (
-                    "principal-denial",
-                    "principal-denial",
-                    "principal.000000.denial.",
-                )
-            } else {
-                ("static-floor", "static-floor", "principal.000000.floor.")
-            };
+        let mount_binding_discovery = !public_denial
+            && set["context"]["stage"] == "discovery"
+            && effects.iter().all(|effect| {
+                effect["resource"]["kind"] == "path-occurrence"
+                    && effect["resource"]["requested"]["root"] == "project"
+                    && effect["resource"]["requested"]["components"]
+                        .as_array()
+                        .is_some_and(Vec::is_empty)
+            });
+        // Authenticating the retained project-mount object is root ambient
+        // authority over the empty logical root. The exact target decisions
+        // on either side must still cite the authored static floor.
+        // @ref LLP 0023#21-staged-authorization-identity
+        let (expected_stratum, expected_reason, expected_source_prefix) = if public_denial {
+            (
+                "principal-denial",
+                "principal-denial",
+                Some("principal.000000.denial."),
+            )
+        } else if mount_binding_discovery {
+            ("ambient-root", "ambient-root", None)
+        } else {
+            (
+                "static-floor",
+                "static-floor",
+                Some("principal.000000.floor."),
+            )
+        };
         assert_eq!(decisive[0]["stratum"], expected_stratum);
         assert_eq!(decisive[0]["reason"], expected_reason);
         assert_eq!(
             decisive[0]["principal"],
             serde_json::json!({"kind": "root", "identity": "project-root"})
         );
-        assert!(
-            decisive[0]["sourceId"]
-                .as_str()
-                .is_some_and(|source| source.starts_with(expected_source_prefix)),
-            "{}: decisive authority source has the wrong stratum index: {}",
-            recipe.fixture_id,
-            decisive[0]
-        );
+        if let Some(expected_source_prefix) = expected_source_prefix {
+            assert!(
+                decisive[0]["sourceId"]
+                    .as_str()
+                    .is_some_and(|source| source.starts_with(expected_source_prefix)),
+                "{}: decisive authority source has the wrong stratum index: {}",
+                recipe.fixture_id,
+                decisive[0]
+            );
+        } else {
+            assert_eq!(decisive[0]["sourceId"], serde_json::Value::Null);
+        }
     }
     assert!(!observed_edges.is_empty());
     assert!(observed_edges.is_subset(&allowed_edges));
@@ -526,7 +647,7 @@ fn validate_observation(
 }
 
 async fn execute_recipe(
-    engine: &HermesEngine,
+    engine: &mut AuthenticatedBuiltinEngine,
     recipe: &Recipe,
     arguments: &[serde_json::Value],
     terminal_by_edge: &BTreeMap<String, String>,
@@ -644,9 +765,11 @@ async fn execute_isolated_recipe(
     );
     let prepared = prepare_invocation(invocation);
     let module_specifier = invocation.module_specifier.clone();
-    let denials = (recipe.scenario == "deny")
-        .then(|| authority.clone())
-        .unwrap_or_default();
+    let denials = if recipe.scenario == "deny" {
+        authority.clone()
+    } else {
+        Vec::new()
+    };
     let (host, digest) = build_armed_test_host_control(
         prepared.project_root(),
         false,
@@ -661,12 +784,11 @@ async fn execute_isolated_recipe(
             snapshot["principals"][0]["imports"]["builtins"] =
                 serde_json::json!([module_specifier]);
             if !denials.is_empty() {
-                snapshot["principals"][0]["denials"] =
-                    serde_json::Value::Array(denials);
+                snapshot["principals"][0]["denials"] = serde_json::Value::Array(denials);
             }
         },
     );
-    assert_ne!(crate::host::abi::install_host(host), 0);
+    assert_ne!(crate::host::abi::install_host(host.clone()), 0);
     let _reset = HostResetGuard;
     let engine = HermesEngine::new_with_armed_snapshot(Some(&digest))
         .expect("create exact public builtin engine");
@@ -674,14 +796,23 @@ async fn execute_isolated_recipe(
         .load_runtime()
         .await
         .expect("load exact public builtin runtime");
-    execute_recipe(
-        &engine,
+    let mut engine = AuthenticatedBuiltinEngine {
+        host,
+        engine,
+        publications: AuthenticatedPublicationTracker::default(),
+    };
+    let execution = execute_recipe(
+        &mut engine,
         recipe,
         &prepared.arguments,
         terminal_by_edge,
         engine_binary_digest,
     )
-    .await
+    .await;
+    engine
+        .finish()
+        .expect("finish authenticated effect-builtin publications");
+    execution
 }
 
 #[cfg(test)]
@@ -709,19 +840,11 @@ async fn capsec_public_builtin_recipe_batch() {
     let mut executions = Vec::with_capacity(recipes.len());
     for recipe in &recipes {
         executions.push(
-            execute_isolated_recipe(
-                recipe,
-                &terminal_by_edge,
-                &identity_before.binary_digest,
-            )
-            .await,
+            execute_isolated_recipe(recipe, &terminal_by_edge, &identity_before.binary_digest)
+                .await,
         );
     }
-    executions.sort_by(|left, right| {
-        left["fixtureId"]
-            .as_str()
-            .cmp(&right["fixtureId"].as_str())
-    });
+    executions.sort_by(|left, right| left["fixtureId"].as_str().cmp(&right["fixtureId"].as_str()));
     assert_eq!(executions.len(), recipes.len());
     let identity_after = HermesEngine::loaded_engine_identity()
         .expect("attest exact loaded Hermes after builtin public recipes");
@@ -741,6 +864,8 @@ async fn capsec_public_builtin_recipe_batch() {
         .expect("create owned builtin public evidence artifact");
     serde_json::to_writer_pretty(&mut output, &artifact)
         .expect("serialize builtin public evidence artifact");
-    output.write_all(b"\n").expect("finish builtin public evidence");
+    output
+        .write_all(b"\n")
+        .expect("finish builtin public evidence");
     output.sync_all().expect("sync builtin public evidence");
 }

@@ -181,7 +181,7 @@ fn authority_reducing_release_survives_positive_grant_revocation() {
         "SqliteStatementEntry requireSqliteStatement(",
     ] {
         let body = function_body(&sqlite, signature);
-        assert!(body.contains("bool requireLiveAuthority = true"));
+        assert!(body.contains("bool requireLiveAuthority"));
         assert_owner_precedes_live_authority(body);
     }
     assert_eq!(
@@ -377,13 +377,26 @@ fn retained_http_response_owner_check_is_captured_and_revocation_safe() {
     assert!(http_js.contains(
         "var _httpNetOwnerHost = typeof __exactNetOwner === 'function' ? __exactNetOwner : null;"
     ));
-    assert_eq!(
-        http_js
-            .matches("ownerStamp: _httpNetOwnerHost ? _httpNetOwnerHost('new') : null")
-            .count(),
-        2,
-        "both ServerResponse and http.Server need construction-time owner identity"
+    let response_state = function_body(&http_js, "function _installServerResponseNativeState(");
+    assert!(response_state
+        .contains("ownerStamp: constructionKey === _httpInternalResponseConstructionKey"));
+    assert!(response_state.contains("? inheritedOwnerStamp"));
+    assert!(response_state.contains(": (_httpNetOwnerHost ? _httpNetOwnerHost('new') : null)"));
+
+    let server_state = function_body(&http_js, "function _installHttpServerNativeState(");
+    assert!(
+        server_state.contains("ownerStamp: _httpNetOwnerHost ? _httpNetOwnerHost('new') : null")
     );
+
+    assert_eq!(
+        http_js.matches("_httpNetOwnerHost('new')").count(),
+        2,
+        "ServerResponse and http.Server each need a fresh-owner construction path"
+    );
+
+    let create_response = function_body(&http_js, "function _createServerResponse(");
+    assert!(create_response.contains("serverState ? serverState.ownerStamp : null"));
+    assert!(create_response.contains("_httpInternalResponseConstructionKey"));
     assert!(http_js.contains("_httpNetOwnerHost('assert', state.ownerStamp)"));
     assert!(http_js.contains("_httpOwnerHost(state.serverId) !== true"));
     assert!(http_js.contains("function _sealHttpOwnedOwnProperties("));

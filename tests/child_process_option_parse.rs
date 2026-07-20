@@ -14,6 +14,12 @@ use std::time::{Duration, Instant};
 
 const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
 
+// `capsec audit` authenticates and hashes the complete lowering/bundling
+// toolchain before each option-parser fixture runs. Shared-host full-matrix
+// load can exhaust shorter deadlines before the probe executes. This is a
+// deadlock bound, not a startup-performance assertion.
+const DIAGNOSTIC_AUDIT_TIMEOUT: Duration = Duration::from_secs(120);
+
 struct AppRun {
     stdout: String,
     stderr: String,
@@ -137,7 +143,7 @@ if (typeof __exactEnsureChildProcess === 'function') __exactEnsureChildProcess()
 var result = JSON.parse(String(__exactSpawnSync('printf PARSED', '[]', '{"shell": true, "stdio": "pipe"}')));
 console.log('RESULT|status=' + result.status + '|stdout=' + result.stdout);
 "#;
-    let run = run_app_in(&unique_dir("spaced-shell"), app, Duration::from_secs(20));
+    let run = run_app_in(&unique_dir("spaced-shell"), app, DIAGNOSTIC_AUDIT_TIMEOUT);
     let line = result_line(&run);
     assert_eq!(
         field(line, "status="),
@@ -159,7 +165,7 @@ var opts = '{"nested":{"shell":true},"stdio":"pipe"}';
 var result = JSON.parse(String(__exactSpawnSync('printf SHOULD_NOT_RUN', '[]', opts)));
 console.log('RESULT|status=' + result.status + '|stdout=' + result.stdout + '|error=' + (result.error || ''));
 "#;
-    let run = run_app_in(&unique_dir("env-shell"), app, Duration::from_secs(20));
+    let run = run_app_in(&unique_dir("env-shell"), app, DIAGNOSTIC_AUDIT_TIMEOUT);
     let line = result_line(&run);
     assert_ne!(
         field(line, "stdout="),
@@ -204,7 +210,7 @@ if (started.error) {
     let run = run_app_in(
         &unique_dir("async-nested-shell"),
         app,
-        Duration::from_secs(20),
+        DIAGNOSTIC_AUDIT_TIMEOUT,
     );
     let line = result_line(&run);
     assert_ne!(
@@ -233,7 +239,7 @@ console.log('RESULT|status=' + r.status + '|stdout=' + String(r.stdout || '').tr
 "#,
         shell = json_string(&shell.to_string_lossy())
     );
-    let run = run_app_in(&dir, &app, Duration::from_secs(20));
+    let run = run_app_in(&dir, &app, DIAGNOSTIC_AUDIT_TIMEOUT);
     let line = result_line(&run);
     assert_eq!(
         field(line, "stdout="),

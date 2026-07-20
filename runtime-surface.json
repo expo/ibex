@@ -1,6 +1,6 @@
 {
-  "$comment": "Runtime surface manifest (LLP 0010#runtime-command-surface; upstream LLP 0175 §8.1a in exact) — the single authority for the ibex command surface, kept next to the clap tree it pins. visibleCommands appear in `ibex --help` and must work standalone. hiddenHarnessCommands are compiled in but hidden from help (`self-test` is a CI harness smoke, not a user test runner; `compat` is the WPT/exact compat harness ported from exact-cli, ENG-23081 — its fixture tree lives in the exact repo). reservedCommands are runtime-namespace names with no implementation yet, and legacyProjectCommands are Exact project commands; both classes must be ABSENT from the clap tree entirely — the pre-clap dispatcher in src/bin/ibex/main.rs owns them and errors with a pointer. clapSurface is the exact recursive route/value-shape inventory plus the reviewed parser kinds and argument-conflict relations described there. Pinned in-process by cli.rs::surface_manifest_matches_clap_tree (ported from exact's stranded packages/exact-cli test, ENG-22429); exact-side behavior guards read their own stale copy until retargeted here.",
-  "version": 4,
+  "$comment": "Runtime surface manifest (LLP 0010#runtime-command-surface; upstream LLP 0175 §8.1a in exact) — the single authority for the ibex command surface, kept next to the clap tree it pins. visibleCommands appear in `ibex --help` and must work standalone. hiddenHarnessCommands are compiled in but hidden from help (`self-test` is a CI harness smoke, not a user test runner; `compat` is the WPT/exact compat harness ported from exact-cli, ENG-23081 — its fixture tree lives in the exact repo). reservedCommands are runtime-namespace names with no implementation yet, and legacyProjectCommands are Exact project commands; both classes must be ABSENT from the clap tree entirely — the pre-clap dispatcher in src/bin/ibex/main.rs owns them and errors with a pointer. clapSurface is the exact recursive route/value-shape inventory plus the reviewed parser kinds and argument-conflict relations described there. replSurface and keybindingSurface are the generated authorities for REPL dispatch, help, completion, source-submission behavior, and Ibex-owned editor controls. Pinned in-process by cli.rs::surface_manifest_matches_clap_tree and the REPL surface generator; exact-side behavior guards read their own stale copy until retargeted here.",
+  "version": 5,
   "binary": "ibex",
   "visibleCommands": [
     "run",
@@ -37,7 +37,7 @@
     "start"
   ],
   "clapSurface": {
-    "$comment": "Every authored Clap command path joins exactly once to this recursive inventory. Authorship is captured before Command.build(): framework-generated help/version arguments and the generated help subcommand are excluded, while authored Help/Version actions and an authored help subcommand remain inventory entries. Positionals are included; an unbounded positional that accepts hyphen-prefixed values is classified as passthrough. Commands and options are sorted deterministically. Each argument records action, arity, requiredness, value names and domain, enum values and aliases, defaults, default-missing values, and hyphen handling; maxValues null means unbounded. semanticRelations additionally records every reflected argument conflict and a stable reviewed parser kind for each non-enumerated value. Clap source attributes are fail-closed against an explicit reviewed key set so an unrepresented parser relation cannot appear silently. This is an exact contract for those recorded semantics, not a claim that help text and every internal Clap setting are serialized.",
+    "$comment": "Every authored Clap command path joins exactly once to this recursive inventory. Authorship is captured before Command.build(): framework-generated help/version arguments and the generated help subcommand are excluded, while authored Help/Version actions and an authored help subcommand remain inventory entries. Positionals are included; an unbounded positional that accepts hyphen-prefixed values is classified as passthrough. Commands and options are sorted deterministically. Each argument records action, arity, requiredness, value names and domain, enum values and aliases, defaults, default-missing values, hyphen handling, and a true global marker when one root-authored option is reachable after subcommands; inherited child copies are not duplicate authored rows. maxValues null means unbounded. semanticRelations additionally records every reflected argument conflict and a stable reviewed parser kind for each non-enumerated value. Clap source attributes are fail-closed against an explicit reviewed key set so an unrepresented parser relation cannot appear silently. This is an exact contract for those recorded semantics, not a claim that help text and every internal Clap setting are serialized.",
     "frameworkGenerated": {
       "authoredControlDetection": "pre-build-command-and-argument-identities",
       "helpArguments": "excluded",
@@ -615,6 +615,46 @@
               "allowHyphenValues": false
             },
             "hidden": true
+          },
+          {
+            "id": "history",
+            "names": [
+              "--history"
+            ],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": [
+                "HISTORY"
+              ],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "enumerated",
+              "possibleValues": [
+                {
+                  "value": "project",
+                  "aliases": [],
+                  "hidden": false
+                },
+                {
+                  "value": "global",
+                  "aliases": [],
+                  "hidden": false
+                },
+                {
+                  "value": "off",
+                  "aliases": [],
+                  "hidden": false
+                }
+              ],
+              "possibleValuesHidden": false,
+              "defaultValues": [
+                "project"
+              ],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            },
+            "global": true
           },
           {
             "id": "inspect",
@@ -1967,6 +2007,333 @@
       },
       {
         "path": "ibex version"
+      }
+    ]
+  },
+  "replSurface": {
+    "$comment": "LLP 0022 §8's exhaustive v1 dot-command contract. Dispatch, help, command completion, argument validation, source-ordinal behavior, and .load extension selection are generated from this section.",
+    "version": 1,
+    "recognition": {
+      "leadingWhitespace": "unicode",
+      "prefix": ".",
+      "namePattern": "[A-Za-z][A-Za-z0-9_-]*",
+      "termination": [
+        "whitespace",
+        "end-of-input"
+      ],
+      "argumentRemainder": "verbatim-after-first-whitespace-run",
+      "unknownDisposition": "recoverable-error-naming-.help",
+      "nonmatchDisposition": "evaluate-as-javascript",
+      "commandsNeverContinue": true
+    },
+    "modes": [
+      "interactive",
+      "plain-transcript"
+    ],
+    "commands": [
+      {
+        "id": "help",
+        "name": ".help",
+        "aliases": [
+          ".h"
+        ],
+        "usage": ".help",
+        "argument": {
+          "kind": "none"
+        },
+        "modes": [
+          "interactive",
+          "plain-transcript"
+        ],
+        "states": [
+          "fresh"
+        ],
+        "successOutput": "stdout",
+        "errorOutput": "stderr",
+        "affordance": "presentation-only",
+        "registryRelations": [],
+        "sourceSubmission": "none",
+        "help": "Show every command, alias, and published keybinding"
+      },
+      {
+        "id": "exit",
+        "name": ".exit",
+        "aliases": [
+          ".quit",
+          ".q"
+        ],
+        "usage": ".exit",
+        "argument": {
+          "kind": "none"
+        },
+        "modes": [
+          "interactive",
+          "plain-transcript"
+        ],
+        "states": [
+          "fresh"
+        ],
+        "successOutput": "none",
+        "errorOutput": "stderr",
+        "affordance": "cooperative-lifecycle",
+        "registryRelations": [
+          {
+            "kind": "capability",
+            "id": "lifecycle:exit"
+          }
+        ],
+        "sourceSubmission": "none",
+        "help": "End the session through orderly shutdown"
+      },
+      {
+        "id": "clear",
+        "name": ".clear",
+        "aliases": [
+          ".cls"
+        ],
+        "usage": ".clear",
+        "argument": {
+          "kind": "none"
+        },
+        "modes": [
+          "interactive",
+          "plain-transcript"
+        ],
+        "states": [
+          "fresh"
+        ],
+        "successOutput": "editor-control-or-none",
+        "errorOutput": "stderr",
+        "affordance": "terminal-operator-state",
+        "registryRelations": [],
+        "sourceSubmission": "none",
+        "help": "Clear an interactive display without resetting session state"
+      },
+      {
+        "id": "load",
+        "name": ".load",
+        "aliases": [],
+        "usage": ".load <path>",
+        "argument": {
+          "kind": "required-remainder",
+          "name": "path",
+          "preserve": "verbatim"
+        },
+        "modes": [
+          "interactive",
+          "plain-transcript"
+        ],
+        "states": [
+          "fresh"
+        ],
+        "successOutput": "stdout",
+        "errorOutput": "stderr",
+        "affordance": "typed-session-effect",
+        "registryRelations": [
+          {
+            "kind": "non-capability-rationale",
+            "id": "authenticated-code-ingress"
+          },
+          {
+            "kind": "capability",
+            "id": "fs:list"
+          },
+          {
+            "kind": "capability",
+            "id": "fs:read"
+          }
+        ],
+        "sourceSubmission": "advance-on-source-request",
+        "help": "Read a virtual path through typed authority and evaluate its supported contents"
+      },
+      {
+        "id": "time",
+        "name": ".time",
+        "aliases": [],
+        "usage": ".time <input>",
+        "argument": {
+          "kind": "required-remainder",
+          "name": "input",
+          "preserve": "verbatim"
+        },
+        "modes": [
+          "interactive",
+          "plain-transcript"
+        ],
+        "states": [
+          "fresh"
+        ],
+        "successOutput": "stdout",
+        "errorOutput": "stderr",
+        "affordance": "evaluation-wrapper",
+        "registryRelations": [
+          {
+            "kind": "non-capability-rationale",
+            "id": "authenticated-code-ingress"
+          }
+        ],
+        "sourceSubmission": "advance-on-source-request",
+        "help": "Evaluate input with prompt semantics and report elapsed time"
+      },
+      {
+        "id": "break",
+        "name": ".break",
+        "aliases": [],
+        "usage": ".break",
+        "argument": {
+          "kind": "none"
+        },
+        "modes": [
+          "interactive",
+          "plain-transcript"
+        ],
+        "states": [
+          "fresh",
+          "continuation"
+        ],
+        "successOutput": "none",
+        "errorOutput": "stderr",
+        "affordance": "session-control",
+        "registryRelations": [],
+        "sourceSubmission": "none",
+        "help": "Abandon a pending multiline continuation"
+      },
+      {
+        "id": "mounts",
+        "name": ".mounts",
+        "aliases": [],
+        "usage": ".mounts",
+        "argument": {
+          "kind": "none"
+        },
+        "modes": [
+          "interactive",
+          "plain-transcript"
+        ],
+        "states": [
+          "fresh"
+        ],
+        "successOutput": "stdout",
+        "errorOutput": "stderr",
+        "affordance": "logical-namespace-introspection",
+        "registryRelations": [],
+        "sourceSubmission": "none",
+        "help": "Show the virtual mount table and virtual current directory"
+      }
+    ],
+    "loadExtensions": {
+      "matching": "longest-suffix-first",
+      "rows": [
+        {
+          "extension": ".d.ts",
+          "disposition": "refuse-types-only",
+          "errorCode": "load-types-only"
+        },
+        {
+          "extension": ".js",
+          "disposition": "script",
+          "dialect": "javascript"
+        },
+        {
+          "extension": ".jsx",
+          "disposition": "script",
+          "dialect": "javascript-jsx"
+        },
+        {
+          "extension": ".ts",
+          "disposition": "script",
+          "dialect": "typescript"
+        },
+        {
+          "extension": ".tsx",
+          "disposition": "script",
+          "dialect": "typescript-jsx"
+        },
+        {
+          "extension": ".json",
+          "disposition": "json-data",
+          "dialect": "json"
+        },
+        {
+          "extension": ".mjs",
+          "disposition": "refuse-module-kind",
+          "errorCode": "load-module-kind"
+        },
+        {
+          "extension": ".cjs",
+          "disposition": "refuse-module-kind",
+          "errorCode": "load-module-kind"
+        },
+        {
+          "extension": ".mts",
+          "disposition": "refuse-module-kind",
+          "errorCode": "load-module-kind"
+        },
+        {
+          "extension": ".cts",
+          "disposition": "refuse-module-kind",
+          "errorCode": "load-module-kind"
+        }
+      ],
+      "defaultDisposition": "refuse-unknown-or-extensionless",
+      "defaultErrorCode": "load-unsupported-extension"
+    }
+  },
+  "keybindingSurface": {
+    "$comment": "LLP 0025 §5's exhaustive published Ibex-owned session controls. The editor's ordinary Emacs editing profile is separate; these rows are the controls generated into .help and the session byte dispatcher.",
+    "version": 1,
+    "scope": "published-session-controls",
+    "editorProfile": "emacs",
+    "bindings": [
+      {
+        "id": "complete",
+        "display": "Tab",
+        "bytes": [
+          9
+        ],
+        "action": "bounded-asynchronous-completion",
+        "countsAsEditorInput": true,
+        "help": "Complete without authorizing effects or evaluating user code"
+      },
+      {
+        "id": "interrupt",
+        "display": "Ctrl+C",
+        "bytes": [
+          3
+        ],
+        "action": "interrupt-machine",
+        "countsAsEditorInput": false,
+        "help": "Cancel, discard, or escalate according to session state"
+      },
+      {
+        "id": "eof",
+        "display": "Ctrl+D",
+        "bytes": [
+          4
+        ],
+        "action": "orderly-eof-or-delete-forward",
+        "countsAsEditorInput": true,
+        "help": "Exit at an empty prompt; otherwise delete forward"
+      },
+      {
+        "id": "reverse-history",
+        "display": "Ctrl+R",
+        "bytes": [
+          18
+        ],
+        "action": "reverse-history-search",
+        "countsAsEditorInput": true,
+        "help": "Search session history in reverse"
+      },
+      {
+        "id": "suspend",
+        "display": "Ctrl+Z",
+        "bytes": [
+          26
+        ],
+        "action": "suspend-transaction",
+        "countsAsEditorInput": true,
+        "help": "Restore the terminal, suspend, and recapture on resume"
       }
     ]
   },

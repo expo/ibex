@@ -7,14 +7,21 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  CALLBACK_OUTPUT_CONTRACT_SCHEMA,
+  deriveHostAbiOutputCatalogAccount,
   discoverRepositorySurfaces,
   discoverHermesEvaluatorIdentityProfiles,
   fixedRuntimeSurfaceInventory,
   HERMES_EVALUATOR_REVIEW_ID,
+  HOST_ABI_OUTPUT_CONTRACT_SCHEMA,
   isRuntimeEnvironmentSourceAllowed,
+  PRINCIPAL_ENVIRONMENT_OVERLAY_DYNAMIC_MEMBER,
+  PRINCIPAL_ENVIRONMENT_OVERLAY_SOURCE_CONTRACT_SCHEMA,
+  PRINCIPAL_ENVIRONMENT_OVERLAY_SURFACE_NAME,
   scanBuiltinSurfaces,
   scanCdpSurfaces,
   scanCppGlobalPropertySurfaces,
+  scanCppAbiTypeRegistry,
   scanCppPublicAbiDefinitions,
   scanEvaluatedCppGlobalScripts,
   scanFixedRuntimeEvidenceCandidates,
@@ -26,9 +33,12 @@ import {
   scanModuleSpecifierEntries,
   scanNativeLifecycleSurfaces,
   scanPrivateNativeIdentifiers,
+  scanPrivateSessionWorkerBootstrap,
+  scanPrincipalEnvironmentOverlayProxy,
   scanRuntimeCliSurfaces,
   scanRuntimeCommandClasses,
   scanRuntimeEnvironmentSurfaces,
+  scanRuntimeReplSurfaces,
   scanRustHostExterns,
   scanRustLoaderSurfaces,
   scanRustLoaderRoutes,
@@ -94,6 +104,10 @@ function liveHermesEvaluatorIdentityInputs() {
     ),
     windowsInstallerText: fs.readFileSync(
       path.join(repoRoot, "scripts", "install-windows-hermes.ps1"),
+      "utf8",
+    ),
+    windowsSourceBuildText: fs.readFileSync(
+      path.join(repoRoot, "scripts", "build-hermes-windows.ps1"),
       "utf8",
     ),
     patchApplicationText: fs.readFileSync(
@@ -344,8 +358,89 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       "ex_host_live",
       "ex_host_unsafe_live",
     ]);
-    expect(rows[0].metadata).toEqual({ unsafe: false });
-    expect(rows[1].metadata).toEqual({ unsafe: true });
+    expect(rows[0].metadata).toMatchObject({
+      outputContract: {
+        return: { kind: "scalar", role: "value" },
+        schema: HOST_ABI_OUTPUT_CONTRACT_SCHEMA,
+        status: "resolved",
+      },
+      unsafe: false,
+    });
+    expect(rows[1].metadata).toMatchObject({
+      outputContract: {
+        outputChannels: [],
+        return: { kind: "void", role: "none" },
+        schema: HOST_ABI_OUTPUT_CONTRACT_SCHEMA,
+      },
+      unsafe: true,
+    });
+  });
+
+  test("Rust host ABI inventory includes typed listener authorization exactly once", () => {
+    const source = fs.readFileSync(
+      path.join(repoRoot, "src/host/abi.rs"),
+      "utf8",
+    );
+    const rows = scanRustHostExterns(source, "src/host/abi.rs").filter(
+      (row) => row.name === "ex_host_authorize_typed_listen_stack",
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: "host-abi",
+      name: "ex_host_authorize_typed_listen_stack",
+      observedKey: "host-abi:ex_host_authorize_typed_listen_stack",
+      sourceRefs: ["src/host/abi.rs#ex_host_authorize_typed_listen_stack"],
+      metadata: {
+        outputContract: {
+          return: { kind: "scalar", role: "value" },
+          schema: HOST_ABI_OUTPUT_CONTRACT_SCHEMA,
+          sourceRef: "src/host/abi.rs#ex_host_authorize_typed_listen_stack",
+        },
+        unsafe: true,
+      },
+    });
+  });
+
+  test("Rust host ABI inventory includes typed environment-write authorization exactly once", () => {
+    const source = fs.readFileSync(
+      path.join(repoRoot, "src/host/abi.rs"),
+      "utf8",
+    );
+    const rows = scanRustHostExterns(source, "src/host/abi.rs").filter(
+      (row) => row.name === "ex_host_authorize_typed_environment_write_stack",
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: "host-abi",
+      name: "ex_host_authorize_typed_environment_write_stack",
+      observedKey: "host-abi:ex_host_authorize_typed_environment_write_stack",
+      sourceRefs: [
+        "src/host/abi.rs#ex_host_authorize_typed_environment_write_stack",
+      ],
+      metadata: {
+        outputContract: {
+          bufferLengthPairs: [
+            {
+              bufferParameter: "module_ids",
+              direction: "input",
+              lengthParameter: "module_ids_len",
+            },
+            {
+              bufferParameter: "name",
+              direction: "input",
+              lengthParameter: "name_len",
+            },
+          ],
+          return: { kind: "scalar", role: "value" },
+          schema: HOST_ABI_OUTPUT_CONTRACT_SCHEMA,
+          sourceRef:
+            "src/host/abi.rs#ex_host_authorize_typed_environment_write_stack",
+        },
+        unsafe: true,
+      },
+    });
   });
 
   test("duplicate Rust host definitions fail closed", () => {
@@ -483,6 +578,288 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(
       rows.find((row) => row.name === "ex_worklet_live").metadata.weak,
     ).toBe(true);
+  });
+
+  test("host ABI signatures distinguish real returns, outputs, callbacks, buffers, and ambiguity", () => {
+    const rust = String.raw`
+      /// @abi-output ex_host_signature_contract out_data role=output kind=buffer length=out_data_len ownership=caller-frees:ex_host_free_buffer
+      #[no_mangle]
+      pub unsafe extern "C" fn ex_host_signature_contract(
+        input: *const u8,
+        input_len: usize,
+        scratch: *mut u8,
+        out_data: *mut *mut u8,
+        out_data_len: *mut u64,
+        callback: Option<extern "C" fn(value: u32)>,
+      ) -> u32 { 0 }
+
+      #[no_mangle]
+      pub extern "C" fn ex_host_no_return() {}
+    `;
+    const rustRows = scanRustPublicAbiDefinitions(rust, "signature.rs");
+    const contract = rustRows.find(
+      (row) => row.name === "ex_host_signature_contract",
+    ).metadata.outputContract;
+    expect(contract.return).toMatchObject({ kind: "scalar", role: "value" });
+    expect(contract.bufferLengthPairs).toEqual([
+      {
+        bufferParameter: "input",
+        direction: "input",
+        lengthParameter: "input_len",
+      },
+      {
+        bufferParameter: "out_data",
+        direction: "output",
+        lengthParameter: "out_data_len",
+      },
+    ]);
+    expect(
+      Object.fromEntries(
+        contract.parameters.map((parameter) => [
+          parameter.name,
+          parameter.role,
+        ]),
+      ),
+    ).toEqual({
+      callback: "callback-payload",
+      input: "input",
+      input_len: "input",
+      out_data: "output",
+      out_data_len: "output",
+      scratch: "unknown",
+    });
+    expect(
+      contract.outputChannels.find(
+        (channel) => channel.selector === "out:data",
+      ),
+    ).toMatchObject({
+      kind: "buffer",
+      lengthParameter: "out_data_len",
+      ownership: {
+        kind: "caller-owned",
+        releaseFunction: "ex_host_free_buffer",
+      },
+    });
+    expect(contract.unresolved).toEqual(["parameter-role:scratch"]);
+    expect(
+      contract.parameters.find((parameter) => parameter.name === "callback")
+        .callbackContract,
+    ).toMatchObject({
+      delivery: "invoked",
+      parameters: [
+        {
+          direction: "native-to-embedder",
+          name: "value",
+          valueKind: "scalar",
+        },
+      ],
+      return: { direction: "none", role: "none" },
+      status: "resolved",
+    });
+    expect(
+      deriveHostAbiOutputCatalogAccount({
+        kind: "host-abi",
+        metadata: { outputContracts: [contract] },
+        name: "ex_host_signature_contract",
+        sourceRefs: [contract.sourceRef],
+      }),
+    ).toMatchObject({
+      outputChannels: [
+        { selector: "[[return]]" },
+        { selector: "callback:callback/0" },
+        { selector: "out:data" },
+      ],
+      membershipUnresolved: expect.arrayContaining([
+        expect.stringContaining("parameter-role:scratch"),
+      ]),
+      status: "unresolved",
+    });
+    expect(
+      rustRows.find((row) => row.name === "ex_host_no_return").metadata
+        .outputContract,
+    ).toMatchObject({
+      outputChannels: [],
+      return: { kind: "void", role: "none" },
+    });
+
+    const cpp = String.raw`
+      extern "C" char* ex_hermes_signature_contract(
+        ExactHermesRuntime* runtime,
+        const uint8_t* source,
+        size_t source_len,
+        char** out_value,
+        ExHermesDispatchCallback callback) { return nullptr; }
+    `;
+    const cppContract = scanCppPublicAbiDefinitions(cpp, "signature.cc")[0]
+      .metadata.outputContract;
+    expect(cppContract.return).toMatchObject({
+      kind: "pointer",
+      ownership: {
+        kind: "caller-owned",
+        releaseFunction: "ex_hermes_free_string",
+      },
+      role: "value",
+    });
+    expect(
+      Object.fromEntries(
+        cppContract.parameters.map((parameter) => [
+          parameter.name,
+          parameter.role,
+        ]),
+      ),
+    ).toEqual({
+      callback: "callback",
+      out_value: "output",
+      runtime: "input",
+      source: "input",
+      source_len: "input",
+    });
+    expect(
+      cppContract.parameters.find((parameter) => parameter.name === "runtime")
+        .ownership,
+    ).toEqual({ kind: "borrowed" });
+    expect(cppContract.status).toBe("unresolved");
+
+    const pointerInputRows = scanCppPublicAbiDefinitions(
+      String.raw`
+        extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {}
+        extern "C" void ex_hermes_set_dispatch_callback(
+          ExactHermesRuntime* runtime,
+          void (*callback)(void* context),
+          void* context) {}
+      `,
+      "pointer-inputs.cc",
+    );
+    expect(
+      pointerInputRows.find((row) => row.name === "ex_hermes_destroy").metadata
+        .outputContract.parameters[0],
+    ).toMatchObject({
+      name: "runtime",
+      ownership: { kind: "callee-consumes" },
+      role: "input",
+    });
+    expect(
+      Object.fromEntries(
+        pointerInputRows
+          .find((row) => row.name === "ex_hermes_set_dispatch_callback")
+          .metadata.outputContract.parameters.map((parameter) => [
+            parameter.name,
+            parameter.role,
+          ]),
+      ),
+    ).toEqual({
+      callback: "callback-payload",
+      context: "input",
+      runtime: "input",
+    });
+
+    expect(() =>
+      scanRustPublicAbiDefinitions(
+        "/// @abi-output ex_host_absent out_data role=output kind=buffer ownership=caller-storage\n",
+        "orphan-annotation.rs",
+      ),
+    ).toThrow(/@abi-output names absent Rust ABI definition ex_host_absent/);
+  });
+
+  test("named ABI schemas expand aggregate members and bind callback directions without flattening", () => {
+    const typeRegistry = scanCppAbiTypeRegistry(
+      String.raw`
+        typedef struct ExHermesOwnedBytes {
+          uint8_t* data;
+          size_t length;
+        } ExHermesOwnedBytes;
+        typedef struct ExHermesSourcePosition {
+          ExHermesOwnedBytes source_label;
+          uint32_t line;
+          uint32_t column;
+        } ExHermesSourcePosition;
+        typedef struct ExHermesEvaluationResult {
+          ExHermesOwnedBytes message;
+          ExHermesSourcePosition* positions;
+          size_t position_count;
+        } ExHermesEvaluationResult;
+        typedef struct ExWorkletSharedValueHandle {
+          uint32_t slot;
+          uint32_t generation;
+          uint32_t epoch;
+        } ExWorkletSharedValueHandle;
+        typedef uint32_t (*ExWorkletReadCallback)(
+          ExWorkletSharedValueHandle handle,
+          float* out_value,
+          void* context);
+      `,
+      "synthetic.h",
+    );
+    expect(Object.keys(typeRegistry.aggregates)).toEqual([
+      "ExHermesEvaluationResult",
+      "ExHermesOwnedBytes",
+      "ExHermesSourcePosition",
+      "ExWorkletSharedValueHandle",
+    ]);
+    expect(Object.keys(typeRegistry.callbacks)).toEqual([
+      "ExWorkletReadCallback",
+    ]);
+
+    const rows = scanCppPublicAbiDefinitions(
+      String.raw`
+        // @abi-output ex_hermes_aggregate result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* elements=positions ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
+        extern "C" void ex_hermes_aggregate(
+          ExHermesEvaluationResult* result) {}
+
+        extern "C" int ex_worklet_callback(
+          ExWorkletReadCallback read_callback,
+          void* context) { return 0; }
+      `,
+      "synthetic.cc",
+      { typeRegistry },
+    );
+    const aggregate = rows.find((row) => row.name === "ex_hermes_aggregate")
+      .metadata.outputContract;
+    expect(aggregate.status).toBe("resolved");
+    expect(aggregate.outputChannels.map((channel) => channel.selector)).toEqual(
+      [
+        "out:result.message.data",
+        "out:result.positions",
+        "out:result.positions[].source_label.data",
+        "out:result.positions[].line",
+        "out:result.positions[].column",
+      ],
+    );
+    expect(aggregate.outputChannels.map((channel) => channel.alias)).toEqual([
+      "result.message.data",
+      "result.positions",
+      "result.positions[].source_label.data",
+      "result.positions[].line",
+      "result.positions[].column",
+    ]);
+
+    const callback = rows.find((row) => row.name === "ex_worklet_callback")
+      .metadata.outputContract;
+    expect(callback.status).toBe("resolved");
+    expect(callback.outputChannels.map((channel) => channel.selector)).toEqual([
+      "[[return]]",
+      "callback:read_callback/0.slot",
+      "callback:read_callback/0.generation",
+      "callback:read_callback/0.epoch",
+      "callback:read_callback/2",
+    ]);
+    expect(
+      callback.parameters.find(
+        (parameter) => parameter.name === "read_callback",
+      ).callbackContract,
+    ).toMatchObject({
+      parameters: [
+        { direction: "native-to-embedder", valueKind: "aggregate" },
+        { direction: "embedder-to-native", valueKind: "scalar" },
+        { direction: "native-to-embedder", valueKind: "pointer" },
+      ],
+      return: {
+        direction: "embedder-to-native",
+        kind: "scalar",
+        role: "return",
+      },
+      status: "resolved",
+    });
   });
 
   test("duplicate native ABI definitions fail closed", () => {
@@ -873,9 +1250,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(idioms("Public.constructor")).toEqual([
       "exported-constructor-prototype",
     ]);
-    expect(idioms("Public.run")).toEqual([
-      "exported-constructor-prototype",
-    ]);
+    expect(idioms("Public.run")).toEqual(["exported-constructor-prototype"]);
   });
 
   test("member aliases inherit source-proven callable value shapes", () => {
@@ -926,9 +1301,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(evidence("read")).toEqual({
       ambiguousCallees: [],
       kind: "static-builtin-call-graph",
-      paths: [
-        "export:read -> read -> readImpl -> __exactReadFile",
-      ],
+      paths: ["export:read -> read -> readImpl -> __exactReadFile"],
       terminals: ["__exactReadFile"],
     });
     expect(evidence("Handle.read")).toEqual({
@@ -981,9 +1354,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       },
     );
     expect(
-      rows.find(
-        (row) => row.name === "export:node_wrapped_route:platform",
-      ).metadata.enforcementRouteEvidence,
+      rows.find((row) => row.name === "export:node_wrapped_route:platform")
+        .metadata.enforcementRouteEvidence,
     ).toEqual({
       ambiguousCallees: [],
       kind: "static-builtin-call-graph",
@@ -1001,9 +1373,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       },
     );
     expect(
-      opaque.find(
-        (row) => row.name === "export:node_opaque_wrapped_route:read",
-      ).metadata.enforcementRouteEvidence.terminals,
+      opaque.find((row) => row.name === "export:node_opaque_wrapped_route:read")
+        .metadata.enforcementRouteEvidence.terminals,
     ).toEqual([]);
   });
 
@@ -1035,10 +1406,23 @@ describe("LLP 0021 WP1 source surface inventory", () => {
           return Object.keys({safe: values.join(',')});
         }
         function dynamicReceiver() { return service.run(); }
+        var intrinsicRegistry = typeof WeakMap === 'function'
+          ? new WeakMap()
+          : null;
+        var mutableRegistry = new Map();
+        mutableRegistry = service;
+        function intrinsicRegistryRead() {
+          if (intrinsicRegistry) intrinsicRegistry.get(service);
+          return globalThis.__exactReadFile('/tmp/input');
+        }
+        function mutableRegistryRead() {
+          mutableRegistry.get('unsafe');
+          return globalThis.__exactReadFile('/tmp/input');
+        }
         module.exports = {
           shadowed, dynamicTerminal, computed, aliased,
           Reader, Writer, staticObject, mutableObject, intrinsic,
-          dynamicReceiver
+          dynamicReceiver, intrinsicRegistryRead, mutableRegistryRead
         };
       `,
       {
@@ -1047,9 +1431,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       },
     );
     const evidence = (name) =>
-      rows.find(
-        (row) => row.name === `export:node_route_mutations:${name}`,
-      ).metadata.enforcementRouteEvidence;
+      rows.find((row) => row.name === `export:node_route_mutations:${name}`)
+        .metadata.enforcementRouteEvidence;
     expect(evidence("shadowed").ambiguousCallees).toContain(
       "shadowed:__exactReadFile",
     );
@@ -1070,6 +1453,13 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       "dynamic-call-receiver:read",
     );
     expect(evidence("intrinsic").ambiguousCallees).toEqual([]);
+    expect(evidence("intrinsicRegistryRead")).toMatchObject({
+      ambiguousCallees: [],
+      terminals: ["__exactReadFile"],
+    });
+    expect(evidence("mutableRegistryRead").ambiguousCallees).toContain(
+      "dynamic-call-receiver:get",
+    );
   });
 
   test("builtin routes follow only immutable constructor and callable provenance", () => {
@@ -1108,22 +1498,17 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       },
     );
     const evidence = (name) =>
-      rows.find(
-        (row) => row.name === `export:node_route_provenance:${name}`,
-      ).metadata.enforcementRouteEvidence;
+      rows.find((row) => row.name === `export:node_route_provenance:${name}`)
+        .metadata.enforcementRouteEvidence;
     expect(evidence("construct").terminals).toEqual(["__exactOpenHandle"]);
-    expect(evidence("invokeWithCall").terminals).toEqual([
-      "__exactReadHandle",
-    ]);
+    expect(evidence("invokeWithCall").terminals).toEqual(["__exactReadHandle"]);
     expect(evidence("intrinsicCall").ambiguousCallees).toEqual([]);
     // Even a literal require can cross the package import gate when it runs
     // after builtin evaluation, so it remains a conservative route edge.
     expect(evidence("staticRequire").ambiguousCallees).toContain(
       "unresolved-call:require",
     );
-    expect(evidence("staticRequire").terminals).toEqual([
-      "__exactReadHandle",
-    ]);
+    expect(evidence("staticRequire").terminals).toEqual(["__exactReadHandle"]);
     expect(evidence("dynamicConstructor").ambiguousCallees).toContain(
       "unresolved-call:Constructor",
     );
@@ -1161,9 +1546,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       },
     );
     const evidence = (name) =>
-      rows.find(
-        (row) => row.name === `export:node_route_tampering:${name}`,
-      ).metadata.enforcementRouteEvidence;
+      rows.find((row) => row.name === `export:node_route_tampering:${name}`)
+        .metadata.enforcementRouteEvidence;
     expect(evidence("mutatedIntrinsic").ambiguousCallees).toContain(
       "dynamic-call-receiver:call",
     );
@@ -1197,8 +1581,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     );
     const evidence = rows.find(
       (row) =>
-        row.name ===
-        "export:node_route_function_tampering:mutatedFunctionCall",
+        row.name === "export:node_route_function_tampering:mutatedFunctionCall",
     ).metadata.enforcementRouteEvidence;
     expect(evidence.ambiguousCallees).toContain("dynamic-call-receiver:call");
     expect(evidence.terminals).toEqual([]);
@@ -1223,9 +1606,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       },
     );
     const evidence = (name) =>
-      rows.find(
-        (row) => row.name === `export:node_route_alternatives:${name}`,
-      ).metadata.enforcementRouteEvidence;
+      rows.find((row) => row.name === `export:node_route_alternatives:${name}`)
+        .metadata.enforcementRouteEvidence;
     expect(evidence("read").terminals).toEqual(["__exactReadHandle"]);
     expect(evidence("read").ambiguousCallees).toContain(
       "dynamic-callable-alternative:api.read",
@@ -1255,16 +1637,13 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       },
     );
     const evidence = (name) =>
-      rows.find(
-        (row) => row.name === `export:node_required_routes:${name}`,
-      ).metadata.enforcementRouteEvidence;
+      rows.find((row) => row.name === `export:node_required_routes:${name}`)
+        .metadata.enforcementRouteEvidence;
     expect(evidence("read").requiredExportCalls).toEqual([
       {
         exportName: "readFileSync",
         moduleSpecifier: "node:fs",
-        paths: [
-          "export:read -> read -> require:node:fs:readFileSync",
-        ],
+        paths: ["export:read -> read -> require:node:fs:readFileSync"],
       },
     ]);
     expect(evidence("tampered").requiredExportCalls).toBeUndefined();
@@ -1572,7 +1951,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       allowHyphenValues: false,
     };
     const manifest = {
-      version: 4,
+      version: 5,
       visibleCommands: ["run"],
       hiddenHarnessCommands: ["self-test"],
       reservedCommands: ["install"],
@@ -1601,6 +1980,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
               {
                 id: "mode",
                 names: ["--mode", "-m"],
+                global: true,
                 hiddenAliases: ["--legacy-mode"],
                 valueShape: shape,
               },
@@ -1643,6 +2023,11 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       rows.find((row) => row.name === "option-name:ibex:mode:--legacy-mode")
         .metadata,
     ).toMatchObject({ routeKind: "hidden-alias" });
+    expect(
+      rows.find((row) => row.name === "option:ibex:mode").metadata,
+    ).toMatchObject({
+      global: true,
+    });
 
     const drift = structuredClone(manifest);
     drift.clapSurface.commands[0].options[0].valueShape.unknownShape = true;
@@ -1654,6 +2039,68 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     missingParser.clapSurface.semanticRelations.nonEnumeratedParsers = [];
     expect(() => scanRuntimeCliSurfaces(missingParser)).toThrow(
       /every non-enumerated CLI argument must have exactly one reviewed parser relation/,
+    );
+  });
+
+  test("generated REPL commands, aliases, load dialects, and key controls are exact surfaces", () => {
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(repoRoot, "runtime-surface.json"), "utf8"),
+    );
+    const rows = scanRuntimeReplSurfaces(manifest);
+    expect(rows).toHaveLength(28);
+    expect(rows.map((row) => row.name)).toEqual(
+      expect.arrayContaining([
+        "repl-command-recognition:v1",
+        "repl-command:help",
+        "repl-command-alias:help:.h",
+        "repl-command:load",
+        "repl-load-extension:.d.ts",
+        "repl-load-extension:default",
+        "repl-keybinding:interrupt",
+        "repl-keybinding:suspend",
+      ]),
+    );
+    expect(
+      rows.find((row) => row.name === "repl-command:load").metadata,
+    ).toMatchObject({
+      evidenceType: "repl-command-route",
+      canonicalCommandId: "load",
+      commandName: ".load",
+      routeKind: "canonical",
+      sourceSubmission: "advance-on-source-request",
+      registryRelations: [
+        {
+          kind: "non-capability-rationale",
+          id: "authenticated-code-ingress",
+        },
+        { kind: "capability", id: "fs:list" },
+        { kind: "capability", id: "fs:read" },
+      ],
+    });
+    expect(
+      rows.find((row) => row.name === "repl-keybinding:interrupt").metadata,
+    ).toMatchObject({
+      action: "interrupt-machine",
+      bytes: [3],
+      countsAsEditorInput: false,
+    });
+
+    const duplicateAlias = structuredClone(manifest);
+    duplicateAlias.replSurface.commands[1].aliases.push(".h");
+    expect(() => scanRuntimeReplSurfaces(duplicateAlias)).toThrow(
+      /invalid or duplicate route/,
+    );
+
+    const duplicateControl = structuredClone(manifest);
+    duplicateControl.keybindingSurface.bindings[1].bytes = [9];
+    expect(() => scanRuntimeReplSurfaces(duplicateControl)).toThrow(
+      /invalid or duplicates a control/,
+    );
+
+    const unknownField = structuredClone(manifest);
+    unknownField.replSurface.commands[0].unreviewed = true;
+    expect(() => scanRuntimeReplSurfaces(unknownField)).toThrow(
+      /unreviewed fields: unreviewed/,
     );
   });
 
@@ -1681,9 +2128,265 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       exportName: "localStorage.getItem",
       globalName: "localStorage",
       moduleSpecifiers: [],
+      publicReadAccessSourceProven: true,
       sourceKey: "global_storage",
       surfaceType: "global-api",
+      valueShape: "callable",
     });
+    expect(
+      Object.fromEntries(
+        rows.map((row) => [
+          row.name,
+          [row.metadata.publicReadAccessSourceProven, row.metadata.valueShape],
+        ]),
+      ),
+    ).toEqual({
+      "global:localStorage": [true, "data"],
+      "global:localStorage.getItem": [true, "callable"],
+      "global:localStorage.length": [true, "accessor"],
+      "global:localStorage.setItem": [true, "callable"],
+    });
+  });
+
+  test("concrete IPC channel handles retain their parent and callable descendants", () => {
+    const fixtures = [
+      {
+        binding: "channelHandleKey",
+        owner: "process",
+        sourcePath: "src/engine/bootstrap/ipc-listener.js",
+      },
+      {
+        binding: "kChannelHandle",
+        owner: "globalThis.process",
+        conditionalGate: "EXACT_IPC_FD",
+        sourcePath: "src/engine/bootstrap/compat-polyfills.js",
+      },
+    ];
+    for (const fixture of fixtures) {
+      const rows = scanStaticGlobalApiSurfaces(
+        `
+          var ${fixture.binding} = '__exactKChannelHandle';
+          ${fixture.owner}[${fixture.binding}] = {
+            readStop: function() {},
+            readStart: function() {},
+            status: function() {}
+          };
+        `,
+        fixture.sourcePath,
+      );
+      const ownerName = "global:process.__exactKChannelHandle";
+      expect(rows.map((row) => row.name)).toEqual(
+        expect.arrayContaining([
+          ownerName,
+          `${ownerName}.readStart`,
+          `${ownerName}.readStop`,
+        ]),
+      );
+      expect(
+        rows.some((row) =>
+          /\[\[dynamic-table:(?:channel-handle-key|k-channel-handle)\]\]/u.test(
+            row.name,
+          ),
+        ),
+      ).toBe(false);
+      for (const row of rows.filter((candidate) =>
+        candidate.name.startsWith(ownerName),
+      )) {
+        expect(row.metadata).toMatchObject({
+          publicReadAccessSourceProven: true,
+          ...(fixture.conditionalGate
+            ? { conditionalGate: fixture.conditionalGate }
+            : {}),
+        });
+        expect(row.metadata.publicReadAccessSourceContract).toBeUndefined();
+      }
+      expect(
+        rows.find((row) => row.name === ownerName).metadata.valueShape,
+      ).toBe("data");
+      expect(
+        rows
+          .filter((row) => /\.read(?:Start|Stop)$/u.test(row.name))
+          .every((row) => row.metadata.valueShape === "callable"),
+      ).toBe(true);
+    }
+
+    const dynamicFamily = scanStaticGlobalApiSurfaces(
+      `
+        var channelFamily = globalThis.__exactKChannelHandleKey;
+        channelFamily = '__exactKChannelHandle';
+        globalThis.__exactKChannelHandleKey = channelFamily;
+        process[channelFamily] = { readStart: function() {} };
+      `,
+      "src/engine/bootstrap/ipc-listener.js",
+    );
+    const unresolvedRoot = "global:process.[[dynamic-table:channel-family]]";
+    expect(dynamicFamily.map((row) => row.name)).toEqual(
+      expect.arrayContaining([unresolvedRoot, `${unresolvedRoot}.readStart`]),
+    );
+    expect(
+      dynamicFamily.some(
+        (row) => row.name === "global:process.__exactKChannelHandle",
+      ),
+    ).toBe(false);
+    expect(
+      dynamicFamily
+        .filter((row) => row.name.startsWith(unresolvedRoot))
+        .every(
+          (row) =>
+            row.metadata.publicReadAccessSourceContract === undefined &&
+            row.metadata.publicReadAccessSourceProven === undefined,
+        ),
+    ).toBe(true);
+  });
+
+  test("reviewed process wrapper factories bind the exact lexical definition", () => {
+    const sourcePath = "src/engine/bootstrap/ipc-listener.js";
+    const fixture = ({
+      innerReturn = "return originalRegistrar.apply(this, arguments);",
+      outerReturn = "return {};",
+    } = {}) => `
+      function wrapSingleUseListener(originalRegistrar) {
+        ${outerReturn}
+      }
+      function installAsyncPatch() {
+        function wrapSingleUseListener(originalRegistrar) {
+          return function(event, listener) {
+            ${innerReturn}
+          };
+        }
+        process.once = wrapSingleUseListener(process.once);
+        process.prependOnceListener =
+          wrapSingleUseListener(process.prependOnceListener);
+      }
+      installAsyncPatch();
+    `;
+    const rows = scanStaticGlobalApiSurfaces(fixture(), sourcePath);
+    const wrappers = rows.filter((row) =>
+      new Set([
+        "global:process.once",
+        "global:process.prependOnceListener",
+      ]).has(row.name),
+    );
+    expect(wrappers).toHaveLength(2);
+    expect(
+      rows.some((row) =>
+        /^global:process\.(?:once|prependOnceListener)\.\[\[dynamic-table:call-result-/u.test(
+          row.name,
+        ),
+      ),
+    ).toBe(false);
+    for (const row of wrappers) {
+      const contract = row.metadata.factoryReturnedCallableSourceContract;
+      expect(row.metadata).toMatchObject({
+        publicReadAccessSourceProven: true,
+        valueShape: "callable",
+        factoryReturnedCallableSourceContract: {
+          factoryBindingKind: "function-declaration",
+          factoryName: "wrapSingleUseListener",
+          installedPath: row.metadata.exportName,
+          proofKind: "lexically-bound-factory-returned-function",
+          returnedValueShape: "callable",
+          schema: "ibex/factory-returned-callable-source-contract/1",
+          sourcePath,
+        },
+      });
+      for (const evidence of [
+        contract.callsiteEvidence,
+        contract.evidence,
+        contract.factoryDefinitionEvidence,
+      ]) {
+        expect(evidence).toMatch(/^sha256-[a-f0-9]{64}$/u);
+      }
+    }
+    const contracts = wrappers.map(
+      (row) => row.metadata.factoryReturnedCallableSourceContract,
+    );
+    expect(
+      new Set(contracts.map((contract) => contract.callsiteEvidence)).size,
+    ).toBe(2);
+    expect(
+      new Set(contracts.map((contract) => contract.factoryDefinitionEvidence))
+        .size,
+    ).toBe(1);
+    expect(new Set(contracts.map((contract) => contract.evidence)).size).toBe(
+      2,
+    );
+
+    const changedOuter = scanStaticGlobalApiSurfaces(
+      fixture({ outerReturn: "return function outerOnly() {};" }),
+      sourcePath,
+    ).filter((row) => row.metadata.factoryReturnedCallableSourceContract);
+    expect(
+      changedOuter.map(
+        (row) => row.metadata.factoryReturnedCallableSourceContract,
+      ),
+    ).toEqual(contracts);
+
+    const changedInner = scanStaticGlobalApiSurfaces(
+      fixture({ innerReturn: "return originalRegistrar.call(this, event);" }),
+      sourcePath,
+    ).filter((row) => row.metadata.factoryReturnedCallableSourceContract);
+    expect(
+      new Set(
+        changedInner.map(
+          (row) =>
+            row.metadata.factoryReturnedCallableSourceContract
+              .factoryDefinitionEvidence,
+        ),
+      ),
+    ).not.toEqual(
+      new Set(contracts.map((contract) => contract.factoryDefinitionEvidence)),
+    );
+  });
+
+  test("reviewed process wrapper factories reject shadowed, aliased, conditional, and dynamic calls", () => {
+    const sourcePath = "src/engine/bootstrap/ipc-listener.js";
+    const reviewedFactory = `
+      function wrapSingleUseListener(originalRegistrar) {
+        return function(event, listener) {
+          return originalRegistrar.apply(this, arguments);
+        };
+      }
+    `;
+    const adversarialSources = [
+      `${reviewedFactory}
+       function install(wrapSingleUseListener) {
+         process.once = wrapSingleUseListener(process.once);
+       }
+       install(getFactory());`,
+      `${reviewedFactory}
+       var alias = wrapSingleUseListener;
+       process.once = alias(process.once);`,
+      `${reviewedFactory}
+       process.once = enabled
+         ? wrapSingleUseListener(process.once)
+         : wrapSingleUseListener(process.once);`,
+      `function wrapSingleUseListener(originalRegistrar) {
+         return enabled
+           ? function() { return originalRegistrar.apply(this, arguments); }
+           : originalRegistrar;
+       }
+       process.once = wrapSingleUseListener(process.once);`,
+      `${reviewedFactory}
+       wrapSingleUseListener = getFactory();
+       process.once = wrapSingleUseListener(process.once);`,
+      `${reviewedFactory}
+       process.once = factories.wrapSingleUseListener(process.once);`,
+    ];
+    for (const source of adversarialSources) {
+      const rows = scanStaticGlobalApiSurfaces(source, sourcePath);
+      expect(
+        rows.find((row) => row.name === "global:process.once").metadata
+          .factoryReturnedCallableSourceContract,
+      ).toBeUndefined();
+      expect(
+        rows.some((row) =>
+          /^global:process\.once\.\[\[dynamic-table:call-result-[a-f0-9]{12}-properties\]\]$/u.test(
+            row.name,
+          ),
+        ),
+      ).toBe(true);
+    }
   });
 
   test("installed class expressions, class declarations, and util inheritance retain members", () => {
@@ -1746,6 +2449,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         ),
       ),
     ).toBe(true);
+    expect(
+      opaqueFactoryRows.find((row) => row.name.includes("[[dynamic-table:"))
+        ?.metadata.publicReadAccessSourceProven,
+    ).toBeUndefined();
     const duplicateRows = scanStaticGlobalApiSurfaces(
       "globalThis.Dynamic = unknownFactory(); globalThis.Dynamic = function Dynamic() {};",
       "src/engine/bootstrap/duplicate-dynamic.js",
@@ -1800,11 +2507,41 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       semanticRoles: ["dynamic-call-result-shape"],
     });
     const constructorRows = scanStaticGlobalApiSurfaces(
-      "globalThis.Constructor = (function() { function C() {} C.prototype.run = function() {}; return C; })();",
+      "globalThis.Constructor = (function() { function C() {} C.create = function() {}; C.prototype.run = function() {}; return C; })();",
       "src/engine/bootstrap/iife-constructor.js",
     );
     expect(
       constructorRows.some((row) =>
+        /^global:Constructor\.\[\[dynamic-table:call-result-[a-f0-9]{12}-properties\]\]$/u.test(
+          row.name,
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      constructorRows.map((row) => [row.name, row.metadata.valueShape]),
+    ).toEqual([
+      ["global:Constructor", "callable"],
+      ["global:Constructor.create", "callable"],
+      ["global:Constructor.prototype", "data"],
+      ["global:Constructor.prototype.run", "callable"],
+    ]);
+    const computedConstructorRows = scanStaticGlobalApiSurfaces(
+      "globalThis.Constructor = (function() { function C() {} C.prototype[getName()] = function() {}; return C; })();",
+      "src/engine/bootstrap/iife-constructor-computed.js",
+    );
+    expect(
+      computedConstructorRows.some((row) =>
+        /^global:Constructor\.\[\[dynamic-table:call-result-[a-f0-9]{12}-properties\]\]$/u.test(
+          row.name,
+        ),
+      ),
+    ).toBe(true);
+    const aliasedConstructorRows = scanStaticGlobalApiSurfaces(
+      "globalThis.Constructor = (function() { function C() {} var P = C.prototype; P.run = function() {}; return C; })();",
+      "src/engine/bootstrap/iife-constructor-aliased.js",
+    );
+    expect(
+      aliasedConstructorRows.some((row) =>
         /^global:Constructor\.\[\[dynamic-table:call-result-[a-f0-9]{12}-properties\]\]$/u.test(
           row.name,
         ),
@@ -1866,6 +2603,21 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       "global:API.open.[[return]].read",
       "global:API.open.[[return]].scoped",
       "global:API.status",
+    ]);
+    expect(
+      rows
+        .filter((row) => row.name !== "global:API")
+        .map((row) => [
+          row.name,
+          row.metadata.publicReadAccessSourceProven,
+          row.metadata.valueShape,
+        ]),
+    ).toEqual([
+      ["global:API.close", true, "callable"],
+      ["global:API.open", true, "callable"],
+      ["global:API.open.[[return]].read", true, "callable"],
+      ["global:API.open.[[return]].scoped", true, "callable"],
+      ["global:API.status", true, "callable"],
     ]);
 
     expect(() =>
@@ -1992,11 +2744,142 @@ describe("LLP 0021 WP1 source surface inventory", () => {
           .metadata.valueShape,
       ).toBe("data");
       expect(
-        first.find((row) => row.name === "global:exact.runtime.info")
-          .metadata.valueShape,
+        first.find((row) => row.name === "global:exact.runtime.info").metadata
+          .valueShape,
       ).toBe("callable");
     } finally {
       fs.rmSync(root, { force: true, recursive: true });
+    }
+  });
+
+  test("reviewed shared-runtime prefixes require exact membership or concrete owner reads", () => {
+    const root = makeRuntimeFixture({
+      "packages/ibex-runtime-js/src/runtime-entry.ts": `
+        import { installGlobals } from './bootstrap.js';
+        installGlobals();
+      `,
+      "packages/ibex-runtime-js/src/bootstrap.ts": `
+        export function installGlobals() {
+          const g = globalThis as any;
+          if (g.__exactLoadTimings) {
+            g.__exactLoadTimings.installGlobalsStart = 1;
+          }
+          const Intl = g.Intl;
+          if (typeof Intl.DateTimeFormat === 'function') {
+            const DTFProto = Intl.DateTimeFormat.prototype;
+            Object.defineProperty(DTFProto, 'formatToParts', {
+              value: function formatToParts() {},
+            });
+          }
+          if (Intl.Locale?.prototype) {
+            Object.defineProperty(Intl.Locale.prototype, 'textInfo', {
+              get: function textInfo() { return {}; },
+            });
+          }
+          if (typeof Intl.NumberFormat === 'function') {
+            const NFProto = Intl.NumberFormat.prototype;
+            Object.defineProperty(NFProto, 'formatToParts', {
+              value: function formatToParts() {},
+            });
+          }
+          const OriginalPromise = g.Promise;
+          OriginalPromise.prototype.then = function then() {};
+        }
+      `,
+    });
+    try {
+      const rows = scanSharedRuntimeGlobalSurfaces(root);
+      const contracts = rows.filter(
+        (row) => row.metadata.publicReadAccessSourceContract,
+      );
+      expect(contracts.map((row) => row.name)).toEqual([
+        "__exactLoadTimings",
+        "global:Intl.DateTimeFormat",
+        "global:Intl.DateTimeFormat.prototype",
+        "global:Intl.Locale.prototype",
+        "global:Intl.NumberFormat",
+        "global:Intl.NumberFormat.prototype",
+        "global:Promise.prototype",
+      ]);
+      expect(
+        Object.fromEntries(
+          contracts.map((row) => [
+            row.name,
+            [
+              row.metadata.valueShape,
+              row.metadata.publicReadAccessSourceContract.proofKinds,
+            ],
+          ]),
+        ),
+      ).toEqual({
+        __exactLoadTimings: ["data", ["concrete-member-owner"]],
+        "global:Intl.DateTimeFormat": [
+          "callable",
+          ["typeof-callable-membership"],
+        ],
+        "global:Intl.DateTimeFormat.prototype": [
+          "data",
+          ["concrete-member-owner"],
+        ],
+        "global:Intl.Locale.prototype": ["data", ["concrete-member-owner"]],
+        "global:Intl.NumberFormat": [
+          "callable",
+          ["typeof-callable-membership"],
+        ],
+        "global:Intl.NumberFormat.prototype": [
+          "data",
+          ["concrete-member-owner"],
+        ],
+        "global:Promise.prototype": ["data", ["concrete-member-owner"]],
+      });
+      expect(
+        contracts.every(
+          (row) =>
+            row.metadata.publicReadAccessSourceProven === true &&
+            row.metadata.publicReadAccessSourceContract.schema ===
+              "ibex/public-read-access-source-contract/1" &&
+            row.metadata.publicReadAccessSourceContract.presenceVariants.join(
+              ",",
+            ) === "absent,present",
+        ),
+      ).toBe(true);
+      expect(
+        contracts
+          .filter((row) => row.metadata.valueShape === "callable")
+          .every((row) => row.metadata.publicInvocation === undefined),
+      ).toBe(true);
+    } finally {
+      fs.rmSync(root, { force: true, recursive: true });
+    }
+
+    const noMembershipGuard = makeRuntimeFixture({
+      "packages/ibex-runtime-js/src/runtime-entry.ts": `
+        import { installGlobals } from './bootstrap.js';
+        installGlobals();
+      `,
+      "packages/ibex-runtime-js/src/bootstrap.ts": `
+        export function installGlobals() {
+          const g = globalThis as any;
+          const Intl = g.Intl;
+          Intl.DateTimeFormat.prototype.formatToParts = function() {};
+        }
+      `,
+    });
+    try {
+      const rows = scanSharedRuntimeGlobalSurfaces(noMembershipGuard);
+      expect(
+        rows.find((row) => row.name === "global:Intl.DateTimeFormat")?.metadata
+          .publicReadAccessSourceContract,
+      ).toBeUndefined();
+      expect(
+        rows.find((row) => row.name === "global:Intl.DateTimeFormat.prototype")
+          ?.metadata.publicReadAccessSourceContract,
+      ).toMatchObject({
+        proofKinds: ["concrete-member-owner"],
+        valueShape: "data",
+      });
+    } finally {
+      fs.rmSync(noMembershipGuard, { force: true, recursive: true });
     }
   });
 
@@ -2130,6 +3013,36 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       route: "native-jsi-global",
       targetVariant: "windows",
     });
+    expect(
+      rows
+        .filter((row) => !row.name.includes("[[dynamic-table:"))
+        .every((row) => row.metadata.publicReadAccessSourceProven === true),
+    ).toBe(true);
+  });
+
+  test("native JSI stdio accessor helpers retain concrete member provenance", () => {
+    const source = `
+      auto installStdioQueryAccessor = [](facebook::jsi::Object& stream,
+                                          int fd,
+                                          const char* name) {
+        defineProperty.call(rt, stream, name, descriptor);
+      };
+      facebook::jsi::Object stream(rt);
+      installStdioQueryAccessor(stream, 1, "isTTY");
+      installStdioQueryAccessor(stream, 1, "columns");
+      installStdioQueryAccessor(stream, 1, "rows");
+      facebook::jsi::Object processObj(rt);
+      processObj.setProperty(rt, "stdout", std::move(stream));
+      rt.global().setProperty(rt, "process", std::move(processObj));
+    `;
+    const rows = scanCppGlobalPropertySurfaces(source, "synthetic.cc");
+    expect(rows.map((row) => row.name)).toEqual([
+      "global:process",
+      "global:process.stdout",
+      "global:process.stdout.columns",
+      "global:process.stdout.isTTY",
+      "global:process.stdout.rows",
+    ]);
   });
 
   test("Exact defineProperty helper retains late-bound capability members", () => {
@@ -2170,25 +3083,43 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       sourceRef: "synthetic.cc#jsi-global:__exactDirect",
     });
     expect(
-      rows.find((row) => row.name === "global:namespaceObject.nested")
-        ?.metadata.publicInvocation,
+      rows.find((row) => row.name === "global:namespaceObject.nested")?.metadata
+        .publicInvocation,
+    ).toEqual({
+      arity: 4,
+      globalName: "namespaceObject.nested",
+      kind: "native-global-function",
+      sourceRef: "synthetic.cc#jsi-global:namespaceObject.nested",
+    });
+    const dynamicRows = scanCppGlobalPropertySurfaces(
+      `facebook::jsi::Object values(rt);
+       values.setProperty(rt, runtimeName, 1);
+       rt.global().setProperty(rt, "values", std::move(values));`,
+      "synthetic.cc",
+    );
+    expect(
+      dynamicRows.find((row) => row.name.includes("[[dynamic-table:"))?.metadata
+        .publicReadAccessSourceProven,
     ).toBeUndefined();
   });
 
   test("native environment enumeration exposes exact platform alternatives", () => {
     const source = `
+      void populateDiagnosticProcessEnvironment() {
+      #if defined(_WIN32)
+        GetEnvironmentStringsW();
+      #else
+      #if defined(__APPLE__)
+        _NSGetEnviron();
+      #else
+        auto envp = ::environ;
+      #endif
+      #endif
+      }
       auto getAllEnvFn = facebook::jsi::Function::createFromHostFunction(
         rt, facebook::jsi::PropNameID::forAscii(rt, "__exactGetAllEnv"), 0,
         [](facebook::jsi::Runtime&, const auto&, const auto*, size_t) {
-        #if defined(_WIN32)
-          GetEnvironmentStringsW();
-        #else
-        #if defined(__APPLE__)
-          _NSGetEnviron();
-        #else
-          auto envp = ::environ;
-        #endif
-        #endif
+          populateDiagnosticProcessEnvironment();
         });
       rt.global().setProperty(rt, "__exactGetAllEnv", std::move(getAllEnvFn));
     `;
@@ -2218,7 +3149,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(profiles.map((profile) => profile.id)).toEqual([
       "android-maven",
       "source-patched",
-      "windows-nuget",
+      "windows-source-patched",
     ]);
     expect(profiles.map((profile) => profile.targetVariant)).toEqual([
       "android",
@@ -2244,9 +3175,30 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       },
       {
         ...inputs,
+        hermesVersionText: inputs.hermesVersionText.replace(
+          "2399d266ed06c2a907f1ceb2606c0958a293751781f23774a292c438779c3285",
+          "0399d266ed06c2a907f1ceb2606c0958a293751781f23774a292c438779c3285",
+        ),
+      },
+      {
+        ...inputs,
+        hermesVersionText: inputs.hermesVersionText.replace(
+          "46fc1bfcb0a0aa2c79a81d7804105c88de7d2936fce31ca14aa4ba0e847869ee",
+          "06fc1bfcb0a0aa2c79a81d7804105c88de7d2936fce31ca14aa4ba0e847869ee",
+        ),
+      },
+      {
+        ...inputs,
         windowsInstallerText: inputs.windowsInstallerText.replace(
-          '[string]$Version = "0.71.1"',
-          '[string]$Version = "0.71.2"',
+          '"ccheever/ibex"',
+          '"example/reviewed-fork"',
+        ),
+      },
+      {
+        ...inputs,
+        windowsInstallerText: inputs.windowsInstallerText.replace(
+          "c6d2ba6bba442b44ce4f1d5c0e7eb2c9d3fcafe24765464e3a01607c0ccafadb4b028a4cb502e6779c7d0bf3c11d8e591d8a6150cbf9137aee70a2fe62371f74",
+          "06d2ba6bba442b44ce4f1d5c0e7eb2c9d3fcafe24765464e3a01607c0ccafadb4b028a4cb502e6779c7d0bf3c11d8e591d8a6150cbf9137aee70a2fe62371f74",
         ),
       },
       {
@@ -2273,6 +3225,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       {
         ...inputs,
         linuxSourceBuildText: `${inputs.linuxSourceBuildText}\n# reviewed consumer mutation\n`,
+      },
+      {
+        ...inputs,
+        windowsSourceBuildText: `${inputs.windowsSourceBuildText}\n# reviewed consumer mutation\n`,
       },
     ]) {
       const mutatedProfiles = scanHermesEvaluatorIdentityProfiles(mutated);
@@ -2306,6 +3262,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       [
         "linuxSourceBuildText",
         '"$SCRIPT_DIR/apply-hermes-patches.sh" "$SRC_DIR"',
+      ],
+      [
+        "windowsSourceBuildText",
+        "& bash $applyScriptUnix $sourceDirUnix",
       ],
     ]) {
       expect(() =>
@@ -2391,6 +3351,19 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(
       rows[0].metadata.branches.map((branch) => branch.targetVariant),
     ).toEqual(["android", "default"]);
+    expect(
+      rows.map((row) => [
+        row.name,
+        row.metadata.publicReadAccessSourceProven,
+        row.metadata.tamingKind,
+        row.metadata.valueShape,
+      ]),
+    ).toEqual([
+      ["global:AsyncFunction", true, "constructor", "callable"],
+      ["global:Function", true, "constructor", "callable"],
+      ["global:GeneratorFunction", true, "constructor", "callable"],
+      ["global:eval", true, "evaluator", "callable"],
+    ]);
 
     expect(() =>
       scanLockdownEvaluatorSurfaces(
@@ -2412,6 +3385,16 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         profiles,
       ),
     ).toThrow(/tamed-but-unreachable \[AsyncGeneratorFunction\]/u);
+    expect(() =>
+      scanLockdownEvaluatorSurfaces(
+        source.replace(
+          "makeTamed('eval');",
+          "makeTamed('Function'); makeTamed('eval');",
+        ),
+        "runtime.cc",
+        profiles,
+      ),
+    ).toThrow(/Function has conflicting taming shapes/u);
 
     const conditionalProfiles = syntheticHermesEvaluatorProfiles();
     conditionalProfiles[0] = {
@@ -2535,6 +3518,11 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         function load(specifier) {
           if (record.kind === 'builtin') return specifier;
           const kind = record.kind || 'cjs';
+          if (record.kind === 'cjs' && typeof record.source === 'string') {
+            return record.source;
+          }
+          if (principal.kind === 'root') return kind;
+          if (row.definingPrincipal.kind === 'package') return kind;
           return kind;
         }
         var importImpl = function(specifier) { return load(specifier); };
@@ -2603,6 +3591,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       }
       var localRequire = function() {};
       var moduleDynamicImport = function() {};
+      var moduleStaticImport = function() {};
       globalThis.require = function() {};
       globalThis.require.resolve = function() {};
       globalThis.__exactRequire = function() {};
@@ -2622,6 +3611,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         "entry:global-require",
         "entry:require-resolve",
         "entry:module-dynamic-import",
+        "entry:module-static-import",
       ]),
     );
 
@@ -2656,6 +3646,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(rows.map((row) => row.name)).toEqual(
       expect.arrayContaining([
         "route:resolution:rust:resolve",
+        "route:resolution:rust:resolve_meta_authenticated",
+        "route:resolution:rust:open_resolver_boundary",
+        "route:resolution:rust:canonicalize",
+        "route:resolution:rust:read_link",
         "route:load:rust:load_module_source",
         "route:cache:rust:ensure_transpile_cache_dir",
         "route:transform:rust:transpile_source_to_cjs",
@@ -2669,8 +3663,194 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         "transform-engine:swc",
       ]),
     );
+    for (const category of ["cache", "load", "resolution", "transform"]) {
+      expect(rows.map((row) => row.name)).toContain(
+        `route:${category}:rust:walk_transpile_tool_directory`,
+      );
+      for (const falsePositive of [
+        `operation:${category}:from_raw_fd`,
+        `operation:${category}:last_os_error`,
+        `route:${category}:rust:digest_file`,
+        `route:${category}:rust:directory_names`,
+        `route:${category}:rust:stamp`,
+        `route:${category}:rust:walk`,
+      ]) {
+        expect(rows.some((row) => row.name === falsePositive)).toBe(false);
+      }
+    }
+    for (const category of ["cache", "load", "transform"]) {
+      expect(
+        rows.some((row) => row.name === `operation:${category}:read_link`),
+      ).toBe(false);
+    }
+    for (const category of ["cache", "load", "subprocess", "transform"]) {
+      for (const authenticatedResolverOnly of [
+        "authenticated_module_resolve_options",
+        "authenticated_resolver_base_dir",
+        "bounded_unix_parent",
+        "bounded_unix_read_link",
+        "bounded_unix_symlink_metadata",
+        "boundary_root",
+        "canonicalize",
+        "duplicate_resolver_fd",
+        "file_system",
+        "inputs",
+        "lexical_absolute_path_for_resolver",
+        "manifest_input",
+        "metadata",
+        "module_resolve_options",
+        "new",
+        "normalize_in_boundary",
+        "normalized",
+        "open_resolver_boundary",
+        "parse_manifest",
+        "read",
+        "read_link",
+        "read_to_string",
+        "resolve_bounded_unix_path",
+        "resolve_builtin_meta",
+        "resolve_direct_file_meta_authenticated",
+        "resolve_meta_authenticated",
+        "resolve_meta_from_authenticated_bound_package",
+        "resolver_boundary_refusal",
+        "resolver_canonical_path",
+        "resolver_component_cstring",
+        "resolver_fstat",
+        "resolver_fstatat_nofollow",
+        "resolver_manifest_not_found",
+        "resolver_metadata_from_stat",
+        "resolver_open_directory_at",
+        "resolver_read_link_at",
+        "resolver_relative_components",
+        "resolver_stat_is_dir",
+        "resolver_stat_is_symlink",
+        "symlink_metadata",
+        "uncaptured_package_manifest_probes",
+      ]) {
+        expect(
+          rows.some(
+            (row) =>
+              row.name ===
+              `route:${category}:rust:${authenticatedResolverOnly}`,
+          ),
+          `${category}:${authenticatedResolverOnly}`,
+        ).toBe(false);
+      }
+    }
+    expect(rows.map((row) => row.name)).toContain(
+      "route:resolution:rust:resolve_builtin_meta",
+    );
     expect(rows.some((row) => row.name === "transform-engine:from_value")).toBe(
       false,
+    );
+    expect(rows.some((row) => row.name.endsWith(":rust:drop"))).toBe(false);
+    for (const category of ["cache", "load", "resolution", "transform"]) {
+      for (const accessor of [
+        "cache_tag",
+        "legacy_runtime_transform",
+        "runtime_transform",
+        "selected_engine_cache_tag",
+        "transpile_source_to_cjs",
+      ]) {
+        expect(
+          rows.map((row) => row.name),
+          `${category}:${accessor}`,
+        ).toContain(`route:${category}:rust:${accessor}`);
+      }
+    }
+    expect(
+      rows.find((row) => row.name === "route:load:rust:transpile_module")
+        .metadata.calleeDefinitions,
+    ).toEqual(
+      expect.arrayContaining([
+        "module_loader::CapturedModuleLoaderEnvironment::legacy_runtime_transform",
+        "module_loader::CapturedModuleLoaderEnvironment::runtime_transform",
+        "transpile::transpile_source_to_cjs",
+      ]),
+    );
+    expect(
+      rows.find(
+        (row) => row.name === "route:cache:rust:selected_engine_cache_tag",
+      ).metadata.calleeDefinitions,
+    ).toEqual(
+      expect.arrayContaining([
+        "transpile::TransformEngine::cache_tag",
+        "transpile::selected_transform_engine",
+      ]),
+    );
+    expect(
+      rows.find((row) => row.name === "route:resolution:rust:metadata").metadata
+        .calleeDefinitions,
+    ).toEqual(
+      expect.arrayContaining([
+        "module_loader::BoundedResolverFileSystem::manifest_input",
+        "module_loader::BoundedResolverFileSystem::normalized",
+        "module_loader::resolve_bounded_unix_path",
+      ]),
+    );
+    expect(
+      rows.find((row) => row.name === "route:resolution:rust:new").metadata
+        .definitions,
+    ).toEqual(["module_loader::AuthenticatedResolverInputs::new"]);
+    for (const callback of [
+      "canonicalize",
+      "metadata",
+      "read",
+      "read_link",
+      "read_to_string",
+      "symlink_metadata",
+    ]) {
+      expect(
+        rows.find((row) => row.name === `route:resolution:rust:${callback}`)
+          .metadata.definitions,
+        callback,
+      ).toEqual([
+        `module_loader::BoundedResolverFileSystem as ResolverFileSystem::${callback}`,
+      ]);
+    }
+    expect(
+      rows.find((row) => row.name === "route:resolution:rust:manifest_input")
+        .metadata.definitions,
+    ).toEqual([
+      "module_loader::AuthenticatedResolverInputs::manifest_input",
+      "module_loader::BoundedResolverFileSystem::manifest_input",
+    ]);
+    expect(
+      rows.find((row) => row.name === "route:resolution:rust:resolver_fstat")
+        .metadata.targetVariant,
+    ).toBe("posix");
+    expect(
+      rows.find((row) => row.name === "route:resolution:rust:metadata").metadata
+        .branches,
+    ).toEqual([
+      {
+        id: "descriptor-relative-posix",
+        implementationDisposition: "concrete",
+        targetVariant: "posix",
+      },
+      {
+        id: "windows-unsupported",
+        implementationDisposition: "unsupported-stub",
+        targetVariant: "windows",
+      },
+    ]);
+    expect(
+      rows.find(
+        (row) =>
+          row.name === "route:resolution:rust:authenticated_resolver_base_dir",
+      ).metadata.calleeDefinitions,
+    ).toEqual(
+      expect.arrayContaining([
+        "module_loader::BoundedResolverFileSystem as ResolverFileSystem::canonicalize",
+        "module_loader::BoundedResolverFileSystem as ResolverFileSystem::metadata",
+      ]),
+    );
+    expect(
+      rows.find(
+        (row) => row.name === "route:cache:rust:walk_transpile_tool_directory",
+      ).metadata.calleeDefinitions,
+    ).toContain(
+      "module_loader::capture_transpile_tool_directory::walk_transpile_tool_directory",
     );
     expect(
       rows.find((row) => row.name === "operation:cache:write").metadata
@@ -2681,6 +3861,151 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ).toContain(
       "src/module_loader/mod.rs#publish_transpile_artifact:external:qualified:std::fs::write:count-1",
     );
+    expect(
+      rows.find((row) => row.name === "external-calls:resolution").sourceRefs,
+    ).toContain(
+      "src/module_loader/mod.rs#duplicate_resolver_fd:external:qualified:libc::fcntl:count-1",
+    );
+    expect(
+      rows.find((row) => row.name === "operation:resolution:read").metadata
+        .qualifiedPaths,
+    ).toEqual(["qualified:std::fs::read"]);
+    expect(
+      rows.find((row) => row.name === "operation:resolution:metadata").metadata
+        .qualifiedPaths,
+    ).toEqual([
+      "method:DirEntry:metadata",
+      "method:File:metadata",
+      "qualified:libc::fstat",
+      "qualified:libc::fstatat",
+      "qualified:std::fs::metadata",
+    ]);
+    expect(
+      rows.find((row) => row.name === "operation:resolution:open").metadata
+        .qualifiedPaths,
+    ).toEqual(["qualified:libc::open", "qualified:libc::openat"]);
+    expect(
+      rows.find((row) => row.name === "operation:resolution:open").metadata
+        .targetVariant,
+    ).toBe("posix");
+    expect(
+      rows.find((row) => row.name === "operation:resolution:read_link")
+        .sourceRefs,
+    ).toContain(
+      "src/module_loader/mod.rs#resolver_read_link_at:operation:qualified:libc::readlinkat",
+    );
+    expect(
+      rows.find((row) => row.name === "operation:subprocess:status").metadata
+        .qualifiedPaths,
+    ).toEqual(["method:Command:status"]);
+
+    const receiverFixtureSource = `${fs
+      .readFileSync(path.join(repoRoot, "src/module_loader/mod.rs"), "utf8")
+      .replace(
+        "fn normalize_import_target(base: &Path, target: PathBuf) -> Option<PathBuf> {",
+        "fn normalize_import_target(base: &Path, target: PathBuf) -> Option<PathBuf> {\n    scanner_receiver_fixture();",
+      )
+      .replace(
+        ') -> Result<()> {\n    let private_environment = unique_tmp_path(&output.with_file_name("transpile-environment"));',
+        ') -> Result<()> {\n    runner_name.status();\n    let private_environment = unique_tmp_path(&output.with_file_name("transpile-environment"));',
+      )}
+fn scanner_receiver_fixture() {
+    scanner_receiver_positive();
+    scanner_receiver_negative();
+    scanner_receiver_ambiguous();
+}
+fn scanner_receiver_positive(
+    entry: DirEntry,
+    path: &Path,
+    path_buf: PathBuf,
+) {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    let file = options.open(path);
+    file.read();
+    file.metadata();
+    entry.metadata();
+    path_buf.as_path().canonicalize();
+    path_buf.canonicalize();
+    let command = Command::new(path);
+    command.status();
+}
+fn scanner_receiver_negative(
+    options: OpenOptions,
+    lock: RwLock<()>,
+    other: ArbitraryReceiver,
+) {
+    options.read();
+    lock.read();
+    other.read();
+    other.metadata();
+    other.canonicalize();
+    other.status();
+}
+fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>) {
+    let ambiguous = choose(OpenOptions::new(), File::from(fd_one));
+    ambiguous.read();
+    let tuple = (File::from(fd_two), lock);
+    tuple.metadata();
+    let wrapped = Some(File::from(fd_two));
+    wrapped.read();
+    wrapped.metadata();
+    let wrapped_postfix = File::from(fd_two).into_wrapper();
+    wrapped_postfix.read();
+    wrapped_postfix.metadata();
+    let wrapped_struct = Wrapper { inner: File::from(fd_two) };
+    wrapped_struct.read();
+    wrapped_struct.metadata();
+}
+`;
+    expect(
+      receiverFixtureSource.match(/scanner_receiver_fixture\(\);/gu),
+    ).toHaveLength(1);
+    expect(
+      receiverFixtureSource.match(/runner_name\.status\(\);/gu),
+    ).toHaveLength(1);
+    const receiverRows = scanRustLoaderRoutes([
+      {
+        sourcePath: "src/module_loader/mod.rs",
+        text: receiverFixtureSource,
+      },
+      {
+        sourcePath: "src/module_loader/transpile.rs",
+        text: fs.readFileSync(
+          path.join(repoRoot, "src/module_loader/transpile.rs"),
+          "utf8",
+        ),
+      },
+    ]);
+    const receiverOperationRefs = (operation) =>
+      receiverRows
+        .find((row) => row.name === `operation:resolution:${operation}`)
+        .sourceRefs.filter((sourceRef) =>
+          sourceRef.includes("scanner_receiver"),
+        );
+    expect(receiverOperationRefs("read")).toEqual([
+      "src/module_loader/mod.rs#scanner_receiver_positive:operation:method:File:read",
+    ]);
+    expect(receiverOperationRefs("metadata")).toEqual([
+      "src/module_loader/mod.rs#scanner_receiver_positive:operation:method:DirEntry:metadata",
+      "src/module_loader/mod.rs#scanner_receiver_positive:operation:method:File:metadata",
+    ]);
+    expect(receiverOperationRefs("canonicalize")).toEqual([
+      "src/module_loader/mod.rs#scanner_receiver_positive:operation:method:Path:canonicalize",
+      "src/module_loader/mod.rs#scanner_receiver_positive:operation:method:PathBuf:canonicalize",
+    ]);
+    expect(receiverOperationRefs("status")).toEqual([
+      "src/module_loader/mod.rs#scanner_receiver_positive:operation:method:Command:status",
+    ]);
+    const subprocessStatus = receiverRows.find(
+      (row) => row.name === "operation:subprocess:status",
+    );
+    expect(subprocessStatus.metadata.qualifiedPaths).toEqual([
+      "method:Command:status",
+    ]);
+    expect(subprocessStatus.sourceRefs).toEqual([
+      "src/module_loader/mod.rs#run_transpile_subprocess:operation:method:Command:status",
+    ]);
 
     const mutated = scanRustLoaderRoutes([
       {
@@ -2688,8 +4013,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         text: fs
           .readFileSync(path.join(repoRoot, "src/module_loader/mod.rs"), "utf8")
           .replace(
-            "std::fs::write(\n            stage.join(\"manifest.json\"),",
-            "std::fs::future_authority_call(\n            stage.join(\"manifest.json\"),",
+            'std::fs::write(\n            stage.join("manifest.json"),',
+            'std::fs::future_authority_call(\n            stage.join("manifest.json"),',
           ),
       },
       {
@@ -2705,11 +4030,40 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         (row) => row.name === "operation:cache:future_authority_call",
       ),
     ).toBe(true);
+    const ownerDecoy = scanRustLoaderRoutes([
+      {
+        sourcePath: "src/module_loader/mod.rs",
+        text: `${fs.readFileSync(
+          path.join(repoRoot, "src/module_loader/mod.rs"),
+          "utf8",
+        )}\nstruct UnrelatedResolver;\nimpl UnrelatedResolver { fn metadata(&self) {} fn normalized(&self) {} }\n`,
+      },
+      {
+        sourcePath: "src/module_loader/transpile.rs",
+        text: fs.readFileSync(
+          path.join(repoRoot, "src/module_loader/transpile.rs"),
+          "utf8",
+        ),
+      },
+    ]);
+    expect(
+      ownerDecoy.find((row) => row.name === "route:resolution:rust:metadata")
+        .metadata.definitions,
+    ).toEqual([
+      "module_loader::BoundedResolverFileSystem as ResolverFileSystem::metadata",
+    ]);
+    expect(
+      ownerDecoy.some((row) =>
+        row.metadata?.definitions?.some((definition) =>
+          definition.includes("UnrelatedResolver"),
+        ),
+      ),
+    ).toBe(false);
     expect(() =>
       scanRustLoaderRoutes([
         { sourcePath: "empty.rs", text: "fn resolve() {}" },
       ]),
-    ).toThrow(/Rust loader resolution root .* is absent/);
+    ).toThrow(/Rust loader resolution root .* expected one definition/);
   });
 
   test("CDP routes and fallback are structural and comment-safe", () => {
@@ -2992,11 +4346,35 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         {
           sourcePath: "runtime.rs",
           text: String.raw`
+            use std::process::Command;
             const PRIMARY: &str = "IBEX_MODE";
+            fn runtime_env(ibex_name: &str, legacy_name: &str) {
+              std::env::var(ibex_name);
+              std::env::var(legacy_name);
+            }
+            fn env_flag_enabled(name: &str) { std::env::var(name); }
+            fn timeout_from_env(name: &str) { std::env::var(name); }
             fn read(name: &str) {
               std::env::var(PRIMARY);
               std::env::var(name);
               runtime_env("IBEX_WATCH", "EXACT_WATCH");
+            }
+            fn child(dynamic_name: &str) {
+              let mut command = Command::new("runner");
+              command.env("IBEX_CHILD_EXPLICIT", "1");
+              command.env(dynamic_name, "1");
+              command.env_remove("IBEX_CHILD_REMOVED");
+              command.env_clear();
+              let _qualified = std::process::Command::new("other");
+            }
+          `,
+        },
+        {
+          sourcePath: "src/host/abi.rs",
+          text: String.raw`
+            fn capture_process_ipc_bootstrap() {
+              std::env::var("EXACT_IPC_FD");
+              std::env::var("EXACT_IPC_SERIALIZATION");
             }
           `,
         },
@@ -3005,11 +4383,17 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         {
           sourcePath: "native_android_networking.cc",
           text: String.raw`
+            extern char** environ;
             void init() {
+              char* copied = nullptr;
+              size_t copiedLength = 0;
+              _dupenv_s(&copied, &copiedLength, dynamicEnvironmentName);
               setenv("EXACT_ANDROID_FILES_DIR", files, 1);
               auto shell = getenvString("ComSpec");
               auto apple = _NSGetEnviron();
               auto posix = ::environ;
+              auto bare = environ;
+              consume(environ);
               auto windows = GetEnvironmentStringsW();
             }
           `,
@@ -3022,6 +4406,16 @@ describe("LLP 0021 WP1 source surface inventory", () => {
             }
           `,
         },
+        {
+          sourcePath: "hermes_runtime_internal.h",
+          text: String.raw`
+            bool env_flag_enabled(const char* env_name);
+            inline void observerDelay() {
+              const char* value = std::getenv(
+                  "IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS");
+            }
+          `,
+        },
       ],
     });
     expect(rows.map((row) => row.name)).toEqual(
@@ -3030,6 +4424,9 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         "env:<dynamic>:javascript:process[]",
         "env:<dynamic>:javascript:Object.defineProperty(process.env)",
         "env:<dynamic>:rust:env::var",
+        "env:<dynamic>:rust:Command::default_env",
+        "env:<dynamic>:rust:Command::env",
+        "env:<dynamic>:rust:Command::env_clear",
         "env:COMSPEC",
         "env:EXACT_ASSIGNED",
         "env:EXACT_ALIASED",
@@ -3042,7 +4439,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         "env:HOME",
         "env:IBEX_MODE",
         "env:IBEX_DESTRUCTURED",
+        "env:IBEX_CHILD_EXPLICIT",
+        "env:IBEX_CHILD_REMOVED",
         "env:IBEX_REFLECT_SET",
+        "env:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS",
         "env:IBEX_WATCH",
       ]),
     );
@@ -3065,6 +4465,20 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(
       rows.find((row) => row.name === "env:EXACT_QUIET").metadata.contexts,
     ).toEqual(["spawn-child-env"]);
+    for (const name of ["env:IBEX_CHILD_EXPLICIT", "env:IBEX_CHILD_REMOVED"]) {
+      expect(rows.find((row) => row.name === name).metadata.contexts).toEqual([
+        "spawn-child-env",
+      ]);
+    }
+    expect(
+      rows.find((row) => row.name === "env:<dynamic>:rust:Command::default_env")
+        .metadata.occurrences,
+    ).toHaveLength(2);
+    for (const name of ["env:EXACT_IPC_FD", "env:EXACT_IPC_SERIALIZATION"]) {
+      expect(rows.find((row) => row.name === name).metadata.contexts).toEqual([
+        "startup-input",
+      ]);
+    }
     for (const name of ["env:EXACT_ASSIGNED", "env:IBEX_REFLECT_SET"]) {
       expect(
         rows.find((row) => row.name === name).metadata.accessDirections,
@@ -3078,7 +4492,78 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       rows
         .filter((row) => row.name.startsWith("env:<dynamic>:cpp:"))
         .map((row) => row.metadata.accessors[0]),
-    ).toEqual(["::environ", "GetEnvironmentStringsW", "_NSGetEnviron"]);
+    ).toEqual([
+      "::environ",
+      "GetEnvironmentStringsW",
+      "_NSGetEnviron",
+      "_dupenv_s",
+      "environ",
+    ]);
+    expect(
+      rows.find((row) => row.name === "env:<dynamic>:cpp:environ").metadata
+        .occurrences,
+    ).toHaveLength(2);
+    expect(
+      rows.some((row) => row.name === "env:<dynamic>:cpp:env_flag_enabled"),
+    ).toBe(false);
+    expect(
+      rows.some((row) =>
+        new Set([
+          "env:<dynamic>:rust:env_flag_enabled",
+          "env:<dynamic>:rust:runtime_env",
+          "env:<dynamic>:rust:timeout_from_env",
+        ]).has(row.name),
+      ),
+    ).toBe(false);
+    for (const row of rows) {
+      expect(row.metadata.occurrences.length, row.name).toBeGreaterThan(0);
+      expect(
+        [
+          ...new Set(
+            row.metadata.occurrences.map((occurrence) => occurrence.sourceRef),
+          ),
+        ].sort(),
+        row.name,
+      ).toEqual(row.sourceRefs);
+    }
+  });
+
+  test("private session worker bootstrap retains both implementation constants", () => {
+    const row = scanPrivateSessionWorkerBootstrap(String.raw`
+      pub(crate) const WORKER_BOOTSTRAP_ARG: &str = "__ibex-session-worker-v1";
+      pub(crate) const WORKER_BOOTSTRAP_SURFACE_ID: &str =
+          "private:ibex:session-worker-bootstrap:v1";
+    `);
+    expect(row).toMatchObject({
+      kind: "startup",
+      name: "private:ibex:session-worker-bootstrap:v1",
+      metadata: {
+        argument: "__ibex-session-worker-v1",
+        evidenceType: "private-session-worker-bootstrap",
+        javascriptReachability: "none",
+        visibility: "private-supervisor-worker",
+      },
+    });
+    expect(row.sourceRefs).toEqual([
+      "src/bin/ibex/session_worker.rs#WORKER_BOOTSTRAP_ARG",
+      "src/bin/ibex/session_worker.rs#WORKER_BOOTSTRAP_SURFACE_ID",
+    ]);
+    for (const [from, to] of [
+      ["__ibex-session-worker-v1", "--public-worker"],
+      [
+        "private:ibex:session-worker-bootstrap:v1",
+        "private:ibex:session-worker-bootstrap:v2",
+      ],
+    ]) {
+      expect(() =>
+        scanPrivateSessionWorkerBootstrap(
+          String.raw`
+            pub(crate) const WORKER_BOOTSTRAP_ARG: &str = "__ibex-session-worker-v1";
+            pub(crate) const WORKER_BOOTSTRAP_SURFACE_ID: &str = "private:ibex:session-worker-bootstrap:v1";
+          `.replace(from, to),
+        ),
+      ).toThrow(/private worker bootstrap/u);
+    }
   });
 
   test("process values crossing complex bindings remain visible to the environment inventory", () => {
@@ -3134,6 +4619,11 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       "src/fixtures/runtime.ts",
       "packages/ibex-devtools/src/runtime.ts",
       "src/bin/ibex/compat/mod.rs",
+      "src/bin/ibex/engine/capsec_builtin_effects_output_batch.test.rs",
+      "src/bin/ibex/engine/capsec_builtin_noncap_closed_output_batch.test.rs",
+      "src/bin/ibex/engine/capsec_closed_control_output_batch.test.rs",
+      "src/bin/ibex/engine/capsec_global_callable_batch.test.rs",
+      "src/bin/ibex/engine/capsec_output_shape_sweep_batch.test.rs",
       "build.rs",
     ]) {
       expect(isRuntimeEnvironmentSourceAllowed(sourcePath)).toBe(false);
@@ -3293,6 +4783,91 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     }
   });
 
+  test("fixed callback control boundaries are explicit and fail closed", () => {
+    const definition = {
+      kind: "callback",
+      name: "test-control",
+      callbackOutputBoundary: "none",
+      evidence: [
+        {
+          type: "javascript-function",
+          file: "implementation.js",
+          symbol: "load",
+          role: "implementation",
+        },
+      ],
+    };
+    expect(fixedRuntimeSurfaceInventory([definition])).toEqual([
+      {
+        kind: "callback",
+        name: "test-control",
+        observedKey: "callback:test-control",
+        sourceRefs: ["implementation.js#load"],
+        metadata: { callbackOutputBoundary: "none" },
+      },
+    ]);
+
+    expect(() =>
+      fixedRuntimeSurfaceInventory([
+        { ...definition, callbackOutputBoundary: "payload" },
+      ]),
+    ).toThrow(/invalid callbackOutputBoundary "payload"/);
+    expect(() =>
+      fixedRuntimeSurfaceInventory([{ ...definition, kind: "loader" }]),
+    ).toThrow(/invalid callbackOutputBoundary "none"/);
+
+    const outputContract = {
+      direction: "native-to-javascript",
+      returnVariant: "success",
+      role: "payload",
+      selector: "callback:resolve/0",
+      sourceRefs: ["implementation.js#load"],
+      valueShape: "string",
+    };
+    const outputDefinition = {
+      kind: "callback",
+      name: "test-output",
+      callbackOutputContracts: [outputContract],
+      evidence: definition.evidence,
+    };
+    expect(fixedRuntimeSurfaceInventory([outputDefinition])).toEqual([
+      {
+        kind: "callback",
+        name: "test-output",
+        observedKey: "callback:test-output",
+        sourceRefs: ["implementation.js#load"],
+        metadata: {
+          callbackOutputContractSchema: CALLBACK_OUTPUT_CONTRACT_SCHEMA,
+          callbackOutputContracts: [outputContract],
+        },
+      },
+    ]);
+
+    for (const callbackOutputContracts of [
+      [{ ...outputContract, selector: "callback:resolve" }],
+      [{ ...outputContract, valueShape: "no-arguments" }],
+      [{ ...outputContract, sourceRefs: ["implementation.js#missing"] }],
+      [outputContract, structuredClone(outputContract)],
+      [{ ...outputContract, unexpected: true }],
+    ]) {
+      expect(() =>
+        fixedRuntimeSurfaceInventory([
+          { ...outputDefinition, callbackOutputContracts },
+        ]),
+      ).toThrow(
+        /callback output|expected exact keys|unreviewed fields|validated fixed evidence/,
+      );
+    }
+    expect(() =>
+      fixedRuntimeSurfaceInventory([{ ...outputDefinition, kind: "loader" }]),
+    ).toThrow(/callbackOutputContracts require callback kind/);
+    expect(() =>
+      fixedRuntimeSurfaceInventory([
+        { ...outputDefinition, callbackOutputBoundary: "none" },
+      ]),
+    ).toThrow(/mutually exclusive/);
+  });
+
   test("callback producer and startup discovery is structural and exact-counted", () => {
     const rows = scanNativeLifecycleSurfaces(
       String.raw`
@@ -3434,6 +5009,91 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       ),
     ).toBe(true);
     expect(
+      rows
+        .filter((row) => row.metadata?.callbackOutputBoundary === "none")
+        .map((row) => row.name),
+    ).toEqual([
+      "microtask-drain",
+      "native-principal-restore",
+      "next-tick-drain",
+      "queue-drain",
+      "queue-enqueue",
+      "timer-invoke",
+      "watchdog-heartbeat",
+      "websocket-context-release",
+      "worklet-scheduled-drain",
+    ]);
+    expect(
+      rows
+        .filter(
+          (row) =>
+            row.metadata?.callbackOutputContractSchema ===
+            CALLBACK_OUTPUT_CONTRACT_SCHEMA,
+        )
+        .map((row) => row.name),
+    ).toEqual([
+      "android-animation-frame",
+      "android-platform-event",
+      "dns-async-delivery",
+      "exact-host-call-async-resolve",
+      "fetch-delivery",
+      "filesystem-async-delivery",
+      "host-call-async-resolve",
+      "http-wait-delivery",
+      "http-writable-delivery",
+      "ios-dispatch",
+      "ios-dispatch-debug-context",
+      "ios-module-dispatch",
+      "ios-module-sync",
+      "signal-delivery",
+      "websocket-binary-delivery",
+      "websocket-bytes-sent-delivery",
+      "websocket-close-delivery",
+      "websocket-error-delivery",
+      "websocket-open-delivery",
+      "websocket-text-delivery",
+      "worklet-measure",
+    ]);
+    expect(
+      rows
+        .filter((row) => row.kind === "callback")
+        .every(
+          (row) =>
+            row.metadata?.callbackOutputBoundary === "none" ||
+            row.metadata?.callbackOutputContractSchema ===
+              CALLBACK_OUTPUT_CONTRACT_SCHEMA,
+        ),
+    ).toBe(true);
+    expect(
+      rows
+        .flatMap((row) => row.metadata?.callbackOutputContracts ?? [])
+        .some((contract) => contract.valueShape === "no-arguments"),
+    ).toBe(false);
+    expect(
+      rows.find((row) => row.name === "signal-delivery")?.metadata
+        ?.callbackOutputContracts,
+    ).toEqual([
+      {
+        direction: "native-to-javascript",
+        returnVariant: "signal-name",
+        role: "payload",
+        selector: "callback:process-listener/0",
+        sourceRefs: [
+          "src/engine/bootstrap/stream-enhance.js#__exactDispatchPendingSignals",
+        ],
+        valueShape: "string",
+      },
+    ]);
+    expect(
+      rows
+        .find((row) => row.name === "android-platform-event")
+        ?.metadata?.callbackOutputContracts.every((contract) =>
+          contract.sourceRefs.includes(
+            "src/engine/hermes_runtime_android.cc#dispatchAndroidPlatformEvents",
+          ),
+        ),
+    ).toBe(true);
+    expect(
       rows.some(
         (row) => row.observedKey === "startup:capability-hardening-seal",
       ),
@@ -3443,15 +5103,68 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         (row) => row.observedKey === "native-op:inspector.debugger-enable",
       ),
     ).toBe(true);
+    expect(
+      rows.find(
+        (row) =>
+          row.observedKey ===
+          "startup:supervisor-history.authenticated-project-scope",
+      ),
+    ).toEqual({
+      kind: "startup",
+      name: "supervisor-history.authenticated-project-scope",
+      observedKey: "startup:supervisor-history.authenticated-project-scope",
+      sourceRefs: [
+        "src/bin/ibex/history.rs#derive_authenticated_project_history_scope",
+      ],
+    });
+    expect(
+      rows.find(
+        (row) =>
+          row.observedKey ===
+          "startup:supervisor-history.global-platform-data-root",
+      )?.sourceRefs,
+    ).toEqual([
+      "src/bin/ibex/history.rs#capture_global_history_platform_data_root",
+    ]);
+  });
+
+  test("supervisor history fixed refs are exact structural Rust functions", () => {
+    const file = "src/bin/ibex/history.rs";
+    const candidates = scanFixedRuntimeEvidenceCandidates(
+      fs.readFileSync(path.join(repoRoot, file), "utf8"),
+      file,
+    );
+    const symbols = [
+      "acquire_history_sidecar_lock",
+      "append_history_journal",
+      "capture_global_history_platform_data_root",
+      "capture_project_history_platform_data_root",
+      "compact_history_journal_locked",
+      "derive_authenticated_project_history_scope",
+      "legacy_history_present",
+      "load_or_create_history_user_key",
+      "open_history_store",
+      "recover_history_journal_locked",
+    ];
+    for (const symbol of symbols) {
+      expect(
+        candidates.find(
+          (row) =>
+            row.type === "rust-function" &&
+            row.sourceRef === `${file}#${symbol}`,
+        ),
+        symbol,
+      ).toMatchObject({ occurrenceCount: 1 });
+    }
   });
 
   test("every live fixed reference joins one exact structural definition", () => {
     const rows = fixedRuntimeSurfaceInventory();
-    expect(rows).toHaveLength(73);
+    expect(rows).toHaveLength(92);
     expect(() => validateFixedRuntimeSurfaceRefs(repoRoot, rows)).not.toThrow();
   });
 
-  test("live lifecycle discovery preserves macro-obscured installer routes", () => {
+  test("live lifecycle discovery preserves the explicit installGlobals route", () => {
     const rows = scanNativeLifecycleSurfaces(
       fs.readFileSync(
         path.join(repoRoot, "src/engine/hermes_runtime.cc"),
@@ -3462,13 +5175,12 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(
       rows.find(
         (row) =>
-          row.name ===
-          "install-route:translation-unit-fallback:installOsInfoGlobals",
+          row.name === "install-route:installGlobals:installOsInfoGlobals",
       )?.metadata,
     ).toMatchObject({
-      caller: "translation-unit-fallback",
+      caller: "installGlobals",
       installer: "installOsInfoGlobals",
-      structuralFallback: "translation-unit",
+      occurrenceCount: 1,
     });
   });
 
@@ -3528,12 +5240,12 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     const inheritedRows = exports.filter(
       (row) => row.metadata.inheritedShape === true,
     );
-    expect(inheritedRows).toHaveLength(455);
+    expect(inheritedRows).toHaveLength(454);
     expect(
       new Set(inheritedRows.map((row) => row.metadata.inheritedShapeReviewId)),
     ).toEqual(
       new Set([
-        "sha256-92e80596e19cbd5fa2167c0374f84e695fb493ad9caa022e5ef97d48c80a7a04",
+        "sha256-a38490336f46e4dd2791e1e1fa14a1164d7c0da99f2670894ded67a33d8d1e2c",
       ]),
     );
     expect(
@@ -3544,8 +5256,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ).toBe(true);
     expect(
       exports.find(
-        (row) =>
-          row.name === "export:internal_fs_utils:toPathIfFileURL",
+        (row) => row.name === "export:internal_fs_utils:toPathIfFileURL",
       )?.metadata,
     ).toMatchObject({
       bootstrapInternalModuleSpecifiers: ["internal/fs/utils"],
@@ -3554,9 +5265,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       publicModuleSpecifiers: [],
     });
     expect(
-      exports.find(
-        (row) => row.name === "export:node_fs_promises:readFile",
-      )?.metadata,
+      exports.find((row) => row.name === "export:node_fs_promises:readFile")
+        ?.metadata,
     ).toMatchObject({
       importReachability: "public",
       moduleSpecifiers: [
@@ -3573,9 +5283,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       ],
     });
     expect(
-      exports.find(
-        (row) => row.name === "export:node_fs_promises:writeFile",
-      )?.metadata.enforcementRouteEvidence,
+      exports.find((row) => row.name === "export:node_fs_promises:writeFile")
+        ?.metadata.enforcementRouteEvidence,
     ).toMatchObject({
       requiredExportCalls: [
         {
@@ -3583,10 +5292,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
           moduleSpecifier: "node:fs",
         },
       ],
-      terminals: expect.arrayContaining([
-        "__exactFsOpen",
-        "__exactFsWrite",
-      ]),
+      terminals: expect.arrayContaining(["__exactFsOpen", "__exactFsWrite"]),
     });
     expect(
       exports.find(
@@ -3596,9 +5302,86 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       )?.metadata.exportIdioms,
     ).toContain("closed-dynamic-table:signal-number-overlay");
     expect(exports.every((row) => row.sourceRefs.length > 0)).toBe(true);
+  }, 15_000);
+
+  test("principal environment Proxy inventory binds its facade, traps, and native routes", () => {
+    const sourcePath = "packages/ibex-runtime-js/src/node/process.ts";
+    const source = fs.readFileSync(path.join(repoRoot, sourcePath), "utf8");
+    const contract = scanPrincipalEnvironmentOverlayProxy(source, sourcePath);
+
+    expect(contract).toMatchObject({
+      schema: PRINCIPAL_ENVIRONMENT_OVERLAY_SOURCE_CONTRACT_SCHEMA,
+      surfaceName: PRINCIPAL_ENVIRONMENT_OVERLAY_SURFACE_NAME,
+      dynamicMember: PRINCIPAL_ENVIRONMENT_OVERLAY_DYNAMIC_MEMBER,
+      globalPath: "process.env",
+      binding: {
+        factory: "createEnvProxy",
+        member: "Process.prototype.env",
+        sourceRef: `${sourcePath}#Process.prototype.env`,
+      },
+      factory: {
+        name: "createEnvProxy",
+        sourceRef: `${sourcePath}#createEnvProxy`,
+      },
+      nativeBridges: ["__exactGetAllEnv", "__exactGetEnv", "__exactSetEnv"],
+      proxyTraps: [
+        {
+          name: "deleteProperty",
+          nativeBridges: ["__exactSetEnv"],
+        },
+        {
+          name: "get",
+          nativeBridges: ["__exactGetAllEnv", "__exactGetEnv"],
+        },
+        {
+          name: "ownKeys",
+          nativeBridges: ["__exactGetAllEnv", "__exactGetEnv"],
+        },
+        { name: "set", nativeBridges: ["__exactSetEnv"] },
+      ],
+    });
+    expect(contract.sourceRefs).toEqual(
+      expect.arrayContaining([
+        `${sourcePath}#Process.prototype.env`,
+        `${sourcePath}#createEnvProxy:Proxy.deleteProperty`,
+        `${sourcePath}#createEnvProxy:Proxy.get`,
+        `${sourcePath}#createEnvProxy:Proxy.ownKeys`,
+        `${sourcePath}#createEnvProxy:Proxy.set`,
+      ]),
+    );
+
+    for (const [label, mutated] of [
+      [
+        "facade binding",
+        source.replace(
+          "readonly env: Record<string, string | undefined> = createEnvProxy();",
+          "readonly env: Record<string, string | undefined> = {};",
+        ),
+      ],
+      [
+        "scalar read route",
+        source.replace("value = __exactGetEnv(key);", "value = undefined;"),
+      ],
+      [
+        "write route",
+        source.replace(
+          "setPrincipalOverlay(key, normalized);",
+          "void normalized;",
+        ),
+      ],
+      [
+        "delete route",
+        source.replace("setPrincipalOverlay(key, undefined);", "void key;"),
+      ],
+    ]) {
+      expect(
+        () => scanPrincipalEnvironmentOverlayProxy(mutated, sourcePath),
+        label,
+      ).toThrow(/principal environment|process\.env|Process\.env/u);
+    }
   });
 
-  test("live shared-runtime authority includes the reviewed roots, members, and opaque overlays", () => {
+  test("live shared-runtime authority includes the reviewed roots and closed members", () => {
     expect(REVIEWED_SHARED_RUNTIME_ROOTS.length).toBeGreaterThan(0);
     expect(new Set(REVIEWED_SHARED_RUNTIME_ROOTS).size).toBe(
       REVIEWED_SHARED_RUNTIME_ROOTS.length,
@@ -3614,7 +5397,6 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(rows.map((row) => row.name)).toEqual(
       expect.arrayContaining([
         "__exactMemoryDebug.snapshot",
-        "__exactHostNavigator.[[dynamic-table:host-navigator-properties]]",
         "global:BroadcastChannel.postMessage",
         "global:BroadcastChannel.addEventListener",
         "global:Buffer.from",
@@ -3632,16 +5414,89 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         "global:WebSocket.send",
         "global:WebSocket.addEventListener",
         "global:exact.runtime.info",
-        "global:process.[[dynamic-table:host-process-own-properties]]",
-        "global:process.[[dynamic-table:host-process-prototype-properties]]",
         "global:process.chdir",
-        "global:process.env.[[dynamic-table:host-process-env-properties]]",
+        PRINCIPAL_ENVIRONMENT_OVERLAY_SURFACE_NAME,
       ]),
     );
+    expect(
+      rows.find(
+        (row) => row.name === PRINCIPAL_ENVIRONMENT_OVERLAY_SURFACE_NAME,
+      ),
+    ).toMatchObject({
+      observedKey: `native-op:${PRINCIPAL_ENVIRONMENT_OVERLAY_SURFACE_NAME}`,
+      metadata: {
+        exportName: `process.env.${PRINCIPAL_ENVIRONMENT_OVERLAY_DYNAMIC_MEMBER}`,
+        globalName: "process",
+        memberKinds: ["dynamic-table"],
+        memberName: `env.${PRINCIPAL_ENVIRONMENT_OVERLAY_DYNAMIC_MEMBER}`,
+        principalEnvironmentOverlaySourceContract: {
+          schema: PRINCIPAL_ENVIRONMENT_OVERLAY_SOURCE_CONTRACT_SCHEMA,
+          nativeBridges: ["__exactGetAllEnv", "__exactGetEnv", "__exactSetEnv"],
+        },
+        semanticRoles: [
+          "principal-environment-overlay",
+          "runtime-property-overlay",
+        ],
+        sourceKey: "shared_runtime",
+        surfaceType: "global-api",
+      },
+    });
+    expect(
+      rows
+        .map((row) => row.name)
+        .filter((name) =>
+          new Set([
+            "global:process.[[dynamic-table:host-process-own-properties]]",
+            "global:process.[[dynamic-table:host-process-prototype-properties]]",
+          ]).has(name),
+        ),
+    ).toEqual([]);
     expect(
       rows.find((row) => row.name === "global:Request.arrayBuffer").metadata
         .memberKinds,
     ).toContain("inherited");
+    expect(
+      rows.find((row) => row.name === "global:Request.arrayBuffer").metadata
+        .publicReadAccessSourceProven,
+    ).toBe(true);
+    expect(
+      rows
+        .filter((row) => row.metadata.publicReadAccessSourceContract)
+        .map((row) => row.name),
+    ).toEqual([
+      "__exactLoadTimings",
+      "global:Intl.DateTimeFormat",
+      "global:Intl.DateTimeFormat.prototype",
+      "global:Intl.Locale.prototype",
+      "global:Intl.NumberFormat",
+      "global:Intl.NumberFormat.prototype",
+      "global:Promise.prototype",
+    ]);
+    expect(
+      rows
+        .filter((row) =>
+          new Set([
+            "global:Intl.DateTimeFormat",
+            "global:Intl.NumberFormat",
+          ]).has(row.name),
+        )
+        .every(
+          (row) =>
+            row.metadata.valueShape === "callable" &&
+            row.metadata.publicInvocation === undefined &&
+            row.metadata.publicReadAccessSourceContract.proofKinds.join(",") ===
+              "typeof-callable-membership",
+        ),
+    ).toBe(true);
+    expect(
+      rows
+        .filter((row) => row.name.includes("[[dynamic-table:"))
+        .every(
+          (row) =>
+            row.metadata.publicReadAccessSourceProven === undefined &&
+            row.metadata.publicReadAccessSourceContract === undefined,
+        ),
+    ).toBe(true);
     expect(
       rows.every((row) =>
         row.sourceRefs.every(
@@ -3704,18 +5559,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       "src/engine/hermes_runtime_process_setup.cc",
     );
     expect(
-      evaluatedProcessRows.find(
+      evaluatedProcessRows.some(
         (row) => row.name === "global:process.exit.__exactHostExit",
       ),
-    ).toMatchObject({
-      sourceRefs: [
-        "src/engine/hermes_runtime_process_setup.cc#embedded:markerBuffer:process.exit.__exactHostExit",
-      ],
-      metadata: {
-        evaluatedScript: "markerBuffer",
-        sourceUrls: ["<process-exit-marker>"],
-      },
-    });
+    ).toBe(false);
     expect(
       evaluatedProcessRows
         .filter(
@@ -3842,6 +5689,13 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       ),
       "src/engine/bootstrap/compat-polyfills.js",
     );
+    const ipcListenerRows = scanStaticGlobalApiSurfaces(
+      fs.readFileSync(
+        path.join(repoRoot, "src/engine/bootstrap/ipc-listener.js"),
+        "utf8",
+      ),
+      "src/engine/bootstrap/ipc-listener.js",
+    );
     expect(compatRows.map((row) => row.name)).toEqual(
       expect.arrayContaining([
         "global:process.channel",
@@ -3864,6 +5718,21 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       ],
     });
     expect(
+      compatRows.find(
+        (row) => row.name === "global:process.__exactKChannelHandle",
+      ).metadata,
+    ).toMatchObject({
+      conditionalGate: "EXACT_IPC_FD",
+      publicReadAccessSourceProven: true,
+      valueShape: "data",
+      branches: [
+        expect.objectContaining({
+          route: "legacy-bootstrap-ipc",
+          targetVariant: "conditional:EXACT_IPC_FD",
+        }),
+      ],
+    });
+    expect(
       compatRows.find((row) => row.name === "global:ok").metadata,
     ).toMatchObject({
       conditionalGate: "EXACT_COMPAT_TEST",
@@ -3875,6 +5744,57 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         }),
       ],
     });
+    for (const rows of [ipcListenerRows, compatRows]) {
+      expect(
+        rows.some((row) =>
+          /\[\[dynamic-table:(?:channel-handle-key|k-channel-handle)\]\]/u.test(
+            row.name,
+          ),
+        ),
+      ).toBe(false);
+      const handleRows = rows.filter((row) =>
+        row.name.startsWith("global:process.__exactKChannelHandle"),
+      );
+      expect(handleRows.map((row) => row.name)).toEqual(
+        expect.arrayContaining([
+          "global:process.__exactKChannelHandle",
+          "global:process.__exactKChannelHandle.readStart",
+          "global:process.__exactKChannelHandle.readStop",
+        ]),
+      );
+      expect(
+        handleRows.every(
+          (row) => row.metadata.publicReadAccessSourceProven === true,
+        ),
+      ).toBe(true);
+      expect(
+        handleRows
+          .filter((row) => /\.read(?:Start|Stop)$/u.test(row.name))
+          .every((row) => row.metadata.valueShape === "callable"),
+      ).toBe(true);
+    }
+    const wrapperRows = ipcListenerRows.filter((row) =>
+      new Set([
+        "global:process.once",
+        "global:process.prependOnceListener",
+      ]).has(row.name),
+    );
+    expect(wrapperRows).toHaveLength(2);
+    expect(
+      wrapperRows.every(
+        (row) =>
+          row.metadata.valueShape === "callable" &&
+          row.metadata.factoryReturnedCallableSourceContract?.proofKind ===
+            "lexically-bound-factory-returned-function",
+      ),
+    ).toBe(true);
+    expect(
+      ipcListenerRows.some((row) =>
+        /^global:process\.(?:once|prependOnceListener)\.\[\[dynamic-table:call-result-/u.test(
+          row.name,
+        ),
+      ),
+    ).toBe(false);
   });
 
   test("live repository discovery has every non-empty category and stable ordering", async () => {
@@ -3895,6 +5815,16 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       expect(first[category].length).toBeGreaterThan(0);
     }
     expect(first).toEqual(second);
+    const callbackDelayEnvironment = first.startup.find(
+      (row) => row.name === "env:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS",
+    );
+    expect(callbackDelayEnvironment).toBeDefined();
+    expect(
+      callbackDelayEnvironment.metadata.occurrences.some(
+        (occurrence) =>
+          occurrence.sourcePath === "src/engine/hermes_runtime_internal.h",
+      ),
+    ).toBe(true);
     expect(first.surfaces.map((row) => row.observedKey)).toEqual(
       [...first.surfaces.map((row) => row.observedKey)].sort(),
     );
@@ -3908,14 +5838,389 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(first.hostAbi.some((row) => row.name === "ex_host_fs_open")).toBe(
       true,
     );
+    expect(first.hostAbi).toHaveLength(311);
+    for (const [name, sourceRef] of [
+      [
+        "evaluation:installGlobals:native-freeze-conformance-observation",
+        "src/engine/hermes_runtime.cc#installGlobals:evaluateJavaScript:<native-freeze-conformance-observation>",
+      ],
+      [
+        "script:native-freeze-conformance-observation",
+        "src/engine/hermes_runtime.cc#script:<native-freeze-conformance-observation>",
+      ],
+    ]) {
+      expect(
+        first.startup.find((row) => row.name === name),
+        name,
+      ).toMatchObject({ sourceRefs: [sourceRef] });
+    }
     expect(
-      first.startup.find((row) => row.name === "runtime-create").sourceRefs,
+      first.hostAbi.every(
+        (row) =>
+          Array.isArray(row.metadata?.outputContracts) &&
+          row.metadata.outputContracts.length > 0 &&
+          row.metadata.outputContracts.every(
+            (contract) =>
+              contract.schema === HOST_ABI_OUTPUT_CONTRACT_SCHEMA &&
+              contract.functionName === row.name &&
+              row.sourceRefs.includes(contract.sourceRef),
+          ),
+      ),
+    ).toBe(true);
+    for (const [surfaceName, alias] of [
+      ["__exactOSRelease", "process.__exactOSRelease"],
+      ["__exactOSVersion", "process.__exactOSVersion"],
+    ]) {
+      const row = first.nativeOps.find(
+        (candidate) => candidate.name === surfaceName,
+      );
+      expect(row, surfaceName).toMatchObject({
+        observedKey: `native-op:${surfaceName}`,
+        metadata: {
+          branches: [
+            expect.objectContaining({
+              route: "native-jsi-global-property-alias",
+              targetVariant: "android",
+            }),
+          ],
+          exportName: alias,
+          globalName: "process",
+          memberName: surfaceName,
+          publicOutputAccess: {
+            alias,
+            kind: "property-read",
+          },
+          publicReadAccessSourceProven: true,
+          sourceKey: "native_jsi_global",
+          surfaceType: "global-api",
+          valueShape: "data",
+        },
+      });
+      expect(row.sourceRefs).toContain(
+        `src/engine/hermes_runtime_android.cc#jsi-global-property:${alias}`,
+      );
+    }
+    const primaryAbiContracts = first.hostAbi.map(
+      (row) => row.metadata.outputContracts[0],
+    );
+    const catalogAbiAccounts = first.hostAbi.map(
+      deriveHostAbiOutputCatalogAccount,
+    );
+    expect(
+      Object.fromEntries(
+        [...Map.groupBy(catalogAbiAccounts, (account) => account.status)]
+          .map(([status, accounts]) => [status, accounts.length])
+          .sort(),
+      ),
+    ).toEqual({
+      "output-bearing": 261,
+      "structural-only": 50,
+    });
+    expect(
+      catalogAbiAccounts.filter(
+        (account) =>
+          account.status === "output-bearing" &&
+          account.evidenceUnresolved.length > 0,
+      ),
+    ).toHaveLength(0);
+    expect(
+      catalogAbiAccounts
+        .filter((account) => account.status === "unresolved")
+        .every((account) => account.membershipUnresolved.length > 0),
+    ).toBe(true);
+    expect(
+      Object.fromEntries(
+        [
+          ...Map.groupBy(
+            catalogAbiAccounts
+              .filter((account) => account.status === "output-bearing")
+              .flatMap((account) => account.outputChannels),
+            (channel) =>
+              channel.selector === "[[return]]"
+                ? "return"
+                : channel.selector.startsWith("callback:")
+                  ? "callback"
+                  : "out",
+          ),
+        ]
+          .map(([role, channels]) => [role, channels.length])
+          .sort(),
+      ),
+    ).toEqual({ callback: 59, out: 204, return: 243 });
+    expect(
+      Object.fromEntries(
+        [
+          ...Map.groupBy(
+            primaryAbiContracts,
+            (contract) => `${contract.return.role}:${contract.return.kind}`,
+          ),
+        ]
+          .map(([role, contracts]) => [role, contracts.length])
+          .sort(),
+      ),
+    ).toEqual({
+      "none:void": 68,
+      "value:aggregate": 17,
+      "value:pointer": 48,
+      "value:scalar": 178,
+    });
+    expect(
+      Object.fromEntries(
+        [
+          ...Map.groupBy(
+            primaryAbiContracts.flatMap((contract) => contract.parameters),
+            (parameter) => parameter.role,
+          ),
+        ]
+          .map(([role, parameters]) => [role, parameters.length])
+          .sort(),
+      ),
+    ).toEqual({
+      "callback-payload": 38,
+      inout: 9,
+      input: 753,
+      output: 75,
+    });
+
+    const accountFor = (name) =>
+      deriveHostAbiOutputCatalogAccount(
+        first.hostAbi.find((row) => row.name === name),
+      );
+    const aggregateAccounts = [
+      "ex_hermes_eval_lowered_session",
+      "ex_hermes_eval_structured_diagnostic",
+      "ex_hermes_eval_structured_session",
+      "ex_hermes_evaluation_result_dispose",
+      "ex_hermes_evaluation_result_init",
+      "ex_hermes_resume_structured_session",
+      "ex_hermes_take_async_failure_event",
+      "ex_hermes_take_cancellation_event",
+      "ex_hermes_take_work_unit_event",
+      "ex_hermes_value_safe_throw_metadata",
+    ];
+    const callbackAccounts = [
+      "ex_hermes_schedule_watchdog_heartbeat",
+      "ex_hermes_schedule_watchdog_heartbeat_for_generation",
+      "ex_hermes_set_dispatch_callback",
+      "ex_hermes_set_dispatch_with_debug_context_callback",
+      "ex_hermes_set_exact_host_call_async",
+      "ex_hermes_set_host_call",
+      "ex_hermes_set_host_call_async",
+      "ex_hermes_set_host_wake_hook",
+      "ex_hermes_set_module_dispatch_callback",
+      "ex_hermes_set_module_sync_callback",
+      "ex_worklet_bind_shared_value_accessors",
+      "ex_worklet_set_measure_callback",
+    ];
+    expect(
+      Object.fromEntries(
+        [...aggregateAccounts, ...callbackAccounts].map((name) => [
+          name,
+          accountFor(name).status,
+        ]),
+      ),
+    ).toEqual({
+      ...Object.fromEntries(
+        [...aggregateAccounts, ...callbackAccounts]
+          .filter((name) => name !== "ex_hermes_schedule_watchdog_heartbeat")
+          .map((name) => [name, "output-bearing"]),
+      ),
+      ex_hermes_schedule_watchdog_heartbeat: "structural-only",
+    });
+    expect(
+      first.hostAbi
+        .find((row) => row.name === "ex_hermes_schedule_watchdog_heartbeat")
+        .metadata.outputContracts[0].parameters.find(
+          (parameter) => parameter.name === "callback",
+        ).callbackContract,
+    ).toMatchObject({
+      delivery: "none",
+      outputChannels: [],
+      parameters: [
+        {
+          direction: "native-to-embedder",
+          name: "context",
+          valueKind: "pointer",
+        },
+      ],
+      return: { direction: "none", role: "none" },
+      status: "resolved",
+    });
+
+    const resultInit = accountFor("ex_hermes_evaluation_result_init");
+    expect(
+      resultInit.outputChannels.map((channel) => channel.selector),
     ).toEqual([
-      "src/engine/hermes_runtime.cc#ex_hermes_create_armed",
+      "out:result.abi_version",
+      "out:result.capability_flags",
+      "out:result.fault",
+      "out:result.lifecycle_exit_code",
+      "out:result.message.data",
+      "out:result.outcome_tag",
+      "out:result.positions",
+      "out:result.stack.data",
+      "out:result.struct_size",
+      "out:result.throw_error_class",
+      "out:result.throw_metadata_fields",
+      "out:result.throw_metadata_status",
+      "out:result.value.handle_id",
+      "out:result.value.runtime_nonce",
+      "out:result.work_target_id",
     ]);
     expect(
+      resultInit.outputChannels
+        .filter((channel) =>
+          /(?:message|positions|stack)/u.test(channel.selector),
+        )
+        .map((channel) => channel.variants[0].alias),
+    ).toEqual(["result.message.data", "result.positions", "result.stack.data"]);
+    expect(
+      accountFor("ex_hermes_eval_structured_diagnostic")
+        .outputChannels.filter((channel) =>
+          channel.selector.includes("positions[]"),
+        )
+        .map((channel) => [channel.selector, channel.variants[0].alias]),
+    ).toEqual([
+      ["out:result.positions[].column", "result.positions[].column"],
+      ["out:result.positions[].line", "result.positions[].line"],
+      [
+        "out:result.positions[].source_label.data",
+        "result.positions[].source_label.data",
+      ],
+    ]);
+    expect(
+      accountFor("ex_hermes_take_work_unit_event").outputChannels.map(
+        (channel) => channel.selector,
+      ),
+    ).toEqual([
+      "[[return]]",
+      "out:event.kind",
+      "out:event.phase",
+      "out:event.scheduling_id",
+      "out:event.target_id",
+    ]);
+    expect(
+      accountFor("ex_hermes_value_safe_throw_metadata").outputChannels.map(
+        (channel) => channel.selector,
+      ),
+    ).toEqual([
+      "[[return]]",
+      "out:error_class",
+      "out:message.data",
+      "out:metadata_fields",
+      "out:stack.data",
+    ]);
+
+    const moduleSyncContract = first.hostAbi.find(
+      (row) => row.name === "ex_hermes_set_module_sync_callback",
+    ).metadata.outputContracts[0];
+    expect(moduleSyncContract.status).toBe("resolved");
+    expect(
+      moduleSyncContract.outputChannels.map((channel) => channel.selector),
+    ).toEqual(["callback:callback/0", "callback:callback/4"]);
+    expect(
+      moduleSyncContract.parameters.find(
+        (parameter) => parameter.name === "callback",
+      ).callbackContract,
+    ).toMatchObject({
+      parameters: [
+        { direction: "native-to-embedder", valueKind: "buffer" },
+        { direction: "native-to-embedder", valueKind: "length" },
+        {
+          direction: "embedder-to-native",
+          ownership: { kind: "native-consumes" },
+          valueKind: "buffer",
+        },
+        { direction: "embedder-to-native", valueKind: "length" },
+        { direction: "native-to-embedder", valueKind: "pointer" },
+      ],
+      return: {
+        direction: "embedder-to-native",
+        kind: "scalar",
+        role: "return",
+      },
+    });
+    const measureCallback = first.hostAbi
+      .find((row) => row.name === "ex_worklet_set_measure_callback")
+      .metadata.outputContracts[0].parameters.find(
+        (parameter) => parameter.name === "callback",
+      ).callbackContract;
+    expect(measureCallback.parameters[1]).toMatchObject({
+      direction: "embedder-to-native",
+      fixedLength: 4,
+      ownership: { kind: "caller-storage" },
+      valueKind: "buffer",
+    });
+    expect(
+      first.hostAbi
+        .find((row) => row.name === "ex_hermes_set_host_call")
+        .metadata.outputContracts[0].parameters.find(
+          (parameter) => parameter.name === "callback",
+        ).callbackContract.return,
+    ).toMatchObject({
+      direction: "embedder-to-native",
+      ownership: { kind: "native-consumes" },
+      role: "return",
+    });
+    expect(
+      Object.fromEntries(
+        [
+          ...Map.groupBy(
+            first.hostAbi.filter(
+              (row) => row.metadata.outputContracts[0].language === "java-jni",
+            ),
+            (row) => row.metadata.outputContracts[0].status,
+          ),
+        ]
+          .map(([status, rows]) => [status, rows.length])
+          .sort(),
+      ),
+    ).toEqual({ resolved: 47 });
+    for (const [name, selectors] of [
+      [
+        "java:dev.ibex.runtime.IbexNetworking.CameraHostProvider.cameraHostCall",
+        ["[[return]]", "callback:0", "callback:1"],
+      ],
+      [
+        "java:dev.ibex.runtime.IbexNetworking.DialogHostProvider.dialog",
+        ["[[return]]", "callback:0", "callback:1", "callback:2"],
+      ],
+      [
+        "jni:dev.ibex.runtime.IbexNetworking.nativeAnimationFrame",
+        ["callback:0", "callback:1"],
+      ],
+    ]) {
+      expect(
+        first.hostAbi
+          .find((row) => row.name === name)
+          .metadata.outputContracts[0].outputChannels.map(
+            (channel) => channel.selector,
+          ),
+      ).toEqual(selectors);
+    }
+    for (const [name, selectors] of [
+      ["ex_host_vfs_bind_runtime", ["[[return]]"]],
+      ["ex_host_vfs_unbind_runtime", ["[[return]]"]],
+      ["ex_host_vfs_get_cwd", ["[[return]]", "out:virtual", "out:errno"]],
+      ["ex_host_vfs_chdir", ["[[return]]", "out:virtual", "out:errno"]],
+      [
+        "ex_host_vfs_resolve_path",
+        ["[[return]]", "out:backing", "out:virtual", "out:errno"],
+      ],
+    ]) {
+      const contract = first.hostAbi.find((row) => row.name === name).metadata
+        .outputContracts[0];
+      expect(contract.status).toBe("resolved");
+      expect(
+        contract.outputChannels.map((channel) => channel.selector),
+      ).toEqual(selectors);
+    }
+    expect(
+      first.startup.find((row) => row.name === "runtime-create").sourceRefs,
+    ).toEqual(["src/engine/hermes_runtime.cc#ex_hermes_create_armed"]);
+    expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")),
-    ).toHaveLength(123);
+    ).toHaveLength(147);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")).length,
     ).toBeGreaterThan(0);
@@ -4152,6 +6457,28 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         }),
       ]),
     );
+    const mergedProcessWrappers = first.globals.filter((row) =>
+      new Set([
+        "global:process.once",
+        "global:process.prependOnceListener",
+      ]).has(row.name),
+    );
+    expect(mergedProcessWrappers).toHaveLength(2);
+    expect(
+      mergedProcessWrappers.every(
+        (row) =>
+          row.metadata.valueShape === "callable" &&
+          row.metadata.factoryReturnedCallableSourceContract?.installedPath ===
+            row.metadata.exportName,
+      ),
+    ).toBe(true);
+    expect(
+      first.globals.some((row) =>
+        /^global:process\.(?:once|prependOnceListener)\.\[\[dynamic-table:call-result-/u.test(
+          row.name,
+        ),
+      ),
+    ).toBe(false);
     for (const row of first.globals) {
       const branches = row.metadata.installationBranches;
       expect(branches.length).toBeGreaterThan(0);
@@ -4179,7 +6506,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       expect(evaluator.metadata.engineProfileIds).toEqual([
         "android-maven",
         "source-patched",
-        "windows-nuget",
+        "windows-source-patched",
       ]);
       expect(
         evaluator.metadata.branches.map((branch) => branch.targetVariant),
@@ -4279,11 +6606,47 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       environmentRows.find((row) => row.name === "env:EXACT_QUIET").metadata
         .contexts,
     ).toContain("spawn-child-env");
-    expect(
-      environmentRows.find((row) => row.name === "env:EXACT_IPC_FD").sourceRefs,
-    ).toContain(
-      "src/engine/bootstrap/stream-enhance.js#process.env:EXACT_IPC_FD:read",
+    const ipcFdEnvironment = environmentRows.find(
+      (row) => row.name === "env:EXACT_IPC_FD",
     );
+    expect(ipcFdEnvironment.sourceRefs).toContain(
+      "src/host/abi.rs#env::var:EXACT_IPC_FD:read",
+    );
+    expect(ipcFdEnvironment.metadata.contexts).toEqual(
+      expect.arrayContaining(["startup-input", "spawn-child-env"]),
+    );
+    expect(
+      ipcFdEnvironment.sourceRefs.some((sourceRef) =>
+        sourceRef.includes("#process.env:EXACT_IPC_FD:read"),
+      ),
+    ).toBe(false);
+    const ipcSerializationEnvironment = environmentRows.find(
+      (row) => row.name === "env:EXACT_IPC_SERIALIZATION",
+    );
+    expect(ipcSerializationEnvironment.sourceRefs).toContain(
+      "src/host/abi.rs#env::var:EXACT_IPC_SERIALIZATION:read",
+    );
+    expect(
+      ipcSerializationEnvironment.sourceRefs.some((sourceRef) =>
+        sourceRef.includes("#process.env:EXACT_IPC_SERIALIZATION:read"),
+      ),
+    ).toBe(false);
+    expect(
+      environmentRows.some((row) => row.name.startsWith("env:IBEX_CAPSEC_")),
+    ).toBe(true);
+    for (const environmentName of [
+      "IBEX_CAPSEC_CLOSED_CONTROL_OUTPUT_PLAN",
+      "IBEX_CAPSEC_CLOSED_CONTROL_OUTPUT_RESULT",
+      "IBEX_CAPSEC_GLOBAL_CALLABLE_DIAGNOSTIC_OUTPUT",
+      "IBEX_CAPSEC_OUTPUT_SHAPE_BATCH_OUTPUT",
+      "IBEX_CAPSEC_OUTPUT_SHAPE_PLAN",
+      "IBEX_CAPSEC_REPL_256_REPRO",
+    ]) {
+      expect(
+        environmentRows.some((row) => row.name === `env:${environmentName}`),
+        environmentName,
+      ).toBe(false);
+    }
     expect(
       environmentRows.find((row) => row.name === "env:__exactEnvProxy")
         .sourceRefs,
@@ -4291,12 +6654,22 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(
       environmentRows
         .filter((row) =>
-          ["::environ", "GetEnvironmentStringsW", "_NSGetEnviron"].some(
-            (accessor) => row.metadata.accessors.includes(accessor),
-          ),
+          [
+            "::environ",
+            "GetEnvironmentStringsW",
+            "_NSGetEnviron",
+            "_dupenv_s",
+            "environ",
+          ].some((accessor) => row.metadata.accessors.includes(accessor)),
         )
         .map((row) => row.metadata.accessors[0]),
-    ).toEqual(["::environ", "GetEnvironmentStringsW", "_NSGetEnviron"]);
+    ).toEqual([
+      "::environ",
+      "GetEnvironmentStringsW",
+      "_NSGetEnviron",
+      "_dupenv_s",
+      "environ",
+    ]);
     expect(
       environmentRows.find((row) =>
         row.metadata.accessors.includes("::environ"),
@@ -4304,6 +6677,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ).toContain(
       "src/engine/hermes_runtime_process_setup.cc#::environ:dynamic:read",
     );
+    expect(
+      environmentRows.find((row) => row.metadata.accessors.includes("environ"))
+        .sourceRefs,
+    ).toEqual(["src/engine/hermes_runtime_process.cc#environ:dynamic:read"]);
     for (const row of environmentRows) {
       for (const ref of row.sourceRefs) {
         expect(ref).not.toMatch(

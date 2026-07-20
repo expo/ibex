@@ -5,6 +5,44 @@
 **Systems:** Runtime, Engine, Module Loader, REPL
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-16 (private session-lowering protocol v2 routes dynamic
+imports through a native-owned hook carrying the admitted C-only logical
+referrer, so delayed edges cannot fall back to cwd authority.)
+**Revised:** 2026-07-15 (ENG-25066 made the separate authenticated file-module
+runner the default without changing structured script/session evaluation);
+2026-07-15 (ENG-25065 defined runner-backed session cache identity per execution
+generation while preserving legacy retry behavior); 2026-07-15 (ENG-25063
+reconciled dependency-level TLA through the separate authenticated LLP 0026
+runner while preserving the legacy session loader's entry-only refusal.)
+**Revised:** 2026-07-15 (armed grammar selection now closes the resolver's
+probe fixed point, full substituted-symlink path, and post-resolution package
+target races; resolve-only integrity hashing remains a witness and never becomes
+source submitted to the evaluator.)
+**Revised:** 2026-07-15 (armed `.js` grammar selection now derives package type
+only from LLP 0023's authenticated bounded manifest scope, and direct-entry kind
+selection is consumed with the source's linear read evidence.)
+**Revised:** 2026-07-15 (Gate 3 now executes the generated, branch-complete
+post-parse `ReferenceLowering` / `StatementLowering` corpus, including explicit
+expected-difference rows and explicit source-goal exclusions; its first wider
+run also repaired `finally` completion folding through `UpdateEmpty`.)
+**Revised:** 2026-07-15 (implementation sync: evaluator and supervisor async
+handoffs are byte-bounded and nonblocking, with distinct pre- and post-receipt
+loss records, checked accounting, required-event capacity, and a terminal-fault
+reserve.)
+**Revised:** 2026-07-15 (safe-throw metadata now carries a closed native Error
+class obtained by trap-free internal direct-prototype identity, so conformance
+never infers an error type from stack or message text.)
+**Revised:** 2026-07-15 (implementation sync: package compartments now resolve
+against the finalized armed-bootstrap baseline rather than the live session
+global; an authenticated persistent-session fixture covers `var`, sloppy, and
+adopted-then-assigned spellings. The generated gate catalog now names the exact
+external Rust adapters for Gates 1, 2, and 3 without encoding a test result.)
+**Revised:** 2026-07-14 (implementation sync: authenticated Hermes jobs now
+carry async owner/evaluation provenance; Promise rejection staging is independently
+bounded and reports pre-receipt loss fail-loud.)
+**Revised:** 2026-07-13 (implementation sync: the LLP 0025 constants annex has
+landed as `session/session-constants.v1.json`; open engine-dependent timing
+values are recorded as unbound rather than re-deferred.)
 **Revised:** 2026-07-12 (round-7 terminal two-family review — the last round of the
 four-document effort, closed under the human's bounded endgame authorization as a minimal
 pass; the document finishes **Draft**, not both-families-READY, matching all three siblings.
@@ -209,6 +247,7 @@ lowering emits (open question 7).
 | No `with` | "with statement is not supported" — a compile error |
 | No lexical scope for direct `eval` | "Direct call to eval(), but lexical scope is not supported"; eval'd code cannot see enclosing locals |
 | No per-iteration loop bindings | `for (let i…)` closures capture `3,3,3` — the premise LLP 0019 exists to compensate for |
+| Incorrect `finally` completion folding | a normal finalizer expression replaces the try/catch completion, and an empty abrupt `break` carries the finalizer expression rather than applying `UpdateEmpty`; the session statement lowering repairs both forms |
 | Global `var` is non-configurable | matching ECMAScript's `CreateGlobalVarBinding` for a Script |
 | Lexical declarations do not persist across evaluations | each evaluation is its own Script; a top-level `let` is gone at the next call |
 | *(harness note)* | the last row, and the "prior-input `const`" half of the third, need **two `ex_hermes_eval` calls on one runtime** — the standalone binary cannot show them. They are verified with a two-eval C-API probe (and reproduced through the live `ibex repl`), not with `tools/hermes/hermes` alone; the distinction is recorded so the claim is reproducible rather than merely asserted |
@@ -349,7 +388,6 @@ because the corpus has already been bitten by it:
 | **value handle** (§6) | a rooted engine reference to a live JavaScript value. **Never crosses a process boundary** | this document |
 | **session token** (§1) | the opaque authenticated reference to the armed snapshot. It **must** cross into the worker, so it is a *token*, not a handle | LLP 0022 §1 / LLP 0023 |
 | **sequence epoch** (§9) | the counter a worker restart **advances** (never rewinds) so a consumer can tell "no events" from "the worker died". Advanced **once per worker restart** | this document ↔ LLP 0025 |
-| **work epoch** *(0025-side term; retired there)* | the interrupt-latch unit an earlier LLP 0025 draft used; 0025 has since restructured its latch, so this document does **not** rely on the term and lists it only to disambiguate it from the *sequence epoch* below | (historical) |
 | **work unit** (§6) | an individually cancellable execution slice with a target id — an evaluation, callback, timer, microtask drain, or query | this document |
 | **settlement unit** (§7.4) | the *aggregate* of an input's evaluation and the jobs its TLA needs — the thing whose settlement is the input's outcome. Not a cancellation target on its own | this document |
 
@@ -467,15 +505,21 @@ narrowing, and it is pinned by a fixture.
 | `.load <file>` | script + extensions | entry | no | yes | yes | `globalThis` |
 | Program-mode stdin | module | entry | yes | yes | yes | `undefined` |
 | One-shot `-e` / `-p` | script + extensions | entry | no | yes | yes | `globalThis` |
-| Imported file | module | dependency | yes | **no (v1)** | yes | `undefined` |
+| Imported file on the legacy session loader | module | dependency | yes | **no (legacy v1)** | yes | `undefined` |
+| Imported file on the LLP 0026 runner | module | dependency | yes | **yes** | yes | `undefined` |
 
-**Top-level `await` is an entry-only extension in v1.** The engine has no native
+**Top-level `await` is an entry-only extension on the legacy session path.** The engine has no native
 ESM and no native TLA, and the module loader lowers every module into a
 *synchronous* CommonJS `require()` chain — so a dependency that suspends has
 nowhere to suspend to. Honest dependency-level TLA needs an asynchronous
 linker/evaluator with dependency ordering, live bindings, async cycles, failure
-propagation and caching, and defined CJS interoperation. None of that exists,
-and this document will not pretend otherwise.
+propagation and caching, and defined CJS interoperation. None of that exists on
+the legacy loader, and this document will not pretend otherwise. The
+authenticated LLP 0026 runner is the separate implementation: it owns
+dependency-first SCC scheduling, one handled internal evaluation promise per
+record, fresh public `import()` promises, and sticky terminal failure.
+Consumers become dependency-TLA-capable only when they migrate to that runner;
+this document's legacy refusal does not silently widen them.
 
 Therefore: top-level `await` is available in **prompt input, `.load` content,
 program-mode stdin, and one-shot `-e`/`-p`** — the sources whose role is *entry*
@@ -514,9 +558,9 @@ target is refused at call time, with **the same named error**, before the select
 dependency is evaluated or enters the module cache; effects the entry already
 performed stand, and no preflight can honestly claim otherwise.
 
-An asynchronous module graph is a separate design (open question 4); v1 states
-the limit rather than shipping a plausible-looking lowering that is wrong under
-cycles.
+An asynchronous module graph is a separate design, now specified by accepted
+LLP 0026. The legacy path continues to state and enforce its limit rather than
+shipping a plausible-looking lowering that is wrong under cycles.
 
 **A note on how this document has been repaired, because the pattern is the point.** Three
 times now a guarantee here proved unsupportable by the mechanism beneath it — a rollback
@@ -609,6 +653,23 @@ bytes are parsed) is not **module kind** (how the result is evaluated).
 | CommonJS (`.cjs`, `.js` resolved as CJS) | no | `module.exports` | `require`, `module`, `exports`, `__filename`, `__dirname` | no | `module.exports` |
 | JSON | n/a | n/a | n/a | n/a | the parsed value |
 | script input (prompt, `.load`, `-e`) | no | `globalThis` | session record (§7); `require`/`require.resolve` | yes | completion value |
+
+For `.js`, "resolved as ESM/CJS" is an authenticated input, not an ambient
+filesystem convention. In an armed Host the nearest-first package `type` search
+uses only strict `package.json` bytes/absence read through LLP 0023's typed VFS,
+stops at the defining project/package binding, and runs the resolver beneath that
+exact retained root object with `NODE_PATH` disabled. Capture iterates over the
+resolver's exact manifest-probe ledger until every probe has authenticated bytes or
+an explicit absence; a complete symlink target plus pending tail cannot cross into
+a denied principal subtree. Package-owned manifest bytes are revalidated against
+armed package integrity. Resolve-only package selection subsequently binds the
+retained final object to the armed inventory and repeats the integrity proof; raw
+bytes hashed by that proof are never decoded, transpiled, returned, or submitted as
+an evaluation body. A direct file entry consumes the
+ordered manifest-search evidence and chosen kind in the same linear credential as
+its immutable source bytes before the evaluator may select a goal. An outer,
+replaced, cross-principal, or uncaptured manifest therefore cannot relabel the
+program grammar.
 
 So a `.cjs` file is **not** an ESM module with `this === undefined`, and JSON has
 no source goal at all — both of which the single-table formulation wrongly
@@ -758,7 +819,7 @@ An evaluation returns a **discriminated outcome**, never a string:
 | --- | --- |
 | empty completion | the source produced no meaningful completion value (a declaration, an empty statement) |
 | value | a completion value, delivered as a **value handle** — not pre-formatted text |
-| throw | an exception: the thrown value as a handle, plus **optionally** a VM-captured message, stack, and source positions — with an explicit **`metadata unavailable`** discriminator when the engine cannot supply them without running user code (§8). A consumer must be able to tell "this stratum cannot capture error metadata" from "this value has none" |
+| throw | an exception: the thrown value as a handle, plus **optionally** a closed VM-captured Error class, message, stack, and source positions — with an explicit **`metadata unavailable`** discriminator when the engine cannot supply them without running user code (§8). A consumer must be able to tell "this stratum cannot capture error metadata" from "this value has none" |
 | cancelled | evaluation was interrupted (LLP 0025) before completing |
 | **lifecycle** | root code made a cooperative exit request (`process.exit(n)`). The native call **parks and never returns to JavaScript** — it does not unwind, because an unwind past `finally` is a mechanism no vendored Hermes interface offers (LLP 0025 §8). No code after the call in that input runs, `try`/`finally` cannot intercept it, and the outcome carrying `n` is delivered **out of band**, not returned from a frame that unwound. Because the parked worker is then disposed, the input's session state is **discarded, not rolled back** — there is no live evaluator frame to roll anything back, and the session is ending. No value handle is produced |
 
@@ -779,14 +840,22 @@ is **non-conforming**, because `if (false) { 1 }`, a trailing declaration, and a
 **Evaluator capability strata.** The evaluator advertises which of these it can supply,
 and a consumer branches on the answer rather than guessing: **base** — structured
 outcomes, handles, non-assimilation, and the *original thrown value* (which the engine can
-surface without reading `.message`/`.stack` off it); **safe-throw** — VM-captured error
-message, stack, and positions (§8 stage 1.5); **source-positions** — composed in-memory
+surface without reading `.message`/`.stack` off it); **safe-throw** — a closed VM-captured
+Error class plus message, stack, and positions (§8 stage 1.5); **source-positions** — composed in-memory
 maps through every rewrite stage (§4), which is **unavailable** until those maps exist end
 to end, so `EngineFeature::SourceMaps` advertising `true` today is a lie the strata
 retire; **rich-inspection** — the trap-free primitive (§8 stage 2).
 The strata are versioned and independently testable, and *unavailable metadata is
 always distinguishable from an ordinary opaque value*. Without this, §6's throw
 outcome and §8's staging directly contradict each other, as an earlier draft did.
+
+Safe-throw enrichment is subordinate to the Throw outcome. Once the original
+thrown value is rooted, an allocation failure while capturing or copying its
+bounded metadata **must not** rewrite that Throw as an engine OOM or discard its
+handle. An evaluator advertising safe-throw returns an empty `Captured` record
+with `Unclassified` class in that case; an evaluator which does not advertise
+the stratum returns `metadata unavailable`. No exception from metadata
+enrichment may cross the C ABI.
 
 **The ABI is typed, length-bearing, and owns its handles.** The *result* half is
 none of these: it returns a null pointer for `undefined` — collapsing it with empty
@@ -1077,7 +1146,14 @@ emits are backed by intrinsics that user-authored source **cannot reach, name, o
 they are not `globalThis` properties, not reachable through any endowment, and they carry a
 registry row saying so (LLP 0021's no-unclassified-surface invariant), exactly as §8's
 display seam does. A reachable `__session.set` would be a route to write any `const` in the
-session.
+session. Protocol v2 also lowers dynamic import calls to a native-owned hook that
+retains the admitted request's C-only logical referrer. The hook returns the trusted
+loader dispatcher's promise and is captured by delayed callbacks; it never consults
+the realm-global import alias or virtual cwd to recover an identity it already owns.
+Its session-root route memo follows LLP 0023 §2.3: the first authenticated record
+publishes only its SourceId identity, and every live cache hit reauthorizes that exact
+SourceId before a fresh Promise may consume the unchanged memo/cache tuple without a
+second resolver or source probe.
 
 #### 7.2 Binding time: late binding by name
 
@@ -1441,47 +1517,32 @@ The complete list of deviations **from one growing script on the same engine**:
   (measured). Two sub-cases, and they differ:
   - a **root / first-party** imported module sees session `var`s (they are real
     `globalThis` properties) but not session lexicals;
-  - a **package** module *should* see **neither** — LLP 0013 gives each package a "private
-    compartment global" whose properties are "exactly the policy's endowments" — but
-    **today it sees session `var`s, and that is a disclosure channel this document's own
-    design creates.** The shipping compartment is a `Proxy` whose `get` trap **forwards
-    every non-withheld name to the real global**, withholding only `__exact*`/`__ibex*` and
-    a finite powerful-name set. A session `var` is an ordinary name on the realm global, so
-    a package's bare `secret` reads it. An operator typing `var apiKey = "…"` at the prompt
-    hands it to every package in the graph.
+  - a **package** module sees **neither** session lexicals nor session-authored global
+    state. LLP 0013's compartment implementation now snapshots the trusted global
+    descriptor/prototype baseline during armed bootstrap, refreshes it exactly once after
+    the runtime bundle is installed, and removes the refresh hook before admitting project
+    code (`installCompartmentRegistry`, `src/engine/hermes_runtime.cc`;
+    `finalize_compartment_baseline`, `src/bin/ibex/engine/hermes.rs`). Package `get` and
+    `has` operations resolve package-local state first and then this baseline — never the
+    live realm global — while reflection sees only package-local own state. Self aliases
+    (`globalThis`, `global`, `self`, `window`) map back to the compartment.
 
-    "Private global" therefore names a **forwarding view**, not isolated storage — the same
-    noun-reuse failure that bit *identity* and *defeated*, and this time it is load-bearing
-    for a security claim.
+    The security requirement remains phrased in terms of **session-authored state**, not
+    merely a name's existence: an adopted builtin such as `TextEncoder` legitimately exists
+    in the baseline, but `var TextEncoder = 417` in a later session must not replace the
+    package's baseline function. A created `var`, a sloppy-created property, and an
+    adopted-then-assigned property therefore share one construction: none can change the
+    package's bare read, `in`/`has` result, descriptor view, or enumeration after baseline
+    finalization. `[[SessionCreatedVars]]` remains session-record provenance for declaration
+    semantics; it is **not** used as a security withhold list.
 
-    **The requirement this document places on LLP 0013:** a package must not observe
-    **session-authored global state** — not its values, its existence (`in`/`has`), its
-    descriptors, or its enumeration. **What leaks *today* is narrower than all four, and
-    stating it precisely matters:** the shipping compartment defines only `get`/`has`/`set`
-    over a bare `Object.create(null)` target (`makeCompartment`, `hermes_runtime.cc:2628`),
-    so **values and existence forward to the real global, while `getOwnPropertyDescriptor`
-    returns `undefined` and `ownKeys` is empty** — descriptors and enumeration do *not* leak
-    yet. The requirement forecloses all four (a future forwarding descriptor/`ownKeys` trap
-    would open the other two); the *fact* is that get/has leak now. Overstating the live
-    hazard would be its own dishonesty.
-
-    **The withhold-`[[SessionCreatedVars]]` patch is a partial mitigation, not the fix, and
-    this document does not overclaim it.** `[[SessionCreatedVars]]` is the *restricted-global*
-    set (§7.3) — names whose property the record **created** — and it is deliberately
-    narrower than "session-authored": it excludes a **sloppy assignment** (`apiKey = "…"`,
-    which creates an ordinary property in no session set) and an **adopted-then-assigned var**
-    (`var TextEncoder = 417`, which writes a session value into a builtin's slot). Both still
-    forward to a package today. An operator cannot be expected to know that `var apiKey = s`
-    would be withheld while `apiKey = s` is not.
-
-    The **complete** fix is therefore not a withhold list at all: the compartment must stop
-    forwarding to the *live* realm global and resolve bare names against a **baseline
-    captured at arming** (its endowments plus the intrinsics frozen at lockdown), so that
-    *no* session-authored name of *any* spelling is reachable, by construction. That is
-    LLP 0013's to design; this document states the requirement and the residual precisely.
-    Until it lands, deviation (d)'s package sub-case is **a stated leak, not an asserted
-    isolation** — and the fixtures assert closure for every spelling (`var`, sloppy,
-    adopted-and-assigned), all of which fail today.
+    `authenticated_session_package_compartment_withholds_all_late_global_spellings`
+    exercises the full authenticated route: it finalizes an armed persistent session,
+    writes all three spellings through the production evaluator, loads a real package
+    module, and asserts bare reads plus `has`, descriptor, and enumeration observations.
+    `locked_baseline_rejects_prototype_and_contains_late_global_mutation` separately pins
+    late global/prototype mutation and lazy-global identity. These fixtures discharge
+    `OBL-COMPARTMENT-BASELINE`; they do not by themselves advertise a production target.
 - **(e)** **instantiation is per input, not per session.** A growing script hoists and
   instantiates over its whole text; a session cannot see the future. This covers both a
   call in one input failing to reach a `function` declared in a later one, *and*
@@ -1511,7 +1572,29 @@ interrupt machine for the same reason.
 | **1. Model conformance** | the implementation vs. the **reference model** | every session | session-semantics bugs |
 | **2. Model validation** | the **reference model** vs. one growing script **on the same engine, through the same lowering** | the *restricted class* below | a wrong model |
 | **2b. Model correctness** | the **reference model** vs. real **Script semantics on a standards engine** (`vm.runInThisContext`), quirk-filtered | the descriptor matrix and the created/adopted rows | **a wrong model of ECMAScript** |
-| **3. Lowering fidelity** | one input through the lowering vs. the same input run directly | single inputs | rewrite bugs, Reference-semantics slips |
+| **3. Lowering fidelity** | production-lowered outcomes vs. direct Hermes outcomes | the generated, owner-authored single-input branch corpus for every `ReferenceLowering` / `StatementLowering` obligation reachable after checked Script parsing | a missing or semantically wrong Reference rewrite, declaration lowering, or `UpdateEmpty` propagation branch |
+
+Gate 3's executable domain is a **branch corpus**, not the untestable phrase “every possible
+source string.” The digest-bound model names every lowering obligation and every source case;
+the Rust adapter refuses to run unless the cases cover the obligation set exactly, then executes
+all of them through both the production authenticated evaluator and the selected direct Hermes
+build. Equal-completion rows compare exact display text. A difference is admitted only as
+owner-authored data carrying both expected arms and a rationale: safe display quotes a string
+where the legacy direct seam returns its unquoted text; the structured seam distinguishes empty
+completion from the value `undefined`, which the legacy direct seam collapses to the same null
+result; and the session lowering deliberately repairs
+Hermes' incorrect `finally` `UpdateEmpty`, missing lexical TDZ, and compile-time-only `const`
+enforcement. None is hidden in adapter logic.
+The `finally` family separately pins normal completion, an empty `break`, an empty `continue`,
+and an authoritative thrown finalizer, so the synthetic restore cannot make one abrupt path pass
+by breaking another.
+
+Static/dynamic import, top-level `await`, and the **Script-plus-import-plus-TLA parser goal are explicit
+direct-oracle exclusions**, not passing Gate 3 rows: Hermes cannot execute the same source in a
+direct arm, and the pinned frontend still lacks the required parser goal. Their independent §3/§4
+fixtures and `OBL-PARSER-GOAL` remain open. “Gate 3 implemented” therefore means the named
+post-parse `ReferenceLowering` / `StatementLowering` adapter is complete; it neither records a
+runtime pass nor promotes the excluded source-goal domain.
 
 **Gate 2b exists because gate 2 is blind in exactly the rows that matter.** An
 engine-relative oracle cannot see a wrong *model of ECMAScript* in a row the engine itself
@@ -1636,12 +1719,14 @@ two different concepts (§2's table now separates them).
 What this document states is the **requirement** identity must satisfy, and the session's
 use of it:
 
-- **One file is one module instance**, whichever principal reached it and however it was
-  spelled: root's `import "foo/util.js"` and package `foo`'s own `require("./util")` share
-  the instance, so module-level state and `instanceof` survive the root/package boundary —
-  while the two callers' *authorization* decisions are still taken against their own
-  bindings. LLP 0023 §2.3 delivers this by keying on the **defining** principal, which is
-  caller-independent.
+- **One equal `SourceId` is one module instance**, whichever principal reached it:
+  root's `import "foo/util.js"` and package `foo`'s own `require("./util")` share the
+  instance because they resolve to the same defining-principal key, so module-level
+  state and `instanceof` survive the root/package boundary while the two callers'
+  *authorization* decisions are still taken against their own bindings. Spellings
+  unify only when LLP 0023 §2.3 assigns them the same `SourceId`; its intentional
+  case/normalization-alias and same-principal-hard-link splits remain distinct
+  instances. The defining principal is caller-independent.
 - Identity must **not collapse compartments** when one inode is reachable from two package
   roots, or a filesystem coincidence would decide a package's execution compartment
   (LLP 0013).
@@ -1659,6 +1744,15 @@ use of it:
   also what makes a retry after fixing the file work at the prompt. Its **completed
   dependencies remain** cached. An earlier draft said the failing entry "of course stands";
   that was false against the loader and wrong in principle.
+- A session that adopts LLP 0026's module runner scopes this rule to an
+  **execution graph generation**. Within one generation, ESM success and failure
+  are sticky and one equal `SourceId` has one incarnation. Retrying after an
+  accepted root-source edit atomically advances the coherent graph generation;
+  it never deletes and recreates a record in place. Live cells, namespaces,
+  promises, CommonJS exports, and errors never cross generations. The current
+  legacy session loader keeps delete-on-failure until it adopts that runner
+  transaction, so this amendment does not silently change shipped prompt
+  behavior.
 - **`.load` creates no cache entry** and re-evaluates on repeat.
 
 ### 8. Safe inspection
@@ -1690,7 +1784,7 @@ is derived from that toolkit and is no wider:
 
 | Value | Rendering |
 | --- | --- |
-| primitives, including symbols and bigints | rendered fully |
+| primitives, including symbols and bigints | rendered from engine-owned primitive storage, bounded as specified below |
 | `typeof v === "function"` | `[Function]` |
 | `Array.isArray(v)` is `true` | `[Array]` |
 | any other object, **and any value for which `Array.isArray` throws** | `[Object]` |
@@ -1708,6 +1802,18 @@ check proves nothing about `length`. Both tags appeared in an earlier draft of
 this section, and both violate its own rule. Stage-1 display is
 useless-but-safe rather than useful-but-exploitable.
 
+Primitive text is independently bounded at its VM source. A string, symbol
+description, or admitted BigInt decimal representation contributes at most
+**16 KiB of valid UTF-8**, inclusive of the static `...[truncated]` marker;
+BigInts whose constant-time size preflight cannot prove that conversion fits
+use an opaque truncated representation without first constructing the decimal
+string. The C ABI carries an independent `truncated` scalar. The authenticated
+adapter validates the byte bound, UTF-8, boolean discriminant, and exact trusted
+suffix, removes the marker from hostile payload text, and emits a separate
+trusted `Truncation` child in the IBDX tree. Every worker-wire consumer repeats
+the semantic validation before rendering; the marker is never inferred from
+attacker text.
+
 **Errors are the hard case, and the honesty is in admitting it.** §6 says a
 `throw` outcome carries an *engine-captured* message, stack, and positions. On
 stock JSI that is not achievable: `jsi::JSError` populates its message and stack by
@@ -1719,15 +1825,25 @@ this document names it rather than implying the toolkit covers it:
 
 - **capture at throw**: the VM's own thrown-value state — message, stack, position
   — recorded when the throw occurs, without a property read; and
-- a trap-free **`IsNativeError` brand check** plus own-data-property read, so an
-  ordinary `Error` can be distinguished from a hostile look-alike without invoking
-  anything.
+- a trap-free **`IsNativeError` brand check**, internal direct-prototype identity,
+  and own-data-property read, so an ordinary built-in Error class can be
+  distinguished from a hostile look-alike without invoking anything. The class
+  vocabulary is closed; arbitrary throws and subclasses whose direct prototype
+  is not an exact pinned intrinsic prototype are `Unclassified`, never guessed
+  from `.name`, `.constructor`, message, or stack text.
 
-Until that slice exists, **stage 1 renders every thrown value by type tag**,
-including ordinary errors — which is a severe usability cliff and is stated as
-one. That slice is *much* cheaper than the full stage-2 primitive, and it is the
-recommended first patch: call it **stage 1.5**, and it restores ordinary error
-display on its own.
+Before that slice, **stage 1 renders every thrown value by type tag**, including
+ordinary errors — a severe usability cliff. The pinned patch stack now supplies
+this narrower **stage 1.5** slice independently of the still-open stage-2 rich
+inspection primitive; its class/message/stack result crosses the typed ABI and
+worker wire without text inference. Message and stack are independently capped
+at **16 KiB of valid UTF-8 each**, including the same static marker. Independent
+message/stack truncation bits imply their corresponding presence bits, and each
+native, Rust, and hostile worker-wire ingress rejects an over-bound field, a
+truncation bit without presence, or a truncated field without the exact marker.
+Stack construction bounds every frame component as it is read from the bytecode
+string tables; it does not materialize a complete function name or filename as
+an intermediate string.
 
 **One engine-patch program, three consumers.** The trap-free introspection
 primitive (open question 1), the completion-record discriminator (open question 3),
@@ -1767,10 +1883,14 @@ cannot cross a process boundary (§6), so under the worker split the walk runs
 JavaScript value at all.
 
 Formatting is bounded and deterministic in depth, breadth, string length, key
-order, and cycle handling, with an explicit truncation marker. A bounded failure
-yields a safe fallback tag: never a hang, never user code, never a
-session-ending error. *Inert is acceptable; unsafe is not* — and until the
-primitive lands, inert is what ships.
+order, and cycle handling, with an explicit typed truncation node. The Stage-1
+and safe-throw byte ceiling is 16 KiB per field, inclusive of the trusted static
+marker; worst-case JSON escaping of all bounded fields remains below the 1 MiB
+worker control-envelope limit. Any unexpected oversize serialization becomes a
+small typed engine-fault/capture-unavailable envelope rather than killing the
+worker. A bounded failure yields a safe fallback tag: never a hang, never user
+code, never a session-ending error. *Inert is acceptable; unsafe is not* — and
+until the primitive lands, inert is what ships.
 
 The same primitive backs completion (LLP 0022 §9): resolving `a.b.` for completion must
 not invoke an accessor or a trap at any step, and where the primitive is unavailable,
@@ -1801,9 +1921,10 @@ report time: a timer, a next-tick, a microtask continuation, and a native
 completion each record the principal that scheduled them (LLP 0021's schedule-time
 owner), and a failure inherits it. Where attribution is missing or ambiguous, the
 event says so — it never guesses, and it never launders a package failure into
-root. This is the one field the current implementation cannot supply, because it
-scopes a captured principal around a callback and drops it before detached
-microtasks drain.
+root. The authenticated implementation carries this through Hermes' job queue as
+engine state — scheduler principal, job identity, and associated evaluation are
+captured when the job is enqueued and recovered after a failed drain — rather
+than relying on a callback scope that ends before detached microtasks run.
 
 The channel is **bounded and sequenced**: one **sequence allocator** issues numbers to
 evaluation outcomes, asynchronous events, **and the session layer's broker events**
@@ -1832,10 +1953,39 @@ session layer assigns a number) has no sequence number to report, so it surfaces
 worker-fault event carrying a dropped-count only; the two drop kinds are distinct and named. A lost event is
 always visible as a drop, never as silence.
 
+The Ibex worker realization enforces that rule at both process-local handoffs.
+Each lane charges the exact authenticated-frame size plus its closed Rust
+envelope, gives ordinary **REPL** asynchronous reports alone a separate 8 MiB
+payload pool, and keeps the maximum display tree plus another 8 MiB as
+required-event capacity. Dedicated program-settlement asynchronous records use
+required capacity at both the evaluator and supervisor handoffs; the second and
+later records do not become lossy merely because only the first carries the
+submission id. Loss-record slots are independently derived from the 8 MiB bound
+and the fixed envelope size. A lifecycle commitment uses a fixed priority slot
+independent of required capacity, and a fixed terminal-fault record sits outside
+all three pools. The evaluator lane emits `PreReceiptLoss { count }`; the
+supervisor lane assigns a receipt to every dropped event and emits a separately
+sequenced `PostReceiptLoss { count, highest_dropped_sequence }` before the next
+retained event. The REPL consumer retains both lossy-event byte leases and
+loss-record slot leases through its ready-checkpoint drain, so admitted storage
+cannot be reused before the corresponding report or loss marker is consumed.
+Required-capacity, loss-accounting, or sequence exhaustion closes the lane
+through the terminal record. No producer waits for consumer capacity.
+
 A rejection becomes reportable at a **pinned determination checkpoint** — the end
 of the event-loop turn in which it became unhandled, concretely the poll-iteration
 boundary (LLP 0003) — and a handler attached before that checkpoint cancels the
 pending report.
+
+The pre-checkpoint rejection tracker has an **independent 1,024-record root
+bound**: each retained record owns the exact Promise identity and rejection
+reason until that checkpoint, so the published-event queue's bound does not
+bound these earlier roots. The first 1,024 records remain ordered; later
+rejections in that collection window add to a distinct pre-receipt loss count.
+At the checkpoint the engine releases or publishes the retained records first,
+then appends the exact loss marker. The counter never wraps: saturation makes
+asynchronous-failure publication fail closed and retains no additional Promise
+or reason root, rather than turning an unrepresentable loss into silence.
 
 **A rejected top-level-`await` unit is not a background failure.** It is that
 evaluation's `throw` outcome (§6), reported once through the outcome channel and
@@ -1851,15 +2001,13 @@ file and program execution may treat it as fatal, and an interactive session mus
 not (LLP 0022 §5). The **engine** therefore reports rather than decides, and sets
 no exit code.
 
-The current behavior does not conform, though the defect is narrower than "the
-pump is poisoned": the fatal flag *is* one-shot, so the next poll does survive it
-(LLP 0003 §Event loop). What is wrong is that the **engine layer decides fatality
-at all** — an unconsumed async error is written straight to stderr and turned into
-a `-1` from `poll`, so the consumer receives a return code where it should receive
-a structured event, and an interactive session that must never die from a
-background rejection is relying on a flag's one-shot-ness to survive. Reporting and
-policy are separated: the engine emits the event; the consumer's lifecycle policy
-(LLP 0025 §8) decides the process outcome.
+The authenticated engine path now separates those responsibilities: it publishes
+the rooted value through the structured event queue, returns no fatal poll status,
+writes no raw diagnostic, and sets no exit code. The compatibility/legacy engine
+path retains its historical one-shot fatal policy outside this authenticated ABI;
+consumers of the structured session contract never infer failure policy from it.
+The session consumer's lifecycle policy (LLP 0025 §8) alone decides the process
+outcome.
 
 ## Delegated obligations and owed artifacts
 
@@ -1867,20 +2015,20 @@ This document, like its siblings, states requirements it does not itself impleme
 other LLPs, some on artifacts (an executable model, a parser prototype, an ABI amendment)
 that must exist before an implementation can be conforming. It is the last of the four to
 gain this ledger; without it, these obligations were tracked nowhere. Each row is a stable
-id, the obligation, its owner, and its gating fixture or acceptance criterion. **None is
-discharged** at this revision — the document finishes `Draft`, and these become the
-implementation tickets.
+id, the obligation, its owner, and its gating fixture or acceptance criterion. Rows record
+their current implementation state; discharged rows do not make the document as a whole
+accepted or promote an unadvertised target.
 
 | Id | Obligation | Owner | Gate |
 | --- | --- | --- | --- |
-| **`OBL-COMPARTMENT-BASELINE`** | Deviation (d)'s real fix: a package compartment must resolve bare globals against a **baseline captured at arming** (endowments + frozen intrinsics), *not* forward to the live realm global — closing the session-`var` / sloppy-assignment / adopted-and-assigned disclosure channel that is **live today** (`var apiKey` at the prompt is read by every package). The `[[SessionCreatedVars]]` withhold-list patch is only a partial mitigation. **This is the document's most security-consequential owed item — filed as ENG-24463.** | **LLP 0013** | §7.7(d) fixtures for all three spellings (fail today) |
-| `OBL-EXEC-MODEL` | The §7 tables, matrix, restricted-global predicate, rollback, and fixtures are **generated from a checked-in, digest-bound executable reference model** — the tables in §7 are an *interim projection* of it, not the normative source. Four rounds of hand-written tables were falsified by review (a rule that would have deleted `globalThis.Object`; an impossible rollback; a `var`/`function` conflation; a predicate whose edit silently never landed) — the model is why they cannot be *asserted* correct, only *measured*. | this document + tooling | gates 1/2/2b/3 (§7.7) run against it in CI |
-| `OBL-PARSER-GOAL` | The **Script-plus-`import`-plus-TLA** source goal (§3) does not exist in the pinned parser and must be **prototyped on every advertised target**, proving sloppy-only parse forms, directive semantics, imports, TLA, and TypeScript before acceptance (open question 5). | this document | §4 source-goal fixture family |
+| **`OBL-COMPARTMENT-BASELINE`** | **Landed.** A package compartment resolves package-local state and then the one-shot finalized armed-bootstrap baseline, never the live session global. This closes created `var`, sloppy-created, and adopted-then-assigned disclosure without using `[[SessionCreatedVars]]` as a withhold list. | **LLP 0013** | `authenticated_session_package_compartment_withholds_all_late_global_spellings`; `locked_baseline_rejects_prototype_and_contains_late_global_mutation` |
+| `OBL-EXEC-MODEL` | **Model and all four adapters landed.** The §7 tables, matrix, restricted-global predicate, rollback, and fixtures are generated from the checked-in, digest-bound executable reference model under `capsec/session-semantics/`. Gate 2b is self-contained; Gates 1 and 2 record exact external Rust harness identities. Gate 3 is `external-harness-implemented` for its generated post-parse branch domain: its Rust harness asserts exact obligation coverage and executes every named case, including owner-authored expected differences. Static/dynamic import and TLA remain explicit **same-source direct-Hermes-oracle** exclusions: the production Script-plus-extensions frontend and its authenticated import/TLA fixtures exist, but unmodified Hermes has no equivalent goal against which Gate 3 can compare the same bytes. No `external-harness-*` status is a recorded pass — conformance still requires executing the named test against the selected Hermes build. | this document + tooling | `session_semantics_conformance::{implementation_matches_reference_model_gate,reference_model_matches_same_engine_growing_script_gate,single_input_lowering_fidelity_gate}` plus Gate 2b model tests |
+| `OBL-PARSER-GOAL` | **The target-independent Script-plus-`import`-plus-TLA frontend is implemented.** It parses extension nodes as a Module, masks only complete static-import byte ranges with same-width spaces, independently parses the remaining bytes as a Script, ignores Module-strict diagnostics only outside import ranges, and merges the import/body outlines in source order. Fixtures prove legacy octal, `delete identifier`, duplicate parameters, directive semantics, TypeScript, static imports, and TLA. Per-target execution evidence remains a target-advertisement gate rather than a missing parser mechanism; no target is currently advertised. | this document | `src/engine/session_syntax.rs`; `script_extensions_use_module_nodes_under_independent_sloppy_validation`; source-goal, authenticated import, and TLA fixtures |
 | `OBL-ABI-AMEND` | The §6 result ABI is a **semver-major** change to LLP 0002's narrow consumer contract (LLP 0000 moves with it); the byte-level schema is LLP 0002's amendment, verified from an independent C consumer. | **LLP 0002** (+ LLP 0000) | AC 18 |
 | `OBL-PRIVATE-SEAMS` | Registry rows classifying the §7.1 lowering hooks and the §8 display seam as **private, non-JavaScript-reachable** (no-unclassified-surface invariant). | **LLP 0021** registry | §8 AC 16; §7.1 hook-unforgeability fixture |
 | `OBL-0019-TRIGGER` | If the session lowering changes what LLP 0019's Hermes-compat tiers emit, LLP 0019 is amended in the same change. | **LLP 0019** | §4 corpus |
 | `OBL-ENGINE-SLICES` | The three engine slices §8 depends on — trap-free introspection (stage 2), the completion-record discriminator (§6), and throw-time error capture (stage 1.5) — scoped and landed as **one patch program**; first step is surveying the vendored debugger's inspection path for extant trap-free reads. | this document (engine) | §8 strata AC 16 |
-| `OBL-MAX-INPUT` / constants | The completion budget and async-storm window join LLP 0025's `session-constants.json` once that file lands; maximum input size is already pinned at **1 MiB** by LLP 0025 §12. | **LLP 0025** §12 | §5/§9 bounds fixtures |
+| `OBL-MAX-INPUT` / constants | `session/session-constants.v1.json` carries the **1 MiB** maximum input size and records the completion budget and async-storm window as explicitly unbound engine-dependent values. | **LLP 0025** §12 | §5/§9 bounds fixtures |
 
 **Outstanding sibling-ledger corrections (reported, not this document's to edit):**
 
@@ -1888,15 +2036,8 @@ implementation tickets.
   terminology" — **false since round 4**; and `OBL-SUBMIT-CREDENTIAL` still describes one
   linear permit where this document (adopting 0022's own four-stage lifecycle) is equivalent
   — the two should state whose decomposition is normative.
-- **LLP 0025** `OBL-SUSPENDED-UNIT` looks **discharged** by §2's work-unit / settlement-unit
-  split (a settling callback is its own work unit; the settlement unit aggregates it for
-  outcome purposes only).
 - **LLP 0022 §5**'s unqualified "any user mutation of `$_` permanently disables auto-update"
   is falsified by §7.8's honestly-bounded ABA case; 0022 should adopt or cite the bound.
-- **LLP 0013 Mechanism 2**'s "a package global contains exactly the policy endowments"
-  is contradicted by its own shipping forwarding-Proxy; `OBL-COMPARTMENT-BASELINE` is the
-  reconciliation.
-
 ## Acceptance criteria
 
 Fixtures are **ordered lists of inputs** with explicit boundaries (§7.7), each
@@ -1944,7 +2085,12 @@ say which is testing nothing.
    `.cts` are refused symmetrically as module-kind assertions; `.d.ts`, an unknown
    extension, and an extensionless file are refused. **`require.main` and
    `process.mainModule` are unreachable in every mode**, while `import.meta.main`
-   holds for program stdin.
+   holds for program stdin. Armed `.js` kind selection uses only the bounded,
+   fixed-point typed-VFS-captured manifest scope defined by LLP 0023 AC 3c;
+   substituted symlink targets, selected package objects, and post-resolution
+   integrity remain bound through retained descriptors; direct-entry
+   manifest evidence and the selected kind are consumed by the same linear source
+   credential, so an ambient or post-arm manifest cannot switch evaluation goals.
 6. Grammar: `let x: number = 1 ⏎ x` yields `1`; `a<b>(c)` parses as the documented
    TypeScript reading in extensionless input; `.load foo.js` parses as JavaScript
    while a prompt input of the same text parses as TypeScript; an `enum` at the
@@ -2085,15 +2231,25 @@ say which is testing nothing.
       `vm.createContext`) over the descriptor matrix and the created/adopted rows, because
       an engine-relative gate is blind to a wrong model of ECMAScript in a row Hermes itself
       gets wrong; its quirk-filter is owner-authored data carrying both measured outputs;
-    - **lowering fidelity** — one input through the lowering behaves as the same input run
-      directly, *excluding the transforms that deliberately repair Hermes* (TDZ, runtime
-      `const`), which must differ from direct execution by design.
+    - **lowering fidelity** — the external adapter executes the digest-bound named branch
+      corpus for every `ReferenceLowering` and `StatementLowering` obligation reachable
+      after checked Script parsing. Equal rows compare production-lowered and direct-Hermes
+      completion text; owner-authored expected-difference rows pin both arms for safe string
+      display, `finally` `UpdateEmpty`, the empty/`undefined` discriminator, TDZ, and runtime
+      `const`. The adapter
+      asserts that every declared obligation is covered before it executes any comparison.
+      Static/dynamic import and TLA, including the implemented dual-parse
+      Script-plus-extensions frontend, are explicit `OBL-PARSER-GOAL`
+      **same-source direct-Hermes-oracle** exclusions and gain no pass from this
+      gate; their dedicated production fixtures remain independently required.
     Engine quirks cancel between the arms of gate 2, so `for (let i…)` yielding `3,3,3` is
     **not** a session divergence — it is an engine fact both arms exhibit (LLP 0019's
     charter). Each of (a)–(e) has at least one direct fixture, including (d)'s sub-cases (a
     first-party module sees session `var`s but not lexicals; a **package** module sees
-    neither — *and the leak-closure fixtures for `var`, sloppy, and adopted-and-assigned
-    spellings fail today*) and (e)'s initialization-order case
+    neither — `authenticated_session_package_compartment_withholds_all_late_global_spellings`
+    drives `var`, sloppy, and adopted-and-assigned spellings through an authenticated
+    persistent session into a real package module and checks bare reads, `has`, descriptors,
+    and enumeration) and (e)'s initialization-order case
     (`var x = 1 ⏎ function x(){} ⏎ x` yields the **function**, where the growing script
     yields `1`).
 14. The last-value binding: `$_` starts as `undefined`; auto-update disables on
@@ -2123,8 +2279,13 @@ say which is testing nothing.
     `Array.isArray`'s `TypeError`; monkeypatching `Array.isArray` does not change a
     classification; and **a thrown value renders by type tag** — including an ordinary
     `Error` — with the throw outcome carrying the explicit `metadata unavailable`
-    discriminator. **Stage 1.5 (safe-throw)** renders ordinary errors with VM-captured
-    message and stack while `throw {get message(){…}}` never runs its getter.
+    discriminator. **Stage 1.5 (safe-throw)** renders ordinary errors with a
+    VM-captured closed Error class, message, and stack while `throw {get
+    message(){…}}` never runs its getter; a forged `.name`, `.constructor`, or
+    stack prefix cannot change the class, and a custom subclass direct prototype
+    is `Unclassified`. Allocation failure in this optional enrichment preserves
+    the rooted Throw and produces an empty `Captured`/`Unclassified` record when
+    the stratum was advertised; it never converts the Throw to an engine fault.
     **Stage 2 (rich-inspection)** renders descriptors and promise state, accessors show
     as `[Getter]`, a Proxy renders opaquely by detection, and the same instrumentation
     still never fires. Every stage emits the **semantic tree**, which *cannot express
@@ -2159,7 +2320,10 @@ say which is testing nothing.
     a promise continuation, and a native completion, with a cross-principal chain
     attributed to the package and never laundered into root; a handler attached
     before the determination checkpoint cancels the report; the event sets no exit
-    code; an async storm coalesces within the documented window and emits an
+    code; a 1,025-rejection pre-checkpoint burst retains and releases exactly the
+    first 1,024 Promise/reason root pairs, then reports pre-receipt loss `1`, while
+    a saturated loss count fails publication closed without retaining another root;
+    an async storm coalesces within the documented window and emits an
     explicit **drop marker** carrying both the **count and the highest dropped sequence
     number**, in sequence, releasing the dropped handles — a lost event is never silent.
 
@@ -2229,17 +2393,22 @@ say which is testing nothing.
    safety.
 3. Should the empty-completion discriminator come from a Hermes completion-record patch
    or from source instrumentation (§6)? It is slice 2 of the §8 patch program.
-4. Is dependency-level top-level `await` worth an asynchronous module linker — with
-   dependency ordering, live bindings, async cycles, failure caching, and CJS interop —
-   or is entry-only TLA the durable answer for a synchronous-`require` runtime?
-   Deviation (b) (copied-at-import values) rides on the same answer.
-5. **Which parser mechanism implements the Script-plus-`import`-plus-TLA goal** (§3) —
-   a parser mode, a maintained fork, or a Script early-error validator run alongside a
-   Module parse? The third is *not* sufficient on its own: a Module parse still rejects
-   legacy octal and `delete identifier` before any validator sees them, and a Script
-   parse still rejects `import`. This must be **prototyped before the source-goal
-   fixtures are written**, because it decides whether the sloppy-only parse forms are
-   achievable or must become documented narrowings.
+4. **Resolved by accepted LLP 0026:** dependency-level top-level `await` uses
+   the authenticated asynchronous module runner, with dependency ordering,
+   live cells, SCC scheduling, sticky failure, and defined CJS interop.
+   Entry-only TLA remains the durable answer only for this document's legacy
+   synchronous session loader until that consumer migrates; the runner's live
+   cells also retire deviation (b)'s copied-at-import behavior on that path.
+5. **Resolved: an independent dual parse implements Script-plus-`import`-plus-TLA.**
+   The frontend obtains extension nodes from a Module parse, masks only complete
+   static-import byte ranges with same-width spaces, then parses the remaining bytes
+   under the actual Script goal. Module diagnostics inside import declarations remain
+   authoritative; Module-strict diagnostics in the body do not. The merged outline is
+   source ordered and keeps Script directive/Annex-B semantics. This is stronger than
+   the rejected “Module parse plus a validator” sketch because legacy octal, `delete
+   identifier`, duplicate parameters, and other sloppy-only body forms are accepted by
+   a real Script parse. `src/engine/session_syntax.rs` and its source-goal fixtures pin
+   the choice; per-advertised-target execution remains OQ 7's evidence question.
 6. Should a startup-only strict profile exist for consumers that want module-like
    semantics in script inputs, given §3 fixes sloppy as the default? (Shared with
    LLP 0022 OQ 3.)
@@ -2248,22 +2417,25 @@ say which is testing nothing.
    lowering emits — and which `await using` at a module entry also depends on. Either
    that comment is stale, or entry TLA needs a different lowering on Windows, or Windows
    does not advertise it. This must be settled before AC8 can be claimed there.
-8. The **one versioned constants annex** is normatively pinned by LLP 0025 §12 (renderer
-   depth/breadth/payload/truncation, and **maximum input size = 1 MiB** inline), but the
-   digest-bound **file** `session-constants.json` **does not exist yet** and is owed
-   (LLP 0025 `OBL-CONSTANTS-ANNEX`) — an earlier draft here wrongly said it existed. What
-   remains genuinely open and must join it once the file lands: the **completion budget** and
-   the **async-storm coalescing window**.
+8. The **one versioned constants annex** is `session/session-constants.v1.json`,
+   owned by LLP 0025 §12 and digest-bound to its generated Rust consumer. It pins
+   renderer depth/breadth/payload/truncation and **maximum input size = 1 MiB**.
+   What remains genuinely open is represented in the annex with `null`, not silently
+   omitted: the **completion budget** and the **async-storm coalescing window**.
 9. **Would an engine-level global environment record be cheaper than the lowering?**
    A native checked record could preserve Reference semantics, source positions, and
    *dependency visibility* — retiring deviation (d) and most of §7.1's syntax-directed
    table — at the cost of a larger patch. It should be costed against the three slices
    of the §8 patch program, since it is the same VM surface.
-10. What canonical source URL identifies a module reached through two aliased spellings
-    that LLP 0023 §2.3 unifies to one identity? Source maps and stack frames key on the
-    source label, so import order must not decide it (LLP 0023 leaves the canonical
-    display spelling open).
-11. Is a **background lifecycle request** — a root-attributed `process.exit(n)` from a timer
-    when no evaluation is in flight — a new control-event variant, or a unit-generic
-    extension of the evaluation-outcome union? The `lifecycle` outcome (§6) is input-scoped;
-    a bare exit has no input to scope to. This is owed jointly with LLP 0025 §8.
+10. **Resolved by LLP 0023 §2.3:** `SourceLabel` is the load-order-independent,
+    volume-canonical virtual spelling of the retained object's canonical physical
+    location: symlink aliases use the target spelling, while each distinct hard-link
+    entry keeps its own entry spelling. Source maps, stack frames, referrers, and
+    `import.meta.url` use that same per-instance label; import order never selects it.
+11. *(Resolved by the unit-generic lifecycle seam.)* A root-attributed
+    `process.exit(n)` from a timer when no evaluation is in flight is published as the
+    idempotent `LifecycleExitRequest`, authenticated into an
+    `AuthorizedWorkerLifecycleCommit`, and carried by the bare
+    `ControlMessage::LifecycleCommit`. It is not fabricated as an input-scoped
+    evaluation outcome; LLP 0025 §8 owns the consumer policy and target promotion remains
+    a separate conformance gate.

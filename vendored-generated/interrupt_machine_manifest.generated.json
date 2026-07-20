@@ -1,0 +1,29 @@
+{
+  "generated": true,
+  "version": 1,
+  "source": {
+    "path": "session/interrupt-machine.v1.json",
+    "sha256": "1c604efe5f284a4557785019df018d709c228f0abde436940b9a1ae1f707810c"
+  },
+  "generator": {
+    "path": "packages/ibex-devtools/src/scripts/generate-interrupt-machine.mjs",
+    "sha256": "3641473b85884a6810607b791937b1f44b03cf5111fb384731e224c9658a2d91"
+  },
+  "outputs": [
+    {
+      "name": "rust",
+      "path": "vendored-generated/interrupt_machine.generated.rs",
+      "sha256": "c51eaa05f196b571d3eea9b427e86ccc3901ca321d0ee0a8ac4912cf91a37169"
+    },
+    {
+      "name": "table",
+      "path": "vendored-generated/interrupt_machine_table.generated.md",
+      "sha256": "fa3a4d2d110378a5f63eb67c337a534893ee09001642ce6ccf6f233997588c43"
+    },
+    {
+      "name": "trajectories",
+      "path": "vendored-generated/interrupt_trajectories.generated.json",
+      "sha256": "ee5593e3178f9ab386dd031b8b83f40602c6476d326b465f026cbdd7ebb411d0"
+    }
+  ]
+}

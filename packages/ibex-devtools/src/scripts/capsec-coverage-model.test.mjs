@@ -45,7 +45,7 @@ const rules = JSON.parse(
 );
 const context = { definitions, rules };
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
-  "sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322";
+  "sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c";
 
 function surface(kind, name, metadata = undefined, sourceRefs = undefined) {
   return {
@@ -79,6 +79,74 @@ function globalApi(globalName, memberName = null) {
   });
 }
 
+function principalEnvironmentOverlayGlobal() {
+  const dynamicMember =
+    "[[dynamic-table:principal-environment-overlay-properties]]";
+  const name = `global:process.env.${dynamicMember}`;
+  const sourcePath = "packages/ibex-runtime-js/src/node/process.ts";
+  const sourceRefs = [
+    `${sourcePath}#Process.prototype.env`,
+    `${sourcePath}#createEnvProxy`,
+    `${sourcePath}#createEnvProxy:Proxy.deleteProperty`,
+    `${sourcePath}#createEnvProxy:Proxy.get`,
+    `${sourcePath}#createEnvProxy:Proxy.ownKeys`,
+    `${sourcePath}#createEnvProxy:Proxy.set`,
+  ];
+  return surface(
+    "native-op",
+    name,
+    {
+      exportName: `process.env.${dynamicMember}`,
+      globalName: "process",
+      memberKinds: ["dynamic-table"],
+      memberName: `env.${dynamicMember}`,
+      principalEnvironmentOverlaySourceContract: {
+        schema: "ibex/principal-environment-overlay-source-contract/1",
+        surfaceName: name,
+        dynamicMember,
+        globalPath: "process.env",
+        binding: {
+          factory: "createEnvProxy",
+          member: "Process.prototype.env",
+          sourceRef: sourceRefs[0],
+        },
+        factory: { name: "createEnvProxy", sourceRef: sourceRefs[1] },
+        nativeBridges: ["__exactGetAllEnv", "__exactGetEnv", "__exactSetEnv"],
+        proxyTraps: [
+          {
+            name: "deleteProperty",
+            nativeBridges: ["__exactSetEnv"],
+            sourceRef: sourceRefs[2],
+          },
+          {
+            name: "get",
+            nativeBridges: ["__exactGetAllEnv", "__exactGetEnv"],
+            sourceRef: sourceRefs[3],
+          },
+          {
+            name: "ownKeys",
+            nativeBridges: ["__exactGetAllEnv", "__exactGetEnv"],
+            sourceRef: sourceRefs[4],
+          },
+          {
+            name: "set",
+            nativeBridges: ["__exactSetEnv"],
+            sourceRef: sourceRefs[5],
+          },
+        ],
+        sourceRefs,
+      },
+      semanticRoles: [
+        "principal-environment-overlay",
+        "runtime-property-overlay",
+      ],
+      sourceKey: "shared_runtime",
+      surfaceType: "global-api",
+    },
+    sourceRefs,
+  );
+}
+
 function hermesEvaluatorGlobal(globalName, metadata = {}) {
   const reachability =
     globalName === "eval" || globalName === "Function"
@@ -105,8 +173,8 @@ function hermesEvaluatorGlobal(globalName, metadata = {}) {
       targetVariant: "default",
     },
     {
-      authorityRef: "scripts/install-windows-hermes.ps1#Version",
-      profileId: "windows-nuget",
+      authorityRef: "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+      profileId: "windows-source-patched",
       targetVariant: "windows",
     },
   ].map(({ authorityRef, profileId, targetVariant }) => {
@@ -138,7 +206,11 @@ function hermesEvaluatorGlobal(globalName, metadata = {}) {
       branches,
       evidenceType: "hermes-evaluator-reachability",
       engineIdentityReviewId: HERMES_EVALUATOR_REVIEW_ID,
-      engineProfileIds: ["android-maven", "source-patched", "windows-nuget"],
+      engineProfileIds: [
+        "android-maven",
+        "source-patched",
+        "windows-source-patched",
+      ],
       installationBranches: branches,
       lockdownTamingDigest: REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST,
       tamingEvidence: "lockdownJS",
@@ -212,6 +284,12 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ["fs:list"],
     ],
     [
+      "filesystem mutation enforcement seam",
+      surface("native-op", "__exactFsMutationGuard"),
+      "non-capability",
+      [],
+    ],
+    [
       "fetch",
       surface("native-op", "__nativeFetch"),
       "effects",
@@ -273,6 +351,12 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ["env:read"],
     ],
     [
+      "principal environment overlay write",
+      surface("native-op", "__exactSetEnv"),
+      "effects",
+      ["env:write"],
+    ],
+    [
       "system information",
       surface("native-op", "__exactGetCpuCount"),
       "effects",
@@ -327,6 +411,12 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ["ipc:channel"],
     ],
     [
+      "application-runtime worklet helper closed",
+      globalApi("worklet", "clamp"),
+      "closed",
+      ["worker:create"],
+    ],
+    [
       "heap inspection closed",
       surface("native-op", "__exactGetHeapInfo"),
       "closed",
@@ -340,7 +430,18 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     ],
     [
       "OS version",
-      surface("native-op", "__exactOSVersion"),
+      surface("native-op", "__exactOSVersion", {
+        exportName: "process.__exactOSVersion",
+        globalName: "process",
+        memberName: "__exactOSVersion",
+        publicOutputAccess: {
+          alias: "process.__exactOSVersion",
+          kind: "property-read",
+        },
+        publicReadAccessSourceProven: true,
+        sourceKey: "native_jsi_global",
+        surfaceType: "global-api",
+      }),
       "effects",
       ["sys:read"],
     ],
@@ -583,6 +684,154 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ).toBe(true);
     });
   }
+
+  test("filesystem mutation guard is authority control rather than an effect", () => {
+    const classified = classifyObservedSurface(
+      surface("native-op", "__exactFsMutationGuard"),
+      context,
+    );
+    expect(classified.edge).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "authority-control-plane",
+    });
+    expect(classified.implementationRows[0].implementationOwner).toBe("WP5");
+  });
+
+  test("cancellation consistency script is terminal-session control", () => {
+    const classified = classifyObservedSurface(
+      surface("startup", "script:ibex-cancellation-consistency"),
+      context,
+    );
+    expect(classified.edge).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "terminal-session-control",
+    });
+    expect(classified.implementationRows[0].implementationOwner).toBe("WP7");
+  });
+
+  test("structured settlement resume is control, not fresh code ingress", () => {
+    const classified = classifyObservedSurface(
+      surface("host-abi", "ex_hermes_resume_structured_session"),
+      context,
+    );
+    expect(classified.edge).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "terminal-session-control",
+    });
+    expect(classified.implementationRows[0].implementationOwner).toBe("WP7");
+  });
+
+  test("worker-private safe throw metadata is pure in-memory inspection", () => {
+    const classified = classifyObservedSurface(
+      surface("host-abi", "ex_hermes_value_safe_throw_metadata"),
+      context,
+    );
+    expect(classified.edge).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "pure-in-memory-compute",
+    });
+    expect(classified.implementationRows[0].implementationOwner).toBe("WP7");
+  });
+
+  test("native Promise rejection hooks only register checkpoint callbacks", () => {
+    for (const name of [
+      "__exactOnRejectionHandled",
+      "__exactOnUnhandledRejection",
+    ]) {
+      const classified = classifyObservedSurface(
+        surface("native-op", name),
+        context,
+      );
+      expect(classified.edge, name).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "callback-attribution-carrier",
+      });
+      expect(classified.implementationRows[0].implementationOwner, name).toBe(
+        "WP8",
+      );
+    }
+  });
+
+  test("runtime VFS ABIs are private session-scoped virtual namespace control", () => {
+    for (const name of [
+      "ex_host_vfs_bind_runtime",
+      "ex_host_vfs_chdir",
+      "ex_host_vfs_get_cwd",
+      "ex_host_vfs_resolve_path",
+      "ex_host_vfs_unbind_runtime",
+    ]) {
+      const classified = classifyObservedSurface(
+        surface("host-abi", name),
+        context,
+      );
+      expect(classified.edge, name).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "terminal-session-control",
+      });
+      expect(classified.implementationRows[0].implementationOwner, name).toBe(
+        "WP7",
+      );
+    }
+  });
+
+  test("typed listener authorization is authority control-plane like sibling typed authorization ABIs", () => {
+    for (const name of [
+      "ex_host_authorize_typed_listen_stack",
+      "ex_host_authorize_typed_network_stack",
+      "ex_host_authorize_typed_udp_datagram_stack",
+    ]) {
+      const classified = classifyObservedSurface(
+        surface("host-abi", name),
+        context,
+      );
+      expect(classified.edge, name).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "authority-control-plane",
+      });
+      expect(classified.implementationRows[0].implementationOwner, name).toBe(
+        "WP8",
+      );
+    }
+  });
+
+  test("authenticated session-root resolve separates metadata from source reads", () => {
+    const full = classifyObservedSurface(
+      surface("host-abi", "ex_host_session_static_import_resolve"),
+      context,
+    );
+    expect(full.edge.classification).toBe("effects");
+    expect(edgeActions(full)).toEqual(["fs:list", "fs:read"]);
+
+    const metadata = classifyObservedSurface(
+      surface("host-abi", "ex_host_session_static_import_resolve_meta"),
+      context,
+    );
+    expect(metadata.edge.classification).toBe("effects");
+    expect(edgeActions(metadata)).toEqual(["fs:list"]);
+  });
+
+  test("module runner separates edge authorization from trusted access", () => {
+    const gate = classifyObservedSurface(
+      surface("loader", "module-runner-edge-authorization"),
+      context,
+    );
+    expect(gate.edge).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "authority-control-plane",
+    });
+    for (const name of [
+      "module-runner-cache-access",
+      "module-runner-prepared-carrier-access",
+      "module-runner-trusted-source-acquisition",
+    ]) {
+      expect(
+        classifyObservedSurface(surface("loader", name), context).edge,
+      ).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "trusted-loader-source-acquisition",
+      });
+    }
+  });
 
   test("escape matching does not treat identifier substrings as escape surfaces", () => {
     const diffieHellmanNames = reviewedBuiltinExportNames()
@@ -1105,6 +1354,73 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       "session",
       "static-floor",
     ]);
+    const cwdMutation = definitions.definitions.find(
+      (row) => row.id === "path:cwd-mutate",
+    );
+    expect(derivePositiveSources(cwdMutation)).toEqual(["ambient-root"]);
+  });
+
+  test("virtual cwd surfaces use explicit session-state actions", () => {
+    for (const observed of [
+      builtinExport("exact_process", "cwd"),
+      surface("native-op", "__exactGetCwd"),
+      globalApi("process", "cwd"),
+    ]) {
+      const classified = classifyObservedSurface(observed, context);
+      expect(edgeActions(classified), observed.name).toEqual([
+        "path:cwd-observe",
+      ]);
+      expect(classified.edge.effects[0].positiveSources, observed.name).toEqual(
+        ["ambient-root", "static-floor"],
+      );
+    }
+
+    for (const observed of [
+      builtinExport("exact_process", "chdir"),
+      surface("native-op", "__exactSetCwd"),
+      globalApi("process", "chdir"),
+    ]) {
+      const classified = classifyObservedSurface(observed, context);
+      expect(edgeActions(classified), observed.name).toEqual([
+        "fs:list",
+        "path:cwd-mutate",
+      ]);
+      expect(
+        classified.edge.effects.find((row) => row.cap === "path:cwd-mutate")
+          .positiveSources,
+        observed.name,
+      ).toEqual(["ambient-root"]);
+      expect(classified.edge.effectMode, observed.name).toBe("conjunctive");
+    }
+
+    for (const observed of [
+      builtinExport("node_path", "resolve"),
+      builtinExport("node_path", "relative"),
+      builtinExport("node_path", "toNamespacedPath"),
+      builtinExport("node_url", "pathToFileURL"),
+      globalApi("Exact", "resolve"),
+      globalApi("Exact", "resolveSync"),
+      globalApi("Exact", "pathToFileURL"),
+      globalApi("Bun", "resolve"),
+      globalApi("Bun", "resolveSync"),
+      globalApi("Bun", "pathToFileURL"),
+    ]) {
+      const classified = classifyObservedSurface(observed, context);
+      expect(edgeActions(classified), observed.name).toEqual([
+        "path:cwd-observe",
+      ]);
+      expect(classified.edge.effectMode, observed.name).toBe("conditional");
+      expect(
+        classified.edge.logicalBranches.map((branch) => [
+          branch.id,
+          branch.effects.map((effect) => effect.cap),
+        ]),
+        observed.name,
+      ).toEqual([
+        ["explicit-base", []],
+        ["session-base", ["path:cwd-observe"]],
+      ]);
+    }
   });
 
   test("process launch selects exact executable, environment, and stdio branches", () => {
@@ -1142,6 +1458,39 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       );
       expect(memory.effects, name).toEqual([]);
     }
+
+    const checkedDescriptorOpen = classifyObservedSurface(
+      surface("host-abi", "ex_host_sqlite_open_checked_fd"),
+      context,
+    );
+    expect(checkedDescriptorOpen.edge.effectMode).toBe("conditional");
+    expect(
+      checkedDescriptorOpen.edge.logicalBranches.map((branch) => branch.id),
+    ).toEqual(["file-read", "file-read-write"]);
+    expect(edgeActions(checkedDescriptorOpen)).toEqual([
+      "fs:list",
+      "fs:read",
+      "fs:write",
+    ]);
+    expect(checkedDescriptorOpen.edge.effectOwnerSource).toBe(
+      "descriptor-owner",
+    );
+    expect(checkedDescriptorOpen.edge.principalSources).toEqual([
+      "descriptor-owner",
+      "frame-set",
+      "schedule-time",
+    ]);
+    expect(checkedDescriptorOpen.edge.lifetimeContract).toBe("file-handle");
+
+    expect(
+      classifyObservedSurface(
+        surface("host-abi", "ex_host_sqlite_open_isolated_memory"),
+        context,
+      ).edge,
+    ).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "pure-in-memory-compute",
+    });
   });
 
   test("filesystem open selects an exact normalized access branch", () => {
@@ -1211,13 +1560,13 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(fdDispatcher.edge.logicalBranches).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: "durability-read",
+          id: "durability-write",
           effectOwnerSource: "descriptor-owner",
         }),
-        expect.objectContaining({ id: "durability-write" }),
         expect.objectContaining({ id: "metadata-write" }),
       ]),
     );
+    expect(fdDispatcher.edge.logicalBranches).toHaveLength(2);
 
     for (const name of [
       "__exactFsReadFileAsync",
@@ -1356,6 +1705,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         ["fs:list", "fs:write"],
         "conditional",
       ],
+      ["node_fs", "Dir", "effects", ["fs:list"], "conjunctive"],
       ["node_fs", "Dir.read", "effects", ["fs:list"], "conjunctive"],
       [
         "node_http",
@@ -1582,14 +1932,110 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     }
   });
 
-  test("native process termination is closed rather than authority release", () => {
-    for (const name of ["__exactExit", "__exactHostExit"]) {
+  test("native process exit is an exact cooperative lifecycle effect", () => {
+    const classified = classifyObservedSurface(
+      surface("native-op", "__exactExit"),
+      context,
+    );
+    expect(classified.edge.classification).toBe("effects");
+    expect(edgeActions(classified)).toEqual(["lifecycle:exit"]);
+  });
+
+  test("process listener aliases retain closed default with exit no-effect branches", () => {
+    const aliases = [
+      "addListener",
+      "listenerCount",
+      "listeners",
+      "off",
+      "on",
+      "once",
+      "prependListener",
+      "prependOnceListener",
+      "rawListeners",
+      "removeAllListeners",
+      "removeListener",
+    ];
+    for (const alias of aliases) {
       const classified = classifyObservedSurface(
-        surface("native-op", name),
+        globalApi("process", alias),
         context,
       );
-      expect(classified.edge.classification, name).toBe("closed");
-      expect(edgeActions(classified), name).toEqual(["process:signal"]);
+      expect(classified.edge.classification, alias).toBe("closed");
+      expect(classified.edge.cap, alias).toBe("runtime:inspect");
+      expect(classified.edge.logicalBranches, alias).toEqual([
+        {
+          id: "before-exit",
+          when: [
+            {
+              fact: "process.listener.event",
+              equals: "before-exit",
+            },
+          ],
+          disposition: "no-effect",
+        },
+        {
+          id: "exit",
+          when: [{ fact: "process.listener.event", equals: "exit" }],
+          disposition: "no-effect",
+        },
+      ]);
+    }
+
+    const emit = classifyObservedSurface(globalApi("process", "emit"), context);
+    expect(emit.edge).toMatchObject({
+      classification: "closed",
+      cap: "ipc:channel",
+    });
+    expect(emit.edge.logicalBranches).toBeUndefined();
+    const eventNames = classifyObservedSurface(
+      globalApi("process", "eventNames"),
+      context,
+    );
+    expect(eventNames.edge).toMatchObject({
+      classification: "closed",
+      cap: "runtime:inspect",
+    });
+    expect(eventNames.edge.logicalBranches).toBeUndefined();
+  });
+
+  test("private session worker bootstrap is classified without public reachability", () => {
+    const name = "private:ibex:session-worker-bootstrap:v1";
+    expect(reviewedStartupNames()).toContain(name);
+    const classified = classifyObservedSurface(
+      surface("startup", name, {
+        argument: "__ibex-session-worker-v1",
+        evidenceType: "private-session-worker-bootstrap",
+        javascriptReachability: "none",
+        visibility: "private-supervisor-worker",
+      }),
+      context,
+    );
+    expect(classified.edge).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "terminal-session-control",
+    });
+
+    for (const mutate of [
+      (metadata) => {
+        metadata.argument = "--session-worker";
+      },
+      (metadata) => {
+        metadata.javascriptReachability = "global";
+      },
+      (metadata) => {
+        metadata.visibility = "public-cli";
+      },
+    ]) {
+      const metadata = {
+        argument: "__ibex-session-worker-v1",
+        evidenceType: "private-session-worker-bootstrap",
+        javascriptReachability: "none",
+        visibility: "private-supervisor-worker",
+      };
+      mutate(metadata);
+      expect(() =>
+        classifyObservedSurface(surface("startup", name, metadata), context),
+      ).toThrow(/unclassified observed surface/u);
     }
   });
 
@@ -1638,8 +2084,6 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ["node_module", "Module", "runtime:inspect"],
       ["node_module", "createRequire", "runtime:inspect"],
       ["node_timers", "clearImmediate", "runtime:inspect"],
-      ["node_timers", "clearInterval", "runtime:inspect"],
-      ["node_timers", "clearTimeout", "runtime:inspect"],
     ]) {
       const classified = classifyObservedSurface(
         builtinExport(sourceKey, exportName),
@@ -1653,11 +2097,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ]);
     }
 
-    for (const name of [
-      "__exactTimerRef",
-      "__exactTimerUnref",
-      "__exactUncaughtExceptionHandler",
-    ]) {
+    for (const name of ["__exactUncaughtExceptionHandler"]) {
       const classified = classifyObservedSurface(
         surface("native-op", name),
         context,
@@ -1678,6 +2118,8 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ["__exactZlibParams", "internal-data-transform"],
       ["__exactZlibClose", "authority-release"],
       ["__exactZlibCheckOwner", "authority-control-plane"],
+      ["__exactTimerRef", "authority-control-plane"],
+      ["__exactTimerUnref", "authority-control-plane"],
     ]) {
       const classified = classifyObservedSurface(
         surface("native-op", name),
@@ -1704,17 +2146,47 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       rationaleId: "authority-control-plane",
     });
 
-    for (const globalName of [
-      "clearImmediate",
-      "clearTimeout",
-      "clearInterval",
-    ]) {
+    for (const globalName of ["clearImmediate"]) {
       const classified = classifyObservedSurface(
         globalApi(globalName),
         context,
       );
       expect(classified.edge.classification, globalName).toBe("closed");
       expect(edgeActions(classified), globalName).toEqual(["runtime:inspect"]);
+    }
+
+    for (const globalName of ["clearTimeout", "clearInterval"]) {
+      const global = classifyObservedSurface(globalApi(globalName), context);
+      expect(global.edge.classification, globalName).toBe("non-capability");
+      expect(global.edge.rationaleId, globalName).toBe("authority-release");
+
+      const builtin = classifyObservedSurface(
+        builtinExport("node_timers", globalName),
+        context,
+      );
+      expect(builtin.edge.classification, globalName).toBe("non-capability");
+      expect(builtin.edge.rationaleId, globalName).toBe("authority-release");
+    }
+  });
+
+  test("owner-authenticated timer controls are authority-reducing", () => {
+    const timerRuntime = fs.readFileSync(
+      path.join(repoRoot, "src/engine/hermes_runtime_timers.cc"),
+      "utf8",
+    );
+    expect(
+      timerRuntime.match(/it->second\.principal == currentPrincipalId\(\)/gu),
+    ).toHaveLength(4);
+
+    for (const name of ["__exactTimerRef", "__exactTimerUnref"]) {
+      const classified = classifyObservedSurface(
+        surface("native-op", name),
+        context,
+      );
+      expect(classified.edge).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "authority-control-plane",
+      });
     }
   });
 
@@ -1894,21 +2366,6 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         name,
       ).toEqual(["fs:list", "fs:write"]);
       expect(
-        classifyObservedSurface(
-          surface("loader", `operation:${category}:from_raw_fd`),
-          context,
-        ).edge,
-      ).toMatchObject({
-        classification: "non-capability",
-        rationaleId: "unbound-owned-resource",
-      });
-      expect(
-        classifyObservedSurface(
-          surface("loader", `operation:${category}:last_os_error`),
-          context,
-        ).edge.rationaleId,
-      ).toBe("internal-data-transform");
-      expect(
         edgeActions(
           classifyObservedSurface(
             surface("loader", `operation:${category}:symlink_metadata`),
@@ -1921,41 +2378,55 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(
       edgeActions(
         classifyObservedSurface(
-          surface("loader", "route:load:rust:digest_file"),
+          surface("loader", "route:load:rust:walk_transpile_tool_directory"),
           context,
         ),
       ),
     ).toEqual(["fs:list", "fs:read"]);
-    expect(
-      edgeActions(
-        classifyObservedSurface(
-          surface("loader", "route:load:rust:drop"),
-          context,
-        ),
+    expect(() =>
+      classifyObservedSurface(
+        surface("loader", "route:load:rust:drop"),
+        context,
       ),
-    ).toEqual(["fs:list", "fs:write"]);
+    ).toThrow(/unclassified observed surface/u);
+
+    for (const category of ["cache", "load", "resolution", "transform"]) {
+      for (const accessor of [
+        "legacy_runtime_transform",
+        "runtime_transform",
+      ]) {
+        const name = `route:${category}:rust:${accessor}`;
+        expect(
+          classifyObservedSurface(surface("loader", name), context).edge,
+          name,
+        ).toMatchObject({
+          classification: "non-capability",
+          rationaleId: "authority-control-plane",
+        });
+      }
+    }
 
     for (const category of [
       "cache",
       "load",
       "resolution",
+      "subprocess",
       "transform",
     ]) {
-      const name = `operation:${category}:env-var`;
+      const name = `route:${category}:rust:configure_transpile_subprocess_environment`;
       expect(
-        edgeActions(classifyObservedSurface(surface("loader", name), context)),
+        classifyObservedSurface(surface("loader", name), context).edge,
         name,
-      ).toEqual(["env:read"]);
+      ).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "authority-control-plane",
+      });
     }
 
     for (const name of [
-      "operation:cache:env-temp_dir",
-      "operation:load:env-temp_dir",
       "operation:load:process-id",
       "operation:resolution:env-current_dir",
-      "operation:resolution:env-temp_dir",
       "operation:resolution:process-id",
-      "operation:transform:env-temp_dir",
       "operation:transform:process-id",
     ]) {
       expect(
@@ -1989,10 +2460,186 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     ]);
   });
 
+  test("package authentication loader helpers retain effect-accurate classifications", () => {
+    const categories = ["cache", "load", "resolution", "transform"];
+    const expectConjunctivePackageRead = (name) => {
+      const classified = classifyObservedSurface(
+        surface("loader", name),
+        context,
+      );
+      expect(classified.edge, name).toMatchObject({
+        classification: "effects",
+        effectMode: "conjunctive",
+      });
+      expect(edgeActions(classified), name).toEqual(["fs:list", "fs:read"]);
+    };
+
+    expectConjunctivePackageRead("function:rust:resolve_package_link");
+    for (const category of categories) {
+      expectConjunctivePackageRead(
+        `route:${category}:rust:walk_transpile_tool_directory`,
+      );
+      for (const staleName of [
+        `operation:${category}:from_raw_fd`,
+        `operation:${category}:last_os_error`,
+        `route:${category}:rust:digest_file`,
+        `route:${category}:rust:directory_names`,
+        `route:${category}:rust:normalize_absolute`,
+        `route:${category}:rust:object_identity`,
+        `route:${category}:rust:open_entry_no_follow`,
+        `route:${category}:rust:open_path_no_follow`,
+        `route:${category}:rust:read_link_at`,
+        `route:${category}:rust:resolve_package_link`,
+        `route:${category}:rust:retain_authenticated_object`,
+        `route:${category}:rust:stable_path_link`,
+        `route:${category}:rust:stamp`,
+        `route:${category}:rust:target_is_package_defined`,
+        `route:${category}:rust:verification_generation`,
+        `route:${category}:rust:walk`,
+      ]) {
+        expect(() =>
+          classifyObservedSurface(surface("loader", staleName), context),
+        ).toThrow(/unclassified observed surface/u);
+      }
+      if (category !== "resolution") {
+        expect(() =>
+          classifyObservedSurface(
+            surface("loader", `operation:${category}:read_link`),
+            context,
+          ),
+        ).toThrow(/unclassified observed surface/u);
+      }
+    }
+  });
+
+  test("generated-single principal normalization is a precise pure loader helper", () => {
+    const name = "function:javascript:closedGeneratedSinglePrincipal";
+    expect(reviewedLoaderNames()).toContain(name);
+    const classified = classifyObservedSurface(
+      surface("loader", name),
+      context,
+    );
+    expect(classified.edge).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "pure-in-memory-compute",
+    });
+    expect(classified.specification.implementationOwner).toBe("WP1");
+
+    const registrationName =
+      "function:javascript:generatedSinglePackagePrincipal";
+    expect(reviewedLoaderNames()).toContain(registrationName);
+    expect(
+      classifyObservedSurface(surface("loader", registrationName), context)
+        .edge,
+    ).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "authority-control-plane",
+    });
+
+    for (const errorHelper of [
+      "function:javascript:moduleResolutionError",
+      "function:javascript:stableModuleResolutionErrorCode",
+    ]) {
+      expect(reviewedLoaderNames()).toContain(errorHelper);
+      expect(
+        classifyObservedSurface(surface("loader", errorHelper), context).edge,
+        errorHelper,
+      ).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "pure-in-memory-compute",
+      });
+    }
+  });
+
+  test("classifies the source-bound current-principal environment Proxy as exact read/write effects", () => {
+    const observed = principalEnvironmentOverlayGlobal();
+    expect(reviewedGlobalApiNames()).toContain(observed.name);
+    expect(reviewedGlobalApiNames()).not.toContain(
+      "global:process.env.[[dynamic-table:host-process-env-properties]]",
+    );
+
+    const classified = classifyObservedSurface(observed, context);
+    expect(classified.edge).toMatchObject({
+      classification: "effects",
+      effectMode: "conditional",
+      effectOwnerSource: "innermost-nontransparent-frame",
+      principalSources: ["frame-set", "schedule-time"],
+      logicalBranches: [
+        {
+          id: "read",
+          when: [
+            {
+              fact: "environment.property.operation",
+              equals: "read",
+            },
+          ],
+          effects: [{ cap: "env:read" }],
+        },
+        {
+          id: "write",
+          when: [
+            {
+              fact: "environment.property.operation",
+              equals: "write",
+            },
+          ],
+          effects: [{ cap: "env:write" }],
+        },
+      ],
+    });
+    expect(classified.edge.effects.map(({ cap }) => cap)).toEqual([
+      "env:read",
+      "env:write",
+    ]);
+    for (const effect of classified.edge.effects) {
+      expect(effect).toMatchObject({
+        selectorNormalizer: "environment.name.selector.v1",
+        occurrenceNormalizer: "environment.name.occurrence.v1",
+        stages: ["requested", "commit"],
+      });
+    }
+
+    for (const mutate of [
+      (surface) => {
+        surface.metadata.principalEnvironmentOverlaySourceContract.proxyTraps.find(
+          ({ name }) => name === "set",
+        ).nativeBridges = [];
+      },
+      (surface) => {
+        surface.metadata.principalEnvironmentOverlaySourceContract.sourceRefs =
+          surface.metadata.principalEnvironmentOverlaySourceContract.sourceRefs.slice(
+            1,
+          );
+      },
+      (surface) => {
+        surface.metadata.semanticRoles = ["runtime-property-overlay"];
+      },
+    ]) {
+      const drifted = structuredClone(observed);
+      mutate(drifted);
+      expect(() => classifyObservedSurface(drifted, context)).toThrow(
+        /unclassified observed surface/u,
+      );
+    }
+  });
+
+  test("classifies typed environment-write Host authorization as control plane", () => {
+    const name = "ex_host_authorize_typed_environment_write_stack";
+    expect(reviewedHostAbiNames()).toContain(name);
+    const classified = classifyObservedSurface(
+      surface("host-abi", name),
+      context,
+    );
+    expect(classified.edge).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "authority-control-plane",
+    });
+    expect(classified.specification.implementationOwner).toBe("WP8");
+  });
+
   test("shared process-global builtin mutation surfaces remain closed", () => {
     for (const [sourceKey, exportName, expectedAction] of [
       ["exact_process", "env", "env:process-write"],
-      ["exact_process", "chdir", "process:cwd"],
       ["exact_process", "_umask", "process:umask"],
       ["exact_process", "umask", "process:umask"],
       ["exact_process", "_uncaughtCaptureCb", "runtime:inspect"],
@@ -2016,7 +2663,6 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ["node_http", "setMaxIdleHTTPParsers", "runtime:inspect"],
       ["node_https", "globalAgent", "runtime:inspect"],
       ["node_module", "default", "runtime:inspect"],
-      ["node_module", "_cache", "runtime:inspect"],
       ["node_module", "_extensions", "runtime:inspect"],
       ["node_module", "_pathCache", "runtime:inspect"],
       ["node_module", "globalPaths", "runtime:inspect"],
@@ -2305,6 +2951,19 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       cap: "ipc:channel",
     });
 
+    for (const namespace of ["Exact", "Bun"]) {
+      for (const member of [
+        "accessibility",
+        "accessibility.addEventListener",
+        "accessibility.prefersReducedMotion",
+      ]) {
+        expect(
+          classifyObservedSurface(globalApi(namespace, member), context).edge,
+          `${namespace}.${member}`,
+        ).toMatchObject({ classification: "closed", cap: "ipc:channel" });
+      }
+    }
+
     for (const [globalName, memberName, expectedAction] of [
       ["Cache", null, "storage:persist"],
       ["Cache", "add", "storage:write"],
@@ -2326,6 +2985,30 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ["caches", "has", "storage:read"],
       ["caches", "keys", "storage:read"],
       ["caches", "match", "storage:read"],
+    ]) {
+      const classified = classifyObservedSurface(
+        globalApi(globalName, memberName),
+        context,
+      );
+      expect(
+        classified.edge.classification,
+        `${globalName}.${memberName}`,
+      ).toBe("closed");
+      expect(edgeActions(classified), `${globalName}.${memberName}`).toEqual([
+        expectedAction,
+      ]);
+    }
+
+    for (const [globalName, memberName, expectedAction] of [
+      ["caches", "[[Symbol.toStringTag]]", "storage:persist"],
+      ["localStorage", "[[Symbol.toStringTag]]", "storage:read"],
+      ["sessionStorage", "[[Symbol.toStringTag]]", "storage:read"],
+      ["indexedDB", "cmp", "storage:persist"],
+      ["IDBKeyRange", null, "storage:persist"],
+      ["IDBRequest", "onsuccess", "storage:persist"],
+      ["IDBOpenDBRequest", "onupgradeneeded", "storage:persist"],
+      ["IDBDatabase", "close", "storage:persist"],
+      ["IDBTransaction", "abort", "storage:persist"],
     ]) {
       const classified = classifyObservedSurface(
         globalApi(globalName, memberName),
@@ -2620,6 +3303,314 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       expect(edgeActions(classified), kind).toEqual(expectedActions);
     }
 
+    for (const name of [
+      "function:rust:module_resolve_options",
+      "function:rust:resolve_builtin_meta",
+      "route:resolution:rust:module_resolve_options",
+      "route:resolution:rust:parse_manifest",
+      "route:resolution:rust:read",
+      "route:resolution:rust:read_to_string",
+      "route:resolution:rust:resolve_builtin_meta",
+    ]) {
+      expect(
+        classifyObservedSurface(surface("loader", name), context).edge,
+      ).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "module-reachability-only",
+      });
+    }
+
+    for (const name of [
+      "function:rust:resolve_direct_file_meta",
+      "function:rust:resolve_with_resolver_at",
+      "route:resolution:rust:resolve_with_resolver_at",
+    ]) {
+      const classified = classifyObservedSurface(
+        surface("loader", name),
+        context,
+      );
+      expect(classified.edge.classification, name).toBe("effects");
+      expect(edgeActions(classified), name).toEqual(["fs:list", "fs:read"]);
+    }
+
+    const expectResolverBranches = (
+      name,
+      fact,
+      branches,
+      lifetimeContract = "operation",
+    ) => {
+      const edge = classifyObservedSurface(
+        surface("loader", name),
+        context,
+      ).edge;
+      expect(edge, name).toMatchObject({
+        classification: "effects",
+        effectMode: "conditional",
+        effectOwnerSource: "loader-referrer",
+        gate: "loader-admission",
+        lifetimeContract,
+        principalSources: ["loader-referrer"],
+      });
+      expect(
+        edge.logicalBranches.map((branch) => ({
+          effectOwnerSource: branch.effectOwnerSource,
+          effects: branch.effects.map((effect) => effect.cap),
+          id: branch.id,
+          lifetimeContract: branch.lifetimeContract,
+          principalSources: branch.principalSources,
+          when: branch.when,
+        })),
+        name,
+      ).toEqual(
+        branches.map(
+          ([id, equals, effects, branchLifetime = lifetimeContract]) => ({
+            effectOwnerSource: "loader-referrer",
+            effects,
+            id,
+            lifetimeContract: branchLifetime,
+            principalSources: ["loader-referrer"],
+            when: [{ fact, equals }],
+          }),
+        ),
+      );
+    };
+
+    const resolverSelectionBranches = [
+      ["metadata-only", "metadata-only", ["fs:list"]],
+      ["no-host-lookup", "none", []],
+      ["symlink-target", "symlink-target", ["fs:list", "fs:read"]],
+    ];
+    for (const name of [
+      "function:rust:authenticated_resolver_base_dir",
+      "function:rust:resolve_meta_authenticated",
+      "route:resolution:rust:authenticated_resolver_base_dir",
+      "route:resolution:rust:metadata",
+      "route:resolution:rust:read_link",
+      "route:resolution:rust:resolve_meta_authenticated",
+      "route:resolution:rust:symlink_metadata",
+    ]) {
+      expectResolverBranches(
+        name,
+        "loader.resolver.io",
+        resolverSelectionBranches,
+      );
+    }
+
+    const resolverTraversalBranches = [
+      ["metadata-only", "metadata-only", ["fs:list"]],
+      ["symlink-target", "symlink-target", ["fs:list", "fs:read"]],
+    ];
+    for (const name of [
+      "function:rust:resolve_direct_file_meta_authenticated",
+      "function:rust:resolve_meta_from_authenticated_bound_package",
+      "route:resolution:rust:bounded_unix_read_link",
+      "route:resolution:rust:bounded_unix_symlink_metadata",
+      "route:resolution:rust:canonicalize",
+      "route:resolution:rust:resolve_direct_file_meta_authenticated",
+      "route:resolution:rust:resolve_meta_from_authenticated_bound_package",
+    ]) {
+      expectResolverBranches(
+        name,
+        "loader.resolver.io",
+        resolverTraversalBranches,
+      );
+    }
+
+    for (const name of [
+      "function:rust:resolve_bounded_unix_path",
+      "route:resolution:rust:bounded_unix_parent",
+      "route:resolution:rust:resolve_bounded_unix_path",
+    ]) {
+      expectResolverBranches(
+        name,
+        "loader.resolver.io",
+        resolverTraversalBranches,
+        "file-handle",
+      );
+    }
+
+    expectResolverBranches(
+      "route:resolution:rust:new",
+      "loader.resolver.backend",
+      [
+        [
+          "descriptor-relative-posix",
+          "descriptor-relative-posix",
+          ["fs:list"],
+          "file-handle",
+        ],
+        ["unsupported", "unsupported", [], "operation"],
+      ],
+      "file-handle",
+    );
+
+    for (const name of [
+      "function:rust:open_resolver_boundary",
+      "function:rust:resolver_open_directory_at",
+      "operation:resolution:open",
+      "route:resolution:rust:open_resolver_boundary",
+      "route:resolution:rust:resolver_open_directory_at",
+    ]) {
+      const classified = classifyObservedSurface(
+        surface("loader", name),
+        context,
+      );
+      expect(edgeActions(classified), name).toEqual(["fs:list"]);
+      expect(classified.edge, name).toMatchObject({
+        effectOwnerSource: "loader-referrer",
+        gate: "loader-admission",
+        lifetimeContract: "file-handle",
+        principalSources: ["loader-referrer"],
+      });
+    }
+
+    for (const name of [
+      "function:rust:resolver_fstat",
+      "function:rust:resolver_fstatat_nofollow",
+      "route:resolution:rust:resolver_fstat",
+      "route:resolution:rust:resolver_fstatat_nofollow",
+    ]) {
+      const classified = classifyObservedSurface(
+        surface("loader", name),
+        context,
+      );
+      expect(edgeActions(classified), name).toEqual(["fs:list"]);
+      expect(classified.edge, name).toMatchObject({
+        effectOwnerSource: "loader-referrer",
+        gate: "loader-admission",
+        lifetimeContract: "operation",
+        principalSources: ["loader-referrer"],
+      });
+    }
+
+    for (const name of [
+      "function:rust:resolver_read_link_at",
+      "operation:resolution:read_link",
+      "route:resolution:rust:resolver_read_link_at",
+    ]) {
+      const classified = classifyObservedSurface(
+        surface("loader", name),
+        context,
+      );
+      expect(edgeActions(classified), name).toEqual(["fs:read"]);
+      expect(classified.edge, name).toMatchObject({
+        effectOwnerSource: "loader-referrer",
+        gate: "loader-admission",
+        lifetimeContract: "operation",
+        principalSources: ["loader-referrer"],
+      });
+    }
+
+    for (const name of [
+      "function:rust:authenticated_module_resolve_options",
+      "function:rust:duplicate_resolver_fd",
+      "function:rust:lexical_absolute_path_for_resolver",
+      "function:rust:resolver_component_cstring",
+      "function:rust:resolver_relative_components",
+      "route:resolution:rust:authenticated_module_resolve_options",
+      "route:resolution:rust:boundary_root",
+      "route:resolution:rust:duplicate_resolver_fd",
+      "route:resolution:rust:file_system",
+      "route:resolution:rust:inputs",
+      "route:resolution:rust:lexical_absolute_path_for_resolver",
+      "route:resolution:rust:manifest_input",
+      "route:resolution:rust:normalize_in_boundary",
+      "route:resolution:rust:normalized",
+      "route:resolution:rust:resolver_component_cstring",
+      "route:resolution:rust:resolver_relative_components",
+      "route:resolution:rust:uncaptured_package_manifest_probes",
+      "route:resolution:rust:legacy_runtime_transform",
+      "route:resolution:rust:runtime_transform",
+    ]) {
+      expect(
+        classifyObservedSurface(surface("loader", name), context).edge,
+        name,
+      ).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "authority-control-plane",
+      });
+    }
+
+    for (const name of [
+      "function:rust:resolver_boundary_refusal",
+      "function:rust:resolver_canonical_path",
+      "function:rust:resolver_manifest_not_found",
+      "function:rust:resolver_metadata_from_stat",
+      "function:rust:resolver_stat_is_dir",
+      "function:rust:resolver_stat_is_symlink",
+      "route:resolution:rust:resolver_boundary_refusal",
+      "route:resolution:rust:resolver_canonical_path",
+      "route:resolution:rust:resolver_manifest_not_found",
+      "route:resolution:rust:resolver_metadata_from_stat",
+      "route:resolution:rust:resolver_stat_is_dir",
+      "route:resolution:rust:resolver_stat_is_symlink",
+      "route:resolution:rust:selected_engine_cache_tag",
+      "route:resolution:rust:selected_transform_engine",
+    ]) {
+      expect(
+        classifyObservedSurface(surface("loader", name), context).edge,
+        name,
+      ).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "internal-data-transform",
+      });
+    }
+
+    expect(
+      classifyObservedSurface(
+        surface("loader", "operation:resolution:from-owned-fd"),
+        context,
+      ).edge,
+    ).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "retained-object-wrapper",
+    });
+
+    const sessionMetadata = classifyObservedSurface(
+      surface("loader", "function:javascript:__exactResolveSessionPath"),
+      context,
+    );
+    expect(sessionMetadata.edge.classification).toBe("effects");
+    expect(edgeActions(sessionMetadata)).toEqual(["fs:list"]);
+
+    for (const name of [
+      "function:javascript:__exactResolvedPath",
+      "function:javascript:createOriginalModuleRegistry",
+      "function:javascript:originalModuleRegistryForRecord",
+      "function:javascript:principalForOriginal",
+      "function:javascript:privateBridgesForBuiltin",
+    ]) {
+      expect(
+        classifyObservedSurface(surface("loader", name), context).edge,
+        name,
+      ).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "authority-control-plane",
+      });
+    }
+
+    expect(
+      classifyObservedSurface(
+        surface("loader", "function:rust:strip_file_module_decorations"),
+        context,
+      ).edge,
+    ).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "module-reachability-only",
+    });
+    expect(
+      classifyObservedSurface(
+        surface(
+          "loader",
+          "route:resolution:rust:strip_file_module_decorations",
+        ),
+        context,
+      ).edge,
+    ).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "internal-data-transform",
+    });
+
     for (const observed of [
       surface("loader", "kind:remote"),
       surface("loader", "function:javascript:loadNativeAddon"),
@@ -2633,13 +3624,8 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     }
   });
 
-  test("CLI and startup classification is exact-key and closes evaluation escapes", () => {
+  test("CLI product ingress is authenticated while diagnostic evaluation escapes stay closed", () => {
     for (const observed of [
-      surface("cli", "eval", { commandClass: "visibleCommands" }),
-      surface("cli", "command:ibex%20eval", {
-        evidenceType: "cli-command-route",
-        path: "ibex eval",
-      }),
       surface("cli", "command:ibex%20capsec%20audit", {
         evidenceType: "cli-command-route",
         path: "ibex capsec audit",
@@ -2652,11 +3638,34 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       expect(edgeActions(classified)).toEqual(["vm:evaluate"]);
     }
 
+    for (const observed of [
+      surface("cli", "eval", { commandClass: "visibleCommands" }),
+      surface("cli", "command:ibex%20eval", {
+        evidenceType: "cli-command-route",
+        path: "ibex eval",
+      }),
+    ]) {
+      const classified = classifyObservedSurface(observed, context);
+      expect(classified.edge.classification).toBe("non-capability");
+      expect(classified.edge.rationaleId).toBe("internal-data-transform");
+    }
+
+    for (const name of [
+      "authenticated-direct-file-ingress",
+      "authenticated-one-shot-ingress",
+      "authenticated-program-stdin-ingress",
+      "authenticated-repl-ingress",
+      "implicit-no-file-dispatch",
+    ]) {
+      const classified = classifyObservedSurface(surface("cli", name), context);
+      expect(classified.edge.classification, name).toBe("non-capability");
+      expect(classified.edge.rationaleId, name).toBe(
+        "authenticated-code-ingress",
+      );
+    }
+
     const auditFileParser = classifyObservedSurface(
-      surface(
-        "cli",
-        "argument-parser:ibex%20capsec%20audit:file:utf8-string",
-      ),
+      surface("cli", "argument-parser:ibex%20capsec%20audit:file:utf8-string"),
       context,
     );
     expect(auditFileParser.edge.classification).toBe("non-capability");
@@ -2723,6 +3732,17 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(trustedEvaluation.edge.classification).toBe("non-capability");
     expect(trustedEvaluation.edge.rationaleId).toBe("runtime-bootstrap-state");
 
+    const nativeFreezeObservationScript = classifyObservedSurface(
+      surface("startup", "script:native-freeze-conformance-observation"),
+      context,
+    );
+    expect(nativeFreezeObservationScript.edge.classification).toBe(
+      "non-capability",
+    );
+    expect(nativeFreezeObservationScript.edge.rationaleId).toBe(
+      "runtime-bootstrap-state",
+    );
+
     const installRoute = classifyObservedSurface(
       surface("startup", "install-route:ex_hermes_create_impl:installGlobals", {
         evidenceType: "startup-installer-call-route",
@@ -2779,7 +3799,46 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     }
   });
 
-  test("native environment enumeration and translation-unit fallback routes stay exact", () => {
+  test("supervisor history routes are root-owned explicit effects", () => {
+    const expected = new Map([
+      ["supervisor-history.authenticated-project-scope", ["fs:list"]],
+      ["supervisor-history.global-platform-data-root", ["env:read"]],
+      ["supervisor-history.journal-append", ["fs:list", "fs:write"]],
+      ["supervisor-history.journal-compact", ["fs:list", "fs:write"]],
+      [
+        "supervisor-history.journal-recover",
+        ["fs:list", "fs:read", "fs:write"],
+      ],
+      ["supervisor-history.legacy-probe", ["fs:list"]],
+      ["supervisor-history.project-platform-data-root", ["env:read"]],
+      ["supervisor-history.sidecar-lock-acquire", ["fs:list", "fs:write"]],
+      ["supervisor-history.store-open", ["fs:list", "fs:write"]],
+      [
+        "supervisor-history.user-key-read-create",
+        ["fs:list", "fs:read", "fs:write"],
+      ],
+    ]);
+
+    for (const [name, actions] of expected) {
+      const classified = classifyObservedSurface(
+        surface("startup", name),
+        context,
+      );
+      expect(classified.edge.classification, name).toBe("effects");
+      expect(edgeActions(classified), name).toEqual(actions);
+      expect(classified.edge.principalSources, name).toEqual(["root"]);
+      expect(classified.edge.effectOwnerSource, name).toBe("root");
+    }
+
+    expect(() =>
+      classifyObservedSurface(
+        surface("startup", "supervisor-history.future-route"),
+        context,
+      ),
+    ).toThrow(/unclassified observed surface/);
+  });
+
+  test("native environment enumeration and explicit installGlobals routes stay exact", () => {
     for (const name of [
       "env:<dynamic>:cpp:::environ",
       "env:<dynamic>:cpp:GetEnvironmentStringsW",
@@ -2803,15 +3862,19 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ["form-data", "non-capability", "runtime-bootstrap-state"],
       ["freeze-seal", "non-capability", "authority-control-plane"],
       ["fs-handle", "non-capability", "authority-control-plane"],
+      [
+        "native-freeze-conformance-observation",
+        "non-capability",
+        "runtime-bootstrap-state",
+      ],
       ["web-crypto", "non-capability", "authority-control-plane"],
       ["web-storage", "non-capability", "authority-control-plane"],
     ]) {
-      const name = `evaluation:translation-unit-fallback:${label}`;
+      const name = `evaluation:installGlobals:${label}`;
       const classified = classifyObservedSurface(
         surface("startup", name, {
           evidenceType: "startup-evaluation-route",
-          structuralFallback: "translation-unit",
-          caller: "translation-unit-fallback",
+          caller: "installGlobals",
           sourceUrl: `<${label}>`,
         }),
         context,
@@ -2842,12 +3905,11 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       "installWebSocketGlobals",
     ];
     for (const installer of installers) {
-      const name = `install-route:translation-unit-fallback:${installer}`;
+      const name = `install-route:installGlobals:${installer}`;
       const classified = classifyObservedSurface(
         surface("startup", name, {
           evidenceType: "startup-installer-call-route",
-          structuralFallback: "translation-unit",
-          caller: "translation-unit-fallback",
+          caller: "installGlobals",
           installer,
         }),
         context,
@@ -2867,9 +3929,8 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
 
     expect(() =>
       classifyObservedSurface(
-        surface("startup", "evaluation:translation-unit-fallback:fs-handle", {
+        surface("startup", "evaluation:installGlobals:fs-handle", {
           evidenceType: "startup-evaluation-route",
-          structuralFallback: "translation-unit",
           caller: "invented-caller",
           sourceUrl: "<fs-handle>",
         }),
@@ -2906,7 +3967,6 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       "IBEX_COMPARTMENTS",
       "IBEX_LOCKDOWN",
       "EX_SKIP_STARTUP_HOST_FUNCTIONS",
-      "EX_DISABLE_BYTECODE_SANITY_CHECK",
       "EXACT_ALLOW_INSECURE_CRYPTO",
       "EXACT_WPT_TRUST_LOOPBACK_TLS",
     ]) {
@@ -2924,6 +3984,13 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ).toBe("WP9");
     }
 
+    expect(() =>
+      classifyObservedSurface(
+        surface("startup", "env:EX_DISABLE_BYTECODE_SANITY_CHECK"),
+        context,
+      ),
+    ).toThrow(/unclassified observed surface/u);
+
     expect(
       classifyObservedSurface(surface("startup", "env:EXACT_IPC_FD"), context)
         .edge,
@@ -2940,6 +4007,28 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         context,
       ).edge,
     ).toMatchObject({ classification: "closed", cap: "ipc:channel" });
+    for (const memberName of [null, "close", "fd", "serialization"]) {
+      const name = memberName
+        ? `__exactProcessIpcBootstrap.${memberName}`
+        : "__exactProcessIpcBootstrap";
+      const observed = memberName
+        ? surface("native-op", name, {
+            exportName: name,
+            globalName: "__exactProcessIpcBootstrap",
+            memberName,
+            sourceKey: "native_jsi_global",
+            surfaceType: "global-api",
+          })
+        : surface("native-op", name);
+      const ipcBootstrap = classifyObservedSurface(observed, context);
+      expect(ipcBootstrap.edge, name).toMatchObject({
+        classification: "closed",
+        cap: "ipc:channel",
+      });
+      expect(ipcBootstrap.implementationRows[0].implementationOwner, name).toBe(
+        "WP7",
+      );
+    }
 
     for (const environmentName of [
       "EXACT_COMPAT_TEST",
@@ -2961,6 +4050,48 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         "runtime-bootstrap-state",
       );
     }
+
+    const fixedChildEnvironmentMetadata = {
+      accessDirections: ["write"],
+      accessors: ["Command::env"],
+      authoredNames: ["XDG_CONFIG_HOME"],
+      contexts: ["spawn-child-env"],
+      dynamic: false,
+      evidenceType: "static-runtime-environment-control",
+      languages: ["rust"],
+    };
+    const fixedChildEnvironment = classifyObservedSurface(
+      surface("startup", "env:XDG_CONFIG_HOME", fixedChildEnvironmentMetadata),
+      context,
+    );
+    expect(fixedChildEnvironment.edge).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "authority-control-plane",
+    });
+    expect(
+      fixedChildEnvironment.implementationRows[0].implementationOwner,
+    ).toBe("WP7");
+    for (const invalidMetadata of [
+      { ...fixedChildEnvironmentMetadata, accessDirections: ["read"] },
+      { ...fixedChildEnvironmentMetadata, contexts: ["startup-input"] },
+      { ...fixedChildEnvironmentMetadata, accessors: ["env::var"] },
+    ]) {
+      expect(() =>
+        classifyObservedSurface(
+          surface("startup", "env:XDG_CONFIG_HOME", invalidMetadata),
+          context,
+        ),
+      ).toThrow(/unclassified observed surface/u);
+    }
+
+    const callbackDelayHarness = classifyObservedSurface(
+      surface("startup", "env:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS"),
+      context,
+    );
+    expect(callbackDelayHarness.edge).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "runtime-bootstrap-state",
+    });
 
     for (const [environmentName, expectedActions, expectedMode] of [
       ["IBEX_POLICY", ["env:read", "fs:list", "fs:read"], "conditional"],
@@ -3028,8 +4159,6 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       "TMPDIR",
       "TMP",
       "TEMP",
-      "HOSTNAME",
-      "HOST",
     ]) {
       const classified = classifyObservedSurface(
         surface("startup", `env:${environmentName}`),
@@ -3202,7 +4331,9 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     ).implementationRows[0];
     expect(sync.branchId).not.toBe(asynchronous.branchId);
     expect(sync.enforcementBranchId).not.toBe(asynchronous.enforcementBranchId);
-    expect(sync.fixtureObligations).not.toEqual(asynchronous.fixtureObligations);
+    expect(sync.fixtureObligations).not.toEqual(
+      asynchronous.fixtureObligations,
+    );
 
     const distinctSource = classifyObservedSurface(
       surface("native-op", "__exactTcpConnectStart", undefined, [
@@ -3210,16 +4341,15 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ]),
       context,
     ).implementationRows[0];
-    expect(distinctSource.enforcementBranchId).not.toBe(sync.enforcementBranchId);
+    expect(distinctSource.enforcementBranchId).not.toBe(
+      sync.enforcementBranchId,
+    );
   });
 
   test("static builtin call routes join the exact native terminal and fail on mutation", () => {
-    const terminal = surface(
-      "native-op",
-      "__exactClipboardRead",
-      undefined,
-      ["src/engine/hermes_runtime_device.cc#__exactClipboardRead"],
-    );
+    const terminal = surface("native-op", "__exactClipboardRead", undefined, [
+      "src/engine/hermes_runtime_device.cc#__exactClipboardRead",
+    ]);
     const facade = (terminalName) =>
       surface(
         "builtin",
@@ -3231,9 +4361,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
           enforcementRouteEvidence: {
             ambiguousCallees: [],
             kind: "static-builtin-call-graph",
-            paths: [
-              `export:readText -> readText -> ${terminalName}`,
-            ],
+            paths: [`export:readText -> readText -> ${terminalName}`],
             terminals: [terminalName],
           },
         },
@@ -3249,18 +4377,12 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     const terminalRow = model.implementationRows.find(
       (row) => row.observedKey === "native-op:__exactClipboardRead",
     );
-    expect(facadeRow.enforcementBranchId).toBe(
-      terminalRow.enforcementBranchId,
-    );
+    expect(facadeRow.enforcementBranchId).toBe(terminalRow.enforcementBranchId);
     expect(facadeRow.enforcementRoute).toEqual({
       kind: "static-builtin-call-graph",
-      proofPaths: [
-        "export:readText -> readText -> __exactClipboardRead",
-      ],
+      proofPaths: ["export:readText -> readText -> __exactClipboardRead"],
       proofSourceRefs: ["src/builtins/clipboard.js#exports:readText"],
-      sourceRefs: [
-        "src/engine/hermes_runtime_device.cc#__exactClipboardRead",
-      ],
+      sourceRefs: ["src/engine/hermes_runtime_device.cc#__exactClipboardRead"],
       terminalObservedKey: "native-op:__exactClipboardRead",
     });
 
@@ -3496,7 +4618,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     );
   });
 
-  test("definition coverage accounts for all 38 frozen definitions", () => {
+  test("definition coverage accounts for all 40 frozen definitions", () => {
     const model = buildCoverageModel(
       [
         surface("native-op", "__exactFsOpen"),
@@ -3505,10 +4627,10 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ],
       context,
     );
-    expect(model.definitionCoverage).toHaveLength(38);
+    expect(model.definitionCoverage).toHaveLength(40);
     expect(
       new Set(model.definitionCoverage.map((row) => row.definitionId)).size,
-    ).toBe(38);
+    ).toBe(40);
     expect(
       model.definitionCoverage.every((row) =>
         ["covered", "closed", "unsupported", "absent"].includes(
@@ -3540,9 +4662,10 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     // The 22 additional rows are the reviewed zlib Transform `end`/`destroy`
     // overrides. They authenticate retained native streams before inherited
     // Transform state can commit a terminal transition. ServerResponse's
-    // owner-gated appendHeader override moves one former inherited row into
-    // the explicit export review, for a net +21 inherited rows.
-    expect(inheritedBuiltinExports).toHaveLength(455);
+    // owner-gated appendHeader override and Duplex's materialized `_undestroy`
+    // copy move two former inherited rows into the explicit export review, for
+    // a net +20 inherited rows.
+    expect(inheritedBuiltinExports).toHaveLength(454);
     expect(
       new Set(
         inheritedBuiltinExports.map(
@@ -3551,7 +4674,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ),
     ).toEqual(
       new Set([
-        "sha256-92e80596e19cbd5fa2167c0374f84e695fb493ad9caa022e5ef97d48c80a7a04",
+        "sha256-a38490336f46e4dd2791e1e1fa14a1164d7c0da99f2670894ded67a33d8d1e2c",
       ]),
     );
     const reviewedBuiltinNames = new Set([
@@ -3644,7 +4767,21 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       .filter((row) => row.kind === "cli")
       .map((row) => row.name)
       .sort();
-    expect(reviewedCliNames()).toEqual(liveCliNames);
+    const generatedReplCliNames = inventory.surfaces
+      .filter(
+        (row) =>
+          row.kind === "cli" &&
+          new Set([
+            "repl-command-recognition",
+            "repl-command-route",
+            "repl-keybinding",
+            "repl-load-extension",
+          ]).has(row.metadata?.evidenceType),
+      )
+      .map((row) => row.name);
+    expect(
+      [...new Set([...reviewedCliNames(), ...generatedReplCliNames])].sort(),
+    ).toEqual(liveCliNames);
     const liveLoaderNames = inventory.surfaces
       .filter((row) => row.kind === "loader")
       .map((row) => row.name)
@@ -3670,6 +4807,9 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       "builtin:export:node_fs:watch",
       "host-abi:ex_hermes_eval",
       "host-abi:ex_worklet_create",
+      "native-op:global:AsyncFunction",
+      "native-op:global:Function",
+      "native-op:global:GeneratorFunction",
       "native-op:global:eval",
       "native-op:global:localStorage.getItem",
       "native-op:global:sessionStorage.setItem",
@@ -3710,10 +4850,17 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         effectMode: "conjunctive",
       },
     );
-    expect(edgeByObservedKey.get("native-op:global:eval")).toMatchObject({
-      classification: "closed",
-      cap: "vm:evaluate",
-    });
+    for (const evaluator of [
+      "AsyncFunction",
+      "Function",
+      "GeneratorFunction",
+      "eval",
+    ]) {
+      expect(
+        edgeByObservedKey.get(`native-op:global:${evaluator}`),
+        evaluator,
+      ).toMatchObject({ classification: "closed", cap: "vm:evaluate" });
+    }
     expect(
       edgeByObservedKey.get("host-abi:ex_host_sqlite_values"),
     ).toMatchObject({
@@ -3751,6 +4898,30 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     ).toMatchObject({
       classification: "non-capability",
       rationaleId: "authority-control-plane",
+    });
+    expect(
+      edgeByObservedKey.get("host-abi:ex_hermes_module_compile_factory"),
+    ).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "module-reachability-only",
+    });
+    expect(
+      edgeByObservedKey.get("host-abi:ex_hermes_module_load_carrier_factory"),
+    ).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "module-reachability-only",
+    });
+    expect(
+      edgeByObservedKey.get("host-abi:ex_hermes_module_release_handle"),
+    ).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "authority-release",
+    });
+    expect(
+      edgeByObservedKey.get("host-abi:ex_hermes_module_record_namespace_json"),
+    ).toMatchObject({
+      classification: "closed",
+      cap: "runtime:inspect",
     });
     expect(
       edgeByObservedKey.get(
@@ -3973,6 +5144,13 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         },
       ],
       [
+        "native-freeze-conformance-observation",
+        {
+          classification: "non-capability",
+          rationaleId: "runtime-bootstrap-state",
+        },
+      ],
+      [
         "web-crypto",
         {
           classification: "non-capability",
@@ -3987,11 +5165,19 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         },
       ],
     ]) {
-      const name = `evaluation:translation-unit-fallback:${label}`;
+      const name = `evaluation:installGlobals:${label}`;
       expect(edgeByObservedKey.get(`startup:${name}`), name).toMatchObject(
         expected,
       );
     }
+    expect(
+      edgeByObservedKey.get(
+        "startup:script:native-freeze-conformance-observation",
+      ),
+    ).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "runtime-bootstrap-state",
+    });
     for (const installer of [
       "installChildProcessHostFunctions",
       "installCryptoHostFunctions",
@@ -4009,7 +5195,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       "installSqliteHostFunctions",
       "installWebSocketGlobals",
     ]) {
-      const name = `install-route:translation-unit-fallback:${installer}`;
+      const name = `install-route:installGlobals:${installer}`;
       expect(edgeByObservedKey.get(`startup:${name}`), name).toMatchObject(
         installer === "installIpcListenerPatch"
           ? { classification: "closed", cap: "ipc:channel" }
@@ -4039,26 +5225,22 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         effects: [{ cap: "fs:list" }, { cap: "fs:write" }],
       });
     }
-    for (const category of [
-      "cache",
-      "load",
-      "resolution",
-      "transform",
-    ]) {
-      const observedKey = `loader:operation:${category}:env-var`;
-      expect(edgeByObservedKey.get(observedKey), observedKey).toMatchObject({
-        classification: "effects",
-        effects: [{ cap: "env:read" }],
-      });
+    for (const category of ["cache", "load", "resolution", "transform"]) {
+      for (const accessor of [
+        "legacy_runtime_transform",
+        "runtime_transform",
+      ]) {
+        const observedKey = `loader:route:${category}:rust:${accessor}`;
+        expect(edgeByObservedKey.get(observedKey), observedKey).toMatchObject({
+          classification: "non-capability",
+          rationaleId: "authority-control-plane",
+        });
+      }
     }
     for (const name of [
-      "operation:cache:env-temp_dir",
-      "operation:load:env-temp_dir",
       "operation:load:process-id",
       "operation:resolution:env-current_dir",
-      "operation:resolution:env-temp_dir",
       "operation:resolution:process-id",
-      "operation:transform:env-temp_dir",
       "operation:transform:process-id",
     ]) {
       const observedKey = `loader:${name}`;

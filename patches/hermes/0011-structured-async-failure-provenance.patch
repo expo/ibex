@@ -1,0 +1,762 @@
+diff --git a/API/hermes/hermes.cpp b/API/hermes/hermes.cpp
+index 96808afcc1940ba8141867447889086563ae22fc..1e6e6340281be5d055ae6e8b6cc2c2a6aa062ef6 100644
+--- a/API/hermes/hermes.cpp
++++ b/API/hermes/hermes.cpp
+@@ -23,12 +23,14 @@
+ #include "hermes/Support/SimpleDiagHandler.h"
+ #include "hermes/Support/UTF16Stream.h"
+ #include "hermes/Support/UTF8.h"
++#include "hermes/VM/BigIntPrimitive.h"
+ #include "hermes/VM/CallResult.h"
+ #include "hermes/VM/Debugger/Debugger.h"
+ #include "hermes/VM/GC.h"
+ #include "hermes/VM/HostModel.h"
+ #include "hermes/VM/JSArray.h"
+ #include "hermes/VM/JSArrayBuffer.h"
++#include "hermes/VM/JSError.h"
+ #include "hermes/VM/JSLib.h"
+ #include "hermes/VM/JSLib/JSLibStorage.h"
+ #include "hermes/VM/JSLib/RuntimeJSONParse.h"
+@@ -57,6 +59,7 @@
+ #include "llvh/Support/raw_os_ostream.h"
+ 
+ #include <algorithm>
++#include <array>
+ #include <atomic>
+ #include <limits>
+ #include <list>
+@@ -1262,6 +1265,16 @@ class HermesRuntimeImpl final : public HermesRuntime,
+   void *getVMRuntimeUnsafe() const override;
+   size_t rootsListLengthForTests() const override;
+   void setJSErrorMetadataPropertyAccessEnabled(bool enabled) override;
++  bool getSafeStage1Text(
++      const jsi::Value &value,
++      std::string &text,
++      bool &truncated) override;
++  SafeJSErrorClass getSafeJSErrorMetadata(
++      const jsi::Value &value,
++      std::string &message,
++      std::string &stack,
++      bool &messageTruncated,
++      bool &stackTruncated) override;
+   bool lastEvaluationResultWasEmpty() const override;
+ 
+   ManagedValues<vm::PinnedHermesValue> hermesValues_;
+@@ -1492,6 +1505,176 @@ class BufferAdapter final : public ::hermes::Buffer {
+   /// The buffer we are "adapting".
+   std::shared_ptr<const jsi::Buffer> buf_;
+ };
++
++constexpr size_t kMaximumSafeTextBytes = HERMES_SAFE_TEXT_MAX_BYTES;
++constexpr char kSafeTextTruncationMarker[] =
++    HERMES_SAFE_TEXT_TRUNCATION_MARKER;
++constexpr size_t kSafeTextTruncationMarkerBytes =
++    sizeof(kSafeTextTruncationMarker) - 1;
++static_assert(
++    kSafeTextTruncationMarkerBytes < kMaximumSafeTextBytes,
++    "safe text truncation marker must fit within the byte bound");
++
++bool isUTF8ContinuationByte(char value) {
++  return (static_cast<unsigned char>(value) & 0xC0u) == 0x80u;
++}
++
++size_t validUTF8PrefixLength(llvh::StringRef text, size_t maximumBytes) {
++  size_t length = std::min(text.size(), maximumBytes);
++  while (length != 0 && length < text.size() &&
++         isUTF8ContinuationByte(text[length])) {
++    --length;
++  }
++  return length;
++}
++
++std::string boundedUTF8FromStringView(
++    vm::StringView view,
++    size_t maximumBytes,
++    bool &truncated) {
++  assert(maximumBytes >= kSafeTextTruncationMarkerBytes);
++  assert(maximumBytes <= kMaximumSafeTextBytes);
++  truncated = false;
++  if (view.isASCII()) {
++    if (view.length() <= maximumBytes) {
++      return std::string{view.castToCharPtr(), view.length()};
++    }
++    truncated = true;
++    const size_t prefixBytes = maximumBytes - kSafeTextTruncationMarkerBytes;
++    std::string result{view.castToCharPtr(), prefixBytes};
++    result.append(kSafeTextTruncationMarker);
++    return result;
++  }
++
++  const auto source =
++      llvh::ArrayRef<char16_t>{view.castToChar16Ptr(), view.length()};
++  // Convert directly into a fixed-size buffer. A first pass determines
++  // whether the complete string fits. Only when it does not do we make a
++  // second bounded pass that reserves room for the trusted marker. The
++  // converter never writes a partial Unicode scalar.
++  std::array<uint8_t, kMaximumSafeTextBytes> buffer{};
++  auto converted = ::hermes::convertUTF16ToUTF8BufferWithReplacements(
++      llvh::MutableArrayRef<uint8_t>{buffer.data(), maximumBytes}, source);
++  if (converted.first == source.size()) {
++    return std::string{
++        reinterpret_cast<const char *>(buffer.data()), converted.second};
++  }
++
++  truncated = true;
++  const size_t contentBytes = maximumBytes - kSafeTextTruncationMarkerBytes;
++  converted = ::hermes::convertUTF16ToUTF8BufferWithReplacements(
++      llvh::MutableArrayRef<uint8_t>{buffer.data(), contentBytes}, source);
++  std::string result{
++      reinterpret_cast<const char *>(buffer.data()), converted.second};
++  result.append(kSafeTextTruncationMarker);
++  return result;
++}
++
++std::string boundedUTF8FromStringTableEntry(
++    const ::hermes::StringTableEntry &entry,
++    llvh::ArrayRef<unsigned char> storage,
++    bool &truncated) {
++  const uint32_t offset = entry.getOffset();
++  const uint32_t length = entry.getLength();
++  assert(offset <= storage.size());
++  if (!entry.isUTF16()) {
++    assert(length <= storage.size() - offset);
++    llvh::StringRef text{
++        reinterpret_cast<const char *>(storage.data() + offset), length};
++    if (text.size() <= kMaximumSafeTextBytes) {
++      truncated = false;
++      return text.str();
++    }
++    truncated = true;
++    const size_t contentBytes =
++        kMaximumSafeTextBytes - kSafeTextTruncationMarkerBytes;
++    std::string result{
++        text.data(), validUTF8PrefixLength(text, contentBytes)};
++    result.append(kSafeTextTruncationMarker);
++    return result;
++  }
++
++  assert(
++      static_cast<size_t>(length) * sizeof(char16_t) <=
++      storage.size() - offset);
++  const auto source = llvh::ArrayRef<char16_t>{
++      reinterpret_cast<const char16_t *>(storage.data() + offset), length};
++  std::array<uint8_t, kMaximumSafeTextBytes> buffer{};
++  auto converted = ::hermes::convertUTF16ToUTF8BufferWithReplacements(
++      llvh::MutableArrayRef<uint8_t>{buffer.data(), buffer.size()}, source);
++  if (converted.first == source.size()) {
++    truncated = false;
++    return std::string{
++        reinterpret_cast<const char *>(buffer.data()), converted.second};
++  }
++  truncated = true;
++  const size_t contentBytes =
++      kMaximumSafeTextBytes - kSafeTextTruncationMarkerBytes;
++  converted = ::hermes::convertUTF16ToUTF8BufferWithReplacements(
++      llvh::MutableArrayRef<uint8_t>{buffer.data(), contentBytes}, source);
++  std::string result{
++      reinterpret_cast<const char *>(buffer.data()), converted.second};
++  result.append(kSafeTextTruncationMarker);
++  return result;
++}
++
++bool appendBoundedUTF8(
++    std::string &output,
++    llvh::StringRef text,
++    bool &truncated);
++
++bool appendBoundedStringTableEntry(
++    std::string &output,
++    const ::hermes::StringTableEntry &entry,
++    llvh::ArrayRef<unsigned char> storage,
++    bool &truncated) {
++  bool entryTruncated = false;
++  auto text = boundedUTF8FromStringTableEntry(
++      entry, storage, entryTruncated);
++  if (!appendBoundedUTF8(output, text, truncated))
++    return false;
++  if (entryTruncated) {
++    truncated = true;
++    return false;
++  }
++  return true;
++}
++
++bool appendBoundedUTF8(
++    std::string &output,
++    llvh::StringRef text,
++    bool &truncated) {
++  if (truncated)
++    return false;
++  if (text.size() <= kMaximumSafeTextBytes - output.size()) {
++    output.append(text.data(), text.size());
++    return true;
++  }
++
++  truncated = true;
++  const size_t contentBytes =
++      kMaximumSafeTextBytes - kSafeTextTruncationMarkerBytes;
++  if (output.size() > contentBytes) {
++    output.resize(validUTF8PrefixLength(output, contentBytes));
++  }
++  const size_t available = contentBytes - output.size();
++  const size_t prefix = validUTF8PrefixLength(text, available);
++  output.append(text.data(), prefix);
++  output.append(kSafeTextTruncationMarker);
++  return false;
++}
++
++void finishBoundedTruncation(std::string &output, bool &truncated) {
++  if (truncated)
++    return;
++  const size_t contentBytes =
++      kMaximumSafeTextBytes - kSafeTextTruncationMarkerBytes;
++  if (output.size() > contentBytes) {
++    output.resize(validUTF8PrefixLength(output, contentBytes));
++  }
++  output.append(kSafeTextTruncationMarker);
++  truncated = true;
++}
+ } // namespace
+ 
+ jsi::ICast *HermesRuntimeImpl::getHermesRootAPI() {
+@@ -1502,6 +1685,203 @@ void HermesRuntimeImpl::setJSErrorMetadataPropertyAccessEnabled(bool enabled) {
+   jSErrorMetadataPropertyAccessEnabled_ = enabled;
+ }
+ 
++bool HermesRuntimeImpl::getSafeStage1Text(
++    const jsi::Value &value,
++    std::string &text,
++    bool &truncated) {
++  text.clear();
++  truncated = false;
++  if (!value.isString() && !value.isSymbol() && !value.isBigInt())
++    return false;
++
++  vm::GCScope gcScope(runtime_);
++  vm::PinnedHermesValue valueStorage;
++  auto valueHandle = vmHandleFromValue(value, &valueStorage);
++  if (valueHandle->isString()) {
++    auto stringHandle = runtime_.makeHandle(valueHandle->getString());
++    text = boundedUTF8FromStringView(
++        vm::StringPrimitive::createStringView(runtime_, stringHandle),
++        kMaximumSafeTextBytes,
++        truncated);
++    return true;
++  }
++
++  if (valueHandle->isSymbol()) {
++    auto *description =
++        runtime_.getStringPrimFromSymbolID(valueHandle->getSymbol());
++    if (description == runtime_.strForSymbolNoDescription.get()) {
++      text = "Symbol()";
++      return true;
++    }
++    constexpr size_t kSymbolWrapperBytes = sizeof("Symbol()") - 1;
++    auto descriptionHandle = runtime_.makeHandle(description);
++    auto boundedDescription = boundedUTF8FromStringView(
++        vm::StringPrimitive::createStringView(runtime_, descriptionHandle),
++        kMaximumSafeTextBytes - kSymbolWrapperBytes,
++        truncated);
++    if (truncated) {
++      assert(llvh::StringRef{boundedDescription}.endswith(
++          kSafeTextTruncationMarker));
++      boundedDescription.resize(
++          boundedDescription.size() - kSafeTextTruncationMarkerBytes);
++    }
++    text.reserve(sizeof("Symbol(") - 1 + boundedDescription.size() + 1);
++    text = "Symbol(";
++    text += boundedDescription;
++    text.push_back(')');
++    if (truncated)
++      text.append(kSafeTextTruncationMarker);
++    return true;
++  }
++
++  // The full-storage span exposes its byte count in constant time. Converting
++  // at most 4096 bytes remains below the public text bound; larger values
++  // return the trusted opaque marker without materializing an attacker-sized
++  // decimal string.
++  constexpr size_t kMaximumConvertedBigIntBytes = 4096;
++  auto *bigInt = valueHandle->getBigInt();
++  if (bigInt->getRawDataFull().size() > kMaximumConvertedBigIntBytes) {
++    text = kSafeTextTruncationMarker;
++    truncated = true;
++    return true;
++  }
++  auto converted = vm::BigIntPrimitive::toString(
++      runtime_, vm::createPseudoHandle(bigInt), 10);
++  checkStatus(converted.getStatus());
++  auto convertedHandle = runtime_.makeHandle(converted->getString());
++  text = boundedUTF8FromStringView(
++      vm::StringPrimitive::createStringView(runtime_, convertedHandle),
++      kMaximumSafeTextBytes,
++      truncated);
++  return true;
++}
++
++SafeJSErrorClass HermesRuntimeImpl::getSafeJSErrorMetadata(
++    const jsi::Value &value,
++    std::string &message,
++    std::string &stack,
++    bool &messageTruncated,
++    bool &stackTruncated) {
++  message.clear();
++  stack.clear();
++  messageTruncated = false;
++  stackTruncated = false;
++  if (!value.isObject())
++    return SafeJSErrorClass::Unclassified;
++
++  vm::GCScope gcScope(runtime_);
++  vm::PinnedHermesValue valueStorage;
++  auto valueHandle = vmHandleFromValue(value, &valueStorage);
++  auto error = vm::Handle<vm::JSError>::dyn_vmcast(valueHandle);
++  if (!error)
++    return SafeJSErrorClass::Unclassified;
++
++  // Classify only by the JSError's internal direct-prototype pointer. This
++  // does not invoke Proxy traps, consult a replaceable `.constructor`/`.name`,
++  // or walk a user-controlled prototype chain. Subclasses with their own
++  // direct prototype deliberately remain Unclassified.
++  SafeJSErrorClass errorClass = SafeJSErrorClass::Unclassified;
++  auto *directPrototype = error->getParent(runtime_);
++#define ALL_ERROR_TYPE(name)                                            \
++  if (directPrototype ==                                                \
++      vm::Handle<vm::JSObject>::vmcast(&runtime_.name##Prototype).get()) \
++    errorClass = SafeJSErrorClass::name;
++#include "hermes/VM/NativeErrorTypes.def"
++
++  // The Error constructor creates `message` as an own data property. Read the
++  // slot only when it is still a plain string data property; never invoke a
++  // replacement accessor or walk a user-controlled prototype.
++  vm::NamedPropertyDescriptor messageDescriptor;
++  if (vm::JSObject::getOwnNamedDescriptor(
++          error,
++          runtime_,
++          vm::Predefined::getSymbolID(vm::Predefined::message),
++          messageDescriptor) &&
++      !messageDescriptor.flags.accessor &&
++      !messageDescriptor.flags.proxyObject &&
++      !messageDescriptor.flags.hostObject) {
++    auto messageValue = vm::JSObject::getNamedSlotValueUnsafe(
++                            error.get(), runtime_, messageDescriptor)
++                            .unboxToHV(runtime_);
++    if (messageValue.isString()) {
++      auto messageHandle = runtime_.makeHandle(messageValue.getString());
++      message = boundedUTF8FromStringView(
++          vm::StringPrimitive::createStringView(runtime_, messageHandle),
++          kMaximumSafeTextBytes,
++          messageTruncated);
++    }
++  }
++
++  const vm::StackTrace *frames = error->getStackTrace();
++  if (!frames)
++    return errorClass;
++  constexpr size_t kMaximumSafeFrames = 100;
++  const size_t count = std::min(frames->size(), kMaximumSafeFrames);
++  for (size_t index = 0; index < count; ++index) {
++    if (!stack.empty() && !appendBoundedUTF8(stack, "\n", stackTruncated))
++      break;
++    if (!appendBoundedUTF8(stack, "    at ", stackTruncated))
++      break;
++    const auto &frame = frames->at(index);
++    if (const auto *bytecode =
++            std::get_if<vm::BytecodeStackTraceInfo>(&frame)) {
++      if (!bytecode->codeBlock) {
++        if (!appendBoundedUTF8(stack, "<native>", stackTruncated))
++          break;
++        continue;
++      }
++      auto *provider =
++          bytecode->codeBlock->getRuntimeModule()->getBytecode();
++      const auto functionName = provider->getStringTableEntry(
++          bytecode->codeBlock->getFunctionHeader().getFunctionName());
++      if (!appendBoundedStringTableEntry(
++              stack,
++              functionName,
++              provider->getStringStorage(),
++              stackTruncated) ||
++          !appendBoundedUTF8(stack, " (", stackTruncated))
++        break;
++      auto location = vm::JSError::getDebugInfo(
++          bytecode->codeBlock, bytecode->bytecodeOffset);
++      if (location) {
++        const auto *debugInfo = provider->getDebugInfo();
++        const auto filenameTable = debugInfo->getFilenameTable();
++        assert(location->filenameId < filenameTable.size());
++        if (!appendBoundedStringTableEntry(
++                stack,
++                filenameTable[location->filenameId],
++                debugInfo->getFilenameStorage(),
++                stackTruncated) ||
++            !appendBoundedUTF8(stack, ":", stackTruncated) ||
++            !appendBoundedUTF8(
++                stack, std::to_string(location->line), stackTruncated) ||
++            !appendBoundedUTF8(stack, ":", stackTruncated) ||
++            !appendBoundedUTF8(
++                stack, std::to_string(location->column), stackTruncated))
++          break;
++      } else {
++        auto sourceURL =
++            bytecode->codeBlock->getRuntimeModule()->getSourceURL();
++        if (!appendBoundedUTF8(
++                stack,
++                sourceURL.empty() ? llvh::StringRef{"unknown"} : sourceURL,
++                stackTruncated))
++          break;
++      }
++      if (!appendBoundedUTF8(stack, ")", stackTruncated))
++        break;
++    } else {
++      if (!appendBoundedUTF8(stack, "<native>", stackTruncated))
++        break;
++    }
++  }
++  if (frames->size() > count && !stackTruncated) {
++    (void)appendBoundedUTF8(stack, "\n    ", stackTruncated);
++    finishBoundedTruncation(stack, stackTruncated);
++  }
++  return errorClass;
++}
++
+ bool HermesRuntimeImpl::lastEvaluationResultWasEmpty() const {
+   return lastEvaluationResultWasEmpty_;
+ }
+@@ -3193,7 +3573,18 @@ void HermesRuntimeImpl::throwPendingError() {
+   if (!jSErrorMetadataPropertyAccessEnabled_) {
+     // The structured evaluator owns inspection. Do not invoke message/stack
+     // getters or String on an arbitrary thrown value while crossing JSI.
+-    throw jsi::JSError(std::move(jsiVal), "", "");
++    std::string safeMessage;
++    std::string safeStack;
++    bool messageTruncated = false;
++    bool stackTruncated = false;
++    (void)getSafeJSErrorMetadata(
++        jsiVal,
++        safeMessage,
++        safeStack,
++        messageTruncated,
++        stackTruncated);
++    throw jsi::JSError(
++        std::move(jsiVal), std::move(safeMessage), std::move(safeStack));
+   }
+ 
+   std::string msg = "No message";
+diff --git a/API/hermes/hermes.h b/API/hermes/hermes.h
+index 0bfdd3ec5519a17ba7a65fa1530a975609cbce72..bfc595ec4d3cd179ef17501283d5a2f2311c27a9 100644
+--- a/API/hermes/hermes.h
++++ b/API/hermes/hermes.h
+@@ -196,6 +196,29 @@ class IHermesTracingHelpers : public jsi::ICast {
+ 
+ #define HERMES_HAS_RAW_THROW_CAPTURE 1
+ #define HERMES_HAS_COMPLETION_RECORD 1
++#define HERMES_HAS_PROMISE_REJECTION_CHECKPOINT_HOOK 1
++#define HERMES_HAS_SAFE_STAGE1_TEXT 1
++#define HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA 1
++#define HERMES_HAS_SAFE_THROW_METADATA 1
++#define HERMES_SAFE_TEXT_MAX_BYTES 16384u
++#define HERMES_SAFE_TEXT_TRUNCATION_MARKER "...[truncated]"
++
++/// Trap-free classification of an actual Hermes JSError by the identity of
++/// its internal direct prototype. Arbitrary thrown values and subclasses with
++/// a non-intrinsic direct prototype are deliberately Unclassified.
++enum class SafeJSErrorClass : uint32_t {
++  Unclassified = 0,
++  Error = 1,
++  AggregateError = 2,
++  EvalError = 3,
++  RangeError = 4,
++  ReferenceError = 5,
++  SyntaxError = 6,
++  TypeError = 7,
++  URIError = 8,
++  TimeoutError = 9,
++  QuitError = 10,
++};
+ 
+ class HermesRuntime : public jsi::Runtime,
+                       public IHermes,
+@@ -213,6 +236,27 @@ class HermesRuntime : public jsi::Runtime,
+   /// owners must restore the default after the scoped evaluation completes.
+   virtual void setJSErrorMetadataPropertyAccessEnabled(bool enabled) = 0;
+ 
++  /// Materialize bounded Stage-1 text for a String, Symbol, or BigInt without
++  /// invoking JavaScript. The returned UTF-8 is never larger than
++  /// HERMES_SAFE_TEXT_MAX_BYTES, including the trusted marker when truncated.
++  /// Returns false for value kinds which this primitive does not format.
++  virtual bool getSafeStage1Text(
++      const jsi::Value &value,
++      std::string &text,
++      bool &truncated) = 0;
++
++  /// Extract engine-owned metadata from an actual Hermes Error object without
++  /// consulting JavaScript properties, accessors, proxies, prepareStackTrace,
++  /// or String coercion. Each UTF-8 field is bounded independently to
++  /// HERMES_SAFE_TEXT_MAX_BYTES, including its trusted truncation marker.
++  /// Returns the closed direct-prototype class.
++  virtual SafeJSErrorClass getSafeJSErrorMetadata(
++      const jsi::Value &value,
++      std::string &message,
++      std::string &stack,
++      bool &messageTruncated,
++      bool &stackTruncated) = 0;
++
+   /// Report whether the most recent successful evaluateJavaScript call
+   /// produced the VM's Empty completion sentinel. JSI historically collapses
+   /// Empty into undefined while converting the result; structured embedders
+diff --git a/include/hermes/VM/Runtime-inline.h b/include/hermes/VM/Runtime-inline.h
+index c6bff4711ae2d12dcabb515c637dcfcf79090bf4..4032c3c338bb57b4908cd8be267b027db209b259 100644
+--- a/include/hermes/VM/Runtime-inline.h
++++ b/include/hermes/VM/Runtime-inline.h
+@@ -41,9 +41,35 @@ inline void Runtime::enqueueJob(Callable *job) {
+   // kNoUserPrincipal fallback path;
+   // the push is unconditional to keep jobSchedulerQueue_ in lockstep with
+   // jobQueue_.
+-  jobSchedulerQueue_.push_back(
+-      captureJobSchedulerPrincipal_ ? getCurrentPackageId(*this)
+-                                    : kNoJobSchedulerPrincipal);
++  // Publish each nonzero identity at most once. Unsigned overflow advances
++  // UINT64_MAX to the unavailable sentinel 0; leave the counter there so a
++  // later job can never reuse identity 1.
++  const uint64_t identity = nextJobIdentity_;
++  if (nextJobIdentity_ != 0) {
++    ++nextJobIdentity_;
++  }
++  uint32_t scheduler = kNoJobSchedulerPrincipal;
++  if (captureJobSchedulerPrincipal_) {
++    scheduler = getCurrentPackageId(*this);
++    // Native completions resolve their Promise with no user JS frame live.
++    // The embedder carries the completion's already-authenticated scheduling
++    // principal for exactly that native callback scope; use it only for the
++    // no-user-frame case, never to override a real JS frame.
++    if (scheduler == kNoUserPrincipal) {
++      if (currentJobIdentity_ != 0 &&
++          currentJobSchedulerPrincipal_ != kNoJobSchedulerPrincipal) {
++        scheduler = currentJobSchedulerPrincipal_;
++      } else if (
++          embedderJobSchedulerPrincipal_ != kNoJobSchedulerPrincipal) {
++        scheduler = embedderJobSchedulerPrincipal_;
++      }
++    }
++  }
++  jobSchedulerQueue_.push_back(JobScheduleContext{
++      scheduler,
++      identity,
++      currentJobIdentity_ != 0 ? currentJobAssociatedEvaluation_
++                               : embedderJobAssociatedEvaluation_});
+ }
+ 
+ inline Handle<HiddenClass> Runtime::getHiddenClassForPrototype(
+diff --git a/include/hermes/VM/Runtime.h b/include/hermes/VM/Runtime.h
+index 0e5d8b020e566ab3674023fc7395ebda6b32b432..af8e91c635f95d7918c4b2ca21b9d859343ccde0 100644
+--- a/include/hermes/VM/Runtime.h
++++ b/include/hermes/VM/Runtime.h
+@@ -1074,6 +1074,12 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
+   /// collectStackPackageIds already skips it as the runtime principal.
+   static constexpr uint32_t kNoJobSchedulerPrincipal = 0xFFFFFFFFu;
+ 
++  struct JobScheduleContext {
++    uint32_t principal{kNoJobSchedulerPrincipal};
++    uint64_t identity{0};
++    uint64_t associatedEvaluation{0};
++  };
++
+   /// The principal that SCHEDULED the currently-draining job (restored from the
+   /// job's enqueue-time capture by drainJobs), or kNoJobSchedulerPrincipal when
+   /// no job is draining. collectStackPackageIds appends it to the deputy-class
+@@ -1088,6 +1094,33 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
+     currentJobSchedulerPrincipal_ = id;
+   }
+ 
++  uint64_t currentJobIdentity() const {
++    return currentJobIdentity_;
++  }
++  uint64_t currentJobAssociatedEvaluation() const {
++    return currentJobAssociatedEvaluation_;
++  }
++  void setEmbedderJobAssociatedEvaluation(uint64_t id) {
++    embedderJobAssociatedEvaluation_ = id;
++  }
++  uint64_t embedderJobAssociatedEvaluation() const {
++    return embedderJobAssociatedEvaluation_;
++  }
++  void setEmbedderJobSchedulerPrincipal(uint32_t id) {
++    embedderJobSchedulerPrincipal_ = id;
++  }
++  uint32_t embedderJobSchedulerPrincipal() const {
++    return embedderJobSchedulerPrincipal_;
++  }
++
++  bool takeFailedJobContext(JobScheduleContext &out) {
++    if (lastFailedJobContext_.identity == 0)
++      return false;
++    out = lastFailedJobContext_;
++    lastFailedJobContext_ = {};
++    return true;
++  }
++
+   /// Enable/disable capturing the scheduling principal at enqueueJob time. Ibex
+   /// arms this when the patched engine is present, independent of boot-time
+   /// deputyClasses state, because embedders may configure deputy hardening after
+@@ -1104,6 +1137,12 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
+   }
+ 
+   uint32_t currentJobSchedulerPrincipal_{kNoJobSchedulerPrincipal};
++  uint64_t currentJobIdentity_{0};
++  uint64_t currentJobAssociatedEvaluation_{0};
++  uint64_t embedderJobAssociatedEvaluation_{0};
++  uint32_t embedderJobSchedulerPrincipal_{kNoJobSchedulerPrincipal};
++  uint64_t nextJobIdentity_{1};
++  JobScheduleContext lastFailedJobContext_{};
+   bool captureJobSchedulerPrincipal_{false};
+ 
+   experiments::VMExperimentFlags getVMExperimentFlags() const {
+@@ -1493,7 +1532,7 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
+   /// queued job, kept in lockstep with jobQueue_ (one entry per job, same FIFO
+   /// order; enqueueJob pushes both, drainJobs pops both). POD uint32_t, so unlike
+   /// jobQueue_ it holds no heap pointers and needs no GC root marking.
+-  std::deque<uint32_t> jobSchedulerQueue_{};
++  std::deque<JobScheduleContext> jobSchedulerQueue_{};
+ 
+ #ifdef HERMESVM_PROFILER_BB
+   BasicBlockExecutionInfo basicBlockExecInfo_;
+diff --git a/lib/InternalJavaScript/01-Promise.js b/lib/InternalJavaScript/01-Promise.js
+index 533a735760f9aae5e3a27509676f97a5631e0be0..de4a064458f083bbfdc68b1c1967b592071d5ad2 100644
+--- a/lib/InternalJavaScript/01-Promise.js
++++ b/lib/InternalJavaScript/01-Promise.js
+@@ -447,6 +447,31 @@
+     options = options || {};
+     if (enabled) disable();
+     enabled = true;
++
++    // Ibex pins unhandled-rejection determination to the embedding host's
++    // poll-iteration checkpoint. Notify that host synchronously when a
++    // currently-unhandled promise rejects and when any continuation is later
++    // attached; the host roots the promise/reason until the checkpoint and
++    // cancels by promise identity. No timer or user-visible property access is
++    // involved in this mode. @ref LLP 0024#9-asynchronous-failures
++    if (
++      options.checkpointRejections === true &&
++      typeof options.onRejectedAtCheckpoint === 'function' &&
++      typeof options.onHandledAtCheckpoint === 'function'
++    ) {
++      core._B = function (promise) {
++        if (promise._y === 2) {
++          options.onHandledAtCheckpoint(promise);
++        }
++      };
++      core._C = function (promise, err) {
++        if (promise._x === 0) {
++          options.onRejectedAtCheckpoint(promise, err);
++        }
++      };
++      return;
++    }
++
+     var id = 0;
+     var displayId = 0;
+     var rejections = {};
+diff --git a/lib/VM/CapabilityAttribution.cpp b/lib/VM/CapabilityAttribution.cpp
+index 8db294411b0f48176b86ea7e5d3f9939e3616e17..2fcecc2f3b582c6a7c75c403e35abd729eee3898 100644
+--- a/lib/VM/CapabilityAttribution.cpp
++++ b/lib/VM/CapabilityAttribution.cpp
+@@ -211,4 +211,62 @@ HERMES_EXPORT void ex_hermes_vm_set_job_scheduler_capture(
+       ->setCaptureJobSchedulerPrincipal(enabled != 0);
+ }
+ 
++HERMES_EXPORT uint32_t ex_hermes_vm_current_job_scheduler_principal(
++    void *vmRuntime) {
++  if (!vmRuntime)
++    return ::hermes::vm::Runtime::kNoJobSchedulerPrincipal;
++  return reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime)
++      ->currentJobSchedulerPrincipal();
++}
++
++HERMES_EXPORT uint64_t ex_hermes_vm_current_job_identity(void *vmRuntime) {
++  if (!vmRuntime)
++    return 0;
++  return reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime)
++      ->currentJobIdentity();
++}
++
++HERMES_EXPORT uint64_t ex_hermes_vm_current_job_associated_evaluation(
++    void *vmRuntime) {
++  if (!vmRuntime)
++    return 0;
++  return reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime)
++      ->currentJobAssociatedEvaluation();
++}
++
++HERMES_EXPORT void ex_hermes_vm_set_job_associated_evaluation(
++    void *vmRuntime,
++    uint64_t associatedEvaluation) {
++  if (!vmRuntime)
++    return;
++  reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime)
++      ->setEmbedderJobAssociatedEvaluation(associatedEvaluation);
++}
++
++HERMES_EXPORT void ex_hermes_vm_set_embedder_job_scheduler_principal(
++    void *vmRuntime,
++    uint32_t principal) {
++  if (!vmRuntime)
++    return;
++  reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime)
++      ->setEmbedderJobSchedulerPrincipal(principal);
++}
++
++HERMES_EXPORT int ex_hermes_vm_take_failed_job_context(
++    void *vmRuntime,
++    uint32_t *principal,
++    uint64_t *identity,
++    uint64_t *associatedEvaluation) {
++  if (!vmRuntime || !principal || !identity || !associatedEvaluation)
++    return 0;
++  ::hermes::vm::Runtime::JobScheduleContext context{};
++  if (!reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime)
++           ->takeFailedJobContext(context))
++    return 0;
++  *principal = context.principal;
++  *identity = context.identity;
++  *associatedEvaluation = context.associatedEvaluation;
++  return 1;
++}
++
+ } // extern "C"
+diff --git a/lib/VM/Runtime.cpp b/lib/VM/Runtime.cpp
+index 60f8e9d548705067d09547e4081922b00b06d908..197cb1359e2c34dd62e98533befedc8a2d1533c0 100644
+--- a/lib/VM/Runtime.cpp
++++ b/lib/VM/Runtime.cpp
+@@ -2040,19 +2040,28 @@ ExecutionStatus Runtime::drainJobs() {
+     // nested drain (or the top-level "no active job" state) is preserved on both
+     // the normal and the exceptional exit. The empty() guard is defensive: the
+     // sole push site (enqueueJob) always pushes both queues, so they cannot skew.
+-    uint32_t sched = kNoJobSchedulerPrincipal;
++    JobScheduleContext context{};
+     if (!jobSchedulerQueue_.empty()) {
+-      sched = jobSchedulerQueue_.front();
++      context = jobSchedulerQueue_.front();
+       jobSchedulerQueue_.pop_front();
+     }
+     uint32_t savedScheduler = currentJobSchedulerPrincipal_;
+-    currentJobSchedulerPrincipal_ = sched;
++    uint64_t savedIdentity = currentJobIdentity_;
++    uint64_t savedAssociatedEvaluation = currentJobAssociatedEvaluation_;
++    currentJobSchedulerPrincipal_ = context.principal;
++    currentJobIdentity_ = context.identity;
++    currentJobAssociatedEvaluation_ = context.associatedEvaluation;
+ 
+     // Jobs are guaranteed to behave as thunks.
+     auto callRes =
+         Callable::executeCall0(job, *this, Runtime::getUndefinedValue());
+ 
++    if (LLVM_UNLIKELY(callRes == ExecutionStatus::EXCEPTION)) {
++      lastFailedJobContext_ = context;
++    }
+     currentJobSchedulerPrincipal_ = savedScheduler;
++    currentJobIdentity_ = savedIdentity;
++    currentJobAssociatedEvaluation_ = savedAssociatedEvaluation;
+ 
+     // Early return to signal the caller. Note that the exceptional job has been
+     // popped, so re-invocation would pick up from the next available job.

@@ -19,6 +19,10 @@ import {
   createReadableStreamFromAsyncIterableBody,
 } from './body.js';
 import { isReadableStream } from '../streams/index.js';
+import {
+  isBootstrapCompatibilityControlFixed,
+  readBootstrapCompatibilityControl,
+} from '../core/host-inputs.js';
 import type {
   ResponseInit,
   ResponseType,
@@ -93,6 +97,11 @@ function isBunCompatResponseTest(): boolean {
 }
 
 function readRuntimeEnv(key: string): string | undefined {
+  const bootstrapValue = readBootstrapCompatibilityControl(key);
+  if (
+    bootstrapValue !== undefined ||
+    isBootstrapCompatibilityControlFixed(key)
+  ) return bootstrapValue;
   const hostEnv = (globalThis as { __exactHostEnv?: Record<string, string | undefined> })
     .__exactHostEnv;
   if (hostEnv && typeof hostEnv[key] === 'string') {

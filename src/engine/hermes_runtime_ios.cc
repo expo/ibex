@@ -230,6 +230,7 @@ extern "C" void ex_hermes_set_module_dispatch_callback(
   rt.global().setProperty(rt, "exact", std::move(exactObj));
 }
 
+// @abi-callback ex_hermes_set_module_sync_callback callback output=2 ownership=native-consumes
 extern "C" void ex_hermes_set_module_sync_callback(
     ExactHermesRuntime* runtime,
     int (*callback)(const uint8_t* data, size_t length,

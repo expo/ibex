@@ -28,6 +28,15 @@ import {
 } from "./capsec-fixture-obligations.mjs";
 import { applicableImplementationBranchIds } from "./capsec-target-branches.mjs";
 import { enforcementBranchIdentity } from "./capsec-coverage-model.mjs";
+import {
+  buildOutputDispositionDataset,
+  canonicalOutputDispositionKey,
+  outputShapeCatalogKeyDigest,
+  validateOutputDispositionEvidence,
+  validateOutputDispositionJoin,
+  validateTrackedOutputDispositionEvidenceSentinel,
+} from "./capsec-output-dispositions.mjs";
+import { validateIngressObligationDataset } from "./capsec-ingress-obligations.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -57,6 +66,18 @@ const EXPECTED_IMPLEMENTATION_OUTPUTS = Object.freeze([
   Object.freeze({
     path: "capsec/generated/capsec-registry-ids.schema.json",
     kind: "json-schema",
+  }),
+  Object.freeze({
+    path: "capsec/generated/output-dispositions.json",
+    kind: "output-disposition-dataset",
+  }),
+  Object.freeze({
+    path: "capsec/generated/output-dispositions.md",
+    kind: "markdown",
+  }),
+  Object.freeze({
+    path: "capsec/generated/output-shape-catalog.json",
+    kind: "output-shape-catalog",
   }),
   Object.freeze({
     path: "capsec/generated/surface-inventory.md",
@@ -103,6 +124,18 @@ const SCHEMA_IDS = {
   armed: "https://ibex.dev/capsec/schema/armed-snapshot.schema.json",
   implementation:
     "https://ibex.dev/capsec/schema/implementation-manifest.schema.json",
+  ingressObligations:
+    "https://ibex.dev/capsec/schema/ingress-obligations.schema.json",
+  outputDispositionEvidence:
+    "https://ibex.dev/capsec/schema/output-disposition-evidence.schema.json",
+  outputDispositionPolicy:
+    "https://ibex.dev/capsec/schema/output-disposition-policy.schema.json",
+  outputDispositions:
+    "https://ibex.dev/capsec/schema/output-dispositions.schema.json",
+  outputShapeCatalog:
+    "https://ibex.dev/capsec/schema/output-shape-catalog.schema.json",
+  rootGlobalDispositions:
+    "https://ibex.dev/capsec/schema/root-global-disposition-manifest.schema.json",
   reconciliation:
     "https://ibex.dev/capsec/schema/legacy-reconciliation.schema.json",
   registryIds:
@@ -366,6 +399,13 @@ const VOCABULARY_MEMBER_PATHS = {
   "schema/digest-vectors": "schema/digest-vectors.schema.json",
   "schema/effect": "schema/effect.schema.json",
   "schema/effect-occurrence": "schema/effect-occurrence.schema.json",
+  "schema/ingress-obligations": "schema/ingress-obligations.schema.json",
+  "schema/output-disposition-evidence":
+    "schema/output-disposition-evidence.schema.json",
+  "schema/output-disposition-policy":
+    "schema/output-disposition-policy.schema.json",
+  "schema/output-dispositions": "schema/output-dispositions.schema.json",
+  "schema/output-shape-catalog": "schema/output-shape-catalog.schema.json",
   "schema/policy-rules": "schema/policy-rules.schema.json",
 };
 
@@ -390,6 +430,11 @@ const EXPECTED_DIGEST_PROJECTIONS = {
       "schema/digest-vectors",
       "schema/effect",
       "schema/effect-occurrence",
+      "schema/ingress-obligations",
+      "schema/output-disposition-evidence",
+      "schema/output-disposition-policy",
+      "schema/output-dispositions",
+      "schema/output-shape-catalog",
       "schema/policy-rules",
     ],
     omitFields: [],
@@ -402,12 +447,22 @@ const EXPECTED_DIGEST_PROJECTIONS = {
       "coverage-edges",
       "fixture-manifest",
       "implementation-manifest",
+      "ingress-obligations",
       "legacy-reconciliation",
       "network-classifier-snapshot",
+      "output-disposition-evidence",
+      "output-disposition-policy",
+      "output-dispositions",
+      "output-shape-catalog",
       "schema/contract-manifest",
       "schema/coverage-edge",
       "schema/implementation-manifest",
+      "schema/ingress-obligations",
       "schema/legacy-reconciliation",
+      "schema/output-disposition-evidence",
+      "schema/output-disposition-policy",
+      "schema/output-dispositions",
+      "schema/output-shape-catalog",
       "schema/target-cell",
       "vocab-digest",
     ],
@@ -603,6 +658,12 @@ function assembleRegistryDigestBundle(rules, vocabDigest) {
       ),
     ],
     [
+      "ingress-obligations",
+      readJsonStrict(
+        path.join(capsecRoot, "registry/ingress-obligations.json"),
+      ),
+    ],
+    [
       "legacy-reconciliation",
       readJsonStrict(
         path.join(capsecRoot, "registry/legacy-capability-reconciliation.json"),
@@ -614,6 +675,32 @@ function assembleRegistryDigestBundle(rules, vocabDigest) {
         profile: "ibex/capsec/1",
         network: rules.classifierRules.network,
       },
+    ],
+    [
+      "output-disposition-evidence",
+      readJsonStrict(
+        path.join(capsecRoot, "registry/output-disposition-evidence.json"),
+      ),
+    ],
+    [
+      "output-disposition-policy",
+      readJsonStrict(
+        path.join(capsecRoot, "registry/output-disposition-policy.json"),
+      ),
+    ],
+    [
+      "output-dispositions",
+      readConfinedGeneratedJson(
+        path.join(capsecRoot, "generated/output-dispositions.json"),
+        "generated capsec output dispositions",
+      ),
+    ],
+    [
+      "output-shape-catalog",
+      readConfinedGeneratedJson(
+        path.join(capsecRoot, "generated/output-shape-catalog.json"),
+        "generated capsec output shape catalog",
+      ),
     ],
     [
       "schema/contract-manifest",
@@ -632,9 +719,45 @@ function assembleRegistryDigestBundle(rules, vocabDigest) {
       ),
     ],
     [
+      "schema/ingress-obligations",
+      readJsonStrict(
+        path.join(capsecRoot, "schema/ingress-obligations.schema.json"),
+      ),
+    ],
+    [
       "schema/legacy-reconciliation",
       readJsonStrict(
         path.join(capsecRoot, "schema/legacy-reconciliation.schema.json"),
+      ),
+    ],
+    [
+      "schema/output-disposition-evidence",
+      readJsonStrict(
+        path.join(
+          capsecRoot,
+          "schema/output-disposition-evidence.schema.json",
+        ),
+      ),
+    ],
+    [
+      "schema/output-disposition-policy",
+      readJsonStrict(
+        path.join(
+          capsecRoot,
+          "schema/output-disposition-policy.schema.json",
+        ),
+      ),
+    ],
+    [
+      "schema/output-dispositions",
+      readJsonStrict(
+        path.join(capsecRoot, "schema/output-dispositions.schema.json"),
+      ),
+    ],
+    [
+      "schema/output-shape-catalog",
+      readJsonStrict(
+        path.join(capsecRoot, "schema/output-shape-catalog.schema.json"),
       ),
     ],
     [
@@ -958,6 +1081,8 @@ function resourceKindsOfOccurrence(occurrence) {
     case "system-info-occurrence":
     case "device-occurrence":
     case "storage-occurrence":
+    case "lifecycle-occurrence":
+    case "session-state-occurrence":
     case "closed-occurrence":
       return [occurrence.resource.requested?.kind];
     default:
@@ -1542,7 +1667,29 @@ function assertOccurrenceFactStages(
 function validateOccurrenceFacts(occurrence, label, rules) {
   const resource = occurrence.resource;
   switch (resource.kind) {
+    case "lifecycle-occurrence":
+      if (!["requested", "commit"].includes(occurrence.stage)) {
+        throw new Error(
+          `${label}: lifecycle occurrence supports only requested and commit stages`,
+        );
+      }
+      break;
+    case "session-state-occurrence":
+      if (!["requested", "commit"].includes(occurrence.stage)) {
+        throw new Error(
+          `${label}: session-state occurrence supports only requested and commit stages`,
+        );
+      }
+      break;
     case "path-occurrence":
+      if (
+        (occurrence.stage === "requested") !==
+        (resource.objectState === "unknown")
+      ) {
+        throw new Error(
+          `${label}: path object state must be unknown exactly at requested stage`,
+        );
+      }
       for (const field of ["parentObject", "finalObject"]) {
         const required =
           (field === "finalObject" && resource.objectState === "existing") ||
@@ -1957,6 +2104,14 @@ export function validateSelectorSemantics(
   ) {
     throw new Error(`${label}: ${selector.cap} cannot enter a dynamic ceiling`);
   }
+  if (
+    options.positive &&
+    definition.principalConstraint === "root-only" &&
+    options.principal &&
+    options.principal.kind !== "root"
+  ) {
+    throw new Error(`${label}: ${selector.cap} is restricted to root principals`);
+  }
   const resourceKind = resourceKindOf(selector);
   if (!definition.resourceKinds.includes(resourceKind)) {
     throw new Error(
@@ -2007,6 +2162,14 @@ export function validateOccurrenceSemantics(
   if (!definition || definition.lifecycle === "planned") {
     throw new Error(`${label}: unknown/planned action ${occurrence.cap}`);
   }
+  if (
+    definition.principalConstraint === "root-only" &&
+    occurrence.constrainedPrincipals.some(
+      (principal) => principal.kind !== "root",
+    )
+  ) {
+    throw new Error(`${label}: ${occurrence.cap} is restricted to root principals`);
+  }
   const occurrenceKinds = resourceKindsOfOccurrence(occurrence);
   if (
     !occurrenceKinds.some((kind) => definition.resourceKinds.includes(kind))
@@ -2047,6 +2210,7 @@ function walkPolicyRows(policy, definitionsById, prefix) {
         `${base}.floor[${rowIndex}]`,
         {
           positive: true,
+          principal: principalPolicy.principal,
         },
       ),
     );
@@ -2062,7 +2226,11 @@ function walkPolicyRows(policy, definitionsById, prefix) {
         row.authority,
         definitionsById,
         `${base}.escalationCeiling[${rowIndex}]`,
-        { positive: true, dynamic: true },
+        {
+          positive: true,
+          dynamic: true,
+          principal: principalPolicy.principal,
+        },
       ),
     );
   });
@@ -2090,6 +2258,7 @@ function walkArmedRows(snapshot, definitionsById, prefix) {
         `${base}.floor[${rowIndex}]`,
         {
           positive: true,
+          principal: principalPolicy.principal,
         },
       ),
     );
@@ -2105,7 +2274,11 @@ function walkArmedRows(snapshot, definitionsById, prefix) {
         selector,
         definitionsById,
         `${base}.escalationCeiling[${rowIndex}]`,
-        { positive: true, dynamic: true },
+        {
+          positive: true,
+          dynamic: true,
+          principal: principalPolicy.principal,
+        },
       ),
     );
   });
@@ -2174,7 +2347,170 @@ export function armedTargetPathEntries(snapshot) {
   return entries;
 }
 
+function validArmedFileEntryIdentity(identity) {
+  const prefix = "file:///project/";
+  if (
+    typeof identity !== "string" ||
+    !identity.startsWith(prefix) ||
+    identity.endsWith("/") ||
+    /[\\?\u0000#]/u.test(identity)
+  ) {
+    return false;
+  }
+  const path = identity.slice(prefix.length);
+  return path.split("/").every((component) => {
+    if (!component || component === "." || component === "..") return false;
+    for (let index = 0; index < component.length; index += 1) {
+      if (component.charCodeAt(index) < 0x20 || component.charCodeAt(index) === 0x7f)
+        return false;
+      if (component[index] !== "%") continue;
+      const escape = component.slice(index + 1, index + 3);
+      if (!/^[0-9A-F]{2}$/u.test(escape)) return false;
+      const decoded = Number.parseInt(escape, 16);
+      if (
+        decoded === 0x2f ||
+        (decoded >= 0x30 && decoded <= 0x39) ||
+        (decoded >= 0x41 && decoded <= 0x5a) ||
+        (decoded >= 0x61 && decoded <= 0x7a) ||
+        [0x2d, 0x2e, 0x5f, 0x7e].includes(decoded)
+      ) {
+        return false;
+      }
+      index += 2;
+    }
+    return true;
+  });
+}
+
+function validateArmedEntry(entry, label) {
+  const exact =
+    (entry.kind === "file" &&
+      entry.mode === "program" &&
+      validArmedFileEntryIdentity(entry.identity)) ||
+    (entry.kind === "stdin" &&
+      entry.mode === "program" &&
+      entry.identity === "ibex:stdin") ||
+    (entry.kind === "repl" &&
+      ["interactive", "transcript"].includes(entry.mode) &&
+      entry.identity === "ibex:repl") ||
+    (entry.kind === "eval" &&
+      entry.mode === "one-shot" &&
+      entry.identity === "ibex:eval");
+  if (!exact) {
+    throw new Error(
+      `${label}.entry: kind, identity, and execution mode are inconsistent`,
+    );
+  }
+}
+
+function validateProjectRootDiscovery(snapshot, label) {
+  const discovery = snapshot.projectRootDiscovery;
+  const projectBindings = snapshot.rootBindings.filter(
+    (binding) => binding.logicalRoot === "project",
+  );
+  if (projectBindings.length !== 1) {
+    throw new Error(
+      `${label}.projectRootDiscovery: requires exactly one project binding`,
+    );
+  }
+  const samePath = (left, right) => canonicalJson(left) === canonicalJson(right);
+  if (!samePath(discovery.selectedRoot, projectBindings[0].hostPath)) {
+    throw new Error(
+      `${label}.projectRootDiscovery: selected root differs from the project binding`,
+    );
+  }
+
+  const selectedComponents = discovery.selectedRoot.components;
+  const originWithinSelection =
+    discovery.origin.components.length >= selectedComponents.length &&
+    selectedComponents.every(
+      (component, index) =>
+        canonicalJson(component) ===
+        canonicalJson(discovery.origin.components[index]),
+    );
+  const marker = discovery.markerPath;
+  const markerParentMatches =
+    marker !== null &&
+    marker.components.length === selectedComponents.length + 1 &&
+    selectedComponents.every(
+      (component, index) =>
+        canonicalJson(component) === canonicalJson(marker.components[index]),
+    );
+  const markerName = markerParentMatches
+    ? marker.components.at(-1)
+    : undefined;
+  const markerUtf8Name =
+    markerName?.encoding === "utf8" ? markerName.value : undefined;
+
+  let valid;
+  switch (discovery.markerKind) {
+    case "explicit-project":
+      valid = marker !== null && samePath(marker, discovery.selectedRoot);
+      break;
+    case "origin-fallback":
+      valid = marker === null && samePath(discovery.origin, discovery.selectedRoot);
+      break;
+    case "pnpm-workspace":
+      valid =
+        originWithinSelection &&
+        markerParentMatches &&
+        markerUtf8Name === "pnpm-workspace.yaml";
+      break;
+    case "package-workspace":
+    case "package-manifest":
+      valid =
+        originWithinSelection &&
+        markerParentMatches &&
+        markerUtf8Name === "package.json";
+      break;
+    case "lockfile":
+      valid =
+        originWithinSelection &&
+        markerParentMatches &&
+        [
+          "package-lock.json",
+          "pnpm-lock.yaml",
+          "yarn.lock",
+          "bun.lockb",
+          "bun.lock",
+        ].includes(markerUtf8Name);
+      break;
+    default:
+      valid = false;
+  }
+  if (!valid) {
+    throw new Error(
+      `${label}.projectRootDiscovery: discovery record is internally inconsistent`,
+    );
+  }
+}
+
+function validatePathCanonicalizers(snapshot, label) {
+  const rowBytes = snapshot.pathCanonicalizers.map(canonicalJson);
+  assertSorted(rowBytes, `${label}.pathCanonicalizers`);
+  assertUnique(rowBytes, `${label}.pathCanonicalizers`);
+  const supplied = snapshot.pathCanonicalizers.map(
+    (row) => `${row.platform}:${row.volume}`,
+  );
+  assertUnique(supplied, `${label}.pathCanonicalizers volumes`);
+  const required = [
+    ...new Set(
+      snapshot.rootBindings.map(
+        (binding) => `${binding.object.platform}:${binding.object.volume}`,
+      ),
+    ),
+  ].sort(compareUtf8Text);
+  if (canonicalJson([...supplied].sort(compareUtf8Text)) !== canonicalJson(required)) {
+    throw new Error(
+      `${label}.pathCanonicalizers: rows must exactly cover root-binding volumes`,
+    );
+  }
+}
+
 export function validateArmedSnapshotSemantics(snapshot, label, context = {}) {
+  validateArmedEntry(snapshot.entry, label);
+  validateProjectRootDiscovery(snapshot, label);
+  validatePathCanonicalizers(snapshot, label);
   if (snapshot.workflow === "contract-fixture") {
     if (snapshot.engine.target !== "capsec-contract-fixture") {
       throw new Error(`${label}: contract fixture uses an executable target`);
@@ -2645,6 +2981,9 @@ export function validateImplementationManifestSemantics(
   const expectedSourceDatasets = [
     "registry/capability-definitions.json",
     "registry/coverage-edges.json",
+    "registry/ingress-obligations.json",
+    "registry/output-disposition-evidence.json",
+    "registry/output-disposition-policy.json",
     "registry/policy-rules.json",
   ];
   if (
@@ -2985,6 +3324,30 @@ export function loadAndValidateContract() {
     generatedImplementationManifestPath,
     "generated capsec implementation manifest",
   );
+  const outputDispositionPolicy = readJsonStrict(
+    path.join(registryDir, "output-disposition-policy.json"),
+  );
+  const outputDispositionEvidence = readJsonStrict(
+    path.join(registryDir, "output-disposition-evidence.json"),
+  );
+  const ingressObligations = readJsonStrict(
+    path.join(registryDir, "ingress-obligations.json"),
+  );
+  const outputShapeCatalog = readConfinedGeneratedJson(
+    path.join(capsecRoot, "generated/output-shape-catalog.json"),
+    "generated capsec output shape catalog",
+  );
+  const outputDispositions = readConfinedGeneratedJson(
+    path.join(capsecRoot, "generated/output-dispositions.json"),
+    "generated capsec output disposition dataset",
+  );
+  const rootGlobalDispositions = readConfinedGeneratedJson(
+    path.join(
+      capsecRoot,
+      "generated/root-global-disposition-manifest.json",
+    ),
+    "generated root-global disposition manifest",
+  );
   const targetAdvertisements = readConfinedGeneratedJson(
     path.join(capsecRoot, "generated/target-advertisements.json"),
     "generated capsec target advertisements",
@@ -3023,6 +3386,134 @@ export function loadAndValidateContract() {
     implementation,
     "implementation manifest",
   );
+  validateWith(
+    ajv,
+    SCHEMA_IDS.ingressObligations,
+    ingressObligations,
+    "authenticated ingress obligations",
+  );
+  const ingressObligationCounts = validateIngressObligationDataset({
+    coverage,
+    dataset: ingressObligations,
+    repoRoot,
+  });
+  validateWith(
+    ajv,
+    SCHEMA_IDS.outputDispositionPolicy,
+    outputDispositionPolicy,
+    "output disposition policy",
+  );
+  validateWith(
+    ajv,
+    SCHEMA_IDS.outputDispositionEvidence,
+    outputDispositionEvidence,
+    "output disposition evidence",
+  );
+  validateTrackedOutputDispositionEvidenceSentinel(outputDispositionEvidence);
+  validateWith(
+    ajv,
+    SCHEMA_IDS.outputShapeCatalog,
+    outputShapeCatalog,
+    "output shape catalog",
+  );
+  validateWith(
+    ajv,
+    SCHEMA_IDS.outputDispositions,
+    outputDispositions,
+    "output disposition dataset",
+  );
+  validateWith(
+    ajv,
+    SCHEMA_IDS.rootGlobalDispositions,
+    rootGlobalDispositions,
+    "root-global disposition manifest",
+  );
+  const coverageEdgesById = new Map(
+    coverage.edges.map((edge) => [edge.id, edge]),
+  );
+  const dispositionInstallIds = rootGlobalDispositions.rows.map(
+    (row) => row.installId,
+  );
+  assertUnique(dispositionInstallIds, "root-global disposition install ids");
+  assertSorted(dispositionInstallIds, "root-global disposition install ids");
+  for (const row of rootGlobalDispositions.rows) {
+    const edge = coverageEdgesById.get(row.registryEdgeId);
+    if (!edge) {
+      throw new Error(
+        `${row.installId}: root-global disposition references unknown registry edge ${row.registryEdgeId}`,
+      );
+    }
+    const observedKey = `${edge.surface.kind}:${edge.surface.name}`;
+    if (observedKey !== row.observedKey) {
+      throw new Error(
+        `${row.installId}: root-global disposition/registry observed-key mismatch`,
+      );
+    }
+    if (
+      (row.disposition === "private") !==
+      (typeof row.privateConsumer === "string")
+    ) {
+      throw new Error(
+        `${row.installId}: private disposition must have exactly one private consumer`,
+      );
+    }
+    if (
+      new Set(["private", "sealed"]).has(row.disposition) !==
+      (row.liveExpectation === "absent")
+    ) {
+      throw new Error(
+        `${row.installId}: root-global disposition/live expectation mismatch`,
+      );
+    }
+  }
+  if (
+    outputShapeCatalog.catalogKeyDigest !==
+    outputShapeCatalogKeyDigest(outputShapeCatalog.rows)
+  ) {
+    throw new Error("output shape catalog key digest is stale");
+  }
+  if (
+    outputDispositionPolicy.catalogKeyDigest !==
+      outputShapeCatalog.catalogKeyDigest ||
+    outputDispositions.catalogKeyDigest !== outputShapeCatalog.catalogKeyDigest
+  ) {
+    throw new Error("output disposition artifacts do not bind one catalog key digest");
+  }
+  if (
+    outputShapeCatalog.discovery.status !== outputDispositionEvidence.status ||
+    outputShapeCatalog.discovery.requiredExecutor !==
+      outputDispositionEvidence.requiredExecutor
+  ) {
+    throw new Error(
+      "output shape catalog discovery does not bind the loaded-engine evidence state",
+    );
+  }
+  const expectedOutputDispositions = buildOutputDispositionDataset({
+    catalog: outputShapeCatalog,
+    policy: outputDispositionPolicy,
+    evidence: outputDispositionEvidence,
+  });
+  if (
+    canonicalJson(outputDispositions) !==
+    canonicalJson(expectedOutputDispositions)
+  ) {
+    throw new Error(
+      "generated output disposition dataset disagrees with reviewed policy or evidence",
+    );
+  }
+  validateOutputDispositionJoin(
+    outputShapeCatalog.rows,
+    outputDispositions.rows,
+  );
+  validateOutputDispositionEvidence(
+    outputDispositions.rows,
+    outputDispositionEvidence,
+  );
+  const outputDispositionKeys = outputDispositions.rows.map((row) =>
+    canonicalOutputDispositionKey(row.key),
+  );
+  assertUnique(outputDispositionKeys, "output disposition dataset rows");
+  assertSorted(outputDispositionKeys, "output disposition dataset rows");
   validateWith(
     ajv,
     SCHEMA_IDS.targetAdvertisements,
@@ -3451,6 +3942,35 @@ export function loadAndValidateContract() {
             `${label} closed edge ${edge.id} must name a deny-only definition`,
           );
         }
+        if (edge.logicalBranches !== undefined) {
+          const branchIds = edge.logicalBranches.map((branch) => branch.id);
+          assertUnique(
+            branchIds,
+            `${label} edge ${edge.id} closed no-effect branches`,
+          );
+          assertSorted(
+            branchIds,
+            `${label} edge ${edge.id} closed no-effect branches`,
+          );
+          const conditionKeys = edge.logicalBranches.map((branch) => {
+            const conditions = branch.when.map((condition) =>
+              canonicalJson([condition.fact, condition.equals]),
+            );
+            assertUnique(
+              conditions,
+              `${label} edge ${edge.id} branch ${branch.id} conditions`,
+            );
+            assertSorted(
+              conditions,
+              `${label} edge ${edge.id} branch ${branch.id} conditions`,
+            );
+            return canonicalJson(branch.when);
+          });
+          assertUnique(
+            conditionKeys,
+            `${label} edge ${edge.id} closed no-effect branch conditions`,
+          );
+        }
       }
     });
     return ids;
@@ -3547,6 +4067,8 @@ export function loadAndValidateContract() {
       advertisement.sourceRevision !== attestation.sourceRevision ||
       advertisement.sourceTreeDigest !== attestation.sourceTreeDigest ||
       advertisement.engine.binaryDigest !== attestation.engineBinaryDigest ||
+      advertisement.outputDispositionEvidenceRawContentDigest !==
+        attestation.outputDispositionEvidenceRawContentDigest ||
       advertisement.engine.targetArchitecture !==
         advertisement.target.triple.split("-")[0] ||
       canonicalJson(advertisement.engine.structuralFeatures) !==
@@ -3732,10 +4254,12 @@ export function loadAndValidateContract() {
     ["target advertisements", targetAdvertisements],
     ["target attestations", targetAttestations],
     ["implementation manifest", implementation],
+    ["authenticated ingress obligations", ingressObligations],
     ["coverage examples", coverageExamples],
     ["target cell examples", targetCellExamples],
     ["canonical policy example", policy],
     ["armed snapshot example", armed],
+    ["root-global disposition manifest", rootGlobalDispositions],
   ]) {
     walkLogicalPaths(value, label);
     assertCanonicalSets(value, setLikeKeys, label);
@@ -3748,6 +4272,7 @@ export function loadAndValidateContract() {
       ["ibex/capsec-digest-vectors/1", digestVectors],
       ["ibex/capsec-coverage/1", coverage],
       ["ibex/capsec-implementation/1", implementation],
+      ["ibex/capsec-ingress-obligations/1", ingressObligations],
       ["ibex/capsec-target-cells/1", targetCells],
     ]),
     rules.digestContract.keyedSets,
@@ -3778,6 +4303,13 @@ export function loadAndValidateContract() {
     rules,
     reconciliation,
     implementation,
+    ingressObligations,
+    ingressObligationCounts,
+    outputDispositionPolicy,
+    outputDispositionEvidence,
+    outputShapeCatalog,
+    outputDispositions,
+    rootGlobalDispositions,
     bitDefinitions,
     selectorExamples,
     occurrenceExamples,

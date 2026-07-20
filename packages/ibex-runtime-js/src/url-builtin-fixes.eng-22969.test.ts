@@ -19,7 +19,7 @@ const SRC = fs.readFileSync(
   'utf8',
 );
 
-function baseSandbox(): any {
+function baseSandbox(getVirtualCwd?: () => string): any {
   const sandbox: any = {
     module: { exports: {} },
     console,
@@ -28,6 +28,12 @@ function baseSandbox(): any {
     TextDecoder,
     Buffer,
   };
+  if (getVirtualCwd) {
+    sandbox.__exactPrivateBuiltinBridges = Object.freeze({
+      sharedRuntimeBundle: true,
+      getVirtualCwd,
+    });
+  }
   sandbox.globalThis = sandbox;
   return sandbox;
 }
@@ -35,8 +41,8 @@ function baseSandbox(): any {
 // Load the module with a spec-compliant native URL available -> host path.
 // A subclass of the real URL keeps the module's prototype patching off of this
 // process's global URL.
-function loadHost(): any {
-  const sandbox = baseSandbox();
+function loadHost(getVirtualCwd?: () => string): any {
+  const sandbox = baseSandbox(getVirtualCwd);
   sandbox.URL = class extends URL {};
   sandbox.URLSearchParams = URLSearchParams;
   if (typeof DOMException === 'function') sandbox.DOMException = DOMException;
@@ -45,8 +51,8 @@ function loadHost(): any {
 }
 
 // Load the module with no URL / URLSearchParams globals -> fallback path.
-function loadFallback(): any {
-  const sandbox = baseSandbox();
+function loadFallback(getVirtualCwd?: () => string): any {
+  const sandbox = baseSandbox(getVirtualCwd);
   vm.runInContext(SRC, vm.createContext(sandbox), { filename: 'url.js' });
   return sandbox.module.exports;
 }
@@ -189,5 +195,44 @@ describe('#3 pathToFileURL encodes / fileURLToPath rejects non-file (host path)'
 
   test('a genuine file: URL still yields its path', () => {
     expect(host.fileURLToPath('file:///tmp/foo')).toBe('/tmp/foo');
+  });
+});
+
+describe('pathToFileURL uses the captured virtual cwd', () => {
+  test('both URL implementations resolve relative inputs against the private bridge', () => {
+    for (const implementation of [
+      loadHost(() => '/project/private'),
+      loadFallback(() => '/project/private'),
+    ]) {
+      expect(implementation.pathToFileURL('child file.js').href).toBe(
+        'file:///project/private/child%20file.js',
+      );
+    }
+  });
+
+  test('a cwd policy denial propagates for relative inputs in both implementations', () => {
+    const denial = new Error('EACCES: cwd: filesystem policy denied');
+    for (const implementation of [
+      loadHost(() => { throw denial; }),
+      loadFallback(() => { throw denial; }),
+    ]) {
+      expect(() => implementation.pathToFileURL('child.js')).toThrow(
+        'filesystem policy denied',
+      );
+    }
+  });
+
+  test('absolute inputs are the no-effect branch and do not observe cwd', () => {
+    let observations = 0;
+    const observe = () => {
+      observations += 1;
+      throw new Error('unexpected cwd observation');
+    };
+    for (const implementation of [loadHost(observe), loadFallback(observe)]) {
+      expect(implementation.pathToFileURL('/project/absolute.js').href).toBe(
+        'file:///project/absolute.js',
+      );
+    }
+    expect(observations).toBe(0);
   });
 });

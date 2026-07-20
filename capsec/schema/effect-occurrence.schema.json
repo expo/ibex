@@ -39,6 +39,8 @@
         { "$ref": "#/$defs/systemInfoOccurrence" },
         { "$ref": "#/$defs/deviceOccurrence" },
         { "$ref": "#/$defs/storageOccurrence" },
+        { "$ref": "#/$defs/lifecycleOccurrence" },
+        { "$ref": "#/$defs/sessionStateOccurrence" },
         { "$ref": "#/$defs/closedOccurrence" }
       ]
     }
@@ -54,12 +56,16 @@
           "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/logicalPath"
         },
         "followMode": { "enum": ["follow-final", "no-follow-final"] },
-        "objectState": { "enum": ["existing", "absent-create"] },
+        "objectState": { "enum": ["unknown", "existing", "absent-create"] },
         "parentObject": {
           "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/objectIdentity"
         },
         "finalObject": {
           "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/objectIdentity"
+        },
+        "finalObjectGeneration": {
+          "type": "string",
+          "minLength": 1
         },
         "retainedHandle": { "type": "string", "minLength": 1 }
       },
@@ -401,6 +407,28 @@
         },
         "namespaceOwner": {
           "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/principal"
+        }
+      },
+      "additionalProperties": false
+    },
+    "lifecycleOccurrence": {
+      "type": "object",
+      "required": ["kind", "requested"],
+      "properties": {
+        "kind": { "const": "lifecycle-occurrence" },
+        "requested": {
+          "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/sessionLifecycle"
+        }
+      },
+      "additionalProperties": false
+    },
+    "sessionStateOccurrence": {
+      "type": "object",
+      "required": ["kind", "requested"],
+      "properties": {
+        "kind": { "const": "session-state-occurrence" },
+        "requested": {
+          "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/sessionState"
         }
       },
       "additionalProperties": false

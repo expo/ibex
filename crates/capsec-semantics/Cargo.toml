@@ -8,11 +8,15 @@ publish = false
 
 [dependencies]
 base64 = "0.22"
+caseless = "=0.2.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["float_roundtrip"] }
 ryu-js = "1.0"
 sha2 = "0.10"
 thiserror = "1.0"
+# APFS's normalization-insensitive comparison is pinned to Unicode 9.0.
+# A newer table would silently reinterpret an already-armed path selector.
+unicode-normalization = "=0.1.10"
 
 [dev-dependencies]
 proptest = "1.9"

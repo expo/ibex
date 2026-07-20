@@ -4,11 +4,14 @@
 # download-first on cold clones instead of paying the ~hour from-source build
 # (ENG-23147, the "best option" half of ENG-22565/ENG-23092).
 #
-# The release tag is hermes-<hermes-commit-12>-<patch-digest-12> — the same
-# identity build-hermes.sh keys its local cache on (derivation shared via
-# scripts/hermes-version.sh). Editing the patch stack or bumping the pin
-# changes the identity, so downloads correctly miss until this workflow has
-# published bundles for the new identity.
+# The release tag is hermes-<hermes-commit-12>-<patch-digest-12>. Darwin/Linux
+# asset names and local caches additionally key both platform builders, the
+# patch-application authority, and the shared receipt/identity authority;
+# those bundles carry that exact profile receipt. The Windows asset name binds
+# the patch-application and patch-identity authorities plus both the builder
+# and installer Git blobs; its manifest and receipt bind their full checked-out
+# content digests.
+# All published runtime bundles receive workflow-bound provenance attestations.
 #
 # Releases created here are ARTIFACT CACHES, not product releases: always
 # prerelease, titled "Hermes artifact cache …".
@@ -28,6 +31,8 @@ on:
       - "patches/hermes/**"
       - "scripts/build-hermes.sh"
       - "scripts/build-hermes-linux.sh"
+      - "scripts/build-hermes-windows.ps1"
+      - "scripts/install-windows-hermes.ps1"
       - "scripts/apply-hermes-patches.sh"
       - ".github/workflows/hermes-artifacts.yml"
 
@@ -38,7 +43,9 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  attestations: write
   contents: write
+  id-token: write
 
 env:
   GH_TOKEN: ${{ github.token }}
@@ -50,11 +57,20 @@ jobs:
     outputs:
       identity: ${{ steps.compute.outputs.identity }}
       tag: ${{ steps.compute.outputs.tag }}
+      macos_cache_key: ${{ steps.compute.outputs.macos_cache_key }}
+      macos_release_cache_key: ${{ steps.compute.outputs.macos_release_cache_key }}
+      linux_cache_key: ${{ steps.compute.outputs.linux_cache_key }}
+      windows_asset_key: ${{ steps.compute.outputs.windows_asset_key }}
       need_macos: ${{ steps.assets.outputs.need_macos }}
+      need_macos_release: ${{ steps.assets.outputs.need_macos_release }}
       need_linux: ${{ steps.assets.outputs.need_linux }}
+      need_windows: ${{ steps.assets.outputs.need_windows }}
     steps:
       - name: Check out Ibex
         uses: actions/checkout@v4
+
+      - name: Verify source-build lock and cache-key contract
+        run: ./scripts/hermes-build-lock.test.sh
 
       - name: Compute identity (pin + patch digest)
         id: compute
@@ -64,9 +80,25 @@ jobs:
           commit12="${IBEX_HERMES_SOURCE_COMMIT:0:12}"
           digest="$(ibex_hermes_patch_digest)"
           identity="${commit12}-${digest}"
+          macos_cache_key="$(ibex_hermes_apple_source_cache_key "$commit12" "-debug")"
+          macos_release_cache_key="$(ibex_hermes_apple_source_cache_key "$commit12" "")"
+          linux_cache_key="$(ibex_hermes_linux_source_cache_key "$commit12")"
+          patch_application_hex="$(ibex_hermes_patch_application_authority_digest_hex)"
+          patch_identity_hex="$(ibex_hermes_patch_identity_authority_digest_hex)"
+          windows_builder_blob="$(git hash-object --path=scripts/build-hermes-windows.ps1 scripts/build-hermes-windows.ps1)"
+          windows_installer_blob="$(git hash-object --path=scripts/install-windows-hermes.ps1 scripts/install-windows-hermes.ps1)"
+          windows_asset_key="${identity}-a${patch_application_hex:0:12}-i${patch_identity_hex:0:12}-bw${windows_builder_blob:0:12}-iw${windows_installer_blob:0:12}"
           echo "identity=$identity" >> "$GITHUB_OUTPUT"
           echo "tag=hermes-$identity" >> "$GITHUB_OUTPUT"
+          echo "macos_cache_key=$macos_cache_key" >> "$GITHUB_OUTPUT"
+          echo "macos_release_cache_key=$macos_release_cache_key" >> "$GITHUB_OUTPUT"
+          echo "linux_cache_key=$linux_cache_key" >> "$GITHUB_OUTPUT"
+          echo "windows_asset_key=$windows_asset_key" >> "$GITHUB_OUTPUT"
           echo "Artifact identity: $identity"
+          echo "macOS source cache key: $macos_cache_key"
+          echo "macOS Release source cache key: $macos_release_cache_key"
+          echo "Linux source cache key: $linux_cache_key"
+          echo "Windows asset key: $windows_asset_key"
 
       - name: Ensure artifact-cache release exists (idempotent)
         run: |
@@ -78,7 +110,7 @@ jobs:
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
               --prerelease \
               --title "Hermes artifact cache ${{ steps.compute.outputs.identity }}" \
-              --notes "Prebuilt PATCHED Hermes bundles (LLP 0013 patch stack applied) for \`scripts/download-hermes.sh\`. Identity = pinned Hermes commit (12) + patches/hermes digest (12), shared with build-hermes.sh's local cache key. This is an artifact cache, not a product release. Published by the hermes-artifacts workflow (ENG-23147)." \
+              --notes "Prebuilt PATCHED Hermes bundles (LLP 0013 patch stack applied) for the platform installers. Release identity = pinned Hermes commit (12) + patches/hermes digest (12); Darwin/Linux asset names additionally bind both builders plus the patch-application and receipt/identity authorities, while the Windows asset binds those patch authorities plus its source builder and installer. The Windows manifest and profile receipt retain the full digests. This is an artifact cache, not a product release. Published by the hermes-artifacts workflow (ENG-23147)." \
               --target "$GITHUB_SHA"
           fi
 
@@ -97,8 +129,10 @@ jobs:
             fi
           }
           {
-            echo "need_macos=$(need "hermes-macos-arm64-$identity.tar.gz")"
-            echo "need_linux=$(need "hermes-linux-x64-$identity.tar.gz")"
+            echo "need_macos=$(need "hermes-macos-arm64-${{ steps.compute.outputs.macos_cache_key }}.tar.gz")"
+            echo "need_macos_release=$(need "hermes-macos-arm64-release-${{ steps.compute.outputs.macos_release_cache_key }}.tar.gz")"
+            echo "need_linux=$(need "hermes-linux-x64-${{ steps.compute.outputs.linux_cache_key }}.tar.gz")"
+            echo "need_windows=$(need "hermes-windows-x64-${{ steps.compute.outputs.windows_asset_key }}.zip")"
           } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT" || true
 
@@ -111,6 +145,7 @@ jobs:
     env:
       IDENTITY: ${{ needs.identity.outputs.identity }}
       TAG: ${{ needs.identity.outputs.tag }}
+      SOURCE_CACHE_KEY: ${{ needs.identity.outputs.macos_cache_key }}
     steps:
       - name: Check out Ibex
         uses: actions/checkout@v4
@@ -125,16 +160,19 @@ jobs:
         run: |
           set -euo pipefail
           source scripts/hermes-version.sh
-          cache="$HOME/.cache/exact/hermes/${IBEX_HERMES_SOURCE_COMMIT:0:12}-debug-p$(ibex_hermes_patch_digest)"
+          cache="$HOME/.cache/exact/hermes/$SOURCE_CACHE_KEY"
           echo "cache=$cache" >> "$GITHUB_ENV"
           test -d "$cache/hermesvm.xcframework"
           test -d "$cache/hermesvm.framework"
+          test -f "$cache/hermes-profile-provenance.json"
+          ibex_hermes_profile_receipt_has_cache_key "$cache/hermes-profile-provenance.json" "$SOURCE_CACHE_KEY"
           test -f "$cache/include/jsi/jsi.h"
           test -x "$cache/bin/hermesc"
           test -x "$cache/bin/hermes"
           # The published engine must be the PATCHED one: an unpatched bundle
           # makes the 18 frame-attribution tests skip vacuously (LLP 0013/0018).
-          nm -gU "$cache/hermesvm.framework/Versions/1/hermesvm" | grep -q ex_hermes_vm_current_package_id \
+          symbols="$(nm -gU "$cache/hermesvm.framework/Versions/1/hermesvm")"
+          [[ "$symbols" == *ex_hermes_vm_current_package_id* ]] \
             || { echo "::error::built framework lacks ex_hermes_vm_current_package_id (patch stack not applied?)"; exit 1; }
           "$cache/bin/hermesc" --help >/dev/null
           "$cache/bin/hermes" --help >/dev/null
@@ -143,15 +181,20 @@ jobs:
       - name: Package + checksum
         run: |
           set -euo pipefail
-          asset="hermes-macos-arm64-$IDENTITY.tar.gz"
-          tar -C "$cache" -czf "$asset" hermesvm.xcframework hermesvm.framework include bin
+          asset="hermes-macos-arm64-$SOURCE_CACHE_KEY.tar.gz"
+          tar -C "$cache" -czf "$asset" hermesvm.xcframework hermesvm.framework hermes-profile-provenance.json include bin
           shasum -a 256 "$asset" > "$asset.sha256"
           ls -lh "$asset"*
+
+      - name: Attest bundle provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: hermes-macos-arm64-${{ env.SOURCE_CACHE_KEY }}.tar.gz
 
       - name: Upload to release (idempotent overwrite)
         run: |
           set -euo pipefail
-          asset="hermes-macos-arm64-$IDENTITY.tar.gz"
+          asset="hermes-macos-arm64-$SOURCE_CACHE_KEY.tar.gz"
           gh release upload "$TAG" "$asset" "$asset.sha256" --repo "$GITHUB_REPOSITORY" --clobber
 
   linux:
@@ -163,6 +206,7 @@ jobs:
     env:
       IDENTITY: ${{ needs.identity.outputs.identity }}
       TAG: ${{ needs.identity.outputs.tag }}
+      SOURCE_CACHE_KEY: ${{ needs.identity.outputs.linux_cache_key }}
     steps:
       - name: Check out Ibex
         uses: actions/checkout@v4
@@ -178,6 +222,7 @@ jobs:
       - name: Verify bundle contents + patched export
         run: |
           set -euo pipefail
+          source scripts/hermes-version.sh
           install="${XDG_CACHE_HOME:-$HOME/.cache}/exact/hermes-linux/install"
           echo "install=$install" >> "$GITHUB_ENV"
           test -f "$install/include/jsi/jsi.h"
@@ -185,22 +230,224 @@ jobs:
           lib_file="$(find "$install/lib" -maxdepth 1 -name 'libhermesvm.*' -print -quit)"
           test -n "$lib_file"
           case "$lib_file" in
-            *.so) nm -D "$lib_file" | grep -q ex_hermes_vm_current_package_id ;;
-            *)    nm "$lib_file" 2>/dev/null | grep -q ex_hermes_vm_current_package_id ;;
-          esac || { echo "::error::built lib lacks ex_hermes_vm_current_package_id (patch stack not applied?)"; exit 1; }
+            *.so)
+              symbols="$(nm -D "$lib_file")"
+              test -f "$install/lib/hermes-profile-provenance.json"
+              ibex_hermes_profile_receipt_has_cache_key "$install/lib/hermes-profile-provenance.json" "$SOURCE_CACHE_KEY"
+              ;;
+            *)    symbols="$(nm "$lib_file" 2>/dev/null)" ;;
+          esac
+          [[ "$symbols" == *ex_hermes_vm_current_package_id* ]] \
+            || { echo "::error::built lib lacks ex_hermes_vm_current_package_id (patch stack not applied?)"; exit 1; }
           "$install/bin/hermesc" --help >/dev/null
           echo "Bundle verified: patched export present, hermesc runs."
 
       - name: Package + checksum
         run: |
           set -euo pipefail
-          asset="hermes-linux-x64-$IDENTITY.tar.gz"
+          asset="hermes-linux-x64-$SOURCE_CACHE_KEY.tar.gz"
           tar -C "$install" -czf "$asset" include lib bin
           shasum -a 256 "$asset" > "$asset.sha256"
           ls -lh "$asset"*
 
+      - name: Attest bundle provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: hermes-linux-x64-${{ env.SOURCE_CACHE_KEY }}.tar.gz
+
       - name: Upload to release (idempotent overwrite)
         run: |
           set -euo pipefail
-          asset="hermes-linux-x64-$IDENTITY.tar.gz"
+          asset="hermes-linux-x64-$SOURCE_CACHE_KEY.tar.gz"
           gh release upload "$TAG" "$asset" "$asset.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+
+  macos-release:
+    name: Build + publish macOS Release bundle (arm64, no debugger)
+    needs: identity
+    if: needs.identity.outputs.need_macos_release == 'true'
+    runs-on: macos-14
+    timeout-minutes: 180
+    env:
+      IDENTITY: ${{ needs.identity.outputs.identity }}
+      TAG: ${{ needs.identity.outputs.tag }}
+      SOURCE_CACHE_KEY: ${{ needs.identity.outputs.macos_release_cache_key }}
+    steps:
+      - name: Check out Ibex
+        uses: actions/checkout@v4
+
+      - name: Build patched no-debugger Hermes from source
+        run: ./scripts/build-hermes.sh --release
+
+      - name: Verify Release bundle contents, patch, and debugger absence
+        run: |
+          set -euo pipefail
+          source scripts/hermes-version.sh
+          cache="$HOME/.cache/exact/hermes/$SOURCE_CACHE_KEY"
+          echo "cache=$cache" >> "$GITHUB_ENV"
+          binary="$cache/hermesvm.framework/Versions/1/hermesvm"
+          test -d "$cache/hermesvm.xcframework"
+          test -f "$binary"
+          test -f "$cache/hermes-profile-provenance.json"
+          ibex_hermes_profile_receipt_has_cache_key "$cache/hermes-profile-provenance.json" "$SOURCE_CACHE_KEY"
+          test -f "$cache/include/jsi/jsi.h"
+          test -x "$cache/bin/hermesc"
+          test -x "$cache/bin/hermes"
+          symbols="$(nm -gU "$binary")"
+          [[ "$symbols" == *ex_hermes_vm_current_package_id* ]] \
+            || { echo "::error::Release framework lacks the patched attribution export"; exit 1; }
+          if [[ "$symbols" == *AsyncDebuggerAPI* ]]; then
+            echo "::error::Release framework unexpectedly exports debugger symbols"
+            exit 1
+          fi
+          "$cache/bin/hermesc" --help >/dev/null
+          "$cache/bin/hermes" --help >/dev/null
+          echo "Release bundle verified: patch present, debugger absent, host tools run."
+
+      - name: Package + checksum
+        run: |
+          set -euo pipefail
+          asset="hermes-macos-arm64-release-$SOURCE_CACHE_KEY.tar.gz"
+          tar -C "$cache" -czf "$asset" hermesvm.xcframework hermesvm.framework hermes-profile-provenance.json include bin
+          shasum -a 256 "$asset" > "$asset.sha256"
+          ls -lh "$asset"*
+
+      - name: Attest bundle provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: hermes-macos-arm64-release-${{ env.SOURCE_CACHE_KEY }}.tar.gz
+
+      - name: Upload to release (idempotent overwrite)
+        run: |
+          set -euo pipefail
+          asset="hermes-macos-arm64-release-$SOURCE_CACHE_KEY.tar.gz"
+          gh release upload "$TAG" "$asset" "$asset.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+
+  windows:
+    name: Build + publish Windows bundle (x64)
+    needs: identity
+    if: needs.identity.outputs.need_windows == 'true'
+    runs-on: windows-2022
+    timeout-minutes: 180
+    env:
+      IDENTITY: ${{ needs.identity.outputs.identity }}
+      TAG: ${{ needs.identity.outputs.tag }}
+      ASSET_KEY: ${{ needs.identity.outputs.windows_asset_key }}
+    steps:
+      - name: Check out Ibex
+        uses: actions/checkout@v4
+
+      - name: Configure MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build patched Release Hermes from source
+        shell: pwsh
+        run: ./scripts/build-hermes-windows.ps1 -Arch x64
+
+      - name: Verify bundle contents, profile, and patched export
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $install = Join-Path $PWD "tools\hermes\windows-x64"
+          "install=$install" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $required = @(
+            "include\jsi\jsi.h",
+            "include\jsi\jsi.cpp",
+            "include\hermes\hermes.h",
+            "include\hermes\Public\rtti.cpp",
+            "lib\hermes.lib",
+            "lib\hermesvm.lib",
+            "bin\hermesvm.dll",
+            "bin\hermes.exe",
+            "bin\hermesc.exe",
+            "bin\hermes-profile-provenance.json",
+            "artifact.json"
+          )
+          foreach ($relative in $required) {
+            if (-not (Test-Path -LiteralPath (Join-Path $install $relative))) {
+              throw "Windows Hermes bundle is missing $relative"
+            }
+          }
+          $manifest = Get-Content -LiteralPath (Join-Path $install "artifact.json") -Raw | ConvertFrom-Json
+          $receipt = Get-Content -LiteralPath (Join-Path $install "bin\hermes-profile-provenance.json") -Raw | ConvertFrom-Json
+          $builderDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath "scripts\build-hermes-windows.ps1").Hash.ToLowerInvariant()
+          $installerDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath "scripts\install-windows-hermes.ps1").Hash.ToLowerInvariant()
+          $patchApplicationDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath "scripts\apply-hermes-patches.sh").Hash.ToLowerInvariant()
+          $patchStackDigest = (& bash -c 'source scripts/hermes-version.sh; ibex_hermes_patch_stack_digest_hex').Trim()
+          if ($LASTEXITCODE -ne 0) { throw "Could not derive the local Hermes patch-stack authority" }
+          $patchIdentityDigest = (& bash -c 'source scripts/hermes-version.sh; ibex_hermes_patch_identity_authority_digest_hex').Trim()
+          if ($LASTEXITCODE -ne 0) { throw "Could not derive the local Hermes patch-identity authority" }
+          $builderBlob = (& git hash-object --path=scripts/build-hermes-windows.ps1 scripts/build-hermes-windows.ps1).Trim()
+          $installerBlob = (& git hash-object --path=scripts/install-windows-hermes.ps1 scripts/install-windows-hermes.ps1).Trim()
+          if ($LASTEXITCODE -ne 0 -or
+              $patchStackDigest -notmatch '^[0-9a-f]{64}$' -or
+              $patchIdentityDigest -notmatch '^[0-9a-f]{64}$' -or
+              $builderBlob -notmatch '^[0-9a-f]{40}$' -or
+              $installerBlob -notmatch '^[0-9a-f]{40}$') {
+            throw "Could not reconstruct the complete local Windows Hermes build authority"
+          }
+          $expectedAssetKey = "$env:IDENTITY-a$($patchApplicationDigest.Substring(0, 12))-i$($patchIdentityDigest.Substring(0, 12))-bw$($builderBlob.Substring(0, 12))-iw$($installerBlob.Substring(0, 12))"
+          $dllDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $install "bin\hermesvm.dll")).Hash.ToLowerInvariant()
+          $linkDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $install "lib\hermes.lib")).Hash.ToLowerInvariant()
+          $manifestIdentity = "$($manifest.sourceCommit.Substring(0, 12))-$($manifest.patchDigest)"
+          if ($env:ASSET_KEY -ne $expectedAssetKey -or
+              $manifestIdentity -ne $env:IDENTITY -or
+              $manifest.configuration -ne "Release" -or
+              $manifest.debugger -ne $false -or
+              $manifest.sourceBuildAuthorityDigest -ne $builderDigest -or
+              $manifest.binarySha256 -ne $dllDigest -or
+              $receipt.schema -ne "ibex/hermes-profile-provenance-receipt/2" -or
+              $receipt.profileId -ne "windows-source-patched" -or
+              $receipt.targetVariant -ne "windows" -or
+              $receipt.artifact.binaryDigest -ne "sha256-$dllDigest" -or
+              $receipt.artifact.fileName -ne "hermesvm.dll" -or
+              $receipt.artifact.targetArchitecture -ne "x86_64" -or
+              $receipt.linkArtifact.binaryDigest -ne "sha256-$linkDigest" -or
+              $receipt.linkArtifact.fileName -ne "hermes.lib" -or
+              $receipt.linkArtifact.targetArchitecture -ne "x86_64" -or
+              $receipt.origin.configuration -ne "Release" -or
+              $receipt.origin.debugger -ne $false -or
+              $receipt.origin.kind -ne "source-patched-build" -or
+              $receipt.origin.reviewedProfileIdentity.patchApplicationAuthorityDigest -ne "sha256-$patchApplicationDigest" -or
+              $receipt.origin.reviewedProfileIdentity.patchIdentityAuthorityDigest -ne "sha256-$patchIdentityDigest" -or
+              $receipt.origin.reviewedProfileIdentity.patchStackDigest -ne "sha256-$patchStackDigest" -or
+              $manifest.patchDigest -ne $patchStackDigest.Substring(0, 12) -or
+              $receipt.origin.reviewedProfileIdentity.sourceBuildAuthorityDigest -ne "sha256-$builderDigest" -or
+              $receipt.origin.reviewedProfileIdentity.sourceCommit -ne $manifest.sourceCommit -or
+              $receipt.origin.reviewedProfileIdentity.sourceInstallerAuthorityDigest -ne "sha256-$installerDigest") {
+            throw "Windows Hermes artifact is not bound to the current no-debugger Release build authority"
+          }
+          $exports = dumpbin /exports (Join-Path $install "bin\hermesvm.dll") | Out-String
+          if ($exports -notmatch 'ex_hermes_vm_current_package_id') {
+            throw "Patched Windows Hermes DLL lacks ex_hermes_vm_current_package_id"
+          }
+          if ($exports -match 'CDPAgent|CDPDebugAPI') {
+            throw "Patched Windows Hermes DLL exports debugger symbols"
+          }
+          & (Join-Path $install "bin\hermes.exe") --help | Out-Null
+          & (Join-Path $install "bin\hermesc.exe") --help | Out-Null
+          Write-Host "Bundle verified: patched export present and Release host tools run."
+
+      - name: Package + checksum
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $asset = "hermes-windows-x64-$env:ASSET_KEY.zip"
+          Compress-Archive -Path (Join-Path $env:install "*") -DestinationPath $asset -CompressionLevel Optimal
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $asset).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(
+            "$asset.sha256",
+            "$hash  $asset`n",
+            [Text.Encoding]::ASCII
+          )
+          Get-Item $asset, "$asset.sha256" | Format-Table Name, Length
+
+      - name: Attest bundle provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: hermes-windows-x64-${{ env.ASSET_KEY }}.zip
+
+      - name: Upload to release (idempotent overwrite)
+        shell: pwsh
+        run: |
+          $asset = "hermes-windows-x64-$env:ASSET_KEY.zip"
+          gh release upload $env:TAG $asset "$asset.sha256" --repo $env:GITHUB_REPOSITORY --clobber

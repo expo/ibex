@@ -1169,7 +1169,11 @@ var socket = tls.connect({{
   out.cipher = socket.getCipher().name;
   out.getSession = socket.getSession();
   out.reused = socket.isSessionReused();
-  socket.end('GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
+  // This case measures the negotiated version/cipher/session contract. Keep
+  // the client open for the fixture server's close_notify so an unread peer
+  // close_notify cannot turn a successful exchange into a trailing TCP reset.
+  // The end(data) close-notify path has its own dedicated regression test.
+  socket.write('GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
 }});
 socket.on('data', function () {{}});
 socket.on('end', function () {{ console.log(JSON.stringify(out)); process.exit(0); }});

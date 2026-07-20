@@ -27,8 +27,10 @@ use crate::model::{
     ActionId, DecisionSet, Digest, EffectOccurrence, Generation, LogicalPath, NonEmptyString,
     ObjectIdentity, OccurrenceResource, Principal, StableId,
 };
+use crate::path_alias::PathAliasCanonicalizers;
 use crate::registry::{
-    DecisionStratumId, DefinitionSet, Globality, Lifecycle, ResourceKind, PROFILE, SEMANTIC_CORE,
+    DecisionStratumId, DefinitionSet, Globality, Lifecycle, PrincipalConstraint, ResourceKind,
+    PROFILE, SEMANTIC_CORE,
 };
 use crate::{Error, Result};
 
@@ -119,6 +121,11 @@ pub struct DynamicGrant {
 pub struct ProtectedObjectGuard {
     pub action: ActionId,
     pub object: ObjectIdentity,
+    /// `None` retains the legacy exact-object artifact guard. Authenticated
+    /// package source always supplies a verification generation, so the guard
+    /// cannot be confused by object-number reuse.
+    /// @ref LLP 0023#42-authenticated-package-source-is-immutable
+    pub verification_generation: Option<NonEmptyString>,
 }
 
 /// Arm-validated authority that retains its publication identity across cheap
@@ -176,6 +183,7 @@ pub struct VerifiedDecisionContext {
     identity: SemanticIdentity,
     definitions: DefinitionSet,
     authority: DecisionAuthorityState,
+    path_canonicalizers: PathAliasCanonicalizers,
 }
 
 impl VerifiedDecisionContext {
@@ -183,6 +191,23 @@ impl VerifiedDecisionContext {
         inputs: ArmInputs,
         definitions: DefinitionSet,
         authority: DecisionAuthorityState,
+    ) -> Result<Self> {
+        Self::arm_with_path_canonicalizers(
+            inputs,
+            definitions,
+            authority,
+            // The neutral constructor is safe for non-path profiles only.
+            // Any path occurrence fails closed unless the caller uses the
+            // snapshot-bound constructor with a total volume table.
+            PathAliasCanonicalizers::default(),
+        )
+    }
+
+    pub fn arm_with_path_canonicalizers(
+        inputs: ArmInputs,
+        definitions: DefinitionSet,
+        authority: DecisionAuthorityState,
+        path_canonicalizers: PathAliasCanonicalizers,
     ) -> Result<Self> {
         if !inputs.structure_valid {
             return arm_refused("armed snapshot structure is invalid");
@@ -203,6 +228,7 @@ impl VerifiedDecisionContext {
             identity: inputs.loaded_identity,
             definitions,
             authority,
+            path_canonicalizers,
         })
     }
 
@@ -216,6 +242,24 @@ impl VerifiedDecisionContext {
 
     pub fn authority(&self) -> &DecisionAuthorityState {
         &self.authority
+    }
+
+    /// Canonicalize an already principal-projected occurrence before deriving
+    /// its decision-cache bytes. Live adapters project first, canonicalize
+    /// second, and retain their separate display spelling.
+    pub fn canonicalize_occurrence_for_cache(
+        &self,
+        occurrence: &EffectOccurrence,
+        principal: &Principal,
+    ) -> Result<EffectOccurrence> {
+        if !occurrence.constrained_principals.contains(principal) {
+            return arm_refused("cache canonicalization principal is not constrained");
+        }
+        let mut canonical = occurrence.clone();
+        canonical.resource = self
+            .path_canonicalizers
+            .canonicalize_occurrence(&occurrence.resource, principal)?;
+        Ok(canonical)
     }
 
     /// Publish a newly validated live authority state while preserving the
@@ -241,6 +285,7 @@ impl VerifiedDecisionContext {
             identity: self.identity.clone(),
             definitions: self.definitions.clone(),
             authority,
+            path_canonicalizers: self.path_canonicalizers.clone(),
         })
     }
 
@@ -516,7 +561,8 @@ fn evaluate_decision_set_inner<C: PeerClassifier>(
         ));
     }
     let occurrences = set.occurrences();
-    let projected_occurrences = materialize_path_projections(&occurrences, projections)?;
+    let projected_occurrences =
+        materialize_path_projections(&occurrences, projections, &context.path_canonicalizers)?;
 
     // 2. Attribution — validate the factored context across every effect.
     for (effect_index, occurrence) in occurrences.iter().enumerate() {
@@ -793,19 +839,37 @@ fn evaluate_decision_set_inner<C: PeerClassifier>(
                 Some(gate.coverage_edge_id.as_str().to_owned()),
             ));
         };
-        if context
+        let definition = match context
             .definitions
             .validate_requested_resource(&occurrence.action, &requested)
-            .is_err()
         {
-            return Ok(hard_decision(
-                DecisionOutcome::Deny,
-                DecisionStratumId::DefinitionAndEdgePositivePredicates,
-                effect_index,
-                None,
-                DecisionReason::DefinitionOrEdgePredicate,
-                Some(gate.coverage_edge_id.as_str().to_owned()),
-            ));
+            Ok(definition) => definition,
+            Err(_) => {
+                return Ok(hard_decision(
+                    DecisionOutcome::Deny,
+                    DecisionStratumId::DefinitionAndEdgePositivePredicates,
+                    effect_index,
+                    None,
+                    DecisionReason::DefinitionOrEdgePredicate,
+                    Some(gate.coverage_edge_id.as_str().to_owned()),
+                ));
+            }
+        };
+        if definition.principal_constraint == Some(PrincipalConstraint::RootOnly) {
+            if let Some(non_root) = occurrence
+                .constrained_principals
+                .iter()
+                .find(|principal| !principal.is_root())
+            {
+                return Ok(hard_decision(
+                    DecisionOutcome::Deny,
+                    DecisionStratumId::DefinitionAndEdgePositivePredicates,
+                    effect_index,
+                    Some(non_root.clone()),
+                    DecisionReason::DefinitionOrEdgePredicate,
+                    Some(gate.coverage_edge_id.as_str().to_owned()),
+                ));
+            }
         }
         if !gate.definition_and_edge_predicates_satisfied {
             return Ok(hard_decision(
@@ -991,6 +1055,7 @@ fn evaluate_decision_set_inner<C: PeerClassifier>(
 fn materialize_path_projections(
     occurrences: &[EffectOccurrence],
     projections: Option<&PrincipalPathProjections>,
+    canonicalizers: &PathAliasCanonicalizers,
 ) -> Result<Vec<BTreeMap<Principal, EffectOccurrence>>> {
     if let Some(projections) = projections {
         if projections.by_effect.len() != occurrences.len() {
@@ -1023,16 +1088,36 @@ fn materialize_path_projections(
                         "multi-principal package-root resource lacks authenticated projections",
                     );
                 }
-                return Ok(BTreeMap::new());
+                return occurrence
+                    .constrained_principals
+                    .iter()
+                    .map(|principal| {
+                        let mut canonical = occurrence.clone();
+                        canonical.resource = canonicalizers
+                            .canonicalize_occurrence(&occurrence.resource, principal)?;
+                        Ok((principal.clone(), canonical))
+                    })
+                    .collect();
             };
 
-            let Some(paths) = supplied else {
+            let paths = if let Some(paths) = supplied {
+                paths
+            } else {
                 if occurrence.constrained_principals.len() > 1 {
                     return arm_refused(
                         "multi-principal path decision lacks authenticated projections",
                     );
                 }
-                return Ok(BTreeMap::new());
+                return occurrence
+                    .constrained_principals
+                    .iter()
+                    .map(|principal| {
+                        let mut canonical = occurrence.clone();
+                        canonical.resource = canonicalizers
+                            .canonicalize_occurrence(&occurrence.resource, principal)?;
+                        Ok((principal.clone(), canonical))
+                    })
+                    .collect();
             };
             if paths.len() != occurrence.constrained_principals.len()
                 || occurrence
@@ -1072,6 +1157,8 @@ fn materialize_path_projections(
                         unreachable!("path occurrence changed while projecting")
                     };
                     *requested = path.clone();
+                    projected.resource =
+                        canonicalizers.canonicalize_occurrence(&projected.resource, principal)?;
                     Ok((principal.clone(), projected))
                 })
                 .collect()
@@ -1268,8 +1355,16 @@ fn protected_object_matches(guard: &ProtectedObjectGuard, occurrence: &EffectOcc
         // retained parent is an ancestry/staging fact, not an implicit subtree
         // selector; protected directory entries and package trees are modeled
         // explicitly by path-tree guards.
-        OccurrenceResource::PathOccurrence { final_object, .. } => {
+        OccurrenceResource::PathOccurrence {
+            final_object,
+            final_object_generation,
+            ..
+        } => {
             final_object.as_ref() == Some(&guard.object)
+                && guard
+                    .verification_generation
+                    .as_ref()
+                    .is_none_or(|expected| final_object_generation.as_ref() == Some(expected))
         }
         OccurrenceResource::ExecutableOccurrence {
             executable_object,
@@ -1549,6 +1644,7 @@ mod tests {
     use crate::registry::ValidatedProfile;
     use serde::Deserialize;
     use serde_json::json;
+    use std::collections::BTreeSet;
 
     const ZERO_DIGEST: &str = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
@@ -1618,9 +1714,81 @@ mod tests {
         }
     }
 
+    fn test_path_canonicalizers(
+        authority: &DecisionAuthorityState,
+    ) -> crate::path_alias::PathAliasCanonicalizers {
+        use crate::model::{LogicalPath, LogicalRoot, ObjectPlatform, PathComponent};
+        use crate::path_alias::{
+            BoundVolumePathCanonicalizer, PathAliasCanonicalizerIdentity,
+            PathCanonicalizerRootBinding,
+        };
+
+        let volume = NonEmptyString::new("dev-1").unwrap();
+        let mut package_principals = authority
+            .principal_policies
+            .keys()
+            .filter(|principal| principal.is_package())
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let examples: Occurrences = serde_json::from_slice(include_bytes!(
+            "../../../capsec/examples/effect-occurrences.canonical.json"
+        ))
+        .unwrap();
+        for occurrence in examples.occurrences {
+            package_principals.extend(
+                std::iter::once(occurrence.actor)
+                    .chain(std::iter::once(occurrence.effect_owner))
+                    .chain(occurrence.constrained_principals)
+                    .filter(|principal| principal.is_package()),
+            );
+        }
+        let mut bindings = vec![PathCanonicalizerRootBinding {
+            logical_root: LogicalRoot::Project,
+            owner: None,
+            logical_path: None,
+            host_path: LogicalPath {
+                root: LogicalRoot::Absolute,
+                components: vec![PathComponent::utf8("project").unwrap()],
+                host_bound: Some(true),
+            },
+            platform: ObjectPlatform::Unix,
+            volume: volume.clone(),
+        }];
+        bindings.extend(
+            package_principals
+                .into_iter()
+                .enumerate()
+                .map(|(index, principal)| PathCanonicalizerRootBinding {
+                    logical_root: LogicalRoot::Package,
+                    owner: Some(principal),
+                    logical_path: None,
+                    host_path: LogicalPath {
+                        root: LogicalRoot::Absolute,
+                        components: vec![
+                            PathComponent::utf8("project").unwrap(),
+                            PathComponent::utf8(format!("package-{index}")).unwrap(),
+                        ],
+                        host_bound: Some(true),
+                    },
+                    platform: ObjectPlatform::Unix,
+                    volume: volume.clone(),
+                }),
+        );
+        crate::path_alias::PathAliasCanonicalizers::bind(
+            vec![BoundVolumePathCanonicalizer {
+                platform: ObjectPlatform::Unix,
+                volume,
+                identity: PathAliasCanonicalizerIdentity::ByteIdentityV1,
+            }],
+            bindings,
+        )
+        .unwrap()
+    }
+
     fn arm(authority: DecisionAuthorityState) -> Result<VerifiedDecisionContext> {
         let identity = identity();
-        VerifiedDecisionContext::arm(
+        let path_canonicalizers = test_path_canonicalizers(&authority);
+        VerifiedDecisionContext::arm_with_path_canonicalizers(
             ArmInputs {
                 expected_identity: identity.clone(),
                 loaded_identity: identity,
@@ -1629,7 +1797,36 @@ mod tests {
             },
             definitions(),
             authority,
+            path_canonicalizers,
         )
+    }
+
+    #[test]
+    fn neutral_arm_without_a_bound_volume_table_refuses_path_decisions() {
+        let identity = identity();
+        let context = VerifiedDecisionContext::arm(
+            ArmInputs {
+                expected_identity: identity.clone(),
+                loaded_identity: identity,
+                target: TargetArmState::CompleteAdvertised,
+                structure_valid: true,
+            },
+            definitions(),
+            empty_authority(),
+        )
+        .unwrap();
+        let occurrence = occurrence_named("fs:read");
+        assert!(matches!(
+            evaluate_decision_set(
+                &context,
+                &set_from(&occurrence),
+                &[gate()],
+                Workflow::ProductionEnforce,
+                &|_| Some(PeerClass::Public),
+            ),
+            Err(Error::AliasCanonicalizationRefused(message))
+                if message.contains("no bound-volume canonicalizer")
+        ));
     }
 
     fn env_occurrence() -> EffectOccurrence {
@@ -2062,9 +2259,10 @@ mod tests {
                     host_bound: None,
                 },
                 follow_mode: crate::model::FollowMode::FollowFinal,
-                object_state: crate::model::ObjectState::Existing,
+                object_state: crate::model::ObjectState::Unknown,
                 parent_object: None,
                 final_object: None,
+                final_object_generation: None,
                 retained_handle: None,
             },
         };
@@ -2188,9 +2386,10 @@ mod tests {
                     host_bound: None,
                 },
                 follow_mode: crate::model::FollowMode::FollowFinal,
-                object_state: crate::model::ObjectState::Existing,
+                object_state: crate::model::ObjectState::Unknown,
                 parent_object: None,
                 final_object: None,
+                final_object_generation: None,
                 retained_handle: None,
             },
             ..occurrence
@@ -2296,6 +2495,7 @@ mod tests {
                 object_state: crate::model::ObjectState::Existing,
                 parent_object: None,
                 final_object: None,
+                final_object_generation: None,
                 retained_handle: None,
             },
         };
@@ -2350,6 +2550,7 @@ mod tests {
         let guard = ProtectedObjectGuard {
             action: ActionId::new("fs:write").unwrap(),
             object: guarded.clone(),
+            verification_generation: None,
         };
         let mut occurrence = EffectOccurrence {
             action: ActionId::new("fs:write").unwrap(),
@@ -2367,6 +2568,7 @@ mod tests {
                 object_state: crate::model::ObjectState::Existing,
                 parent_object: Some(guarded.clone()),
                 final_object: Some(child),
+                final_object_generation: None,
                 retained_handle: Some(NonEmptyString::new("fd:child").unwrap()),
             },
         };
@@ -2378,6 +2580,40 @@ mod tests {
         };
         *final_object = Some(guarded);
         assert!(protected_object_matches(&guard, &occurrence));
+
+        let generation_guard = ProtectedObjectGuard {
+            verification_generation: Some(
+                NonEmptyString::new("apple-st-gen:authenticated").unwrap(),
+            ),
+            ..guard
+        };
+        assert!(
+            !protected_object_matches(&generation_guard, &occurrence),
+            "an object number without its authenticated generation must not match"
+        );
+        match &mut occurrence.resource {
+            OccurrenceResource::PathOccurrence {
+                final_object_generation,
+                ..
+            } => {
+                *final_object_generation = Some(NonEmptyString::new("apple-st-gen:stale").unwrap());
+            }
+            _ => unreachable!("fixture is a path occurrence"),
+        }
+        assert!(
+            !protected_object_matches(&generation_guard, &occurrence),
+            "a reused object number with a different generation must not match"
+        );
+        match &mut occurrence.resource {
+            OccurrenceResource::PathOccurrence {
+                final_object_generation,
+                ..
+            } => {
+                *final_object_generation = generation_guard.verification_generation.clone();
+            }
+            _ => unreachable!("fixture is a path occurrence"),
+        }
+        assert!(protected_object_matches(&generation_guard, &occurrence));
     }
 
     #[test]

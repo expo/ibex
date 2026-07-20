@@ -21,7 +21,7 @@
     },
     "packageLocator": {
       "type": "string",
-      "pattern": "^(?:@[a-z0-9._-]+/[a-z0-9._-]+|[a-z0-9._-]+)@[^@\\s]+$"
+      "pattern": "^(?:@[a-z0-9._-]+/[a-z0-9._-]+|[a-z0-9._-]+)@[^@\\s\\u0000-\\u001F\\u007F-\\u009F]+$"
     },
     "pathComponent": {
       "oneOf": [

@@ -18,7 +18,7 @@ const TARGET_ABSENCE_BATCH_COMMAND = Object.freeze([
   "--bin",
   "ibex",
   "--features",
-  "capsec-conformance-observer",
+  "capsec-conformance-observer,openssl-crypto",
   "capsec_public_target_absence_batch",
   "--",
   "--test-threads=1",
@@ -72,9 +72,16 @@ function nativeOperationProbeMode(surfaceName, metadata) {
   const normalizedSurfaceName = surfaceName.startsWith("global:")
     ? surfaceName.slice("global:".length)
     : surfaceName;
+  const publicOutputAccess = metadata?.publicOutputAccess;
+  const sourceBoundPropertyAlias =
+    metadata?.publicReadAccessSourceProven === true &&
+    memberName !== null &&
+    surfaceName === memberName &&
+    publicOutputAccess?.kind === "property-read" &&
+    publicOutputAccess.alias === expectedExportName;
   if (
     exportName !== expectedExportName ||
-    normalizedSurfaceName !== expectedExportName
+    (normalizedSurfaceName !== expectedExportName && !sourceBoundPropertyAlias)
   ) {
     return null;
   }

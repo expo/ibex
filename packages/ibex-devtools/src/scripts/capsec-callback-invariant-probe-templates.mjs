@@ -1,12 +1,15 @@
 /**
- * Source-bound public executions for the callback-attribution and authority
- * control-plane invariants. These surfaces are not effects themselves, but
- * their security classification is meaningful only when an exact armed engine
- * proves the associated attribution/authority invariant at runtime.
+ * Source-bound public executions for exact callback/control-plane mechanisms.
+ * Generic rationale-wide invariant checks are deliberately not authored as
+ * per-surface probes: async attribution is secured channel-by-channel, so a
+ * passing check on one mechanism cannot prove that an arbitrary static carrier
+ * entered its body or used that mechanism.
  *
  * @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence —
  * callback principals, snapshot identities, and mutable authority generations
  * must remain bound across asynchronous delivery.
+ * @ref LLP 0016#weak-points-and-biggest-risks — async attribution is secured
+ * channel-by-channel, so conformance must not generalize across carriers.
  */
 
 import crypto from "node:crypto";
@@ -18,76 +21,10 @@ const CALLBACK_BATCH_COMMAND = Object.freeze([
   "--bin",
   "ibex",
   "--features",
-  "capsec-conformance-observer",
+  "capsec-conformance-observer,openssl-crypto",
   "capsec_public_callback_invariant_batch",
   "--",
   "--test-threads=1",
-]);
-
-const CALLBACK_SCENARIOS = new Map([
-  [
-    "attribution-missing-deny",
-    {
-      mechanism: "scheduled-public-attribution-guard",
-      auxiliaryObservedKey: "native-op:__exactGetEnv",
-      action: "env:read",
-      stages: ["requested", "commit"],
-      outcomes: ["allow", "allow"],
-      reasons: ["ambient-root", "ambient-root"],
-    },
-  ],
-  [
-    "generation-recheck",
-    {
-      mechanism: "scheduled-public-environment-revocation-recheck",
-      auxiliaryObservedKey: "native-op:__exactGetEnv",
-      action: "env:read",
-      stages: ["requested", "commit", "requested"],
-      outcomes: ["allow", "allow", "deny"],
-      reasons: ["dynamic-session", "dynamic-session", "missing-authority"],
-    },
-  ],
-  [
-    "principal-restore",
-    {
-      mechanism: "scheduled-package-principal-scope",
-      auxiliaryObservedKey: "native-op:__exactGetEnv",
-      action: "env:read",
-      stages: ["requested", "commit", "requested", "commit"],
-      outcomes: ["allow", "allow", "allow", "allow"],
-      reasons: ["static-floor", "static-floor", "ambient-root", "ambient-root"],
-    },
-  ],
-  [
-    "snapshot-mismatch-deny",
-    {
-      mechanism: "cross-snapshot-public-handle-reattenuation",
-      auxiliaryObservedKey: null,
-      action: null,
-      stages: [],
-      outcomes: [],
-      reasons: [],
-    },
-  ],
-]);
-
-const CONTROL_SCENARIOS = new Map([
-  [
-    "cannot-widen-authority",
-    {
-      mechanism: "typed-grant-ceiling-refusal",
-      outcomes: [],
-      reasons: [],
-    },
-  ],
-  [
-    "post-lockdown-invariant",
-    {
-      mechanism: "lockdown-tamper-and-grant-refusal",
-      outcomes: [],
-      reasons: [],
-    },
-  ],
 ]);
 
 const EXACT_EMBEDDER_NON_CAPABILITY_MECHANISMS = new Map([
@@ -168,10 +105,7 @@ export function authoredCallbackInvariantProbe({
   route,
   liveByObservedKey,
   coverageByEdge,
-  coverageByObservedKey,
 }) {
-  const callback = CALLBACK_SCENARIOS.get(scenario);
-  const control = CONTROL_SCENARIOS.get(scenario);
   if (plan.classification !== "non-capability") return null;
   if (
     plan.actionIds.length !== 0 ||
@@ -198,11 +132,13 @@ export function authoredCallbackInvariantProbe({
     scenario === "non-capability"
       ? EXACT_EMBEDDER_NON_CAPABILITY_MECHANISMS.get(surfaceObservedKey)
       : null;
-  const template = callback ?? control ?? exactEmbedder;
+  // The callback/control scenarios remain useful diagnostic smoke tests, but
+  // only these six exact embedder mechanisms have source-bound body/lifecycle
+  // evidence that may close a recipe. Leave every rationale-only row residual.
+  if (!exactEmbedder) return null;
+  const template = exactEmbedder;
   if (!template) return null;
-  const expectedRationale =
-    exactEmbedder?.rationaleId ??
-    (callback ? "callback-attribution-carrier" : "authority-control-plane");
+  const expectedRationale = exactEmbedder.rationaleId;
   if (edge.rationaleId !== expectedRationale) return null;
 
   const live = liveByObservedKey.get(surfaceObservedKey);
@@ -217,24 +153,9 @@ export function authoredCallbackInvariantProbe({
     return null;
   }
 
-  const auxiliaryEdge = callback?.auxiliaryObservedKey
-    ? coverageByObservedKey.get(callback.auxiliaryObservedKey)
-    : null;
-  if (
-    callback?.auxiliaryObservedKey &&
-    (!auxiliaryEdge ||
-      auxiliaryEdge.classification !== "effects" ||
-      auxiliaryEdge.effects?.length !== 1 ||
-      auxiliaryEdge.effects[0].cap !== callback.action ||
-      !callback.stages.every((stage) =>
-        auxiliaryEdge.effects[0].stages.includes(stage),
-      ))
-  ) {
-    return null;
-  }
-
   const sourceDescriptor = {
     kind: "callback-security-invariant",
+    proofScope: "source-bound-exact-mechanism",
     scenario,
     rationaleId: edge.rationaleId,
     surfaceObservedKey,
@@ -245,18 +166,8 @@ export function authoredCallbackInvariantProbe({
     implementationBranch: clone(row),
     liveSurface: clone(live),
     executionMechanism: template.mechanism,
-    auxiliaryDecisionEdgeId: auxiliaryEdge?.id ?? null,
+    auxiliaryDecisionEdgeId: null,
   };
-  const expectedOutcomes = template.outcomes ?? [];
-  const expectedReasons = template.reasons ?? [];
-  const expectedTypedDecisionCount = expectedOutcomes.length;
-  if (
-    callback &&
-    (callback.stages.length !== expectedTypedDecisionCount ||
-      expectedReasons.length !== expectedTypedDecisionCount)
-  ) {
-    throw new Error(`callback template ${scenario} has inconsistent decision arrays`);
-  }
   return {
     kind: "public-surface-invocation",
     surfaceObservedKey,
@@ -270,12 +181,12 @@ export function authoredCallbackInvariantProbe({
       sourceDescriptor,
       sourceDescriptorDigest: taggedDigest(sourceDescriptor),
       expectedResult: "invariant-passed",
-      expectedTypedDecisionCount,
-      expectedTypedStages: clone(callback?.stages ?? []),
-      expectedTypedOutcomes: clone(expectedOutcomes),
-      expectedTypedReasons: clone(expectedReasons),
-      allowedCoverageEdgeIds: auxiliaryEdge ? [auxiliaryEdge.id] : [],
-      expectedActionIds: auxiliaryEdge ? [callback.action] : [],
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      expectedTypedOutcomes: [],
+      expectedTypedReasons: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
     },
   };
 }

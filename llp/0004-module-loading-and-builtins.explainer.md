@@ -5,86 +5,138 @@
 **Systems:** Runtime, Module Loader, Build
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-13 (retained native-wrapper owner isolation and retry-safe release across filesystem, network, HTTP, WebSocket, SQLite, zlib, and TLS; TLS transport identity, bounded state, honest loopback authentication, strict client-identity verification, exact-size native reads, and fail-loud host errors); 2026-07-12 (armed resolution authenticates exact requester/target locator, package root, and whole-tree integrity before import or `require.resolve` disclosure — ENG-24234, ENG-24235, ENG-24241; desktop TLS accepts password-protected PKCS#12 and encrypted PKCS#8 client identities — ENG-24272); 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23526: Windows native TLS bridge enablement; ENG-23448: documented the loopback-only tls emulation); 2026-07-11 (ENG-23505: stream lifecycle and concatenated-member boundaries; LLP 0021 generated builtin-export security inventory — ENG-24145)
-**Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0005 (Build pipeline)
+**Revised:** 2026-07-17 (reconciled the shipped typed resolver and advertised-target native-runner route: import/require condition sets are separate; file-backed metadata resolution does not acquire, parse, transpile, or disclose executable source, while trusted integrity hashing may read raw bytes and builtin metadata retains embedded source internally; bootstrap resolution is compatibility-only); 2026-07-15 (ENG-25066 made authenticated ordinary ESM use the native module graph by default; unsupported interop retains the bounded 0.1 legacy path); 2026-07-13 (retained native-wrapper owner isolation and retry-safe release across filesystem, network, HTTP, WebSocket, SQLite, zlib, and TLS; TLS transport identity, bounded state, honest loopback authentication, strict client-identity verification, exact-size native reads, and fail-loud host errors); 2026-07-12 (armed resolution authenticates exact requester/target locator, package root, and whole-tree integrity before import or `require.resolve` disclosure — ENG-24234, ENG-24235, ENG-24241; desktop TLS accepts password-protected PKCS#12 and encrypted PKCS#8 client identities — ENG-24272); 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23526: Windows native TLS bridge enablement; ENG-23448: documented the loopback-only tls emulation); 2026-07-11 (ENG-23505: stream lifecycle and concatenated-member boundaries; LLP 0021 generated builtin-export security inventory — ENG-24145)
+**Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0005 (Build pipeline); LLP 0023 (source identity); LLP 0026 (module runner); LLP 0027 (artifact wire and interop)
 
 ## Summary
 
-Module loading has two layers: a **builtin registry** that maps bare/`node:`/
-`bun:`/`exact:` specifiers to embedded JS sources, and an **on-disk resolver**
-(oxc_resolver) for everything else. Both live in `src/module_loader/mod.rs`. The
-builtin surface is data-driven: a manifest authored in TypeScript (`modules.ts`)
-is compiled to a generated Rust table (`builtin_manifest.generated.rs`) and a
-set of transformed builtin JS files, which the loader includes at compile time.
-This document maps that resolution path and the builtin surface; how the
-manifest/builtins are *generated and vendored* is [LLP 0005](./0005-build-pipeline-and-hermetic-default.explainer.md).
+Module loading shares two mechanisms: a **builtin registry** that maps
+bare/`node:`/`bun:`/`exact:` specifiers to embedded JS sources, and an
+**on-disk resolver** (`oxc_resolver`) for everything else. Both live in
+`src/module_loader/mod.rs`. On advertised native-runner targets, the ordinary
+authenticated ESM path reaches those mechanisms through the Host-authenticated
+typed graph operations adopted by
+[LLP 0026](./0026-esm-module-runner.rfc.md). Explicitly unsupported shapes, and
+unadvertised targets while the 0.1 window remains open, use the same underlying
+resolver through the bounded compatibility loader's JavaScript bridge. The
+builtin surface is data-driven: a manifest authored in TypeScript
+(`modules.ts`) is compiled to a generated Rust table
+(`builtin_manifest.generated.rs`) and a set of transformed builtin JS files,
+which the loader includes at compile time.
+
+This Explainer maps the shared resolver/builtin mechanics and their shipped
+routing. LLP 0026 owns the typed-resolution, module-graph, linking, and
+evaluation architecture; LLPs 0014, 0021, and 0023 own authorization ordering
+and source identity. How the manifest/builtins are *generated and vendored* is
+[LLP 0005](./0005-build-pipeline-and-hermetic-default.explainer.md).
 
 ## Resolution order
 
-`ModuleLoader::resolve_meta` (`src/module_loader/mod.rs:113-144`) resolves a
-specifier in this order `[observed]`:
+The unarmed/diagnostic `ModuleLoader::resolve_meta_typed` route resolves a
+specifier in this order `[observed]` (`src/module_loader/mod.rs`,
+`resolve_meta_typed`):
 
 1. **Private package imports** (`#`-prefixed): resolved against the nearest
-   `package.json` `imports` map (`src/module_loader/mod.rs:118-125, 146-161`).
+   `package.json` `imports` map.
 2. **Builtin registry hit**: if the specifier is a key in the builtins map, it
    returns a `ModuleKind::Builtin` with the embedded source inline — no disk
-   access (`src/module_loader/mod.rs:126-133`).
+   access.
 3. **Unknown `exact:`/`node:` guard**: a specifier that *starts with* `exact:`
    or `node:` but missed the registry is a hard error
-   (`Unknown exact builtin` / `Unsupported node builtin`,
-   `src/module_loader/mod.rs:135-141`).
+   (`Unknown exact builtin` / `Unsupported node builtin`).
    `[observed]` Note this only fires for specifiers the manifest did not
    register; registered ones like `node:fs` hit step 2.
-4. **On-disk resolution** via oxc_resolver (`resolve_with_oxc`,
-   `src/module_loader/mod.rs:143`).
+4. **On-disk resolution** via oxc_resolver (`resolve_with_oxc`).
 
-In an armed runtime the C ABI carries the numeric requester module ID into both
-full and metadata-only resolution. The Host resolves first, derives the target
-principal from the most-specific authenticated root binding, and requires the
-exact graph edge including locator and integrity. Package-relative imports must
-remain inside that package's authenticated root; package-to-project-root and
-absolute escapes are refused rather than reclassified as principal 0. The
-resolver returns exact package name, locator, root, and whole-tree integrity,
-and module registration accepts the mapping only when all fields match the
-armed graph. Installed content is recomputed before project code, so replacing
-a package body without changing its self-reported manifest cannot inherit its
-reviewed authority.
+Armed on-disk native-graph and compatibility callers do not enter that exact
+method route. The C ABI or native graph carries the authenticated requester and
+`ResolutionKind` into the Host. For file and package targets, the Host selects
+`resolve_meta_authenticated_typed` or the authenticated bound-package variant.
+Registered builtin requests instead take the in-memory `resolve_meta_typed`
+branch after Host import preflight; they do not enter Oxc or the filesystem.
+Before Oxc can probe an on-disk request, the Host authenticates the requester
+and constrains the lookup to the exact graph edge and retained binding object,
+including locator and integrity. Package-relative imports must remain inside that package's
+authenticated root; package-to-project-root and absolute escapes are refused
+rather than reclassified as principal 0. The resolver returns exact package
+name, locator, root, and whole-tree integrity, and module registration accepts
+the mapping only when all fields match the armed graph. Installed content is
+recomputed before project code, so replacing a package body without changing
+its self-reported manifest cannot inherit its reviewed authority.
 
-`Host::resolve_module_meta` applies the same requester, import-edge, logical
-`fs:list`/`fs:read`, root-object, and integrity checks but stops before
-`load_source`, returning only path and authenticated package metadata.
-Full module resolution shares its requester/graph/root authentication and then
-uses the executable source-loading path. The metadata-only path backs every
-`require.resolve` route without turning lookup into an import or
-filesystem-disclosure bypass: it authorizes `fs:list` at
-requested before resolver probing, then binds the canonical final and parent
-objects at discovery and authorizes `fs:read` at commit and repeat before
-returning the path. Cache-hot lookups repeat all four stages, and a symlink is
-classified by its canonical target binding rather than its lexical spelling.
+For file-backed targets, the Host's typed metadata-resolution operations apply
+the same requester, import-edge, logical `fs:list`/`fs:read`, root-object, and
+integrity checks but do not acquire, decode, parse, transpile, or return
+executable module source. Full module resolution shares its
+requester/graph/root authentication and then uses the executable source-loading
+path. Package-facing `require.resolve` therefore does not turn lookup into an
+import or filesystem-disclosure bypass: it authorizes `fs:list` at requested
+before resolver probing, then binds the canonical final and parent objects at
+discovery and authorizes `fs:read` at commit and repeat before returning the
+path. Cache-hot lookups repeat all four stages, and a symlink is classified by
+its canonical target binding rather than its lexical spelling. For an
+authenticated package target, Repeat may read and hash raw installed bytes as
+an integrity witness; it does not return those bytes as executable source.
+Registered builtins have no file path and therefore do not run these filesystem
+stages.
 
 ### The oxc_resolver configuration
 
-The resolver is configured (`src/module_loader/mod.rs:67-105`) with
-`[observed]`:
+The resolver's common configuration has `[observed]`:
 
 - Extensions `.js .cjs .mjs .ts .tsx .jsx .mts .cts .json`.
-- Condition names `node, require, import, default`.
-- TS `extension_alias` so `./x.js` in TS sources resolves to `./x.ts` on disk
-  (`src/module_loader/mod.rs:88-98`), matching the TS NodeNext / Vite convention.
+- Distinct canonical condition membership sets selected by `ResolutionKind`:
+  ESM static import, dynamic import, and entry use `{import, node}`; CommonJS
+  require uses `{node, require}`. `default` is not an active condition —
+  for Oxc conditional exports and armed package `#imports`, package-object key
+  order remains authoritative and `default` is the unconditional branch. The
+  unarmed/diagnostic private-import helper remains a compatibility divergence:
+  it tries the active condition names in their stored order and then `default`.
+- TS `extension_alias` so `./x.js` in TS sources resolves to `./x.ts` on disk,
+  matching the TS NodeNext / Vite convention (`module_resolve_options`).
+
+Armed resolution additionally disables `NODE_PATH` and gives Oxc only a
+descriptor-backed filesystem plus authenticated captured manifest bytes. For
+file-backed requests, Oxc may classify a module from extension or manifest data
+but cannot open its executable body; acquisition, parsing, transpilation, and
+disclosure remain later authorized operations. Registered builtin metadata is
+the explicit in-memory exception: it already carries the embedded source
+internally, although the metadata-only ABI does not serialize that source.
 
 ### Loading and on-the-fly transpilation
 
-`load_source` reads the resolved file (`src/module_loader/mod.rs:163-186`) and
-transpiles when needed: `.ts/.tsx/.jsx/.mts/.cts` always (`needs_transpile`,
-`src/module_loader/mod.rs:188-193`),
-and `.js/.mjs/.cjs` when the source uses syntax Hermes can't run directly —
-async generators, `for await`, `using`, certain block-scoped loop closures —
-which are down-leveled (`needs_js_downlevel` + the `source_needs_*` scanners,
-`src/module_loader/mod.rs:195-228`). Transpilation runs through
-`src/module_loader/transpile.rs`, which imports swc parser/codegen/transform
-crates and lowers to CommonJS for the loader's synchronous `require()` chain
-`[observed]` (`src/module_loader/transpile.rs:1-16, 20-34, 36-45`;
-`Cargo.toml:56-64`).
+For ordinary ESM on advertised native-runner targets, the default path resolves
+and authenticates the complete reachable graph, produces Oxc-backed
+`ModuleArtifact`s, and links native module records on Hermes. Warm loads may
+admit the corresponding prepared graph and carriers from the Rolldown cache
+only after reconstructing the authenticated source graph; that cache is a
+source-mode acceleration, not yet parse-free prepared production startup. This
+path does not call the bootstrap `transformEsmToCjs` scanner. Authorization,
+parse, link, and evaluation failures fail closed.
+
+The file-at-a-time behavior below remains the compatibility path for explicitly
+unsupported CommonJS/JSON/builtin interop, authored call-time dynamic import,
+and unadvertised target tuples while the window remains open. It is bounded to the
+Ibex 0.1 line and can be disabled with `IBEX_LEGACY_MODULE_LOADER=0`; an
+unadvertised target refuses after that window closes.
+
+`load_source` reads the resolved file and always sends
+`.ts/.tsx/.jsx/.mts/.cts` through the selected in-process transform engine
+(`needs_transpile`). `.js/.mjs/.cjs` enters that Rust transform only when the
+`needs_js_downlevel` scanners select async generators, `for await`, `using`, or
+certain block-scoped loop closures. Ordinary JavaScript — including ordinary
+ESM-heavy JavaScript — is served unchanged by Rust `[observed]`
+(`src/module_loader/mod.rs`, `load_module_source`, `needs_transpile`, and
+`needs_js_downlevel`). The legacy in-process engine is SWC and lowers its
+selected inputs to CommonJS, but it applies no configured target-compatibility
+pass; describing that path generically as target "down-leveling" was therefore
+too broad `[observed]` (`src/module_loader/transpile.rs`,
+`transpile_with_swc`). On that legacy path, the embedded bootstrap's
+`transformEsmToCjs` scanner rewrites ESM syntax file by file before the
+synchronous `require()`-shaped evaluator sees it `[observed]`
+(`src/engine/bootstrap/module-loader.js`). The implementation-neutral current
+path inventory and Node/Hermes divergence baseline live under
+`tests/fixtures/module-semantics/`.
 
 ## The builtin module surface
 
@@ -452,22 +504,30 @@ Refusing loudly is the LLP 0006 "honest reduced profile" behavior.
 
 ## How the runtime consumes this
 
-- At **resolution** time, the Rust loader returns the inline builtin source (no
-  bytecode here) `[observed]` (`src/module_loader/mod.rs:126-133`).
-- The C++ engine reaches the loader through `__exactModuleResolve` /
-  `__exactNativeModuleResolve` JSI functions, which call the Rust
-  `ex_host_module_resolve` ABI (`src/engine/hermes_runtime.cc:1191-1193`;
-  `src/host/abi.rs:730-779`) `[observed]`. The Rust side returns a JSON object
-  carrying `id`, `kind` (`builtin`/`cjs`/`json`/`esm`), `path`, and `source`
-  `[observed]` (`src/host/abi.rs:758-769`).
+- On advertised native-runner targets, ordinary authenticated ESM has the CLI
+  admit the exact file request before graph discovery.
+  `module_loader::runner_pipeline` then calls the retained Host's typed
+  resolver, produces provenance-bound Oxc `ModuleArtifact`s, and supplies the
+  linked graph to the native Hermes module runner `[observed]`.
+- At **builtin resolution** time, the Rust loader returns the inline builtin
+  source (no bytecode here) `[observed]`.
+- The bounded compatibility loader reaches Rust through `__exactModuleResolve`
+  / `__exactNativeModuleResolve` JSI functions, which call the Rust
+  `ex_host_module_resolve` ABI `[observed]`. The Rust side returns a JSON object
+  carrying `id`, `kind` (`builtin`/`cjs`/`json`/`esm`), `path`, and `source`.
 - `require.resolve` instead uses the metadata-only bridge
   `__exactModuleResolveMeta` / `__exactNativeModuleResolveMeta` ->
-  `ex_host_module_resolve_meta`, which returns the identical record minus
-  `source` so no body is read/transpiled (ENG-23007) `[observed]`. The loader
-  prefers it and falls back to the full bridge when the meta binding is absent
-  (older embedded runtimes / tests).
+  `ex_host_module_resolve_meta`, which omits `source` from the public record.
+  For file-backed targets it does not acquire, decode, parse, transpile, or
+  disclose executable source, although trusted package-integrity revalidation
+  may read and hash raw bytes. Builtin metadata may retain embedded source
+  internally but does not serialize it through this ABI (ENG-23007)
+  `[observed]`. The loader prefers the metadata binding and falls back to the
+  full bridge when it is absent (older embedded runtimes / tests); that fallback
+  may acquire source.
 - The JS module-loader bootstrap (`src/engine/bootstrap/module-loader.js`)
-  drives `require`/`import` against this resolve function `[observed]`
+  drives the bounded compatibility `require`/`import` path against this resolve
+  function `[observed]`
   (`src/engine/hermes_bootstrap.cc:193-204`).
   The C++ installer comments that the native alias survives a dev-server
   hot-reload override of the canonical resolver `[observed]`
@@ -480,7 +540,7 @@ Refusing loudly is the LLP 0006 "honest reduced profile" behavior.
   for hermetic builds; editing the runtime surface means editing `modules.ts` /
   `src/builtins` and regenerating, not editing `vendored-generated/` —
   see [LLP 0005](./0005-build-pipeline-and-hermetic-default.explainer.md).
-- ESM/CJS interop and full Node package resolution are described in-code as
-  "implemented incrementally (see TODOs)" `[observed]`
-  (`src/module_loader/mod.rs:3-5`); the
-  resolver is called "minimal." Exact gaps are not enumerated here.
+- The remaining native call-time dynamic-import and authored-`require` gaps are
+  explicitly bounded and tracked by LLP 0026. This Explainer does not promote
+  the compatibility path or the in-code "minimal" resolver label into a second
+  architecture contract.

@@ -1,5 +1,6 @@
 #include "hermes_runtime_internal.h"
 
+#include <cctype>
 #include <cmath>
 #include <condition_variable>
 #include <deque>
@@ -82,6 +83,12 @@ struct HttpServerEntry {
   uint64_t runtimeNonce;
   uint64_t owner;
   std::string capability;
+  bool typedListen{false};
+  std::string typedHost;
+  uint16_t typedPort{0};
+  std::string typedBoundAddress;
+  uint16_t typedBoundPort{0};
+  std::string typedListenerId;
 };
 
 static std::mutex g_http_server_mutex;
@@ -143,6 +150,40 @@ uint32_t parseHttpServerId(const std::string& json) {
   return saw_digit ? id : 0;
 }
 
+uint16_t parseHttpPort(const std::string& json) {
+  auto port_pos = json.find("\"port\"");
+  if (port_pos == std::string::npos) return 0;
+  auto colon = json.find(':', port_pos);
+  if (colon == std::string::npos) return 0;
+  size_t pos = colon + 1;
+  while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos]))) pos++;
+  uint32_t port = 0;
+  bool saw_digit = false;
+  while (pos < json.size() && std::isdigit(static_cast<unsigned char>(json[pos]))) {
+    saw_digit = true;
+    port = port * 10 + static_cast<uint32_t>(json[pos] - '0');
+    if (port > 65535) return 0;
+    pos++;
+  }
+  return saw_digit ? static_cast<uint16_t>(port) : 0;
+}
+
+bool authorizeTypedHttpListen(
+    uint64_t owner,
+    const std::string& host,
+    uint16_t port,
+    uint32_t stage,
+    const std::string& boundAddress,
+    uint16_t boundPort,
+    const std::string& listenerId) {
+  auto principals = exactCollectTypedPrincipalStack();
+  const int32_t result = ex_host_authorize_typed_listen_stack(
+      owner, principals.data(), principals.size(), 1, host.c_str(), port, 0,
+      stage, boundAddress.empty() ? nullptr : boundAddress.c_str(), boundPort,
+      listenerId.empty() ? nullptr : listenerId.c_str(), nullptr, 0);
+  return result == 1;
+}
+
 bool parseHttpOwnerServerId(
     const facebook::jsi::Value& value,
     uint32_t& server_id) {
@@ -158,13 +199,31 @@ bool parseHttpOwnerServerId(
   return true;
 }
 
-void registerHttpServer(uint32_t server_id, const std::string& capability) {
+void registerHttpServer(
+    uint32_t server_id,
+    const std::string& capability,
+    const std::string& typedHost = {},
+    uint16_t typedPort = 0,
+    const std::string& typedBoundAddress = {},
+    uint16_t typedBoundPort = 0,
+    const std::string& typedListenerId = {}) {
   if (server_id == 0) {
     return;
   }
   std::lock_guard<std::mutex> lock(g_http_server_mutex);
-  g_http_servers[server_id] = HttpServerEntry{
-      exactCurrentRuntimeNonce(), currentPrincipalId(), capability};
+  HttpServerEntry entry{};
+  entry.runtimeNonce = exactCurrentRuntimeNonce();
+  entry.owner = currentPrincipalId();
+  entry.capability = capability;
+  if (!typedListenerId.empty()) {
+    entry.typedListen = true;
+    entry.typedHost = typedHost;
+    entry.typedPort = typedPort;
+    entry.typedBoundAddress = typedBoundAddress;
+    entry.typedBoundPort = typedBoundPort;
+    entry.typedListenerId = typedListenerId;
+  }
+  g_http_servers[server_id] = std::move(entry);
 }
 
 bool requireHttpServerOwner(
@@ -191,10 +250,18 @@ bool requireHttpServerOwner(
     throw facebook::jsi::JSError(
         runtime, std::string(syscall) + ": server belongs to a different principal");
   }
-  if (requireLiveAuthority && !isAllowAll() && !entry.capability.empty() &&
-      !checkCapability(entry.capability)) {
-    throw facebook::jsi::JSError(
-        runtime, std::string("Permission denied: ") + syscall);
+  if (requireLiveAuthority && entry.typedListen) {
+    if (!authorizeTypedHttpListen(
+            entry.owner, entry.typedHost, entry.typedPort, 2,
+            entry.typedBoundAddress, entry.typedBoundPort,
+            entry.typedListenerId)) {
+      throw facebook::jsi::JSError(
+          runtime, std::string("Permission denied: ") + syscall);
+    }
+  } else if (requireLiveAuthority && !isAllowAll() &&
+             !entry.capability.empty() && !checkCapability(entry.capability)) {
+      throw facebook::jsi::JSError(
+          runtime, std::string("Permission denied: ") + syscall);
   }
   return true;
 }
@@ -281,7 +348,12 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
          size_t count) -> facebook::jsi::Value {
         uint16_t port = 0;
         if (count > 0 && args[0].isNumber()) {
-          port = static_cast<uint16_t>(args[0].asNumber());
+          const double requestedPort = args[0].asNumber();
+          if (!std::isfinite(requestedPort) || requestedPort < 0 ||
+              requestedPort > 65535 || std::floor(requestedPort) != requestedPort) {
+            throw facebook::jsi::JSError(runtime, "__exactHttpServe: invalid port");
+          }
+          port = static_cast<uint16_t>(requestedPort);
         }
         std::string hostname = "127.0.0.1";
         if (count > 1 && args[1].isString()) {
@@ -290,7 +362,16 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         // @ref LLP 0013#policy — importing http/Bun.serve is not authority to
         // open a listening socket. Gate the native serve boundary. (ENG-22722)
         std::string capability = "network:listen:" + formatNetworkEndpoint(hostname, port);
-        if (!checkCapability(capability)) {
+        const bool armed = ex_host_is_armed() == 1;
+        const uint64_t owner = currentPrincipalId();
+        if (armed) {
+          // @ref LLP 0021#wp6--convert-network-effects-and-protected-peers —
+          // authorize the requested bind before starting the broker and commit
+          // the exact address/ephemeral port it actually selected.
+          if (!authorizeTypedHttpListen(owner, hostname, port, 0, "", 0, "")) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+        } else if (!checkCapability(capability)) {
           throw facebook::jsi::JSError(
               runtime,
               "Permission denied: network:listen capability required");
@@ -300,7 +381,31 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "Failed to start HTTP server");
         }
         std::string payload(json);
-        registerHttpServer(parseHttpServerId(payload), capability);
+        const uint32_t serverId = parseHttpServerId(payload);
+        if (armed && serverId != 0) {
+          // Armed startup accepts only a canonical literal bind. The broker
+          // returns the OS-selected bound port in this payload, so together
+          // those are the exact committed endpoint without a racy second
+          // lookup through the public address bridge.
+          const std::string boundAddress = hostname;
+          const uint16_t boundPort = parseHttpPort(payload);
+          const std::string listenerId =
+              "http-listener:" + std::to_string(exactCurrentRuntimeNonce()) +
+              ":" + std::to_string(serverId);
+          if (boundAddress.empty() || boundPort == 0 ||
+              !authorizeTypedHttpListen(
+                  owner, hostname, port, 2, boundAddress, boundPort,
+                  listenerId)) {
+            ex_host_http_close(serverId, 1);
+            ex_host_free_string(json);
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+          registerHttpServer(
+              serverId, "", hostname, port, boundAddress, boundPort,
+              listenerId);
+        } else {
+          registerHttpServer(serverId, capability);
+        }
         auto result = facebook::jsi::String::createFromUtf8(runtime, payload);
         ex_host_free_string(json);
         return result;

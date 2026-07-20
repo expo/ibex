@@ -64,6 +64,19 @@ pub struct Cli {
     #[arg(long, value_enum, default_value = "auto")]
     pub capsec: CapSecMode,
 
+    /// Persistent REPL history scope. History is used only by an interactive
+    /// session with an editor; other modes ignore the recorded default and
+    /// diagnose an explicitly supplied value they cannot honor.
+    // @ref LLP 0025#9-history — the operator selects project-scoped history,
+    // explicit global history, or no persistence before the host is armed.
+    #[arg(long, value_enum, default_value = "project", global = true)]
+    pub history: HistoryMode,
+
+    /// Whether the operator supplied `--history` rather than receiving the
+    /// manifest default. This is argv provenance, not a second Clap surface.
+    #[arg(skip)]
+    pub history_was_explicit: bool,
+
     /// Affirm the production lockdown posture. Ordinary execution enables
     /// lockdown structurally; this flag is retained as an explicit affirmation.
     /// @ref LLP 0013#mechanism-1
@@ -85,10 +98,12 @@ pub struct Cli {
     #[arg(long)]
     pub policy: Option<PathBuf>,
 
-    /// Trusted project root. When omitted, Ibex selects the nearest ancestor
-    /// containing package.json. Package-less projects must name the trusted
-    /// root explicitly so an arbitrary entry directory is never promoted to
-    /// root authority.
+    /// Trusted project-root override. When omitted, every execution mode uses
+    /// the same discovery rule: the outermost matching workspace wins, then
+    /// the nearest lockfile, then the nearest package.json; markerless projects
+    /// use their discovery origin with a diagnostic. Origins at a home,
+    /// filesystem-root, or device stop boundary require this override.
+    // @ref LLP 0023#11-project-root-discovery — operator help must describe the authority boundary
     #[arg(long, value_name = "DIR")]
     pub project_root: Option<PathBuf>,
 
@@ -412,6 +427,28 @@ pub enum CapSecMode {
     Enforce,
 }
 
+/// Supervisor-owned persistent REPL history policy.
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HistoryMode {
+    /// Isolate recall by the authenticated project root (the default).
+    Project,
+    /// Explicitly share recall across projects for this user.
+    Global,
+    /// Keep editor recall in memory only; perform no persistent history I/O.
+    Off,
+}
+
+/// Capture default provenance before Clap consumes argv. The `--` boundary is
+/// respected so a script argument named `--history` is never reclassified as
+/// terminal-operator configuration.
+pub(crate) fn history_option_was_explicit(argv: &[std::ffi::OsString]) -> bool {
+    argv.iter()
+        .skip(1)
+        .take_while(|argument| argument.as_os_str() != "--")
+        .filter_map(|argument| argument.to_str())
+        .any(|argument| argument == "--history" || argument.starts_with("--history="))
+}
+
 impl ValueEnum for CapSecMode {
     fn value_variants<'a>() -> &'a [Self] {
         const VARIANTS: &[CapSecMode] = &[
@@ -454,12 +491,33 @@ impl BundleFormat {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use clap::{Arg, ArgAction, Command, CommandFactory};
     use serde_json::{json, Value};
     use std::collections::BTreeSet;
     use std::ffi::OsStr;
+
+    #[test]
+    fn project_root_help_describes_versioned_discovery_and_override() {
+        let command = Cli::command();
+        let argument = command
+            .get_arguments()
+            .find(|argument| argument.get_id() == "project_root")
+            .expect("--project-root remains an authored option");
+        let help = argument
+            .get_long_help()
+            .or_else(|| argument.get_help())
+            .expect("--project-root has help")
+            .to_string();
+        assert!(help.contains("outermost matching workspace"), "{help}");
+        assert!(help.contains("nearest lockfile"), "{help}");
+        assert!(
+            help.contains("discovery origin with a diagnostic"),
+            "{help}"
+        );
+        assert!(!help.contains("nearest ancestor containing package.json"));
+    }
 
     // @ref LLP 0010#runtime-command-surface — the recursive manifest records
     // authored Clap semantics, while framework-generated controls stay out.
@@ -472,6 +530,7 @@ mod tests {
     struct AuthoredClapIdentities {
         arguments: BTreeSet<String>,
         commands: BTreeSet<String>,
+        global_arguments: BTreeSet<String>,
     }
 
     fn argument_key(path: &str, arg: &Arg) -> String {
@@ -494,6 +553,9 @@ mod tests {
                 "duplicate authored Clap argument {} on {path}",
                 arg.get_id()
             );
+            if arg.is_global_set() {
+                authored.global_arguments.insert(arg.get_id().to_string());
+            }
         }
         for subcommand in command.get_subcommands() {
             collect_authored_clap_identities(
@@ -514,6 +576,12 @@ mod tests {
     fn is_authored_argument(authored: &AuthoredClapIdentities, path: &str, arg: &Arg) -> bool {
         if authored.arguments.contains(&argument_key(path, arg)) {
             return true;
+        }
+        // Clap materializes root-authored global arguments on every built
+        // descendant. Their single root authority row records `global: true`;
+        // child copies are derived reachability, not separately authored rows.
+        if authored.global_arguments.contains(arg.get_id().as_str()) {
+            return false;
         }
         if is_generated_framework_action(arg.get_action()) {
             return false;
@@ -719,6 +787,9 @@ mod tests {
         }
         if !hidden_aliases.is_empty() {
             object.insert("hiddenAliases".to_string(), json!(hidden_aliases));
+        }
+        if arg.is_global_set() {
+            object.insert("global".to_string(), json!(true));
         }
         surface
     }
@@ -938,9 +1009,9 @@ mod tests {
         }
     }
 
-    struct ClapManifestSnapshot {
-        commands: Vec<Value>,
-        semantic_relations: Value,
+    pub(crate) struct ClapManifestSnapshot {
+        pub(crate) commands: Vec<Value>,
+        pub(crate) semantic_relations: Value,
         type_erased_parser_keys: BTreeSet<String>,
     }
 
@@ -989,7 +1060,7 @@ mod tests {
         }
     }
 
-    fn clap_manifest_snapshot() -> ClapManifestSnapshot {
+    pub(crate) fn clap_manifest_snapshot() -> ClapManifestSnapshot {
         // Build is intentionally deferred until authored identities have been
         // captured by `clap_manifest_snapshot_from`.
         let snapshot = clap_manifest_snapshot_from(Cli::command());
@@ -1356,12 +1427,14 @@ mod tests {
             "allow_hyphen_values",
             "conflicts_with",
             "default_value",
+            "global",
             "hide",
             "long",
             "num_args",
             "required",
             "short",
             "short_alias",
+            "skip",
             "value_enum",
             "value_name",
             "value_parser",
@@ -1460,7 +1533,15 @@ mod tests {
             if brace_depth != 0 {
                 continue;
             }
-            let item = attribute.close + 1;
+            let mut item = attribute.close + 1;
+            if tokens.get(item).is_some_and(|token| token.text == "pub") {
+                item += 1;
+                if tokens.get(item).is_some_and(|token| token.text == "(") {
+                    item = matching_source_token(&tokens, item, "(", ")").ok_or_else(|| {
+                        "unterminated visibility on cfg(test) module in cli.rs".to_string()
+                    })? + 1;
+                }
+            }
             if tokens.get(item).is_some_and(|token| token.text == "mod")
                 && tokens
                     .get(item + 1)
@@ -1677,6 +1758,33 @@ mod tests {
     fn engine_rejects_unimplemented_values() {
         assert!(Cli::try_parse_from(["ibex", "--engine", "jsc", "test.js"]).is_err());
         assert!(Cli::try_parse_from(["ibex", "--engine", "v8", "test.js"]).is_err());
+    }
+
+    #[test]
+    fn history_mode_is_root_owned_and_reaches_both_repl_spellings() {
+        let implicit = Cli::parse_from(["ibex", "--history=global"]);
+        assert_eq!(implicit.history, HistoryMode::Global);
+
+        let explicit_before = Cli::parse_from(["ibex", "--history=off", "repl"]);
+        assert_eq!(explicit_before.history, HistoryMode::Off);
+        assert!(matches!(explicit_before.command, Some(Commands::Repl)));
+
+        let explicit_after = Cli::parse_from(["ibex", "repl", "--history=project"]);
+        assert_eq!(explicit_after.history, HistoryMode::Project);
+        assert!(matches!(explicit_after.command, Some(Commands::Repl)));
+
+        assert!(Cli::try_parse_from(["ibex", "--history=local"]).is_err());
+
+        let argv = ["ibex", "repl", "--history=global"]
+            .into_iter()
+            .map(std::ffi::OsString::from)
+            .collect::<Vec<_>>();
+        assert!(history_option_was_explicit(&argv));
+        let script_argv = ["ibex", "app.js", "--", "--history=global"]
+            .into_iter()
+            .map(std::ffi::OsString::from)
+            .collect::<Vec<_>>();
+        assert!(!history_option_was_explicit(&script_argv));
     }
 
     #[test]
@@ -1935,7 +2043,7 @@ mod tests {
                 .expect("runtime-surface.json parses");
         let snapshot = clap_manifest_snapshot();
 
-        assert_eq!(manifest["version"], json!(4), "recursive manifest version");
+        assert_eq!(manifest["version"], json!(5), "recursive manifest version");
         assert_eq!(
             manifest["clapSurface"]["frameworkGenerated"],
             json!({

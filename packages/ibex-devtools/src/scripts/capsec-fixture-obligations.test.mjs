@@ -53,6 +53,26 @@ describe("capsec branch fixture obligations", () => {
     expect(
       fixtureObligationsForBranch({ classification: "closed" }, "edge.main"),
     ).toEqual(["edge.main.closed"]);
+    expect(
+      fixtureObligationsForBranch(
+        {
+          classification: "closed",
+          logicalBranches: [
+            { id: "exit" },
+            { id: "before-exit" },
+          ],
+        },
+        "edge.main",
+      ),
+    ).toEqual([
+      "edge.main.closed",
+      "edge.main.logical.before-exit.branch-selection",
+      "edge.main.logical.before-exit.malformed-branch-facts",
+      "edge.main.logical.before-exit.no-effect",
+      "edge.main.logical.exit.branch-selection",
+      "edge.main.logical.exit.malformed-branch-facts",
+      "edge.main.logical.exit.no-effect",
+    ]);
   });
 
   test("derives security-control and ordinary non-capability obligations", () => {

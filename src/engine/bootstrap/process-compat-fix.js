@@ -1,7 +1,9 @@
 (function() {
-  globalThis.__exactProcessCompatFixRan = 1;
-  globalThis.__exactProcessCompatFixSawProcess = (typeof process === 'object' && process !== null);
-  if (!globalThis.__exactProcessCompatFixSawProcess) return;
+  // Keep bootstrap control state local; project code must not observe or alter
+  // compatibility-patch progress through diagnostic globals.
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces — compatibility internals are not project globals
+  var hasProcess = typeof process === 'object' && process !== null;
+  if (!hasProcess) return;
   var configValue = process.config;
   if (!configValue || typeof configValue !== 'object' || !configValue.variables) {
     var configValueObject = { target_defaults: {}, variables: {} };
@@ -589,14 +591,11 @@
   // Final fallback: ensure process.versions has openssl and other required fields.
   // This runs at the very end of process-compat-fix, after all other patching attempts.
   (function __exactFinalVersionsFix() {
-    globalThis.__exactFinalVersionsFixRan = 1;
     try {
       // Get the current versions value, wherever it lives (own or prototype getter)
       var curVersions = process.versions;
       if (!curVersions || typeof curVersions !== 'object') curVersions = {};
       var finalVersions = __exactCreateProcessVersions(curVersions);
-      globalThis.__exactFinalVersionsObj = finalVersions;
-      globalThis.__exactFinalVersionsOpenssl = finalVersions.openssl;
 
       // Try defining directly on process as own property
       try {
@@ -606,12 +605,7 @@
           configurable: true,
           enumerable: true
         });
-        globalThis.__exactFinalVersionsDefineOK = 1;
-      } catch(e) {
-        globalThis.__exactFinalVersionsDefineOK = 'FAIL:' + e.message;
-      }
-      globalThis.__exactFinalVersionsSame = (process.versions === finalVersions) ? 1 : 0;
-      globalThis.__exactFinalVersionsOpensslAfter = process.versions ? process.versions.openssl : 'NO_VERSIONS';
+      } catch(e) {}
       if (process.versions === finalVersions) return;
 
       // Try on the prototype
@@ -624,10 +618,7 @@
             configurable: true,
             enumerable: false
           });
-          globalThis.__exactFinalVersionsProtoOK = 1;
-        } catch(e) {
-          globalThis.__exactFinalVersionsProtoOK = 'FAIL:' + e.message;
-        }
+        } catch(e) {}
         if (process.versions === finalVersions) return;
 
         // Insert a new prototype
@@ -640,14 +631,9 @@
             enumerable: false
           });
           Object.setPrototypeOf(process, newProto);
-          globalThis.__exactFinalVersionsNewProtoOK = 1;
-        } catch(e) {
-          globalThis.__exactFinalVersionsNewProtoOK = 'FAIL:' + e.message;
-        }
+        } catch(e) {}
       }
-    } catch(e) {
-      globalThis.__exactFinalVersionsError = e.message;
-    }
+    } catch(e) {}
   })();
 
   // Preserve process prototype behavior while ensuring enumerable accessor-only

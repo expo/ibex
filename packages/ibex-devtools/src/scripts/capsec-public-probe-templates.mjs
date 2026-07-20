@@ -68,7 +68,7 @@ const BUILTIN_BATCH_COMMAND = Object.freeze([
   "--bin",
   "ibex",
   "--features",
-  "capsec-conformance-observer",
+  "capsec-conformance-observer,openssl-crypto",
   "capsec_public_builtin_recipe_batch",
   "--",
   "--test-threads=1",
@@ -200,6 +200,7 @@ export function authoredBuiltinPublicProbe({
   );
   if (!descriptor) return null;
   const directoryProbe = exportName === "readdirSync";
+  const followedMetadataProbe = exportName === "statSync";
   const logicalPath = directoryProbe ? FS_DIRECTORY_PATH : FS_FIXTURE_PATH;
 
   return {
@@ -240,13 +241,29 @@ export function authoredBuiltinPublicProbe({
         },
       ],
       expectedResult: publicDenial ? "permission-denied" : "return",
-      expectedTypedDecisionCount: publicDenial ? 1 : directoryProbe ? 4 : 3,
+      // The authenticated VFS first binds the selected project mount object,
+      // then re-authorizes the exact target before its retained repeats. Stat
+      // adds the followed target, while directory open and its first entry
+      // each add another generation check.
+      // @ref LLP 0023#21-staged-authorization-identity
+      expectedTypedDecisionCount:
+        publicDenial ? 1 : directoryProbe ? 7 : followedMetadataProbe ? 5 : 4,
       expectedTypedStages:
         publicDenial
           ? ["requested"]
           : directoryProbe
-            ? ["requested", "discovery", "repeat", "repeat"]
-            : ["requested", "discovery", "repeat"],
+            ? [
+                "requested",
+                "discovery",
+                "requested",
+                "repeat",
+                "repeat",
+                "repeat",
+                "repeat",
+              ]
+            : followedMetadataProbe
+              ? ["requested", "discovery", "requested", "repeat", "repeat"]
+              : ["requested", "discovery", "requested", "repeat"],
       allowedCoverageEdgeIds,
       expectedActionIds: ["fs:list"],
     },

@@ -220,6 +220,21 @@
       "description": "Ambient IPC remains closed until channel namespaces and peer identity are specified."
     },
     {
+      "id": "lifecycle:exit",
+      "lifecycle": "authorable",
+      "stability": "stable",
+      "globality": "shared-process-mutation",
+      "resourceKinds": ["session-lifecycle"],
+      "selectorSchema": "ibex/capsec-selector/1",
+      "occurrenceSchema": "ibex/capsec-occurrence/1",
+      "normalizationProfile": "lifecycle.exit.v1",
+      "channels": { "dynamic": false, "handle": false, "synthesis": false },
+      "staticOnly": false,
+      "principalConstraint": "root-only",
+      "risk": { "baseTier": 3, "reasons": ["lifecycle.session-termination"] },
+      "description": "Request cooperative session exit or access the supervisor-authoritative orderly-exit code through an exact disposition."
+    },
+    {
       "id": "network:connect",
       "lifecycle": "authorable",
       "stability": "stable",
@@ -276,19 +291,33 @@
       "description": "Issue a caller-visible standalone DNS query for exact record types."
     },
     {
-      "id": "process:cwd",
-      "lifecycle": "deny-only",
+      "id": "path:cwd-mutate",
+      "lifecycle": "authorable",
       "stability": "stable",
-      "globality": "shared-process-mutation",
-      "resourceKinds": ["closed-surface"],
+      "globality": "session-scoped",
+      "resourceKinds": ["path-exact"],
       "selectorSchema": "ibex/capsec-selector/1",
       "occurrenceSchema": "ibex/capsec-occurrence/1",
-      "normalizationProfile": "closed.surface.v1",
+      "normalizationProfile": "path.cwd.v1",
       "channels": { "dynamic": false, "handle": false, "synthesis": false },
       "staticOnly": true,
-      "selectorConstraints": { "closedSurfaceClasses": ["process-cwd"] },
-      "risk": { "baseTier": 4, "reasons": ["process.cwd-mutation"] },
-      "description": "Shared process working-directory mutation remains closed."
+      "principalConstraint": "root-only",
+      "risk": { "baseTier": 2, "reasons": ["path.session-resolution-base-mutation"] },
+      "description": "Move one runtime generation's retained virtual cwd to an exact contained directory; the semantic core admits only root across the complete constrained-principal set."
+    },
+    {
+      "id": "path:cwd-observe",
+      "lifecycle": "authorable",
+      "stability": "stable",
+      "globality": "session-scoped",
+      "resourceKinds": ["session-state"],
+      "selectorSchema": "ibex/capsec-selector/1",
+      "occurrenceSchema": "ibex/capsec-occurrence/1",
+      "normalizationProfile": "path.cwd.v1",
+      "channels": { "dynamic": false, "handle": false, "synthesis": false },
+      "staticOnly": true,
+      "risk": { "baseTier": 1, "reasons": ["path.session-resolution-base-disclosure"] },
+      "description": "Observe the authenticated per-principal virtual resolution base; v1 authors a static floor for every admitted package."
     },
     {
       "id": "process:identity",

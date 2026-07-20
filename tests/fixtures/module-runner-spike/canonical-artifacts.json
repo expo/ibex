@@ -1,0 +1,1052 @@
+{
+  "schema": "ibex/module-runner-spike-artifacts/1",
+  "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+  "manifestSchema": "ibex/module-runner-spike-manifest/1",
+  "fixtures": [
+    {
+      "id": "live-mutation",
+      "entry": "entry.js",
+      "expected": {
+        "stdout": [
+          "0",
+          "1"
+        ]
+      },
+      "tags": [
+        "live-binding"
+      ],
+      "modules": [
+        {
+          "fixtureId": "live-mutation",
+          "sourceName": "entry.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-m+uy11FtBZgvzguwxZrmYjUP4QQX0CPxl0+GzvnZ9Lc=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [
+            {
+              "specifier": "./counter.js",
+              "kind": "named",
+              "imported": "count",
+              "local": "count"
+            },
+            {
+              "specifier": "./counter.js",
+              "kind": "named",
+              "imported": "increment",
+              "local": "increment"
+            }
+          ],
+          "dynamicEdges": [],
+          "exportDescriptors": [],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nprint(__ibex_context$0.importValue(\"./counter.js\", \"count\"));\n__ibex_context$0.importValue(\"./counter.js\", \"increment\")();\nprint(__ibex_context$0.importValue(\"./counter.js\", \"count\"));\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "entry.js.factory.js",
+            "names": [],
+            "sources": [
+              "entry.js"
+            ],
+            "sourcesContent": [
+              "import { count, increment } from \"./counter.js\";\nprint(count);\nincrement();\nprint(count);\n"
+            ],
+            "mappings": ";;;;;;;AACA;AACA;AACA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 13
+          },
+          "hermesCompatPasses": []
+        },
+        {
+          "fixtureId": "live-mutation",
+          "sourceName": "counter.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-KHhsYWHujWB9o99oaWwkYWfETaLQ7/6kkEYvyLK8hqo=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [],
+          "dynamicEdges": [],
+          "exportDescriptors": [
+            {
+              "kind": "local",
+              "exported": "count",
+              "local": "count"
+            },
+            {
+              "kind": "local",
+              "exported": "increment",
+              "local": "increment"
+            }
+          ],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nlet count;\nfunction increment() {\n\t__ibex_export$0(\"count\", (count += 1));\n}\nreturn {\ndeclare: function () {\n__ibex_export$0(\"increment\", increment);\n\n},\nexecute: function () {\ncount = 0;\n__ibex_export$0(\"count\", count);\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "counter.js.factory.js",
+            "names": [],
+            "sources": [
+              "counter.js"
+            ],
+            "sourcesContent": [
+              "export let count = 0;\nexport function increment() {\n  count += 1;\n}\n"
+            ],
+            "mappings": ";;;;;;;;;;;;AAAA;AACA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 17
+          },
+          "hermesCompatPasses": []
+        }
+      ]
+    },
+    {
+      "id": "direct-cycle",
+      "entry": "entry.js",
+      "expected": {
+        "stdout": [
+          "A:B"
+        ]
+      },
+      "tags": [
+        "cycle",
+        "hoisting"
+      ],
+      "modules": [
+        {
+          "fixtureId": "direct-cycle",
+          "sourceName": "entry.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-BKCzjEyXm8b+huYxKZAIk18EEaaEInaUXVXt3Vv4TSw=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [
+            {
+              "specifier": "./a.js",
+              "kind": "named",
+              "imported": "result",
+              "local": "result"
+            }
+          ],
+          "dynamicEdges": [],
+          "exportDescriptors": [],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nprint(__ibex_context$0.importValue(\"./a.js\", \"result\"));\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "entry.js.factory.js",
+            "names": [],
+            "sources": [
+              "entry.js"
+            ],
+            "sourcesContent": [
+              "import { result } from \"./a.js\";\nprint(result);\n"
+            ],
+            "mappings": ";;;;;;;AACA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 11
+          },
+          "hermesCompatPasses": []
+        },
+        {
+          "fixtureId": "direct-cycle",
+          "sourceName": "a.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-+71hY/LwEcDcD291JumB/CD/9q0fZwkBfk8yGFgDEXc=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [
+            {
+              "specifier": "./b.js",
+              "kind": "named",
+              "imported": "fromA",
+              "local": "fromA"
+            }
+          ],
+          "dynamicEdges": [],
+          "exportDescriptors": [
+            {
+              "kind": "local",
+              "exported": "getA",
+              "local": "getA"
+            },
+            {
+              "kind": "local",
+              "exported": "result",
+              "local": "result"
+            }
+          ],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nfunction getA() {\n\treturn \"A\";\n}\nlet result;\nreturn {\ndeclare: function () {\n__ibex_export$0(\"getA\", getA);\n\n},\nexecute: function () {\nresult = __ibex_context$0.importValue(\"./b.js\", \"fromA\");\n__ibex_export$0(\"result\", result);\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "a.js.factory.js",
+            "names": [],
+            "sources": [
+              "a.js"
+            ],
+            "sourcesContent": [
+              "import { fromA } from \"./b.js\";\nexport function getA() {\n  return \"A\";\n}\nexport const result = fromA;\n"
+            ],
+            "mappings": ";;;;;;;;;;;;AAIA;AACA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 17
+          },
+          "hermesCompatPasses": []
+        },
+        {
+          "fixtureId": "direct-cycle",
+          "sourceName": "b.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-wOTZFvuekNyb5SEFXRPB0wt0Divq1UE+BVosPcrIF/8=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [
+            {
+              "specifier": "./a.js",
+              "kind": "named",
+              "imported": "getA",
+              "local": "getA"
+            }
+          ],
+          "dynamicEdges": [],
+          "exportDescriptors": [
+            {
+              "kind": "local",
+              "exported": "fromA",
+              "local": "fromA"
+            }
+          ],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nlet fromA;\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nfromA = __ibex_context$0.importValue(\"./a.js\", \"getA\")() + \":B\";\n__ibex_export$0(\"fromA\", fromA);\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "b.js.factory.js",
+            "names": [],
+            "sources": [
+              "b.js"
+            ],
+            "sourcesContent": [
+              "import { getA } from \"./a.js\";\nexport const fromA = getA() + \":B\";\n"
+            ],
+            "mappings": ";;;;;;;;AACA;AACA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 13
+          },
+          "hermesCompatPasses": []
+        }
+      ]
+    },
+    {
+      "id": "tdz-cycle",
+      "entry": "entry.js",
+      "expected": {
+        "errorName": "ReferenceError",
+        "messageIncludes": "uninitialized export"
+      },
+      "tags": [
+        "cycle",
+        "tdz"
+      ],
+      "modules": [
+        {
+          "fixtureId": "tdz-cycle",
+          "sourceName": "entry.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-FrxzgZiAxxspmyPH99642G/jOhT/moc4YM0Q/nOIhgM=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [
+            {
+              "specifier": "./a.js",
+              "kind": "named",
+              "imported": "observed",
+              "local": "observed"
+            }
+          ],
+          "dynamicEdges": [],
+          "exportDescriptors": [],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nprint(__ibex_context$0.importValue(\"./a.js\", \"observed\"));\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "entry.js.factory.js",
+            "names": [],
+            "sources": [
+              "entry.js"
+            ],
+            "sourcesContent": [
+              "import { observed } from \"./a.js\";\nprint(observed);\n"
+            ],
+            "mappings": ";;;;;;;AACA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 11
+          },
+          "hermesCompatPasses": []
+        },
+        {
+          "fixtureId": "tdz-cycle",
+          "sourceName": "a.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-QyymVyZxZjJo/wNtvpYZynFf7AU13Ps+9j1g7q165FE=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [
+            {
+              "specifier": "./b.js",
+              "kind": "named",
+              "imported": "valueB",
+              "local": "valueB"
+            }
+          ],
+          "dynamicEdges": [],
+          "exportDescriptors": [
+            {
+              "kind": "local",
+              "exported": "valueA",
+              "local": "valueA"
+            },
+            {
+              "kind": "local",
+              "exported": "observed",
+              "local": "observed"
+            }
+          ],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nlet valueA;\nlet observed;\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nvalueA = \"A\";\n__ibex_export$0(\"valueA\", valueA);\nobserved = __ibex_context$0.importValue(\"./b.js\", \"valueB\");\n__ibex_export$0(\"observed\", observed);\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "a.js.factory.js",
+            "names": [],
+            "sources": [
+              "a.js"
+            ],
+            "sourcesContent": [
+              "import { valueB } from \"./b.js\";\nexport const valueA = \"A\";\nexport const observed = valueB;\n"
+            ],
+            "mappings": ";;;;;;;;;AACA;AACA;AAAA;AACA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 16
+          },
+          "hermesCompatPasses": []
+        },
+        {
+          "fixtureId": "tdz-cycle",
+          "sourceName": "b.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-Qrb9vuysGYpGxUsNqAqFsoP0DtASCXqCuOQ+KjVcn+k=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [
+            {
+              "specifier": "./a.js",
+              "kind": "named",
+              "imported": "valueA",
+              "local": "valueA"
+            }
+          ],
+          "dynamicEdges": [],
+          "exportDescriptors": [
+            {
+              "kind": "local",
+              "exported": "valueB",
+              "local": "valueB"
+            }
+          ],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nlet valueB;\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nvalueB = __ibex_context$0.importValue(\"./a.js\", \"valueA\");\n__ibex_export$0(\"valueB\", valueB);\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "b.js.factory.js",
+            "names": [],
+            "sources": [
+              "b.js"
+            ],
+            "sourcesContent": [
+              "import { valueA } from \"./a.js\";\nexport const valueB = valueA;\n"
+            ],
+            "mappings": ";;;;;;;;AACA;AACA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 13
+          },
+          "hermesCompatPasses": []
+        }
+      ]
+    },
+    {
+      "id": "star-ambiguity",
+      "entry": "entry.js",
+      "expected": {
+        "stdout": [
+          "left,right"
+        ]
+      },
+      "tags": [
+        "re-export",
+        "namespace"
+      ],
+      "modules": [
+        {
+          "fixtureId": "star-ambiguity",
+          "sourceName": "entry.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-P3jmvAZ1pl7T7bQgOyc2OqMIYzW9VvQEWJ9x5DkCp5E=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [
+            {
+              "specifier": "./hub.js",
+              "kind": "namespace",
+              "imported": "*",
+              "local": "namespace"
+            }
+          ],
+          "dynamicEdges": [],
+          "exportDescriptors": [],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nprint(Object.keys(__ibex_context$0.importValue(\"./hub.js\", \"*\")).join(\",\"));\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "entry.js.factory.js",
+            "names": [],
+            "sources": [
+              "entry.js"
+            ],
+            "sourcesContent": [
+              "import * as namespace from \"./hub.js\";\nprint(Object.keys(namespace).join(\",\"));\n"
+            ],
+            "mappings": ";;;;;;;AACA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 11
+          },
+          "hermesCompatPasses": []
+        },
+        {
+          "fixtureId": "star-ambiguity",
+          "sourceName": "hub.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-xjqeTmgeV1KeONFEQreR/I2KWKcGb8gyio22EWyKGcc=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [
+            {
+              "specifier": "./left.js",
+              "kind": "reExportStar",
+              "imported": "*"
+            },
+            {
+              "specifier": "./right.js",
+              "kind": "reExportStar",
+              "imported": "*"
+            }
+          ],
+          "dynamicEdges": [],
+          "exportDescriptors": [
+            {
+              "kind": "star",
+              "specifier": "./left.js",
+              "imported": "*"
+            },
+            {
+              "kind": "star",
+              "specifier": "./right.js",
+              "imported": "*"
+            }
+          ],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\n\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "hub.js.factory.js",
+            "names": [],
+            "sources": [
+              "hub.js"
+            ],
+            "sourcesContent": [
+              "export * from \"./left.js\";\nexport * from \"./right.js\";\n"
+            ],
+            "mappings": "",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 11
+          },
+          "hermesCompatPasses": []
+        },
+        {
+          "fixtureId": "star-ambiguity",
+          "sourceName": "left.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-Fa0S6nvvJc+ddD8R7LHJZYfmTm6gmJ1NzjNsLxVbW5c=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [],
+          "dynamicEdges": [],
+          "exportDescriptors": [
+            {
+              "kind": "local",
+              "exported": "shared",
+              "local": "shared"
+            },
+            {
+              "kind": "local",
+              "exported": "left",
+              "local": "left"
+            }
+          ],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nlet shared;\nlet left;\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nshared = \"left-shared\";\n__ibex_export$0(\"shared\", shared);\nleft = \"left\";\n__ibex_export$0(\"left\", left);\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "left.js.factory.js",
+            "names": [],
+            "sources": [
+              "left.js"
+            ],
+            "sourcesContent": [
+              "export const shared = \"left-shared\";\nexport const left = \"left\";\n"
+            ],
+            "mappings": ";;;;;;;;;AAAA;AACA;AAAA;AACA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 16
+          },
+          "hermesCompatPasses": []
+        },
+        {
+          "fixtureId": "star-ambiguity",
+          "sourceName": "right.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-L0v9P5FJLsrgyb3/CXdeDB+ldtfifLBigAHcsRkfZcI=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [],
+          "dynamicEdges": [],
+          "exportDescriptors": [
+            {
+              "kind": "local",
+              "exported": "shared",
+              "local": "shared"
+            },
+            {
+              "kind": "local",
+              "exported": "right",
+              "local": "right"
+            }
+          ],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nlet shared;\nlet right;\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nshared = \"right-shared\";\n__ibex_export$0(\"shared\", shared);\nright = \"right\";\n__ibex_export$0(\"right\", right);\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "right.js.factory.js",
+            "names": [],
+            "sources": [
+              "right.js"
+            ],
+            "sourcesContent": [
+              "export const shared = \"right-shared\";\nexport const right = \"right\";\n"
+            ],
+            "mappings": ";;;;;;;;;AAAA;AACA;AAAA;AACA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 16
+          },
+          "hermesCompatPasses": []
+        }
+      ]
+    },
+    {
+      "id": "named-re-export",
+      "entry": "entry.js",
+      "expected": {
+        "stdout": [
+          "named:41"
+        ]
+      },
+      "tags": [
+        "re-export"
+      ],
+      "modules": [
+        {
+          "fixtureId": "named-re-export",
+          "sourceName": "entry.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-4SHeXtivRqg1tnDU69CSmYPUGYVqFr2q9NwGcdFYlao=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [
+            {
+              "specifier": "./hub.js",
+              "kind": "named",
+              "imported": "renamed",
+              "local": "renamed"
+            }
+          ],
+          "dynamicEdges": [],
+          "exportDescriptors": [],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nprint(\"named:\" + __ibex_context$0.importValue(\"./hub.js\", \"renamed\"));\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "entry.js.factory.js",
+            "names": [],
+            "sources": [
+              "entry.js"
+            ],
+            "sourcesContent": [
+              "import { renamed } from \"./hub.js\";\nprint(\"named:\" + renamed);\n"
+            ],
+            "mappings": ";;;;;;;AACA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 11
+          },
+          "hermesCompatPasses": []
+        },
+        {
+          "fixtureId": "named-re-export",
+          "sourceName": "hub.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-QblZfTObbC1tDQBUak7uP6dFZDBCO1HK0bCIeJ7Flm8=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [
+            {
+              "specifier": "./dep.js",
+              "kind": "reExport",
+              "imported": "value"
+            }
+          ],
+          "dynamicEdges": [],
+          "exportDescriptors": [
+            {
+              "kind": "indirect",
+              "exported": "renamed",
+              "specifier": "./dep.js",
+              "imported": "value"
+            }
+          ],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\n\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "hub.js.factory.js",
+            "names": [],
+            "sources": [
+              "hub.js"
+            ],
+            "sourcesContent": [
+              "export { value as renamed } from \"./dep.js\";\n"
+            ],
+            "mappings": "",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 11
+          },
+          "hermesCompatPasses": []
+        },
+        {
+          "fixtureId": "named-re-export",
+          "sourceName": "dep.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-abd218qpn92ZlvqQyiBMn4Q/QC+jldJnI0yVtjpjYZY=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [],
+          "dynamicEdges": [],
+          "exportDescriptors": [
+            {
+              "kind": "local",
+              "exported": "value",
+              "local": "value"
+            }
+          ],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nlet value;\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nvalue = 41;\n__ibex_export$0(\"value\", value);\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "dep.js.factory.js",
+            "names": [],
+            "sources": [
+              "dep.js"
+            ],
+            "sourcesContent": [
+              "export const value = 41;\n"
+            ],
+            "mappings": ";;;;;;;;AAAA;AACA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 13
+          },
+          "hermesCompatPasses": []
+        }
+      ]
+    },
+    {
+      "id": "import-meta",
+      "entry": "entry.js",
+      "expected": {
+        "stdout": [
+          "fixture:///entry.js",
+          "true"
+        ]
+      },
+      "tags": [
+        "import-meta"
+      ],
+      "modules": [
+        {
+          "fixtureId": "import-meta",
+          "sourceName": "entry.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-aX6fgOfkUVHgtmZdaau3p+SDr2wvPe5C2StDC6fDdSk=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [],
+          "dynamicEdges": [],
+          "exportDescriptors": [],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nprint(__ibex_context$0.meta.url);\nprint(__ibex_context$0.meta.main);\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "entry.js.factory.js",
+            "names": [],
+            "sources": [
+              "entry.js"
+            ],
+            "sourcesContent": [
+              "print(import.meta.url);\nprint(import.meta.main);\n"
+            ],
+            "mappings": ";;;;;;;AAAA;AACA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 12
+          },
+          "hermesCompatPasses": []
+        }
+      ]
+    },
+    {
+      "id": "top-level-await",
+      "entry": "entry.js",
+      "expected": {
+        "stdout": [
+          "42"
+        ]
+      },
+      "tags": [
+        "tla",
+        "async-graph"
+      ],
+      "modules": [
+        {
+          "fixtureId": "top-level-await",
+          "sourceName": "entry.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-q4NQaYo3dmtSWu3ocoQca6ze347iCAUu8VCnakcSOwg=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [
+            {
+              "specifier": "./dep.js",
+              "kind": "named",
+              "imported": "value",
+              "local": "value"
+            }
+          ],
+          "dynamicEdges": [],
+          "exportDescriptors": [],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nprint(__ibex_context$0.importValue(\"./dep.js\", \"value\"));\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "entry.js.factory.js",
+            "names": [],
+            "sources": [
+              "entry.js"
+            ],
+            "sourcesContent": [
+              "import { value } from \"./dep.js\";\nprint(value);\n"
+            ],
+            "mappings": ";;;;;;;AACA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 11
+          },
+          "hermesCompatPasses": []
+        },
+        {
+          "fixtureId": "top-level-await",
+          "sourceName": "dep.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-S0RFfXsYm5AkpMHEVFYFtszJKZXZCgQ7h+LrPBg5rlQ=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [],
+          "dynamicEdges": [],
+          "exportDescriptors": [
+            {
+              "kind": "local",
+              "exported": "value",
+              "local": "value"
+            }
+          ],
+          "hasTopLevelAwait": true,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nlet value;\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nvalue = await Promise.resolve(42);\n__ibex_export$0(\"value\", value);\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "dep.js.factory.js",
+            "names": [],
+            "sources": [
+              "dep.js"
+            ],
+            "sourcesContent": [
+              "export const value = await Promise.resolve(42);\n"
+            ],
+            "mappings": ";;;;;;;;AAAA;AACA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 13
+          },
+          "hermesCompatPasses": []
+        }
+      ]
+    },
+    {
+      "id": "dynamic-import",
+      "entry": "entry.js",
+      "expected": {
+        "stdout": [
+          "dynamic:7"
+        ]
+      },
+      "tags": [
+        "dynamic-import",
+        "tla"
+      ],
+      "modules": [
+        {
+          "fixtureId": "dynamic-import",
+          "sourceName": "entry.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-cUE+hOwO8wpHTIP5ucq41OmKiHvCUxscFvvrbrQTIvs=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [],
+          "dynamicEdges": [
+            {
+              "kind": "literal",
+              "specifier": "./dep.js",
+              "site": 0,
+              "hasOptions": false
+            }
+          ],
+          "exportDescriptors": [],
+          "hasTopLevelAwait": true,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nconst namespace = await __ibex_context$0.dynamicImport(\"./dep.js\");\nprint(\"dynamic:\" + namespace.value);\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "entry.js.factory.js",
+            "names": [],
+            "sources": [
+              "entry.js"
+            ],
+            "sourcesContent": [
+              "const namespace = await import(\"./dep.js\");\nprint(\"dynamic:\" + namespace.value);\n"
+            ],
+            "mappings": ";;;;;;;AAAA;AACA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 12
+          },
+          "hermesCompatPasses": []
+        },
+        {
+          "fixtureId": "dynamic-import",
+          "sourceName": "dep.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-26VSXyIMhBQImOE5xjcR/0XtvrPuDCnqE97xLJcgEQY=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [],
+          "dynamicEdges": [],
+          "exportDescriptors": [
+            {
+              "kind": "local",
+              "exported": "value",
+              "local": "value"
+            }
+          ],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nlet value;\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nvalue = 7;\n__ibex_export$0(\"value\", value);\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "dep.js.factory.js",
+            "names": [],
+            "sources": [
+              "dep.js"
+            ],
+            "sourcesContent": [
+              "export const value = 7;\n"
+            ],
+            "mappings": ";;;;;;;;AAAA;AACA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 13
+          },
+          "hermesCompatPasses": []
+        }
+      ]
+    },
+    {
+      "id": "typescript-jsx",
+      "entry": "entry.tsx",
+      "expected": {
+        "stdout": [
+          "section:ok"
+        ]
+      },
+      "tags": [
+        "typescript",
+        "jsx"
+      ],
+      "modules": [
+        {
+          "fixtureId": "typescript-jsx",
+          "sourceName": "entry.tsx",
+          "dialect": "TSX",
+          "sourceIntegrity": "sha256-S2Ea0f0sl8wnyTWlayEvb1czDPiInhxjrV6gYLYMaeg=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [],
+          "dynamicEdges": [],
+          "exportDescriptors": [
+            {
+              "kind": "local",
+              "exported": "view",
+              "local": "view"
+            }
+          ],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nlet view;\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nconst React = { createElement(tag, _props, child) {\n\treturn tag + \":\" + child;\n} };\nview = React.createElement(\"section\", null, \"ok\");\n__ibex_export$0(\"view\", view);\nprint(view);\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "entry.tsx.factory.js",
+            "names": [],
+            "sources": [
+              "entry.tsx"
+            ],
+            "sourcesContent": [
+              "const React = {\n  createElement(tag: string, _props: unknown, child: string) {\n    return tag + \":\" + child;\n  },\n};\nexport const view: string = <section>ok</section>;\nprint(view);\n"
+            ],
+            "mappings": ";;;;;;;;AAAA;AAEA;AAAA;AAGA;AACA;AAAA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 17
+          },
+          "hermesCompatPasses": []
+        }
+      ]
+    },
+    {
+      "id": "hermes-for-of-capture",
+      "entry": "entry.js",
+      "expected": {
+        "stdout": [
+          "a,b"
+        ]
+      },
+      "tags": [
+        "hermes-compat",
+        "llp-0019"
+      ],
+      "modules": [
+        {
+          "fixtureId": "hermes-for-of-capture",
+          "sourceName": "entry.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-eyYuOkJcVTRj72nYIyzv86gr0Wt0W/4HBk4texv4OOQ=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [],
+          "dynamicEdges": [],
+          "exportDescriptors": [
+            {
+              "kind": "local",
+              "exported": "joined",
+              "local": "joined"
+            }
+          ],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nlet joined;\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nconst callbacks = [];\nfor (var item of [\"a\", \"b\"]) {\n(function (item) {\n\n\tcallbacks.push(() => item);\n\n})(item);\n}\njoined = callbacks.map((callback) => callback()).join(\",\");\n__ibex_export$0(\"joined\", joined);\nprint(joined);\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "entry.js.factory.js",
+            "names": [],
+            "sources": [
+              "entry.js"
+            ],
+            "sourcesContent": [
+              "const callbacks = [];\nfor (const item of [\"a\", \"b\"]) {\n  callbacks.push(() => item);\n}\nexport const joined = callbacks.map((callback) => callback()).join(\",\");\nprint(joined);\n"
+            ],
+            "mappings": ";;;;;;;;AAAA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AAHA;AACA;AAAA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 22
+          },
+          "hermesCompatPasses": [
+            "llp0019-for-of-block-capture-v1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "composed-source-map",
+      "entry": "entry.ts",
+      "expected": {
+        "errorName": "Error",
+        "messageIncludes": "mapped failure",
+        "sourceLine": 3
+      },
+      "tags": [
+        "source-map",
+        "typescript"
+      ],
+      "modules": [
+        {
+          "fixtureId": "composed-source-map",
+          "sourceName": "entry.ts",
+          "dialect": "TS",
+          "sourceIntegrity": "sha256-L+0+wXsNg1robah7HvqZ7koLIxpeHx8yHD5whpMP0fM=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [],
+          "dynamicEdges": [],
+          "exportDescriptors": [],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nfunction explode() {\n\tconst detail = \"mapped failure\";\n\tthrow new Error(detail);\n}\nexplode();\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "entry.ts.factory.js",
+            "names": [],
+            "sources": [
+              "entry.ts"
+            ],
+            "sourcesContent": [
+              "function explode(): never {\n  const detail: string = \"mapped failure\";\n  throw new Error(detail);\n}\nexplode();\n"
+            ],
+            "mappings": ";;;;;;;AAAA;AACA;AACA;AACA;AACA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 15
+          },
+          "hermesCompatPasses": []
+        }
+      ]
+    },
+    {
+      "id": "module-goal-strictness",
+      "entry": "entry.js",
+      "expected": {
+        "stdout": [
+          "undefined",
+          "undefined",
+          "ReferenceError"
+        ]
+      },
+      "tags": [
+        "strict-goal",
+        "wrapper-hygiene"
+      ],
+      "modules": [
+        {
+          "fixtureId": "module-goal-strictness",
+          "sourceName": "entry.js",
+          "dialect": "JS",
+          "sourceIntegrity": "sha256-vQxhZc+2hWaiAyReWddaHoFW7jfb8JfxI0MmiWRKIKo=",
+          "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+          "staticEdges": [],
+          "dynamicEdges": [],
+          "exportDescriptors": [],
+          "hasTopLevelAwait": false,
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nprint(String(this));\nprint(typeof void 0);\ntry {\n\taccidentalGlobal = 1;\n} catch (error) {\n\tprint(error.name);\n}\n}\n};\n}\n",
+          "sourceMap": {
+            "version": 3,
+            "file": "entry.js.factory.js",
+            "names": [],
+            "sources": [
+              "entry.js"
+            ],
+            "sourcesContent": [
+              "print(String(this));\nprint(typeof arguments);\ntry {\n  accidentalGlobal = 1;\n} catch (error) {\n  print(error.name);\n}\n"
+            ],
+            "mappings": ";;;;;;;AAAA;AACA;AACA;AACA;AACA;AACA;AACA",
+            "x_ibex_composed": true,
+            "x_ibex_factory_lines": 17
+          },
+          "hermesCompatPasses": []
+        }
+      ]
+    }
+  ]
+}

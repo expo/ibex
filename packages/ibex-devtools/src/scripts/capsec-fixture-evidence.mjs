@@ -24,7 +24,7 @@ export const EXACT_FIXTURE_EVIDENCE_COMMAND = Object.freeze([
   "--bin",
   "ibex",
   "--features",
-  "capsec-conformance-observer",
+  "capsec-conformance-observer,openssl-crypto",
   "capsec_exact_fixture_evidence_batch",
   "--",
   "--test-threads=1",
@@ -106,7 +106,7 @@ export function exactFixtureEvidenceRecipes(recipeCatalog) {
       EXACT_PILOT_SURFACES.size
   ) {
     throw new Error(
-      "Exact fixture-evidence pilot requires exactly seven source-bound recipes",
+      "Exact fixture-evidence pilot requires exactly nine source-bound recipes",
     );
   }
   return recipes;

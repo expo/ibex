@@ -320,6 +320,7 @@ inspect.defaultOptions = {
 	depth: 2,
 	colors: false
 };
+var _assertModule = require("assert");
 var util = {
 	inherits,
 	promisify,
@@ -482,10 +483,9 @@ var util = {
 		};
 	},
 	isDeepStrictEqual: function(a, b) {
-		var assertMod = require("assert");
-		if (typeof assertMod._isDeepStrictEqual === "function") return assertMod._isDeepStrictEqual(a, b);
+		if (typeof _assertModule._isDeepStrictEqual === "function") return _assertModule._isDeepStrictEqual(a, b);
 		try {
-			assertMod.deepStrictEqual(a, b);
+			_assertModule.deepStrictEqual(a, b);
 			return true;
 		} catch (e) {
 			if (e && e.code === "ERR_ASSERTION") return false;

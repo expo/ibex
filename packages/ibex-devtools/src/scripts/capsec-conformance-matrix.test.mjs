@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { CONFORMANCE_COMMANDS } from "./capsec-conformance-matrix.mjs";
+import {
+  CONFORMANCE_COMMANDS,
+  CONFORMANCE_PREFLIGHT_COMMANDS,
+  CONFORMANCE_PRODUCT_COMMANDS,
+} from "./capsec-conformance-matrix.mjs";
 
 test("conformance prerequisite matrix covers every product test layer", () => {
   const byId = new Map(CONFORMANCE_COMMANDS.map((entry) => [entry[0], entry.slice(1)]));
@@ -12,14 +16,15 @@ test("conformance prerequisite matrix covers every product test layer", () => {
     "generated-policy-drift",
     "hermes-transform-loader-corpora",
     "linked-literate-references",
+    "runtime-environment-inventory-drift",
     "runtime-js-full",
     "rust-default-full",
     "rust-workspace-all-features-all-targets-compile",
     "rust-workspace-all-features-executable-tests",
   ]);
   expect(byId.get("rust-default-full")).toEqual([
-    "./scripts/run-tests.sh",
-    ["--", "--test-threads=1"],
+    "bash",
+    ["./scripts/run-tests.sh", "--", "--test-threads=1"],
   ]);
   const executable = byId.get("rust-workspace-all-features-executable-tests");
   expect(executable[0]).toBe("cargo");
@@ -35,7 +40,26 @@ test("conformance prerequisite matrix covers every product test layer", () => {
   expect(byId.get("devtools-js-full")[1]).toContain("packages/ibex-devtools/src/scripts");
   expect(byId.get("runtime-js-full")[1]).toContain("packages/ibex-runtime-js/src");
   expect(byId.get("android-websocket-behavioral")).toEqual([
-    "bun",
-    ["run", "test:android-java"],
+    "bash",
+    ["./scripts/test-android-java.sh"],
+  ]);
+  expect(byId.get("all-generated-drift")).toEqual([
+    "bash",
+    ["./scripts/check-generated-drift.sh"],
+  ]);
+  expect(byId.get("linked-literate-references")).toEqual([
+    process.platform === "win32" ? "python" : "python3",
+    ["./ref-check"],
+  ]);
+  expect(CONFORMANCE_COMMANDS).toEqual([
+    ...CONFORMANCE_PREFLIGHT_COMMANDS,
+    ...CONFORMANCE_PRODUCT_COMMANDS,
+  ]);
+  expect(CONFORMANCE_PREFLIGHT_COMMANDS.map(([id]) => id)).toEqual([
+    "capsec-registry-drift",
+    "capsec-contract-drift",
+    "generated-policy-drift",
+    "all-generated-drift",
+    "linked-literate-references",
   ]);
 });

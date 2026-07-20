@@ -20,6 +20,11 @@ pub enum Error {
     InvalidRegistry(String),
     #[error("unknown action: {0}")]
     UnknownAction(String),
+    /// A bound-volume canonicalizer could not safely represent a component.
+    /// This is a refusal, never a missing-authority result: falling back to
+    /// byte equality would reopen the alias bypass the canonicalizer guards.
+    #[error("path alias canonicalization refused: {0}")]
+    AliasCanonicalizationRefused(String),
     #[error("authorization context refused arming: {0}")]
     ArmRefused(String),
 }

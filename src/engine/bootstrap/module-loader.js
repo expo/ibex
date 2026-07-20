@@ -3,6 +3,28 @@
     return;
   }
   var g = globalThis;
+  // Native sets this bootstrap-phase signal before the loader is evaluated.
+  // Capture it once into loader-private scope so late builtin evaluation cannot
+  // be redirected by project code rewriting a root-global marker.
+  var __privSharedRuntimeBundlePlanned = g.__exactHasSharedRuntimeBundle === true;
+  // Generated from the build grant parser's authoritative key set. The loader
+  // does not inspect an option object at this boundary; the names are retained
+  // only in the stable refusal diagnostic, while `arguments.length` closes
+  // aliases and cross-input rebinding without invoking user code.
+  // @ref LLP 0022#6-imports-and-authority
+  var __reservedImportGrantKeys = Array.isArray(g.__exactGeneratedImportGrantKeys)
+    ? g.__exactGeneratedImportGrantKeys
+    : Object.freeze([]);
+  try { delete g.__exactGeneratedImportGrantKeys; } catch (_generatedKeyCleanupError) {}
+  function rejectRuntimeLoaderOptions(argumentCount) {
+    if (argumentCount <= 1) return;
+    var suffix = __reservedImportGrantKeys.length
+      ? " (reserved grant keys: " + __reservedImportGrantKeys.join(", ") + ")"
+      : "";
+    throw new TypeError("Runtime require options are not accepted" + suffix);
+  }
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces — entry remap consumption is trusted loader state, not project state
+  var consumedEntryFile = null;
   // @ref LLP 0013#phase-0 — capture the module-attribution setter into loader
   // closure scope so the escape-hatch global (`__exactSetActiveModuleId`) can be
   // deleted at end-of-bootstrap. JS control flow must not be able to impersonate
@@ -16,6 +38,203 @@
   // and legitimately needs to compile CommonJS module bodies; package code that
   // reaches `({}).constructor.constructor` gets the tamed (throwing) form.
   var __privFunction = Function;
+  // Capture the resolver family before armed bootstrap seals every raw alias.
+  // Resolver records carry typed logical paths, and subsequent relative edges
+  // return those records to native for snapshot revalidation; no host spelling
+  // crosses this closure boundary. Structured static imports use the same
+  // exact capture, so later writes cannot redirect their graph.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  // @ref LLP 0023#6-path-bearing-observables
+  // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+  var __privModuleResolve =
+    (typeof g.__exactNativeModuleResolve === 'function')
+      ? g.__exactNativeModuleResolve
+      : ((typeof g.__exactModuleResolve === 'function') ? g.__exactModuleResolve : null);
+  var __privModuleResolveMeta =
+    (typeof g.__exactNativeModuleResolveMeta === 'function')
+      ? g.__exactNativeModuleResolveMeta
+      : ((typeof g.__exactModuleResolveMeta === 'function')
+          ? g.__exactModuleResolveMeta
+          : __privModuleResolve);
+  var __privSessionModuleResolve = __privModuleResolve;
+  var __privSessionModuleResolveMeta = __privModuleResolveMeta;
+  // Empty-referrer relative requests resolve against the runtime-local VFS
+  // cwd. Capture its native observer before the raw bridge is sealed so the
+  // route memo can distinguish cwd generations without a filesystem lookup.
+  // The generated policy gives every principal the cwd-observe floor; this
+  // capture is not exposed to project code.
+  // @ref LLP 0023#5-the-virtual-resolution-base-working-directory
+  var __privGetVirtualCwd = (typeof g.__exactGetCwd === 'function')
+    ? g.__exactGetCwd
+    : null;
+  var __privSetVirtualCwd = (typeof g.__exactSetCwd === 'function')
+    ? g.__exactSetCwd
+    : null;
+  var __privFsMutationGuard = (typeof g.__exactFsMutationGuard === 'function')
+    ? g.__exactFsMutationGuard
+    : null;
+  var __armedResolverCapture = typeof g.__exactCaptureSessionStaticImport === 'function';
+  if (__armedResolverCapture) {
+    var __rawResolverNames = [
+      '__exactModuleResolve',
+      '__exactModuleResolveMeta',
+      '__exactNativeModuleResolve',
+      '__exactNativeModuleResolveMeta'
+    ];
+    for (var __rawResolverIndex = 0;
+         __rawResolverIndex < __rawResolverNames.length;
+         __rawResolverIndex++) {
+      try { delete g[__rawResolverNames[__rawResolverIndex]]; } catch (__resolverSealError) {
+        throw __resolverSealError;
+      }
+    }
+  }
+  var __privJsonParse = JSON.parse;
+  var __privJsonStringify = JSON.stringify;
+  var __privString = String;
+  var __privPromiseResolve = Promise.resolve.bind(Promise);
+  var __privPromiseThen = Function.prototype.call.bind(Promise.prototype.then);
+  var __privArrayIsArray = Array.isArray;
+  var __privObjectFreeze = Object.freeze;
+  var __privObjectDefineProperty = Object.defineProperty;
+  // Authenticated builtin source receives only the bridge subset it owns as a
+  // frozen wrapper argument. Project modules receive `undefined`, and no
+  // mutable root-global rendezvous survives bootstrap sealing.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  // @ref LLP 0023#54-facades-cannot-subvert-it
+  var __privFsFacadeBridges = __privObjectFreeze({
+    fsMutationGuard: __privFsMutationGuard,
+    getVirtualCwd: __privGetVirtualCwd
+  });
+  var __privPathFacadeBridges = __privObjectFreeze({
+    getVirtualCwd: __privGetVirtualCwd
+  });
+  var __privProcessFacadeBridges = __privObjectFreeze({
+    getVirtualCwd: __privGetVirtualCwd,
+    setVirtualCwd: __privSetVirtualCwd
+  });
+  var __privUrlFacadeBridges = __privObjectFreeze({
+    sharedRuntimeBundle: __privSharedRuntimeBundlePlanned,
+    getVirtualCwd: __privGetVirtualCwd
+  });
+  var __privRuntimeGlobalOwnership = __privObjectFreeze({
+    sharedRuntimeBundle: __privSharedRuntimeBundlePlanned
+  });
+  var __privPackageRoots = new WeakMap();
+  var __privPackageRootGet = WeakMap.prototype.get.bind(__privPackageRoots);
+  var __privPackageRootSet = WeakMap.prototype.set.bind(__privPackageRoots);
+
+  // Resolver failures are already redacted at the native boundary. Preserve
+  // their public semantic code on the JavaScript Error, but only for the
+  // versioned resolver record and the exact stable codes emitted by the native
+  // resolver boundary; arbitrary resolver fields must not become Error
+  // properties.
+  // @ref LLP 0023#72-the-structured-result-and-its-error-classes
+  function stableModuleResolutionErrorCode(record) {
+    if (!record || record.schema !== 'ibex/module-resolution/1') return null;
+    var value = record.errorCode;
+    return value === 'ERR_IBEX_MODULE_RESOLUTION' ||
+      value === 'ERR_IBEX_IMPORT_DENIED' ||
+      value === 'IBEX_DEPENDENCY_TOP_LEVEL_AWAIT'
+      ? value
+      : null;
+  }
+
+  function moduleResolutionError(record) {
+    var error = new Error(record.error);
+    var code = stableModuleResolutionErrorCode(record);
+    if (code !== null) {
+      __privObjectDefineProperty(error, 'code', {
+        value: code,
+        writable: true,
+        configurable: true,
+        enumerable: true
+      });
+    }
+    return error;
+  }
+
+  function typedLogicalPath(value) {
+    if (!value || typeof value !== 'object' || __privArrayIsArray(value) ||
+        value.schema !== 'ibex/logical-path/1' ||
+        typeof value.sessionHandle !== 'string' ||
+        !/^mrs[0-9a-f]{16}$/.test(value.sessionHandle) ||
+        typeof value.virtualPath !== 'string' ||
+        (value.virtualPath !== '/project' && value.virtualPath.indexOf('/project/') !== 0) ||
+        value.virtualPath.indexOf('\0') !== -1 ||
+        !value.logicalPath || typeof value.logicalPath !== 'object' ||
+        __privArrayIsArray(value.logicalPath) ||
+        (value.logicalPath.root !== 'project' && value.logicalPath.root !== 'package') ||
+        value.logicalPath.hostBound != null ||
+        !__privArrayIsArray(value.logicalPath.components)) {
+      return null;
+    }
+    var components = [];
+    for (var componentIndex = 0;
+         componentIndex < value.logicalPath.components.length;
+         componentIndex++) {
+      var component = value.logicalPath.components[componentIndex];
+      if (!component || typeof component !== 'object' || __privArrayIsArray(component) ||
+          component.encoding !== 'utf8' || typeof component.value !== 'string' ||
+          component.value.length === 0 || component.value === '.' || component.value === '..' ||
+          component.value.indexOf('/') !== -1 || component.value.indexOf('\0') !== -1) {
+        return null;
+      }
+      components.push(__privObjectFreeze({ encoding: 'utf8', value: component.value }));
+    }
+    var owner = value.bindingOwner == null
+      ? null
+      : __privJsonParse(__privJsonStringify(value.bindingOwner));
+    if ((value.logicalPath.root === 'package') !== (owner !== null)) {
+      return null;
+    }
+    if (owner !== null) __privObjectFreeze(owner);
+    var logicalPath = __privObjectFreeze({
+      root: value.logicalPath.root,
+      components: __privObjectFreeze(components),
+      hostBound: null
+    });
+    return __privObjectFreeze({
+      schema: 'ibex/logical-path/1',
+      sessionHandle: value.sessionHandle,
+      virtualPath: value.virtualPath,
+      logicalPath: logicalPath,
+      bindingOwner: owner
+    });
+  }
+
+  function privateResolverPath(value) {
+    if (!value || typeof value !== 'object' || __privArrayIsArray(value) ||
+        value.schema !== 'ibex/private-resolver-ref/1' ||
+        typeof value.sessionHandle !== 'string' ||
+        !/^mrs[0-9a-f]{16}$/.test(value.sessionHandle) ||
+        typeof value.handle !== 'string' || !/^r[0-9a-f]{16}$/.test(value.handle) ||
+        value.virtualPath !== '/project/.ibex-resolver/' + value.handle) {
+      return null;
+    }
+    return __privObjectFreeze({
+      schema: 'ibex/private-resolver-ref/1',
+      sessionHandle: value.sessionHandle,
+      handle: value.handle,
+      virtualPath: value.virtualPath
+    });
+  }
+
+  function resolverVirtualPath(value) {
+    var typed = typedLogicalPath(value);
+    if (typed) return typed.virtualPath;
+    var privatePath = privateResolverPath(value);
+    if (privatePath) return privatePath.virtualPath;
+    return typeof value === 'string' ? normalizeRecordPath(value) : null;
+  }
+
+  function resolverReferrer(value, fallback) {
+    var typed = typedLogicalPath(value);
+    if (typed) return __privJsonStringify(typed);
+    var privatePath = privateResolverPath(value);
+    if (privatePath) return __privJsonStringify(privatePath);
+    return typeof value === 'string' ? value : (fallback || '');
+  }
   // @ref LLP 0013#mechanism-3 — capture the frame-attribution bridge before the
   // end-of-bootstrap seal deletes these globals. The loader is the only
   // legitimate caller: it labels each package's Domain with a capability
@@ -72,9 +291,26 @@
     return typeof p === 'string' ? p.replace(/\\/g, '/').replace(/\/+$/, '') : null;
   }
   function packageRootForRecord(record) {
-    return record && typeof record.pkgRoot === 'string'
+    if (!record) return null;
+    var typed = typedLogicalPath(record.pkgRoot);
+    if (typed) return typed;
+    var privatePath = privateResolverPath(record.pkgRoot);
+    if (privatePath) return privatePath;
+    return typeof record.pkgRoot === 'string'
       ? normalizeRecordPath(record.pkgRoot)
       : null;
+  }
+  function packageRootsEqual(left, right) {
+    if (!left || !right) return false;
+    var leftRecord = typedLogicalPath(left) || privateResolverPath(left);
+    var rightRecord = typedLogicalPath(right) || privateResolverPath(right);
+    if (leftRecord && rightRecord &&
+        leftRecord.sessionHandle !== rightRecord.sessionHandle) {
+      return false;
+    }
+    var leftPath = resolverVirtualPath(left);
+    var rightPath = resolverVirtualPath(right);
+    return leftPath !== null && leftPath === rightPath;
   }
   // Prefer resolver-owned package metadata over path-shape inference. A linked
   // dependency may resolve to a real path outside node_modules; the first bare
@@ -88,10 +324,14 @@
       return record.pkgName;
     }
     var root = packageRootForRecord(record);
-    if (root && parent && parent.__exactPackageRoot === root && parent.__exactPackageName) {
+    var parentRoot = parent
+      ? (__privPackageRootGet(parent) || parent.__exactPackageRoot)
+      : null;
+    if (root && parent && packageRootsEqual(parentRoot, root) &&
+        parent.__exactPackageName) {
       return parent.__exactPackageName;
     }
-    return packageNameFromPath(record && (record.path || record.id));
+    return packageNameFromPath(record && (resolverVirtualPath(record.path) || record.id));
   }
   // The per-package compartment global for a resolved module, or null when it
   // should resolve against the real global (root / builtins / no registry).
@@ -197,7 +437,7 @@
     // over the host functions); mark them so a package's host access through
     // them is attributed to the package, not laundered into root.
     if (record && record.kind === 'builtin') return __runtimePrincipal;
-    var raw = record && (record.path || record.id);
+    var raw = record && (resolverVirtualPath(record.path) || record.id);
     var name = packageNameForRecord(record, parent);
     if (!name) {
       // A file whose basename claims to be a per-package chunk (`__ibexpkg__*`)
@@ -250,6 +490,8 @@
         "__filename",
         "__dirname",
         "__exactDynamicImport",
+        "__exactStaticImport",
+        "__exactPrivateBuiltinBridges",
         source);
     } finally {
       if (__privSetPendingPackageId) {
@@ -267,12 +509,291 @@
       if (!__privSetCompartmentFor) {
         throw new Error('Cannot bind package Domain without the native compartment binder');
       }
-      __privSetCompartmentFor(fn, compartment);
+      if (__privSetCompartmentFor(fn, compartment) !== true) {
+        throw new Error('Native package Domain compartment binding failed closed');
+      }
     }
     return fn;
   }
   const cache = Object.create(null);
   var mainModule = null;
+
+  function closedGeneratedSinglePrincipal(principal) {
+    var rootPrincipal = principal && principal.kind === 'root' &&
+      typeof principal.identity === 'string' && principal.identity.length > 0;
+    var packagePrincipal = principal && principal.kind === 'package' &&
+      typeof principal.name === 'string' && principal.name.length > 0 &&
+      typeof principal.locator === 'string' && principal.locator.length > 0 &&
+      typeof principal.integrity === 'string' &&
+      /^sha256-[A-Za-z0-9_-]{43}$/.test(principal.integrity);
+    if (!rootPrincipal && !packagePrincipal) return null;
+    return rootPrincipal
+      ? __privObjectFreeze({ kind: 'root', identity: principal.identity })
+      : __privObjectFreeze({
+          kind: 'package',
+          name: principal.name,
+          integrity: principal.integrity,
+          locator: principal.locator
+        });
+  }
+
+  function isClosedGeneratedSingleEntryRecord(record) {
+    if (!record || typeof record !== 'object' || __privArrayIsArray(record) ||
+        record.schema !== 'ibex/generated-single-commonjs-entry/1' ||
+        typeof record.provenanceDigest !== 'string' ||
+        !/^[0-9a-f]{64}$/.test(record.provenanceDigest) ||
+        typeof record.sourceId !== 'string' ||
+        record.sourceId.indexOf('ibex-source-id-v1:') !== 0 ||
+        typeof record.virtualPath !== 'string' ||
+        record.virtualPath.indexOf('/project/') !== 0 ||
+        record.virtualPath.indexOf('\0') !== -1 ||
+        typeof record.sourceLabel !== 'string' ||
+        record.sourceLabel !== 'file://' + record.virtualPath) {
+      return false;
+    }
+    return closedGeneratedSinglePrincipal(record.definingPrincipal) !== null;
+  }
+
+  function generatedSinglePackagePrincipal(principal) {
+    if (principal.kind === 'root') return 0;
+    var identity = principal.locator;
+    var existing = __packagePrincipals[identity];
+    if (existing) return existing;
+    var id = __nextPackagePrincipal++;
+    __packagePrincipals[identity] = id;
+    if (__privRegisterPackage) {
+      try {
+        __privRegisterPackage(id, principal.name, identity, principal.integrity);
+      } catch (e) {}
+    }
+    return id;
+  }
+
+  function generatedSingleCompartment(principal) {
+    if (principal.kind === 'root') return null;
+    var registry = g.__compartments;
+    if (!registry) {
+      if (g.__ibexCompartmentRegistryReady === true) {
+        throw new Error('Compartment registry is marked ready but unavailable');
+      }
+      return null;
+    }
+    if (g.__ibexCompartmentRegistryReady !== true ||
+        g.__ibexCompartmentBaselineFinalized !== true ||
+        typeof registry !== 'object') {
+      throw new Error('Compartment registry is present but its runtime baseline is not finalized');
+    }
+    var compartment = registry[principal.locator];
+    if (!compartment ||
+        (typeof compartment !== 'object' && typeof compartment !== 'function')) {
+      throw new Error('No valid compartment for package ' + principal.locator);
+    }
+    return compartment;
+  }
+
+  function isClosedGeneratedBundleRecord(record) {
+    var provenance = record && record.sourceProvenance;
+    return record && typeof record === 'object' && !__privArrayIsArray(record) &&
+      record.schema === 'ibex/generated-bundle-resolution/1' &&
+      record.kind === 'cjs' && typeof record.source === 'string' &&
+      provenance && typeof provenance === 'object' &&
+      !__privArrayIsArray(provenance) &&
+      provenance.schema === 'ibex/source-provenance-chunk/1' &&
+      typeof provenance.digest === 'string' && /^[0-9a-f]{64}$/.test(provenance.digest) &&
+      typeof provenance.chunk === 'string' &&
+      /^[A-Za-z0-9_][A-Za-z0-9@+_.-]*$/.test(provenance.chunk) &&
+      provenance.chunk.indexOf('..') === -1 &&
+      record.virtualPath === '/project/.ibex-generated/' +
+        provenance.digest + '/' + provenance.chunk &&
+      record.sourceLabel === 'ibex:bundle/' + provenance.digest + '/' + provenance.chunk;
+  }
+
+  // Build one original-module registry for a native-validated generated chunk.
+  // The registry stays inside this loader closure and is callable only through
+  // the native-captured session dispatcher below. It is never a wrapper
+  // argument or root global, so user source cannot select another ordinal or
+  // inspect another original's cached exports. Reserving at `begin` preserves
+  // cycles; `commit` makes a later raw load return the exact bundled exports.
+  //
+  // Native must validate and project the v4 sidecar before setting
+  // `record.schema = ibex/generated-bundle-resolution/1`; ordinary resolver
+  // records never receive this schema. The remaining hook is a native driver
+  // that owns begin/commit around hygienically isolated Rolldown initializers.
+  // @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+  function createOriginalModuleRegistry(record) {
+    if (!isClosedGeneratedBundleRecord(record)) {
+      throw new TypeError('Invalid authenticated generated-bundle record');
+    }
+    var provenance = record.sourceProvenance;
+    if (!provenance || typeof provenance !== 'object' || __privArrayIsArray(provenance) ||
+        provenance.schema !== 'ibex/source-provenance-chunk/1' ||
+        typeof provenance.digest !== 'string' || !/^[0-9a-f]{64}$/.test(provenance.digest) ||
+        typeof provenance.chunk !== 'string' ||
+        !/^[A-Za-z0-9_][A-Za-z0-9@+_.-]*$/.test(provenance.chunk) ||
+        provenance.chunk.indexOf('..') !== -1 ||
+        !__privArrayIsArray(provenance.modules) || provenance.modules.length === 0) {
+      throw new TypeError('Invalid authenticated generated-bundle provenance');
+    }
+    var rows = [];
+    var seen = Object.create(null);
+    var principalForOriginal = function(principal) {
+      if (principal.kind === 'root') return 0;
+      var identity = principal.locator;
+      var existing = __packagePrincipals[identity];
+      if (existing) return existing;
+      var id = __nextPackagePrincipal++;
+      __packagePrincipals[identity] = id;
+      if (__privRegisterPackage) {
+        try {
+          __privRegisterPackage(id, principal.name, identity, principal.integrity);
+        } catch (e) {}
+      }
+      return id;
+    };
+    var compartmentForOriginal = function(principal) {
+      if (principal.kind === 'root') return null;
+      var registry = g.__compartments;
+      if (!registry) {
+        if (g.__ibexCompartmentRegistryReady === true) {
+          throw new Error('Compartment registry is marked ready but unavailable');
+        }
+        return null;
+      }
+      if (g.__ibexCompartmentRegistryReady !== true ||
+          g.__ibexCompartmentBaselineFinalized !== true ||
+          typeof registry !== 'object') {
+        throw new Error('Compartment registry is present but its runtime baseline is not finalized');
+      }
+      var compartment = registry[principal.locator];
+      if (!compartment ||
+          (typeof compartment !== 'object' && typeof compartment !== 'function')) {
+        throw new Error('No valid compartment for package ' + principal.locator);
+      }
+      return compartment;
+    };
+    for (var rowIndex = 0; rowIndex < provenance.modules.length; rowIndex++) {
+      var raw = provenance.modules[rowIndex];
+      var principal = raw && raw.definingPrincipal;
+      var rootPrincipal = principal && principal.kind === 'root' &&
+        typeof principal.identity === 'string' && principal.identity.length > 0;
+      var packagePrincipal = principal && principal.kind === 'package' &&
+        typeof principal.name === 'string' && principal.name.length > 0 &&
+        typeof principal.locator === 'string' && principal.locator.length > 0 &&
+        typeof principal.integrity === 'string' &&
+        /^sha256-[A-Za-z0-9_-]{43}$/.test(principal.integrity);
+      if (!raw || typeof raw !== 'object' || __privArrayIsArray(raw) ||
+          typeof raw.sourceId !== 'string' ||
+          raw.sourceId.indexOf('ibex-source-id-v1:') !== 0 || seen[raw.sourceId] ||
+          typeof raw.sourceLabel !== 'string' ||
+          raw.sourceLabel.indexOf('file:///project/') !== 0 ||
+          typeof raw.virtualPath !== 'string' ||
+          raw.virtualPath.indexOf('/project/') !== 0 ||
+          raw.virtualPath.indexOf('\0') !== -1 ||
+          (!rootPrincipal && !packagePrincipal)) {
+        throw new TypeError('Invalid authenticated original-module row');
+      }
+      var frozenPrincipal = rootPrincipal
+        ? __privObjectFreeze({ kind: 'root', identity: principal.identity })
+        : __privObjectFreeze({
+            kind: 'package',
+            name: principal.name,
+            integrity: principal.integrity,
+            locator: principal.locator
+          });
+      seen[raw.sourceId] = true;
+      rows.push(__privObjectFreeze({
+        sourceId: raw.sourceId,
+        sourceLabel: raw.sourceLabel,
+        virtualPath: raw.virtualPath,
+        definingPrincipal: frozenPrincipal,
+        packagePrincipal: principalForOriginal(frozenPrincipal),
+        compartment: compartmentForOriginal(frozenPrincipal)
+      }));
+    }
+    __privObjectFreeze(rows);
+    var reservations = [];
+    var rowAt = function(ordinal) {
+      if (typeof ordinal !== 'number' || !isFinite(ordinal) ||
+          Math.floor(ordinal) !== ordinal || ordinal < 0 || ordinal >= rows.length) {
+        throw new TypeError('Generated original-module ordinal is out of range');
+      }
+      return rows[ordinal];
+    };
+    var begin = function(ordinal) {
+      var row = rowAt(ordinal);
+      var existing = cache[row.sourceId];
+      if (existing) {
+        return __privObjectFreeze({ hit: true, exports: existing.exports });
+      }
+      if (reservations[ordinal]) {
+        throw new TypeError('Generated original-module reservation changed');
+      }
+      var original = {
+        id: row.virtualPath,
+        __exactId: idToModuleId(row.sourceId),
+        __exactPackageName: row.definingPrincipal.kind === 'package'
+          ? row.definingPrincipal.name
+          : null,
+        __exactPackageId: row.packagePrincipal,
+        __exactCompartment: row.compartment,
+        filename: row.virtualPath,
+        path: dirname(row.virtualPath),
+        exports: {},
+        loaded: false,
+        parent: null,
+        children: [],
+        paths: []
+      };
+      cache[row.sourceId] = original;
+      reservations[ordinal] = original;
+      return __privObjectFreeze({ hit: false, exports: original.exports });
+    };
+    var commit = function(ordinal, exportsValue) {
+      var row = rowAt(ordinal);
+      var original = reservations[ordinal];
+      if (!original || cache[row.sourceId] !== original || original.loaded) {
+        throw new TypeError('Generated original-module commit has no live reservation');
+      }
+      original.exports = exportsValue;
+      original.loaded = true;
+      reservations[ordinal] = null;
+      return original.exports;
+    };
+    var abort = function(ordinal) {
+      var row = rowAt(ordinal);
+      var original = reservations[ordinal];
+      if (original && cache[row.sourceId] === original && !original.loaded) {
+        delete cache[row.sourceId];
+      }
+      reservations[ordinal] = null;
+    };
+    return __privObjectFreeze({ begin: begin, commit: commit, abort: abort });
+  }
+  var __generatedOriginalRegistries = Object.create(null);
+  function originalModuleRegistryForRecord(record) {
+    if (!isClosedGeneratedBundleRecord(record)) {
+      throw new TypeError('Invalid authenticated generated-bundle record');
+    }
+    var provenance = record.sourceProvenance;
+    var key = provenance.digest + ':' + provenance.chunk;
+    var existing = __generatedOriginalRegistries[key];
+    if (existing) {
+      if (existing.source !== record.source ||
+          existing.virtualPath !== record.virtualPath ||
+          existing.sourceLabel !== record.sourceLabel) {
+        throw new TypeError('Authenticated generated-bundle record changed');
+      }
+      return existing.registry;
+    }
+    var registry = createOriginalModuleRegistry(record);
+    __generatedOriginalRegistries[key] = {
+      source: record.source,
+      virtualPath: record.virtualPath,
+      sourceLabel: record.sourceLabel,
+      registry: registry
+    };
+    return registry;
+  }
   function getDebugModuleSourceLimit() {
     var configured = g.__exactDebugModuleSourceLimit;
     var limit = typeof configured === 'number' ? configured : Number(configured);
@@ -309,11 +830,21 @@
     if (typeof specifier !== 'string') {
       return specifier;
     }
-    // Vite encodes JSON modules as `/path/file.json?import`. Native resolution
-    // needs the underlying file path so the Rust resolver can classify the
-    // module as JSON and read it from disk instead of treating the query string
-    // as part of the filename.
-    return specifier.replace(/\?import(?:&.*)?$/, '');
+    // File queries/fragments decorate a request; the authenticated entry path,
+    // SourceId, and module-cache identity exclude them. Bare package names and
+    // `#imports` aliases keep their exact spelling. This deliberately extends
+    // the original Vite-only `?import` handling to LLP 0023's complete rule.
+    // @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+    var fileBacked = specifier.charAt(0) === '.' ||
+      specifier.charAt(0) === '/' || specifier.charAt(0) === '\\' ||
+      /^file:/i.test(specifier) || /^[A-Za-z]:[\\/]/.test(specifier);
+    if (!fileBacked) return specifier;
+    var query = specifier.indexOf('?');
+    var fragment = specifier.indexOf('#');
+    var end = specifier.length;
+    if (query !== -1 && query < end) end = query;
+    if (fragment !== -1 && fragment < end) end = fragment;
+    return specifier.slice(0, end);
   }
   function isWindowsRuntime() {
     return (
@@ -2004,9 +2535,6 @@
         };
       }
       if (name === 'uv') {
-        if (typeof globalThis === 'object' && globalThis.__exactUvEOFValue === undefined) {
-          globalThis.__exactUvEOFValue = -4095;
-        }
         return {
           UV_EACCES: -13,
             UV_EBADF: -9,
@@ -2100,11 +2628,7 @@
       }
     },
     'internal/child_process': (function() {
-      var kChannelHandle = globalThis.__exactKChannelHandleKey;
-      if (kChannelHandle === undefined) {
-        kChannelHandle = '__exactKChannelHandle';
-        globalThis.__exactKChannelHandleKey = kChannelHandle;
-      }
+      var kChannelHandle = '__exactKChannelHandle';
       function getValidStdio(stdio, sync) {
         if (typeof stdio === 'string') {
           if (stdio !== 'ignore' && stdio !== 'pipe' && stdio !== 'inherit' && stdio !== 'overlapped') {
@@ -3602,7 +4126,7 @@
     main: "(typeof __filename !== 'undefined' && __filename === (globalThis.process && globalThis.process.argv && globalThis.process.argv[1]))",
     require: "require"
   };
-  function transformImportMeta(source) {
+  function transformImportMeta(source, authenticatedSourceLabel) {
     if (!source || source.indexOf("import.meta") === -1) {
       return source;
     }
@@ -3717,7 +4241,14 @@
             propEnd++;
           }
           var prop = source.slice(matchEnd + 1, propEnd);
-          if (Object.prototype.hasOwnProperty.call(importMetaPropertyReplacements, prop)) {
+          if (prop === 'url' && typeof authenticatedSourceLabel === 'string') {
+            // Authenticated files already carry the pinned, escaped
+            // SourceLabel. Embedding that exact value keeps import.meta.url,
+            // stack/sourceURL, referrers, and source-map keys aligned even for
+            // spaces, symlinks, and distinct hard-link entries.
+            replacement = __privJsonStringify(authenticatedSourceLabel);
+            matchEnd = propEnd;
+          } else if (Object.prototype.hasOwnProperty.call(importMetaPropertyReplacements, prop)) {
             replacement = importMetaPropertyReplacements[prop];
             matchEnd = propEnd;
           }
@@ -4088,12 +4619,17 @@
     }
   }
   function transformDynamicImport(source) {
-    if (!source || source.indexOf("import(") === -1) {
+    if (!source || source.indexOf("import") === -1) {
       return source;
     }
     // Replace dynamic import() calls with the module-local helper that closes
     // over this module's filename/referrer. A global import polyfill cannot
     // resolve `import("./local.js")` relative to the caller. (ENG-22718)
+    // Some compatibility transforms lower the same syntax to the exact
+    // `globalThis["import"](...)` spelling before this loader sees it. Relocalize
+    // that compiler form too; otherwise a delayed import loses its authenticated
+    // module referrer and incorrectly falls back to a cwd-observe request.
+    // @ref LLP 0026#6-top-level-await-and-dynamic-import
     // Skip replacements inside string literals to avoid breaking error messages etc.
     var result = "";
     var i = 0;
@@ -4202,6 +4738,20 @@
           templateStack[templateStack.length - 1] = top - 1;
         }
       }
+      // Check for the compiler-lowered global import spelling. Do not match a
+      // property named `globalThis` on another object.
+      if ((i === 0 || !/[A-Za-z0-9_$]/.test(source[i - 1])) &&
+          (lastCode === -1 || source[lastCode] !== '.')) {
+        var lowered = source.slice(i).match(
+          /^globalThis\s*\[\s*(["'])import\1\s*\]\s*\(/
+        );
+        if (lowered) {
+          result += '__exactDynamicImport(';
+          i += lowered[0].length;
+          lastCode = i - 1;
+          continue;
+        }
+      }
       // Check for import( pattern
       if (source.slice(i, i + 7) === 'import(' || source.slice(i, i + 7) === 'import ') {
         var rest = source.slice(i);
@@ -4221,7 +4771,7 @@
     }
     return result;
   }
-  function transformEsmToCjs(source) {
+  function transformEsmToCjs(source, authenticatedSourceLabel) {
     if (!source) {
       return "";
     }
@@ -4683,7 +5233,7 @@
         // occurrences with full lexical context (ENG-22536).
         var continuedDefault =
           line.indexOf("import.meta") !== -1 && !delimiterScanInContent(moduleScanState)
-            ? transformImportMeta(line)
+            ? transformImportMeta(line, authenticatedSourceLabel)
             : line;
         out.push(continuedDefault);
         scanDelimiterLine(continuedDefault, moduleScanState);
@@ -4699,7 +5249,7 @@
       if (pendingVarExport) {
         var continued =
           line.indexOf("import.meta") !== -1 && !delimiterScanInContent(moduleScanState)
-            ? transformImportMeta(line)
+            ? transformImportMeta(line, authenticatedSourceLabel)
             : line;
         out.push(continued);
         scanDelimiterLine(continued, moduleScanState);
@@ -4774,7 +5324,7 @@
         statement = stripModuleStatementComments(statement);
       }
       if (line.indexOf("import.meta") !== -1) {
-        statement = transformImportMeta(statement);
+        statement = transformImportMeta(statement, authenticatedSourceLabel);
       }
       var transformed = statement;
       trimmed = transformed.trim();
@@ -4795,13 +5345,13 @@
         /^\s*(const|let|var)\s+([\s\S]+?)\s*=\s*await\s+globalThis\["import"\]\(([\s\S]+)\)\s*;?\s*$/
       );
       if (m) {
-        out.push(m[1] + " " + m[2] + " = require(" + m[3] + ");");
+        out.push(m[1] + " " + m[2] + " = __exactStaticImport(" + m[3] + ");");
         continue;
       }
 
       m = trimmed.match(/^\s*await\s+globalThis\["import"\]\(([\s\S]+)\)\s*;?\s*$/);
       if (m) {
-        out.push("require(" + m[1] + ");");
+        out.push("__exactStaticImport(" + m[1] + ");");
         continue;
       }
 
@@ -4815,13 +5365,13 @@
 
       m = trimmed.match(/^\s*import\s*(["'])([^'"]+)\1\s*;?\s*$/);
       if (m) {
-        out.push("require(" + quote(m[2]) + ");");
+        out.push("__exactStaticImport(" + quote(m[2]) + ");");
         continue;
       }
 
       m = trimmed.match(/^\s*import\s*\*\s*as\s+([A-Za-z_$][\w$]*)\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/);
       if (m) {
-        out.push("var " + m[1] + " = require(" + quote(m[3]) + ");");
+        out.push("var " + m[1] + " = __exactStaticImport(" + quote(m[3]) + ");");
         continue;
       }
 
@@ -4830,7 +5380,7 @@
       );
       if (m) {
         var namedImport = "__exmod" + (importCounter++);
-        out.push("var " + namedImport + " = require(" + quote(m[4]) + ");");
+        out.push("var " + namedImport + " = __exactStaticImport(" + quote(m[4]) + ");");
         out.push(
           "var " +
             m[1] +
@@ -4853,7 +5403,7 @@
       );
       if (m) {
         var nsImport = "__exmod" + (importCounter++);
-        out.push("var " + nsImport + " = require(" + quote(m[4]) + ");");
+        out.push("var " + nsImport + " = __exactStaticImport(" + quote(m[4]) + ");");
         out.push(
           "var " +
             m[1] +
@@ -4881,7 +5431,7 @@
         out.push(
           "var " +
             m[1] +
-            " = (function(__exm){ return __exm && __exm.__esModule ? __exm.default : __exm; })(require(" +
+            " = (function(__exm){ return __exm && __exm.__esModule ? __exm.default : __exm; })(__exactStaticImport(" +
             quote(m[3]) +
             "));"
         );
@@ -4891,7 +5441,7 @@
       m = trimmed.match(/^\s*import\s*\{([\s\S]*?)\}\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/);
       if (m) {
         var named = "__exmod" + (importCounter++);
-        out.push("var " + named + " = require(" + quote(m[3]) + ");");
+        out.push("var " + named + " = __exactStaticImport(" + quote(m[3]) + ");");
         emitNamedBindings(m[1], named);
         continue;
       }
@@ -4899,7 +5449,7 @@
       m = trimmed.match(/^\s*export\s*\*\s*from\s*(["'])([^'"]+)\1\s*;?\s*$/);
       if (m) {
         var exportFrom = "__exmod" + (importCounter++);
-        out.push("var " + exportFrom + " = require(" + quote(m[2]) + ");");
+        out.push("var " + exportFrom + " = __exactStaticImport(" + quote(m[2]) + ");");
         out.push("for (var __exk in " + exportFrom + ") {");
         out.push("  if (Object.prototype.hasOwnProperty.call(" + exportFrom + ", __exk)) {");
         out.push("    module.exports[__exk] = " + exportFrom + "[__exk];");
@@ -4916,7 +5466,7 @@
       m = trimmed.match(/^\s*export\s*\{([\s\S]*?)\}\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/);
       if (m) {
         var exportFrom = "__exmod" + (importCounter++);
-        out.push("var " + exportFrom + " = require(" + quote(m[3]) + ");");
+        out.push("var " + exportFrom + " = __exactStaticImport(" + quote(m[3]) + ");");
         emitExportBindings(m[1], exportFrom, true, false);
         continue;
       }
@@ -4926,7 +5476,7 @@
       );
       if (m) {
         var nsExport = "__exmod" + (importCounter++);
-        out.push("var " + nsExport + " = require(" + quote(m[3]) + ");");
+        out.push("var " + nsExport + " = __exactStaticImport(" + quote(m[3]) + ");");
         out.push("module.exports." + m[1] + " = " + nsExport + ";");
         continue;
       }
@@ -5130,8 +5680,33 @@
   // (principal, specifier) decisions keyed by the frame-derived principal, so
   // the steady state is one native call + a hash hit, while denials always run
   // the full path and keep their audit entries. (ENG-22644)
-  function checkImportGate(specifier, requesterHint) {
-    if (!__privCheckImport || typeof specifier !== 'string') return;
+  function checkImportGate(
+    specifier,
+    requesterHint,
+    authenticatedTargetSourceId,
+    resolutionKind
+  ) {
+    // CommonJS require() accepts only primitive strings. Do this before the
+    // native gate and before loadInternal()/load() can coerce an object into a
+    // builtin or internal name, otherwise an object-shaped specifier skips the
+    // package-facing policy check and is stringified only by the loader's
+    // trusted internal fan-out. Dynamic import performs its distinct ToString
+    // operation in importImpl before reaching this boundary.
+    if (typeof specifier !== 'string') {
+      throw new TypeError('Module specifier must be a string');
+    }
+    var cacheHit = typeof authenticatedTargetSourceId === 'string';
+    if (cacheHit &&
+        resolutionKind !== 0 && resolutionKind !== 1 &&
+        resolutionKind !== 2 && resolutionKind !== 3) {
+      throw new TypeError('Authenticated module cache-hit resolution kind is invalid');
+    }
+    if (!__privCheckImport) {
+      if (cacheHit) {
+        throw new Error('Authenticated module cache-hit gate is unavailable');
+      }
+      return;
+    }
     // On the frame-attribution engine the native check re-derives the requesting
     // principal from the executing frame and IGNORES this hint. On an unpatched
     // engine (no EXACT_HAVE_FRAME_ATTRIBUTION) it falls back to the passed id, so
@@ -5142,9 +5717,24 @@
     // module context and pass 0 there — but those paths were already ungated on
     // unpatched builds, so this is no regression. (ENG-22618 review)
     var hint = typeof requesterHint === 'number' ? requesterHint : 0;
-    if (!__privCheckImport(hint, specifier)) {
-      throw new Error(
+    if (!__privCheckImport(
+      hint,
+      specifier,
+      cacheHit ? authenticatedTargetSourceId : undefined,
+      cacheHit ? resolutionKind : undefined
+    )) {
+      var error = new Error(
         "Import denied: '" + specifier + "' is not permitted for this package (LLP 0013 import policy)");
+      // This is the same public semantic class emitted when the authenticated
+      // resolver rejects an import-graph edge. Keep both denial paths stable.
+      // @ref LLP 0023#72-the-structured-result-and-its-error-classes
+      __privObjectDefineProperty(error, 'code', {
+        value: 'ERR_IBEX_IMPORT_DENIED',
+        writable: true,
+        configurable: true,
+        enumerable: true
+      });
+      throw error;
     }
   }
   // Builtin module identity: the native resolver emits one registry record per
@@ -5160,6 +5750,61 @@
   // key but already share identity through the re-exported value. (ENG-22981)
   var __builtinCanonicalByAlias = Object.create(null);
   var __builtinCanonicalBySource = Object.create(null);
+  // An authenticated route is the resolver-independent edge from one logical
+  // referrer plus normalized specifier to a SourceId. Once that edge has
+  // produced a cache entry, a repeated require/import must not touch the
+  // filesystem merely to rediscover the same key. Empty-referrer relative
+  // requests include the observed runtime-local cwd; module-local logical
+  // referrers and absolute requests are cwd-independent.
+  // @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+  var __authenticatedResolutionMemo = Object.create(null);
+  function authenticatedResolutionContext(specifier, referrer, resolverMode, resolutionKind) {
+    if (!__armedResolverCapture || typeof specifier !== 'string' ||
+        typeof referrer !== 'string') {
+      return null;
+    }
+    var baseIdentity = referrer;
+    var nativeReferrer = referrer;
+    if (baseIdentity.length === 0 && specifier.charAt(0) === '.') {
+      if (!__privGetVirtualCwd) {
+        throw new Error('Authenticated relative resolution requires a virtual cwd');
+      }
+      // This is both the cache identity and the typed cwd-observe gate. A
+      // denial must abort before native resolution; falling back to the host
+      // process cwd would disclose/execute outside the authenticated base.
+      // @ref LLP 0023#53-cwd-visibility-is-an-explicit-information-grant
+      var cwd = __privGetVirtualCwd();
+      if (typeof cwd !== 'string' ||
+          (cwd !== '/project' && cwd.indexOf('/project/') !== 0) ||
+          cwd.indexOf('\0') !== -1) {
+        throw new Error('Authenticated virtual cwd is invalid');
+      }
+      baseIdentity = 'cwd:' + cwd;
+      // Native resolution interprets a referrer as a file. Give it a sealed,
+      // synthetic filename beneath the observed virtual directory; Rust
+      // re-derives and authenticates the backing binding from this versioned
+      // virtual record before any filesystem probe. The filename is never
+      // opened and never becomes public output.
+      // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+      nativeReferrer = __privJsonStringify({
+        schema: 'ibex/virtual-referrer/1',
+        virtualPath: cwd + '/.ibex-cwd-resolution-base.js'
+      });
+    } else if (baseIdentity.length === 0) {
+      baseIdentity = 'authenticated-root';
+    }
+    return {
+      routeKey: __privJsonStringify([
+        resolverMode,
+        resolutionKind === 1 || resolutionKind === 2 || resolutionKind === 3
+          ? resolutionKind
+          : 0,
+        baseIdentity,
+        specifier
+      ]),
+      nativeReferrer: nativeReferrer
+    };
+  }
   function builtinCacheKeyFor(id, source) {
     var memo = __builtinCanonicalByAlias[id];
     if (typeof memo === 'string') {
@@ -5175,8 +5820,77 @@
     __builtinCanonicalByAlias[id] = canonical;
     return canonical;
   }
-  function load(specifier, referrer, parent, manifestBuiltinInternal) {
+  // The `node:module` builtin receives this factory through its private module
+  // wrapper, then captures it in `Module.createRequire`. A caller supplies only
+  // virtual syntax; native reconstructs and revalidates the backing referrer
+  // under the current frame-derived principal. This keeps the four raw native
+  // resolver aliases sealed without weakening createRequire semantics.
+  // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+  function createRequireFromVirtual(filename) {
+    if (filename && typeof filename === 'object' && typeof filename.href === 'string') {
+      filename = filename.href;
+    }
+    filename = String(filename || '');
+    if (filename.indexOf('file://') === 0) {
+      filename = filename.slice(7);
+    }
+    filename = normalizeRecordPath(filename);
+    if (!filename ||
+        (filename !== '/project' && filename.indexOf('/project/') !== 0) ||
+        filename.indexOf('\0') !== -1) {
+      throw new TypeError('createRequire filename must be a virtual /project path');
+    }
+    var referrer = __privJsonStringify({
+      schema: 'ibex/virtual-referrer/1',
+      virtualPath: filename
+    });
+    var scopedRequire = function(specifier) {
+      rejectRuntimeLoaderOptions(arguments.length);
+      checkImportGate(specifier);
+      var internal = loadInternal(specifier);
+      if (internal) return internal;
+      return load(specifier, referrer, null);
+    };
+    scopedRequire.resolve = function(specifier) {
+      rejectRuntimeLoaderOptions(arguments.length);
+      checkImportGate(specifier);
+      return __exactResolvePath(specifier, referrer);
+    };
+    scopedRequire.resolve.paths = function() { return null; };
+    return scopedRequire;
+  }
+
+  function privateBridgesForBuiltin(kind, id) {
+    if (kind !== 'builtin') return undefined;
+    var normalized = normalizeSpecifier(id);
+    if (normalized === 'url') return __privUrlFacadeBridges;
+    if (normalized === 'perf_hooks') {
+      return __privRuntimeGlobalOwnership;
+    }
+    if (!__armedResolverCapture) return undefined;
+    if (normalized === 'fs') return __privFsFacadeBridges;
+    if (normalized === 'path') return __privPathFacadeBridges;
+    if (normalized === 'process') return __privProcessFacadeBridges;
+    return undefined;
+  }
+
+  function load(
+    specifier,
+    referrer,
+    parent,
+    manifestBuiltinInternal,
+    authenticatedRecord,
+    structuredStaticGraph,
+    structuredDirectEntry,
+    authenticatedCacheAuthorization,
+    resolutionKind,
+    structuredSessionRoot
+  ) {
     __exactPinProcessStreams();
+    var typedResolutionKind =
+      resolutionKind === 1 || resolutionKind === 2 || resolutionKind === 3
+        ? resolutionKind
+        : 0;
 
     // @ref LLP 0013#mechanism-3 — per-package chunk requires (`__ibexpkg__*`)
     // and the shared bundler runtime chunk (`rolldown-runtime.js`, emitted for
@@ -5260,7 +5974,17 @@
       var fsModule = cache.fs || cache['node:fs'] || cache['fs/promises'] || cache['node:fs/promises'];
       var fsExports = fsModule && fsModule.exports ? fsModule.exports : fsModule;
       if (!fsExports || !fsExports.promises) {
-        fsExports = load('fs', referrer, parent, manifestBuiltinInternal);
+        fsExports = load(
+          'fs',
+          referrer,
+          parent,
+          manifestBuiltinInternal,
+          undefined,
+          structuredStaticGraph,
+          undefined,
+          undefined,
+          typedResolutionKind
+        );
       }
       if (fsExports && fsExports.promises) {
         var cachedFsPromises = {
@@ -5294,23 +6018,128 @@
       }
       return cache[normalized].exports;
     }
+    // Only the first dependency edge out of an authenticated direct CommonJS
+    // entry starts from the C-only logical-directory credential. Once that
+    // edge resolves, every child record carries its own session-bound resolver
+    // identity and must return to the ordinary principal-aware resolver.
+    // @ref LLP 0023#73-referrer-capture
+    // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+    var useStructuredRootResolver = authenticatedRecord === undefined &&
+      (structuredDirectEntry !== undefined || structuredSessionRoot === true);
+    var resolverMode = manifestBuiltinInternal
+      ? 'manifest-builtin'
+      : ((useStructuredRootResolver || structuredSessionRoot === true)
+          ? 'session-root'
+          : 'module');
+    var __cacheAuthorizationRecordMatches = authenticatedRecord === undefined ||
+      (authenticatedCacheAuthorization &&
+       authenticatedRecord !== null &&
+       typeof authenticatedRecord === 'object' &&
+       authenticatedRecord.schema === 'ibex/module-resolution/1' &&
+       authenticatedRecord.kind !== 'builtin' &&
+       authenticatedRecord.sourceId === authenticatedCacheAuthorization.cacheKey);
+    var __usesCacheAuthorization = authenticatedCacheAuthorization &&
+      __cacheAuthorizationRecordMatches &&
+      authenticatedCacheAuthorization.resolverMode === resolverMode &&
+      authenticatedCacheAuthorization.resolutionKind === typedResolutionKind &&
+      authenticatedCacheAuthorization.specifier === resolvedSpecifier &&
+      authenticatedCacheAuthorization.referrer === (referrer || '') &&
+      typeof authenticatedCacheAuthorization.routeKey === 'string' &&
+      typeof authenticatedCacheAuthorization.nativeReferrer === 'string';
+    // An authenticated dynamic import resolves while its caller frame is live,
+    // then supplies that record to the detached Promise turn. Retain its route
+    // identity even with a supplied record so the first load seeds the SourceId
+    // memo and later imports can reauthorize without a second source probe.
+    var authenticatedResolution =
+      authenticatedRecord === undefined || __usesCacheAuthorization
+      ? (__usesCacheAuthorization
+          ? {
+              routeKey: authenticatedCacheAuthorization.routeKey,
+              nativeReferrer: authenticatedCacheAuthorization.nativeReferrer
+            }
+          : authenticatedResolutionContext(
+              resolvedSpecifier,
+              referrer || '',
+              resolverMode,
+              typedResolutionKind
+            ))
+      : null;
+    var authenticatedRouteKey = authenticatedResolution === null
+      ? null
+      : authenticatedResolution.routeKey;
+    if (authenticatedRouteKey !== null) {
+      var memoizedRoute = __authenticatedResolutionMemo[authenticatedRouteKey];
+      var memoizedModule = memoizedRoute && cache[memoizedRoute.cacheKey];
+      if (memoizedModule) {
+        // The route identity is reusable, but its authority is not. Re-check
+        // the current frame against the cached SourceId's exact typed edge on
+        // every hit. Native ignores the JS hint on armed engines, validates the
+        // opaque SourceId canonically, and compares the requester, request,
+        // defining principal/locator, resolution kind, conditions, and
+        // attributes; this therefore closes leaked-require, package-to-root,
+        // same-locator/wrong-subpath, and same-name/different-locator reuse
+        // without a filesystem lookup.
+        // @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+        if (__usesCacheAuthorization &&
+            authenticatedCacheAuthorization.cacheKey !== memoizedRoute.cacheKey) {
+          throw new Error('Authenticated module cache authorization changed identity');
+        }
+        var __memoPreauthorized = __usesCacheAuthorization &&
+          authenticatedCacheAuthorization.routeKey === authenticatedRouteKey;
+        if (!__memoPreauthorized) {
+          var __memoRequester = (parent && typeof parent.__exactPackageId === 'number')
+            ? parent.__exactPackageId : undefined;
+          checkImportGate(
+            resolvedSpecifier,
+            __memoRequester,
+            memoizedRoute.cacheKey,
+            typedResolutionKind
+          );
+        }
+        return memoizedModule.exports;
+      }
+      if (memoizedRoute) delete __authenticatedResolutionMemo[authenticatedRouteKey];
+      // A live-frame cache-hit authorization is a one-tuple capability, not
+      // permission to retry resolution later under the loader's detached
+      // Promise frame. If its exact memo/cache pair disappeared, fail closed.
+      if (__usesCacheAuthorization &&
+          authenticatedCacheAuthorization.cacheExpected !== false) {
+        throw new Error('Authenticated module cache authorization became stale');
+      }
+    }
     if (manifestBuiltinInternal && !__privResolveManifestBuiltinInternal) {
       throw new Error("Internal builtin resolver is unavailable");
     }
-    const json = manifestBuiltinInternal
-      ? __privResolveManifestBuiltinInternal(resolvedSpecifier)
-      : __exactModuleResolve(resolvedSpecifier, referrer || "");
-    if (!json) {
-      throw new Error("Module not found: " + specifier);
-    }
     let record;
-    try {
-      record = JSON.parse(json);
-    } catch (err) {
-      throw new Error("Module resolve failed: " + err.message);
+    if (authenticatedRecord !== undefined) {
+      record = authenticatedRecord;
+    } else {
+      var resolver = manifestBuiltinInternal
+        ? __privResolveManifestBuiltinInternal
+        : (useStructuredRootResolver ? __privSessionModuleResolve : __privModuleResolve);
+      if (typeof resolver !== 'function') {
+        throw new Error("Module resolver is unavailable");
+      }
+      const json = manifestBuiltinInternal
+        ? resolver(resolvedSpecifier)
+        : resolver(
+            resolvedSpecifier,
+            authenticatedResolution === null
+              ? (referrer || "")
+              : authenticatedResolution.nativeReferrer,
+            typedResolutionKind
+          );
+      if (!json) {
+        throw new Error("Module not found: " + specifier);
+      }
+      try {
+        record = JSON.parse(json);
+      } catch (err) {
+        throw new Error("Module resolve failed: " + err.message);
+      }
     }
     if (record.error) {
-      throw new Error(record.error);
+      throw moduleResolutionError(record);
     }
     if (manifestBuiltinInternal && record.kind !== 'builtin') {
       throw new Error("Internal builtin resolution escaped the generated manifest");
@@ -5339,19 +6168,129 @@
         }
       }
     }
-    const id = record.id || resolvedSpecifier;
-    // Builtins share one instance across all their aliases; user modules stay
-    // keyed by their (path-based) id. (ENG-22981)
-    const cacheKey = record.kind === 'builtin'
-      ? builtinCacheKeyFor(id, record.source)
-      : id;
-    var moduleId = idToModuleId(id);
-    if (cache[cacheKey]) {
-      return cache[cacheKey].exports;
-    }
+    const legacyId = record.id || resolvedSpecifier;
     const kind = record.kind || "cjs";
+    const privateBuiltinBridges = privateBridgesForBuiltin(kind, legacyId);
+    var authenticatedRawDirectEntry =
+      structuredDirectEntry !== undefined &&
+      structuredDirectEntry === __pendingSessionEntry &&
+      record.schema === 'ibex/direct-commonjs-entry/1' &&
+      record.kind === 'cjs' &&
+      typeof record.source === 'string' &&
+      typeof record.sourceId === 'string' &&
+      record.sourceId === structuredDirectEntry.key &&
+      typeof record.sourceLabel === 'string' &&
+      record.sourceLabel === structuredDirectEntry.sourceLabel &&
+      typeof record.virtualPath === 'string' &&
+      record.virtualPath === structuredDirectEntry.virtualPath &&
+      typeof structuredDirectEntry.logicalReferrer === 'string';
+    var authenticatedGeneratedSingleEntry =
+      structuredDirectEntry !== undefined &&
+      structuredDirectEntry === __pendingSessionEntry &&
+      structuredDirectEntry.generated === true &&
+      record.schema === 'ibex/generated-single-commonjs-entry/1' &&
+      record.kind === 'cjs' && typeof record.source === 'string' &&
+      isClosedGeneratedSingleEntryRecord(record) &&
+      record.sourceId === structuredDirectEntry.key &&
+      record.sourceLabel === structuredDirectEntry.sourceLabel &&
+      record.virtualPath === structuredDirectEntry.virtualPath &&
+      record.definingPrincipal === structuredDirectEntry.definingPrincipal &&
+      typeof structuredDirectEntry.logicalReferrer === 'string';
+    var authenticatedDirectEntry =
+      authenticatedRawDirectEntry || authenticatedGeneratedSingleEntry;
+    // Armed file records carry an authenticated VFS SourceId plus virtual
+    // observables. The host path remains resolver-local and never becomes the
+    // cache key, module id, filename, sourceURL, or import.meta projection.
+    // @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+    var typedResolverPath = typedLogicalPath(record.path);
+    var authenticatedFileRecord =
+      record.schema === 'ibex/module-resolution/1' &&
+      typeof record.sourceId === 'string' &&
+      record.sourceId.indexOf('ibex-source-id-v1:') === 0 &&
+      typeof record.virtualPath === 'string' &&
+      record.virtualPath.indexOf('/project/') === 0 &&
+      record.virtualPath.indexOf('\0') === -1 &&
+      typedResolverPath !== null &&
+      typedResolverPath.virtualPath === record.virtualPath &&
+      typeof record.sourceLabel === 'string' &&
+      record.sourceLabel.indexOf('file:///project/') === 0;
+    // Native projects one already-validated v4 sidecar down to this chunk-only
+    // record. The wrapper's private cache identity is digest + emitted chunk;
+    // neither its inode nor its cache path can impersonate an original module.
+    // Only the native static-graph dispatcher may introduce this schema.
+    // @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+    var authenticatedGeneratedBundleRecord =
+      __armedResolverCapture && structuredStaticGraph === true &&
+      authenticatedRecord === record &&
+      isClosedGeneratedBundleRecord(record);
+    var generatedProvenance = authenticatedGeneratedBundleRecord
+      ? record.sourceProvenance
+      : null;
+    if (__armedResolverCapture && kind !== 'builtin' &&
+        !authenticatedFileRecord && !authenticatedDirectEntry &&
+        !authenticatedGeneratedBundleRecord) {
+      throw new Error('Authenticated module record lacks VFS SourceId identity');
+    }
+    const id = (authenticatedFileRecord || authenticatedDirectEntry ||
+      authenticatedGeneratedBundleRecord)
+      ? record.virtualPath
+      : legacyId;
+    var authenticatedBuiltinRecord = kind === 'builtin' &&
+      typeof record.sourceId === 'string' &&
+      record.sourceId.indexOf('ibex-source-id-v1:') === 0;
+    // Diagnostic/unarmed resolvers historically supplied a SourceId without
+    // the armed record envelope. Preserve that identity so two modules with
+    // one host display label cannot collapse in compatibility mode. Armed
+    // records never enter this branch and still require the closed VFS shape
+    // above before their SourceId can influence cache identity.
+    var unarmedSourceId = !__armedResolverCapture &&
+      typeof record.sourceId === 'string' && record.sourceId.length > 0
+      ? record.sourceId
+      : null;
+    // Builtins and file modules use the same tagged SourceId key shape when
+    // native supplied one. Unarmed compatibility records retain their host-
+    // supplied identity; source text/path are only the oldest fallbacks.
+    // (ENG-22981; LLP 0023 §2.3)
+    const cacheKey = kind === 'builtin'
+      ? (authenticatedBuiltinRecord
+          ? record.sourceId
+          : (unarmedSourceId || builtinCacheKeyFor(legacyId, record.source)))
+      : (authenticatedGeneratedBundleRecord
+          ? 'ibex-generated-bundle-wrapper-v1:' + generatedProvenance.digest +
+            ':' + generatedProvenance.chunk
+          : ((authenticatedFileRecord || authenticatedDirectEntry)
+          ? record.sourceId
+          : (unarmedSourceId || legacyId)));
+    if (authenticatedFileRecord && authenticatedRouteKey !== null) {
+      __authenticatedResolutionMemo[authenticatedRouteKey] = {
+        cacheKey: cacheKey
+      };
+    }
+    var moduleId = idToModuleId(cacheKey);
+    if (cache[cacheKey]) {
+      if (!authenticatedDirectEntry) {
+        return cache[cacheKey].exports;
+      }
+      if (cache[cacheKey] !== structuredDirectEntry.module ||
+          mainModule !== structuredDirectEntry.module) {
+        throw new TypeError('Authenticated direct-entry cache reservation changed');
+      }
+    }
     const source = normalizeHashbang(record.source || "");
-    var filename = record.path || id;
+    // Resolution can still use the authenticated native path captured in this
+    // private closure; every JavaScript-visible path uses the virtual spelling.
+    var resolutionReferrer = authenticatedDirectEntry
+      ? structuredDirectEntry.logicalReferrer
+      : (authenticatedGeneratedBundleRecord
+          ? record.virtualPath
+          : resolverReferrer(record.path, legacyId));
+    var filename = authenticatedDirectEntry
+      ? record.virtualPath
+      : (authenticatedFileRecord
+          ? typedResolverPath.virtualPath
+          : (authenticatedGeneratedBundleRecord
+              ? record.virtualPath
+              : (resolverVirtualPath(record.path) || id)));
     // For the entry module, use the original source path so that
     // __dirname/__filename and require.resolve work relative to
     // the source dir, not the bundle cache dir. The entry is the FIRST
@@ -5367,9 +6306,10 @@
     // consumed on the first candidate load either way so a later parentless
     // require of a user file that happens to be named `*.bundle.js` cannot
     // steal the remap.
-    if (g.__exactEntryFile && !g.__exactEntryFileConsumed &&
+    if (!authenticatedFileRecord && !authenticatedGeneratedBundleRecord &&
+        g.__exactEntryFile && g.__exactEntryFile !== consumedEntryFile &&
         !parent && record.kind !== 'builtin') {
-      g.__exactEntryFileConsumed = true;
+      consumedEntryFile = g.__exactEntryFile;
       if (/(?:^|[\/.])bundle\.m?js$/.test(filename.replace(/\\/g, '/'))) {
         filename = g.__exactEntryFile;
       }
@@ -5382,21 +6322,63 @@
       if (pathParts[pi] === 'node_modules') continue;
       modulePaths.push(pathParts.slice(0, pi + 1).join('/') + '/node_modules');
     }
-    const module = {
-      id: id,
-      __exactId: moduleId,
-      __exactPackageName: packageNameForRecord(record, parent),
-      __exactPackageRoot: packageRootForRecord(record),
-      __exactPackageId: packagePrincipalFor(record, parent),
-      __exactCompartment: compartmentForRecord(record, parent),
-      filename: filename,
-      path: modulePath,
-      exports: {},
-      loaded: false,
-      parent: parent || null,
-      children: [],
-      paths: modulePaths,
-    };
+    var resolvedPackageRoot = packageRootForRecord(record);
+    const module = authenticatedDirectEntry
+      ? structuredDirectEntry.module
+      : {
+          id: id,
+          __exactId: moduleId,
+          __exactPackageName: packageNameForRecord(record, parent),
+          __exactPackageId: packagePrincipalFor(record, parent),
+          __exactCompartment: compartmentForRecord(record, parent),
+          filename: filename,
+          path: modulePath,
+          exports: {},
+          loaded: false,
+          parent: parent || null,
+          children: [],
+          paths: modulePaths,
+        };
+    if (authenticatedDirectEntry) {
+      module.__exactPackageName = authenticatedGeneratedSingleEntry
+        ? structuredDirectEntry.packageName
+        : packageNameForRecord(record, parent);
+      module.__exactPackageId = authenticatedGeneratedSingleEntry
+        ? structuredDirectEntry.packagePrincipal
+        : packagePrincipalFor(record, parent);
+      module.__exactCompartment = authenticatedGeneratedSingleEntry
+        ? structuredDirectEntry.compartment
+        : compartmentForRecord(record, parent);
+      // The direct entry is already keyed in the module cache by SourceId.
+      // Its active numeric id exists only for Host principal attribution, so
+      // use the authenticated root/package principal instead of a lossy hash
+      // of the cache key. Root direct files therefore resolve nested require
+      // edges as requester "0", the Host's closed root-principal identity.
+      module.__exactId = module.__exactPackageId;
+      module.id = id;
+      module.filename = filename;
+      module.path = modulePath;
+      module.paths = modulePaths;
+    }
+    if (resolvedPackageRoot !== null) {
+      __privPackageRootSet(module, resolvedPackageRoot);
+      if (typedLogicalPath(resolvedPackageRoot) !== null) {
+        __privObjectDefineProperty(module, '__exactPackageRoot', {
+          value: resolvedPackageRoot,
+          writable: false,
+          enumerable: false,
+          configurable: false
+        });
+      }
+    }
+    if (kind === 'builtin' && normalizeSpecifier(legacyId) === 'module') {
+      __privObjectDefineProperty(module, '__exactCreateRequire', {
+        value: createRequireFromVirtual,
+        writable: false,
+        enumerable: false,
+        configurable: true
+      });
+    }
     // A manifest-authored builtin's own synchronous module evaluation may load
     // implementation dependencies that are not package-authored import edges.
     // Scope that exemption to the actual body invocation: `record.kind` comes
@@ -5406,14 +6388,16 @@
     // id/path prefix. @ref LLP 0013#policy
     const isManifestBuiltinRecord = record.kind === 'builtin';
     var manifestBuiltinEvaluationActive = false;
-    cache[cacheKey] = module;
-    if (!parent && !mainModule) {
-      mainModule = module;
+    if (!authenticatedDirectEntry) {
+      cache[cacheKey] = module;
+      if (!parent && !mainModule) {
+        mainModule = module;
+      }
     }
     addChild(parent, module);
 
-    module.require = function(next, options) {
-      grantCapabilities(next, options, module.__exactId);
+    module.require = function(next) {
+      rejectRuntimeLoaderOptions(arguments.length);
       return localRequire(next);
     };
 
@@ -5478,6 +6462,7 @@
         message.indexOf("Property 'await'") !== -1;
     };
     var localRequire = function(next) {
+      rejectRuntimeLoaderOptions(arguments.length);
       // Pass the enclosing module's principal as the fallback hint so the gate
       // still enforces on non-frame-attribution builds. A manifest builtin's
       // closure is never a package identity; outside its scoped evaluation use
@@ -5493,9 +6478,14 @@
       if (internal) return internal;
       var exports = load(
         next,
-        filename,
+        resolutionReferrer,
         module,
-        manifestBuiltinEvaluationActive
+        manifestBuiltinEvaluationActive,
+        undefined,
+        structuredStaticGraph,
+        authenticatedDirectEntry ? structuredDirectEntry : undefined,
+        undefined,
+        0
       );
       // Skip interop for ESM-shimmed modules — the shim's generated
       // import bindings already handle default/named/namespace access.
@@ -5522,13 +6512,21 @@
       return exports;
     };
     localRequire.resolve = function(specifier) {
-      return __exactResolvePath(specifier, filename || "");
+      rejectRuntimeLoaderOptions(arguments.length);
+      if (!manifestBuiltinEvaluationActive) {
+        checkImportGate(
+          specifier,
+          isManifestBuiltinRecord ? __noUserPrincipal : module && module.__exactPackageId
+        );
+      }
+      if (authenticatedDirectEntry && structuredDirectEntry !== undefined) {
+        return __exactResolveSessionPath(specifier, resolutionReferrer || "");
+      }
+      return __exactResolvePath(specifier, resolutionReferrer || "");
     };
     localRequire.resolve.paths = function(specifier) {
       return null;
     };
-    localRequire.cache = cache;
-    localRequire.main = mainModule;
     const restoreModuleId = function(previousId) {
       if (__privSetActiveModuleId) {
         __privSetActiveModuleId(previousId || 0);
@@ -5540,12 +6538,50 @@
     const previousNodeFilename = g.__filename;
     const previousNodeDirname = g.__dirname;
     const moduleDynamicImport = function(specifier, options) {
-      return importImpl(specifier, options, filename, module);
+      rejectRuntimeLoaderOptions(arguments.length);
+      return importImpl(specifier, options, resolutionReferrer, module);
+    };
+    const moduleStaticImport = function(specifier) {
+      checkImportGate(specifier, module && module.__exactPackageId);
+      return load(
+        specifier,
+        resolutionReferrer,
+        module,
+        false,
+        undefined,
+        structuredStaticGraph,
+        authenticatedDirectEntry ? structuredDirectEntry : undefined,
+        undefined,
+        1
+      );
     };
     const invokeModuleBody = function(moduleBody) {
       manifestBuiltinEvaluationActive = isManifestBuiltinRecord;
       try {
-        moduleBody(localRequire, module, module.exports, filename, dir, moduleDynamicImport);
+        if (authenticatedDirectEntry) {
+          moduleBody.call(
+            module.exports,
+            localRequire,
+            module,
+            module.exports,
+            filename,
+            dir,
+            moduleDynamicImport,
+            moduleStaticImport,
+            privateBuiltinBridges
+          );
+        } else {
+          moduleBody(
+            localRequire,
+            module,
+            module.exports,
+            filename,
+            dir,
+            moduleDynamicImport,
+            moduleStaticImport,
+            privateBuiltinBridges
+          );
+        }
       } finally {
         manifestBuiltinEvaluationActive = false;
       }
@@ -5674,22 +6710,40 @@
         "} " +
         "})(); " +
         "} ";
-      const transformedSource =
-        transformDynamicImport(transformImportMeta(applyRolldownCjsDirnameBindings(fixForOfScoping(fixEsmCjsInterop(source || "")), filename)));
+      // Stack/source-map identity is the authenticated SourceLabel, while
+      // CommonJS observables keep the virtual `/project/...` filename. These
+      // are intentionally distinct in LLP 0024's source model.
+      var authenticatedSourceLabel = (authenticatedDirectEntry || authenticatedFileRecord ||
+        authenticatedGeneratedBundleRecord)
+        ? record.sourceLabel
+        : null;
+      var sourceUrl = authenticatedSourceLabel || filename;
+      const transformedSource = transformDynamicImport(
+        transformImportMeta(
+          applyRolldownCjsDirnameBindings(
+            fixForOfScoping(fixEsmCjsInterop(source || "")),
+            filename
+          ),
+          authenticatedSourceLabel
+        )
+      );
       const directSource =
         injectEvalShimPreamble(transformedSource) +
-        "\n//# sourceURL=" + filename;
+        "\n//# sourceURL=" + sourceUrl;
       const runFallbackModule = function(reason) {
         let runtimeSource = transformDynamicImport(
           transformImportMeta(
             applyRolldownCjsDirnameBindings(
-              fixForOfScoping(transformEsmToCjs(transformedSource)),
+              fixForOfScoping(
+                transformEsmToCjs(transformedSource, authenticatedSourceLabel)
+              ),
               filename
             )
-          )
+          ),
+          authenticatedSourceLabel
         );
         runtimeSource = injectEvalShimPreamble(runtimeSource) +
-          "\n//# sourceURL=" + filename;
+          "\n//# sourceURL=" + sourceUrl;
         let wrappedRuntimeForAwait = false;
         const compileFallbackSource = function(sourceText) {
           return compileModuleBody(module.__exactPackageId, module.__exactCompartment, sourceText);
@@ -5761,6 +6815,9 @@
         try {
           directFn = compileModuleBody(module.__exactPackageId, module.__exactCompartment, directSource);
         } catch (err) {
+          if (authenticatedDirectEntry) {
+            throw err;
+          }
           const needsAsyncFallback = isAwaitSyntaxFailure(err);
           const shouldFallback = (
             kind === "esm" ||
@@ -5791,7 +6848,7 @@
           try {
             invokeModuleBody(directFn);
           } catch (err) {
-            if (!isOwnBodyAwaitReferenceError(err)) {
+            if (authenticatedDirectEntry || !isOwnBodyAwaitReferenceError(err)) {
               throw err;
             }
             // Own-body top-level await parsed as a sloppy-mode identifier and
@@ -5807,7 +6864,9 @@
         }
       }
     } catch (err) {
-      delete cache[cacheKey];
+      if (!authenticatedDirectEntry) {
+        delete cache[cacheKey];
+      }
       var moduleErrorPrefix = 'While evaluating module "' + id + '": ';
       if (err && (typeof err === 'object' || typeof err === 'function')) {
         // Annotate and rethrow the original error so its stack, cause, and
@@ -5839,8 +6898,503 @@
       }
       restoreModuleId(previousModuleId);
     }
+    if (module.__exactCreateRequire === createRequireFromVirtual) {
+      try { delete module.__exactCreateRequire; } catch (_createRequireCleanupError) {}
+    }
     module.loaded = true;
     return module.exports;
+  }
+
+  // Native phase 4 is the sole owner of this closure. The bootstrap capture
+  // function roots it in `ExactHermesRuntime`; the temporary global is deleted
+  // in the same trusted turn, before shared runtime code or project source can
+  // observe it. The authenticated root record comes from the C-only Host
+  // resolver. All export-property Gets happen here, before native begins any
+  // session transaction, and the returned fresh array is consumed directly by
+  // native roots.
+  // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+  var __pendingSessionEntry = null;
+  function wrapDynamicImportValue(module) {
+    // Wrap CommonJS modules to look like ESM: { default: module, ...module }.
+    // This allows `const mod = await import('foo')` to use either `default` or
+    // a detected enumerable name without changing native ESM namespace values.
+    if (module && !module.__esModule) {
+      var moduleType = typeof module;
+      if (moduleType === 'object' || moduleType === 'function') {
+        var wrapped = { default: module };
+        if (moduleType === 'object') {
+          for (var key in module) {
+            if (module.hasOwnProperty(key)) wrapped[key] = module[key];
+          }
+        }
+        return wrapped;
+      }
+    }
+    return module;
+  }
+  var __sessionStaticImport = function(
+    action,
+    first,
+    second,
+    third,
+    fourth
+  ) {
+    if (action === 'assert-private-bridges') {
+      // Native sealing verifies the loader captured every raw bridge before it
+      // deletes their root-global spellings. Facades remain lazy: authenticated
+      // builtin wrappers receive the frozen captures above when first loaded.
+      // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+      // @ref LLP 0023#54-facades-cannot-subvert-it
+      if (typeof __privFsMutationGuard !== 'function' ||
+          typeof __privGetVirtualCwd !== 'function' ||
+          typeof __privSetVirtualCwd !== 'function') {
+        throw new TypeError('Private bootstrap bridge capture is incomplete');
+      }
+      return true;
+    }
+    if (action === 'reserve-entry') {
+      var sourceId = first;
+      var sourceLabel = second;
+      var virtualPath = third;
+      // Program stdin has a session-owned SourceId but deliberately no file
+      // object. File-backed entries retain the stricter label/path pair below.
+      // @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+      var fileBackedEntry = typeof virtualPath === 'string';
+      var syntheticStdinEntry = typeof virtualPath === 'undefined' &&
+        sourceLabel === 'ibex:stdin';
+      if (typeof sourceId !== 'string' ||
+          sourceId.indexOf('ibex-source-id-v1:') !== 0 ||
+          typeof sourceLabel !== 'string' ||
+          (!syntheticStdinEntry &&
+           (sourceLabel.indexOf('file:///project/') !== 0 ||
+            !fileBackedEntry ||
+            virtualPath.indexOf('/project/') !== 0 ||
+            virtualPath.indexOf('\0') !== -1)) ||
+          __pendingSessionEntry !== null ||
+          cache[sourceId] ||
+          mainModule) {
+        throw new TypeError('Invalid authenticated direct-entry cache reservation');
+      }
+      var entry = {
+        id: fileBackedEntry ? virtualPath : sourceLabel,
+        __exactId: idToModuleId(sourceId),
+        __exactPackageName: null,
+        __exactPackageId: 0,
+        __exactCompartment: null,
+        exports: {},
+        loaded: false,
+        parent: null,
+        children: [],
+        paths: []
+      };
+      if (fileBackedEntry) {
+        entry.filename = virtualPath;
+        entry.path = dirname(virtualPath);
+      }
+      cache[sourceId] = entry;
+      mainModule = entry;
+      __pendingSessionEntry = {
+        key: sourceId,
+        module: entry,
+        sourceLabel: sourceLabel,
+        virtualPath: fileBackedEntry ? virtualPath : null,
+        logicalReferrer: null
+      };
+      return true;
+    }
+    if (action === 'evaluate-commonjs-entry') {
+      var directSource = first;
+      var directSourceLabel = second;
+      var directVirtualPath = third;
+      var directLogicalReferrer = fourth;
+      if (__pendingSessionEntry === null ||
+          typeof directSource !== 'string' ||
+          typeof directSourceLabel !== 'string' ||
+          directSourceLabel !== __pendingSessionEntry.sourceLabel ||
+          typeof directVirtualPath !== 'string' ||
+          directVirtualPath !== __pendingSessionEntry.virtualPath ||
+          typeof directLogicalReferrer !== 'string' ||
+          directLogicalReferrer.length === 0 ||
+          directLogicalReferrer.indexOf('\0') !== -1 ||
+          __pendingSessionEntry.logicalReferrer !== null) {
+        throw new TypeError('Invalid authenticated direct CommonJS entry');
+      }
+      __pendingSessionEntry.logicalReferrer = directLogicalReferrer;
+      var directRecord = {
+        schema: 'ibex/direct-commonjs-entry/1',
+        id: directVirtualPath,
+        kind: 'cjs',
+        source: directSource,
+        sourceId: __pendingSessionEntry.key,
+        sourceLabel: directSourceLabel,
+        virtualPath: directVirtualPath
+      };
+      return load(
+        directVirtualPath,
+        directLogicalReferrer,
+        null,
+        false,
+        directRecord,
+        true,
+        __pendingSessionEntry
+      );
+    }
+    if (action === 'evaluate-generated-single-commonjs-entry') {
+      var generatedSource = first;
+      var generatedRecordJson = second;
+      var generatedSourceLabel = third;
+      var generatedLogicalReferrer = fourth;
+      if (typeof generatedSource !== 'string' ||
+          typeof generatedRecordJson !== 'string' ||
+          typeof generatedSourceLabel !== 'string' ||
+          typeof generatedLogicalReferrer !== 'string' ||
+          generatedLogicalReferrer.length === 0 ||
+          generatedLogicalReferrer.indexOf('\0') !== -1 ||
+          __pendingSessionEntry !== null) {
+        throw new TypeError('Invalid authenticated generated CommonJS entry');
+      }
+      var generatedRecord = __privJsonParse(generatedRecordJson);
+      if (!isClosedGeneratedSingleEntryRecord(generatedRecord) ||
+          generatedRecord.sourceLabel !== generatedSourceLabel) {
+        throw new TypeError('Invalid authenticated generated CommonJS metadata');
+      }
+      var generatedPrincipal = closedGeneratedSinglePrincipal(
+        generatedRecord.definingPrincipal
+      );
+      if (!generatedPrincipal) {
+        throw new TypeError('Invalid authenticated generated defining principal');
+      }
+      generatedRecord.definingPrincipal = generatedPrincipal;
+      generatedRecord.kind = 'cjs';
+      generatedRecord.source = generatedSource;
+
+      var generatedCached = cache[generatedRecord.sourceId];
+      if (generatedCached) {
+        if (!generatedCached.loaded) {
+          throw new TypeError('Authenticated generated SourceId is already being evaluated');
+        }
+        return generatedCached.exports;
+      }
+      if (mainModule) {
+        throw new TypeError('Authenticated generated entry cannot replace the main module');
+      }
+
+      var generatedPackagePrincipal = generatedSinglePackagePrincipal(generatedPrincipal);
+      var generatedEntry = {
+        id: generatedRecord.virtualPath,
+        __exactId: generatedPackagePrincipal,
+        __exactPackageName: generatedPrincipal.kind === 'package'
+          ? generatedPrincipal.name
+          : null,
+        __exactPackageId: generatedPackagePrincipal,
+        __exactCompartment: generatedSingleCompartment(generatedPrincipal),
+        filename: generatedRecord.virtualPath,
+        path: dirname(generatedRecord.virtualPath),
+        exports: {},
+        loaded: false,
+        parent: null,
+        children: [],
+        paths: []
+      };
+      cache[generatedRecord.sourceId] = generatedEntry;
+      mainModule = generatedEntry;
+      __pendingSessionEntry = {
+        key: generatedRecord.sourceId,
+        module: generatedEntry,
+        sourceLabel: generatedRecord.sourceLabel,
+        virtualPath: generatedRecord.virtualPath,
+        logicalReferrer: generatedLogicalReferrer,
+        generated: true,
+        definingPrincipal: generatedPrincipal,
+        packageName: generatedEntry.__exactPackageName,
+        packagePrincipal: generatedPackagePrincipal,
+        compartment: generatedEntry.__exactCompartment
+      };
+      try {
+        var generatedExports = load(
+          generatedRecord.virtualPath,
+          generatedLogicalReferrer,
+          null,
+          false,
+          generatedRecord,
+          true,
+          __pendingSessionEntry
+        );
+        if (__pendingSessionEntry === null ||
+            __pendingSessionEntry.module !== generatedEntry ||
+            cache[generatedRecord.sourceId] !== generatedEntry ||
+            mainModule !== generatedEntry) {
+          throw new TypeError('Authenticated generated entry reservation changed');
+        }
+        // Native owns the transaction past body execution. It commits only
+        // after the typed outcome is materialized; cancellation, handle OOM,
+        // or another engine fault therefore aborts this exact SourceId entry.
+        // @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+        return generatedExports;
+      } catch (generatedError) {
+        if (cache[generatedRecord.sourceId] === generatedEntry) {
+          delete cache[generatedRecord.sourceId];
+        }
+        if (mainModule === generatedEntry) mainModule = null;
+        if (__pendingSessionEntry &&
+            __pendingSessionEntry.module === generatedEntry) {
+          __pendingSessionEntry = null;
+        }
+        throw generatedError;
+      }
+    }
+    if (action === 'commit-entry' || action === 'abort-entry') {
+      if (__pendingSessionEntry === null) return true;
+      var pending = __pendingSessionEntry;
+      __pendingSessionEntry = null;
+      if (cache[pending.key] !== pending.module || mainModule !== pending.module) {
+        throw new TypeError('Authenticated direct-entry cache reservation changed');
+      }
+      if (action === 'commit-entry') {
+        pending.module.loaded = true;
+      } else {
+        delete cache[pending.key];
+        mainModule = null;
+      }
+      return true;
+    }
+    if (action === 'dynamic-import') {
+      // @ref LLP 0024#71-the-environment-a-modified-globalenvironmentrecord
+      var dynamicSpecifier = first;
+      var dynamicLogicalReferrer = second;
+      var dynamicError = null;
+      var dynamicRecord;
+      var dynamicCacheAuthorization = null;
+      try {
+        if (typeof dynamicLogicalReferrer !== 'string' ||
+            dynamicLogicalReferrer.length === 0 ||
+            dynamicLogicalReferrer.indexOf('\0') !== -1 ||
+            typeof __privSessionModuleResolve !== 'function') {
+          throw new TypeError('Invalid authenticated session dynamic import');
+        }
+        // ImportCall applies the language ToString operation before asking the
+        // host to resolve. Preserve observable object coercion while rejecting
+        // Symbols, whose special treatment by the String constructor is not
+        // the ToString semantics required by dynamic import.
+        if (typeof dynamicSpecifier === 'symbol') {
+          throw new TypeError('Cannot convert a Symbol value to a string');
+        }
+        dynamicSpecifier = __privString(dynamicSpecifier);
+        var dynamicResolvedSpecifier = stripViteImportQuery(dynamicSpecifier);
+        var dynamicResolution = authenticatedResolutionContext(
+          dynamicResolvedSpecifier,
+          dynamicLogicalReferrer,
+          'session-root',
+          2
+        );
+        if (dynamicResolution === null) {
+          throw new TypeError('Authenticated session dynamic-import route is unavailable');
+        }
+        // This call still runs under the importing callback's live frame. The
+        // C-only logical referrer selects the exact session-root resolver and
+        // never falls back to a realm-global cwd.
+        checkImportGate(dynamicSpecifier);
+        var dynamicRoute = __authenticatedResolutionMemo[dynamicResolution.routeKey];
+        if (dynamicRoute && cache[dynamicRoute.cacheKey]) {
+          // The memo is identity, never authority. Reauthorize the exact
+          // SourceId synchronously while the importing frame is live; the
+          // detached Promise turn may consume only this complete tuple.
+          checkImportGate(
+            dynamicResolvedSpecifier,
+            undefined,
+            dynamicRoute.cacheKey,
+            2
+          );
+          dynamicCacheAuthorization = {
+            resolverMode: 'session-root',
+            resolutionKind: 2,
+            specifier: dynamicResolvedSpecifier,
+            referrer: dynamicLogicalReferrer,
+            routeKey: dynamicResolution.routeKey,
+            nativeReferrer: dynamicResolution.nativeReferrer,
+            cacheKey: dynamicRoute.cacheKey,
+            cacheExpected: true
+          };
+        } else {
+          if (dynamicRoute) {
+            delete __authenticatedResolutionMemo[dynamicResolution.routeKey];
+          }
+          // Classify a relative package boundary without reading its body, so
+          // an import-policy denial occurs before source acquisition.
+          if (isPathSpecifier(dynamicResolvedSpecifier)) {
+            if (typeof __privSessionModuleResolveMeta !== 'function') {
+              throw new Error('Session-root metadata resolver is unavailable');
+            }
+            var dynamicMetaJson = __privSessionModuleResolveMeta(
+              dynamicResolvedSpecifier,
+              dynamicLogicalReferrer,
+              2
+            );
+            if (!dynamicMetaJson) {
+              throw new Error('Module not found: ' + dynamicSpecifier);
+            }
+            var dynamicMetaRecord = __privJsonParse(dynamicMetaJson);
+            if (!dynamicMetaRecord || typeof dynamicMetaRecord !== 'object' ||
+                __privArrayIsArray(dynamicMetaRecord)) {
+              throw new TypeError('Invalid authenticated dynamic-import metadata');
+            }
+            if (dynamicMetaRecord.error) {
+              throw moduleResolutionError(dynamicMetaRecord);
+            }
+            var dynamicTargetPackage = packageNameForRecord(dynamicMetaRecord, null);
+            if (dynamicTargetPackage) checkImportGate(dynamicTargetPackage);
+          }
+          var dynamicJson = __privSessionModuleResolve(
+            dynamicResolvedSpecifier,
+            dynamicLogicalReferrer,
+            2
+          );
+          if (!dynamicJson) throw new Error('Module not found: ' + dynamicSpecifier);
+          dynamicRecord = __privJsonParse(dynamicJson);
+          if (!dynamicRecord || typeof dynamicRecord !== 'object' ||
+              __privArrayIsArray(dynamicRecord)) {
+            throw new TypeError('Invalid authenticated dynamic-import record');
+          }
+          if (dynamicRecord.error) throw moduleResolutionError(dynamicRecord);
+          // Full session resolution authenticates a cold edge. Also bind its
+          // exact file SourceId while the importing frame is live so a queued
+          // concurrent import may consume a cache entry created before its own
+          // Promise turn without falling back to detached-frame attribution.
+          if (dynamicRecord.schema === 'ibex/module-resolution/1' &&
+              dynamicRecord.kind !== 'builtin' &&
+              typeof dynamicRecord.sourceId === 'string' &&
+              dynamicRecord.sourceId.indexOf('ibex-source-id-v1:') === 0) {
+            checkImportGate(
+              dynamicResolvedSpecifier,
+              undefined,
+              dynamicRecord.sourceId,
+              2
+            );
+            dynamicCacheAuthorization = {
+              resolverMode: 'session-root',
+              resolutionKind: 2,
+              specifier: dynamicResolvedSpecifier,
+              referrer: dynamicLogicalReferrer,
+              routeKey: dynamicResolution.routeKey,
+              nativeReferrer: dynamicResolution.nativeReferrer,
+              cacheKey: dynamicRecord.sourceId,
+              cacheExpected: false
+            };
+          }
+        }
+      } catch (error) {
+        dynamicError = error;
+      }
+      return __privPromiseThen(__privPromiseResolve(), function() {
+        if (dynamicError) throw dynamicError;
+        return wrapDynamicImportValue(load(
+          dynamicSpecifier,
+          dynamicLogicalReferrer,
+          null,
+          false,
+          dynamicRecord,
+          true,
+          undefined,
+          dynamicCacheAuthorization,
+          2,
+          true
+        ));
+      });
+    }
+    if (action === 'prepare-generated-originals' ||
+        action === 'begin-generated-original' ||
+        action === 'commit-generated-original' ||
+        action === 'abort-generated-original') {
+      if (typeof first !== 'string') {
+        throw new TypeError('Native generated-original transition lacks a record');
+      }
+      var generatedRecord = __privJsonParse(first);
+      var generatedRegistry = originalModuleRegistryForRecord(generatedRecord);
+      if (action === 'prepare-generated-originals') return true;
+      if (action === 'begin-generated-original') {
+        return generatedRegistry.begin(second);
+      }
+      if (action === 'commit-generated-original') {
+        return generatedRegistry.commit(second, third);
+      }
+      generatedRegistry.abort(second);
+      return true;
+    }
+    if (action !== 'materialize-import') {
+      throw new TypeError('Unknown native module-cache dispatcher action');
+    }
+    var specifier = first;
+    var authenticatedRecordJson = second;
+    var bindingKinds = third;
+    var importedNames = fourth;
+    if (typeof specifier !== 'string' ||
+        typeof authenticatedRecordJson !== 'string' ||
+        !__privArrayIsArray(bindingKinds) ||
+        !__privArrayIsArray(importedNames) ||
+        bindingKinds.length !== importedNames.length) {
+      throw new TypeError('Invalid native static-import materialization plan');
+    }
+    var record = __privJsonParse(authenticatedRecordJson);
+    if (!record || typeof record !== 'object' || __privArrayIsArray(record)) {
+      throw new TypeError('Invalid authenticated static-import record');
+    }
+    var namespace = load(
+      specifier,
+      '',
+      null,
+      false,
+      record,
+      true,
+      undefined,
+      undefined,
+      1
+    );
+    var values = [];
+    for (var bindingIndex = 0; bindingIndex < bindingKinds.length; bindingIndex++) {
+      var kind = bindingKinds[bindingIndex];
+      if (kind === 3) {
+        values[bindingIndex] = namespace;
+        continue;
+      }
+      if (kind === 2) {
+        var importedName = importedNames[bindingIndex];
+        if (typeof importedName !== 'string') {
+          throw new TypeError('Named static import lacks an export name');
+        }
+        values[bindingIndex] = namespace[importedName];
+        continue;
+      }
+      if (kind === 1) {
+        var defaultValue =
+          (namespace === null || typeof namespace === 'undefined')
+            ? undefined
+            : namespace['default'];
+        values[bindingIndex] =
+          (defaultValue === null || typeof defaultValue === 'undefined')
+            ? namespace
+            : defaultValue;
+        continue;
+      }
+      throw new TypeError('Unknown native static-import binding kind');
+    }
+    return values;
+  };
+  var __captureSessionStaticImport = g.__exactCaptureSessionStaticImport;
+  if (typeof __captureSessionStaticImport === 'function') {
+    try {
+      var __capturedSessionModuleResolvers =
+        __captureSessionStaticImport(__sessionStaticImport);
+      if (!__capturedSessionModuleResolvers ||
+          typeof __capturedSessionModuleResolvers !== 'object' ||
+          typeof __capturedSessionModuleResolvers.resolve !== 'function' ||
+          typeof __capturedSessionModuleResolvers.resolveMeta !== 'function') {
+        throw new TypeError('Native session-root resolver capture failed');
+      }
+      __privSessionModuleResolve = __capturedSessionModuleResolvers.resolve;
+      __privSessionModuleResolveMeta = __capturedSessionModuleResolvers.resolveMeta;
+    } finally {
+      try { delete g.__exactCaptureSessionStaticImport; } catch (_captureCleanupError) {}
+    }
   }
   // Convert a module specifier or id to a numeric module identifier used
   // by runtime capability checks.
@@ -5854,28 +7408,8 @@
     return moduleId < 0 ? -moduleId : moduleId;
   };
 
-  // Helper to grant capabilities from options parameter
-  var grantCapabilities = function(specifier, options, moduleId) {
-    if (!options || typeof options !== 'object') return;
-    var needs = options.needs;
-    if (!needs) return;
-
-    var numericModuleId = typeof moduleId === 'number' && isFinite(moduleId) ? moduleId : idToModuleId(specifier);
-    if (numericModuleId < 0) {
-      numericModuleId = -numericModuleId;
-    }
-
-    // Grant capabilities using Exact.setModuleCapabilities
-    if (typeof globalThis.Exact === 'object' &&
-        typeof globalThis.Exact.setModuleCapabilities === 'function') {
-      var caps = Array.isArray(needs) ? needs : [needs];
-      globalThis.Exact.setModuleCapabilities(numericModuleId, caps);
-    }
-  };
-
-  globalThis.require = function(specifier, options) {
-    // Grant capabilities if provided
-    grantCapabilities(specifier, options, 0);
+  globalThis.require = function(specifier) {
+    rejectRuntimeLoaderOptions(arguments.length);
     // globalThis.require carries no module parent, so package code that reaches
     // it must still be gated by the requesting frame's principal. (ENG-22618)
     checkImportGate(specifier);
@@ -5883,18 +7417,13 @@
     if (internal) return internal;
     return load(specifier, "");
   };
-  globalThis.require.cache = cache;
   // require.resolve needs only the resolved path, so prefer the metadata-only
   // bridge that skips the full resolver's read + transpile + JSON-escape of the
   // module body (which require.resolve then discards). Fall back to the full
   // resolve bridge in runtimes/tests that don't expose the meta binding — the
   // record shape is identical apart from the omitted `source`. Hoisted, so the
   // localRequire.resolve closure above can reach it. (ENG-23007)
-  function __exactResolvePath(specifier, referrer) {
-    var resolveMeta = (typeof __exactModuleResolveMeta === 'function')
-      ? __exactModuleResolveMeta
-      : __exactModuleResolve;
-    var json = resolveMeta(specifier, referrer || "");
+  function __exactResolvedPath(specifier, json) {
     if (!json) {
       throw new Error("Cannot find module '" + specifier + "'");
     }
@@ -5902,20 +7431,68 @@
     if (record.error) {
       throw new Error("Cannot find module '" + specifier + "'");
     }
-    return record.path || record.id || specifier;
+    if (__armedResolverCapture && record.kind !== 'builtin') {
+      var authenticatedPath = typedLogicalPath(record.path);
+      if (record.schema !== 'ibex/module-resolution/1' || authenticatedPath === null) {
+        throw new Error("Cannot find module '" + specifier + "'");
+      }
+      return authenticatedPath.virtualPath;
+    }
+    return resolverVirtualPath(record.path) || record.id || specifier;
+  }
+  function __exactResolvePath(specifier, referrer) {
+    var resolveMeta = __privModuleResolveMeta || __privModuleResolve;
+    if (typeof resolveMeta !== 'function') {
+      throw new Error('Module resolver is unavailable');
+    }
+    var resolution = authenticatedResolutionContext(
+      specifier,
+      referrer || "",
+      'module',
+      0
+    );
+    return __exactResolvedPath(
+      specifier,
+      resolveMeta(
+        specifier,
+        resolution === null ? (referrer || "") : resolution.nativeReferrer,
+        0
+      )
+    );
+  }
+  // An authenticated direct CommonJS entry owns a C-only LogicalPath
+  // credential rather than a public ResolverLogicalPath handle. Its
+  // `require.resolve()` must therefore use the metadata-only sibling of the
+  // captured session-root resolver; sending the credential through the ordinary
+  // resolver would either reject it or weaken the identity boundary, while the
+  // full session resolver would unnecessarily read the target module body.
+  // @ref LLP 0023#72-the-structured-result-and-its-error-classes
+  // @ref LLP 0023#73-referrer-capture
+  // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+  function __exactResolveSessionPath(specifier, logicalReferrer) {
+    if (typeof __privSessionModuleResolveMeta !== 'function') {
+      throw new Error('Session-root metadata resolver is unavailable');
+    }
+    return __exactResolvedPath(
+      specifier,
+      __privSessionModuleResolveMeta(specifier, logicalReferrer || "", 0)
+    );
   }
   globalThis.require.resolve = function(specifier) {
+    rejectRuntimeLoaderOptions(arguments.length);
+    // Resolution is itself an existence oracle. Apply the caller-principal
+    // import edge before the metadata-only native resolver can probe a package;
+    // path spellings are re-authorized against the exact resolved principal by
+    // the native post-resolution gate.
+    // @ref LLP 0023#72-the-structured-result-and-its-error-classes
+    checkImportGate(specifier);
     return __exactResolvePath(specifier, "");
   };
   globalThis.require.resolve.paths = function(specifier) {
     return null;
   };
-  Object.defineProperty(globalThis.require, 'main', {
-    get: function() { return mainModule; },
-    configurable: true,
-    enumerable: true
-  });
   var exactRequire = function(specifier) {
+    rejectRuntimeLoaderOptions(arguments.length);
     // __exactRequire is a legacy/internal loader escape hatch used by runtime
     // bootstrap code. It is still reachable from package code, so it must carry
     // the same package-facing import gate as globalThis.require rather than
@@ -5924,14 +7501,8 @@
     checkImportGate(specifier);
     return load(specifier, "");
   };
-  exactRequire.cache = cache;
   exactRequire.resolve = globalThis.require.resolve;
   exactRequire.resolve.paths = globalThis.require.resolve.paths;
-  Object.defineProperty(exactRequire, 'main', {
-    get: function() { return mainModule; },
-    configurable: true,
-    enumerable: true
-  });
   globalThis.__exactRequire = exactRequire;
 
   function __exactInstallGlobalBuffer() {
@@ -6134,8 +7705,114 @@
     // on the stack. Surface a denial as a rejected promise per import()
     // semantics rather than a synchronous throw. (ENG-22629)
     var gateError = null;
+    var authenticatedImportRecord;
+    var authenticatedCacheAuthorization = null;
     try {
+      // ImportCall performs ToString before host resolution. Capture the
+      // intrinsic once, invoke user coercion exactly once, and preserve the
+      // Symbol rejection that String(Symbol()) would otherwise mask.
+      if (typeof specifier === 'symbol') {
+        throw new TypeError('Cannot convert a Symbol value to a string');
+      }
+      specifier = __privString(specifier);
       checkImportGate(specifier);
+      var __normalizedImportSpecifier = stripViteImportQuery(specifier);
+      // Route-memo authority is synchronous for every authenticated file
+      // route, including bare packages. The later Promise callback has no
+      // requesting frame and may consume only this exact route/key grant.
+      var __importResolution = authenticatedResolutionContext(
+        __normalizedImportSpecifier,
+        referrer,
+        'module',
+        2
+      );
+      var __importRouteKey = __importResolution === null
+        ? null
+        : __importResolution.routeKey;
+      var __importRoute = __importRouteKey !== null
+        ? __authenticatedResolutionMemo[__importRouteKey]
+        : null;
+      if (__importRoute && cache[__importRoute.cacheKey]) {
+        checkImportGate(
+          __normalizedImportSpecifier,
+          parent && parent.__exactPackageId,
+          __importRoute.cacheKey,
+          2
+        );
+        authenticatedCacheAuthorization = {
+          resolverMode: 'module',
+          resolutionKind: 2,
+          specifier: __normalizedImportSpecifier,
+          referrer: referrer,
+          routeKey: __importRouteKey,
+          nativeReferrer: __importResolution.nativeReferrer,
+          cacheKey: __importRoute.cacheKey
+        };
+      } else if (__importRoute && __importRouteKey !== null) {
+        delete __authenticatedResolutionMemo[__importRouteKey];
+      }
+      // Cold authenticated imports must resolve while the requesting frame is
+      // still live. The Promise turn below may consume only this exact record
+      // and SourceId authorization; it must not repeat native resolution under
+      // detached attribution. This is the ordinary-module counterpart of the
+      // private structured-session dynamic-import hook.
+      if (__importResolution !== null && !authenticatedCacheAuthorization) {
+        if (typeof __privModuleResolve !== 'function') {
+          throw new Error('Module resolver is unavailable');
+        }
+        var __importJson = __privModuleResolve(
+          __normalizedImportSpecifier,
+          __importResolution.nativeReferrer,
+          2
+        );
+        if (!__importJson) {
+          throw new Error('Module not found: ' + specifier);
+        }
+        authenticatedImportRecord = __privJsonParse(__importJson);
+        if (!authenticatedImportRecord ||
+            typeof authenticatedImportRecord !== 'object' ||
+            __privArrayIsArray(authenticatedImportRecord)) {
+          throw new TypeError('Invalid authenticated dynamic-import record');
+        }
+        if (authenticatedImportRecord.error) {
+          throw moduleResolutionError(authenticatedImportRecord);
+        }
+        if (isPathSpecifier(__normalizedImportSpecifier)) {
+          var __authenticatedImportTarget =
+            packageNameForRecord(authenticatedImportRecord, parent);
+          var __authenticatedImportRequester = parent && parent.__exactPackageName
+            ? parent.__exactPackageName
+            : packageNameFromPath(referrer);
+          if (__authenticatedImportTarget &&
+              __authenticatedImportTarget !== __authenticatedImportRequester) {
+            checkImportGate(
+              __authenticatedImportTarget,
+              parent && parent.__exactPackageId
+            );
+          }
+        }
+        if (authenticatedImportRecord.schema === 'ibex/module-resolution/1' &&
+            authenticatedImportRecord.kind !== 'builtin' &&
+            typeof authenticatedImportRecord.sourceId === 'string' &&
+            authenticatedImportRecord.sourceId.indexOf('ibex-source-id-v1:') === 0) {
+          checkImportGate(
+            __normalizedImportSpecifier,
+            parent && parent.__exactPackageId,
+            authenticatedImportRecord.sourceId,
+            2
+          );
+          authenticatedCacheAuthorization = {
+            resolverMode: 'module',
+            resolutionKind: 2,
+            specifier: __normalizedImportSpecifier,
+            referrer: referrer,
+            routeKey: __importRouteKey,
+            nativeReferrer: __importResolution.nativeReferrer,
+            cacheKey: authenticatedImportRecord.sourceId,
+            cacheExpected: false
+          };
+        }
+      }
       // A relative/absolute dynamic import can resolve to a DIFFERENT package
       // (`import('../sibling')`), which the raw-specifier gate above can't see.
       // The resolved-target gate in load() runs inside the microtask below where
@@ -6143,18 +7820,30 @@
       // unregistered sentinel and allow), so resolve + gate the target package's
       // name SYNCHRONOUSLY here while the requester frame is still on the stack.
       // (ENG-22637 review pass2)
-      if (isPathSpecifier(specifier)) {
+      if (isPathSpecifier(specifier) &&
+          !authenticatedCacheAuthorization &&
+          authenticatedImportRecord === undefined) {
         var __itp = null;
+        // Keep cwd attribution synchronous with the importing frame. In
+        // particular, do not fold a typed cwd denial into the ordinary
+        // "pre-resolution failed; let load retry" compatibility path.
         try {
           // This resolution only needs the target's package metadata, so use
           // the metadata-only bridge (ENG-23007) when available — the full
           // resolver would read + transpile + JSON-escape the module body a
           // second time on the JS thread for every relative/absolute dynamic
           // import, just for load() to redo it in the microtask (ENG-23481 #10).
-          var __iresolve = (typeof __exactModuleResolveMeta === 'function')
-            ? __exactModuleResolveMeta
-            : __exactModuleResolve;
-          var __irj = __iresolve(stripViteImportQuery(specifier), referrer);
+          var __iresolve = __privModuleResolveMeta || __privModuleResolve;
+          if (typeof __iresolve !== 'function') {
+            throw new Error('Module resolver is unavailable');
+          }
+          var __irj = __iresolve(
+            __normalizedImportSpecifier,
+            __importResolution === null
+              ? referrer
+              : __importResolution.nativeReferrer,
+            2
+          );
           if (__irj) {
             var __irec = JSON.parse(__irj);
             if (!__irec.error) __itp = packageNameForRecord(__irec, parent);
@@ -6166,38 +7855,31 @@
         if (__itp && __itp !== __irp) checkImportGate(__itp); // denial propagates to the catch below
       }
     } catch (e) { gateError = e; }
-    return Promise.resolve().then(function() {
+    return __privPromiseThen(__privPromiseResolve(), function() {
       if (gateError) throw gateError;
-      // Grant capabilities if provided
-      grantCapabilities(specifier, options);
-
-      var module = load(specifier, referrer, parent);
-      // Wrap CommonJS modules to look like ESM: { default: module, ...module }
-      // This allows: const mod = await import('foo'); mod.default or mod.something
-      if (module && !module.__esModule) {
-        var moduleType = typeof module;
-        // Wrap objects and functions
-        if (moduleType === 'object' || moduleType === 'function') {
-          var wrapped = { default: module };
-          // For objects, copy properties to wrapped
-          if (moduleType === 'object') {
-            for (var key in module) {
-              if (module.hasOwnProperty(key)) {
-                wrapped[key] = module[key];
-              }
-            }
-          }
-          return wrapped;
-        }
-      }
-      return module;
+      var module = load(
+        specifier,
+        referrer,
+        parent,
+        undefined,
+        authenticatedImportRecord,
+        undefined,
+        undefined,
+        authenticatedCacheAuthorization,
+        2
+      );
+      return wrapDynamicImportValue(module);
     });
   };
 
   // Set as globalThis.import (use globalThis.import('foo') or globalThis['import']('foo'))
+  var publicImport = function(specifier) {
+    rejectRuntimeLoaderOptions(arguments.length);
+    return importImpl(specifier, undefined, "", null);
+  };
   if (typeof globalThis.import === 'undefined') {
     Object.defineProperty(globalThis, 'import', {
-      value: importImpl,
+      value: publicImport,
       writable: false,
       enumerable: false,
       configurable: true
@@ -6205,7 +7887,7 @@
   }
 
   // Also provide as importModule() for convenience (since import(...) triggers parser)
-  globalThis.importModule = importImpl;
+  globalThis.importModule = publicImport;
 
   // Wrap queueMicrotask to throw TypeError for non-function arguments (spec requirement)
   if (typeof queueMicrotask === 'function') {

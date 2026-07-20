@@ -1,0 +1,438 @@
+{
+  "$schema": "./interrupt-machine.schema.json",
+  "version": 1,
+  "id": "ibex-terminal-interrupt-machine",
+  "sourceRef": "LLP 0025#6-interruption-and-cancellation",
+  "identityDomains": {
+    "targets": ["evaluation-1", "callback-1", "callback-2", "completion-1"],
+    "schedules": ["timer-1", "timer-2"],
+    "completionRequests": ["query-1"]
+  },
+  "initialState": {
+    "phase": "idle",
+    "bufferGeneration": 0,
+    "typedAhead": false,
+    "pendingSubmission": "none",
+    "executing": null,
+    "suspended": [],
+    "due": [],
+    "completionQueued": [],
+    "pendingCancellations": [],
+    "escapeCredit": 0,
+    "promise": "none",
+    "cause": null,
+    "exitCode": 0,
+    "ended": false
+  },
+  "properties": [
+    {
+      "id": "escape-bound",
+      "expression": "interrupts_without_editor_input <= 3"
+    },
+    {
+      "id": "notice-promise",
+      "expression": "(promised && no editor input since) => next interrupt terminal",
+      "statusRule": "promised status retained unless a cause already latched"
+    }
+  ],
+  "eventAlphabet": [
+    { "id": "interrupt", "kind": "external", "description": "One non-coalesced terminal Ctrl+C byte." },
+    { "id": "editor-input-at-prompt", "kind": "external", "description": "A non-interrupt byte accepted while a prompt was live." },
+    { "id": "typed-ahead-byte", "kind": "external", "description": "A byte received while no prompt was live; provenance survives draining." },
+    { "id": "drain-typed-ahead", "kind": "external", "description": "Deliver typed-ahead without treating it as fresh editor input." },
+    { "id": "submit", "kind": "external" },
+    { "id": "dispatch", "kind": "external" },
+    { "id": "unit-begin", "kind": "external" },
+    { "id": "unit-end", "kind": "external" },
+    { "id": "suspend", "kind": "external" },
+    { "id": "settle", "kind": "external" },
+    { "id": "due", "kind": "external" },
+    { "id": "undue", "kind": "external" },
+    { "id": "completion-queue", "kind": "external" },
+    { "id": "completion-begin", "kind": "external" },
+    { "id": "quiescence", "kind": "external" },
+    { "id": "cancellation-resolve", "kind": "external" },
+    { "id": "exit-code-set", "kind": "external" },
+    { "id": "cause-latch", "kind": "external" },
+    { "id": "session-end", "kind": "external" },
+    { "id": "promise-set", "kind": "derived-atomic", "description": "Emitted atomically with a promising interrupt notice." },
+    { "id": "promise-clear", "kind": "derived-atomic", "description": "Emitted atomically with editor input or session end." }
+  ],
+  "dispatchPrecedence": {
+    "termination": ["latched-cause", "prior-promise", "credit-three", "target-row"],
+    "status": ["latched-cause", "prior-promise", "interrupt-130-fallback"]
+  },
+  "interruptRows": [
+    {
+      "id": "idle-executing",
+      "label": "idle, an Executing unit is live",
+      "when": { "phase": "idle", "hasExecuting": true },
+      "decision": {
+        "notice": "cancelling-work",
+        "promise": "interrupt-130",
+        "abandonCompletion": true,
+        "raiseCancellation": "executing",
+        "buffer": "unchanged",
+        "submission": "unchanged"
+      }
+    },
+    {
+      "id": "idle-nonexecuting-work",
+      "label": "idle, only Suspended or Due work is live",
+      "when": { "phase": "idle", "hasExecuting": false, "hasSuspendedOrDue": true },
+      "decision": {
+        "notice": "work-in-flight",
+        "promise": "interrupt-130",
+        "abandonCompletion": true,
+        "raiseCancellation": "none",
+        "buffer": "unchanged",
+        "submission": "unchanged"
+      }
+    },
+    {
+      "id": "idle-prompt",
+      "label": "idle, no Executing, Suspended, or Due work",
+      "when": { "phase": "idle", "hasExecuting": false, "hasSuspendedOrDue": false },
+      "decision": {
+        "notice": "orderly-promise",
+        "promise": "orderly",
+        "abandonCompletion": true,
+        "raiseCancellation": "none",
+        "buffer": "unchanged",
+        "submission": "unchanged"
+      }
+    },
+    {
+      "id": "editor-completion-executing",
+      "label": "editing or continuation, completion is Executing",
+      "when": { "phase": ["editing", "continuation"], "executingCompletion": true },
+      "decision": {
+        "notice": "cancelling-completion",
+        "promise": "interrupt-130",
+        "abandonCompletion": true,
+        "raiseCancellation": "executing",
+        "buffer": "preserve-invalidate",
+        "submission": "unchanged"
+      }
+    },
+    {
+      "id": "editor-completion-queued",
+      "label": "editing or continuation, completion is queued but not begun",
+      "when": { "phase": ["editing", "continuation"], "executingCompletion": false, "hasCompletionQueued": true },
+      "decision": {
+        "notice": "work-in-flight",
+        "promise": "interrupt-130",
+        "abandonCompletion": true,
+        "raiseCancellation": "none",
+        "buffer": "preserve-invalidate",
+        "submission": "unchanged"
+      }
+    },
+    {
+      "id": "editor-buffer",
+      "label": "editing or continuation, no completion query is live",
+      "when": { "phase": ["editing", "continuation"], "executingCompletion": false, "hasCompletionQueued": false },
+      "decision": {
+        "notice": "input-discarded",
+        "promise": "none",
+        "abandonCompletion": false,
+        "raiseCancellation": "none",
+        "buffer": "discard-invalidate",
+        "submission": "unchanged"
+      }
+    },
+    {
+      "id": "evaluating-executing",
+      "label": "evaluating, an Executing unit is live",
+      "when": { "phase": "evaluating", "hasExecuting": true },
+      "decision": {
+        "notice": "cancelling-work",
+        "promise": "interrupt-130",
+        "abandonCompletion": true,
+        "raiseCancellation": "executing",
+        "buffer": "unchanged",
+        "submission": "discard"
+      }
+    },
+    {
+      "id": "evaluating-nonexecuting-work",
+      "label": "evaluating, only Suspended or Due work is live",
+      "when": { "phase": "evaluating", "hasExecuting": false, "hasSuspendedOrDue": true },
+      "decision": {
+        "notice": "work-in-flight",
+        "promise": "interrupt-130",
+        "abandonCompletion": true,
+        "raiseCancellation": "none",
+        "buffer": "unchanged",
+        "submission": "discard"
+      }
+    },
+    {
+      "id": "evaluating-dispatched",
+      "label": "evaluating, submission dispatched but no unit id exists yet",
+      "when": { "phase": "evaluating", "hasExecuting": false, "hasSuspendedOrDue": false, "pendingSubmission": "dispatched" },
+      "decision": {
+        "notice": "work-in-flight",
+        "promise": "interrupt-130",
+        "abandonCompletion": true,
+        "raiseCancellation": "none",
+        "buffer": "unchanged",
+        "submission": "discard"
+      }
+    },
+    {
+      "id": "evaluating-undispatched",
+      "label": "evaluating, submission has not been dispatched",
+      "when": { "phase": "evaluating", "hasExecuting": false, "hasSuspendedOrDue": false, "pendingSubmission": "undispatched" },
+      "decision": {
+        "notice": "none",
+        "promise": "none",
+        "abandonCompletion": true,
+        "raiseCancellation": "none",
+        "buffer": "unchanged",
+        "submission": "discard-and-idle"
+      }
+    }
+  ],
+  "eventRules": [
+    { "id": "prompt-input-resets-run", "event": "editor-input-at-prompt", "operation": "accept-editor-input" },
+    { "id": "typed-ahead-keeps-run", "event": "typed-ahead-byte", "operation": "record-typed-ahead" },
+    { "id": "drained-provenance-keeps-run", "event": "drain-typed-ahead", "operation": "drain-typed-ahead" },
+    { "id": "accept-submission", "event": "submit", "operation": "submit" },
+    { "id": "dispatch-submission", "event": "dispatch", "operation": "dispatch" },
+    { "id": "publish-unit-begin", "event": "unit-begin", "operation": "unit-begin" },
+    { "id": "publish-unit-end", "event": "unit-end", "operation": "unit-end" },
+    { "id": "publish-suspend", "event": "suspend", "operation": "suspend" },
+    { "id": "publish-settle", "event": "settle", "operation": "settle" },
+    { "id": "publish-due", "event": "due", "operation": "due" },
+    { "id": "publish-undue", "event": "undue", "operation": "undue" },
+    { "id": "queue-completion", "event": "completion-queue", "operation": "completion-queue" },
+    { "id": "begin-completion", "event": "completion-begin", "operation": "completion-begin" },
+    { "id": "publish-quiescence", "event": "quiescence", "operation": "quiescence" },
+    { "id": "resolve-cancellation", "event": "cancellation-resolve", "operation": "cancellation-resolve" },
+    { "id": "mirror-exit-code", "event": "exit-code-set", "operation": "exit-code-set" },
+    { "id": "latch-cause-once", "event": "cause-latch", "operation": "cause-latch" },
+    { "id": "finish-session", "event": "session-end", "operation": "session-end" }
+  ],
+  "namedSchedules": [
+    {
+      "id": "a-tight-turnover",
+      "llpSchedule": "a",
+      "title": "tight timer turnover",
+      "steps": [
+        { "event": { "event": "due", "sched": "timer-1" } },
+        { "event": { "event": "unit-begin", "target": "callback-1", "role": "callback", "sched": "timer-1" } },
+        { "event": { "event": "interrupt" }, "expect": { "row": "idle-executing", "promise": "interrupt-130", "cancelTarget": "callback-1", "terminal": false } },
+        { "event": { "event": "unit-end", "target": "callback-1" } },
+        { "event": { "event": "due", "sched": "timer-1" } },
+        { "event": { "event": "unit-begin", "target": "callback-2", "role": "callback", "sched": "timer-1" } },
+        { "event": { "event": "interrupt" }, "expect": { "terminal": true, "status": 130 } }
+      ],
+      "expect": { "interrupts": 2, "finalStatus": 130, "causeKind": "interrupt" }
+    },
+    {
+      "id": "b-gappy-turnover",
+      "llpSchedule": "b",
+      "title": "gappy timer turnover changes target class",
+      "steps": [
+        { "event": { "event": "due", "sched": "timer-1" } },
+        { "event": { "event": "unit-begin", "target": "callback-1", "role": "callback", "sched": "timer-1" } },
+        { "event": { "event": "interrupt" }, "expect": { "promise": "interrupt-130", "terminal": false } },
+        { "event": { "event": "unit-end", "target": "callback-1" } },
+        { "event": { "event": "interrupt" }, "expect": { "terminal": true, "status": 130 } }
+      ],
+      "expect": { "interrupts": 2, "finalStatus": 130 }
+    },
+    {
+      "id": "c-typed-ahead-runaway",
+      "llpSchedule": "c",
+      "title": "typed-ahead does not reset a running-work promise",
+      "steps": [
+        { "event": { "event": "editor-input-at-prompt", "nextPhase": "editing" } },
+        { "event": { "event": "submit" } },
+        { "event": { "event": "dispatch" } },
+        { "event": { "event": "unit-begin", "target": "evaluation-1", "role": "evaluation" } },
+        { "event": { "event": "interrupt" }, "expect": { "promise": "interrupt-130", "cancelTarget": "evaluation-1" } },
+        { "event": { "event": "typed-ahead-byte" }, "expect": { "promise": "interrupt-130", "typedAhead": true, "escapeCredit": 1 } },
+        { "event": { "event": "interrupt" }, "expect": { "terminal": true, "status": 130 } }
+      ],
+      "expect": { "interrupts": 2, "finalStatus": 130 }
+    },
+    {
+      "id": "d-completion-ends-between-presses",
+      "llpSchedule": "d",
+      "title": "executing completion ends while background work becomes ready",
+      "steps": [
+        { "event": { "event": "editor-input-at-prompt", "nextPhase": "editing" } },
+        { "event": { "event": "completion-queue", "request": "query-1" } },
+        { "event": { "event": "completion-begin", "request": "query-1", "target": "completion-1" } },
+        { "event": { "event": "due", "sched": "timer-1" } },
+        { "event": { "event": "interrupt" }, "expect": { "row": "editor-completion-executing", "promise": "interrupt-130", "cancelTarget": "completion-1", "bufferGeneration": 1 } },
+        { "event": { "event": "unit-end", "target": "completion-1" } },
+        { "event": { "event": "interrupt" }, "expect": { "terminal": true, "status": 130 } }
+      ],
+      "expect": { "interrupts": 2, "finalStatus": 130, "bufferGeneration": 1 }
+    },
+    {
+      "id": "e-orderly-promise-survives-due",
+      "llpSchedule": "e",
+      "title": "credit-three honors an Orderly promise after a timer becomes due",
+      "steps": [
+        { "event": { "event": "editor-input-at-prompt", "nextPhase": "editing" } },
+        { "event": { "event": "interrupt" }, "expect": { "row": "editor-buffer", "promise": "none", "escapeCredit": 1 } },
+        { "event": { "event": "interrupt" }, "expect": { "row": "idle-prompt", "promise": "orderly", "escapeCredit": 2 } },
+        { "event": { "event": "due", "sched": "timer-1" } },
+        { "event": { "event": "interrupt" }, "expect": { "terminal": true, "status": 0, "statusClass": "orderly" } }
+      ],
+      "expect": { "interrupts": 3, "finalStatus": 0, "causeKind": "orderly" }
+    },
+    {
+      "id": "e-interrupt-promise-survives-finish",
+      "llpSchedule": "e",
+      "title": "Interrupt(130) promise survives work finishing",
+      "steps": [
+        { "event": { "event": "editor-input-at-prompt", "nextPhase": "editing" } },
+        { "event": { "event": "submit" } },
+        { "event": { "event": "dispatch" } },
+        { "event": { "event": "unit-begin", "target": "evaluation-1", "role": "evaluation" } },
+        { "event": { "event": "interrupt" }, "expect": { "promise": "interrupt-130" } },
+        { "event": { "event": "unit-end", "target": "evaluation-1" } },
+        { "event": { "event": "interrupt" }, "expect": { "terminal": true, "status": 130, "statusClass": "interrupt-130" } }
+      ],
+      "expect": { "interrupts": 2, "finalStatus": 130 }
+    },
+    {
+      "id": "f-drained-typed-ahead",
+      "llpSchedule": "f",
+      "title": "draining typed-ahead at a republished prompt does not reset",
+      "steps": [
+        { "event": { "event": "editor-input-at-prompt", "nextPhase": "editing" } },
+        { "event": { "event": "submit" } },
+        { "event": { "event": "dispatch" } },
+        { "event": { "event": "unit-begin", "target": "evaluation-1", "role": "evaluation" } },
+        { "event": { "event": "interrupt" } },
+        { "event": { "event": "typed-ahead-byte" } },
+        { "event": { "event": "unit-end", "target": "evaluation-1" } },
+        { "event": { "event": "drain-typed-ahead" }, "expect": { "promise": "interrupt-130", "typedAhead": false, "escapeCredit": 1 } },
+        { "event": { "event": "interrupt" }, "expect": { "terminal": true, "status": 130 } }
+      ],
+      "expect": { "interrupts": 2, "finalStatus": 130 }
+    },
+    {
+      "id": "g-idle-shutdown-expedite",
+      "llpSchedule": "g",
+      "title": "third idle press expedites without changing the orderly cause",
+      "steps": [
+        { "event": { "event": "interrupt" }, "expect": { "promise": "orderly", "terminal": false } },
+        { "event": { "event": "interrupt" }, "expect": { "terminal": true, "status": 0, "causeKind": "orderly" } },
+        { "event": { "event": "interrupt" }, "expect": { "terminal": true, "status": 0, "causeKind": "orderly", "expedited": true } }
+      ],
+      "expect": { "interrupts": 3, "finalStatus": 0, "causeKind": "orderly" }
+    },
+    {
+      "id": "h-cause-supersedes-promise-status",
+      "llpSchedule": "h",
+      "title": "cooperative exit cause supersedes an Interrupt(130) promise",
+      "steps": [
+        { "event": { "event": "editor-input-at-prompt", "nextPhase": "editing" } },
+        { "event": { "event": "submit" } },
+        { "event": { "event": "dispatch" } },
+        { "event": { "event": "unit-begin", "target": "evaluation-1", "role": "evaluation" } },
+        { "event": { "event": "interrupt" }, "expect": { "promise": "interrupt-130" } },
+        { "event": { "event": "cause-latch", "kind": "cooperative", "status": 7 } },
+        { "event": { "event": "interrupt" }, "expect": { "terminal": true, "status": 7, "causeKind": "cooperative", "expedited": true } }
+      ],
+      "expect": { "interrupts": 2, "finalStatus": 7, "causeKind": "cooperative" }
+    },
+    {
+      "id": "i-executing-beats-suspended",
+      "llpSchedule": "i",
+      "title": "executing callback is selected over a suspended evaluation",
+      "steps": [
+        { "event": { "event": "editor-input-at-prompt", "nextPhase": "editing" } },
+        { "event": { "event": "submit" } },
+        { "event": { "event": "dispatch" } },
+        { "event": { "event": "unit-begin", "target": "evaluation-1", "role": "evaluation" } },
+        { "event": { "event": "suspend", "target": "evaluation-1" } },
+        { "event": { "event": "due", "sched": "timer-1" } },
+        { "event": { "event": "unit-begin", "target": "callback-1", "role": "callback", "sched": "timer-1" } },
+        { "event": { "event": "interrupt" }, "expect": { "row": "evaluating-executing", "cancelTarget": "callback-1", "promise": "interrupt-130" } }
+      ],
+      "expect": { "interrupts": 1, "pendingCancellations": ["callback-1"] }
+    },
+    {
+      "id": "j-undispatched-three-press",
+      "llpSchedule": "j",
+      "title": "undispatched submission takes three presses",
+      "steps": [
+        { "event": { "event": "editor-input-at-prompt", "nextPhase": "editing" } },
+        { "event": { "event": "submit" } },
+        { "event": { "event": "interrupt" }, "expect": { "row": "evaluating-undispatched", "promise": "none", "phase": "idle" } },
+        { "event": { "event": "interrupt" }, "expect": { "promise": "orderly", "terminal": false } },
+        { "event": { "event": "interrupt" }, "expect": { "terminal": true, "status": 0 } }
+      ],
+      "expect": { "interrupts": 3, "finalStatus": 0 }
+    },
+    {
+      "id": "k-completion-queued",
+      "llpSchedule": "k",
+      "title": "queued completion is abandoned without a cancellation request",
+      "steps": [
+        { "event": { "event": "editor-input-at-prompt", "nextPhase": "editing" } },
+        { "event": { "event": "completion-queue", "request": "query-1" } },
+        { "event": { "event": "interrupt" }, "expect": { "row": "editor-completion-queued", "notice": "work-in-flight", "cancelTarget": null, "promise": "interrupt-130", "completionQueued": [] } }
+      ],
+      "expect": { "interrupts": 1, "pendingCancellations": [] }
+    },
+    {
+      "id": "k-completion-executing",
+      "llpSchedule": "k",
+      "title": "executing completion receives its exact unit id",
+      "steps": [
+        { "event": { "event": "editor-input-at-prompt", "nextPhase": "editing" } },
+        { "event": { "event": "completion-queue", "request": "query-1" } },
+        { "event": { "event": "completion-begin", "request": "query-1", "target": "completion-1" } },
+        { "event": { "event": "interrupt" }, "expect": { "row": "editor-completion-executing", "notice": "cancelling-completion", "cancelTarget": "completion-1", "promise": "interrupt-130" } }
+      ],
+      "expect": { "interrupts": 1, "pendingCancellations": ["completion-1"] }
+    },
+    {
+      "id": "l-status-table-agreement",
+      "llpSchedule": "l",
+      "title": "credit-three resolves the promised Orderly class using live exitCode",
+      "steps": [
+        { "event": { "event": "editor-input-at-prompt", "nextPhase": "editing" } },
+        { "event": { "event": "interrupt" } },
+        { "event": { "event": "interrupt" }, "expect": { "promise": "orderly", "escapeCredit": 2 } },
+        { "event": { "event": "exit-code-set", "status": 7 } },
+        { "event": { "event": "due", "sched": "timer-1" } },
+        { "event": { "event": "interrupt" }, "expect": { "terminal": true, "status": 7, "statusClass": "orderly" } }
+      ],
+      "expect": { "interrupts": 3, "finalStatus": 7, "causeKind": "orderly" }
+    },
+    {
+      "id": "m-idle-queued-completion",
+      "llpSchedule": "m",
+      "title": "lone queued completion at idle selects the idle-prompt row",
+      "steps": [
+        { "event": { "event": "completion-queue", "request": "query-1" } },
+        { "event": { "event": "interrupt" }, "expect": { "row": "idle-prompt", "promise": "orderly", "cancelTarget": null, "completionQueued": [] } },
+        { "event": { "event": "interrupt" }, "expect": { "terminal": true, "status": 0 } }
+      ],
+      "expect": { "interrupts": 2, "finalStatus": 0 }
+    },
+    {
+      "id": "n-distinct-due-identities",
+      "llpSchedule": "n",
+      "title": "two due timers remain distinct when one begins",
+      "steps": [
+        { "event": { "event": "due", "sched": "timer-1" } },
+        { "event": { "event": "due", "sched": "timer-2" }, "expect": { "due": ["timer-1", "timer-2"] } },
+        { "event": { "event": "unit-begin", "target": "callback-1", "role": "callback", "sched": "timer-1" }, "expect": { "due": ["timer-2"], "executingTarget": "callback-1" } },
+        { "event": { "event": "unit-end", "target": "callback-1" } },
+        { "event": { "event": "interrupt" }, "expect": { "row": "idle-nonexecuting-work", "promise": "interrupt-130", "cancelTarget": null, "due": ["timer-2"] } }
+      ],
+      "expect": { "interrupts": 1, "due": ["timer-2"], "pendingCancellations": [] }
+    }
+  ]
+}

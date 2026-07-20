@@ -61,17 +61,6 @@ facebook::jsi::Function unsupportedFunction(facebook::jsi::Runtime& rt, const ch
       });
 }
 
-void installUnsupportedGlobal(ExactHermesRuntime* handle, const char* name) {
-  auto& rt = *handle->runtime;
-  rt.global().setProperty(rt, name, unsupportedFunction(rt, name));
-}
-
-void installUnsupportedModule(ExactHermesRuntime* handle, std::initializer_list<const char*> names) {
-  for (const char* name : names) {
-    installUnsupportedGlobal(handle, name);
-  }
-}
-
 void ensureWinsock() {
   static std::once_flag once;
   std::call_once(once, []() {
@@ -2087,8 +2076,11 @@ void installProcessSetup(ExactHermesRuntime* handle) {
           callback_args.emplace_back(runtime, args[i]);
         }
         handle->next_tick.push_back(
-            NextTickEntry{currentPrincipalId(), exactCollectTypedPrincipalStack(),
-                          std::move(callback), std::move(callback_args)});
+            NextTickEntry{exactAllocateAsyncEventIdentity(handle),
+                          currentPrincipalId(),
+                          exactCurrentAsyncEvaluationAssociation(handle),
+                          exactCollectTypedPrincipalStack(), std::move(callback),
+                          std::move(callback_args)});
         return facebook::jsi::Value::undefined();
       });
   process.setProperty(rt, "nextTick", std::move(nextTickFn));
@@ -2117,6 +2109,11 @@ void installDnsHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        if (!checkCapability("network:resolve:*")) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "Permission denied: __exactDnsGetServers requires network:resolve:*");
+        }
         ULONG size = 0;
         if (GetNetworkParams(nullptr, &size) != ERROR_BUFFER_OVERFLOW || size == 0) {
           return facebook::jsi::String::createFromUtf8(runtime, "[]");
@@ -2249,7 +2246,10 @@ void installDnsHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactDnsResolve", std::move(dnsResolveFn));
 
-  installUnsupportedGlobal(handle, "__exactDnsReverse");
+  rt.global().setProperty(
+      rt,
+      "__exactDnsReverse",
+      unsupportedFunction(rt, "__exactDnsReverse"));
 }
 
 void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
@@ -3052,16 +3052,42 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactTcpGetFd", std::move(tcpGetFdFn));
 
-  installUnsupportedModule(handle, {
+  rt.global().setProperty(
+      rt,
       "__exactUnixConnect",
+      unsupportedFunction(rt, "__exactUnixConnect"));
+  rt.global().setProperty(
+      rt,
       "__exactUnixListen",
+      unsupportedFunction(rt, "__exactUnixListen"));
+  rt.global().setProperty(
+      rt,
       "__exactUnixAccept",
+      unsupportedFunction(rt, "__exactUnixAccept"));
+  rt.global().setProperty(
+      rt,
       "__exactUdpSocket",
+      unsupportedFunction(rt, "__exactUdpSocket"));
+  rt.global().setProperty(
+      rt,
       "__exactUdpBind",
+      unsupportedFunction(rt, "__exactUdpBind"));
+  rt.global().setProperty(
+      rt,
       "__exactUdpSend",
+      unsupportedFunction(rt, "__exactUdpSend"));
+  rt.global().setProperty(
+      rt,
       "__exactUdpRecv",
+      unsupportedFunction(rt, "__exactUdpRecv"));
+  rt.global().setProperty(
+      rt,
       "__exactUdpClose",
-      "__exactUdpAddress"});
+      unsupportedFunction(rt, "__exactUdpClose"));
+  rt.global().setProperty(
+      rt,
+      "__exactUdpAddress",
+      unsupportedFunction(rt, "__exactUdpAddress"));
 
   // Native TLS bridge (ENG-23526): these shims ride the Windows TCP globals
   // above and are driven from src/builtins/tls.js just like the Unix bridge.
@@ -3075,7 +3101,9 @@ extern "C" int ex_hermes_debugger_enable(ExactHermesRuntime* runtime) {
 
 extern "C" char* ex_hermes_debugger_get_scripts(ExactHermesRuntime* runtime) {
   (void)runtime;
-  return copyMallocString("[]");
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces —
+  // the no-debugger target must not return even an empty debugger data shape.
+  return nullptr;
 }
 
 extern "C" char* ex_hermes_debugger_get_script_source(
