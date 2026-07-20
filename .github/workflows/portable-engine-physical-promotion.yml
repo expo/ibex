@@ -1,0 +1,456 @@
+# Trusted, same-runner macOS ceremony for one exact portable-engine source A.
+# It deliberately stops at the first incomplete source/executor obligation and
+# never writes P or C. A successful run may upload candidate bytes, but only a
+# separate reviewed one-commit promotion topic and ordinary PR merge can grant
+# the checked admission described by LLP 0035.
+#
+# @ref LLP 0035#transport-and-distribution-provenance — consume the exact
+# revision-scoped archive and detached Sigstore bundle produced by the reviewed
+# Hermes workflow, joined by release asset IDs/digests and signed run/attempt.
+# @ref LLP 0035#build-consumption-and-post-link-contracts — compile the checked
+# Cargo executable set only through the production portable runner, retain its
+# JSON stream, and require the complete production post-link set first.
+# @ref LLP 0035#reports-and-advertisements — only the complete v2 generator and
+# its filesystem verifier may furnish the immutable candidate bundle.
+# @ref LLP 0032#stage-1-bounded-sequential-execution — every authority-bearing
+# phase remains sequential on one bounded GitHub-hosted runner.
+name: Portable engine physical promotion (macOS)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: portable-engine-physical-promotion-${{ github.sha }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  physical_promotion:
+    name: Exact source-A physical promotion candidate
+    runs-on: macos-14
+    timeout-minutes: 360
+    permissions:
+      actions: read
+      contents: read
+    env:
+      HERMES_ENABLE_DEBUGGER: "false"
+      IBEX_REQUIRE_HERMES_PROFILE_PROVENANCE: "1"
+    steps:
+      - name: Check out exact source A without credentials
+        timeout-minutes: 5
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Assert trusted source-A and same-runner boundary
+        timeout-minutes: 5
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "ccheever/ibex" ]]
+          [[ "$EVENT_NAME" == "workflow_dispatch" ]]
+          [[ "$GITHUB_REF" == "refs/heads/main" ]]
+          [[ "$RUNNER_ENVIRONMENT" == "github-hosted" ]]
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$WORKFLOW_SHA" == "$GITHUB_SHA" ]]
+          [[ "$WORKFLOW_REF" == "ccheever/ibex/.github/workflows/portable-engine-physical-promotion.yml@refs/heads/main" ]]
+          [[ "$(git rev-parse --verify HEAD^{commit})" == "$GITHUB_SHA" ]]
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+          test -z "$(git status --porcelain=v1 --untracked-files=all --ignore-submodules=none)"
+          test -z "${GH_TOKEN:-}"
+          test -z "${GITHUB_TOKEN:-}"
+          test -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"
+          test -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"
+          if git config --local --get-regexp '^(http\..*\.extraheader|credential\.)' >/dev/null; then
+            echo "::error::checkout left a persisted Git credential"
+            exit 1
+          fi
+          mkdir -p target/portable-engine-physical-promotion
+          chmod 700 target/portable-engine-physical-promotion
+          started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "IBEX_CAPSEC_JOB_STARTED_AT=$started_at" >> "$GITHUB_ENV"
+          SOURCE_REVISION="$GITHUB_SHA" RUN_ID="$GITHUB_RUN_ID" RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" \
+            node - <<'NODE' > target/portable-engine-physical-promotion/workflow-context.json
+          const context = {
+            schema: "ibex/portable-engine-physical-promotion-workflow-context/1",
+            sourceRevision: process.env.SOURCE_REVISION,
+            workflowRunId: process.env.RUN_ID,
+            workflowRunAttempt: process.env.RUN_ATTEMPT,
+            runnerClass: "github-hosted",
+            authorityClass: "source-a-diagnostic-candidate",
+          };
+          process.stdout.write(`${JSON.stringify(context)}\n`);
+          NODE
+
+      - name: Install exact Bun
+        timeout-minutes: 5
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install exact Go for the offline verifier
+        timeout-minutes: 5
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          cache: false
+          go-version: 1.26.5
+
+      - name: Install exact Rust toolchain
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.93.1 --profile minimal
+          rustup default 1.93.1
+          [[ "$(rustc --version)" == "rustc 1.93.1 (01f6ddf75 2026-02-11)" ]]
+
+      - name: Install locked JavaScript dependencies
+        timeout-minutes: 10
+        run: bun install --frozen-lockfile
+
+      - name: Test physical-promotion security and source shape
+        timeout-minutes: 10
+        run: >-
+          node --test
+          scripts/portable-engine-physical-promotion.test.mjs
+          scripts/portable-engine-physical-promotion-workflow.test.mjs
+          && bun test
+          packages/ibex-devtools/src/scripts/generate-capsec-portable-promotion-target-cells.test.mjs
+          packages/ibex-devtools/src/scripts/capsec-portable-promotion-bundle.test.mjs
+
+      - name: Derive the exact revision-scoped release coordinates
+        id: artifact
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          source scripts/hermes-version.sh
+          commit12="${IBEX_HERMES_SOURCE_COMMIT:0:12}"
+          patch_digest="$(ibex_hermes_patch_digest)"
+          identity="${commit12}-${patch_digest}"
+          cache_key="$(ibex_hermes_apple_source_cache_key "$commit12" "")"
+          release_tag="hermes-portable-${identity}-${GITHUB_SHA}"
+          archive_name="hermes-portable-macos-arm64-release-${cache_key}-${GITHUB_SHA}.tar.gz"
+          [[ "$identity" =~ ^[0-9a-f]{12}-[0-9a-f]{12}$ ]]
+          [[ "$cache_key" =~ ^[A-Za-z0-9._-]+$ ]]
+          [[ "$release_tag" =~ ^[A-Za-z0-9._-]+$ ]]
+          [[ "$archive_name" =~ ^[A-Za-z0-9._-]+$ ]]
+          {
+            echo "release_tag=$release_tag"
+            echo "archive_name=$archive_name"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve one exact four-member portable release
+        id: release
+        timeout-minutes: 5
+        env:
+          ARCHIVE_NAME: ${{ steps.artifact.outputs.archive_name }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.artifact.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          umask 077
+          input_root="$RUNNER_TEMP/ibex-portable-physical-promotion"
+          test ! -e "$input_root"
+          mkdir "$input_root"
+          chmod 700 "$input_root"
+          release_before="$input_root/release-before.json"
+          release_plan="$PWD/target/portable-engine-physical-promotion/release-plan.json"
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
+            > "$release_before"
+          node scripts/portable-engine-physical-promotion.mjs plan-release \
+            --metadata "$release_before" \
+            --source-revision "$GITHUB_SHA" \
+            --release-tag "$RELEASE_TAG" \
+            --archive-name "$ARCHIVE_NAME" \
+            --output "$release_plan"
+          {
+            echo "input_root=$input_root"
+            echo "release_plan=$release_plan"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download and rejoin exact release assets by immutable IDs
+        id: download
+        timeout-minutes: 10
+        env:
+          ARCHIVE_NAME: ${{ steps.artifact.outputs.archive_name }}
+          GH_TOKEN: ${{ github.token }}
+          INPUT_ROOT: ${{ steps.release.outputs.input_root }}
+          RELEASE_PLAN: ${{ steps.release.outputs.release_plan }}
+          RELEASE_TAG: ${{ steps.artifact.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          umask 077
+          download_root="$INPUT_ROOT/download"
+          mkdir "$download_root"
+          chmod 700 "$download_root"
+          while IFS=$'\t' read -r asset_id asset_name; do
+            [[ "$asset_id" =~ ^[1-9][0-9]*$ ]]
+            [[ "$asset_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,511}$ ]]
+            destination="$download_root/$asset_name"
+            test ! -e "$destination"
+            gh api \
+              -H "Accept: application/octet-stream" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" \
+              > "$destination"
+            chmod 600 "$destination"
+          done < <(node --input-type=module - "$RELEASE_PLAN" <<'NODE'
+          import fs from "node:fs";
+          const plan = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          for (const asset of plan.assets) {
+            process.stdout.write(`${asset.id}\t${asset.name}\n`);
+          }
+          NODE
+          )
+          release_after="$INPUT_ROOT/release-after.json"
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
+            > "$release_after"
+          node scripts/portable-engine-physical-promotion.mjs verify-release-download \
+            --plan "$RELEASE_PLAN" \
+            --metadata "$release_after" \
+            --directory "$download_root"
+          {
+            echo "archive_path=$download_root/$ARCHIVE_NAME"
+            echo "bundle_path=$download_root/$ARCHIVE_NAME.sigstore.json"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build the checksum-pinned offline attestation verifier
+        timeout-minutes: 15
+        run: ./scripts/build-portable-engine-attestation-verifier.sh
+
+      - name: Production-install the diagnostic source-A package
+        id: install
+        timeout-minutes: 15
+        env:
+          ARCHIVE_PATH: ${{ steps.download.outputs.archive_path }}
+          BUNDLE_PATH: ${{ steps.download.outputs.bundle_path }}
+        run: |
+          set -euo pipefail
+          installation="$PWD/target/portable-engine-physical-promotion/installation.json"
+          node scripts/portable-engine-physical-promotion.mjs install-source-a \
+            --archive "$ARCHIVE_PATH" \
+            --bundle "$BUNDLE_PATH" \
+            --source-revision "$GITHUB_SHA" \
+            --repo-root "$PWD" \
+            --output "$installation"
+          INSTALLATION="$installation" node - "$GITHUB_OUTPUT" <<'NODE'
+          const fs = require("node:fs");
+          const value = JSON.parse(fs.readFileSync(process.env.INSTALLATION, "utf8"));
+          if (value.checkedAdmission.authorized !== false) {
+            throw new Error("source A unexpectedly received promotion authority");
+          }
+          fs.appendFileSync(process.argv[2], [
+            `installation=${process.env.INSTALLATION}`,
+            `artifact_id=${value.artifactId}`,
+            `archive_digest=${value.archiveDigest}`,
+            `producer_run_id=${value.producer.runId}`,
+            `producer_run_attempt=${value.producer.runAttempt}`,
+            "",
+          ].join("\n"));
+          NODE
+
+      - name: Rejoin the signed producer run and exact attempt
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INSTALLATION: ${{ steps.install.outputs.installation }}
+          PRODUCER_RUN_ATTEMPT: ${{ steps.install.outputs.producer_run_attempt }}
+          PRODUCER_RUN_ID: ${{ steps.install.outputs.producer_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$PRODUCER_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$PRODUCER_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          producer_run="$RUNNER_TEMP/ibex-portable-physical-promotion/producer-run.json"
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$PRODUCER_RUN_ID/attempts/$PRODUCER_RUN_ATTEMPT" \
+            > "$producer_run"
+          node scripts/portable-engine-physical-promotion.mjs verify-producer-run \
+            --installation "$INSTALLATION" \
+            --metadata "$producer_run"
+
+      - name: Build the exact checked Cargo executable set
+        timeout-minutes: 90
+        env:
+          ARCHIVE_DIGEST: ${{ steps.install.outputs.archive_digest }}
+          ARTIFACT_ID: ${{ steps.install.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          cargo_messages="$PWD/target/portable-engine-physical-promotion/cargo-messages.jsonl"
+          node scripts/run-portable-hermes-cargo.mjs \
+            --repo-root "$PWD" \
+            --artifact-id "$ARTIFACT_ID" \
+            --archive-digest "$ARCHIVE_DIGEST" \
+            --expected-source-revision "$GITHUB_SHA" \
+            -- \
+            test --locked --no-run --all-targets \
+            --features capsec-conformance-observer,cli-notify,default,host-http-server,module-runner \
+            --message-format=json \
+            | tee "$cargo_messages"
+          test -s "$cargo_messages"
+
+      - name: Select build consumption only from the retained Cargo stream
+        id: build
+        timeout-minutes: 5
+        env:
+          INSTALLATION: ${{ steps.install.outputs.installation }}
+        run: |
+          set -euo pipefail
+          cargo_messages="$PWD/target/portable-engine-physical-promotion/cargo-messages.jsonl"
+          selection="$PWD/target/portable-engine-physical-promotion/build-selection.json"
+          node scripts/portable-engine-physical-promotion.mjs select-build-consumption \
+            --cargo-messages "$cargo_messages" \
+            --installation "$INSTALLATION" \
+            --repo-root "$PWD" \
+            --output "$selection"
+          SELECTION="$selection" node - "$GITHUB_OUTPUT" <<'NODE'
+          const fs = require("node:fs");
+          const value = JSON.parse(fs.readFileSync(process.env.SELECTION, "utf8"));
+          if (!value.buildConsumptionPath.startsWith("target/")) {
+            throw new Error("build consumption escaped target/");
+          }
+          fs.appendFileSync(process.argv[2], [
+            `build_consumption=${process.cwd()}/${value.buildConsumptionPath}`,
+            `build_consumption_digest=${value.buildConsumptionDigest}`,
+            "",
+          ].join("\n"));
+          NODE
+
+      - name: Verify the complete production post-link executable set
+        timeout-minutes: 20
+        env:
+          ARCHIVE_DIGEST: ${{ steps.install.outputs.archive_digest }}
+          BUILD_CONSUMPTION: ${{ steps.build.outputs.build_consumption }}
+        run: |
+          set -euo pipefail
+          bun scripts/portable-engine-post-link.mjs \
+            --expected-source-revision "$GITHUB_SHA" \
+            --build-consumption "$BUILD_CONSUMPTION" \
+            --cargo-messages "$PWD/target/portable-engine-physical-promotion/cargo-messages.jsonl" \
+            --archive-digest "$ARCHIVE_DIGEST" \
+            --repo-root "$PWD"
+          test -f "$PWD/target/portable-engine-post-link/${{ steps.build.outputs.build_consumption_digest }}/COMPLETE.json"
+
+      - name: Generate the independently source-derived rich recipe catalog
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          node packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs \
+            --target aarch64-apple-darwin \
+            --output target/portable-engine-physical-promotion/executable-recipes.json
+
+      # This is the first expected refusal at the current source A: the rich
+      # recipe catalog still has unresolved fixtures. It must become complete
+      # before a separately derived target-cell candidate can exist.
+      - name: Derive complete promotion target cells or refuse
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          node packages/ibex-devtools/src/scripts/generate-capsec-portable-promotion-target-cells.mjs \
+            --target aarch64-apple-darwin \
+            --recipe-catalog target/portable-engine-physical-promotion/executable-recipes.json \
+            --output target/portable-engine-physical-promotion/promotion-target-cells.json
+
+      # This second source-derived input is also currently expected to refuse
+      # on honest Host-ABI residuals. No sentinel or partial output is accepted.
+      - name: Produce complete output-disposition evidence or refuse
+        timeout-minutes: 30
+        env:
+          ARTIFACT_ID: ${{ steps.install.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          runtime="$PWD/target/hermes-artifacts/$ARTIFACT_ID/payload/lib/hermesvm.framework/Versions/1/hermesvm"
+          test -f "$runtime"
+          bun packages/ibex-devtools/src/scripts/run-capsec-output-shape-sweep.mjs \
+            --target aarch64-apple-darwin \
+            --engine-artifact "$runtime" \
+            --recipe-catalog target/portable-engine-physical-promotion/executable-recipes.json \
+            --output-directory target/portable-engine-physical-promotion/output-shape-sweep
+
+      - name: Run complete v2 conformance and promotion-bundle generation
+        timeout-minutes: 90
+        env:
+          ARTIFACT_ID: ${{ steps.install.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          runtime="$PWD/target/hermes-artifacts/$ARTIFACT_ID/payload/lib/hermesvm.framework/Versions/1/hermesvm"
+          bun run verify:capsec-conformance -- \
+            --target aarch64-apple-darwin \
+            --engine-artifact "$runtime" \
+            --output-disposition-evidence target/portable-engine-physical-promotion/output-shape-sweep/output-disposition-evidence.json \
+            --portable-promotion-target-cells target/portable-engine-physical-promotion/promotion-target-cells.json \
+            --portable-promotion-output target/portable-engine-physical-promotion/promotion-bundle
+
+      - name: Reverify and freeze locality-free publication bytes
+        id: bundle
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          directory="$PWD/target/portable-engine-physical-promotion/promotion-bundle"
+          digest="$(bun packages/ibex-devtools/src/scripts/verify-capsec-portable-promotion-bundle.mjs \
+            --directory "$directory" \
+            --expected-source-revision "$GITHUB_SHA")"
+          [[ "$digest" =~ ^sha256-[A-Za-z0-9_-]{43}$ ]]
+          find "$directory" -type f -exec chmod 0444 {} +
+          chmod 0555 "$directory"
+          frozen_digest="$(bun packages/ibex-devtools/src/scripts/verify-capsec-portable-promotion-bundle.mjs \
+            --directory "$directory" \
+            --expected-source-revision "$GITHUB_SHA")"
+          [[ "$frozen_digest" == "$digest" ]]
+          echo "bundle_digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Upload immutable portable promotion candidate
+        timeout-minutes: 5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          archive: true
+          compression-level: 0
+          if-no-files-found: error
+          include-hidden-files: false
+          name: portable-promotion-macos-arm64-${{ github.sha }}-${{ steps.bundle.outputs.bundle_digest }}
+          overwrite: false
+          path: target/portable-engine-physical-promotion/promotion-bundle/**
+          retention-days: 90
+
+      - name: Retain bounded diagnostic build and refusal evidence
+        if: always()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          archive: true
+          compression-level: 0
+          if-no-files-found: error
+          include-hidden-files: false
+          name: portable-promotion-diagnostics-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          overwrite: false
+          path: |
+            target/portable-engine-physical-promotion/workflow-context.json
+            target/portable-engine-physical-promotion/release-plan.json
+            target/portable-engine-physical-promotion/installation.json
+            target/portable-engine-physical-promotion/cargo-messages.jsonl
+            target/portable-engine-physical-promotion/build-selection.json
+            target/portable-engine-physical-promotion/executable-recipes.json
+            target/portable-engine-physical-promotion/promotion-target-cells.json
+            target/portable-engine-physical-promotion/output-shape-sweep/**
+            target/portable-engine-post-link/**
+            target/capsec-ci-status.json
+            target/capsec-executions.json
+            target/capsec-conformance-report.json
+            target/capsec-execution-outcome.json
+            target/capsec-live-status.json
+            target/capsec-outer-budget.json
+            target/capsec-suite-evidence-*/**
+          retention-days: 30

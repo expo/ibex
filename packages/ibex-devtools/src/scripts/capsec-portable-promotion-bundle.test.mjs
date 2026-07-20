@@ -3,6 +3,7 @@
 
 import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { fixtureCatalogForTarget } from "./capsec-conformance.mjs";
@@ -30,6 +31,7 @@ import {
   derivePortableRecipeCatalogV2,
   preparePortablePromotionFromDerivedArtifactsV2,
 } from "./capsec-portable-promotion-bundle.mjs";
+import { verifyPortablePromotionBundleDirectory } from "./verify-capsec-portable-promotion-bundle.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "../../../..");
@@ -435,6 +437,52 @@ describe("portable promotion bundle generation", () => {
       secondBundle.files.map((file) => file.rawContentDigest),
     );
     expect(() => validatePortablePromotionV2(firstBundle.input)).not.toThrow();
+  });
+
+  test("reconstructs exact on-disk membership before immutable upload", () => {
+    const state = fixture();
+    const bundle = buildPortablePromotionBundleV2({
+      preparation: state.preparation,
+      processes: [state.process],
+    });
+    const directory = fs.mkdtempSync(
+      path.join(fs.realpathSync(os.tmpdir()), "ibex-portable-bundle-"),
+    );
+    fs.chmodSync(directory, 0o700);
+    try {
+      for (const file of bundle.files) {
+        fs.writeFileSync(
+          path.join(directory, `${file.logicalName}.json`),
+          file.bytes,
+          { mode: 0o600 },
+        );
+      }
+      fs.writeFileSync(
+        path.join(directory, "bundle-manifest.json"),
+        bundle.manifestBytes,
+        { mode: 0o600 },
+      );
+      const verified = verifyPortablePromotionBundleDirectory({
+        directory,
+        expectedSourceRevision: bundle.manifest.sourceRevision,
+      });
+      expect(verified.bundleDigest).toBe(bundle.manifest.bundleDigest);
+      expect(verified.validated.report).toEqual(bundle.report);
+
+      const reportPath = path.join(
+        directory,
+        "portable-conformance-report.json",
+      );
+      fs.appendFileSync(reportPath, " ");
+      expect(() =>
+        verifyPortablePromotionBundleDirectory({
+          directory,
+          expectedSourceRevision: bundle.manifest.sourceRevision,
+        }),
+      ).toThrow(/byte length mismatch|raw-content digest mismatch/u);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   test("keeps local mapped observations detached from publication bytes", () => {

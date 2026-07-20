@@ -16,9 +16,10 @@ checked, non-inheriting Git promotion-lineage contract separates the closed
 artifact-source revision from a later evidence-only admission merge, and the
 production installer now rejoins that exact current-checkout decision to its
 separately sourced package. The portable macOS package is emitted for every
-`main` revision. Legacy acceptance, runtime consumption, and advertisements
-remain off pending a real private Ibex corpus and the remaining build/runtime
-evidence gates.)
+`main` revision. A read-only same-runner macOS physical-promotion ceremony now
+fixes the exact-A transport/build/post-link/v2 sequence but remains honestly
+blocked by incomplete executor coverage. Legacy acceptance and advertisements
+remain off pending a complete physical evidence bundle.)
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021; LLP 0032
 
 ## Summary
@@ -1881,6 +1882,46 @@ fails before launching promotion processes while this catalog remains
 incomplete. Therefore source A still has false portable acceptance, empty
 v1 attestations/advertisements, and only unsupported checked target cells; no
 real promotion bundle is claimed by this checkpoint.
+
+The checked GitHub-hosted macOS physical-promotion workflow now fixes the
+future same-runner ceremony without weakening that refusal. A manual dispatch
+is accepted only from the exact `main` workflow revision **A** on one bounded
+`macos-14` job with `actions: read` and `contents: read`; it has no repository,
+pull-request, release, attestation, or OIDC write authority. It derives A's
+revision-scoped portable release and archive names from the checked Hermes
+identity, requires the exact four uploaded release members, downloads each by
+its immutable asset ID, rejoins service size/digest and checksum-sidecar bytes
+against release metadata observed before and after download, and then lets only
+the production installer authenticate and extract the archive. The install must
+return the disabled checked admission with `authorized: false` at A. Its signed
+producer run ID and attempt are separately rejoined to a successful exact-A
+`hermes-artifacts.yml` Actions attempt.
+
+The same job invokes the checked all-target Cargo argument vector only through
+`run-portable-hermes-cargo.mjs`, retains the complete JSON message stream,
+selects the build-consumption record through that stream, and requires the
+production post-link complete set before any conformance preparation. A new
+source-derived target-cell command refuses to emit its untracked candidate
+until the independently regenerated rich recipe catalog has exact executable
+fixture coverage. The next gate requires complete output-disposition evidence,
+and the final conformance invocation supplies both explicit portable-promotion
+inputs without `--expect-incomplete`. Before upload, a separate filesystem gate
+reconstructs exact bundle membership, reruns the sole v2 validator, checks every
+raw-content and manifest digest, freezes the files read-only, and repeats the
+verification. Candidate and diagnostic artifacts use distinct immutable names;
+only the candidate contains the promotion-bundle directory. The workflow never
+generates, commits, or merges P or C.
+
+This is ceremony scaffolding, not a physical promotion claim. At this
+checkpoint the rich recipe catalog still has unresolved fixtures and the
+output-shape executor still has honest residual rows, so target-cell derivation
+or the following proof gate fails before a bundle can be uploaded. The live
+output-shape/conformance executors also still invoke narrower Cargo feature
+profiles internally rather than consuming only the checked post-link executable
+set; that migration remains required after coverage closure. The always-run
+diagnostic upload retains the exact release plan, Cargo stream, post-link set,
+and bounded refusal state, but no incomplete run receives a candidate artifact
+or target authority.
 
 Exit: reports and advertisements contain no host-local values, while every
 accepted local run still proves its exact mapped file.
