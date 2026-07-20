@@ -4865,11 +4865,11 @@ mod work_unit_tests {
             next_request: Arc::new(std::sync::atomic::AtomicU64::new(1)),
         };
         let started = std::time::Instant::now();
-        let caller = {
-            let port = port.clone();
-            std::thread::spawn(move || port.request_exact(73))
-        };
-        std::thread::sleep(CANCELLATION_DELIVERY_ACK + Duration::from_millis(50));
+        // No controller consumes the queued command until after the caller's
+        // bounded acknowledgement wait has expired. Keeping the request on
+        // this thread avoids making the assertion depend on when a spawned
+        // caller happens to be rescheduled on a loaded runner.
+        let status = port.request_exact(73);
         let SupervisorCommand::CancelDelivery {
             request_id,
             target_id,
@@ -4890,10 +4890,7 @@ mod work_unit_tests {
         );
         drop(reply);
 
-        assert_eq!(
-            caller.join().unwrap(),
-            AuthenticatedCancellationStatus::Failed
-        );
+        assert_eq!(status, AuthenticatedCancellationStatus::Failed);
         assert!(
             started.elapsed() < Duration::from_secs(1),
             "controller delivery acknowledgement was not bounded"
