@@ -415,9 +415,12 @@ post-consumption attempt. A target-local native test proves successful source
 ingress, deterministic activation, frame and checkpoint output, callback
 replacement refusal, replay refusal, and raw eval refusal. The real
 self-contained Contract bundle and hostile lifecycle corpus now pass on the
-eligible exact-engine Apple build. Complete per-edge source-install/live-
-reachability/invocation evidence, teardown/supervisor evidence, independent
-review, Linux evidence, and target advertisements are still pending.
+eligible exact-engine Apple build. Commit `f04bd910` produced fresh release
+evidence for all 131 reachable, 22 trusted-control-plane, and 7,147 absent
+edges plus all five preregistered global corpora; the resulting report has no
+failed or missing observations but remains `incomplete` pending an independent
+review. Teardown/supervisor evidence, Linux evidence, and target advertisements
+are still pending, and the advertisement set remains empty.
 
 The first attempted Apple report was independently reviewed and failed: it
 expanded one categorical barrier into 14,304 nominal per-edge passes, including
@@ -426,9 +429,9 @@ bound to the superseded fixture-plan bytes are invalid. The generated
 `restricted-exact-absence-probe-plan.json` now assigns every absent edge at
 least one exact source-branch probe and one live attacker-route probe (7,361
 source probes and 9,749 live probes total, including 2,602 descriptor-prefix
-probes across 2,460 edges). The plan is an obligation authority only. A new
-native run must publish independently checkable results for every planned
-probe before the target report may credit either absence evidence kind.
+probes across 2,460 edges). The plan is an obligation authority, and the
+`f04bd910` Apple release run published one result for every planned probe; the
+ingestor additionally rejects a removed source result or widened live result.
 The same audit corrected microtask drain, native-principal restoration,
 callback-queue enqueue/drain, and timer invocation from candidate absence to
 reachable: all five are exercised by the admitted Contract lifecycle and may
