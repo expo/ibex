@@ -103,6 +103,17 @@ fn is_unavailable(result: &str) -> bool {
     result.contains("not available") || result.contains("openssl-crypto")
 }
 
+// Windows deliberately selects its reduced BCrypt translation unit even when
+// the optional OpenSSL feature is present. Apple and non-Windows OpenSSL
+// profiles provide the asymmetric and AES bridges exercised below.
+// @ref LLP 0006#platform-native-crypto-with-honest-reduced-profiles
+fn has_full_native_crypto_bridge() -> bool {
+    cfg!(any(
+        target_os = "macos",
+        all(not(target_os = "windows"), feature = "openssl-crypto")
+    ))
+}
+
 /// ENG-23129 finding 1: `padding: RSA_PKCS1_PSS_PADDING` must produce a
 /// genuine PSS signature, cross-rejected against PKCS#1 v1.5. A
 /// padding-ignoring implementation cannot satisfy the full matrix.
@@ -484,40 +495,62 @@ async fn dh_compute_secret_rejects_out_of_range_public_keys() {
 
 /// ENG-23465 finding 1: bare string inputs to pbkdf2/scrypt/hkdf/
 /// createSecretKey/cipher.update default to utf8 like Node — not one byte per
-/// UTF-16 code unit. Goldens produced by Node v25 (external oracle).
+/// UTF-16 code unit. Goldens produced by Node v25 (external oracle). Reduced
+/// profiles must reject only the primitives whose native hooks they omit.
 #[tokio::test]
 async fn kdf_and_cipher_string_inputs_default_to_utf8() {
     let js = "(function(){ var c = require('crypto'); \
         var out = {}; \
-        out.pbkdf2 = c.pbkdf2Sync('p\\u00e4ssword','salt',1,16,'sha256').toString('hex'); \
-        out.scrypt = c.scryptSync('p\\u00e4ss','salt',16).toString('hex'); \
-        out.hkdf = Buffer.from(c.hkdfSync('sha256','p\\u00e4ss','salt','inf\\u00f6',16)).toString('hex'); \
+        function capture(fn) { try { return fn(); } catch (e) { return 'ERR:' + (e.code || '') + ':' + e.message; } } \
+        out.pbkdf2 = capture(function(){ return c.pbkdf2Sync('p\\u00e4ssword','salt',1,16,'sha256').toString('hex'); }); \
+        out.scrypt = capture(function(){ return c.scryptSync('p\\u00e4ss','salt',16).toString('hex'); }); \
+        out.hkdf = capture(function(){ return Buffer.from(c.hkdfSync('sha256','p\\u00e4ss','salt','inf\\u00f6',16)).toString('hex'); }); \
         out.secretKeyHmac = c.createHmac('sha256', c.createSecretKey('k\\u00e9y','utf8')).update('x').digest('hex'); \
-        var ci = c.createCipheriv('aes-128-cbc', Buffer.alloc(16,1), Buffer.alloc(16,2)); \
-        out.cipher = ci.update('caf\\u00e9','utf8','hex') + ci.final('hex'); \
+        out.cipher = capture(function(){ \
+          var ci = c.createCipheriv('aes-128-cbc', Buffer.alloc(16,1), Buffer.alloc(16,2)); \
+          return ci.update('caf\\u00e9','utf8','hex') + ci.final('hex'); \
+        }); \
         return JSON.stringify(out); })()";
     let result = eval(js).await;
     let parsed: serde_json::Value = serde_json::from_str(&result).expect("JSON result");
     assert_eq!(
-        parsed["pbkdf2"], "f6305ae2b0e9cd43a1c04f7af100cbed",
-        "pbkdf2 utf8 golden: {result}"
-    );
-    assert_eq!(
-        parsed["scrypt"], "afa3397a7eda04ece515b3c965505918",
-        "scrypt utf8 golden: {result}"
-    );
-    assert_eq!(
-        parsed["hkdf"], "1df47305515732fb2567394402e29dbb",
-        "hkdf utf8 golden: {result}"
-    );
-    assert_eq!(
         parsed["secretKeyHmac"], "fc397a5e543c0c71e75934f428fc7478ae5fe0495bb2a53313b88f3410cdfa09",
         "createSecretKey utf8 golden: {result}"
     );
-    assert_eq!(
-        parsed["cipher"], "fc8f3a5026024f880c5713abebd34526",
-        "cipher.update utf8 golden: {result}"
-    );
+    if cfg!(target_os = "windows") {
+        for name in ["pbkdf2", "scrypt", "hkdf"] {
+            let outcome = parsed[name].as_str().unwrap_or("");
+            assert!(
+                outcome.starts_with("ERR:") && is_unavailable(outcome),
+                "the reduced Windows profile must reject {name} honestly: {result}"
+            );
+        }
+    } else {
+        assert_eq!(
+            parsed["pbkdf2"], "f6305ae2b0e9cd43a1c04f7af100cbed",
+            "pbkdf2 utf8 golden: {result}"
+        );
+        assert_eq!(
+            parsed["scrypt"], "afa3397a7eda04ece515b3c965505918",
+            "scrypt utf8 golden: {result}"
+        );
+        assert_eq!(
+            parsed["hkdf"], "1df47305515732fb2567394402e29dbb",
+            "hkdf utf8 golden: {result}"
+        );
+    }
+    if has_full_native_crypto_bridge() {
+        assert_eq!(
+            parsed["cipher"], "fc8f3a5026024f880c5713abebd34526",
+            "cipher.update utf8 golden: {result}"
+        );
+    } else {
+        let cipher = parsed["cipher"].as_str().unwrap_or("");
+        assert!(
+            cipher.starts_with("ERR:") && is_unavailable(cipher),
+            "a reduced profile must reject AES-CBC honestly: {result}"
+        );
+    }
 }
 
 /// ENG-23465 findings 7+8: second digest() throws ERR_CRYPTO_HASH_FINALIZED
@@ -620,10 +653,18 @@ async fn ecdh_curves_primes_dh_encoding_and_cipher_validation() {
         parsed["dhHexPrime"], "bb",
         "createDiffieHellman must decode the prime encoding: {result}"
     );
-    assert_eq!(
-        parsed["der"], "buffer",
-        "der-format key encoding must return a Buffer: {result}"
-    );
+    if has_full_native_crypto_bridge() {
+        assert_eq!(
+            parsed["der"], "buffer",
+            "der-format key encoding must return a Buffer: {result}"
+        );
+    } else {
+        let der = parsed["der"].as_str().unwrap_or("");
+        assert!(
+            der.starts_with("ERR:") && is_unavailable(der),
+            "a reduced profile must reject DER key generation honestly: {result}"
+        );
+    }
     assert_eq!(
         parsed["badKey"], "ERR_CRYPTO_INVALID_KEYLEN",
         "Decipher must validate key length: {result}"
@@ -926,26 +967,36 @@ async fn random_int_stays_in_bounds_and_covers_small_range() {
 /// read a full 16-byte AES block from the IV pointer (out-of-bounds read for
 /// an 8-byte IV) while Linux/OpenSSL threw cleanly; the check now lives in
 /// common native code, matching the encrypt path. A correct-IV round-trip
-/// guards against over-rejection.
+/// guards against over-rejection; reduced profiles must reject AES-CBC before
+/// attempting either operation.
 #[tokio::test]
 async fn subtle_aes_cbc_decrypt_rejects_short_iv() {
     let js = "(async function(){ \
         if (!globalThis.crypto || !crypto.subtle || !crypto.subtle.importKey) return 'unavailable'; \
-        var key = await crypto.subtle.importKey('raw', new Uint8Array(16), { name: 'AES-CBC' }, false, ['encrypt', 'decrypt']); \
-        var plain = new Uint8Array([1,2,3,4,5]); \
-        var ct = await crypto.subtle.encrypt({ name: 'AES-CBC', iv: new Uint8Array(16) }, key, plain); \
-        var shortIv; \
         try { \
-          await crypto.subtle.decrypt({ name: 'AES-CBC', iv: new Uint8Array(8) }, key, ct); \
-          shortIv = 'no-throw'; \
-        } catch (e) { shortIv = String(e.message || e); } \
-        var roundtrip = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: new Uint8Array(16) }, key, ct)); \
-        return JSON.stringify({ shortIv: shortIv, roundtrip: Array.from(roundtrip) }); })()";
+          var key = await crypto.subtle.importKey('raw', new Uint8Array(16), { name: 'AES-CBC' }, false, ['encrypt', 'decrypt']); \
+          var plain = new Uint8Array([1,2,3,4,5]); \
+          var ct = await crypto.subtle.encrypt({ name: 'AES-CBC', iv: new Uint8Array(16) }, key, plain); \
+          var shortIv; \
+          try { \
+            await crypto.subtle.decrypt({ name: 'AES-CBC', iv: new Uint8Array(8) }, key, ct); \
+            shortIv = 'no-throw'; \
+          } catch (e) { shortIv = String(e.message || e); } \
+          var roundtrip = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: new Uint8Array(16) }, key, ct)); \
+          return JSON.stringify({ shortIv: shortIv, roundtrip: Array.from(roundtrip) }); \
+        } catch (e) { return 'ERR:' + (e.code || '') + ':' + (e.message || e); } })()";
     let result = eval(js).await;
-    if result == "unavailable" {
-        eprintln!("skipping: WebCrypto subtle not available on this profile");
+    if !has_full_native_crypto_bridge() {
+        assert!(
+            result == "unavailable" || (result.starts_with("ERR:") && is_unavailable(&result)),
+            "a reduced profile must reject WebCrypto AES-CBC honestly: {result}"
+        );
         return;
     }
+    assert_ne!(
+        result, "unavailable",
+        "the full native crypto profile must expose WebCrypto subtle"
+    );
     let parsed: serde_json::Value = serde_json::from_str(&result).expect("valid JSON result");
     let short_iv = parsed["shortIv"].as_str().unwrap_or("");
     assert!(
