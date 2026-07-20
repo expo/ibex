@@ -3319,6 +3319,7 @@ const WINDOWS_UNTYPED_NATIVE_PUBLIC_OPERATIONS = new Set([
 
 const WINDOWS_UNTYPED_NATIVE_PUBLIC_SETUP_OPERATIONS = new Set([
   "__exactFsClose",
+  "__exactFsCloseAsync",
   "__exactTcpClose",
   "__exactTcpReset",
   "__exactTcpShutdown",

@@ -204,8 +204,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(22_646);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_895);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_751);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_894);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_752);
     const windowsAsyncFsOpenRows = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.fixtureId.includes("hermes.runtime.fs.windows.cc.exactfsopenasync"),
@@ -416,6 +416,7 @@ describe("exact-target CapSec executable recipes", () => {
 
     for (const [globalName, expectedCount] of [
       ["__exactFsClose", 1],
+      ["__exactFsCloseAsync", 1],
       ["__exactTcpClose", 1],
       ["__exactTcpReset", 1],
       ["__exactTcpShutdown", 1],
@@ -448,7 +449,7 @@ describe("exact-target CapSec executable recipes", () => {
       windowsRecipes.summary.residualReasons[
         "native-public-setup-operation-not-typed-on-target"
       ],
-    ).toBe(4);
+    ).toBe(5);
 
     for (const exportName of ["lstatSync", "readdirSync", "statSync"]) {
       const rows = windowsRecipes.recipes.filter(

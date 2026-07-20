@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-20 (ENG-24933 complete Windows evidence keeps async close residual after its legacy sync-open setup correctly fails armed authorization)
 **Revised:** 2026-07-20 (ENG-24933 physical Windows queue-rejection evidence exposes and repairs the missing async open/close hooks and non-injectable Windows fs worker capacity boundary, then replacement physical evidence verifies the repair)
 **Revised:** 2026-07-20 (ENG-24933 replaces the POSIX-only filesystem queue-rejection leak oracle with synchronized native Windows process-handle counts after the complete matrix exposed `/dev/fd` as its sole failure)
 **Revised:** 2026-07-20 (ENG-24933 physically clears the Windows module-semantics baseline and advances the default suite to the Windows DNS record-query stub)
@@ -2321,10 +2322,10 @@ on the worker, and uses the same bounded capacity override as POSIX. The
 registry consequently gains two honest Windows implementation branches and
 removes two former absence claims while keeping both target cells unsupported.
 The regenerated Windows catalog now accounts for 22,646 required fixtures as
-4,895 executable and 17,751 residual; its 209 absence probes comprise 125
+4,894 executable and 17,752 residual; its 209 absence probes comprise 125
 target-surface and 84 native-global probes. The 18 async-open branch scenarios
-remain residual because Windows does not yet have the typed public recipe
-needed to claim their runtime observations.
+and async close remain residual because Windows does not yet have the typed
+public recipe and setup path needed to claim their runtime observations.
 Replacement focused physical run
 [`29761792742`](https://github.com/ccheever/ibex/actions/runs/29761792742)
 compiled the repaired Windows backend at commit `9ef78320` and passed the exact
@@ -2334,6 +2335,16 @@ contract proves the synchronized assertion
 and an independently measured Windows process-handle delta of zero. This
 product repair is therefore physically verified, but still awaits the later
 complete report; advertisements remain empty.
+Subsequent complete Windows run
+[`29762898784`](https://github.com/ccheever/ibex/actions/runs/29762898784)
+cleared loaded-engine attestation, all 31,501 typed-adapter cases, and the first
+162 of 433 public fixtures before exposing an evidence-authoring error at the
+new `__exactFsCloseAsync` row: its harness descriptor setup called the legacy
+`__exactFsOpen` in an armed runtime and correctly received `Permission denied`.
+The catalog now keeps async close residual under
+`native-public-setup-operation-not-typed-on-target` until Windows has an
+honest typed setup path. This accounting repair awaits a replacement complete
+Windows run; it does not change advertisements.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked
