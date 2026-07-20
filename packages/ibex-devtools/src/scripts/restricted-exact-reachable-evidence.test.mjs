@@ -4,16 +4,21 @@ import { describe, expect, test } from "bun:test";
 
 import { capsecRoot } from "./capsec-contract.mjs";
 import { buildRestrictedTargetReportFromEvidence } from "./generate-restricted-exact-target-report.mjs";
+import { ingestRestrictedAbsenceEvidence } from "./restricted-exact-absence-evidence.mjs";
 import { ingestRestrictedControlEvidence } from "./restricted-exact-control-evidence.mjs";
 import { ingestRestrictedReachableEvidence } from "./restricted-exact-reachable-evidence.mjs";
 
 const evidencePath = path.join(
   capsecRoot,
-  "conformance/evidence/restricted-exact/reachable-aarch64-apple-darwin-1a033000.json",
+  "conformance/evidence/restricted-exact/reachable-aarch64-apple-darwin-98e334d3.json",
 );
 const controlEvidencePath = path.join(
   capsecRoot,
-  "conformance/evidence/restricted-exact/control-aarch64-apple-darwin-1a033000.json",
+  "conformance/evidence/restricted-exact/control-aarch64-apple-darwin-98e334d3.json",
+);
+const absenceEvidencePath = path.join(
+  capsecRoot,
+  "conformance/evidence/restricted-exact/absence-aarch64-apple-darwin-98e334d3.json",
 );
 
 function rawArtifact() {
@@ -32,6 +37,12 @@ function mutateControl(edit) {
   return Buffer.from(`${JSON.stringify(artifact, null, 2)}\n`, "utf8");
 }
 
+function mutateAbsence(edit) {
+  const artifact = JSON.parse(fs.readFileSync(absenceEvidencePath));
+  edit(artifact);
+  return Buffer.from(`${JSON.stringify(artifact, null, 2)}\n`, "utf8");
+}
+
 describe("LLP 0033 restricted reachable evidence", () => {
   test("ingests all 126 exact native observations", () => {
     const result = ingestRestrictedReachableEvidence(rawArtifact());
@@ -42,25 +53,50 @@ describe("LLP 0033 restricted reachable evidence", () => {
     expect(result.rawContentDigest).toMatch(/^sha256-/);
   });
 
-  test("credits 126 reachable rows without advertising target conformance", () => {
-    const report = buildRestrictedTargetReportFromEvidence(evidencePath, controlEvidencePath);
+  test("credits all edge rows without bypassing global conformance", () => {
+    const report = buildRestrictedTargetReportFromEvidence(
+      evidencePath,
+      controlEvidencePath,
+      absenceEvidencePath,
+    );
     expect(report.status).toBe("incomplete");
-    expect(report.summary.conformant).toBe(148);
-    expect(report.summary.incomplete).toBe(7152);
-    expect(report.summary.passedObservations).toBe(148);
+    expect(report.summary.conformant).toBe(7300);
+    expect(report.summary.incomplete).toBe(0);
+    expect(report.summary.passedObservations).toBe(14452);
     expect(report.summary.failedObservations).toBe(0);
-    expect(report.summary.missingObservations).toBe(14304);
-    expect(report.executions).toHaveLength(148);
-  });
+    expect(report.summary.missingObservations).toBe(0);
+    expect(report.executions).toHaveLength(14452);
+  }, 30_000);
 
   test("ingests all 22 exact control-plane lifecycle observations", () => {
     const result = ingestRestrictedControlEvidence(fs.readFileSync(controlEvidencePath));
     expect(result.executions).toHaveLength(22);
     expect(new Set(result.executions.map((row) => row.fixtureId)).size).toBe(22);
     expect(result.bindings.sourceRevision).toBe(
-      "1a033000c5c84e01caa12342c9309c1f901d785f",
+      "98e334d3c8d097d884856356943da17942908338",
     );
   });
+
+  test("ingests both exact absence obligations for all 7,152 edges", () => {
+    const result = ingestRestrictedAbsenceEvidence(fs.readFileSync(absenceEvidencePath));
+    expect(result.executions).toHaveLength(14304);
+    expect(new Set(result.executions.map((row) => row.fixtureId)).size).toBe(14304);
+    expect(result.artifact.barrierAttestation.descriptorProbedEdges).toBe(2460);
+  });
+
+  test("rejects root-authority and per-edge absence proof drift", () => {
+    expect(() => ingestRestrictedAbsenceEvidence(mutateAbsence((artifact) => {
+      artifact.barrierAttestation.rootGlobalManifestRawContentDigest =
+        "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    }))).toThrow("root-global authority");
+
+    expect(() => ingestRestrictedAbsenceEvidence(mutateAbsence((artifact) => {
+      const observation = artifact.observations.find(
+        (row) => row.kind === "live-reachability" && row.proof.descriptorPrefixes.length > 0,
+      );
+      observation.proof.descriptorPrefixes[0].path = "wrong.path";
+    }))).toThrow("live-reachability proof drift");
+  }, 30_000);
 
   test("rejects missing, identity-drifted, and proofless control observations", () => {
     expect(() => ingestRestrictedControlEvidence(mutateControl((artifact) => {

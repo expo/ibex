@@ -1,0 +1,328 @@
+{
+  "evidenceSchema": "ibex/restricted-profile-control-evidence/1",
+  "profile": "ibex/exact-embedder-contract/1",
+  "runId": "restricted-control-8ef25b10e52c59f0b5b6503a53a19ec1",
+  "sourceRevision": "98e334d3c8d097d884856356943da17942908338",
+  "sourceTreeDigest": "sha256-R0uamsT3PIAclxaVg03WwHVqAPw3elN06xwC-wJ7UqU",
+  "target": {
+    "triple": "aarch64-apple-darwin",
+    "features": [
+      "hermes-frame-attribution",
+      "native-compartments",
+      "native-lockdown"
+    ]
+  },
+  "engine": {
+    "engineArtifactPath": "/Users/ccheever/projects/.worktrees/ibex-llp0033-native-test/ios/Frameworks/hermesvm.framework/Versions/1/hermesvm",
+    "kind": "hermes",
+    "binaryDigest": "sha256-W1UBSE-dkQBVEo8CvUuz45q2Qv_iNwbh8LFPIPNw3BY",
+    "object": {
+      "platform": "apple",
+      "volume": "dev:16777233",
+      "file": "ino:21848632"
+    },
+    "targetArchitecture": "aarch64",
+    "structuralFeatures": [
+      "hermes-frame-attribution",
+      "native-compartments",
+      "native-lockdown"
+    ]
+  },
+  "hermesProfileProvenance": {
+    "path": "/Users/ccheever/projects/.worktrees/ibex-llp0033-native-test/ios/Frameworks/hermes-profile-provenance.json",
+    "rawContentDigest": "sha256-mWApvwpUkBxodQ1MSGsSeTVmnDzCb0e6jzrf96QcbwQ",
+    "receipt": {
+      "schema": "ibex/hermes-profile-provenance-receipt/2",
+      "profileId": "source-patched",
+      "targetVariant": "default",
+      "artifact": {
+        "binaryDigest": "sha256-5b5501484f9d910055128f02bd4bb3e39ab642ffe23706e1f0b14f20f370dc16",
+        "fileName": "hermesvm",
+        "targetArchitecture": "universal"
+      },
+      "origin": {
+        "kind": "source-patched-cache",
+        "cacheKey": "ac8c6e6c80ec-p4ee8b3103bf9-ba31584f20c5de-bl8d0f00b05f19-a4d422defe361-i7dd0ebd78fe1-oapple",
+        "reviewedProfileIdentity": {
+          "artifact": "facebook/hermes",
+          "patchApplicationAuthorityDigest": "sha256-4d422defe36111f1749f01c7884d942062ad54e6a7d611eee624547002bc4cdd",
+          "patchIdentityAuthorityDigest": "sha256-7dd0ebd78fe1a3732c3a9a8f5686c0925e723bc886dc03ce22bbb32b56552b1f",
+          "patchStackDigest": "sha256-4ee8b3103bf9341b9d7460884323978471558d5a03f0926d70e5593c07ff9025",
+          "sourceBuildAuthorityDigests": {
+            "scripts/build-hermes-linux.sh": "sha256-8d0f00b05f198bb2c823f55a92cabc4f0101bddad7daaa54e0244d63e97ba011",
+            "scripts/build-hermes.sh": "sha256-31584f20c5deeb86750d79a2bfbb56ec98a84861ddc2a0c681c314185e100d69"
+          },
+          "sourceCommit": "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",
+          "sourceRef": "260318099.0.0-stable",
+          "sourceVersion": "260318099.0.0"
+        }
+      }
+    }
+  },
+  "authorityDigests": {
+    "definitionRawContentDigest": "sha256-jBIUeHQsuAh4gaLUVa5mn0CJhqCyCOhRX-dBp1PMRDk",
+    "projectionRawContentDigest": "sha256-P-YikGNQ_TeQSCdHshS3TRuSFOvZ2AsraWGv-RinDh4",
+    "coverageRawContentDigest": "sha256-RxLDC47t7W7kLtzuZCBiC9nG06BNALnrbAYgGabuiYU",
+    "implementationManifestRawContentDigest": "sha256-0sPWphv10cbLXGnfgWURmSrnuzcT5-qkCv1V-WRjcJY",
+    "fixturePlanRawContentDigest": "sha256-_TAFcYA1wzMuAqZfbq6VgSagbdkLE_1CIJZY_dsSAZg",
+    "reportSchemaRawContentDigest": "sha256-9pfYln-aIXfsTb7fXDhCB6PY_8E-aV91wmyIEdgrH5w"
+  },
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "ibex-runtime",
+    "--release",
+    "--features",
+    "capsec-conformance-observer",
+    "restricted_exact_control_plane_edges_enforce_lifecycle_refusals",
+    "--",
+    "--nocapture"
+  ],
+  "exitCode": 0,
+  "resultMarker": "ibex-restricted-control-evidence:passed",
+  "observations": [
+    {
+      "edgeId": "surface.callback.restricted.exact.checkpoint.output.1al4vku",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "callback:restricted-exact-checkpoint-output",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "initial checkpoint reached the first immutable sink",
+        "refusal": "replacement sink received no bytes"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.configure.restricted.exact.activation.12kr2mk",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_hermes_configure_restricted_exact_activation",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "single activation configured",
+        "refusal": "replay returned -3"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.create.restricted.exact.0ef6yrt",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_hermes_create_restricted_exact",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "matching restricted artifact created runtime",
+        "refusal": "wrong artifact digest returned null before allocation"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.destroy.0m27uxn",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_hermes_destroy",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "runtime destroyed after poisoned lifecycle",
+        "refusal": "teardown removes runtime registry and Host context ownership"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.dispatch.event.0lbx6vi",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_hermes_dispatch_event",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "valid event published one successor checkpoint",
+        "refusal": "malformed event poisoned runtime and post-poison event returned -1"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.free.string.123yf3v",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_hermes_free_string",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "owned refusal string released",
+        "refusal": "null is separately accepted as a no-op"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.has.pending.tasks.18qm35c",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_hermes_has_pending_tasks",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "live idle runtime returned zero",
+        "refusal": "null or stale drive gates return zero"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.next.timer.0ae38c4",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_hermes_next_timer",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "live idle runtime returned -1",
+        "refusal": "null or stale drive gates also return -1"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.notify.callback.1l1b7ho",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_hermes_notify_callback",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "bounded global wake notification invoked",
+        "refusal": "operation accepts no runtime, generation, or caller payload"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.now.ms.027oxfa",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_hermes_now_ms",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "monotonic clock read twice",
+        "refusal": "no caller-controlled clock input exists"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.poll.02ylspu",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_hermes_poll",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "owner poll delivered queued completion",
+        "refusal": "poisoned runtime later returned -1"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.resolve.exact.host.call.081d2k5",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_hermes_resolve_exact_host_call",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "matching call target consumed and queued",
+        "refusal": "unknown call ID was ignored"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.run.restricted.exact.bundle.1y309kh",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_hermes_run_restricted_exact_bundle",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "authenticated bundle ran once",
+        "refusal": "premature run refused before callbacks"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.set.dispatch.callback.0vppy3m",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_hermes_set_dispatch_callback",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "first dispatch sink installed",
+        "refusal": "replacement ignored and later received no bytes"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.set.exact.host.call.async.0cynsb2",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_hermes_set_exact_host_call_async",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "bound app callback installed",
+        "refusal": "wrong context kind returned -3"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.set.keep.alive.on.async.error.0pw9oqp",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_hermes_set_keep_alive_on_async_error",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "restricted runtime policy set before execution",
+        "refusal": "non-owner call returned without changing policy"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_hermes_set_restricted_exact_checkpoint_callback",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "first checkpoint sink installed",
+        "refusal": "replacement returned -5"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.authorize.exact.endowment.035a1se",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_host_authorize_exact_endowment",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "bound app operation set authorized",
+        "refusal": "wrong context kind denied"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.claim.restricted.exact.context.13osz2b",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_host_claim_restricted_exact_context",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "matching artifact claimed once",
+        "refusal": "wrong artifact digest returned zero"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.copy.restricted.exact.bundle.09bbsk3",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_host_copy_restricted_exact_bundle",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "authenticated bundle copied from claimed context",
+        "refusal": "unknown context returned null"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.free.buffer.0c4fojc",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_host_free_buffer",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "exact returned allocation released",
+        "refusal": "null zero-length release was a bounded no-op"
+      }
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.release.context.0ozp44g",
+      "kind": "control-plane-negative",
+      "outcome": "passed",
+      "observedIdentity": "host-abi:ex_host_release_context",
+      "proof": {
+        "observer": "native-abi-lifecycle",
+        "accepted": "claimed context released",
+        "refusal": "released context denied later authorization"
+      }
+    }
+  ]
+}

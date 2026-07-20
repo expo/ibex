@@ -1,0 +1,1427 @@
+{
+  "evidenceSchema": "ibex/restricted-profile-reachable-evidence/1",
+  "profile": "ibex/exact-embedder-contract/1",
+  "runId": "restricted-reachable-f7b16679feca2c2558fe98b12795638f",
+  "sourceRevision": "98e334d3c8d097d884856356943da17942908338",
+  "sourceTreeDigest": "sha256-R0uamsT3PIAclxaVg03WwHVqAPw3elN06xwC-wJ7UqU",
+  "target": {
+    "triple": "aarch64-apple-darwin",
+    "features": [
+      "hermes-frame-attribution",
+      "native-compartments",
+      "native-lockdown"
+    ]
+  },
+  "engine": {
+    "engineArtifactPath": "/Users/ccheever/projects/.worktrees/ibex-llp0033-native-test/ios/Frameworks/hermesvm.framework/Versions/1/hermesvm",
+    "kind": "hermes",
+    "binaryDigest": "sha256-W1UBSE-dkQBVEo8CvUuz45q2Qv_iNwbh8LFPIPNw3BY",
+    "object": {
+      "platform": "apple",
+      "volume": "dev:16777233",
+      "file": "ino:21848632"
+    },
+    "targetArchitecture": "aarch64",
+    "structuralFeatures": [
+      "hermes-frame-attribution",
+      "native-compartments",
+      "native-lockdown"
+    ]
+  },
+  "hermesProfileProvenance": {
+    "path": "/Users/ccheever/projects/.worktrees/ibex-llp0033-native-test/ios/Frameworks/hermes-profile-provenance.json",
+    "rawContentDigest": "sha256-mWApvwpUkBxodQ1MSGsSeTVmnDzCb0e6jzrf96QcbwQ",
+    "receipt": {
+      "schema": "ibex/hermes-profile-provenance-receipt/2",
+      "profileId": "source-patched",
+      "targetVariant": "default",
+      "artifact": {
+        "binaryDigest": "sha256-5b5501484f9d910055128f02bd4bb3e39ab642ffe23706e1f0b14f20f370dc16",
+        "fileName": "hermesvm",
+        "targetArchitecture": "universal"
+      },
+      "origin": {
+        "kind": "source-patched-cache",
+        "cacheKey": "ac8c6e6c80ec-p4ee8b3103bf9-ba31584f20c5de-bl8d0f00b05f19-a4d422defe361-i7dd0ebd78fe1-oapple",
+        "reviewedProfileIdentity": {
+          "artifact": "facebook/hermes",
+          "patchApplicationAuthorityDigest": "sha256-4d422defe36111f1749f01c7884d942062ad54e6a7d611eee624547002bc4cdd",
+          "patchIdentityAuthorityDigest": "sha256-7dd0ebd78fe1a3732c3a9a8f5686c0925e723bc886dc03ce22bbb32b56552b1f",
+          "patchStackDigest": "sha256-4ee8b3103bf9341b9d7460884323978471558d5a03f0926d70e5593c07ff9025",
+          "sourceBuildAuthorityDigests": {
+            "scripts/build-hermes-linux.sh": "sha256-8d0f00b05f198bb2c823f55a92cabc4f0101bddad7daaa54e0244d63e97ba011",
+            "scripts/build-hermes.sh": "sha256-31584f20c5deeb86750d79a2bfbb56ec98a84861ddc2a0c681c314185e100d69"
+          },
+          "sourceCommit": "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",
+          "sourceRef": "260318099.0.0-stable",
+          "sourceVersion": "260318099.0.0"
+        }
+      }
+    }
+  },
+  "authorityDigests": {
+    "definitionRawContentDigest": "sha256-jBIUeHQsuAh4gaLUVa5mn0CJhqCyCOhRX-dBp1PMRDk",
+    "projectionRawContentDigest": "sha256-P-YikGNQ_TeQSCdHshS3TRuSFOvZ2AsraWGv-RinDh4",
+    "coverageRawContentDigest": "sha256-RxLDC47t7W7kLtzuZCBiC9nG06BNALnrbAYgGabuiYU",
+    "implementationManifestRawContentDigest": "sha256-0sPWphv10cbLXGnfgWURmSrnuzcT5-qkCv1V-WRjcJY",
+    "fixturePlanRawContentDigest": "sha256-_TAFcYA1wzMuAqZfbq6VgSagbdkLE_1CIJZY_dsSAZg",
+    "reportSchemaRawContentDigest": "sha256-9pfYln-aIXfsTb7fXDhCB6PY_8E-aV91wmyIEdgrH5w"
+  },
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "ibex-runtime",
+    "--release",
+    "--features",
+    "capsec-conformance-observer",
+    "restricted_exact_reachable_edges_execute_on_the_bound_engine",
+    "--",
+    "--nocapture"
+  ],
+  "exitCode": 0,
+  "resultMarker": "ibex-restricted-reachable-evidence:passed",
+  "observations": [
+    {
+      "edgeId": "surface.callback.exact.host.call.async.resolve.0f9z2o3",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "callback:exact-host-call-async-resolve",
+      "proof": {
+        "observer": "completion-callback-delivered",
+        "targetsConsumed": 1,
+        "callbacksQueued": 1,
+        "callbacksDelivered": 1
+      }
+    },
+    {
+      "edgeId": "surface.callback.producer.src.engine.hermes.runtime.cc.ex.hermes.resolve.exact.host.call.0n49v9x",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "callback:producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_exact_host_call:pushRuntimeCallback",
+      "proof": {
+        "observer": "completion-target-consumed-and-callback-queued",
+        "targetsConsumed": 1,
+        "callbacksQueued": 1,
+        "callbacksDelivered": 1
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.arraybuffer.0h54i6m",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:ArrayBuffer",
+      "proof": {
+        "edgeId": "surface.native.op.global.arraybuffer.0h54i6m",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.atob.1yozrfz",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:atob",
+      "proof": {
+        "edgeId": "surface.native.op.global.atob.1yozrfz",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.bigint64array.1hpbzur",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:BigInt64Array",
+      "proof": {
+        "edgeId": "surface.native.op.global.bigint64array.1hpbzur",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.bigint64array.constructor.0nec50d",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:BigInt64Array.constructor",
+      "proof": {
+        "edgeId": "surface.native.op.global.bigint64array.constructor.0nec50d",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.bigint64array.name.1bbf044",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:BigInt64Array.name",
+      "proof": {
+        "edgeId": "surface.native.op.global.bigint64array.name.1bbf044",
+        "status": "observed-noncallable",
+        "valueType": "string"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.bigint64array.prototype.03jpbvv",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:BigInt64Array.prototype",
+      "proof": {
+        "edgeId": "surface.native.op.global.bigint64array.prototype.03jpbvv",
+        "status": "observed-noncallable",
+        "valueType": "object"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.bigint64array.prototype.subarray.0fj696w",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:BigInt64Array.prototype.subarray",
+      "proof": {
+        "edgeId": "surface.native.op.global.bigint64array.prototype.subarray.0fj696w",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.biguint64array.0l9rpzi",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:BigUint64Array",
+      "proof": {
+        "edgeId": "surface.native.op.global.biguint64array.0l9rpzi",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.biguint64array.constructor.1rqg3uc",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:BigUint64Array.constructor",
+      "proof": {
+        "edgeId": "surface.native.op.global.biguint64array.constructor.1rqg3uc",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.biguint64array.name.163hdwj",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:BigUint64Array.name",
+      "proof": {
+        "edgeId": "surface.native.op.global.biguint64array.name.163hdwj",
+        "status": "observed-noncallable",
+        "valueType": "string"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.biguint64array.prototype.1w2isty",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:BigUint64Array.prototype",
+      "proof": {
+        "edgeId": "surface.native.op.global.biguint64array.prototype.1w2isty",
+        "status": "observed-noncallable",
+        "valueType": "object"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.biguint64array.prototype.subarray.039hdiz",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:BigUint64Array.prototype.subarray",
+      "proof": {
+        "edgeId": "surface.native.op.global.biguint64array.prototype.subarray.039hdiz",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.btoa.1ypofkh",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:btoa",
+      "proof": {
+        "edgeId": "surface.native.op.global.btoa.1ypofkh",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.clearinterval.11pm3v5",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:clearInterval",
+      "proof": {
+        "edgeId": "surface.native.op.global.clearinterval.11pm3v5",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.cleartimeout.0xeg86z",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:clearTimeout",
+      "proof": {
+        "edgeId": "surface.native.op.global.cleartimeout.0xeg86z",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.dataview.03p397u",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:DataView",
+      "proof": {
+        "edgeId": "surface.native.op.global.dataview.03p397u",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.dataview.constructor.1clrhqg",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:DataView.constructor",
+      "proof": {
+        "edgeId": "surface.native.op.global.dataview.constructor.1clrhqg",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.dataview.name.0llyafb",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:DataView.name",
+      "proof": {
+        "edgeId": "surface.native.op.global.dataview.name.0llyafb",
+        "status": "observed-noncallable",
+        "valueType": "string"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.dataview.prototype.08nl2ua",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:DataView.prototype",
+      "proof": {
+        "edgeId": "surface.native.op.global.dataview.prototype.08nl2ua",
+        "status": "observed-noncallable",
+        "valueType": "object"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.date.1c0a19v",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Date",
+      "proof": {
+        "edgeId": "surface.native.op.global.date.1c0a19v",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.date.constructor.03hdgjx",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Date.constructor",
+      "proof": {
+        "edgeId": "surface.native.op.global.date.constructor.03hdgjx",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.eval.018ogi5",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:eval",
+      "proof": {
+        "edgeId": "surface.native.op.global.eval.018ogi5",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.09mgu86",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:exact",
+      "proof": {
+        "edgeId": "surface.native.op.global.exact.09mgu86",
+        "status": "observed-noncallable",
+        "valueType": "object"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.dispatch.10m37ay",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:exact.dispatch",
+      "proof": {
+        "edgeId": "surface.native.op.global.exact.dispatch.10m37ay",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.invokehostasync.0b92itq",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:exact.invokeHostAsync",
+      "proof": {
+        "edgeId": "surface.native.op.global.exact.invokehostasync.0b92itq",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.publishcheckpoint.1sxxctt",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:exact.publishCheckpoint",
+      "proof": {
+        "edgeId": "surface.native.op.global.exact.publishcheckpoint.1sxxctt",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.takecheckpointbytes.1hbxdow",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:exact.takeCheckpointBytes",
+      "proof": {
+        "edgeId": "surface.native.op.global.exact.takecheckpointbytes.1hbxdow",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.float32array.0z8utsv",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Float32Array",
+      "proof": {
+        "edgeId": "surface.native.op.global.float32array.0z8utsv",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.float32array.constructor.11fgwj5",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Float32Array.constructor",
+      "proof": {
+        "edgeId": "surface.native.op.global.float32array.constructor.11fgwj5",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.float32array.name.0lwb6lk",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Float32Array.name",
+      "proof": {
+        "edgeId": "surface.native.op.global.float32array.name.0lwb6lk",
+        "status": "observed-noncallable",
+        "valueType": "string"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.float32array.prototype.1hwtmuv",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Float32Array.prototype",
+      "proof": {
+        "edgeId": "surface.native.op.global.float32array.prototype.1hwtmuv",
+        "status": "observed-noncallable",
+        "valueType": "object"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.float32array.prototype.subarray.130qf9o",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Float32Array.prototype.subarray",
+      "proof": {
+        "edgeId": "surface.native.op.global.float32array.prototype.subarray.130qf9o",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.float64array.1fmv40q",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Float64Array",
+      "proof": {
+        "edgeId": "surface.native.op.global.float64array.1fmv40q",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.float64array.constructor.0cr275k",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Float64Array.constructor",
+      "proof": {
+        "edgeId": "surface.native.op.global.float64array.constructor.0cr275k",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.float64array.name.151nkk7",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Float64Array.name",
+      "proof": {
+        "edgeId": "surface.native.op.global.float64array.name.151nkk7",
+        "status": "observed-noncallable",
+        "valueType": "string"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.float64array.prototype.1p9d7f6",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Float64Array.prototype",
+      "proof": {
+        "edgeId": "surface.native.op.global.float64array.prototype.1p9d7f6",
+        "status": "observed-noncallable",
+        "valueType": "object"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.float64array.prototype.subarray.19ash6n",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Float64Array.prototype.subarray",
+      "proof": {
+        "edgeId": "surface.native.op.global.float64array.prototype.subarray.19ash6n",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.function.132ixh3",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Function",
+      "proof": {
+        "edgeId": "surface.native.op.global.function.132ixh3",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.int16array.0d5ap9g",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Int16Array",
+      "proof": {
+        "edgeId": "surface.native.op.global.int16array.0d5ap9g",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.int16array.constructor.1bdr0se",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Int16Array.constructor",
+      "proof": {
+        "edgeId": "surface.native.op.global.int16array.constructor.1bdr0se",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.int16array.name.0tgxqzh",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Int16Array.name",
+      "proof": {
+        "edgeId": "surface.native.op.global.int16array.name.0tgxqzh",
+        "status": "observed-noncallable",
+        "valueType": "string"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.int16array.prototype.0sc3jsc",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Int16Array.prototype",
+      "proof": {
+        "edgeId": "surface.native.op.global.int16array.prototype.0sc3jsc",
+        "status": "observed-noncallable",
+        "valueType": "object"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.int16array.prototype.subarray.0b4d2l5",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Int16Array.prototype.subarray",
+      "proof": {
+        "edgeId": "surface.native.op.global.int16array.prototype.subarray.0b4d2l5",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.int32array.10f25eq",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Int32Array",
+      "proof": {
+        "edgeId": "surface.native.op.global.int32array.10f25eq",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.int32array.constructor.14dayyo",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Int32Array.constructor",
+      "proof": {
+        "edgeId": "surface.native.op.global.int32array.constructor.14dayyo",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.int32array.name.1h9yyqn",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Int32Array.name",
+      "proof": {
+        "edgeId": "surface.native.op.global.int32array.name.1h9yyqn",
+        "status": "observed-noncallable",
+        "valueType": "string"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.int32array.prototype.0fjtcbe",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Int32Array.prototype",
+      "proof": {
+        "edgeId": "surface.native.op.global.int32array.prototype.0fjtcbe",
+        "status": "observed-noncallable",
+        "valueType": "object"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.int32array.prototype.subarray.142eftj",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Int32Array.prototype.subarray",
+      "proof": {
+        "edgeId": "surface.native.op.global.int32array.prototype.subarray.142eftj",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.int8array.1nflbr1",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Int8Array",
+      "proof": {
+        "edgeId": "surface.native.op.global.int8array.1nflbr1",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.int8array.constructor.0mk4vcb",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Int8Array.constructor",
+      "proof": {
+        "edgeId": "surface.native.op.global.int8array.constructor.0mk4vcb",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.int8array.name.197xf7m",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Int8Array.name",
+      "proof": {
+        "edgeId": "surface.native.op.global.int8array.name.197xf7m",
+        "status": "observed-noncallable",
+        "valueType": "string"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.int8array.prototype.0a76gh9",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Int8Array.prototype",
+      "proof": {
+        "edgeId": "surface.native.op.global.int8array.prototype.0a76gh9",
+        "status": "observed-noncallable",
+        "valueType": "object"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.int8array.prototype.subarray.0lap2ky",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Int8Array.prototype.subarray",
+      "proof": {
+        "edgeId": "surface.native.op.global.int8array.prototype.subarray.0lap2ky",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.intl.0hl0zz0",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Intl",
+      "proof": {
+        "edgeId": "surface.native.op.global.intl.0hl0zz0",
+        "status": "observed-noncallable",
+        "valueType": "object"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.intl.collator.076ubos",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Intl.Collator",
+      "proof": {
+        "edgeId": "surface.native.op.global.intl.collator.076ubos",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.intl.collator.supportedlocalesof.1w93zle",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Intl.Collator.supportedLocalesOf",
+      "proof": {
+        "edgeId": "surface.native.op.global.intl.collator.supportedlocalesof.1w93zle",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.intl.datetimeformat.1ktia18",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Intl.DateTimeFormat",
+      "proof": {
+        "edgeId": "surface.native.op.global.intl.datetimeformat.1ktia18",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.intl.datetimeformat.prototype.1axm3p0",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Intl.DateTimeFormat.prototype",
+      "proof": {
+        "edgeId": "surface.native.op.global.intl.datetimeformat.prototype.1axm3p0",
+        "status": "observed-noncallable",
+        "valueType": "object"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.intl.datetimeformat.prototype.formattoparts.0aifx0u",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Intl.DateTimeFormat.prototype.formatToParts",
+      "proof": {
+        "edgeId": "surface.native.op.global.intl.datetimeformat.prototype.formattoparts.0aifx0u",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.intl.getcanonicallocales.0aoj0pj",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Intl.getCanonicalLocales",
+      "proof": {
+        "edgeId": "surface.native.op.global.intl.getcanonicallocales.0aoj0pj",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.intl.numberformat.1x12218",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Intl.NumberFormat",
+      "proof": {
+        "edgeId": "surface.native.op.global.intl.numberformat.1x12218",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.intl.numberformat.prototype.019kzas",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Intl.NumberFormat.prototype",
+      "proof": {
+        "edgeId": "surface.native.op.global.intl.numberformat.prototype.019kzas",
+        "status": "observed-noncallable",
+        "valueType": "object"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.06iood9",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Iterator",
+      "proof": {
+        "edgeId": "surface.native.op.global.iterator.06iood9",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.from.1rt6am9",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Iterator.from",
+      "proof": {
+        "edgeId": "surface.native.op.global.iterator.from.1rt6am9",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.1up55ot",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Iterator.prototype",
+      "proof": {
+        "edgeId": "surface.native.op.global.iterator.prototype.1up55ot",
+        "status": "observed-noncallable",
+        "valueType": "object"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.constructor.0cxws1n",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Iterator.prototype.constructor",
+      "proof": {
+        "edgeId": "surface.native.op.global.iterator.prototype.constructor.0cxws1n",
+        "status": "invoked-returned",
+        "valueType": "function"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.drop.1nnmfgw",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Iterator.prototype.drop",
+      "proof": {
+        "edgeId": "surface.native.op.global.iterator.prototype.drop.1nnmfgw",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.every.0p665yw",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Iterator.prototype.every",
+      "proof": {
+        "edgeId": "surface.native.op.global.iterator.prototype.every.0p665yw",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.filter.1wb0por",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Iterator.prototype.filter",
+      "proof": {
+        "edgeId": "surface.native.op.global.iterator.prototype.filter.1wb0por",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.find.0i7f2h2",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Iterator.prototype.find",
+      "proof": {
+        "edgeId": "surface.native.op.global.iterator.prototype.find.0i7f2h2",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.flatmap.1mm2l6o",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Iterator.prototype.flatMap",
+      "proof": {
+        "edgeId": "surface.native.op.global.iterator.prototype.flatmap.1mm2l6o",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.foreach.11c24zx",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Iterator.prototype.forEach",
+      "proof": {
+        "edgeId": "surface.native.op.global.iterator.prototype.foreach.11c24zx",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.map.19jd4t1",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Iterator.prototype.map",
+      "proof": {
+        "edgeId": "surface.native.op.global.iterator.prototype.map.19jd4t1",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.reduce.0lxpajv",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Iterator.prototype.reduce",
+      "proof": {
+        "edgeId": "surface.native.op.global.iterator.prototype.reduce.0lxpajv",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.some.1513jst",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Iterator.prototype.some",
+      "proof": {
+        "edgeId": "surface.native.op.global.iterator.prototype.some.1513jst",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.symbol.iterator.0k8w72b",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Iterator.prototype.[[Symbol.iterator]]",
+      "proof": {
+        "edgeId": "surface.native.op.global.iterator.prototype.symbol.iterator.0k8w72b",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.symbol.tostringtag.0qheaf3",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Iterator.prototype.[[Symbol.toStringTag]]",
+      "proof": {
+        "edgeId": "surface.native.op.global.iterator.prototype.symbol.tostringtag.0qheaf3",
+        "status": "invoked-returned",
+        "valueType": "string"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.take.0m65296",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Iterator.prototype.take",
+      "proof": {
+        "edgeId": "surface.native.op.global.iterator.prototype.take.0m65296",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.iterator.prototype.toarray.1rlnqf9",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Iterator.prototype.toArray",
+      "proof": {
+        "edgeId": "surface.native.op.global.iterator.prototype.toarray.1rlnqf9",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.performance.19v50zv",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:performance",
+      "proof": {
+        "edgeId": "surface.native.op.global.performance.19v50zv",
+        "status": "observed-noncallable",
+        "valueType": "object"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.performance.now.1fmhnpl",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:performance.now",
+      "proof": {
+        "edgeId": "surface.native.op.global.performance.now.1fmhnpl",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.performance.timeorigin.0k5ydy0",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:performance.timeOrigin",
+      "proof": {
+        "edgeId": "surface.native.op.global.performance.timeorigin.0k5ydy0",
+        "status": "observed-noncallable",
+        "valueType": "number"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.promise.0kct1tg",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Promise",
+      "proof": {
+        "edgeId": "surface.native.op.global.promise.0kct1tg",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.promise.prototype.1nw4n0c",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Promise.prototype",
+      "proof": {
+        "edgeId": "surface.native.op.global.promise.prototype.1nw4n0c",
+        "status": "observed-noncallable",
+        "valueType": "object"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.promise.prototype.catch.1rwe3ft",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Promise.prototype.catch",
+      "proof": {
+        "edgeId": "surface.native.op.global.promise.prototype.catch.1rwe3ft",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.promise.prototype.finally.0hjpugp",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Promise.prototype.finally",
+      "proof": {
+        "edgeId": "surface.native.op.global.promise.prototype.finally.0hjpugp",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.promise.prototype.then.1iduah5",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Promise.prototype.then",
+      "proof": {
+        "edgeId": "surface.native.op.global.promise.prototype.then.1iduah5",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.promise.reject.1q6aai5",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Promise.reject",
+      "proof": {
+        "edgeId": "surface.native.op.global.promise.reject.1q6aai5",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.queuemicrotask.1gw3ql3",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:queueMicrotask",
+      "proof": {
+        "edgeId": "surface.native.op.global.queuemicrotask.1gw3ql3",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.setinterval.0mmfr68",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:setInterval",
+      "proof": {
+        "edgeId": "surface.native.op.global.setinterval.0mmfr68",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.settimeout.1ffaru8",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:setTimeout",
+      "proof": {
+        "edgeId": "surface.native.op.global.settimeout.1ffaru8",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.textdecoder.1r6q6sw",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:TextDecoder",
+      "proof": {
+        "edgeId": "surface.native.op.global.textdecoder.1r6q6sw",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.textdecoder.prototype.1s6uc3c",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:TextDecoder.prototype",
+      "proof": {
+        "edgeId": "surface.native.op.global.textdecoder.prototype.1s6uc3c",
+        "status": "observed-noncallable",
+        "valueType": "object"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.textencoder.16hxqtk",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:TextEncoder",
+      "proof": {
+        "edgeId": "surface.native.op.global.textencoder.16hxqtk",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.uint16array.08pdnld",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Uint16Array",
+      "proof": {
+        "edgeId": "surface.native.op.global.uint16array.08pdnld",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.uint16array.constructor.10xhnxz",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Uint16Array.constructor",
+      "proof": {
+        "edgeId": "surface.native.op.global.uint16array.constructor.10xhnxz",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.uint16array.name.0fmcx1q",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Uint16Array.name",
+      "proof": {
+        "edgeId": "surface.native.op.global.uint16array.name.0fmcx1q",
+        "status": "observed-noncallable",
+        "valueType": "string"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.uint16array.prototype.0ikdmzl",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Uint16Array.prototype",
+      "proof": {
+        "edgeId": "surface.native.op.global.uint16array.prototype.0ikdmzl",
+        "status": "observed-noncallable",
+        "valueType": "object"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.uint16array.prototype.subarray.0nblen2",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Uint16Array.prototype.subarray",
+      "proof": {
+        "edgeId": "surface.native.op.global.uint16array.prototype.subarray.0nblen2",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.uint32array.173qiff",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Uint32Array",
+      "proof": {
+        "edgeId": "surface.native.op.global.uint32array.173qiff",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.uint32array.constructor.0j1n5qd",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Uint32Array.constructor",
+      "proof": {
+        "edgeId": "surface.native.op.global.uint32array.constructor.0j1n5qd",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.uint32array.name.0igg6t8",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Uint32Array.name",
+      "proof": {
+        "edgeId": "surface.native.op.global.uint32array.name.0igg6t8",
+        "status": "observed-noncallable",
+        "valueType": "string"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.uint32array.prototype.1gdw8b7",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Uint32Array.prototype",
+      "proof": {
+        "edgeId": "surface.native.op.global.uint32array.prototype.1gdw8b7",
+        "status": "observed-noncallable",
+        "valueType": "object"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.uint32array.prototype.subarray.1fmi4ps",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Uint32Array.prototype.subarray",
+      "proof": {
+        "edgeId": "surface.native.op.global.uint32array.prototype.subarray.1fmi4ps",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.uint8array.1jktj5a",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Uint8Array",
+      "proof": {
+        "edgeId": "surface.native.op.global.uint8array.1jktj5a",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.uint8array.constructor.0pmh7f8",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Uint8Array.constructor",
+      "proof": {
+        "edgeId": "surface.native.op.global.uint8array.constructor.0pmh7f8",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.uint8array.name.16s5ojn",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Uint8Array.name",
+      "proof": {
+        "edgeId": "surface.native.op.global.uint8array.name.16s5ojn",
+        "status": "observed-noncallable",
+        "valueType": "string"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.uint8array.prototype.1917mc6",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Uint8Array.prototype",
+      "proof": {
+        "edgeId": "surface.native.op.global.uint8array.prototype.1917mc6",
+        "status": "observed-noncallable",
+        "valueType": "object"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.uint8array.prototype.subarray.0dvl28r",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Uint8Array.prototype.subarray",
+      "proof": {
+        "edgeId": "surface.native.op.global.uint8array.prototype.subarray.0dvl28r",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.uint8clampedarray.0hmsx0m",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Uint8ClampedArray",
+      "proof": {
+        "edgeId": "surface.native.op.global.uint8clampedarray.0hmsx0m",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.uint8clampedarray.constructor.0lce1bg",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Uint8ClampedArray.constructor",
+      "proof": {
+        "edgeId": "surface.native.op.global.uint8clampedarray.constructor.0lce1bg",
+        "status": "invoked-threw",
+        "errorName": "TypeError"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.uint8clampedarray.name.1d6hmgr",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Uint8ClampedArray.name",
+      "proof": {
+        "edgeId": "surface.native.op.global.uint8clampedarray.name.1d6hmgr",
+        "status": "observed-noncallable",
+        "valueType": "string"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.uint8clampedarray.prototype.0ck6y0e",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Uint8ClampedArray.prototype",
+      "proof": {
+        "edgeId": "surface.native.op.global.uint8clampedarray.prototype.0ck6y0e",
+        "status": "observed-noncallable",
+        "valueType": "object"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.global.uint8clampedarray.prototype.subarray.0fsq9z7",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:global:Uint8ClampedArray.prototype.subarray",
+      "proof": {
+        "edgeId": "surface.native.op.global.uint8clampedarray.prototype.subarray.0fsq9z7",
+        "status": "invoked-returned"
+      }
+    },
+    {
+      "edgeId": "surface.native.op.ibexlockeddown.1l9g3ta",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "native-op:__ibexLockedDown",
+      "proof": {
+        "edgeId": "surface.native.op.ibexlockeddown.1l9g3ta",
+        "status": "observed-noncallable",
+        "valueType": "boolean"
+      }
+    },
+    {
+      "edgeId": "surface.startup.evaluation.ex.hermes.run.restricted.exact.bundle.authenticated.restricte.1e57hbx",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "startup:evaluation:ex_hermes_run_restricted_exact_bundle:authenticated-restricted-exact-bundle",
+      "proof": {
+        "observer": "restricted-exact-startup-trace",
+        "bit": 8,
+        "trace": 511
+      }
+    },
+    {
+      "edgeId": "surface.startup.evaluation.installrestrictedexactglobals.restricted.exact.lockdown.0xlst78",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "startup:evaluation:installRestrictedExactGlobals:restricted-exact-lockdown",
+      "proof": {
+        "observer": "restricted-exact-startup-trace",
+        "bit": 6,
+        "trace": 511
+      }
+    },
+    {
+      "edgeId": "surface.startup.install.route.ex.hermes.create.impl.installrestrictedexactglobals.17p1el8",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "startup:install-route:ex_hermes_create_impl:installRestrictedExactGlobals",
+      "proof": {
+        "observer": "restricted-exact-startup-trace",
+        "bit": 1,
+        "trace": 511
+      }
+    },
+    {
+      "edgeId": "surface.startup.install.route.installrestrictedexactglobals.installtimerglobals.1kww2tg",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "startup:install-route:installRestrictedExactGlobals:installTimerGlobals",
+      "proof": {
+        "observer": "restricted-exact-startup-trace",
+        "bit": 3,
+        "trace": 511
+      }
+    },
+    {
+      "edgeId": "surface.startup.installer.installrestrictedexactglobals.17llg9x",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "startup:installer:installRestrictedExactGlobals",
+      "proof": {
+        "observer": "restricted-exact-startup-trace",
+        "bit": 2,
+        "trace": 511
+      }
+    },
+    {
+      "edgeId": "surface.startup.installer.installtimerglobals.1qth84q",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "startup:installer:installTimerGlobals",
+      "proof": {
+        "observer": "restricted-exact-startup-trace",
+        "bit": 4,
+        "trace": 511
+      }
+    },
+    {
+      "edgeId": "surface.startup.runtime.create.09gd22j",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "startup:runtime-create",
+      "proof": {
+        "observer": "restricted-exact-startup-trace",
+        "bit": 0,
+        "trace": 511
+      }
+    },
+    {
+      "edgeId": "surface.startup.script.authenticated.restricted.exact.bundle.1v2bh2d",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "startup:script:authenticated-restricted-exact-bundle",
+      "proof": {
+        "observer": "restricted-exact-startup-trace",
+        "bit": 7,
+        "trace": 511
+      }
+    },
+    {
+      "edgeId": "surface.startup.script.restricted.exact.lockdown.1wpbysw",
+      "kind": "live-invocation",
+      "outcome": "passed",
+      "observedIdentity": "startup:script:restricted-exact-lockdown",
+      "proof": {
+        "observer": "restricted-exact-startup-trace",
+        "bit": 5,
+        "trace": 511
+      }
+    }
+  ]
+}

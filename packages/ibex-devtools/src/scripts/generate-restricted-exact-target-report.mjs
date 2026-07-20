@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { canonicalJson, repoRoot } from "./capsec-contract.mjs";
+import { readRestrictedAbsenceEvidence } from "./restricted-exact-absence-evidence.mjs";
 import { readRestrictedControlEvidence } from "./restricted-exact-control-evidence.mjs";
 import { readRestrictedReachableEvidence } from "./restricted-exact-reachable-evidence.mjs";
 import {
@@ -12,17 +13,29 @@ import {
   loadRestrictedReportAuthorities,
 } from "./restricted-exact-target-report.mjs";
 
-export function buildRestrictedTargetReportFromEvidence(reachablePath, controlPath) {
+export function buildRestrictedTargetReportFromEvidence(
+  reachablePath,
+  controlPath,
+  absencePath,
+) {
   const authorities = loadRestrictedReportAuthorities();
   const reachable = readRestrictedReachableEvidence(reachablePath, authorities);
   const control = readRestrictedControlEvidence(controlPath, authorities);
-  if (canonicalJson(reachable.bindings) !== canonicalJson(control.bindings)) {
-    throw new Error("restricted reachable and control evidence bindings differ");
+  const absence = readRestrictedAbsenceEvidence(absencePath, authorities);
+  if (
+    canonicalJson(reachable.bindings) !== canonicalJson(control.bindings)
+    || canonicalJson(reachable.bindings) !== canonicalJson(absence.bindings)
+  ) {
+    throw new Error("restricted target evidence bindings differ");
   }
   return buildRestrictedTargetReport({
     ...authorities,
     bindings: reachable.bindings,
-    executions: [...reachable.executions, ...control.executions].sort(
+    executions: [
+      ...reachable.executions,
+      ...control.executions,
+      ...absence.executions,
+    ].sort(
       (left, right) => left.executionId.localeCompare(right.executionId),
     ),
     globalCorpora: authorities.fixturePlan.globalCorpora.map((row) => ({
@@ -49,21 +62,27 @@ function main() {
   const check = args.includes("--check") || !write;
   if (write && args.includes("--check")) throw new Error("choose --write or --check");
   const positional = args.filter((arg) => !arg.startsWith("--"));
-  if (positional.length !== 3) {
-    throw new Error("usage: generate-restricted-exact-target-report <reachable-evidence> <control-evidence> <report> [--write|--check]");
+  if (positional.length !== 4) {
+    throw new Error("usage: generate-restricted-exact-target-report <reachable-evidence> <control-evidence> <absence-evidence> <report> [--write|--check]");
   }
   const reachablePath = path.resolve(repoRoot, positional[0]);
   const controlPath = path.resolve(repoRoot, positional[1]);
-  const outputPath = path.resolve(repoRoot, positional[2]);
+  const absencePath = path.resolve(repoRoot, positional[2]);
+  const outputPath = path.resolve(repoRoot, positional[3]);
   const conformanceRoot = `${path.resolve(repoRoot, "capsec/conformance")}${path.sep}`;
   if (
     !reachablePath.startsWith(conformanceRoot)
     || !controlPath.startsWith(conformanceRoot)
+    || !absencePath.startsWith(conformanceRoot)
     || !outputPath.startsWith(conformanceRoot)
   ) {
     throw new Error("restricted evidence and report must remain under capsec/conformance");
   }
-  const reportText = render(buildRestrictedTargetReportFromEvidence(reachablePath, controlPath));
+  const reportText = render(buildRestrictedTargetReportFromEvidence(
+    reachablePath,
+    controlPath,
+    absencePath,
+  ));
   if (write) {
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
     fs.writeFileSync(outputPath, reportText, { flag: "w", mode: 0o644 });
