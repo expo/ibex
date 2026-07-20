@@ -806,8 +806,7 @@ async fn capsec_public_startup_environment_batch() {
         );
         return;
     };
-    let output_path = std::env::var("IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT")
-        .expect("startup environment batch requires an owned evidence output path");
+    let output_path = std::env::var("IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT").ok();
     let recipe_path = std::fs::canonicalize(recipe_path)
         .expect("canonicalize CapSec executable recipe catalog path");
     let catalog = load_catalog(&recipe_path);
@@ -843,6 +842,14 @@ async fn capsec_public_startup_environment_batch() {
     let _lock = hermes_engine_test_lock().lock().await;
     let identity_before = HermesEngine::loaded_engine_identity()
         .expect("attest exact loaded Hermes before startup environment recipes");
+    let portable = super::capsec_portable_public_batch::PortablePublicBatchContext::begin(
+        "ibex-startup-environment-public-source-harness",
+    );
+    assert_ne!(
+        output_path.is_some(),
+        portable.is_some(),
+        "startup environment batch requires exactly one legacy output or portable plan"
+    );
     let mut executions = Vec::with_capacity(recipes.len());
     for recipe in recipes {
         executions.push(execute_recipe(recipe, &identity_before.binary_digest).await);
@@ -853,6 +860,10 @@ async fn capsec_public_startup_environment_batch() {
     assert_eq!(identity_after, identity_before);
     ibex_runtime::engine::verify_loaded_engine_binary_identity(&identity_before)
         .expect("re-verify mapped Hermes after startup environment recipes");
+    if let Some(portable) = portable {
+        portable.finish(&executions);
+        return;
+    }
     let artifact = PublicBatchArtifact {
         public_batch_evidence_schema: "ibex/capsec-public-batch-evidence/1",
         recipe_catalog_digest: catalog.recipe_catalog_digest,
@@ -862,7 +873,7 @@ async fn capsec_public_startup_environment_batch() {
     let mut output = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(output_path)
+        .open(output_path.expect("legacy startup environment batch has no output path"))
         .expect("create owned startup environment public evidence artifact");
     serde_json::to_writer_pretty(&mut output, &artifact)
         .expect("serialize startup environment public evidence artifact");

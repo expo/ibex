@@ -15,6 +15,7 @@ import {
   selectCandidateTarget,
 } from "./capsec-conformance.mjs";
 import { assertRecipeCatalogComplete } from "./capsec-conformance-recipes.mjs";
+import { publicSurfaceExecutorDescriptor } from "./capsec-public-executors.mjs";
 import {
   assertPublicSurfaceExecutionComplete,
   buildPublicSurfaceExecutionArtifact,
@@ -53,6 +54,7 @@ import {
 } from "./capsec-fixture-evidence.mjs";
 import {
   buildPortableEvidencePlan,
+  buildPortablePublicBatchEvidencePlan,
   parsePortableEngineIdentityMarker,
   portableReportSliceBytes,
   validateLivePortableProcess,
@@ -132,11 +134,11 @@ const portablePromotionTargetCellsInput = option(
   "--portable-promotion-target-cells",
 );
 if (
-  (portablePromotionOutputInput === undefined) !==
-  (portablePromotionTargetCellsInput === undefined)
+  portablePromotionTargetCellsInput !== undefined &&
+  portablePromotionOutputInput === undefined
 ) {
   throw new Error(
-    "--portable-promotion-output and --portable-promotion-target-cells must be supplied together",
+    "--portable-promotion-target-cells is only an optional redundancy check for --portable-promotion-output",
   );
 }
 const portablePromotionOutputDirectory = portablePromotionOutputInput
@@ -836,7 +838,7 @@ let portableProcessEvidence = {
 };
 if (portableEngineIdentity !== null) {
   if (!bindings.outputDispositionEvidenceRawContentDigest) {
-    if (portablePromotionTargetCellsInput) {
+    if (portablePromotionOutputDirectory) {
       throw new Error(
         "portable promotion requires verified exact output-disposition evidence",
       );
@@ -852,18 +854,13 @@ if (portableEngineIdentity !== null) {
     // @ref LLP 0035#phase-2--split-runtime-and-publication-identity — a real
     // promotion is explicit, source-derived, exact-byte output; the default
     // portable pilot remains diagnostic and cannot alter checked authority.
-    let portablePromotionPreparation;
-    let portableBindings;
-    let fixtureIds;
-    if (portablePromotionTargetCellsInput) {
-      const promotionTargetCellsPath = path.resolve(
-        repoRoot,
-        portablePromotionTargetCellsInput,
-      );
-      const promotionTargetCellsBytes = readOwnedJsonWithBytes(
-        promotionTargetCellsPath,
-        "portable promotion target cells",
-      ).bytes;
+    if (portablePromotionOutputDirectory) {
+      const suppliedPromotionTargetCellsBytes = portablePromotionTargetCellsInput
+        ? readOwnedJsonWithBytes(
+            path.resolve(repoRoot, portablePromotionTargetCellsInput),
+            "supplied portable promotion target cells",
+          ).bytes
+        : null;
       const family = target.triple.endsWith("-apple-darwin")
         ? "macos"
         : target.triple.endsWith("-pc-windows-msvc")
@@ -873,7 +870,7 @@ if (portableEngineIdentity !== null) {
         `${JSON.stringify(
           {
             portablePromotionSourceSchema:
-              "ibex/capsec-portable-promotion-source/1",
+              "ibex/capsec-portable-promotion-source/2",
             profile: "ibex/capsec/1",
             sourceRevision: bindings.sourceRevision,
             sourceTreeDigest: bindings.sourceTreeDigest,
@@ -882,14 +879,14 @@ if (portableEngineIdentity !== null) {
             engine: portableEngineIdentity,
             vocabularyDigest: bindings.vocabularyDigest,
             registryDigest: bindings.registryDigest,
-            executor: "ibex-exact-fixture-evidence-pilot",
+            executorPolicy: "recipe-public-command",
           },
           null,
           2,
         )}\n`,
         "utf8",
       );
-      portablePromotionPreparation = preparePortablePromotionV2({
+      const portablePromotionPreparation = preparePortablePromotionV2({
         reviewedSourceBytes,
         coverageBytes: fs.readFileSync(
           path.join(capsecRoot, "registry/coverage-edges.json"),
@@ -897,7 +894,7 @@ if (portableEngineIdentity !== null) {
         implementationManifestBytes: fs.readFileSync(
           path.join(capsecRoot, "generated/implementation-manifest.json"),
         ),
-        targetCellsBytes: promotionTargetCellsBytes,
+        targetCellsBytes: suppliedPromotionTargetCellsBytes,
         richRecipeCatalogBytes: fs.readFileSync(recipeCatalogPath),
         richPublicSurfaceExecutionBytes: fs.readFileSync(
           publicSurfaceEvidencePath,
@@ -910,7 +907,7 @@ if (portableEngineIdentity !== null) {
           path.join(capsecRoot, "generated/output-dispositions.json"),
         ),
       });
-      portableBindings = {
+      const portableBindings = {
         sourceRevision: portablePromotionPreparation.source.sourceRevision,
         sourceTreeDigest: portablePromotionPreparation.source.sourceTreeDigest,
         target: portablePromotionPreparation.source.target,
@@ -942,13 +939,200 @@ if (portableEngineIdentity !== null) {
           portablePromotionPreparation.authorityEntry
             .outputDispositionEvidenceRawContentDigest,
       };
-      fixtureIds = portablePromotionPreparation.fixtures;
+      const portableRecipeByFixture = new Map(
+        portablePromotionPreparation.recipeCatalog.recipes.map((recipe) => [
+          recipe.fixtureId,
+          recipe,
+        ]),
+      );
+      const portableProcesses = [];
+      const detachedEvidence = [];
+      let portableBatchIndex = 0;
+      if (
+        publicRecipeCommands.size >
+        suitePlan.targets[target.triple].maxPortablePublicFixtureBatches
+      ) {
+        throw new Error(
+          `suite plan permits ${suitePlan.targets[target.triple].maxPortablePublicFixtureBatches} portable public fixture batches; catalog requires ${publicRecipeCommands.size}`,
+        );
+      }
+      for (const { command, fixtureIds } of publicRecipeCommands.values()) {
+        const executor = publicSurfaceExecutorDescriptor(command).executor;
+        if (
+          fixtureIds.some(
+            (fixtureId) =>
+              portableRecipeByFixture.get(fixtureId)?.executor !== executor,
+          )
+        ) {
+          throw new Error(
+            `${executor}: portable recipe executor differs from its source command`,
+          );
+        }
+        const batchId = `portable-public-fixtures-${String(
+          portableBatchIndex,
+        ).padStart(3, "0")}-${commandEvidenceIdSuffix(
+          Buffer.from(canonicalJson(command), "utf8"),
+        )}`;
+        const processDirectory = path.join(
+          evidenceDirectory,
+          `portable-public-process-${String(portableBatchIndex + 1).padStart(
+            4,
+            "0",
+          )}`,
+        );
+        portableBatchIndex += 1;
+        fs.mkdirSync(processDirectory, { mode: 0o700 });
+        const portablePlanState = buildPortablePublicBatchEvidencePlan({
+          bindings: portableBindings,
+          evidenceDirectory: processDirectory,
+          fixtureIds,
+          executor,
+          commandId: batchId,
+        });
+        const portablePlanPath = path.join(
+          processDirectory,
+          "portable-public-batch-plan.json",
+        );
+        const portablePlanBytes = Buffer.from(
+          `${JSON.stringify(portablePlanState.plan, null, 2)}\n`,
+          "utf8",
+        );
+        writeNewOwnedBytes(
+          portablePlanPath,
+          portablePlanBytes,
+          `${batchId} portable evidence plan`,
+        );
+        const portableAttempt = await runObservedCommand({
+          supervisor,
+          id: batchId,
+          command: command[0],
+          args: command.slice(1),
+          cwd: repoRoot,
+          env: {
+            ...exactEngineEnvironment,
+            IBEX_CAPSEC_RECIPE_CATALOG: recipeCatalogPath,
+            IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN: portablePlanPath,
+            IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:
+              portablePlanState.mappedEvidencePath,
+          },
+          environmentKeys: [
+            ...exactEngineEnvironmentKeys,
+            "IBEX_CAPSEC_RECIPE_CATALOG",
+            "IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN",
+            "IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT",
+          ],
+          declaredInputs: [
+            {
+              name: "richRecipeCatalog",
+              digest: recipeCatalog.recipeCatalogDigest,
+            },
+            {
+              name: "portableRecipeCatalog",
+              digest:
+                portablePromotionPreparation.recipeCatalog
+                  .recipeCatalogDigest,
+            },
+            {
+              name: "portablePublicSurfaceExecution",
+              digest:
+                portablePromotionPreparation.publicSurfaceExecution
+                  .publicSurfaceExecutionDigest,
+            },
+            {
+              name: "portableExecutionBinding",
+              digest: portablePlanState.plan.bindingDigest,
+            },
+            {
+              name: "portablePublicBatchPlan",
+              digest: taggedDigest(portablePlanBytes),
+            },
+            { name: "engineArtifact", digest: engineBinaryDigest },
+          ],
+          expectedOutputs: [
+            ...portablePlanState.fixtureOutputs.map((output) => output.path),
+            portablePlanState.mappedEvidencePath,
+          ],
+          injectCommandIdentity: true,
+        });
+        commandEvidence.push(legacyCommandEvidence(portableAttempt));
+        const validatedPortableProcess = validateLivePortableProcess({
+          attempt: portableAttempt,
+          bindings: portableBindings,
+          fixtureOutputs: portablePlanState.fixtureOutputs,
+          mappedEvidencePath: portablePlanState.mappedEvidencePath,
+        });
+        const portableAttemptPath = path.join(
+          processDirectory,
+          "portable-command-attempt.json",
+        );
+        writeNewOwnedBytes(
+          portableAttemptPath,
+          validatedPortableProcess.process.commandAttemptBytes,
+          `${batchId} portable command attempt`,
+        );
+        const portableReportSlicePath = path.join(
+          processDirectory,
+          "portable-report-slice.json",
+        );
+        const reportSliceBytes = portableReportSliceBytes(
+          validatedPortableProcess.reportSlice,
+        );
+        writeNewOwnedBytes(
+          portableReportSlicePath,
+          reportSliceBytes,
+          `${batchId} portable report slice`,
+        );
+        portableProcesses.push(validatedPortableProcess.process);
+        detachedEvidence.push({
+          reportSlicePath: path.relative(repoRoot, portableReportSlicePath),
+          commandAttemptPath: path.relative(repoRoot, portableAttemptPath),
+          mappedEvidencePath: path.relative(
+            repoRoot,
+            portablePlanState.mappedEvidencePath,
+          ),
+          fixturePaths: portablePlanState.fixtureOutputs.map((output) =>
+            path.relative(repoRoot, output.path),
+          ),
+        });
+      }
+      const promotionBundle = buildPortablePromotionBundleV2({
+        preparation: portablePromotionPreparation,
+        processes: portableProcesses,
+      });
+      writePortablePromotionBundleDirectory(
+        portablePromotionOutputDirectory,
+        promotionBundle,
+      );
+      portableProcessEvidence = {
+        portableProcessEvidenceSchema:
+          "ibex/capsec-portable-process-preparation/1",
+        status: "validated-complete",
+        reason:
+          "every source-routed public batch emitted exact detached fixture and mapped-process evidence and the sole Phase-2 promotion validator accepted the complete graph",
+        engine: portableEngineIdentity,
+        mappedEngineExecutionEvidence:
+          promotionBundle.report.bindings.mappedEngineExecutionEvidence,
+        executions: promotionBundle.report.executions,
+        bundleManifestDigest: promotionBundle.manifest.bundleDigest,
+        detachedEvidence,
+        promotionBundleDirectory: path.relative(
+          repoRoot,
+          portablePromotionOutputDirectory,
+        ),
+        trackedAdvertisementCandidate: path.relative(
+          repoRoot,
+          path.join(
+            portablePromotionOutputDirectory,
+            "target-advertisements.json",
+          ),
+        ),
+      };
     } else {
       const targetCellsPath = path.join(
         capsecRoot,
         "registry/target-cells.json",
       );
-      portableBindings = {
+      const portableBindings = {
         sourceRevision: bindings.sourceRevision,
         sourceTreeDigest: bindings.sourceTreeDigest,
         target,
@@ -972,157 +1156,120 @@ if (portableEngineIdentity !== null) {
         outputDispositionEvidenceRawContentDigest:
           bindings.outputDispositionEvidenceRawContentDigest,
       };
-      fixtureIds = fixtureEvidenceBinding.fixturePlans.map(
+      const fixtureIds = fixtureEvidenceBinding.fixturePlans.map(
         (plan) => plan.fixtureId,
       );
-    }
-    const portablePlanState = buildPortableEvidencePlan({
-      bindings: portableBindings,
-      evidenceDirectory,
-      fixtureIds,
-    });
-    const portablePlanPath = path.join(
-      evidenceDirectory,
-      "portable-evidence-plan.json",
-    );
-    const portablePlanBytes = Buffer.from(
-      `${JSON.stringify(portablePlanState.plan, null, 2)}\n`,
-    );
-    writeNewOwnedBytes(
-      portablePlanPath,
-      portablePlanBytes,
-      "portable evidence plan",
-    );
-    const portableAttempt = await runObservedCommand({
-      supervisor,
-      id: "exact-fixture-evidence-portable-pilot",
-      command: EXACT_FIXTURE_EVIDENCE_COMMAND[0],
-      args: EXACT_FIXTURE_EVIDENCE_COMMAND.slice(1),
-      cwd: repoRoot,
-      env: {
-        ...exactEngineEnvironment,
-        IBEX_CAPSEC_RECIPE_CATALOG: recipeCatalogPath,
-        IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING: fixtureEvidenceBindingPath,
-        IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN: portablePlanPath,
-        IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:
-          portablePlanState.mappedEvidencePath,
-      },
-      environmentKeys: [
-        ...exactEngineEnvironmentKeys,
-        "IBEX_CAPSEC_RECIPE_CATALOG",
-        "IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING",
-        "IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN",
-        "IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT",
-      ],
-      declaredInputs: [
-        {
-          name: "recipeCatalog",
-          digest: recipeCatalog.recipeCatalogDigest,
-        },
-        { name: "fixtureBinding", digest: bindingDigest },
-        {
-          name: "portableExecutionBinding",
-          digest: portablePlanState.plan.bindingDigest,
-        },
-        {
-          name: "portableEvidencePlan",
-          digest: taggedDigest(portablePlanBytes),
-        },
-        { name: "engineArtifact", digest: engineBinaryDigest },
-      ],
-      expectedOutputs: [
-        ...portablePlanState.fixtureOutputs.map((output) => output.path),
-        portablePlanState.mappedEvidencePath,
-      ],
-      injectCommandIdentity: true,
-    });
-    commandEvidence.push(legacyCommandEvidence(portableAttempt));
-    const validatedPortableProcess = validateLivePortableProcess({
-      attempt: portableAttempt,
-      bindings: portableBindings,
-      fixtureOutputs: portablePlanState.fixtureOutputs,
-      mappedEvidencePath: portablePlanState.mappedEvidencePath,
-    });
-    const portableAttemptPath = path.join(
-      evidenceDirectory,
-      "portable-command-attempt.json",
-    );
-    writeNewOwnedBytes(
-      portableAttemptPath,
-      validatedPortableProcess.process.commandAttemptBytes,
-      "portable command attempt",
-    );
-    const portableReportSlicePath = path.join(
-      evidenceDirectory,
-      "portable-report-slice.json",
-    );
-    const reportSliceBytes = portableReportSliceBytes(
-      validatedPortableProcess.reportSlice,
-    );
-    writeNewOwnedBytes(
-      portableReportSlicePath,
-      reportSliceBytes,
-      "portable report slice",
-    );
-    const detachedEvidence = {
-      reportSlicePath: path.relative(repoRoot, portableReportSlicePath),
-      commandAttemptPath: path.relative(repoRoot, portableAttemptPath),
-      mappedEvidencePath: path.relative(
-        repoRoot,
-        portablePlanState.mappedEvidencePath,
-      ),
-      fixturePaths: portablePlanState.fixtureOutputs.map((output) =>
-        path.relative(repoRoot, output.path),
-      ),
-    };
-    if (portablePromotionPreparation) {
-      const promotionBundle = buildPortablePromotionBundleV2({
-        preparation: portablePromotionPreparation,
-        processes: [validatedPortableProcess.process],
+      const portablePlanState = buildPortableEvidencePlan({
+        bindings: portableBindings,
+        evidenceDirectory,
+        fixtureIds,
       });
-      writePortablePromotionBundleDirectory(
-        portablePromotionOutputDirectory,
-        promotionBundle,
+      const portablePlanPath = path.join(
+        evidenceDirectory,
+        "portable-evidence-plan.json",
       );
-      portableProcessEvidence = {
-        portableProcessEvidenceSchema:
-          "ibex/capsec-portable-process-preparation/1",
-        status: "validated-complete",
-        reason:
-          "the exact detached process and independently source-derived artifacts passed the sole Phase-2 promotion validator",
-        engine: portableEngineIdentity,
-        mappedEngineExecutionEvidence:
-          promotionBundle.report.bindings.mappedEngineExecutionEvidence,
-        executions: promotionBundle.report.executions,
-        reportSliceRawContentDigest: taggedDigest(reportSliceBytes),
-        bundleManifestDigest: promotionBundle.manifest.bundleDigest,
-        detachedEvidence,
-        promotionBundleDirectory: path.relative(
-          repoRoot,
-          portablePromotionOutputDirectory,
-        ),
-        trackedAdvertisementCandidate: path.relative(
-          repoRoot,
-          path.join(
-            portablePromotionOutputDirectory,
-            "portable-target-advertisements.json",
-          ),
-        ),
-      };
-    } else {
+      const portablePlanBytes = Buffer.from(
+        `${JSON.stringify(portablePlanState.plan, null, 2)}\n`,
+      );
+      writeNewOwnedBytes(
+        portablePlanPath,
+        portablePlanBytes,
+        "portable evidence plan",
+      );
+      const portableAttempt = await runObservedCommand({
+        supervisor,
+        id: "exact-fixture-evidence-portable-pilot",
+        command: EXACT_FIXTURE_EVIDENCE_COMMAND[0],
+        args: EXACT_FIXTURE_EVIDENCE_COMMAND.slice(1),
+        cwd: repoRoot,
+        env: {
+          ...exactEngineEnvironment,
+          IBEX_CAPSEC_RECIPE_CATALOG: recipeCatalogPath,
+          IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING: fixtureEvidenceBindingPath,
+          IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN: portablePlanPath,
+          IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:
+            portablePlanState.mappedEvidencePath,
+        },
+        environmentKeys: [
+          ...exactEngineEnvironmentKeys,
+          "IBEX_CAPSEC_RECIPE_CATALOG",
+          "IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING",
+          "IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN",
+          "IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT",
+        ],
+        declaredInputs: [
+          {
+            name: "recipeCatalog",
+            digest: recipeCatalog.recipeCatalogDigest,
+          },
+          { name: "fixtureBinding", digest: bindingDigest },
+          {
+            name: "portableExecutionBinding",
+            digest: portablePlanState.plan.bindingDigest,
+          },
+          {
+            name: "portableEvidencePlan",
+            digest: taggedDigest(portablePlanBytes),
+          },
+          { name: "engineArtifact", digest: engineBinaryDigest },
+        ],
+        expectedOutputs: [
+          ...portablePlanState.fixtureOutputs.map((output) => output.path),
+          portablePlanState.mappedEvidencePath,
+        ],
+        injectCommandIdentity: true,
+      });
+      commandEvidence.push(legacyCommandEvidence(portableAttempt));
+      const validatedPortableProcess = validateLivePortableProcess({
+        attempt: portableAttempt,
+        bindings: portableBindings,
+        fixtureOutputs: portablePlanState.fixtureOutputs,
+        mappedEvidencePath: portablePlanState.mappedEvidencePath,
+      });
+      const portableAttemptPath = path.join(
+        evidenceDirectory,
+        "portable-command-attempt.json",
+      );
+      writeNewOwnedBytes(
+        portableAttemptPath,
+        validatedPortableProcess.process.commandAttemptBytes,
+        "portable command attempt",
+      );
+      const portableReportSlicePath = path.join(
+        evidenceDirectory,
+        "portable-report-slice.json",
+      );
+      const reportSliceBytes = portableReportSliceBytes(
+        validatedPortableProcess.reportSlice,
+      );
+      writeNewOwnedBytes(
+        portableReportSlicePath,
+        reportSliceBytes,
+        "portable report slice",
+      );
       portableProcessEvidence = {
         portableProcessEvidenceSchema:
           "ibex/capsec-portable-process-preparation/1",
         status: "validated-incomplete",
         reason:
-          "the exact mapped process slice is v2-ready; full promotion additionally requires explicit source-derived promotable target-cell bytes and complete fixture coverage",
+          "the nine-fixture mapped pilot is v2-ready; full promotion additionally requires a complete source-authored recipe/public catalog and physical execution of every required fixture",
         engine: portableEngineIdentity,
         mappedEngineExecutionEvidence:
           validatedPortableProcess.reportSlice.bindings
             .mappedEngineExecutionEvidence,
         executions: validatedPortableProcess.reportSlice.executions,
         reportSliceRawContentDigest: taggedDigest(reportSliceBytes),
-        detachedEvidence,
+        detachedEvidence: {
+          reportSlicePath: path.relative(repoRoot, portableReportSlicePath),
+          commandAttemptPath: path.relative(repoRoot, portableAttemptPath),
+          mappedEvidencePath: path.relative(
+            repoRoot,
+            portablePlanState.mappedEvidencePath,
+          ),
+          fixturePaths: portablePlanState.fixtureOutputs.map((output) =>
+            path.relative(repoRoot, output.path),
+          ),
+        },
       };
     }
   }

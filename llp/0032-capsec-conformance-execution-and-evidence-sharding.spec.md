@@ -5,7 +5,7 @@
 **Systems:** Security, CI, Build, Runtime, Engine, Tooling
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-19
+**Revised:** 2026-07-20
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021
 
 ## Summary
@@ -37,6 +37,15 @@ integration are implemented pending complete macOS, Linux, and Windows
 verification. The pre-Stage-1 timing evidence and the explicit decision to
 defer Stage 2 are recorded in
 `capsec/conformance/stage1-timing-baseline.md`. No sharding work has begun.
+
+Implementation checkpoint (2026-07-20): the plan declares a distinct
+`portable-public-fixtures-` dynamic command class in the fixture-evidence
+phase. The aarch64 macOS target admits at most eight such warm-cache reruns at
+90 seconds each; Windows admits none in this checkpoint. The critical-path
+calculation charges this class separately from the original public-fixture
+batches and still fits the declared six-hour macOS outer bound. These commands
+exist only for explicit LLP 0035 portable promotion and remain on the same
+authoritative runner.
 
 ## Motivation
 
@@ -340,7 +349,9 @@ The authoritative suite SHOULD expose these named phases:
 8. **fixture-evidence** — construct the fixture-evidence binding, execute the
    fixture-evidence command (today the exact-fixture-evidence pilot — the
    producer of the evidence LLP 0021 credits as fixture passes), validate the
-   resulting artifact, and recheck source-tree immutability;
+   resulting artifact, execute any explicitly requested LLP 0035 portable
+   public-batch reruns under their separately budgeted dynamic command class,
+   and recheck source-tree immutability;
 9. **engine-attestation-after** — prove the authoritative engine did not change
    during execution; and
 10. **final-aggregate** — assemble the report defined by LLP 0021 (report

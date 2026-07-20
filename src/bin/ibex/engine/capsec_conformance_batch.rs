@@ -3770,8 +3770,7 @@ async fn capsec_public_native_recipe_batch() {
         eprintln!("IBEX_CAPSEC_RECIPE_CATALOG is unset; skipping native public recipe batch");
         return;
     };
-    let output_path = std::env::var("IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT")
-        .expect("native public recipe batch requires an owned evidence output path");
+    let output_path = std::env::var("IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT").ok();
     let recipe_path = std::fs::canonicalize(recipe_path)
         .expect("canonicalize CapSec executable recipe catalog path");
     let catalog = load_recipe_catalog(&recipe_path);
@@ -3796,6 +3795,14 @@ async fn capsec_public_native_recipe_batch() {
     let _lock = hermes_engine_test_lock().lock().await;
     let identity_before = HermesEngine::loaded_engine_identity()
         .expect("attest exact loaded Hermes before native public recipes");
+    let portable = super::capsec_portable_public_batch::PortablePublicBatchContext::begin(
+        "ibex-native-public-surface-harness",
+    );
+    assert_ne!(
+        output_path.is_some(),
+        portable.is_some(),
+        "native public batch requires exactly one legacy output or portable plan"
+    );
     let coverage_terminals = native_coverage_terminals();
     let mut executions = Vec::new();
 
@@ -3915,6 +3922,10 @@ async fn capsec_public_native_recipe_batch() {
     assert_eq!(identity_after, identity_before);
     ibex_runtime::engine::verify_loaded_engine_binary_identity(&identity_before)
         .expect("re-verify mapped Hermes after native public recipes");
+    if let Some(portable) = portable {
+        portable.finish(&executions);
+        return;
+    }
     let artifact = serde_json::json!({
         "publicBatchEvidenceSchema": "ibex/capsec-public-batch-evidence/1",
         "recipeCatalogDigest": catalog.recipe_catalog_digest,
@@ -3924,7 +3935,7 @@ async fn capsec_public_native_recipe_batch() {
     let mut output = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(output_path)
+        .open(output_path.expect("legacy native public batch has no output path"))
         .expect("create owned native public evidence artifact");
     serde_json::to_writer_pretty(&mut output, &artifact)
         .expect("serialize native public evidence artifact");

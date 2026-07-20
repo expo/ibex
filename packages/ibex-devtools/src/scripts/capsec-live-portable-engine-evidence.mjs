@@ -210,6 +210,69 @@ export function buildPortableEvidencePlan({
   };
 }
 
+/**
+ * Build one source-routed public-batch plan. Unlike the nine-fixture Exact
+ * pilot plan, this carries the supervisor command/phase and the independently
+ * selected executor so any recipe-declared batch can emit portable evidence.
+ */
+export function buildPortablePublicBatchEvidencePlan({
+  bindings,
+  evidenceDirectory,
+  fixtureIds,
+  executor,
+  commandId,
+  phaseId = "fixture-evidence",
+}) {
+  assertCanonicalSet(fixtureIds, "portable public-batch fixtureIds");
+  for (const [label, value] of [
+    ["executor", executor],
+    ["commandId", commandId],
+    ["phaseId", phaseId],
+  ]) {
+    invariant(
+      typeof value === "string" && stableId.test(value),
+      `invalid portable public-batch ${label}`,
+    );
+  }
+  const fixtureOutputs = fixtureIds.map((fixtureId, index) => {
+    invariant(
+      stableId.test(fixtureId),
+      `invalid portable public-batch fixture ID ${fixtureId}`,
+    );
+    const suffix = crypto
+      .createHash("sha256")
+      .update(fixtureId)
+      .digest("hex")
+      .slice(0, 16);
+    return {
+      fixtureId,
+      path: path.join(
+        evidenceDirectory,
+        `portable-fixture-${String(index + 1).padStart(6, "0")}-${suffix}.json`,
+      ),
+    };
+  });
+  const bindingDigest = portableExecutionBindingDigest(bindings);
+  return {
+    plan: {
+      portablePublicBatchEvidencePlanSchema:
+        "ibex/capsec-portable-public-batch-evidence-plan/1",
+      profile: "ibex/capsec/1",
+      bindings,
+      bindingDigest,
+      executor,
+      phaseId,
+      commandId,
+      fixtureOutputs,
+    },
+    fixtureOutputs,
+    mappedEvidencePath: path.join(
+      evidenceDirectory,
+      "mapped-engine-execution-evidence.json",
+    ),
+  };
+}
+
 function validateMappedIdentity(mapped, engine, target) {
   invariant(same(mapped.portable, engine), "mapped identity carries another portable engine");
   invariant(

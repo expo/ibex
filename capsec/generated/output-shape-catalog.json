@@ -82471,7 +82471,8 @@
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
       "sourceRefs": [
-        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read"
+        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read",
+        "src/bin/ibex/engine/capsec_portable_public_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read"
       ],
       "outputKinds": []
     },
@@ -82480,7 +82481,8 @@
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
       "sourceRefs": [
-        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN:read"
+        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN:read",
+        "src/bin/ibex/engine/capsec_portable_public_batch.rs#env::var:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN:read"
       ],
       "outputKinds": []
     },
@@ -82511,7 +82513,8 @@
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
       "sourceRefs": [
-        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read"
+        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read",
+        "src/bin/ibex/engine/capsec_portable_public_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read"
       ],
       "outputKinds": []
     },

@@ -14,6 +14,7 @@ import {
   assertRecipeCatalogComplete,
   validateRecipeCatalog,
 } from "./capsec-conformance-recipes.mjs";
+import { reviewedPublicSurfaceExecutorDescriptor } from "./capsec-public-executors.mjs";
 import {
   canonicalJson,
   capsecRoot,
@@ -4224,6 +4225,9 @@ function validateExecution(execution, recipe, engineBinaryDigest, coverage) {
     `${recipe.fixtureId}: public execution evidence`,
   );
   const evidence = execution.evidence;
+  const expectedExecutor = reviewedPublicSurfaceExecutorDescriptor(
+    recipe.publicSurfaceProbe?.command,
+  )?.executor;
   if (
     execution.fixtureId !== recipe.fixtureId ||
     evidence.evidenceSchema !==
@@ -4232,6 +4236,7 @@ function validateExecution(execution, recipe, engineBinaryDigest, coverage) {
     typeof execution.executor !== "string" ||
     execution.executor.length === 0 ||
     /adapter/iu.test(execution.executor) ||
+    (expectedExecutor !== undefined && execution.executor !== expectedExecutor) ||
     evidence.planDigest !== recipe.planDigest ||
     evidence.engineBinaryDigest !== engineBinaryDigest ||
     canonicalJson(evidence.probe) !==

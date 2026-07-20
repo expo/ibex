@@ -14,6 +14,7 @@ import {
 } from "./capsec-conformance-recipes.mjs";
 import { fixtureCatalogForTarget } from "./capsec-conformance.mjs";
 import { assertPublicSurfaceExecutionComplete } from "./capsec-public-surface-evidence.mjs";
+import { publicSurfaceExecutorForRecipe } from "./capsec-public-executors.mjs";
 import { canonicalOutputDispositionKey } from "./capsec-output-dispositions.mjs";
 import { validatePromotableOutputDispositionEvidence } from "./capsec-output-shape-sweep.mjs";
 import {
@@ -33,7 +34,7 @@ import {
 } from "./capsec-portable-engine-evidence-contract.mjs";
 
 const PROFILE = "ibex/capsec/1";
-const SOURCE_SCHEMA = "ibex/capsec-portable-promotion-source/1";
+const SOURCE_SCHEMA = "ibex/capsec-portable-promotion-source/2";
 const BUNDLE_SCHEMA = "ibex/capsec-portable-promotion-bundle/1";
 const BUNDLE_DOMAIN = "ibex:capsec:portable-promotion-bundle:1";
 const DIGEST_PATTERN = /^sha256-[A-Za-z0-9_-]{43}$/u;
@@ -116,7 +117,7 @@ function parseReviewedSource(reviewedSourceBytes) {
       "engine",
       "vocabularyDigest",
       "registryDigest",
-      "executor",
+      "executorPolicy",
     ],
     "reviewed promotion source",
   );
@@ -128,8 +129,7 @@ function parseReviewedSource(reviewedSourceBytes) {
       DIGEST_PATTERN.test(source.vocabularyDigest) &&
       DIGEST_PATTERN.test(source.registryDigest) &&
       source.family === targetFamily(source.target?.triple) &&
-      typeof source.executor === "string" &&
-      /^[a-z0-9]+(?:[._/-][a-z0-9]+)*$/u.test(source.executor),
+      source.executorPolicy === "recipe-public-command",
     "reviewed promotion source is malformed",
   );
   canonicalScalarSet(source.target?.features, "reviewed target features");
@@ -173,6 +173,86 @@ function exactTargetCells(targetCells, target) {
     );
   }
   return rows;
+}
+
+/**
+ * Build the non-authoritative candidate target-cell bytes directly from the
+ * reviewed coverage and implementation closure. This deliberately does not
+ * consume a report: the later physical executions and sole v2 validator are
+ * what justify carrying these bytes into a promotion bundle.
+ */
+export function derivePortablePromotionTargetCells({
+  coverage,
+  implementation,
+  target,
+}) {
+  invariant(
+    Array.isArray(coverage?.edges) &&
+      Array.isArray(implementation?.surfaces),
+    "candidate target cells require reviewed coverage and implementation bytes",
+  );
+  const fixtureCatalog = fixtureCatalogForTarget({
+    coverage,
+    implementation,
+    target,
+  });
+  const coverageByEdge = new Map(
+    coverage.edges.map((edge) => [edge.id, edge]),
+  );
+  invariant(
+    coverageByEdge.size === coverage.edges.length &&
+      fixtureCatalog.length === coverage.edges.length,
+    "candidate target-cell source closure is incomplete or duplicated",
+  );
+  const cells = fixtureCatalog.map((catalogRow) => {
+    const edge = coverageByEdge.get(catalogRow.edgeId);
+    invariant(edge, `${catalogRow.edgeId}: candidate cell has no coverage edge`);
+    invariant(
+      edge.effectMode !== "conditional-unrefined",
+      `${edge.id}: conditional-unrefined edge cannot enter candidate target cells`,
+    );
+    const disposition =
+      catalogRow.implementationBranchIds.length === 0
+        ? "absent"
+        : edge.classification === "effects"
+          ? "enforced"
+          : edge.classification === "closed"
+            ? "closed"
+            : edge.classification === "non-capability"
+              ? "non-capability"
+              : null;
+    invariant(
+      disposition !== null,
+      `${edge.id}: candidate cell has unpromotable classification ${edge.classification}`,
+    );
+    canonicalScalarSet(
+      catalogRow.implementationBranchIds,
+      `${edge.id} candidate implementation branches`,
+    );
+    canonicalScalarSet(
+      catalogRow.requiredFixtures,
+      `${edge.id} candidate fixture IDs`,
+    );
+    invariant(
+      catalogRow.requiredFixtures.length > 0,
+      `${edge.id}: candidate target cell has no required physical fixture`,
+    );
+    return {
+      edgeId: edge.id,
+      target: clone(target),
+      disposition,
+      implementationBranchIds: clone(catalogRow.implementationBranchIds),
+      fixtures: clone(catalogRow.requiredFixtures),
+      rationale:
+        "Source-derived physical-promotion candidate; authority requires complete v2 execution evidence.",
+    };
+  });
+  cells.sort((left, right) => compareUtf8(left.edgeId, right.edgeId));
+  return {
+    targetCellSchema: "ibex/capsec-target-cells/1",
+    profile: PROFILE,
+    cells,
+  };
 }
 
 function validateSourceClosure({
@@ -225,6 +305,7 @@ function validateSourceClosure({
                 : null;
     invariant(
       expectedDisposition &&
+        catalogRow.requiredFixtures.length > 0 &&
         row.disposition === expectedDisposition &&
         same(row.implementationBranchIds, catalogRow.implementationBranchIds) &&
         same(row.fixtures, catalogRow.requiredFixtures),
@@ -248,7 +329,6 @@ function requiredFixtureIds(targetRows) {
 export function derivePortableRecipeCatalogV2({
   richRecipeCatalog,
   target,
-  executor,
   expectedFixtureIds,
 }) {
   validateRecipeCatalog(richRecipeCatalog, {
@@ -263,7 +343,7 @@ export function derivePortableRecipeCatalogV2({
     const recipe = {
       fixtureId: richRecipe.fixtureId,
       status: "fully-executable",
-      executor,
+      executor: publicSurfaceExecutorForRecipe(richRecipe),
       planDigest: "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
     };
     recipe.planDigest = portableRecipePlanDigest(recipe);
@@ -288,6 +368,7 @@ export function derivePortableRecipeCatalogV2({
 export function derivePortablePublicSurfaceExecutionV2({
   richPublicSurfaceExecution,
   source,
+  richRecipeCatalog,
   recipeCatalog,
   recipeCatalogBytes,
   expectedFixtureIds,
@@ -312,11 +393,26 @@ export function derivePortablePublicSurfaceExecutionV2({
     ) && rows.every((row) => row.outcome === "passed"),
     "rich public-surface evidence is missing, duplicate, failed, or noncanonical",
   );
+  const recipeByFixture = new Map(
+    recipeCatalog.recipes.map((recipe) => [recipe.fixtureId, recipe]),
+  );
+  const richRecipeByFixture = new Map(
+    richRecipeCatalog.recipes.map((recipe) => [recipe.fixtureId, recipe]),
+  );
   const executions = rows.map((row) => {
+    const recipe = recipeByFixture.get(row.fixtureId);
+    const richRecipe = richRecipeByFixture.get(row.fixtureId);
+    invariant(
+      recipe &&
+        richRecipe &&
+        row.executor === recipe.executor &&
+        recipe.executor === publicSurfaceExecutorForRecipe(richRecipe),
+      `${row.fixtureId}: public evidence executor differs from its source-authored command`,
+    );
     const execution = {
       fixtureId: row.fixtureId,
       outcome: "passed",
-      executor: source.executor,
+      executor: recipe.executor,
       evidenceDigest: "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
     };
     execution.evidenceDigest =
@@ -464,10 +560,14 @@ export function preparePortablePromotionFromDerivedArtifactsV2({
       recipeCatalog.recipes.every(
         (row) =>
           row.status === "fully-executable" &&
-          row.executor === source.executor &&
+          typeof row.executor === "string" &&
+          row.executor.length > 0 &&
           row.planDigest === portableRecipePlanDigest(row),
       ),
     "portable recipe bytes differ from reviewed complete fixture membership",
+  );
+  const portableRecipeByFixture = new Map(
+    recipeCatalog.recipes.map((row) => [row.fixtureId, row]),
   );
   invariant(
     publicSurfaceExecution.publicSurfaceExecutionSchema ===
@@ -487,11 +587,16 @@ export function preparePortablePromotionFromDerivedArtifactsV2({
         fixtures,
       ) &&
       publicSurfaceExecution.executions.every(
-        (row) =>
-          row.outcome === "passed" &&
-          row.executor === source.executor &&
-          row.evidenceDigest ===
-            portablePublicSurfaceExecutionEvidenceDigest(row),
+        (row) => {
+          const recipe = portableRecipeByFixture.get(row.fixtureId);
+          return (
+            recipe &&
+            row.outcome === "passed" &&
+            row.executor === recipe.executor &&
+            row.evidenceDigest ===
+              portablePublicSurfaceExecutionEvidenceDigest(row)
+          );
+        },
       ),
     "portable public-surface bytes differ from reviewed source or recipes",
   );
@@ -577,7 +682,7 @@ export function preparePortablePromotionV2({
   reviewedSourceBytes,
   coverageBytes,
   implementationManifestBytes,
-  targetCellsBytes,
+  targetCellsBytes = null,
   richRecipeCatalogBytes,
   richPublicSurfaceExecutionBytes,
   richOutputDispositionEvidenceBytes,
@@ -590,10 +695,20 @@ export function preparePortablePromotionV2({
     implementationManifestBytes,
     "reviewed implementation manifest bytes",
   );
-  const targetCells = parseBytes(
-    targetCellsBytes,
-    "promotion target-cell bytes",
-  );
+  const targetCells = derivePortablePromotionTargetCells({
+    coverage,
+    implementation,
+    target: source.target,
+  });
+  const derivedTargetCellsBytes = exactJsonBytes(targetCells);
+  if (targetCellsBytes !== null && targetCellsBytes !== undefined) {
+    invariant(
+      bytes(targetCellsBytes, "supplied promotion target-cell bytes").equals(
+        derivedTargetCellsBytes,
+      ),
+      "supplied promotion target cells differ from independent source closure",
+    );
+  }
   const targetRows = exactTargetCells(targetCells, source.target);
   const fixtureCatalog = fixtureCatalogForTarget({
     coverage,
@@ -658,13 +773,13 @@ export function preparePortablePromotionV2({
   const recipeCatalog = derivePortableRecipeCatalogV2({
     richRecipeCatalog,
     target: source.target,
-    executor: source.executor,
     expectedFixtureIds: fixtures,
   });
   const recipeCatalogBytes = exactJsonBytes(recipeCatalog);
   const publicSurfaceExecution = derivePortablePublicSurfaceExecutionV2({
     richPublicSurfaceExecution,
     source,
+    richRecipeCatalog,
     recipeCatalog,
     recipeCatalogBytes,
     expectedFixtureIds: fixtures,
@@ -682,7 +797,7 @@ export function preparePortablePromotionV2({
     coverageBytes,
     implementationManifestBytes,
     fixtureCatalogBytes: exactJsonBytes(fixtureCatalog),
-    targetCellsBytes,
+    targetCellsBytes: derivedTargetCellsBytes,
     recipeCatalogBytes,
     publicSurfaceExecutionBytes,
     outputDispositionEvidenceBytes,
@@ -829,8 +944,8 @@ function candidateFiles(input) {
   const files = [
     ["portable-promotion-authority", input.authorityBytes],
     ["portable-conformance-report", input.reportBytes],
-    ["portable-target-attestations", input.attestationCatalogBytes],
-    ["portable-target-advertisements", input.advertisementCatalogBytes],
+    ["target-attestations", input.attestationCatalogBytes],
+    ["target-advertisements", input.advertisementCatalogBytes],
     ["target-cells", input.targetCellsBytes],
     ["recipes", input.recipeCatalogBytes],
     ["public-surface", input.publicSurfaceExecutionBytes],

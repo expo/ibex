@@ -32,6 +32,11 @@
       "phase": "public-fixture-evidence",
       "deadlineMs": 300000,
       "gracePeriodMs": 30000
+    },
+    "portable-public-fixtures-": {
+      "phase": "fixture-evidence",
+      "deadlineMs": 90000,
+      "gracePeriodMs": 30000
     }
   },
   "targets": {
@@ -40,6 +45,7 @@
       "setupReserveMs": 3600000,
       "cleanupUploadReserveMs": 900000,
       "maxPublicFixtureBatches": 8,
+      "maxPortablePublicFixtureBatches": 8,
       "aliasDiagnosticCommands": [
         "loaded-engine-preflight",
         "loaded-intrinsic-alias-execution"
@@ -51,6 +57,7 @@
       "setupReserveMs": 3600000,
       "cleanupUploadReserveMs": 900000,
       "maxPublicFixtureBatches": 7,
+      "maxPortablePublicFixtureBatches": 0,
       "aliasDiagnosticCommands": [],
       "deadlineOverrides": {
         "all-generated-drift": 300000,

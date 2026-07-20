@@ -1834,29 +1834,53 @@ aggregation code path without promoting the current source. Its preparation
 stage replays the rich v1 recipe, public-surface, and loaded-engine
 output-disposition proofs; projects the closed v2/v4 rows and exact digests;
 and independently reconstructs fixture membership and target-cell disposition
-from reviewed coverage and implementation bytes. It rejects unsupported,
-subset, unresolved, failed, duplicate, or source/engine-mismatched inputs. Its
-assembly stage sorts but never rewrites detached fixture, mapped-evidence, and
-finalized-attempt bytes, constructs the complete conformant v2 report plus v2
-attestation and advertisement, and passes the entire exact-byte graph through
-only `validatePortablePromotionV2`. A deterministic manifest names each raw
-file and digest; mapped paths and object coordinates remain only in detached
-process files.
+from reviewed coverage and implementation bytes. Candidate cells therefore do
+not come from an already-promoted report or from the unsupported checked
+source-A catalog. An optional externally supplied target-cell file is only a
+redundancy check and must byte-equal the independently derived catalog. The
+preparation rejects unsupported, subset, unresolved, failed, duplicate, or
+source/engine-mismatched inputs. Its assembly stage sorts but never rewrites
+detached fixture, mapped-evidence, and finalized-attempt bytes, constructs the
+complete conformant v2 report plus v2 attestation and advertisement, and passes
+the entire exact-byte graph through only `validatePortablePromotionV2`. A
+deterministic manifest names each raw file and digest; mapped paths and object
+coordinates remain only in detached process files.
 
-The live runner exposes this path only when both
-`--portable-promotion-target-cells` and `--portable-promotion-output` are
-explicitly supplied. The first input must be a separately derived, complete,
-non-unsupported target-cell catalog; pointing it at the checked source-A
-catalog fails. The output directory includes
-`portable-target-advertisements.json` as the exact candidate bytes that a
-later one-commit promotion ceremony may track directly, so Host-at-C need not
-depend on generated Rust source changing in that promotion-only commit. Today
-the rich recipe catalog remains incomplete,
-the Exact portable executor covers only its pilot fixtures, and no authenticated
-portable physical run supplies complete mapped evidence. Therefore source A
-still has false portable acceptance, empty v1 attestations/advertisements, and
-only unsupported checked target cells; the new generator cannot successfully
-emit a real promotion bundle yet.
+The live runner exposes authoritative aggregation only when
+`--portable-promotion-output` is explicit.
+`--portable-promotion-target-cells` is optional and has the byte-equality role
+above. Each complete rich recipe's exact source-authored command selects one
+closed executor identity; physical evidence cannot relabel itself. The runner
+re-executes every represented public batch in portable mode during the
+fixture-evidence phase. Each batch begins one mapped-engine observation before
+its actual public fixtures, writes and re-reads one detached output per passed
+fixture, finalizes the observation in that same process, and writes the mapped
+record last. The supervisor then finalizes that process's attempt. All process
+records enter one aggregation, and `validatePortablePromotionV2` remains the
+sole authority-bearing final gate. This second execution is intentional: the
+portable binding includes the already-fixed raw rich-public artifact, so
+borrowing the earlier batch's observations would create either a digest cycle
+or unbound evidence. The output directory includes
+`target-advertisements.json` as the exact candidate bytes that a later
+one-commit promotion ceremony may track directly, so Host-at-C need not depend
+on generated Rust source changing in that promotion-only commit.
+
+The current aarch64-apple-darwin source audit derives 7,331 candidate target
+cells: 1,636 enforced, 1,125 closed, 4,458 non-capability, and 112 absent. Those
+cells expand to 24,077 required fixture-recipe rows. Exactly 2,532 rows already
+have source-authored physical public invocations, distributed across eight
+batches (builtin, callback invariant, closed, native, non-capability builtin,
+startup, startup environment, and target absence). The older nine-fixture
+Exact pilot is a separate report-crediting diagnostic; nine is not the total
+physical public coverage. The remaining 21,545 recipe rows span 5,275 public
+terminals, and every one carries `public-surface-invocation-not-authored`.
+Other residual counts overlap those same rows and must not be added as more
+fixtures. Executor plumbing cannot honestly synthesize the missing public
+arguments, scenarios, or enforcement-terminal observations, so preparation
+fails before launching promotion processes while this catalog remains
+incomplete. Therefore source A still has false portable acceptance, empty
+v1 attestations/advertisements, and only unsupported checked target cells; no
+real promotion bundle is claimed by this checkpoint.
 
 Exit: reports and advertisements contain no host-local values, while every
 accepted local run still proves its exact mapped file.

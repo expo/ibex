@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, expect, test } from "bun:test";
 import {
   buildPortableEvidencePlan,
+  buildPortablePublicBatchEvidencePlan,
   parsePortableEngineIdentityMarker,
   validateLivePortableProcess,
 } from "./capsec-live-portable-engine-evidence.mjs";
@@ -34,6 +35,65 @@ afterEach(() => {
   for (const root of roots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("public-batch plans bind source-selected executor and supervisor route", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-portable-plan-"));
+  roots.push(root);
+  const bindings = {
+    sourceRevision: "a".repeat(40),
+    sourceTreeDigest: digest("A"),
+    target: {
+      triple: "aarch64-apple-darwin",
+      features: ["hermes-frame-attribution"],
+    },
+    engine: portableVectors.documents.portableIdentity,
+    vocabularyDigest: digest("B"),
+    registryDigest: digest("C"),
+    implementationManifestDigest: digest("D"),
+    fixtureCatalogDigest: digest("E"),
+    targetCellsRawContentDigest: digest("F"),
+    recipeCatalogDigest: digest("G"),
+    recipeCatalogRawContentDigest: digest("H"),
+    publicSurfaceExecutionDigest: digest("I"),
+    publicSurfaceExecutionRawContentDigest: digest("J"),
+    outputDispositionEvidenceRawContentDigest: digest("K"),
+  };
+  const state = buildPortablePublicBatchEvidencePlan({
+    bindings,
+    evidenceDirectory: root,
+    fixtureIds: ["fixture.alpha", "fixture.beta"],
+    executor: "ibex-native-public-surface-harness",
+    commandId: "portable-public-fixtures-001-deadbeef",
+  });
+  expect(state.plan.executor).toBe("ibex-native-public-surface-harness");
+  expect(state.plan.phaseId).toBe("fixture-evidence");
+  expect(state.plan.commandId).toBe(
+    "portable-public-fixtures-001-deadbeef",
+  );
+  expect(state.fixtureOutputs.map((row) => row.fixtureId)).toEqual([
+    "fixture.alpha",
+    "fixture.beta",
+  ]);
+
+  expect(() =>
+    buildPortablePublicBatchEvidencePlan({
+      bindings,
+      evidenceDirectory: root,
+      fixtureIds: ["fixture.beta", "fixture.alpha"],
+      executor: "ibex-native-public-surface-harness",
+      commandId: "portable-public-fixtures-001-deadbeef",
+    }),
+  ).toThrow(/sorted and unique/u);
+  expect(() =>
+    buildPortablePublicBatchEvidencePlan({
+      bindings,
+      evidenceDirectory: root,
+      fixtureIds: ["fixture.alpha"],
+      executor: "Borrowed Executor",
+      commandId: "portable-public-fixtures-001-deadbeef",
+    }),
+  ).toThrow(/invalid portable public-batch executor/u);
 });
 
 function liveFixture() {

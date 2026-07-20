@@ -42,6 +42,21 @@ test("the authored target budgets fit their outer job timeouts", () => {
       "rust-default-full",
     ).deadlineMs,
   ).toBe(2_700_000);
+  expect(
+    commandPolicyFor(
+      plan,
+      "aarch64-apple-darwin",
+      "portable-public-fixtures-000-deadbeef",
+    ),
+  ).toEqual({
+    phase: "fixture-evidence",
+    deadlineMs: 90_000,
+    gracePeriodMs: 30_000,
+  });
+  expect(
+    plan.targets["x86_64-pc-windows-msvc"]
+      .maxPortablePublicFixtureBatches,
+  ).toBe(0);
 });
 
 test("suite-plan bindings distinguish source, target, and engine identity", () => {

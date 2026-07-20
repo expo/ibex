@@ -1379,8 +1379,7 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
         eprintln!("IBEX_CAPSEC_RECIPE_CATALOG is unset; skipping noncap builtin public batch");
         return;
     };
-    let output_path = std::env::var("IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT")
-        .expect("noncap builtin public batch requires an owned evidence output path");
+    let output_path = std::env::var("IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT").ok();
     let recipe_path = std::fs::canonicalize(recipe_path)
         .expect("canonicalize CapSec executable recipe catalog path");
     let catalog = load_catalog(&recipe_path);
@@ -1414,6 +1413,14 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
     let _lock = hermes_engine_test_lock().lock().await;
     let identity_before = HermesEngine::loaded_engine_identity()
         .expect("attest exact loaded Hermes before noncap builtin public probes");
+    let portable = super::capsec_portable_public_batch::PortablePublicBatchContext::begin(
+        "ibex-noncap-builtin-public-surface-harness",
+    );
+    assert_ne!(
+        output_path.is_some(),
+        portable.is_some(),
+        "noncap builtin public batch requires exactly one legacy output or portable plan"
+    );
     let mut executions = Vec::with_capacity(recipes.len());
     let mut failures = Vec::new();
 
@@ -1491,6 +1498,10 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
     assert_eq!(identity_after, identity_before);
     ibex_runtime::engine::verify_loaded_engine_binary_identity(&identity_before)
         .expect("re-verify mapped Hermes after noncap builtin public probes");
+    if let Some(portable) = portable {
+        portable.finish(&executions);
+        return;
+    }
     let artifact = PublicBatchArtifact {
         public_batch_evidence_schema: "ibex/capsec-public-batch-evidence/1",
         recipe_catalog_digest: catalog.recipe_catalog_digest,
@@ -1500,7 +1511,7 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
     let mut output = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(output_path)
+        .open(output_path.expect("legacy noncap builtin batch has no output path"))
         .expect("create owned noncap builtin public evidence artifact");
     serde_json::to_writer_pretty(&mut output, &artifact)
         .expect("serialize noncap builtin public evidence artifact");

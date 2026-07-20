@@ -265063,10 +265063,12 @@
           "startup:env:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT"
         ],
         "proofSourceRefs": [
-          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read"
+          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read",
+          "src/bin/ibex/engine/capsec_portable_public_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read"
         ],
         "sourceRefs": [
-          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read"
+          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read",
+          "src/bin/ibex/engine/capsec_portable_public_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read"
         ],
         "terminalObservedKey": "startup:env:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT"
       },
@@ -265076,7 +265078,8 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read"
+        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read",
+        "src/bin/ibex/engine/capsec_portable_public_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read"
       ],
       "implementationOwner": "WP9",
       "fixtureObligations": [
@@ -265094,10 +265097,12 @@
           "startup:env:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN"
         ],
         "proofSourceRefs": [
-          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN:read"
+          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN:read",
+          "src/bin/ibex/engine/capsec_portable_public_batch.rs#env::var:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN:read"
         ],
         "sourceRefs": [
-          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN:read"
+          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN:read",
+          "src/bin/ibex/engine/capsec_portable_public_batch.rs#env::var:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN:read"
         ],
         "terminalObservedKey": "startup:env:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN"
       },
@@ -265107,7 +265112,8 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN:read"
+        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN:read",
+        "src/bin/ibex/engine/capsec_portable_public_batch.rs#env::var:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN:read"
       ],
       "implementationOwner": "WP9",
       "fixtureObligations": [
@@ -265199,10 +265205,12 @@
           "startup:env:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST"
         ],
         "proofSourceRefs": [
-          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read"
+          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read",
+          "src/bin/ibex/engine/capsec_portable_public_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read"
         ],
         "sourceRefs": [
-          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read"
+          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read",
+          "src/bin/ibex/engine/capsec_portable_public_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read"
         ],
         "terminalObservedKey": "startup:env:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST"
       },
@@ -265212,7 +265220,8 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read"
+        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read",
+        "src/bin/ibex/engine/capsec_portable_public_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read"
       ],
       "implementationOwner": "WP9",
       "fixtureObligations": [
@@ -276055,12 +276064,12 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-kPNuqAkx5kwv4t9iES2DDImrKRCRewkekZnCsKE90Us"
+      "rawContentDigest": "sha256-BLDnYd7pvNzoCFfvXLHjS4wqjnS-Vz2seMRzy2biHHU"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-CSjWaQPCQAnzne-lSLvM4I5DKsJZ0rIkH4S7xuHCCRk"
+      "rawContentDigest": "sha256-i5wuxkfgaInBt7ZIgEdijh6vYm14ehXuPxNiRhecuW8"
     },
     {
       "kind": "registry",
@@ -276089,7 +276098,7 @@
     }
   ],
   "counts": {
-    "observedReferences": 12990,
+    "observedReferences": 12993,
     "logicalSurfaces": 7418,
     "enforcementBranches": 7638,
     "coverageEdges": 7418,

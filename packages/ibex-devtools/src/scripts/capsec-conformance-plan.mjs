@@ -103,6 +103,7 @@ export function validateConformanceSuitePlan(plan) {
         "aliasDiagnosticCommands",
         "cleanupUploadReserveMs",
         "deadlineOverrides",
+        "maxPortablePublicFixtureBatches",
         "maxPublicFixtureBatches",
         "outerTimeoutMs",
         "setupReserveMs",
@@ -119,6 +120,14 @@ export function validateConformanceSuitePlan(plan) {
       budget.maxPublicFixtureBatches,
       `${target}.maxPublicFixtureBatches`,
     );
+    if (
+      !Number.isSafeInteger(budget.maxPortablePublicFixtureBatches) ||
+      budget.maxPortablePublicFixtureBatches < 0
+    ) {
+      throw new Error(
+        `${target}.maxPortablePublicFixtureBatches: expected a non-negative safe integer`,
+      );
+    }
     if (!Array.isArray(budget.aliasDiagnosticCommands)) {
       throw new Error(`${target}.aliasDiagnosticCommands must be an array`);
     }
@@ -184,9 +193,7 @@ export function criticalPathBudget(plan, target) {
       policy.gracePeriodMs,
     );
   }
-  const publicPolicy = Object.entries(plan.dynamicCommands).find(([prefix]) =>
-    "public-fixtures-000-placeholder".startsWith(prefix),
-  )?.[1];
+  const publicPolicy = plan.dynamicCommands["public-fixtures-"];
   if (!publicPolicy) throw new Error("suite plan lacks public fixture policy");
   commandDeadlinesMs +=
     targetPlan.maxPublicFixtureBatches * publicPolicy.deadlineMs;
@@ -194,6 +201,20 @@ export function criticalPathBudget(plan, target) {
     maximumGracePeriodMs,
     publicPolicy.gracePeriodMs,
   );
+  const portablePublicPolicy =
+    plan.dynamicCommands["portable-public-fixtures-"];
+  if (!portablePublicPolicy) {
+    throw new Error("suite plan lacks portable public fixture policy");
+  }
+  commandDeadlinesMs +=
+    targetPlan.maxPortablePublicFixtureBatches *
+    portablePublicPolicy.deadlineMs;
+  if (targetPlan.maxPortablePublicFixtureBatches > 0) {
+    maximumGracePeriodMs = Math.max(
+      maximumGracePeriodMs,
+      portablePublicPolicy.gracePeriodMs,
+    );
+  }
   return {
     commandDeadlinesMs,
     maximumGracePeriodMs,

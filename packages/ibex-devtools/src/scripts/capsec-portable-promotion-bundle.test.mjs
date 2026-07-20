@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { fixtureCatalogForTarget } from "./capsec-conformance.mjs";
 import { computeRecipeCatalogDigest } from "./capsec-conformance-recipes.mjs";
 import { computeDomainDigest, parseJsonStrict } from "./capsec-contract.mjs";
+import { PUBLIC_SURFACE_EXECUTOR_DESCRIPTORS } from "./capsec-public-executors.mjs";
 import {
   commandAttemptDigest,
   mappedEngineExecutionEvidenceDigest,
@@ -23,6 +24,7 @@ import {
 } from "./capsec-portable-engine-evidence-contract.mjs";
 import {
   buildPortablePromotionBundleV2,
+  derivePortablePromotionTargetCells,
   derivePortableOutputDispositionEvidenceV4,
   derivePortablePublicSurfaceExecutionV2,
   derivePortableRecipeCatalogV2,
@@ -44,6 +46,10 @@ const baseEngine = vectors.documents.portableIdentity;
 const baseMapped = vectors.documents.mappedInstance;
 const clone = (value) => structuredClone(value);
 const digest = (character) => `sha256-${character.repeat(43)}`;
+const nativeExecutor = PUBLIC_SURFACE_EXECUTOR_DESCRIPTORS.find(
+  (descriptor) =>
+    descriptor.testName === "capsec_public_native_recipe_batch",
+);
 
 function exactBytes(value) {
   return Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
@@ -62,7 +68,7 @@ function target() {
 
 function source(engine = baseEngine) {
   return {
-    portablePromotionSourceSchema: "ibex/capsec-portable-promotion-source/1",
+    portablePromotionSourceSchema: "ibex/capsec-portable-promotion-source/2",
     profile: "ibex/capsec/1",
     sourceRevision: "a".repeat(40),
     sourceTreeDigest: digest("A"),
@@ -71,7 +77,7 @@ function source(engine = baseEngine) {
     engine: clone(engine),
     vocabularyDigest: digest("Q"),
     registryDigest: digest("U"),
-    executor: "ibex-exact-fixture-evidence-pilot",
+    executorPolicy: "recipe-public-command",
   };
 }
 
@@ -143,7 +149,7 @@ function derivedPreparation() {
   const recipe = {
     fixtureId: closure.fixtureId,
     status: "fully-executable",
-    executor: reviewedSource.executor,
+    executor: nativeExecutor.executor,
     planDigest: digest("A"),
   };
   recipe.planDigest = portableRecipePlanDigest(recipe);
@@ -165,7 +171,7 @@ function derivedPreparation() {
   const publicExecution = {
     fixtureId: closure.fixtureId,
     outcome: "passed",
-    executor: reviewedSource.executor,
+    executor: nativeExecutor.executor,
     evidenceDigest: digest("A"),
   };
   publicExecution.evidenceDigest =
@@ -266,7 +272,7 @@ function detachedProcess(preparation) {
     engine: clone(preparation.source.engine),
     fixtureId: preparation.fixtures[0],
     outcome: "passed",
-    executor: preparation.source.executor,
+    executor: preparation.recipeCatalog.recipes[0].executor,
     bindingDigest,
     artifactDigest: digest("A"),
   };
@@ -362,6 +368,55 @@ function copyProcess(process) {
 }
 
 describe("portable promotion bundle generation", () => {
+  test("derives candidate cells from source closure without a report", () => {
+    const closure = sourceClosure();
+    expect(
+      derivePortablePromotionTargetCells({
+        coverage: closure.coverage,
+        implementation: closure.implementation,
+        target: target(),
+      }),
+    ).toEqual({
+      targetCellSchema: "ibex/capsec-target-cells/1",
+      profile: "ibex/capsec/1",
+      cells: [
+        {
+          edgeId: closure.edgeId,
+          target: target(),
+          disposition: "enforced",
+          implementationBranchIds: [closure.branchId],
+          fixtures: [closure.fixtureId],
+          rationale:
+            "Source-derived physical-promotion candidate; authority requires complete v2 execution evidence.",
+        },
+      ],
+    });
+  });
+
+  test("refuses conditional-unrefined candidate cells before execution", () => {
+    const closure = sourceClosure();
+    closure.coverage.edges[0].effectMode = "conditional-unrefined";
+    expect(() =>
+      derivePortablePromotionTargetCells({
+        coverage: closure.coverage,
+        implementation: closure.implementation,
+        target: target(),
+      }),
+    ).toThrow(/conditional-unrefined/u);
+  });
+
+  test("refuses a candidate cell with no physical fixture obligation", () => {
+    const closure = sourceClosure();
+    closure.implementation.surfaces[0].fixtureObligations = [];
+    expect(() =>
+      derivePortablePromotionTargetCells({
+        coverage: closure.coverage,
+        implementation: closure.implementation,
+        target: target(),
+      }),
+    ).toThrow(/no required physical fixture/u);
+  });
+
   test("assembles one deterministic exact-byte bundle through the frozen validator", () => {
     const first = fixture();
     const firstBundle = buildPortablePromotionBundleV2({
@@ -529,7 +584,7 @@ describe("rich-to-portable projections", () => {
       publicSurfaceProbe: {
         kind: "public-surface-invocation",
         surfaceObservedKey: "native-op:portableBundle",
-        command: ["ibex", "test"],
+        command: [...nativeExecutor.command],
       },
       status: "fully-executable",
       residualReasons: [],
@@ -553,7 +608,6 @@ describe("rich-to-portable projections", () => {
     const recipes = derivePortableRecipeCatalogV2({
       richRecipeCatalog: richRecipes,
       target: target(),
-      executor: reviewedSource.executor,
       expectedFixtureIds: [fixtureId],
     });
     const recipeBytes = exactBytes(recipes);
@@ -567,9 +621,16 @@ describe("rich-to-portable projections", () => {
         engine: {
           binaryDigest: reviewedSource.engine.runtimeComponentDigest,
         },
-        executions: [{ fixtureId, outcome: "passed" }],
+        executions: [
+          {
+            fixtureId,
+            outcome: "passed",
+            executor: nativeExecutor.executor,
+          },
+        ],
       },
       source: reviewedSource,
+      richRecipeCatalog: richRecipes,
       recipeCatalog: recipes,
       recipeCatalogBytes: recipeBytes,
       expectedFixtureIds: [fixtureId],
@@ -577,10 +638,91 @@ describe("rich-to-portable projections", () => {
     expect(recipes.recipes[0].planDigest).toBe(
       portableRecipePlanDigest(recipes.recipes[0]),
     );
-    expect(publicSurface.executions[0].executor).toBe(reviewedSource.executor);
+    expect(publicSurface.executions[0].executor).toBe(nativeExecutor.executor);
     expect(publicSurface.recipeCatalogRawContentDigest).toBe(
       rawContentDigest(recipeBytes),
     );
+  });
+
+  test("refuses unknown commands and executor relabeling", () => {
+    const reviewedSource = source();
+    const fixtureId = "fixture.portable.executor";
+    const richRecipe = {
+      fixtureId,
+      planDigest: digest("P"),
+      classification: "effects",
+      scenario: "allow",
+      edgeIds: ["edge.portable.executor"],
+      implementationBranchIds: ["branch.portable.executor"],
+      enforcementBranchIds: ["enforcement.portable.executor"],
+      actionIds: ["cap.portable.executor"],
+      terminalObservedKey: "native-op:portableExecutor",
+      expectedObservation: { kind: "enforcement-branch" },
+      route: { surfaceObservedKeys: ["native-op:portableExecutor"] },
+      adapterProbe: null,
+      publicSurfaceProbe: {
+        kind: "public-surface-invocation",
+        surfaceObservedKey: "native-op:portableExecutor",
+        command: [...nativeExecutor.command],
+      },
+      status: "fully-executable",
+      residualReasons: [],
+    };
+    const richRecipes = {
+      recipeCatalogSchema: "ibex/capsec-executable-recipes/1",
+      profile: "ibex/capsec/1",
+      target: target(),
+      recipes: [richRecipe],
+      summary: {
+        requiredFixtures: 1,
+        fullyExecutableFixtures: 1,
+        adapterExecutableFixtures: 0,
+        unresolvedFixtures: 0,
+        byScenario: { allow: 1 },
+        residualReasons: {},
+      },
+      recipeCatalogDigest: digest("A"),
+    };
+    richRecipes.recipeCatalogDigest = computeRecipeCatalogDigest(richRecipes);
+    const recipes = derivePortableRecipeCatalogV2({
+      richRecipeCatalog: richRecipes,
+      target: target(),
+      expectedFixtureIds: [fixtureId],
+    });
+    const recipeBytes = exactBytes(recipes);
+    expect(() =>
+      derivePortablePublicSurfaceExecutionV2({
+        richPublicSurfaceExecution: {
+          publicSurfaceExecutionSchema:
+            "ibex/capsec-public-surface-executions/1",
+          profile: "ibex/capsec/1",
+          sourceRevision: reviewedSource.sourceRevision,
+          sourceTreeDigest: reviewedSource.sourceTreeDigest,
+          target: target(),
+          engine: {
+            binaryDigest: reviewedSource.engine.runtimeComponentDigest,
+          },
+          executions: [
+            { fixtureId, outcome: "passed", executor: "borrowed-harness" },
+          ],
+        },
+        source: reviewedSource,
+        richRecipeCatalog: richRecipes,
+        recipeCatalog: recipes,
+        recipeCatalogBytes: recipeBytes,
+        expectedFixtureIds: [fixtureId],
+      }),
+    ).toThrow(/executor differs/u);
+
+    richRecipe.publicSurfaceProbe.command = ["cargo", "test", "unreviewed"];
+    richRecipes.recipeCatalogDigest = computeRecipeCatalogDigest(richRecipes);
+    expect(() =>
+      derivePortableRecipeCatalogV2({
+        richRecipeCatalog: richRecipes,
+        target: target(),
+        expectedFixtureIds: [fixtureId],
+      }),
+    ).toThrow(/no reviewed executor/u);
   });
 
   test("derives canonical v4 observations from the validated rich proof projection", () => {

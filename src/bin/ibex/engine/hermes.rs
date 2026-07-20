@@ -5511,6 +5511,11 @@ Promise.resolve().then(function capsecSafeThrowMetadataFixture() {
     }
 
     #[cfg(feature = "capsec-conformance-observer")]
+    mod capsec_portable_public_batch {
+        include!("capsec_portable_public_batch.rs");
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
     mod capsec_public_builtin_batch {
         include!("capsec_public_builtin_batch.rs");
     }
