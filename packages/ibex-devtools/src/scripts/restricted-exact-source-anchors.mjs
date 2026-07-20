@@ -1725,6 +1725,32 @@ function typescriptClassMemberBinding({ sourceRef, sourcePath, locator, absolute
   });
 }
 
+function typescriptComputedMemberBinding({ sourceRef, sourcePath, locator, absolute, text, bytes }) {
+  if (!sourcePath.startsWith("packages/ibex-runtime-js/src/")
+    || !/\.tsx?$/u.test(sourcePath)
+    || locator.includes(":globals:")) return null;
+  const match = /^(?:[A-Za-z_$][A-Za-z0-9_$]*)(?:\.prototype)?\.\[\[(?:Symbol\.|symbol-binding:)[^\]]+\]\]$/u.exec(locator);
+  if (!match) return null;
+  const range = resolveRange(sourcePath, locator, text, absolute);
+  if (!range) return null;
+  const site = sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "value-producer",
+    siteKey: `${locator}.computed-member`,
+    range,
+    text,
+    bytes,
+  });
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "typescript-computed-member",
+    resolutionPolicy: "provenance-only",
+    sites: [site],
+    producerPaths: [],
+  });
+}
+
 function typescriptStaticDescriptorBinding({ branch, sourceRef, sourcePath, locator, absolute, text, bytes }) {
   if (!branch?.observedKey?.startsWith("native-op:global:")
     || !sourcePath.startsWith("packages/ibex-runtime-js/src/")
@@ -1921,6 +1947,7 @@ function typescriptModuleGlobalMemberBinding({ branch, sourceRef, sourcePath, lo
   return validateRestrictedExactSourceBinding({
     sourceRef,
     locatorKind: "typescript-module-global-member-route",
+    targetGlobalPath: observedName,
     resolutionPolicy: "composite-path",
     sites,
     producerPaths: [{
@@ -2249,6 +2276,108 @@ function intlLocaleDirectionBinding({ branch, sourceRef, sourcePath, locator, te
     resolutionPolicy: "conditioned-alternatives",
     sites,
     producerPaths,
+  });
+}
+
+function sharedArrayBufferViewWrapperBinding({
+  branch,
+  sourceRef,
+  sourcePath,
+  locator,
+  text,
+  bytes,
+}) {
+  const locatorPrefix = "wrapSharedArrayBufferViewCtor:globals:";
+  if (sourcePath !== "packages/ibex-runtime-js/src/bootstrap.ts"
+    || !locator.startsWith(locatorPrefix)
+    || !branch?.observedKey?.startsWith("native-op:global:")) return null;
+  const constructorName = locator.slice(locatorPrefix.length);
+  const observedPath = branch.observedKey.slice("native-op:global:".length);
+  if (observedPath !== constructorName
+    && !observedPath.startsWith(`${constructorName}.`)) return null;
+  const member = observedPath === constructorName
+    ? null
+    : observedPath.slice(constructorName.length + 1);
+  if (member?.includes(".")) return null;
+
+  const declarationLine = uniqueTokenRange(text, [
+    "    const wrapSharedArrayBufferViewCtor = (name: string) => {",
+  ]);
+  if (!declarationLine) return null;
+  const opening = text.indexOf("{", declarationLine.startByte);
+  const endByte = opening < 0 ? -1 : matchingBraceEnd(text, opening);
+  if (endByte < 0) return null;
+  const wrapperRange = { startByte: declarationLine.startByte, endByte };
+  const selections = tokenRangesWithin(text, `'${constructorName}'`, {
+    startByte: endByte,
+    endByte: Math.min(text.length, endByte + 1_500),
+  });
+  if (selections.length !== 1) return null;
+  const wrappedDefinition = uniqueTokenRange(text, [
+    "      const WrappedCtor = function(this: any, buffer?: any, byteOffset?: number, length?: number) {",
+  ]);
+  if (!wrappedDefinition || wrappedDefinition.startByte > endByte) return null;
+
+  const descriptorCalls = callExpressionRangesWithin(text, "Object.defineProperty", wrapperRange);
+  const globalPublications = descriptorCalls.filter((range) => {
+    const call = text.slice(range.startByte, range.endByte);
+    return /Object\.defineProperty\(g,\s*name,/u.test(call);
+  });
+  const fallbackPublications = tokenRangesWithin(
+    text,
+    "(g as any)[name] = WrappedCtor;",
+    wrapperRange,
+  );
+  if (globalPublications.length !== 1 || fallbackPublications.length !== 1) return null;
+
+  let memberRange = null;
+  if (member) {
+    const expectedTarget = member === "constructor" ? "WrappedCtor.prototype" : "WrappedCtor";
+    const expectedProperty = member;
+    const memberCalls = descriptorCalls.filter((range) => {
+      const call = text.slice(range.startByte, range.endByte);
+      return call.includes(`Object.defineProperty(${expectedTarget}, '${expectedProperty}'`);
+    });
+    if (memberCalls.length !== 1) return null;
+    memberRange = memberCalls[0];
+  }
+
+  const commonSites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "registration", siteKey: `${constructorName}.wrapper-selection`, range: selections[0], text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${constructorName}.wrapped-constructor`, range: wrappedDefinition, text, bytes }),
+  ];
+  if (memberRange) {
+    commonSites.push(sourceSite({
+      sourceRef,
+      path: sourcePath,
+      role: "registration",
+      siteKey: `${constructorName}.${member}.descriptor`,
+      range: memberRange,
+      text,
+      bytes,
+    }));
+  }
+  const descriptorPublication = sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${constructorName}.descriptor-publication`, range: globalPublications[0], text, bytes });
+  const fallbackPublication = sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${constructorName}.assignment-publication`, range: fallbackPublications[0], text, bytes });
+  const commonSiteIds = commonSites.map((site) => site.siteId);
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "typescript-shared-view-wrapper-route",
+    targetGlobalPath: observedPath,
+    resolutionPolicy: "conditioned-alternatives",
+    sites: [...commonSites, descriptorPublication, fallbackPublication],
+    producerPaths: [
+      {
+        pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0shared-view-descriptor`),
+        conditionId: "shared-view-wrapper:define-property-succeeds",
+        requiredSiteIds: [...commonSiteIds, descriptorPublication.siteId],
+      },
+      {
+        pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0shared-view-fallback`),
+        conditionId: "shared-view-wrapper:define-property-throws",
+        requiredSiteIds: [...commonSiteIds, fallbackPublication.siteId],
+      },
+    ],
   });
 }
 
@@ -3805,6 +3934,20 @@ function enclosingCppFunctionIdentity(text, offset) {
   return candidates[0]?.name ?? null;
 }
 
+function enclosingCppFunctionRange(text, offset) {
+  const pattern = /(?:^|\n)\s*(?:extern\s+"C"\s+)?(?:static\s+)?(?:void|bool|int|int32_t|uint32_t|size_t|facebook::jsi::Value)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\([^;{}]*\)\s*\{/gu;
+  const candidates = [];
+  for (const match of text.matchAll(pattern)) {
+    const startByte = match.index + (match[0][0] === "\n" ? 1 : 0);
+    const opening = text.indexOf("{", startByte);
+    const endByte = opening < 0 ? -1 : matchingBraceEnd(text, opening);
+    if (opening < offset && endByte > offset) candidates.push({ startByte, endByte });
+  }
+  candidates.sort((left, right) =>
+    (left.endByte - left.startByte) - (right.endByte - right.startByte));
+  return candidates[0] ?? null;
+}
+
 function jsiConditionalRootMemberBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
   if (!/\.(?:cc|mm)$/u.test(sourcePath) || !locator.startsWith("jsi-global:")) return null;
   const logicalPath = locator.slice("jsi-global:".length).split(".");
@@ -4124,7 +4267,11 @@ function jsiGlobalBranchBinding({ branch, sourceRef, sourcePath, locator, text, 
   const memberCallsByRoot = new Map();
   if (logicalPath.length > 1) {
     rootCalls = rootCalls.filter((rootCall, rootIndex) => {
-      const lowerBound = rootIndex > 0 ? rootCalls[rootIndex - 1].range.endByte : 0;
+      const enclosingFunction = enclosingCppFunctionRange(text, rootCall.range.startByte);
+      const lowerBound = Math.max(
+        rootIndex > 0 ? rootCalls[rootIndex - 1].range.endByte : 0,
+        enclosingFunction?.startByte ?? 0,
+      );
       let currentVariable = movedIdentifier(rootCall.value);
       let before = rootCall.range.startByte;
       const memberCalls = [];
@@ -5993,11 +6140,13 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? cliGeneratedSurfaceBinding({ branch, sourceRef, ...loaded })
     ?? cliVisibleCommandBinding({ branch, sourceRef, ...loaded })
     ?? cliNamespaceRefusalBinding({ branch, sourceRef, ...loaded })
+    ?? sharedArrayBufferViewWrapperBinding({ branch, sourceRef, ...loaded })
     ?? typescriptGlobalInstallerBinding({ branch, sourceRef, ...loaded })
     ?? bootstrapGlobalBinding({ branch, sourceRef, ...loaded })
     ?? legacyBootstrapGlobalBinding({ branch, sourceRef, ...loaded })
     ?? intlLocaleDirectionBinding({ branch, sourceRef, ...loaded })
     ?? typescriptStaticDescriptorBinding({ branch, sourceRef, ...loaded })
+    ?? typescriptComputedMemberBinding({ branch, sourceRef, ...loaded })
     ?? typescriptClassMemberBinding({ branch, sourceRef, ...loaded })
     ?? typescriptObjectMemberBinding({ branch, sourceRef, ...loaded })
     ?? typescriptBundleMemberBinding({ branch, sourceRef, ...loaded })
@@ -6027,11 +6176,18 @@ function selectGlobalProducerEntry(observedPath, entries) {
     [
       "typescript-class-member",
       "typescript-class-inheritance",
+      "typescript-computed-member",
       "typescript-object-member",
     ].includes(binding.locatorKind),
   );
   const exact = producers.filter(({ sourceRef }) => locatorOf(sourceRef) === exactLocator);
   if (exact.length === 1) return exact[0];
+  if (memberParts[0]?.startsWith("[[dynamic-table:inherited-")) {
+    const inheritedTable = producers.filter(({ sourceRef, binding }) =>
+      binding.locatorKind === "typescript-class-inheritance"
+      && locatorOf(sourceRef).startsWith(`${root}:extends:`));
+    if (inheritedTable.length === 1) return inheritedTable[0];
+  }
   const prototype = producers.filter(({ sourceRef }) => locatorOf(sourceRef) === prototypeLocator);
   if (prototype.length === 1) return prototype[0];
   if (!member) return null;
@@ -6050,6 +6206,31 @@ function selectGlobalProducerEntry(observedPath, entries) {
       || locator.endsWith(`.prototype.${leaf}`);
   });
   return aliasedLeaf.length === 1 ? aliasedLeaf[0] : null;
+}
+
+function globalPublicationTarget(entry) {
+  if (entry.binding.targetGlobalPath) return entry.binding.targetGlobalPath;
+  const locator = locatorOf(entry.sourceRef);
+  const marker = ":globals:";
+  const markerIndex = locator.indexOf(marker);
+  return markerIndex < 0 ? null : locator.slice(markerIndex + marker.length);
+}
+
+function selectGlobalPublicationEntries(observedPath, entries) {
+  const candidates = entries.filter((entry) =>
+    [
+      "typescript-global-publication",
+      "typescript-lazy-global-publication",
+      "typescript-global-installer-route",
+    ].includes(entry.binding.locatorKind))
+    .map((entry) => ({ entry, target: globalPublicationTarget(entry) }))
+    .filter(({ target }) =>
+      target && (observedPath === target || observedPath.startsWith(`${target}.`)));
+  if (candidates.length === 0) return [];
+  const longest = Math.max(...candidates.map(({ target }) => target.split(".").length));
+  return candidates
+    .filter(({ target }) => target.split(".").length === longest)
+    .map(({ entry }) => entry);
 }
 
 function entryTargetsGlobalPath(entry, observedPath) {
@@ -6190,14 +6371,7 @@ export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root =
   } else if (branch.observedKey.startsWith("native-op:global:")) {
     const observedPath = branch.observedKey.slice("native-op:global:".length);
     const producer = selectGlobalProducerEntry(observedPath, entries);
-    const publications = entries.filter((entry) =>
-      [
-        "typescript-global-publication",
-        "typescript-lazy-global-publication",
-        "typescript-global-installer-route",
-      ].includes(entry.binding.locatorKind)
-      && entryTargetsGlobalPath(entry, observedPath.split(".")[0]),
-    );
+    const publications = selectGlobalPublicationEntries(observedPath, entries);
     const observedParts = observedPath.split(".");
     const exactAliasPath = observedParts[0] === "Bun" && observedParts.length > 1
       ? `Exact.${observedParts.slice(1).join(".")}`
@@ -6207,20 +6381,40 @@ export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root =
         entry.binding.locatorKind === "typescript-global-installer-route"
         && entryTargetsGlobalPath(entry, exactAliasPath))
       : [];
-    if (producer && publications.length === 1) {
+    if (producer && publications.length > 0) {
       selectedEntries.add(producer);
-      selectedEntries.add(publications[0]);
-      const requiredSiteIds = [
-        ...producer.binding.sites,
-        ...publications[0].binding.sites,
-      ].map((site) => site.siteId);
-      producerPaths.push({
-        pathId: stableId("producer", `${branch.branchId}\0runtime-bundle`),
-        conditionId: publications[0].binding.locatorKind === "typescript-lazy-global-publication"
-          ? "runtime-bundle:global-missing"
-          : `target-branch:${branch.targetVariant}`,
-        requiredSiteIds,
+      const composedPublications = publications.flatMap((publication) => {
+        selectedEntries.add(publication);
+        const paths = publication.binding.producerPaths.length > 0
+          ? publication.binding.producerPaths
+          : [{
+              conditionId: publication.binding.locatorKind === "typescript-lazy-global-publication"
+                ? "runtime-bundle:global-missing"
+                : `target-branch:${branch.targetVariant}`,
+              requiredSiteIds: publication.binding.sites.map((site) => site.siteId),
+            }];
+        return paths.map((publicationPath) => ({ publication, publicationPath }));
       });
+      const conditionCounts = new Map();
+      for (const { publicationPath } of composedPublications) {
+        conditionCounts.set(
+          publicationPath.conditionId,
+          (conditionCounts.get(publicationPath.conditionId) ?? 0) + 1,
+        );
+      }
+      for (const { publication, publicationPath } of composedPublications) {
+        const conditionId = conditionCounts.get(publicationPath.conditionId) === 1
+          ? publicationPath.conditionId
+          : `${publicationPath.conditionId}+publication:${stableId("source", publication.sourceRef)}`;
+        producerPaths.push({
+          pathId: stableId("producer", `${branch.branchId}\0${conditionId}`),
+          conditionId,
+          requiredSiteIds: [
+            ...producer.binding.sites.map((site) => site.siteId),
+            ...publicationPath.requiredSiteIds,
+          ],
+        });
+      }
     } else if (publications.length === 1 && exactAliasEntries.length === 1) {
       selectedEntries.add(publications[0]);
       selectedEntries.add(exactAliasEntries[0]);

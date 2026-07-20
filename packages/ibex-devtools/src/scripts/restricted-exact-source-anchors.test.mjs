@@ -590,6 +590,21 @@ module.exports = { Public: Public };
       .toBe("executable");
   });
 
+  test("scopes nested JSI member lookup to the root publication function", () => {
+    const branch = {
+      branchId: "surface.android.accessibility-snapshot.color-scheme.android",
+      observedKey: "native-op:__exactAccessibilitySnapshot.colorScheme",
+      targetVariant: "android",
+    };
+    const sourceRef =
+      "src/engine/hermes_runtime_android.cc#jsi-global:__exactAccessibilitySnapshot.colorScheme";
+    const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+    expect(binding.locatorKind).toBe("jsi-root-global-route");
+    expect(binding.producerPaths).toHaveLength(1);
+    expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status)
+      .toBe("executable");
+  });
+
   test("binds Exact capability definition and sealing as one ordered route", () => {
     for (const [member, publicationCount] of [
       ["takeCheckpointBytes", 1],
@@ -862,6 +877,129 @@ void install(Runtime& rt) {
       "packages/ibex-runtime-js/src/core/accessibility.ts#installExactAccessibilityGlobal:globals:Exact.accessibility",
     ]);
     expect(route.status).toBe("executable");
+  });
+
+  test("composes members through their most-specific global publication", () => {
+    const fixtures = [
+      {
+        observedPath: "Exact.accessibility.colorScheme",
+        refs: [
+          "packages/ibex-runtime-js/src/core/accessibility.ts#createAccessibilityNamespace.colorScheme",
+          "packages/ibex-runtime-js/src/core/accessibility.ts#installExactAccessibilityGlobal:globals:Exact.accessibility",
+        ],
+        pathCount: 1,
+      },
+      {
+        observedPath: "crypto.subtle.decrypt",
+        refs: [
+          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:crypto.subtle",
+          "packages/ibex-runtime-js/src/crypto/Crypto.ts#SubtleCrypto.prototype.decrypt",
+        ],
+        pathCount: 1,
+      },
+      {
+        observedPath: "localStorage.clear",
+        refs: [
+          "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:localStorage",
+          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:localStorage",
+          "packages/ibex-runtime-js/src/storage/Storage.ts#Storage.prototype.clear",
+          "src/engine/bootstrap/web-storage.js#localStorage.clear",
+        ],
+        pathCount: 2,
+      },
+      {
+        observedPath: "Buffer.[[dynamic-table:inherited-uint8-array-6128693053-properties]]",
+        refs: [
+          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:Buffer",
+          "packages/ibex-runtime-js/src/node/Buffer.ts#Buffer:extends:Uint8Array",
+        ],
+        pathCount: 1,
+      },
+    ];
+    for (const fixture of fixtures) {
+      const branch = {
+        branchId: `surface.native.op.global.${fixture.observedPath}.all`,
+        observedKey: `native-op:global:${fixture.observedPath}`,
+        targetVariant: "all",
+      };
+      const route = buildRestrictedExactBranchSourceRoute(branch, fixture.refs);
+      expect(route.status).toBe("executable");
+      expect(route.producerPaths).toHaveLength(fixture.pathCount);
+    }
+  });
+
+  test("binds exact shared-view wrapper selection, members, and publication fallbacks", () => {
+    for (const observedPath of [
+      "Int16Array",
+      "Float16Array.name",
+      "BigInt64Array.constructor",
+      "DataView.__exactSharedArrayBufferWrapped",
+    ]) {
+      const constructorName = observedPath.split(".")[0];
+      const branch = {
+        branchId: `surface.native.op.global.${observedPath}.all`,
+        observedKey: `native-op:global:${observedPath}`,
+        targetVariant: "all",
+      };
+      const sourceRef =
+        `packages/ibex-runtime-js/src/bootstrap.ts#wrapSharedArrayBufferViewCtor:globals:${constructorName}`;
+      const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+      expect(binding.locatorKind).toBe("typescript-shared-view-wrapper-route");
+      expect(binding.targetGlobalPath).toBe(observedPath);
+      expect(binding.producerPaths.map((path) => path.conditionId)).toEqual([
+        "shared-view-wrapper:define-property-succeeds",
+        "shared-view-wrapper:define-property-throws",
+      ]);
+      expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status)
+        .toBe("executable");
+    }
+  });
+
+  test("composes computed TypeScript members with eager and lazy global publications", () => {
+    const fixtures = [
+      {
+        observedPath: "Headers.[[Symbol.for:nodejs.util.inspect.custom]]",
+        memberRef:
+          "packages/ibex-runtime-js/src/fetch/Headers.ts#Headers.prototype.[[Symbol.for:nodejs.util.inspect.custom]]",
+        publicationRef:
+          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:Headers",
+      },
+      {
+        observedPath: "MessagePort.[[symbol-binding:structuredCloneTransferSymbol]]",
+        memberRef:
+          "packages/ibex-runtime-js/src/messaging.ts#MessagePort.prototype.[[symbol-binding:structuredCloneTransferSymbol]]",
+        publicationRef:
+          "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:MessagePort",
+      },
+    ];
+    for (const fixture of fixtures) {
+      const branch = {
+        branchId: `surface.native.op.global.${fixture.observedPath}.all`,
+        observedKey: `native-op:global:${fixture.observedPath}`,
+        targetVariant: "all",
+      };
+      const member = resolveRestrictedExactBranchSourceBinding(branch, fixture.memberRef);
+      expect(member.locatorKind).toBe("typescript-computed-member");
+      expect(buildRestrictedExactBranchSourceRoute(branch, [
+        fixture.memberRef,
+        fixture.publicationRef,
+      ]).status).toBe("executable");
+    }
+  });
+
+  test("selects a module-owned global member route by its exact published target", () => {
+    const branch = {
+      branchId: "surface.native.op.global.exact.runtime.detect-engine.all",
+      observedKey: "native-op:global:exact.runtime.detectEngine",
+      targetVariant: "all",
+    };
+    const sourceRef =
+      "packages/ibex-runtime-js/src/runtime-entry.ts#<module>.detectEngine";
+    const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+    expect(binding.locatorKind).toBe("typescript-module-global-member-route");
+    expect(binding.targetGlobalPath).toBe("exact.runtime.detectEngine");
+    expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status)
+      .toBe("executable");
   });
 
   test("binds evaluated C++ JavaScript through member, publication, and dispatch", () => {
