@@ -3146,11 +3146,11 @@ mod tests {
         }
 
         let bundle = br#"(() => {
-          const checkpoint = exact.takeCheckpointBytes();
+          exact.takeCheckpointBytes();
           exact.invokeHostAsync(1000, new Uint8Array([7, 8, 9])).then(() => {
             throw new Error('completion reached destroyed user code');
           });
-          exact.publishCheckpoint(checkpoint);
+          exact.publishCheckpoint(new Uint8Array([0]));
         })();"#;
         let mut pending = Box::<PendingRestrictedHostCall>::default();
         unsafe { ibex_test_reset_exact_host_completion_observer() };
