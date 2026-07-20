@@ -826,6 +826,14 @@ void install(Runtime& rt) {
     expect(binding.locatorKind).toBe("jsi-root-global-route");
     expect(binding.producerPaths).toHaveLength(2);
     expect(new Set(binding.producerPaths.map((pathEntry) => pathEntry.conditionId)).size).toBe(2);
+    const iosRoot = resolveRestrictedExactBranchSourceBinding({
+      branchId: "surface.native.op.exact.ios",
+      observedKey: "native-op:global:exact",
+      targetVariant: "ios",
+    }, "src/engine/hermes_runtime_ios.cc#jsi-global:exact");
+    expect(iosRoot.producerPaths).toHaveLength(6);
+    expect(iosRoot.producerPaths.every((entry) =>
+      entry.conditionId.startsWith("installer-function:"))).toBe(true);
   });
 
   test("classifies runtime if/else JSI publications as paired alternatives", () => {

@@ -3561,6 +3561,20 @@ function pairedControlConditions(text, rootCalls) {
   return [`runtime-if:${conditionId}`, `runtime-else:${conditionId}`];
 }
 
+function enclosingCppFunctionIdentity(text, offset) {
+  const pattern = /(?:^|\n)\s*(?:extern\s+"C"\s+)?(?:static\s+)?(?:void|bool|int|int32_t|uint32_t|size_t|facebook::jsi::Value)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\([^;{}]*\)\s*\{/gu;
+  const candidates = [];
+  for (const match of text.matchAll(pattern)) {
+    const opening = text.indexOf("{", match.index);
+    const endByte = opening < 0 ? -1 : matchingBraceEnd(text, opening);
+    if (opening < offset && endByte > offset) {
+      candidates.push({ name: match[1], size: endByte - opening });
+    }
+  }
+  candidates.sort((left, right) => left.size - right.size);
+  return candidates[0]?.name ?? null;
+}
+
 function jsiConditionalRootMemberBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
   if (!/\.(?:cc|mm)$/u.test(sourcePath) || !locator.startsWith("jsi-global:")) return null;
   const logicalPath = locator.slice("jsi-global:".length).split(".");
@@ -3802,9 +3816,19 @@ function jsiGlobalBranchBinding({ branch, sourceRef, sourcePath, locator, text, 
     const explicit = branchConditions.filter(Boolean);
     const implicitCount = branchConditions.length - explicit.length;
     if (explicit.length === 0 || implicitCount > 1 || new Set(explicit).size !== explicit.length) {
-      const controlConditions = pairedControlConditions(text, rootCalls);
-      if (!controlConditions) return null;
-      branchConditions = controlConditions;
+      const installers = explicit.length === 0
+        ? rootCalls.map((rootCall) =>
+          enclosingCppFunctionIdentity(text, rootCall.range.startByte))
+        : [];
+      if (installers.length === rootCalls.length
+        && installers.every(Boolean)
+        && new Set(installers).size === installers.length) {
+        branchConditions = installers.map((name) => `installer-function:${name}`);
+      } else {
+        const controlConditions = pairedControlConditions(text, rootCalls);
+        if (!controlConditions) return null;
+        branchConditions = controlConditions;
+      }
     }
   }
   const sites = [];
@@ -3830,6 +3854,7 @@ function jsiGlobalBranchBinding({ branch, sourceRef, sourcePath, locator, text, 
       pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0${logicalPath.join(".")}\0${indexValue}`),
       conditionId: branchConditions[indexValue]
         ? branchConditions[indexValue].startsWith("runtime-")
+          || branchConditions[indexValue].startsWith("installer-function:")
           ? branchConditions[indexValue]
           : `preprocessor:${branchConditions[indexValue]}`
         : rootCalls.length > 1
