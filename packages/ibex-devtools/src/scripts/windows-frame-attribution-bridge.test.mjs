@@ -28,3 +28,18 @@ test("Windows frame attribution uses the opaque patched-Hermes bridge", () => {
   expect(implementation).not.toContain("g_vm_runtime->");
   expect(implementation).not.toContain("HermesRuntime::StackTraceKind");
 });
+
+test("Windows runtime-drive principal scope has external linkage", () => {
+  const source = readFileSync(
+    path.join(repoRoot, "src/engine/hermes_runtime_fs_windows.cc"),
+    "utf8",
+  );
+  const anonymousNamespaceEnd = source.indexOf("} // namespace");
+  const signature =
+    "const std::vector<uint64_t>* exactSwapTypedPrincipalStackForRuntimeDrive(\n";
+  const definition = source.indexOf(signature);
+
+  expect(anonymousNamespaceEnd).toBeGreaterThanOrEqual(0);
+  expect(definition).toBeGreaterThan(anonymousNamespaceEnd);
+  expect(source.indexOf(signature, definition + 1)).toBe(-1);
+});
