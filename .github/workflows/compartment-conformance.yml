@@ -25,6 +25,10 @@ jobs:
     timeout-minutes: 240
     env:
       HERMES_ENABLE_DEBUGGER: "false"
+      # The committed restricted Exact surface includes Intl intrinsics. Keep
+      # the physical engine build aligned with that surface instead of using
+      # build-hermes-linux.sh's compatibility default (Intl disabled).
+      HERMES_ENABLE_INTL: "true"
       IBEX_REQUIRE_HERMES_PROFILE_PROVENANCE: "true"
       IBEX_RESTRICTED_TARGET_TRIPLE: x86_64-unknown-linux-gnu
       LD_LIBRARY_PATH: ${{ github.workspace }}/linux/lib
@@ -61,7 +65,10 @@ jobs:
             linux/lib
             tools/hermes
             ~/.cache/exact/hermes-linux
-          key: hermes-patched-no-debugger-v2-Linux-${{ hashFiles('scripts/hermes-version.sh', 'scripts/download-hermes.sh', 'scripts/build-hermes-linux.sh', 'scripts/apply-hermes-patches.sh', 'patches/hermes/**') }}
+          # The profile suffix prevents a legacy no-Intl artifact from being
+          # restored into this exact-target evidence job. The source installer
+          # also refuses the generic prebuilt path when Intl is requested.
+          key: hermes-restricted-exact-no-debugger-intl-v1-Linux-${{ hashFiles('scripts/hermes-version.sh', 'scripts/download-hermes.sh', 'scripts/build-hermes-linux.sh', 'scripts/apply-hermes-patches.sh', 'patches/hermes/**') }}
 
       - name: Install patched no-debugger Release Hermes
         run: ./scripts/download-hermes.sh
