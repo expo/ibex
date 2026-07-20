@@ -156348,7 +156348,7 @@
         ],
         "terminalObservedKey": "native-op:__exactHkdf"
       },
-      "branchKind": "single",
+      "branchKind": "alternative",
       "targetVariant": "posix",
       "targetApplicability": {
         "kind": "operating-system-family",
@@ -156361,6 +156361,41 @@
       "implementationOwner": "WP1",
       "fixtureObligations": [
         "surface.native.op.exacthkdf.05jgsim.posix.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exacthkdf.05jgsim",
+      "observedKey": "native-op:__exactHkdf",
+      "branchId": "surface.native.op.exacthkdf.05jgsim.windows",
+      "enforcementBranchId": "surface.native.op.exacthkdf.05jgsim.windows",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__exactHkdf"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactHkdf",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactHkdf"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactHkdf",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactHkdf"
+        ],
+        "terminalObservedKey": "native-op:__exactHkdf"
+      },
+      "branchKind": "alternative",
+      "targetVariant": "windows",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "windows"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_crypto_windows.cc#__exactHkdf",
+        "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactHkdf"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.native.op.exacthkdf.05jgsim.windows.non-capability"
       ]
     },
     {
@@ -265828,12 +265863,12 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-RS15g9PVLrdx_Hzf2o-lsOIMCO4m17ngFNrIKBOuk7A"
+      "rawContentDigest": "sha256-bCTwwtNwwAZn3UJ1ri9eHCP51vJjFYPCwAUce_2kvPU"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-RoZOB6DBvc0SOwxyMez6rechjfVHtdIzxz2RcGb7wBU"
+      "rawContentDigest": "sha256-a_YnS27Epgkv3do-s5CGOlECLMqHLEUkQ0d__SVWCRQ"
     },
     {
       "kind": "registry",
@@ -265843,28 +265878,28 @@
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-ZPAKvc7aABVI6VUJIC0jm4EL_Ci1bbiGKbEPlUxcqe0"
+      "rawContentDigest": "sha256-dXLTzadS5XVSl-FR7pxXu1eX9VhrGlnAZdreVH0wqZg"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-rbi1VmUKstDdVA3_YywR5iUu86eB11uHOS8t4--h0KQ"
+      "rawContentDigest": "sha256-QFbjgg5pXmPyMnNxu-RWuHhP8lY4lRZQPuRgtoPxjS8"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-e_StKby4A1TvVh7iqaOQ9T7d0Slve0aKYBf_JaqN1B8"
+      "rawContentDigest": "sha256-lf1jLiMaamGg8s0nCigAOZ_CtK1mocHMNcodJZjF7XM"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-uDk-R3g7SdjHbqnnJuB18TQoMQeOOme5ANxZaL2zz3w"
+      "rawContentDigest": "sha256-pImycYsiZLJpTaozsTvHa1sdgtcmyO0YkX0XsUIjl5A"
     }
   ],
   "counts": {
-    "observedReferences": 12839,
+    "observedReferences": 12841,
     "logicalSurfaces": 7103,
-    "enforcementBranches": 7332,
+    "enforcementBranches": 7333,
     "coverageEdges": 7103,
     "targetCells": 14206
   }

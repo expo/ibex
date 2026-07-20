@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-20 (ENG-24933 physically verifies Windows callback attribution and startup-environment evidence, then implements the RFC 5869 HKDF backend exposed as the next full-matrix frontier)
 **Revised:** 2026-07-19 (ENG-24933 refreshes the four checked example policies after physical run 29722972483 correctly refused the reviewed removal of the Windows crypto shadow before product execution)
 **Revised:** 2026-07-19 (ENG-24933 removes the Windows-only bootstrap crypto shadow after physical run 29719448744 cleared CLI runtime execution and exposed 17 missing-or-weakened crypto exports)
 **Revised:** 2026-07-19 (ENG-24933 routes raw standalone Windows entries through the in-process lowering pipeline after physical run 29717165944 passed all 19 CLI evaluation tests and exposed two script-mode static-import failures)
@@ -2161,6 +2162,26 @@ unchanged entries; only the vocabulary, registry, and policy digests changed,
 with every principal and authority row preserved. No engine or product test ran
 in this attempt, so it supplies no target evidence and advertisements remain
 empty.
+Focused physical Windows run
+[`29723951805`](https://github.com/ccheever/ibex/actions/runs/29723951805)
+then passed the compiled-wrapper/exported-callback principal invariant and all
+nine startup-environment fixtures against the installed shared-runtime bundle.
+The retained callback evidence distinguishes package initialization from a
+later root invocation of its exported nested callback, and observes the typed
+requested/commit decisions under the package principal. This closes the
+focused Domain-binding and bootstrap-lifecycle gate, but it does not promote a
+target cell.
+
+The concurrent complete-matrix attempt
+[`29723303160`](https://github.com/ccheever/ibex/actions/runs/29723303160)
+generated 22,629 required fixtures, classified 4,771 as fully executable and
+17,858 as residual, then passed native, startup-environment, builtin, and
+closed-surface batches. Its first failed authored probe was the canonical
+`node:crypto` `hkdfSync` export: Windows reached `crypto.js`, but the BCrypt
+backend had not installed `__exactHkdf`. Windows now implements RFC 5869
+extract-and-expand over its byte-preserving BCrypt HMAC primitive, guarded by
+an RFC test vector. This is a repair awaiting a rebuilt physical report, not
+conformance credit, and advertisements remain empty.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked

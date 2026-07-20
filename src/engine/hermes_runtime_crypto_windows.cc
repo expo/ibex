@@ -14,6 +14,7 @@ void unregisterSignalRuntime(ExactHermesRuntime*) {}
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <iomanip>
 #include <optional>
 #include <sstream>
@@ -42,6 +43,15 @@ const wchar_t* bcryptAlgorithmId(const std::string& algorithm) {
   if (normalized == "sha512") return BCRYPT_SHA512_ALGORITHM;
   if (normalized == "md5") return BCRYPT_MD5_ALGORITHM;
   return nullptr;
+}
+
+std::optional<size_t> hkdfDigestLength(const std::string& algorithm) {
+  auto normalized = normalizeAlgorithm(algorithm);
+  if (normalized == "sha1") return 20;
+  if (normalized == "sha256") return 32;
+  if (normalized == "sha384") return 48;
+  if (normalized == "sha512") return 64;
+  return std::nullopt;
 }
 
 std::vector<uint8_t> computeDigest(
@@ -437,6 +447,72 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         return facebook::jsi::String::createFromUtf8(runtime, hexEncode(digest));
       });
   rt.global().setProperty(rt, "__exactHmacSync", std::move(hmacSyncFn));
+
+  // @ref LLP 0008#crypto — Windows keeps the canonical JavaScript crypto
+  // surface and supplies its available native primitives through BCrypt/CNG.
+  auto hkdfFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHkdf"),
+      5,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 5 || !args[0].isString() || !args[4].isNumber()) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactHkdf: algorithm, ikm, salt, info, and length required");
+        }
+
+        auto algorithm = args[0].asString(runtime).utf8(runtime);
+        auto hash_length = hkdfDigestLength(algorithm);
+        if (!hash_length.has_value()) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactHkdf: unsupported hash algorithm: " + algorithm);
+        }
+
+        double requested_length = args[4].asNumber();
+        if (!std::isfinite(requested_length) || requested_length < 0 ||
+            std::floor(requested_length) != requested_length ||
+            requested_length > static_cast<double>(255 * *hash_length)) {
+          throw facebook::jsi::JSError(runtime, "__exactHkdf: invalid output length");
+        }
+
+        auto ikm = extractBytes(runtime, args[1]);
+        auto salt = extractBytes(runtime, args[2]);
+        auto info = extractBytes(runtime, args[3]);
+        auto length = static_cast<size_t>(requested_length);
+        if (length == 0) {
+          return makeUint8Array(runtime, {});
+        }
+
+        if (salt.empty()) {
+          salt.resize(*hash_length, 0);
+        }
+
+        // RFC 5869 extract: PRK = HMAC-Hash(salt, IKM).
+        auto prk = computeDigest(runtime, algorithm, ikm, salt);
+        auto block_count = (length + *hash_length - 1) / *hash_length;
+        std::vector<uint8_t> output;
+        output.reserve(block_count * *hash_length);
+        std::vector<uint8_t> previous;
+
+        // RFC 5869 expand: T(i) = HMAC-Hash(PRK, T(i-1) || info || i).
+        for (size_t block = 1; block <= block_count; ++block) {
+          std::vector<uint8_t> input;
+          input.reserve(previous.size() + info.size() + 1);
+          input.insert(input.end(), previous.begin(), previous.end());
+          input.insert(input.end(), info.begin(), info.end());
+          input.push_back(static_cast<uint8_t>(block));
+          previous = computeDigest(runtime, algorithm, input, prk);
+          output.insert(output.end(), previous.begin(), previous.end());
+        }
+
+        output.resize(length);
+        return makeUint8Array(runtime, std::move(output));
+      });
+  rt.global().setProperty(rt, "__exactHkdf", std::move(hkdfFn));
 
   installZlibHostFunctions(handle);
 

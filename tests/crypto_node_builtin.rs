@@ -520,6 +520,22 @@ async fn kdf_and_cipher_string_inputs_default_to_utf8() {
     );
 }
 
+/// RFC 5869 test case 1 proves that HKDF is the real extract-and-expand
+/// construction on every backend, including Windows' BCrypt-only profile.
+#[tokio::test]
+async fn hkdf_matches_rfc5869_sha256_test_case_1() {
+    let js = "(function(){ var c = require('crypto'); \
+        var ikm = Buffer.from('0b'.repeat(22), 'hex'); \
+        var salt = Buffer.from('000102030405060708090a0b0c', 'hex'); \
+        var info = Buffer.from('f0f1f2f3f4f5f6f7f8f9', 'hex'); \
+        return Buffer.from(c.hkdfSync('sha256', ikm, salt, info, 42)).toString('hex'); })()";
+    let result = eval(js).await;
+    assert_eq!(
+        result,
+        "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865"
+    );
+}
+
 /// ENG-23465 findings 7+8: second digest() throws ERR_CRYPTO_HASH_FINALIZED
 /// (never a cached value), update(number) throws ERR_INVALID_ARG_TYPE, and
 /// the Transform lifecycle completes — 'finish' fires so stream.pipeline on a

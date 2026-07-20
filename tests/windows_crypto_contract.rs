@@ -17,7 +17,12 @@ fn windows_uses_the_canonical_manifest_crypto_surface() {
 
 #[test]
 fn windows_native_crypto_remains_a_primitive_backend() {
-    for primitive in ["__exactHashSync", "__exactHashRaw", "__exactHmacSync"] {
+    for primitive in [
+        "__exactHashSync",
+        "__exactHashRaw",
+        "__exactHmacSync",
+        "__exactHkdf",
+    ] {
         assert!(
             WINDOWS_CRYPTO.contains(primitive),
             "Windows must retain its BCrypt-backed {primitive} primitive"
@@ -26,5 +31,9 @@ fn windows_native_crypto_remains_a_primitive_backend() {
     assert!(
         WINDOWS_CRYPTO.contains("Windows is a no-OpenSSL crypto profile backed by CNG/BCrypt"),
         "the reduced Windows backend must stay explicitly documented"
+    );
+    assert!(
+        WINDOWS_CRYPTO.contains("RFC 5869 extract") && WINDOWS_CRYPTO.contains("RFC 5869 expand"),
+        "Windows HKDF must remain a real RFC 5869 construction over BCrypt HMAC"
     );
 }

@@ -147358,7 +147358,9 @@
         ]
       },
       "disposition": "unsupported",
-      "implementationBranchIds": [],
+      "implementationBranchIds": [
+        "surface.native.op.exacthkdf.05jgsim.windows"
+      ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
