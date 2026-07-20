@@ -9,11 +9,11 @@ import { ingestRestrictedReachableEvidence } from "./restricted-exact-reachable-
 
 const evidencePath = path.join(
   capsecRoot,
-  "conformance/evidence/restricted-exact/reachable-aarch64-apple-darwin-49ed212a.json",
+  "conformance/evidence/restricted-exact/reachable-aarch64-apple-darwin-1a033000.json",
 );
 const controlEvidencePath = path.join(
   capsecRoot,
-  "conformance/evidence/restricted-exact/control-aarch64-apple-darwin-49ed212a.json",
+  "conformance/evidence/restricted-exact/control-aarch64-apple-darwin-1a033000.json",
 );
 
 function rawArtifact() {
@@ -58,7 +58,7 @@ describe("LLP 0033 restricted reachable evidence", () => {
     expect(result.executions).toHaveLength(22);
     expect(new Set(result.executions.map((row) => row.fixtureId)).size).toBe(22);
     expect(result.bindings.sourceRevision).toBe(
-      "49ed212a66e025c7cc93463fb32029bf9e91f2eb",
+      "1a033000c5c84e01caa12342c9309c1f901d785f",
     );
   });
 
