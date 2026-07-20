@@ -50,7 +50,9 @@ getrandom = "0.2"
 rusqlite = { version = "0.31", features = ["bundled", "column_decltype", "hooks"] }
 
 # Module resolution (Node/ESM)
-oxc_resolver = "11.17.0"
+# `authenticated_module_resolve_options` disables ambient NODE_PATH lookup via
+# `ResolveOptions::node_path`, which was added in oxc_resolver 11.19.1.
+oxc_resolver = "11.19.1"
 oxc_ast = "=0.121.0"
 oxc_ast_visit = "=0.121.0"
 oxc_allocator = "=0.121.0"
