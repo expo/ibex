@@ -1242,11 +1242,35 @@ function typescriptGlobalInstallerBinding({ branch, sourceRef, sourcePath, locat
   }
   if (installers.length !== 1) return null;
   const installer = installers[0];
+  const aliases = new Map();
+  const expandAliases = (segments) => {
+    let expanded = segments;
+    const seen = new Set();
+    while (expanded?.length > 0 && aliases.has(expanded[0]) && !seen.has(expanded[0])) {
+      seen.add(expanded[0]);
+      expanded = [...aliases.get(expanded[0]), ...expanded.slice(1)];
+    }
+    return expanded;
+  };
+  const installerPathMatches = (segments) => {
+    const expanded = expandAliases(segments);
+    const normalized = ["g", "globalThis", "window", "self"].includes(expanded?.[0])
+      ? expanded.slice(1)
+      : expanded;
+    if (JSON.stringify(normalized) === JSON.stringify(logicalPath)) return true;
+    return normalized?.length === logicalPath.length
+      && normalized[0]?.toLowerCase() === logicalPath[0]?.toLowerCase()
+      && JSON.stringify(normalized.slice(1)) === JSON.stringify(logicalPath.slice(1));
+  };
   const candidates = [];
   walkJavaScript(moduleInstaller ? installer : installer.body, (node, parent) => {
+    if (node.type === "VariableDeclarator" && node.id?.type === "Identifier") {
+      const segments = memberSegments(node.init);
+      if (segments && segments.length > 0) aliases.set(node.id.name, segments);
+    }
     if (!getterInstaller && node.type === "AssignmentExpression") {
       const segments = memberSegments(node.left);
-      if (globalPathMatches(segments, logicalPath)) {
+      if (installerPathMatches(segments)) {
         candidates.push({
           producer: node.right,
           publication: parent?.type === "ExpressionStatement" ? parent : node,
@@ -1257,7 +1281,7 @@ function typescriptGlobalInstallerBinding({ branch, sourceRef, sourcePath, locat
       && JSON.stringify(memberSegments(node.callee)) === JSON.stringify(["Object", "defineProperty"])) {
       const target = memberSegments(node.arguments[0]);
       const property = propertyName(node.arguments[1]);
-      if (property !== null && globalPathMatches([...(target ?? []), property], logicalPath)) {
+      if (property !== null && installerPathMatches([...(target ?? []), property])) {
         const getter = objectProperty(node.arguments[2], "get");
         if (getterInstaller && !getter) return;
         candidates.push({
@@ -5517,6 +5541,20 @@ export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root =
         .filter((entry) => entryTargetsGlobalPath(entry, observedPath))) {
         selectedEntries.add(entry);
         producerPaths.push(...entry.binding.producerPaths);
+      }
+    }
+    if (producerPaths.length === 0) {
+      const descendantEntries = entries.filter((entry) => {
+        if (entry.binding.locatorKind !== "typescript-global-installer-route"
+          || entry.binding.producerPaths.length === 0) return false;
+        const locator = locatorOf(entry.sourceRef);
+        const markerIndex = locator.indexOf(":globals:");
+        const installedPath = markerIndex < 0 ? null : locator.slice(markerIndex + ":globals:".length);
+        return installedPath?.startsWith(`${observedPath}.`);
+      });
+      if (descendantEntries.length === 1) {
+        selectedEntries.add(descendantEntries[0]);
+        producerPaths.push(...descendantEntries[0].binding.producerPaths);
       }
     }
     for (const entry of entries.filter(({ binding }) => binding.locatorKind === "legacy-bootstrap-global-route")) {

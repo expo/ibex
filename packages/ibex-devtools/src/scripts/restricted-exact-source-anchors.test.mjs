@@ -805,6 +805,26 @@ void install(Runtime& rt) {
     }
   });
 
+  test("resolves installer-local aliases for nested Intl publications", () => {
+    const sourceRef = "packages/ibex-runtime-js/src/polyfills/intl.ts#installIntlPolyfills:globals:Intl.DateTimeFormat.prototype.formatToParts";
+    const memberBranch = {
+      branchId: "surface.native.op.intl.datetime-format-parts.all",
+      observedKey: "native-op:global:Intl.DateTimeFormat.prototype.formatToParts",
+      targetVariant: "all",
+    };
+    const binding = resolveRestrictedExactBranchSourceBinding(memberBranch, sourceRef);
+    expect(binding.locatorKind).toBe("typescript-global-installer-route");
+    expect(binding.sites.map((site) => site.role)).toEqual(["value-producer", "publication"]);
+    expect(buildRestrictedExactBranchSourceRoute(memberBranch, [sourceRef]).status).toBe("executable");
+    const ancestor = buildRestrictedExactBranchSourceRoute({
+      ...memberBranch,
+      branchId: "surface.native.op.intl.datetime-format.all",
+      observedKey: "native-op:global:Intl.DateTimeFormat",
+    }, [sourceRef]);
+    expect(ancestor.status).toBe("executable");
+    expect(ancestor.bindingDispositions[0].disposition).toBe("selected-route");
+  });
+
   test("binds module-level global assignments and C++ supporting symbols", () => {
     const moduleBinding = resolveRestrictedExactBranchSourceBinding({
       branchId: "surface.native.op.android.dispatch.all",
