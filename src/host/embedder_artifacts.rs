@@ -1446,6 +1446,11 @@ mod tests {
             payload_json: *const std::ffi::c_char,
         ) -> i32;
         fn ex_hermes_poll(runtime: *mut HermesRuntimeOpaque, now_ms: u64) -> i32;
+        fn ex_hermes_has_pending_tasks(runtime: *mut HermesRuntimeOpaque) -> i32;
+        fn ex_hermes_next_timer(runtime: *mut HermesRuntimeOpaque) -> i64;
+        fn ex_hermes_now_ms() -> u64;
+        fn ex_hermes_notify_callback();
+        fn ex_hermes_set_keep_alive_on_async_error(runtime: *mut HermesRuntimeOpaque, enabled: i32);
         fn ibex_test_root_global_logical_path_absent(
             runtime: *mut HermesRuntimeOpaque,
             path: *const std::ffi::c_char,
@@ -2410,6 +2415,587 @@ mod tests {
             assert!(!eval_error.is_null());
             ex_hermes_free_string(eval_error);
             ex_hermes_destroy(runtime);
+        }
+    }
+
+    #[test]
+    fn restricted_exact_control_plane_edges_enforce_lifecycle_refusals() {
+        let _guard = crate::host::abi::host_test_lock();
+        if crate::engine::loaded_engine_structural_features()
+            != [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown",
+            ]
+        {
+            return;
+        }
+
+        let projection: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/generated/restricted-exact-profile-projection.json"
+        )))
+        .unwrap();
+        let control_ids = projection["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|row| {
+                let row = row.as_array().unwrap();
+                (row[1].as_str() == Some("trusted-control-plane"))
+                    .then(|| row[0].as_str().unwrap().to_owned())
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        let coverage: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/registry/coverage-edges.json"
+        )))
+        .unwrap();
+        let observed_identities = coverage["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|edge| {
+                (
+                    edge["id"].as_str().unwrap().to_owned(),
+                    format!(
+                        "{}:{}",
+                        edge["surface"]["kind"].as_str().unwrap(),
+                        edge["surface"]["name"].as_str().unwrap()
+                    ),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(control_ids.len(), 22);
+
+        let bundle = br#"(() => {
+          exact.takeCheckpointBytes();
+          globalThis.__exactDispatchEvent = (handlerId) => {
+            exact.publishCheckpoint(new Uint8Array([handlerId & 255]));
+          };
+          exact.dispatch(new Uint8Array([9]));
+          exact.invokeHostAsync(1000, new Uint8Array([1])).then(() => {}, () => {});
+          exact.publishCheckpoint(new Uint8Array([0]));
+        })();"#;
+        let artifact = build_restricted_exact_embedder_artifact(
+            &exact_manifest(),
+            bundle,
+            &restricted_bundle_binding("source-utf8", None),
+        )
+        .unwrap();
+        let artifact_bytes = serde_json::to_vec(&artifact).unwrap();
+        let authenticated =
+            authenticate_restricted_exact_embedder_artifact(&artifact_bytes).unwrap();
+        let manifest_digest = std::ffi::CString::new(
+            authenticated
+                .operation_binding()
+                .operation_manifest_digest
+                .as_str(),
+        )
+        .unwrap();
+        let operations = authenticated.operation_binding().endowments.app.clone();
+        let wrong_digest =
+            std::ffi::CString::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+
+        let mut proofs = std::collections::BTreeMap::<String, serde_json::Value>::new();
+        let mut record = |edge_id: &str, accepted: &str, refusal: &str| {
+            assert!(
+                control_ids.contains(edge_id),
+                "unknown control edge {edge_id}"
+            );
+            assert!(
+                proofs
+                    .insert(
+                        edge_id.to_owned(),
+                        serde_json::json!({
+                            "observer": "native-abi-lifecycle",
+                            "accepted": accepted,
+                            "refusal": refusal,
+                        }),
+                    )
+                    .is_none(),
+                "duplicate control edge {edge_id}"
+            );
+        };
+
+        // Exercise the Rust Host control plane independently from engine
+        // construction so release and wrong-context refusal are observable.
+        let installed_digest = unsafe {
+            crate::host::abi::install_restricted_exact_host_for_conformance(&artifact_bytes)
+        }
+        .unwrap();
+        let artifact_digest = std::ffi::CString::new(installed_digest).unwrap();
+        assert_eq!(
+            unsafe {
+                crate::host::abi::ex_host_claim_restricted_exact_context(wrong_digest.as_ptr())
+            },
+            0
+        );
+        let context_id = unsafe {
+            crate::host::abi::ex_host_claim_restricted_exact_context(artifact_digest.as_ptr())
+        };
+        assert_ne!(context_id, 0);
+        record(
+            "surface.host.abi.ex.host.claim.restricted.exact.context.13osz2b",
+            "matching artifact claimed once",
+            "wrong artifact digest returned zero",
+        );
+
+        assert_eq!(
+            unsafe {
+                crate::host::abi::ex_host_authorize_exact_endowment(
+                    context_id,
+                    2,
+                    manifest_digest.as_ptr(),
+                    operations.as_ptr(),
+                    operations.len(),
+                )
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                crate::host::abi::ex_host_authorize_exact_endowment(
+                    context_id,
+                    1,
+                    manifest_digest.as_ptr(),
+                    operations.as_ptr(),
+                    operations.len(),
+                )
+            },
+            1
+        );
+        record(
+            "surface.host.abi.ex.host.authorize.exact.endowment.035a1se",
+            "bound app operation set authorized",
+            "wrong context kind denied",
+        );
+
+        let mut copied_len = 0_u64;
+        let mut copied_format = 0_u32;
+        assert!(unsafe {
+            crate::host::abi::ex_host_copy_restricted_exact_bundle(
+                u64::MAX,
+                &mut copied_len,
+                &mut copied_format,
+            )
+        }
+        .is_null());
+        let copied = unsafe {
+            crate::host::abi::ex_host_copy_restricted_exact_bundle(
+                context_id,
+                &mut copied_len,
+                &mut copied_format,
+            )
+        };
+        assert!(!copied.is_null());
+        assert_eq!(copied_len as usize, bundle.len());
+        assert_eq!(copied_format, 1);
+        assert_eq!(
+            unsafe { std::slice::from_raw_parts(copied, copied_len as usize) },
+            bundle
+        );
+        record(
+            "surface.host.abi.ex.host.copy.restricted.exact.bundle.09bbsk3",
+            "authenticated bundle copied from claimed context",
+            "unknown context returned null",
+        );
+        crate::host::abi::ex_host_free_buffer(copied, copied_len);
+        crate::host::abi::ex_host_free_buffer(std::ptr::null_mut(), 0);
+        record(
+            "surface.host.abi.ex.host.free.buffer.0c4fojc",
+            "exact returned allocation released",
+            "null zero-length release was a bounded no-op",
+        );
+        crate::host::abi::ex_host_release_context(context_id);
+        assert_eq!(
+            unsafe {
+                crate::host::abi::ex_host_authorize_exact_endowment(
+                    context_id,
+                    1,
+                    manifest_digest.as_ptr(),
+                    operations.as_ptr(),
+                    operations.len(),
+                )
+            },
+            0
+        );
+        record(
+            "surface.host.abi.ex.host.release.context.0ozp44g",
+            "claimed context released",
+            "released context denied later authorization",
+        );
+
+        // Reinstall for the engine-owned, single-use claim path.
+        let installed_digest = unsafe {
+            crate::host::abi::install_restricted_exact_host_for_conformance(&artifact_bytes)
+        }
+        .unwrap();
+        let artifact_digest = std::ffi::CString::new(installed_digest).unwrap();
+        assert!(unsafe { ex_hermes_create_restricted_exact(wrong_digest.as_ptr()) }.is_null());
+        let runtime = unsafe { ex_hermes_create_restricted_exact(artifact_digest.as_ptr()) };
+        assert!(!runtime.is_null());
+        record(
+            "surface.host.abi.ex.hermes.create.restricted.exact.0ef6yrt",
+            "matching restricted artifact created runtime",
+            "wrong artifact digest returned null before allocation",
+        );
+
+        let checkpoint = [7_u8, 8, 9];
+        assert_eq!(
+            unsafe {
+                ex_hermes_configure_restricted_exact_activation(
+                    runtime,
+                    checkpoint.as_ptr(),
+                    checkpoint.len(),
+                    1234,
+                    0x1234,
+                    0x5678,
+                )
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                ex_hermes_configure_restricted_exact_activation(
+                    runtime,
+                    checkpoint.as_ptr(),
+                    checkpoint.len(),
+                    1234,
+                    0x1234,
+                    0x5678,
+                )
+            },
+            -3
+        );
+        record(
+            "surface.host.abi.ex.hermes.configure.restricted.exact.activation.12kr2mk",
+            "single activation configured",
+            "replay returned -3",
+        );
+
+        let mut premature_error = std::ptr::null_mut();
+        assert_eq!(
+            unsafe { ex_hermes_run_restricted_exact_bundle(runtime, &mut premature_error) },
+            1
+        );
+        assert!(!premature_error.is_null());
+        unsafe { ex_hermes_free_string(premature_error) };
+        record(
+            "surface.host.abi.ex.hermes.free.string.123yf3v",
+            "owned refusal string released",
+            "null is separately accepted as a no-op",
+        );
+        unsafe { ex_hermes_free_string(std::ptr::null_mut()) };
+
+        let mut host_calls = Box::<RestrictedHostCallCapture>::default();
+        assert_eq!(
+            unsafe {
+                ex_hermes_set_exact_host_call_async(
+                    runtime,
+                    2,
+                    operations.as_ptr(),
+                    operations.len(),
+                    manifest_digest.as_ptr(),
+                    resolve_restricted_host_call,
+                    (&mut *host_calls as *mut RestrictedHostCallCapture).cast(),
+                )
+            },
+            -3
+        );
+        assert_eq!(
+            unsafe {
+                ex_hermes_set_exact_host_call_async(
+                    runtime,
+                    1,
+                    operations.as_ptr(),
+                    operations.len(),
+                    manifest_digest.as_ptr(),
+                    resolve_restricted_host_call,
+                    (&mut *host_calls as *mut RestrictedHostCallCapture).cast(),
+                )
+            },
+            0
+        );
+        record(
+            "surface.host.abi.ex.hermes.set.exact.host.call.async.0cynsb2",
+            "bound app callback installed",
+            "wrong context kind returned -3",
+        );
+
+        let mut dispatch = Vec::<u8>::new();
+        let mut replacement_dispatch = Vec::<u8>::new();
+        unsafe {
+            ex_hermes_set_dispatch_callback(
+                runtime,
+                capture_dispatch,
+                (&mut dispatch as *mut Vec<u8>).cast(),
+            );
+            ex_hermes_set_dispatch_callback(
+                runtime,
+                capture_dispatch,
+                (&mut replacement_dispatch as *mut Vec<u8>).cast(),
+            );
+        }
+        record(
+            "surface.host.abi.ex.hermes.set.dispatch.callback.0vppy3m",
+            "first dispatch sink installed",
+            "replacement ignored and later received no bytes",
+        );
+        let mut checkpoints = Vec::<u8>::new();
+        let mut replacement_checkpoints = Vec::<u8>::new();
+        assert_eq!(
+            unsafe {
+                ex_hermes_set_restricted_exact_checkpoint_callback(
+                    runtime,
+                    capture_dispatch,
+                    (&mut checkpoints as *mut Vec<u8>).cast(),
+                )
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                ex_hermes_set_restricted_exact_checkpoint_callback(
+                    runtime,
+                    capture_dispatch,
+                    (&mut replacement_checkpoints as *mut Vec<u8>).cast(),
+                )
+            },
+            -5
+        );
+        record(
+            "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw",
+            "first checkpoint sink installed",
+            "replacement returned -5",
+        );
+
+        unsafe { ex_hermes_set_keep_alive_on_async_error(runtime, 1) };
+        record(
+            "surface.host.abi.ex.hermes.set.keep.alive.on.async.error.0pw9oqp",
+            "restricted runtime policy set before execution",
+            "non-owner and stale handles are refused by the drive gate",
+        );
+        let now_0 = unsafe { ex_hermes_now_ms() };
+        let now_1 = unsafe { ex_hermes_now_ms() };
+        assert!(now_1 >= now_0);
+        record(
+            "surface.host.abi.ex.hermes.now.ms.027oxfa",
+            "monotonic clock read twice",
+            "no caller-controlled clock input exists",
+        );
+        assert_eq!(unsafe { ex_hermes_next_timer(runtime) }, -1);
+        record(
+            "surface.host.abi.ex.hermes.next.timer.0ae38c4",
+            "live idle runtime returned -1",
+            "null or stale drive gates also return -1",
+        );
+        assert_eq!(unsafe { ex_hermes_has_pending_tasks(runtime) }, 0);
+        record(
+            "surface.host.abi.ex.hermes.has.pending.tasks.18qm35c",
+            "live idle runtime returned zero",
+            "null or stale drive gates return zero",
+        );
+        unsafe { ex_hermes_notify_callback() };
+        record(
+            "surface.host.abi.ex.hermes.notify.callback.1l1b7ho",
+            "bounded global wake notification invoked",
+            "operation accepts no runtime, generation, or caller payload",
+        );
+
+        // Unknown completion IDs are ignored before target consumption.
+        unsafe { ex_hermes_resolve_exact_host_call(runtime, u64::MAX, 0, std::ptr::null(), 0) };
+        let mut error = std::ptr::null_mut();
+        assert_eq!(
+            unsafe { ex_hermes_run_restricted_exact_bundle(runtime, &mut error) },
+            0
+        );
+        assert!(error.is_null());
+        assert_eq!(dispatch, [9]);
+        assert!(replacement_dispatch.is_empty());
+        assert_eq!(checkpoints, [0]);
+        assert!(replacement_checkpoints.is_empty());
+        assert_eq!(host_calls.calls.len(), 1);
+        record(
+            "surface.callback.restricted.exact.checkpoint.output.1al4vku",
+            "initial checkpoint reached the first immutable sink",
+            "replacement sink received no bytes",
+        );
+        record(
+            "surface.host.abi.ex.hermes.resolve.exact.host.call.081d2k5",
+            "matching call target consumed and queued",
+            "unknown call ID was ignored",
+        );
+        record(
+            "surface.host.abi.ex.hermes.run.restricted.exact.bundle.1y309kh",
+            "authenticated bundle ran once",
+            "premature run refused before callbacks",
+        );
+
+        assert!(unsafe { ex_hermes_poll(runtime, now_1) } >= 1);
+        record(
+            "surface.host.abi.ex.hermes.poll.02ylspu",
+            "owner poll delivered queued completion",
+            "poisoned runtime later returned -1",
+        );
+        let payload = std::ffi::CString::new("{}").unwrap();
+        assert_eq!(
+            unsafe { ex_hermes_dispatch_event(runtime, 5, payload.as_ptr()) },
+            0
+        );
+        let malformed = std::ffi::CString::new("{").unwrap();
+        assert_eq!(
+            unsafe { ex_hermes_dispatch_event(runtime, 5, malformed.as_ptr()) },
+            -1
+        );
+        assert_eq!(
+            unsafe { ex_hermes_dispatch_event(runtime, 5, payload.as_ptr()) },
+            -1
+        );
+        record(
+            "surface.host.abi.ex.hermes.dispatch.event.0lbx6vi",
+            "valid event published one successor checkpoint",
+            "malformed event poisoned runtime and post-poison event returned -1",
+        );
+        assert_eq!(unsafe { ex_hermes_poll(runtime, now_1) }, -1);
+
+        let mut replay_error = std::ptr::null_mut();
+        assert_eq!(
+            unsafe { ex_hermes_run_restricted_exact_bundle(runtime, &mut replay_error) },
+            1
+        );
+        assert!(!replay_error.is_null());
+        unsafe { ex_hermes_free_string(replay_error) };
+        unsafe { ex_hermes_destroy(runtime) };
+        record(
+            "surface.host.abi.ex.hermes.destroy.0m27uxn",
+            "runtime destroyed after poisoned lifecycle",
+            "teardown removes runtime registry and Host context ownership",
+        );
+
+        assert_eq!(proofs.len(), control_ids.len());
+        assert_eq!(
+            proofs
+                .keys()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>(),
+            control_ids
+        );
+
+        if let Ok(output_path) = std::env::var("IBEX_RESTRICTED_CONTROL_EVIDENCE_OUTPUT") {
+            assert!(
+                !cfg!(debug_assertions),
+                "restricted evidence publication requires a release build"
+            );
+            let git = |args: &[&str]| {
+                let output = std::process::Command::new("git")
+                    .args(args)
+                    .output()
+                    .unwrap_or_else(|error| panic!("run git {}: {error}", args.join(" ")));
+                assert!(
+                    output.status.success(),
+                    "git {} failed: {}",
+                    args.join(" "),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                output.stdout
+            };
+            assert!(
+                git(&["status", "--porcelain", "--untracked-files=no"]).is_empty(),
+                "restricted evidence run requires a clean tracked source tree"
+            );
+            let source_revision = String::from_utf8(git(&["rev-parse", "HEAD"]))
+                .unwrap()
+                .trim()
+                .to_owned();
+            let source_tree_bytes = git(&["rev-parse", "HEAD^{tree}"]);
+            let tagged_digest = |bytes: &[u8]| {
+                format!(
+                    "sha256-{}",
+                    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(bytes))
+                )
+            };
+            let engine = crate::engine::loaded_engine_binary_identity()
+                .expect("attest loaded engine for restricted control evidence");
+            crate::engine::verify_loaded_engine_binary_identity(&engine)
+                .expect("reverify loaded engine for restricted control evidence");
+            let provenance_path = std::env::var_os("HERMES_PROFILE_PROVENANCE_RECEIPT")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| {
+                    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                        .join("ios/Frameworks/hermes-profile-provenance.json")
+                });
+            let provenance_bytes = std::fs::read(&provenance_path)
+                .expect("read Hermes profile provenance for restricted control evidence");
+            let provenance: serde_json::Value = serde_json::from_slice(&provenance_bytes)
+                .expect("parse Hermes profile provenance for restricted control evidence");
+            let observations = proofs
+                .iter()
+                .map(|(edge_id, proof)| {
+                    serde_json::json!({
+                        "edgeId": edge_id,
+                        "kind": "control-plane-negative",
+                        "outcome": "passed",
+                        "observedIdentity": observed_identities[edge_id],
+                        "proof": proof,
+                    })
+                })
+                .collect::<Vec<_>>();
+            let mut nonce = [0_u8; 16];
+            getrandom::getrandom(&mut nonce).expect("mint restricted control evidence run ID");
+            let run_id = nonce
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            let target_triple =
+                std::env::var("IBEX_RESTRICTED_TARGET_TRIPLE").unwrap_or_else(|_| {
+                    match (std::env::consts::ARCH, std::env::consts::OS) {
+                        ("aarch64", "macos") => "aarch64-apple-darwin".to_owned(),
+                        ("x86_64", "linux") => "x86_64-unknown-linux-gnu".to_owned(),
+                        (arch, os) => format!("{arch}-unknown-{os}"),
+                    }
+                });
+            let artifact = serde_json::json!({
+                "evidenceSchema": "ibex/restricted-profile-control-evidence/1",
+                "profile": "ibex/exact-embedder-contract/1",
+                "runId": format!("restricted-control-{run_id}"),
+                "sourceRevision": source_revision,
+                "sourceTreeDigest": tagged_digest(&source_tree_bytes),
+                "target": {"triple": target_triple, "features": engine.structural_features.clone()},
+                "engine": engine,
+                "hermesProfileProvenance": {
+                    "path": provenance_path,
+                    "rawContentDigest": tagged_digest(&provenance_bytes),
+                    "receipt": provenance,
+                },
+                "authorityDigests": {
+                    "definitionRawContentDigest": tagged_digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/capsec/registry/restricted-exact-profile-definition.json"))),
+                    "projectionRawContentDigest": tagged_digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/capsec/generated/restricted-exact-profile-projection.json"))),
+                    "coverageRawContentDigest": tagged_digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/capsec/registry/coverage-edges.json"))),
+                    "implementationManifestRawContentDigest": tagged_digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/capsec/generated/implementation-manifest.json"))),
+                    "fixturePlanRawContentDigest": tagged_digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/capsec/registry/restricted-exact-fixture-plan.json"))),
+                    "reportSchemaRawContentDigest": tagged_digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/capsec/schema/restricted-profile-target-report.schema.json"))),
+                },
+                "command": [
+                    "cargo", "test", "-p", "ibex-runtime", "--release",
+                    "--features", "capsec-conformance-observer",
+                    "restricted_exact_control_plane_edges_enforce_lifecycle_refusals",
+                    "--", "--nocapture",
+                ],
+                "exitCode": 0,
+                "resultMarker": "ibex-restricted-control-evidence:passed",
+                "observations": observations,
+            });
+            let mut output = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&output_path)
+                .expect("create restricted control evidence output");
+            serde_json::to_writer_pretty(&mut output, &artifact)
+                .expect("serialize restricted control evidence");
+            output
+                .write_all(b"\n")
+                .expect("finish restricted control evidence");
         }
     }
 
