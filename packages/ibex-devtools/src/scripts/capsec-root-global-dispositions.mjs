@@ -51,6 +51,10 @@ const PRIVATE_CONSUMERS = new Map([
   ["__exactSetPendingPackageId", "trusted-module-loader"],
   ["__exactStdinRead", "runtime-process-stdin-adapter"],
   ["__ibexBarePackageName", "trusted-module-loader"],
+  [
+    "__ibexCaptureGpuNativeBridge",
+    "authenticated-webgpu-provider-construction-handoff",
+  ],
   ["__ibexEndowRaw", "compartment-registry-bootstrap"],
   ["__ibexEndowments", "compartment-registry-bootstrap"],
   ["__ibexRefreshCompartmentBaseline", "armed-runtime-finalizer"],

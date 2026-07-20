@@ -6981,11 +6981,11 @@ cp \"$input\" \"$out\"\n";
 
     #[cfg(feature = "capsec-conformance-observer")]
     fn install_armed_gpu_v2_test_host() -> (HostResetGuard, String) {
-        let profile_digest = "sha256-7tqDeE_0KXdgYZy331Tw4vInpwViVhkJxH7MncMjLZU";
-        let vocabulary_digest = "sha256-LQX5IbUTGfNs4TdV4mCH0cPfdvS-ozh0Y9pAW82rmD8";
-        let operation_set_digest = "sha256--xIQesQthJUGflDwlrTWxK7Z4_KvZNbRR_nJnvyqZoc";
-        let routing_digest = "sha256-189MIB-1igoFzWXNULDrPrKmTMF8RyTgB56DWbPmO_c";
-        let semantic_program_digest = "sha256-qblwPVmzuQa6iI_zP6yFMT-vwnhfDdNk5rVkim70atY";
+        let profile_digest = GPU_V2_PROFILE_DIGEST;
+        let vocabulary_digest = GPU_V2_VOCABULARY_DIGEST;
+        let operation_set_digest = GPU_V2_OPERATION_SET_DIGEST;
+        let routing_digest = GPU_V2_ROUTING_DIGEST;
+        let semantic_program_digest = GPU_V2_SEMANTIC_PROGRAM_DIGEST;
         let gpu_floor = [
             "GPU.requestAdapter",
             "GPUAdapter.requestDevice",
@@ -7009,54 +7009,7 @@ cp \"$input\" \"$out\"\n";
             })
         })
         .collect();
-        let operation_ids: Vec<u64> = vec![
-            31_670_442,
-            56_177_326,
-            194_635_792,
-            206_890_944,
-            308_839_175,
-            404_589_710,
-            551_383_281,
-            599_085_487,
-            892_795_326,
-            935_342_475,
-            1_199_806_466,
-            1_228_615_721,
-            1_277_060_789,
-            1_287_763_171,
-            1_311_136_574,
-            1_660_448_199,
-            1_724_778_411,
-            1_760_273_919,
-            1_829_554_013,
-            1_853_125_118,
-            1_869_756_926,
-            1_899_341_095,
-            1_908_549_907,
-            1_914_447_212,
-            1_925_415_872,
-            1_949_537_636,
-            2_040_228_619,
-            2_239_053_141,
-            2_342_501_516,
-            2_407_151_159,
-            2_481_184_390,
-            2_544_948_076,
-            2_687_703_037,
-            2_816_646_327,
-            2_933_046_788,
-            3_054_695_767,
-            3_157_634_281,
-            3_285_037_552,
-            3_293_775_739,
-            3_310_230_093,
-            3_314_731_466,
-            3_373_402_978,
-            3_810_427_763,
-            4_055_478_657,
-            4_094_543_821,
-            4_177_957_718,
-        ];
+        let operation_ids = GPU_V2_OPERATION_IDS.to_vec();
         let (host, digest) =
             build_armed_test_host_custom(None, false, false, false, gpu_floor, None, |value| {
                 value["exactGpuProvider"] = serde_json::json!({
@@ -8931,19 +8884,36 @@ module.exports = JSON.stringify({
     const GPU_V2_PUSH_ERROR_SCOPE: u32 = 1_311_136_574;
     #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     const GPU_V2_DESTROY_BUFFER: u32 = 3_314_731_466;
-    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
-    const GPU_V2_OPERATION_IDS: [u32; 46] = [
+    // The armed snapshot and fake native descriptor must present one identical,
+    // source-derived provider identity to the generated registry authentication gate.
+    // @ref LLP 0021#generated-semantic-datasets
+    #[cfg(feature = "capsec-conformance-observer")]
+    const GPU_V2_PROFILE_DIGEST: &str = "sha256-7tqDeE_0KXdgYZy331Tw4vInpwViVhkJxH7MncMjLZU";
+    #[cfg(feature = "capsec-conformance-observer")]
+    const GPU_V2_VOCABULARY_DIGEST: &str = "sha256-fXd5rgvzcX0EZBnMbKmIslG_thWI9wFCczcp5L5ojNI";
+    #[cfg(feature = "capsec-conformance-observer")]
+    const GPU_V2_OPERATION_SET_DIGEST: &str = "sha256-eXuoR3KrFja9Ko7S4ppBxCWktXNloP8OOGQgq3cZKVQ";
+    #[cfg(feature = "capsec-conformance-observer")]
+    const GPU_V2_SEMANTIC_PROGRAM_DIGEST: &str =
+        "sha256-bNV7ahCwcdtOFIAsGLDQSpKyPxGWZn8yt5IPDP_6lYY";
+    #[cfg(feature = "capsec-conformance-observer")]
+    const GPU_V2_ROUTING_DIGEST: &str = "sha256-B-EGMn9vQiLU8O9lrVO3G9b76ZzXw0sqjAH8qdgfkOs";
+    #[cfg(feature = "capsec-conformance-observer")]
+    const GPU_V2_OPERATION_IDS: [u32; 58] = [
         31_670_442,
         56_177_326,
         194_635_792,
         206_890_944,
         308_839_175,
         404_589_710,
+        441_347_126,
         551_383_281,
         599_085_487,
         892_795_326,
         935_342_475,
+        1_131_879_253,
         1_199_806_466,
+        1_203_119_164,
         1_228_615_721,
         1_277_060_789,
         1_287_763_171,
@@ -8958,24 +8928,33 @@ module.exports = JSON.stringify({
         1_908_549_907,
         1_914_447_212,
         1_925_415_872,
+        1_945_140_237,
         1_949_537_636,
         2_040_228_619,
+        2_194_495_720,
         2_239_053_141,
+        2_288_750_516,
         2_342_501_516,
         2_407_151_159,
+        2_453_223_652,
         2_481_184_390,
         2_544_948_076,
         2_687_703_037,
         2_816_646_327,
         2_933_046_788,
         3_054_695_767,
+        3_114_133_342,
         3_157_634_281,
         3_285_037_552,
         3_293_775_739,
         3_310_230_093,
         3_314_731_466,
         3_373_402_978,
+        3_517_777_017,
         3_810_427_763,
+        3_930_891_724,
+        3_982_602_559,
+        4_000_042_239,
         4_055_478_657,
         4_094_543_821,
         4_177_957_718,
@@ -9417,11 +9396,11 @@ module.exports = JSON.stringify({
     ))]
     fn test_gpu_v2_digests() -> [[u8; 32]; 5] {
         [
-            raw_gpu_digest("sha256-7tqDeE_0KXdgYZy331Tw4vInpwViVhkJxH7MncMjLZU"),
-            raw_gpu_digest("sha256-LQX5IbUTGfNs4TdV4mCH0cPfdvS-ozh0Y9pAW82rmD8"),
-            raw_gpu_digest("sha256--xIQesQthJUGflDwlrTWxK7Z4_KvZNbRR_nJnvyqZoc"),
-            raw_gpu_digest("sha256-qblwPVmzuQa6iI_zP6yFMT-vwnhfDdNk5rVkim70atY"),
-            raw_gpu_digest("sha256-189MIB-1igoFzWXNULDrPrKmTMF8RyTgB56DWbPmO_c"),
+            raw_gpu_digest(GPU_V2_PROFILE_DIGEST),
+            raw_gpu_digest(GPU_V2_VOCABULARY_DIGEST),
+            raw_gpu_digest(GPU_V2_OPERATION_SET_DIGEST),
+            raw_gpu_digest(GPU_V2_SEMANTIC_PROGRAM_DIGEST),
+            raw_gpu_digest(GPU_V2_ROUTING_DIGEST),
         ]
     }
 
@@ -11257,12 +11236,10 @@ module.exports = JSON.stringify({
 
                 let plain = gpu_v2_template_call(GPU_V2_CREATE_BUFFER, 1, &[1, 2]);
                 let promised = gpu_v2_template_call(GPU_V2_MAP_ASYNC, 2, &[3, 4, 5]);
-                assert_eq!(
-                    submit_gpu_v2_test_call(raw, &plain, false),
-                    (-1000, 0, 0),
-                    "submit must fail before the typed event sink is installed"
-                );
-                assert!(fake_gpu_v2_state().lock().unwrap().submit_calls.is_empty());
+                // Provider publication already installed the production
+                // wrapper's one-shot typed sink. Attach test-only observation
+                // without replacing that sink, then exercise both receipt
+                // and raw-event projections.
                 unsafe { assert_eq!(ibex_test_gpu_v2_install_event_observer(raw), 1) };
                 assert_eq!(submit_gpu_v2_test_call(raw, &plain, false), (0, 1, 0));
                 assert_eq!(submit_gpu_v2_test_call(raw, &promised, true), (0, 2, 1));
@@ -11997,7 +11974,7 @@ module.exports = JSON.stringify({
                     assert_eq!(
                         ibex_test_gpu_v2_install_event_observer(raw),
                         0,
-                        "the first setEventSink attempt must be close-gated before owner drain"
+                        "test observation must be close-gated before owner drain"
                     );
                 }
                 // Deliberately do not poll: an accepted service-originated

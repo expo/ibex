@@ -78,6 +78,7 @@ describe("root-global disposition manifest", () => {
       surface("__exactOnRejectionHandled"),
       surface("__exactOnUnhandledRejection"),
       surface("__exactProcessIpcBootstrap"),
+      surface("__ibexCaptureGpuNativeBridge"),
       surface("__exactProcessIpcBootstrap.close", {
         globalName: "__exactProcessIpcBootstrap",
         memberName: "close",
@@ -110,6 +111,16 @@ describe("root-global disposition manifest", () => {
     });
     expect(privateExit.registryEdgeId).toBe("edge.exactexit");
     expect(privateExit.installId).toMatch(/^root-global\.exactexit\./u);
+    expect(
+      manifest.rows.find(
+        (row) =>
+          row.observedKey === "native-op:__ibexCaptureGpuNativeBridge",
+      ),
+    ).toMatchObject({
+      disposition: "private",
+      privateConsumer: "authenticated-webgpu-provider-construction-handoff",
+      liveExpectation: "absent",
+    });
     expect(
       manifest.rows.find(
         (row) => row.observedKey === "native-op:__exactCompatModes",

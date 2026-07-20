@@ -52,6 +52,14 @@ bool closeGpuConstructionCaptureImpl(ExactHermesRuntime* runtime) noexcept {
   }
   auto& rt = *runtime->runtime;
   bool invocationSucceeded = true;
+  if (runtime->gpu_construction_capture) {
+    try {
+      runtime->gpu_construction_capture->call(rt);
+    } catch (...) {
+      invocationSucceeded = false;
+    }
+    runtime->gpu_construction_capture.reset();
+  }
   try {
     if (rt.global().hasProperty(rt, kGpuCaptureGlobalName)) {
       auto capture = rt.global().getProperty(rt, kGpuCaptureGlobalName);
@@ -1726,15 +1734,23 @@ bool exactGpuPublishPrivateBridge(ExactHermesRuntime* runtime) {
         .getPropertyAsObject(rt, "Object")
         .getPropertyAsFunction(rt, "preventExtensions")
         .call(rt, gpuNativeBridge);
-    auto captureValue = rt.global().getProperty(rt, kGpuCaptureGlobalName);
-    if (!captureValue.isObject() ||
-        !captureValue.getObject(rt).isFunction(rt)) {
-      return false;
+    std::shared_ptr<facebook::jsi::Function> captureHolder;
+    if (runtime->gpu_construction_capture) {
+      captureHolder = runtime->gpu_construction_capture;
+    } else {
+      auto captureValue = rt.global().getProperty(rt, kGpuCaptureGlobalName);
+      if (!captureValue.isObject() ||
+          !captureValue.getObject(rt).isFunction(rt)) {
+        return false;
+      }
+      captureHolder = std::make_shared<facebook::jsi::Function>(
+          captureValue.getObject(rt).asFunction(rt));
     }
-    auto capture = captureValue.getObject(rt).asFunction(rt);
+    auto& capture = *captureHolder;
     auto privateGpuNativeBridge =
         std::make_shared<facebook::jsi::Object>(std::move(gpuNativeBridge));
     auto revokeValue = capture.call(rt, *privateGpuNativeBridge);
+    runtime->gpu_construction_capture.reset();
     if (!closeGpuConstructionCaptureImpl(runtime)) return false;
     if (!revokeValue.isObject() ||
         !revokeValue.getObject(rt).isFunction(rt) ||
@@ -1785,6 +1801,50 @@ bool exactGpuSealPrivateBridge(ExactHermesRuntime* runtime) {
 
 bool exactGpuCloseConstructionCapture(ExactHermesRuntime* runtime) {
   return closeGpuConstructionCaptureImpl(runtime);
+}
+
+bool exactGpuRetainConstructionCaptureForBootstrapSeal(
+    ExactHermesRuntime* runtime) {
+  if (!runtime || !runtime->runtime || runtime->user_execution_started) {
+    return false;
+  }
+  if (!runtime->shared_runtime_bundle_installed) return true;
+#if !defined(IBEX_ENABLE_WEBGPU_BINDING)
+  return closeGpuConstructionCaptureImpl(runtime);
+#else
+  auto& rt = *runtime->runtime;
+  try {
+    if (runtime->gpu_construction_capture) {
+      return !rt.global().hasProperty(rt, kGpuCaptureGlobalName);
+    }
+    if (!rt.global().hasProperty(rt, kGpuCaptureGlobalName)) {
+      // Provider-first publication already consumed the one-shot callback.
+      return exactGpuBindingInstalled(runtime);
+    }
+    auto captureValue = rt.global().getProperty(rt, kGpuCaptureGlobalName);
+    if (!captureValue.isObject() ||
+        !captureValue.getObject(rt).isFunction(rt)) {
+      return false;
+    }
+    auto retained = std::make_shared<facebook::jsi::Function>(
+        captureValue.getObject(rt).asFunction(rt));
+    if (!runtime->root_global_reflect_delete_property) return false;
+    auto deleted = runtime->root_global_reflect_delete_property->call(
+        rt,
+        rt.global(),
+        facebook::jsi::String::createFromAscii(
+            rt, kGpuCaptureGlobalName));
+    if (!deleted.isBool() || !deleted.getBool() ||
+        rt.global().hasProperty(rt, kGpuCaptureGlobalName)) {
+      return false;
+    }
+    runtime->gpu_construction_capture = std::move(retained);
+    return true;
+  } catch (...) {
+    runtime->gpu_construction_capture.reset();
+    return false;
+  }
+#endif
 }
 
 bool exactGpuBindingInstalled(const ExactHermesRuntime* runtime) {

@@ -720,6 +720,10 @@ struct ExactHermesRuntime {
                                    size_t payload_len,
                                    void* context) = nullptr;
   void* exact_host_call_async_context = nullptr;
+  // The shared runtime's one-shot GPU construction handoff is removed from
+  // globalThis at the armed bootstrap seal. Native retains it only until a
+  // late provider transaction consumes it or user execution closes it.
+  std::shared_ptr<facebook::jsi::Function> gpu_construction_capture;
   // Optional provider-independent Exact GPU service registration. The binding
   // owns the native mailbox plus owner-thread-only JSI bridge/Promise roots;
   // no physical WGPU handle crosses this boundary. Runtime-js captures the
@@ -779,6 +783,8 @@ class ExactRuntimeDriveGuard {
 };
 
 bool exactGpuCloseConstructionCapture(ExactHermesRuntime* runtime);
+bool exactGpuRetainConstructionCaptureForBootstrapSeal(
+    ExactHermesRuntime* runtime);
 
 inline bool exactRuntimeEnterUserExecution(ExactHermesRuntime* runtime) {
   if (!runtime || !runtime->runtime) {

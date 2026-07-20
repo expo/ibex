@@ -409,6 +409,47 @@ fn is_sorted_unique<T: Ord>(values: &[T]) -> bool {
     values.windows(2).all(|pair| pair[0] < pair[1])
 }
 
+fn non_session_operation_matches_registry_semantics(
+    operation: &RegistryOperation,
+    cell: &RegistryPrivateCell,
+) -> bool {
+    if operation.provider_submission != "none"
+        || cell.authority_session.is_some()
+        || cell.provider_bridge_edge_id.is_some()
+    {
+        return false;
+    }
+    match operation.dispatch_class.as_str() {
+        "wrapper-local" | "wrapper-property-read" => {
+            operation.logical_execution_kind == "wrapper-local"
+                && operation.edge_classification == "non-capability"
+                && operation.operation_instance_identity == "not-carried-wrapper-only"
+                && operation.promise_identity == "not-carried-wrapper-only"
+                && cell.capsec_disposition == "non-capability"
+                && cell.positive_authority == "not-applicable-wrapper-local"
+        }
+        "wrapper-recording" => {
+            operation.logical_execution_kind == "wrapper-recording"
+                && operation.edge_classification == "non-capability"
+                && operation.operation_instance_identity
+                    == "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record"
+                && operation.promise_identity == "zero-non-applicable-sealed-local-timeline-record"
+                && cell.capsec_disposition == "non-capability"
+                && cell.positive_authority == "not-applicable-wrapper-recording"
+        }
+        "wrapper-local-deferred-service" => {
+            operation.logical_execution_kind == "wrapper-local-deferred-service"
+                && operation.edge_classification == "closed"
+                && operation.operation_instance_identity
+                    == "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record"
+                && operation.promise_identity == "zero-non-applicable-sealed-local-timeline-record"
+                && cell.capsec_disposition == "closed"
+                && cell.positive_authority == "absent-closed-deferred-service-edge"
+        }
+        _ => false,
+    }
+}
+
 fn load_runtime_registry() -> Option<RuntimeRegistry> {
     let value = capsec_semantics::strict_json::parse_strict(
         crate::capsec_registry_generated::CAPSEC_WEBGPU_PRIVATE_OPERATION_REGISTRY_JSON,
@@ -501,27 +542,36 @@ fn load_runtime_registry() -> Option<RuntimeRegistry> {
         all_wire_ids.push(operation.wire_id);
         if operation.wire_id == 0
             || !operation_edges.insert(operation.edge_id.clone())
-            || operation.operation_instance_identity != "required-nonzero-monotonic-per-realm"
             || !crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
                 .contains(&operation.edge_id.as_str())
         {
             return None;
         }
+        let receiver_kind = match operation.receiver_handle_kind.as_deref() {
+            Some(name) => object_kind(name)?,
+            None => 1,
+        };
+        let target_kind = match operation.wrapper_allocated_target_handle_kind.as_deref() {
+            Some(name) => object_kind(name)?,
+            None => 0,
+        };
         let Some(session) = operation.authority_session.clone() else {
             let cell = cells.get(&operation.edge_id)?;
             if cell.id != operation.private_target_cell_id
-                || cell.authority_session.is_some()
                 || cell.public_install_disposition != "absent"
                 || cell.platform_support_claim != "none"
                 || cell.support_disposition != "supported-construction-private-only"
                 || cell.target.kind != "construction-private-runtime-route"
                 || cell.target.id != "exact-construction-private-webgpu-v1"
+                || !non_session_operation_matches_registry_semantics(&operation, cell)
             {
                 return None;
             }
             continue;
         };
-        if session.stages != ["requested", "commit", "repeat"] {
+        if operation.operation_instance_identity != "required-nonzero-monotonic-per-realm"
+            || session.stages != ["requested", "commit", "repeat"]
+        {
             return None;
         }
         let authority_kind = match session.decision_kind.as_str() {
@@ -589,14 +639,6 @@ fn load_runtime_registry() -> Option<RuntimeRegistry> {
         {
             return None;
         }
-        let receiver_kind = match operation.receiver_handle_kind.as_deref() {
-            Some(name) => object_kind(name)?,
-            None => 1,
-        };
-        let target_kind = match operation.wrapper_allocated_target_handle_kind.as_deref() {
-            Some(name) => object_kind(name)?,
-            None => 0,
-        };
         let promise_required = match operation.promise_identity.as_str() {
             "required-nonzero-distinct-from-operation-instance" => true,
             "zero-non-applicable" => false,

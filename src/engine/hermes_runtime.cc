@@ -6729,6 +6729,10 @@ static bool capturePrivateBridgeConsumers(ExactHermesRuntime* handle) {
     if (!captured.isBool() || !captured.getBool()) {
       throw std::runtime_error("private bootstrap bridge capture is incomplete");
     }
+    if (!exactGpuRetainConstructionCaptureForBootstrapSeal(handle)) {
+      throw std::runtime_error(
+          "GPU provider construction handoff could not be retained privately");
+    }
     return true;
   } catch (const facebook::jsi::JSError& error) {
     return rootGlobalDispositionFailure(error.getMessage());

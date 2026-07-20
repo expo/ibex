@@ -52180,10 +52180,10 @@
       },
       "aliases": [],
       "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "exposed",
+      "privateConsumer": "authenticated-webgpu-provider-construction-handoff",
+      "disposition": "private",
       "traversal": "descend",
-      "liveExpectation": "reachable",
+      "liveExpectation": "absent",
       "resolution": "static",
       "nativeImplementation": false
     },
@@ -103406,7 +103406,7 @@
     "installBranches": 2755,
     "logicalGlobals": 2608,
     "registryEdges": 2608,
-    "sealedOrPrivate": 346,
-    "permittedReachable": 2409
+    "sealedOrPrivate": 347,
+    "permittedReachable": 2408
   }
 }

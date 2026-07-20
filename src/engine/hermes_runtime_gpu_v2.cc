@@ -64,53 +64,17 @@ ex_host_exact_gpu_authority_session_api_v2(void);
 
 namespace {
 
-constexpr char kGpuCaptureGlobalNameV2[] = "__ibexCaptureGpuNativeBridge";
-
 bool closeGpuV2ConstructionCapture(ExactHermesRuntime* runtime) noexcept {
-  if (!runtime || !runtime->runtime || runtime->user_execution_started) {
-    return true;
-  }
-  auto& rt = *runtime->runtime;
-  bool invocationSucceeded = true;
   try {
-    if (rt.global().hasProperty(rt, kGpuCaptureGlobalNameV2)) {
-      auto capture = rt.global().getProperty(rt, kGpuCaptureGlobalNameV2);
-      if (!capture.isObject() || !capture.getObject(rt).isFunction(rt)) {
-        invocationSucceeded = false;
-      } else {
-        capture.getObject(rt).asFunction(rt).call(rt);
-      }
-    }
+    return exactGpuCloseConstructionCapture(runtime);
   } catch (...) {
-    invocationSucceeded = false;
+    return false;
   }
-  bool absent = false;
-  try {
-    absent = !rt.global().hasProperty(rt, kGpuCaptureGlobalNameV2);
-  } catch (...) {
-    absent = false;
-  }
-  if (!absent) {
-    try {
-      auto deleted = rt.global()
-                         .getPropertyAsObject(rt, "Reflect")
-                         .getPropertyAsFunction(rt, "deleteProperty")
-                         .call(
-                             rt,
-                             rt.global(),
-                             facebook::jsi::String::createFromAscii(
-                                 rt, kGpuCaptureGlobalNameV2));
-      absent = deleted.isBool() && deleted.getBool() &&
-          !rt.global().hasProperty(rt, kGpuCaptureGlobalNameV2);
-    } catch (...) {
-      absent = false;
-    }
-  }
-  return invocationSucceeded && absent;
 }
 
 #if defined(IBEX_ENABLE_WEBGPU_BINDING)
 
+constexpr char kGpuCaptureGlobalNameV2[] = "__ibexCaptureGpuNativeBridge";
 constexpr size_t kMaxGpuOperationCountV2 = 4096;
 constexpr size_t kMaxGpuProfileIdBytesV2 = 256;
 constexpr size_t kMaxGpuPayloadBytesV2 = 16 * 1024 * 1024;
@@ -1691,6 +1655,11 @@ struct ExactGpuRuntimeBindingV2 {
   size_t deferred_wrapper_payload_bytes{0};
   std::shared_ptr<facebook::jsi::Function> wrapper_event_sink;
   bool wrapper_event_sink_set{false};
+#ifdef IBEX_GPU_BRIDGE_TEST_HOOKS
+  // Tests observe the exact event object delivered to the production wrapper
+  // without competing for its one-shot construction-private sink.
+  std::shared_ptr<facebook::jsi::Function> test_event_observer;
+#endif
   uint64_t next_operation_instance_id{1};
   uint64_t next_promise_id{1};
   std::shared_ptr<facebook::jsi::Object> private_bridge;
@@ -2899,15 +2868,16 @@ bool deliverGpuV2WrapperEvent(
     }
   }
   try {
-    if (retainPayloadForCaller) {
-      binding.wrapper_event_sink->call(
-          rt, makeGpuV2WrapperEvent(rt, copied.event, copied.payload));
-    } else {
-      binding.wrapper_event_sink->call(
-          rt,
-          makeGpuV2WrapperEvent(
-              rt, copied.event, std::move(copied.payload)));
+    auto event = retainPayloadForCaller
+        ? makeGpuV2WrapperEvent(rt, copied.event, copied.payload)
+        : makeGpuV2WrapperEvent(
+              rt, copied.event, std::move(copied.payload));
+    binding.wrapper_event_sink->call(rt, event);
+#ifdef IBEX_GPU_BRIDGE_TEST_HOOKS
+    if (binding.test_event_observer) {
+      binding.test_event_observer->call(rt, event);
     }
+#endif
     return true;
   } catch (...) {
     return false;
@@ -4042,6 +4012,9 @@ void ExactGpuRuntimeBindingV2::detach(
   revoke_capture.reset();
   private_bridge.reset();
   wrapper_event_sink.reset();
+#ifdef IBEX_GPU_BRIDGE_TEST_HOOKS
+  test_event_observer.reset();
+#endif
   deferred_wrapper_events.clear();
   deferred_wrapper_payload_bytes = 0;
   bridge_captured = false;
@@ -4819,15 +4792,23 @@ bool exactGpuV2PublishPrivateBridge(ExactHermesRuntime* runtime) {
         .getPropertyAsObject(rt, "Object")
         .getPropertyAsFunction(rt, "preventExtensions")
         .call(rt, gpuNativeBridgeV2);
-    auto captureValue = rt.global().getProperty(rt, kGpuCaptureGlobalNameV2);
-    if (!captureValue.isObject() ||
-        !captureValue.getObject(rt).isFunction(rt)) {
-      return false;
+    std::shared_ptr<facebook::jsi::Function> captureHolder;
+    if (runtime->gpu_construction_capture) {
+      captureHolder = runtime->gpu_construction_capture;
+    } else {
+      auto captureValue = rt.global().getProperty(rt, kGpuCaptureGlobalNameV2);
+      if (!captureValue.isObject() ||
+          !captureValue.getObject(rt).isFunction(rt)) {
+        return false;
+      }
+      captureHolder = std::make_shared<facebook::jsi::Function>(
+          captureValue.getObject(rt).asFunction(rt));
     }
+    auto& capture = *captureHolder;
     auto captured = std::make_shared<facebook::jsi::Object>(
         std::move(gpuNativeBridgeV2));
-    auto capture = captureValue.getObject(rt).asFunction(rt);
     auto revokeValue = capture.call(rt, *captured);
+    runtime->gpu_construction_capture.reset();
     if (!closeGpuV2ConstructionCapture(runtime) || !revokeValue.isObject() ||
         !revokeValue.getObject(rt).isFunction(rt) ||
         rt.global().hasProperty(rt, kGpuCaptureGlobalNameV2)) {
@@ -5180,6 +5161,32 @@ extern "C" void ibex_test_gpu_v2_resume_detach_cleanup(void) {
   gGpuV2DetachCleanupPauseState.store(3, std::memory_order_seq_cst);
 }
 
+static bool attachGpuV2TestEventObserver(
+    ExactHermesRuntime* runtime,
+    facebook::jsi::Runtime& rt,
+    facebook::jsi::Value& argument) {
+  auto& binding = *runtime->gpu_binding_v2;
+  if (!binding.wrapper_event_sink_set) {
+    (void)setGpuV2EventSinkCarrierCall(runtime, rt, &argument, 1);
+    return true;
+  }
+
+  // Authenticated provider publication installs the production wrapper's
+  // one-shot sink. A test build observes that exact delivered object through a
+  // separate close-gated slot instead of weakening or replacing the sink.
+  auto observer = std::make_shared<facebook::jsi::Function>(
+      argument.asObject(rt).asFunction(rt));
+  if (!binding.mailbox) return false;
+  std::lock_guard<std::mutex> lock(binding.mailbox->mutex);
+  if (binding.mailbox->phase.load(std::memory_order_acquire) !=
+          GpuMailboxPhaseV2::Live ||
+      !binding.realm_open || binding.test_event_observer) {
+    return false;
+  }
+  binding.test_event_observer = std::move(observer);
+  return true;
+}
+
 extern "C" int32_t ibex_test_gpu_v2_install_event_observer(
     ExactHermesRuntime* runtime) {
   if (!runtime || !runtime->runtime ||
@@ -5259,8 +5266,7 @@ extern "C" int32_t ibex_test_gpu_v2_install_event_observer(
               }
               return facebook::jsi::Value::undefined();
             }));
-    (void)setGpuV2EventSinkCarrierCall(runtime, rt, &argument, 1);
-    return 1;
+    return attachGpuV2TestEventObserver(runtime, rt, argument) ? 1 : 0;
   } catch (...) {
     return 0;
   }
@@ -5290,8 +5296,7 @@ extern "C" int32_t ibex_test_gpu_v2_install_throwing_event_observer(
               throw facebook::jsi::JSError(
                   rt, "intentional GPU V2 event observer failure");
             }));
-    (void)setGpuV2EventSinkCarrierCall(runtime, rt, &argument, 1);
-    return 1;
+    return attachGpuV2TestEventObserver(runtime, rt, argument) ? 1 : 0;
   } catch (...) {
     return 0;
   }
