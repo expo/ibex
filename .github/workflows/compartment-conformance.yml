@@ -46,6 +46,12 @@ jobs:
       - name: Install JS dependencies
         run: bun install --frozen-lockfile
 
+      - name: Install Linux native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libcurl4-openssl-dev
+
       - name: Cache patched Linux Hermes artifacts
         id: hermes-cache-linux
         uses: actions/cache@v4
@@ -86,6 +92,7 @@ jobs:
           absence="$evidence_dir/absence-x86_64-unknown-linux-gnu-$short_sha.json"
           corpora="$evidence_dir/global-corpora-x86_64-unknown-linux-gnu-$short_sha.json"
           report="capsec/conformance/restricted-exact-x86_64-unknown-linux-gnu-report.json"
+          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
 
           IBEX_RESTRICTED_REACHABLE_EVIDENCE_OUTPUT="$reachable" \
             cargo test -p ibex-runtime --lib --release \
@@ -107,8 +114,6 @@ jobs:
             --output "$corpora"
           bun packages/ibex-devtools/src/scripts/generate-restricted-exact-target-report.mjs \
             "$reachable" "$control" "$absence" "$corpora" "$report" --write
-
-          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
 
       - name: Retain restricted Exact Linux evidence
         if: always()
