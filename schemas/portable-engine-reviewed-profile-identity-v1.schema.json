@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-reviewed-profile-identity-v1.schema.json",
+  "title": "Ibex reviewed Hermes profile identity v1",
+  "oneOf": [
+    { "$ref": "#/$defs/sourceCacheProfile" },
+    { "$ref": "#/$defs/windowsSourceBuildProfile" },
+    { "$ref": "#/$defs/androidPackageProfile" }
+  ],
+  "$defs": {
+    "profileBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "profileId",
+        "targetVariant",
+        "targetTriple",
+        "originKind",
+        "receiptPath",
+        "receiptDigest",
+        "reviewedProfileIdentity"
+      ],
+      "properties": {
+        "schema": { "const": "ibex/portable-engine-reviewed-profile-identity/1" },
+        "profileId": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/stableId"
+        },
+        "targetVariant": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/stableId"
+        },
+        "targetTriple": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+){2,3}$"
+        },
+        "originKind": {
+          "enum": ["source-patched-cache", "source-patched-build", "maven-aar"]
+        },
+        "receiptPath": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath"
+        },
+        "receiptDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "reviewedProfileIdentity": {
+          "oneOf": [
+            { "$ref": "#/$defs/sourceCacheIdentity" },
+            { "$ref": "#/$defs/windowsSourceBuildIdentity" },
+            { "$ref": "#/$defs/androidPackageIdentity" }
+          ]
+        }
+      }
+    },
+    "sourceCacheProfile": {
+      "allOf": [
+        { "$ref": "#/$defs/profileBase" },
+        {
+          "type": "object",
+          "properties": {
+            "originKind": { "const": "source-patched-cache" },
+            "reviewedProfileIdentity": {
+              "$ref": "#/$defs/sourceCacheIdentity"
+            }
+          }
+        }
+      ]
+    },
+    "windowsSourceBuildProfile": {
+      "allOf": [
+        { "$ref": "#/$defs/profileBase" },
+        {
+          "type": "object",
+          "properties": {
+            "originKind": { "const": "source-patched-build" },
+            "reviewedProfileIdentity": {
+              "$ref": "#/$defs/windowsSourceBuildIdentity"
+            }
+          }
+        }
+      ]
+    },
+    "androidPackageProfile": {
+      "allOf": [
+        { "$ref": "#/$defs/profileBase" },
+        {
+          "type": "object",
+          "properties": {
+            "originKind": { "const": "maven-aar" },
+            "reviewedProfileIdentity": {
+              "$ref": "#/$defs/androidPackageIdentity"
+            }
+          }
+        }
+      ]
+    },
+    "sourceCacheIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact",
+        "patchApplicationAuthorityDigest",
+        "patchIdentityAuthorityDigest",
+        "patchStackDigest",
+        "sourceBuildAuthorityDigests",
+        "sourceCommit",
+        "sourceRef",
+        "sourceVersion"
+      ],
+      "properties": {
+        "artifact": { "const": "facebook/hermes" },
+        "patchApplicationAuthorityDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "patchIdentityAuthorityDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "patchStackDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "sourceBuildAuthorityDigests": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scripts/build-hermes-linux.sh", "scripts/build-hermes.sh"],
+          "properties": {
+            "scripts/build-hermes-linux.sh": {
+              "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+            },
+            "scripts/build-hermes.sh": {
+              "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+            }
+          }
+        },
+        "sourceCommit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "sourceRef": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/nonEmptyString"
+        },
+        "sourceVersion": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "windowsSourceBuildIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact",
+        "patchApplicationAuthorityDigest",
+        "patchIdentityAuthorityDigest",
+        "patchStackDigest",
+        "sourceBuildAuthorityDigest",
+        "sourceCommit",
+        "sourceInstallerAuthorityDigest",
+        "sourceRef",
+        "sourceVersion"
+      ],
+      "properties": {
+        "artifact": { "const": "facebook/hermes" },
+        "patchApplicationAuthorityDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "patchIdentityAuthorityDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "patchStackDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "sourceBuildAuthorityDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "sourceCommit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "sourceInstallerAuthorityDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "sourceRef": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/nonEmptyString"
+        },
+        "sourceVersion": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "androidPackageIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact",
+        "packageDigest",
+        "linkedDependency",
+        "variant",
+        "version"
+      ],
+      "properties": {
+        "artifact": { "const": "com.facebook.hermes:hermes-android" },
+        "packageDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "linkedDependency": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["artifact", "packageDigest", "variant", "version"],
+          "properties": {
+            "artifact": { "const": "com.facebook.react:react-android" },
+            "packageDigest": {
+              "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+            },
+            "variant": {
+              "$ref": "portable-engine-common-v1.schema.json#/$defs/stableId"
+            },
+            "version": {
+              "$ref": "portable-engine-common-v1.schema.json#/$defs/nonEmptyString"
+            }
+          }
+        },
+        "variant": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/stableId"
+        },
+        "version": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/nonEmptyString"
+        }
+      }
+    }
+  }
+}

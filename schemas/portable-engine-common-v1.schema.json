@@ -51,6 +51,7 @@
         "link-input",
         "header",
         "host-tool",
+        "compatibility-fixture",
         "profile-receipt",
         "metadata",
         "framework-resource"

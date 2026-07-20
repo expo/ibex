@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-export-set-v1.schema.json",
+  "title": "Ibex portable engine export requirement set v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "mode",
+    "targetTriple",
+    "extractor",
+    "components",
+    "symbolNameSemantics",
+    "matchers"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/portable-engine-export-set/1" },
+    "mode": { "enum": ["required", "forbidden"] },
+    "targetTriple": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+){2,3}$"
+    },
+    "extractor": {
+      "enum": [
+        "elf-dynsym-global-or-weak-defined",
+        "macho-nlist-external-defined",
+        "pe-export-name-table"
+      ]
+    },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "digest"],
+        "properties": {
+          "path": {
+            "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath"
+          },
+          "digest": {
+            "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+          }
+        }
+      }
+    },
+    "symbolNameSemantics": { "const": "utf8-bytes-no-normalization" },
+    "matchers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "value"],
+        "properties": {
+          "kind": { "enum": ["exact", "contains"] },
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+          }
+        }
+      }
+    }
+  }
+}

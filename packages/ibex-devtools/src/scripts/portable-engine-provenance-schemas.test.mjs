@@ -9,6 +9,7 @@
 
 import { describe, expect, test } from "bun:test";
 import Ajv2020 from "ajv/dist/2020.js";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,6 +29,12 @@ const vectorsDir = path.join(schemasDir, "vectors");
 const schemaFiles = [
   "portable-engine-common-v1.schema.json",
   "portable-engine-provenance-trust-policy-v1.schema.json",
+  "portable-engine-source-tree-identity-v1.schema.json",
+  "portable-engine-reviewed-profile-identity-v1.schema.json",
+  "portable-engine-export-set-v1.schema.json",
+  "portable-engine-header-set-v1.schema.json",
+  "portable-engine-abi-contract-v1.schema.json",
+  "portable-engine-host-tool-compatibility-v1.schema.json",
   "portable-engine-manifest-v1.schema.json",
   "portable-engine-installation-receipt-v1.schema.json",
   "portable-engine-artifact-identity-v1.schema.json",
@@ -42,6 +49,13 @@ const schemaFiles = [
 
 const documentSchemas = {
   trustPolicy: "portable-engine-provenance-trust-policy-v1.schema.json",
+  sourceTreeIdentity: "portable-engine-source-tree-identity-v1.schema.json",
+  reviewedProfileIdentity:
+    "portable-engine-reviewed-profile-identity-v1.schema.json",
+  requiredExports: "portable-engine-export-set-v1.schema.json",
+  forbiddenExports: "portable-engine-export-set-v1.schema.json",
+  headerSet: "portable-engine-header-set-v1.schema.json",
+  abiContract: "portable-engine-abi-contract-v1.schema.json",
   manifest: "portable-engine-manifest-v1.schema.json",
   installationReceipt: "portable-engine-installation-receipt-v1.schema.json",
   portableIdentity: "portable-engine-artifact-identity-v1.schema.json",
@@ -58,7 +72,49 @@ const documentSchemas = {
 
 // Domain and projection are one contract. The full manifest gets a distinct
 // domain from artifactId even though both start from the same schema object.
-const projectionContract = [
+const baseProjectionContract = [
+  {
+    id: "source-tree-identity-digest",
+    documentPath: "sourceTreeIdentity",
+    domain: "ibex.portable-engine-source-tree-identity.v1",
+    omitFields: [],
+    boundPath: "manifest.build.sourceTreeDigest",
+  },
+  {
+    id: "reviewed-profile-identity-digest",
+    documentPath: "reviewedProfileIdentity",
+    domain: "ibex.portable-engine-reviewed-profile-identity.v1",
+    omitFields: [],
+    boundPath: "manifest.profile.reviewedProfileIdentityDigest",
+  },
+  {
+    id: "required-exports-digest",
+    documentPath: "requiredExports",
+    domain: "ibex.portable-engine-required-exports.v1",
+    omitFields: [],
+    boundPath: "manifest.interface.requiredExportsDigest",
+  },
+  {
+    id: "forbidden-exports-digest",
+    documentPath: "forbiddenExports",
+    domain: "ibex.portable-engine-forbidden-exports.v1",
+    omitFields: [],
+    boundPath: "manifest.interface.forbiddenExportsDigest",
+  },
+  {
+    id: "header-set-digest",
+    documentPath: "headerSet",
+    domain: "ibex.portable-engine-header-set.v1",
+    omitFields: [],
+    boundPath: "manifest.interface.headerSetDigest",
+  },
+  {
+    id: "abi-contract-digest",
+    documentPath: "abiContract",
+    domain: "ibex.portable-engine-abi-contract.v1",
+    omitFields: [],
+    boundPath: "manifest.interface.abiContractDigest",
+  },
   {
     id: "portable-artifact-id",
     documentPath: "manifest",
@@ -158,6 +214,39 @@ function loadInvalidVectors() {
 const validVectors = readStrict(
   path.join(vectorsDir, "portable-engine-provenance-v1.valid.json"),
 );
+const abiProjectionIndex = baseProjectionContract.findIndex(
+  (projection) => projection.id === "abi-contract-digest",
+);
+if (abiProjectionIndex === -1) throw new Error("ABI projection is absent");
+const hostToolProjectionContract =
+  validVectors.documents.hostToolCompatibilityDocuments.map(
+    (document, documentIndex) => {
+      const hostToolIndices = validVectors.documents.manifest.interface.hostTools
+        .map((tool, index) => ({ index, tool }))
+        .filter(
+          ({ tool }) =>
+            tool.path === document.toolPath && tool.digest === document.toolDigest,
+        )
+        .map(({ index }) => index);
+      if (hostToolIndices.length !== 1) {
+        throw new Error(
+          `host-tool projection has no unique manifest row: ${document.toolPath}`,
+        );
+      }
+      return {
+        id: `host-tool-compatibility-digest:${document.toolPath}`,
+        documentPath: `hostToolCompatibilityDocuments.${documentIndex}`,
+        domain: "ibex.portable-engine-host-tool-compatibility.v1",
+        omitFields: [],
+        boundPath: `manifest.interface.hostTools.${hostToolIndices[0]}.compatibilityDigest`,
+      };
+    },
+  );
+const projectionContract = [
+  ...baseProjectionContract.slice(0, abiProjectionIndex + 1),
+  ...hostToolProjectionContract,
+  ...baseProjectionContract.slice(abiProjectionIndex + 1),
+];
 const checkedTrustPolicy = readStrict(
   path.join(schemasDir, "portable-engine-provenance-trust-policy-v1.json"),
 );
@@ -242,6 +331,36 @@ function assertSame(actual, expected, label) {
   invariant(canonicalJson(actual) === canonicalJson(expected), `${label}: mismatch`);
 }
 
+function assertExactFields(value, expected, label) {
+  invariant(
+    value !== null && typeof value === "object" && !Array.isArray(value),
+    `${label}: expected object`,
+  );
+  const actual = Object.keys(value).sort(utf8Compare);
+  const sortedExpected = [...expected].sort(utf8Compare);
+  assertSame(actual, sortedExpected, `${label} exact fields`);
+}
+
+function rawSha256(bytes) {
+  return `sha256-${createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+function rawDigestPrefix(value, label) {
+  invariant(
+    /^sha256-[0-9a-f]{64}$/u.test(value),
+    `${label}: not a lowercase raw SHA-256 digest`,
+  );
+  return value.slice("sha256-".length, "sha256-".length + 12);
+}
+
+function gitObjectId(format, type, bytes) {
+  invariant(format === "sha1" || format === "sha256", "unsupported Git object format");
+  return createHash(format)
+    .update(`${type} ${bytes.length}\0`)
+    .update(bytes)
+    .digest("hex");
+}
+
 function assertNfc(value, label = "$") {
   if (typeof value === "string") {
     invariant(value.normalize("NFC") === value, `${label}: string is not NFC`);
@@ -262,11 +381,13 @@ function utf8Compare(left, right) {
   return Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8"));
 }
 
-function assertSortedUnique(rows, keyOf, label) {
+function assertSortedUnique(rows, keyOf, label, { requireNfc = true } = {}) {
   let prior;
   for (const [index, row] of rows.entries()) {
     const key = keyOf(row);
-    invariant(key.normalize("NFC") === key, `${label}[${index}]: key is not NFC`);
+    if (requireNfc) {
+      invariant(key.normalize("NFC") === key, `${label}[${index}]: key is not NFC`);
+    }
     if (prior !== undefined) {
       invariant(
         utf8Compare(prior, key) < 0,
@@ -281,14 +402,104 @@ function assertStringSet(values, label) {
   assertSortedUnique(values, (value) => value, label);
 }
 
-function targetFamily(triple) {
-  if (triple.includes("windows")) return "windows";
-  if (triple.includes("apple")) return "apple";
-  return "linux";
+function assertExactUtf8StringSet(values, label) {
+  assertSortedUnique(values, (value) => value, label, { requireNfc: false });
+}
+
+function rawJcsEntry(pathname, document) {
+  const bytes = Buffer.from(canonicalJson(document), "utf8");
+  return {
+    kind: "regular",
+    role: "metadata",
+    path: pathname,
+    digest: `sha256-${createHash("sha256").update(bytes).digest("hex")}`,
+    size: bytes.length,
+    executable: false,
+  };
+}
+
+function expectedAuthorityInputEntries(documents) {
+  const hostToolEntries = documents.hostToolCompatibilityDocuments.map(
+    (document) => {
+      const compatibilityDigest = computeDomainDigest(
+        "ibex.portable-engine-host-tool-compatibility.v1",
+        document,
+      );
+      return rawJcsEntry(
+        `META-INF/authority/host-tools/${compatibilityDigest}.json`,
+        document,
+      );
+    },
+  );
+  const rows = [
+    {
+      kind: "directory",
+      role: "metadata",
+      path: "META-INF",
+    },
+    {
+      kind: "directory",
+      role: "metadata",
+      path: "META-INF/authority",
+    },
+    rawJcsEntry(
+      "META-INF/authority/abi-contract.json",
+      documents.abiContract,
+    ),
+    rawJcsEntry(
+      "META-INF/authority/forbidden-exports.json",
+      documents.forbiddenExports,
+    ),
+    rawJcsEntry("META-INF/authority/header-set.json", documents.headerSet),
+    {
+      kind: "directory",
+      role: "metadata",
+      path: "META-INF/authority/host-tools",
+    },
+    ...hostToolEntries,
+    rawJcsEntry(
+      "META-INF/authority/required-exports.json",
+      documents.requiredExports,
+    ),
+    rawJcsEntry(
+      "META-INF/authority/reviewed-profile-identity.json",
+      documents.reviewedProfileIdentity,
+    ),
+    rawJcsEntry(
+      "META-INF/authority/source-tree-identity.json",
+      documents.sourceTreeIdentity,
+    ),
+  ];
+  return rows.sort((left, right) => utf8Compare(left.path, right.path));
+}
+
+function admittedTarget(triple) {
+  const matches = checkedTrustPolicy.admittedTargets.filter(
+    (row) => row.triple === triple,
+  );
+  invariant(matches.length === 1, `target is not exactly admitted: ${triple}`);
+  return matches[0];
+}
+
+function admittedNonSystemLoadableComponents(manifest, targetPolicy) {
+  invariant(
+    targetPolicy.nonSystemLoadableComponentPolicy === "runtime-only",
+    "unknown non-system loadable component policy",
+  );
+  const components = manifest.interface.loadableComponents.filter(
+    (component) => !component.system,
+  );
+  invariant(
+    components.length === 1 &&
+      components[0].role === "runtime" &&
+      components[0].path === manifest.runtimeComponent,
+    "non-system loadable component topology is not admitted",
+  );
+  return components;
 }
 
 function payloadEquivalenceKey(payloadPath, triple, pathPolicy) {
-  const family = targetFamily(triple);
+  const family = admittedTarget(triple).targetFamily;
   const reserved = new Set(pathPolicy.windowsReservedDeviceNames);
   return payloadPath
     .split("/")
@@ -418,9 +629,26 @@ function manifestSemantics(manifest) {
     "manifest exceeds expanded-byte limit",
   );
 
-  const family = targetFamily(manifest.target.triple);
+  const targetPolicy = admittedTarget(manifest.target.triple);
+  assertSame(
+    manifest.target.structuralFeatures,
+    targetPolicy.structuralFeatures,
+    "manifest admitted target features",
+  );
+  const { reviewedProfileIdentityDigest: _reviewedProfileDigest, ...profile } =
+    manifest.profile;
+  assertSame(profile, targetPolicy.profile, "manifest admitted profile");
+  admittedNonSystemLoadableComponents(manifest, targetPolicy);
+  assertSame(
+    manifest.build.authorityDigests.map((row) => row.path),
+    targetPolicy.buildAuthorityPaths,
+    "manifest admitted build-authority membership",
+  );
+  const family = targetPolicy.targetFamily;
   const admittedSystemDependencies = new Set(
-    checkedTrustPolicy.platformSystemDependencies[family],
+    checkedTrustPolicy.platformSystemDependencies[
+      targetPolicy.systemDependencyPolicyKey
+    ],
   );
   for (const row of manifest.interface.loadableComponents.filter(
     (component) => component.system,
@@ -453,7 +681,7 @@ function manifestSemantics(manifest) {
   invariant(runtime !== undefined, "runtimeComponent: missing exact runtime row");
   requireRegularEntry(runtime, "runtimeComponent");
 
-  if (manifest.target.triple.includes("windows")) {
+  if (family === "windows") {
     const runtimeDirectory = path.posix.dirname(manifest.runtimeComponent);
     const basenames = new Set();
     for (const row of manifest.interface.loadableComponents.filter(
@@ -487,6 +715,643 @@ function manifestSemantics(manifest) {
         ["artifactId"],
       ),
     "manifest: artifactId mismatch",
+  );
+}
+
+function authorityInputSemantics(documents, rawFixtures) {
+  const {
+    abiContract,
+    forbiddenExports,
+    headerSet,
+    hostToolCompatibilityDocuments,
+    manifest,
+    requiredExports,
+    reviewedProfileIdentity,
+    sourceTreeIdentity,
+  } = documents;
+  const manifestEntries = new Map(
+    manifest.entries.map((entry) => [entry.path, entry]),
+  );
+
+  for (const [name, document] of Object.entries({
+    abiContract,
+    headerSet,
+    reviewedProfileIdentity,
+    sourceTreeIdentity,
+  })) {
+    assertNfc(document, name);
+  }
+  hostToolCompatibilityDocuments.forEach((document, index) =>
+    assertNfc(document, `hostToolCompatibilityDocuments[${index}]`),
+  );
+
+  const commitObject = Buffer.from(rawFixtures.sourceCommitObjectBase64, "base64");
+  const treeObject = Buffer.from(rawFixtures.sourceTreeObjectBase64, "base64");
+  invariant(
+    gitObjectId(
+      sourceTreeIdentity.gitObjectFormat,
+      sourceTreeIdentity.sourceRevisionObjectType,
+      commitObject,
+    ) === sourceTreeIdentity.sourceRevision,
+    "source revision is not the declared Git commit object",
+  );
+  invariant(
+    gitObjectId(
+      sourceTreeIdentity.gitObjectFormat,
+      sourceTreeIdentity.treeObjectType,
+      treeObject,
+    ) === sourceTreeIdentity.treeObjectId,
+    "tree object ID does not bind the supplied Git tree object",
+  );
+  const commitText = new TextDecoder("utf-8", { fatal: true }).decode(commitObject);
+  const commitHeaderEnd = commitText.indexOf("\n\n");
+  invariant(commitHeaderEnd !== -1, "commit object has no header terminator");
+  const treeLines = commitText
+    .slice(0, commitHeaderEnd)
+    .split("\n")
+    .filter((line) => line.startsWith("tree "));
+  invariant(treeLines.length === 1, "commit object does not name exactly one tree");
+  invariant(
+    treeLines[0] === `tree ${sourceTreeIdentity.treeObjectId}`,
+    "Git commit does not point to the declared tree object",
+  );
+  invariant(
+    sourceTreeIdentity.repository === manifest.build.repository &&
+      sourceTreeIdentity.sourceRevision === manifest.build.sourceRevision &&
+      sourceTreeIdentity.sourceRef === manifest.build.sourceRef,
+    "source tree identity does not join the manifest build authority",
+  );
+  invariant(
+    sourceTreeIdentity.gitObjectFormat ===
+      admittedTarget(manifest.target.triple).sourceTreeGitObjectFormat,
+    "source tree Git object format is not admitted",
+  );
+  invariant(
+    manifest.build.sourceTreeDigest ===
+      computeDomainDigest(
+        "ibex.portable-engine-source-tree-identity.v1",
+        sourceTreeIdentity,
+      ),
+    "sourceTreeDigest does not bind the source tree identity document",
+  );
+
+  const targetPolicy = admittedTarget(manifest.target.triple);
+  invariant(
+    reviewedProfileIdentity.profileId === manifest.profile.id &&
+      reviewedProfileIdentity.targetVariant === manifest.profile.targetVariant &&
+      reviewedProfileIdentity.targetTriple === manifest.target.triple,
+    "reviewed profile identity does not join the manifest profile and target",
+  );
+  const expectedOriginKind = targetPolicy.reviewedProfileOriginKind;
+  invariant(
+    reviewedProfileIdentity.originKind === expectedOriginKind,
+    "reviewed profile origin is not admissible for the target family",
+  );
+  const profileReceiptBytes = Buffer.from(
+    rawFixtures.profileReceiptBytesBase64,
+    "base64",
+  );
+  invariant(
+    rawSha256(profileReceiptBytes) === reviewedProfileIdentity.receiptDigest,
+    "reviewed profile receipt digest does not bind its exact bytes",
+  );
+  const profileReceiptEntry = manifestEntries.get(
+    reviewedProfileIdentity.receiptPath,
+  );
+  invariant(
+    profileReceiptEntry?.kind === "regular" &&
+      profileReceiptEntry.role === "profile-receipt" &&
+      profileReceiptEntry.digest === reviewedProfileIdentity.receiptDigest &&
+      profileReceiptEntry.size === profileReceiptBytes.length,
+    "reviewed profile receipt is not an exact payload member",
+  );
+  const profileReceipt = parseJsonStrict(
+    profileReceiptBytes,
+    "reviewed profile receipt fixture",
+  );
+  assertExactFields(
+    profileReceipt,
+    ["artifact", "origin", "profileId", "schema", "targetVariant"],
+    "profile receipt",
+  );
+  assertExactFields(
+    profileReceipt.artifact,
+    ["binaryDigest", "fileName", "targetArchitecture"],
+    "profile receipt artifact",
+  );
+  assertExactFields(
+    profileReceipt.origin,
+    ["cacheKey", "kind", "reviewedProfileIdentity"],
+    "profile receipt origin",
+  );
+  invariant(
+    profileReceipt.schema === "ibex/hermes-profile-provenance-receipt/2" &&
+      profileReceipt.profileId === reviewedProfileIdentity.profileId &&
+      profileReceipt.targetVariant === reviewedProfileIdentity.targetVariant &&
+      profileReceipt.origin.kind === reviewedProfileIdentity.originKind,
+    "reviewed profile projection disagrees with receipt discriminators",
+  );
+  assertSame(
+    profileReceipt.origin.reviewedProfileIdentity,
+    reviewedProfileIdentity.reviewedProfileIdentity,
+    "reviewed profile projection from receipt",
+  );
+  invariant(
+    profileReceipt.artifact.binaryDigest ===
+      manifestEntries.get(manifest.runtimeComponent)?.digest &&
+      profileReceipt.artifact.fileName ===
+        path.posix.basename(manifest.runtimeComponent) &&
+      targetPolicy.receiptTargetArchitectures.includes(
+        profileReceipt.artifact.targetArchitecture,
+      ),
+    "profile receipt artifact does not bind the admitted runtime",
+  );
+  const reviewed = reviewedProfileIdentity.reviewedProfileIdentity;
+  if (reviewed.artifact === "facebook/hermes") {
+    invariant(
+      /^[0-9a-f]{40}$/u.test(reviewed.sourceCommit),
+      "reviewed Hermes source commit is not 40 lowercase hex",
+    );
+    invariant(
+      reviewed.sourceRef === `${reviewed.sourceVersion}-stable`,
+      "reviewed Hermes source ref is not derived from its version",
+    );
+    if (reviewedProfileIdentity.originKind === "source-patched-cache") {
+      const expectedCacheKey =
+        `${reviewed.sourceCommit.slice(0, 12)}` +
+        `-p${rawDigestPrefix(reviewed.patchStackDigest, "patch stack digest")}` +
+        `-ba${rawDigestPrefix(
+          reviewed.sourceBuildAuthorityDigests["scripts/build-hermes.sh"],
+          "Apple build authority digest",
+        )}` +
+        `-bl${rawDigestPrefix(
+          reviewed.sourceBuildAuthorityDigests[
+            "scripts/build-hermes-linux.sh"
+          ],
+          "Linux build authority digest",
+        )}` +
+        `-a${rawDigestPrefix(
+          reviewed.patchApplicationAuthorityDigest,
+          "patch application authority digest",
+        )}` +
+        `-i${rawDigestPrefix(
+          reviewed.patchIdentityAuthorityDigest,
+          "patch identity authority digest",
+        )}` +
+        "-oapple";
+      invariant(
+        profileReceipt.origin.cacheKey === expectedCacheKey,
+        "profile receipt cache key is not the reviewed Release key",
+      );
+    }
+    invariant(
+      reviewed.artifact === manifest.source.artifact &&
+        reviewed.sourceCommit === manifest.source.sourceCommit &&
+        reviewed.sourceRef === manifest.source.sourceRef &&
+        reviewed.sourceVersion === manifest.source.sourceVersion &&
+        reviewed.patchStackDigest === manifest.source.patchStackDigest,
+      "reviewed source profile does not join the manifest source authority",
+    );
+    const authorityDigests = new Map(
+      manifest.build.authorityDigests.map((row) => [row.path, row.digest]),
+    );
+    invariant(
+      authorityDigests.get("scripts/apply-hermes-patches.sh") ===
+        reviewed.patchApplicationAuthorityDigest &&
+        authorityDigests.get("scripts/hermes-version.sh") ===
+          reviewed.patchIdentityAuthorityDigest,
+      "reviewed profile does not join the patch authorities",
+    );
+    if (reviewedProfileIdentity.originKind === "source-patched-cache") {
+      invariant(
+        Object.entries(reviewed.sourceBuildAuthorityDigests).every(
+          ([authorityPath, authorityDigest]) =>
+            authorityDigests.get(authorityPath) === authorityDigest,
+        ),
+        "reviewed profile does not join every source-build authority",
+      );
+    } else {
+      invariant(
+        authorityDigests.get("scripts/build-hermes-windows.ps1") ===
+          reviewed.sourceBuildAuthorityDigest &&
+          authorityDigests.get("scripts/install-windows-hermes.ps1") ===
+            reviewed.sourceInstallerAuthorityDigest,
+        "reviewed Windows profile does not join its build and installer authorities",
+      );
+    }
+  }
+  invariant(
+    manifest.profile.reviewedProfileIdentityDigest ===
+      computeDomainDigest(
+        "ibex.portable-engine-reviewed-profile-identity.v1",
+        reviewedProfileIdentity,
+      ),
+    "reviewedProfileIdentityDigest does not bind its input document",
+  );
+
+  const expectedExtractor = targetPolicy.exportExtractor;
+  const expectedExportComponents = admittedNonSystemLoadableComponents(
+    manifest,
+    targetPolicy,
+  )
+    .map(({ path: componentPath, digest: componentDigest }) => ({
+      path: componentPath,
+      digest: componentDigest,
+    }))
+    .sort((left, right) => utf8Compare(left.path, right.path));
+  for (const [mode, exportSet] of [
+    ["required", requiredExports],
+    ["forbidden", forbiddenExports],
+  ]) {
+    invariant(exportSet.mode === mode, `${mode} export document has the wrong mode`);
+    invariant(
+      exportSet.targetTriple === manifest.target.triple &&
+        exportSet.extractor === expectedExtractor,
+      `${mode} export document does not join the manifest target`,
+    );
+    assertSortedUnique(
+      exportSet.components,
+      (row) => row.path,
+      `${mode}Exports.components`,
+    );
+    assertSame(
+      exportSet.components,
+      expectedExportComponents,
+      `${mode} export component completeness`,
+    );
+    const observedSymbols = [];
+    for (const component of exportSet.components) {
+      const entry = manifestEntries.get(component.path);
+      invariant(
+        entry?.kind === "regular" && entry.digest === component.digest,
+        `${mode} export component is not an exact payload member`,
+      );
+      const observations = rawFixtures.exportObservations.filter(
+        (row) =>
+          row.componentPath === component.path &&
+          row.extractor === exportSet.extractor,
+      );
+      invariant(
+        observations.length === 1,
+        `${mode} export component has no unique observation`,
+      );
+      const observation = observations[0];
+      assertExactFields(
+        observation,
+        ["componentPath", "extractor", "symbolNameBytesBase64"],
+        `${mode} export observation`,
+      );
+      invariant(
+        Array.isArray(observation.symbolNameBytesBase64),
+        `${mode} export observation names are not an array`,
+      );
+      const symbols = observation.symbolNameBytesBase64.map((encoded, index) => {
+        const bytes = Buffer.from(encoded, "base64");
+        invariant(
+          bytes.toString("base64") === encoded,
+          `${mode} export observation[${index}] is not canonical base64`,
+        );
+        const value = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        invariant(
+          Buffer.from(value, "utf8").equals(bytes),
+          `${mode} export observation[${index}] is not canonical UTF-8`,
+        );
+        return value;
+      });
+      invariant(
+        symbols.length > 0 && symbols.every((symbol) => symbol.length > 0),
+        "export observation contains an empty symbol",
+      );
+      assertExactUtf8StringSet(symbols, `${mode}Exports.observedSymbols`);
+      observedSymbols.push(...symbols.map((symbol) => Buffer.from(symbol, "utf8")));
+    }
+    assertSortedUnique(
+      exportSet.matchers,
+      (row) => `${row.kind}\0${row.value}`,
+      `${mode}Exports.matchers`,
+      { requireNfc: false },
+    );
+    assertSame(
+      exportSet.matchers,
+      targetPolicy.exportPolicy[`${mode}Matchers`],
+      `${mode} export matcher policy`,
+    );
+    for (const matcher of exportSet.matchers) {
+      const needle = Buffer.from(matcher.value, "utf8");
+      const matches = observedSymbols.some((symbol) =>
+        matcher.kind === "exact"
+          ? symbol.equals(needle)
+          : symbol.indexOf(needle) !== -1,
+      );
+      invariant(
+        mode === "required" ? matches : !matches,
+        `${mode} export matcher has the wrong observed result: ${matcher.value}`,
+      );
+    }
+  }
+  invariant(
+    manifest.interface.requiredExportsDigest ===
+      computeDomainDigest(
+        "ibex.portable-engine-required-exports.v1",
+        requiredExports,
+      ),
+    "requiredExportsDigest does not bind the requirement set",
+  );
+  invariant(
+    manifest.interface.forbiddenExportsDigest ===
+      computeDomainDigest(
+        "ibex.portable-engine-forbidden-exports.v1",
+        forbiddenExports,
+      ),
+    "forbiddenExportsDigest does not bind the rejection set",
+  );
+
+  invariant(
+    headerSet.targetTriple === manifest.target.triple,
+    "header set does not join the manifest target",
+  );
+  assertStringSet(headerSet.includeRoots, "headerSet.includeRoots");
+  assertSortedUnique(headerSet.headers, (row) => row.path, "headerSet.headers");
+  for (const includeRoot of headerSet.includeRoots) {
+    invariant(
+      manifestEntries.get(includeRoot)?.kind === "directory",
+      "header include root is not a declared directory",
+    );
+  }
+  for (const header of headerSet.headers) {
+    invariant(
+      headerSet.includeRoots.some(
+        (root) => header.path.startsWith(`${root}/`) && header.path !== root,
+      ),
+      "header is outside every declared include root",
+    );
+  }
+  const manifestHeaders = manifest.entries
+    .filter((entry) => entry.kind === "regular" && entry.role === "header")
+    .map(({ path: headerPath, digest, size }) => ({
+      path: headerPath,
+      digest,
+      size,
+    }));
+  assertSame(manifestHeaders, headerSet.headers, "complete header membership");
+  invariant(
+    manifest.interface.headerSetDigest ===
+      computeDomainDigest("ibex.portable-engine-header-set.v1", headerSet),
+    "headerSetDigest does not bind the header inventory",
+  );
+
+  assertSame(abiContract.target, manifest.target, "ABI target");
+  assertStringSet(abiContract.contractFeatures, "abiContract.contractFeatures");
+  invariant(
+    abiContract.headerSetDigest === manifest.interface.headerSetDigest &&
+      abiContract.requiredExportsDigest ===
+        manifest.interface.requiredExportsDigest &&
+      abiContract.forbiddenExportsDigest ===
+        manifest.interface.forbiddenExportsDigest,
+    "ABI contract does not bind the header and export contracts",
+  );
+  const {
+    schema: _abiSchema,
+    target: _abiTarget,
+    headerSetDigest: _headerSetDigest,
+    requiredExportsDigest: _requiredExportsDigest,
+    forbiddenExportsDigest: _forbiddenExportsDigest,
+    ...abiDimensions
+  } = abiContract;
+  assertSame(
+    abiDimensions,
+    targetPolicy.directJsiAbi,
+    "ABI dimensions admitted for target",
+  );
+  invariant(
+    manifest.interface.abiContractDigest ===
+      computeDomainDigest("ibex.portable-engine-abi-contract.v1", abiContract),
+    "abiContractDigest does not bind the ABI contract",
+  );
+
+  assertSortedUnique(
+    hostToolCompatibilityDocuments,
+    (document) => `${document.toolRole}\0${document.toolPath}`,
+    "hostToolCompatibilityDocuments",
+  );
+  const rawHostToolInputs = new Map();
+  for (const fixture of rawFixtures.hostToolInputs) {
+    assertExactFields(
+      fixture,
+      ["bytesBase64", "executable", "path"],
+      "raw host-tool fixture",
+    );
+    invariant(
+      !rawHostToolInputs.has(fixture.path),
+      `duplicate raw host-tool fixture: ${fixture.path}`,
+    );
+    rawHostToolInputs.set(fixture.path, Buffer.from(fixture.bytesBase64, "base64"));
+  }
+  const consumedFixturePaths = new Set();
+  const admittedHostTools = hostToolCompatibilityDocuments.map(
+    ({ toolRole, toolPath }) => ({ toolRole, toolPath }),
+  );
+  assertSame(
+    admittedHostTools,
+    targetPolicy.requiredHostTools,
+    "required host-tool membership",
+  );
+  for (const [documentIndex, hostToolCompatibility] of
+    hostToolCompatibilityDocuments.entries()) {
+    const label = `hostToolCompatibilityDocuments[${documentIndex}]`;
+    invariant(
+      hostToolCompatibility.actualHostTriple ===
+        targetPolicy.hostTool.actualHostTriple,
+      `${label}: actual host is not admitted`,
+    );
+    assertSame(
+      hostToolCompatibility.binaryMachine,
+      targetPolicy.hostTool.binaryMachine,
+      `${label}: binary machine`,
+    );
+    const {
+      environmentMode,
+      environment,
+      stdin,
+      workingDirectoryLifetime,
+      argv0,
+      timeoutMs,
+      maxStdoutBytes,
+      maxStderrBytes,
+      maxOutputBytes,
+    } = hostToolCompatibility;
+    assertSame(
+      {
+        environmentMode,
+        environment,
+        stdin,
+        workingDirectoryLifetime,
+        argv0,
+        timeoutMs,
+        maxStdoutBytes,
+        maxStderrBytes,
+        maxOutputBytes,
+      },
+      targetPolicy.hostTool.executionContract,
+      `${label}: admitted execution contract`,
+    );
+    invariant(
+      hostToolCompatibility.dependencyClosure.extractor.format ===
+        targetPolicy.hostTool.dependencyExtractorFormat,
+      `${label}: dependency extractor is not admitted`,
+    );
+    assertSortedUnique(
+      hostToolCompatibility.environment,
+      (row) => row.name,
+      `${label}.environment`,
+    );
+    assertSortedUnique(
+      hostToolCompatibility.inputFixtures,
+      (row) => `${row.fixturePayloadPath}\0${row.workspacePath}`,
+      `${label}.inputFixtures`,
+    );
+    const fixturePayloadPaths = new Set();
+    const fixtureWorkspacePaths = new Set();
+    for (const fixture of hostToolCompatibility.inputFixtures) {
+      invariant(
+        !fixturePayloadPaths.has(fixture.fixturePayloadPath),
+        `${label}: duplicate fixture payload path`,
+      );
+      invariant(
+        !fixtureWorkspacePaths.has(fixture.workspacePath),
+        `${label}: duplicate fixture workspace path`,
+      );
+      fixturePayloadPaths.add(fixture.fixturePayloadPath);
+      fixtureWorkspacePaths.add(fixture.workspacePath);
+      const bytes = rawHostToolInputs.get(fixture.fixturePayloadPath);
+      invariant(bytes !== undefined, `${label}: fixture bytes are absent`);
+      invariant(
+        rawSha256(bytes) === fixture.digest && bytes.length === fixture.size,
+        `${label}: fixture bytes disagree with the behavior document`,
+      );
+      const entry = manifestEntries.get(fixture.fixturePayloadPath);
+      invariant(
+        entry?.kind === "regular" &&
+          entry.role === "compatibility-fixture" &&
+          entry.digest === fixture.digest &&
+          entry.size === fixture.size &&
+          entry.executable === fixture.executable,
+        `${label}: fixture is not an exact manifest payload member`,
+      );
+      consumedFixturePaths.add(fixture.fixturePayloadPath);
+    }
+    assertSortedUnique(
+      hostToolCompatibility.dependencyClosure.nonSystemDependencies,
+      (row) => row.path,
+      `${label}.dependencyClosure.nonSystemDependencies`,
+    );
+    for (const dependency of
+      hostToolCompatibility.dependencyClosure.nonSystemDependencies) {
+      const entry = manifestEntries.get(dependency.path);
+      invariant(
+        entry?.kind === "regular" && entry.digest === dependency.digest,
+        `${label}: non-system dependency is not an exact payload member`,
+      );
+    }
+    assertStringSet(
+      hostToolCompatibility.dependencyClosure.systemDependencies,
+      `${label}.dependencyClosure.systemDependencies`,
+    );
+    const admittedHostDependencies = new Set(
+      checkedTrustPolicy.platformSystemDependencies[
+        targetPolicy.hostTool.systemDependencyPolicyKey
+      ],
+    );
+    invariant(
+      hostToolCompatibility.dependencyClosure.systemDependencies.every(
+        (dependency) => admittedHostDependencies.has(dependency),
+      ),
+      `${label}: host system dependency is not admitted`,
+    );
+    assertSortedUnique(
+      hostToolCompatibility.invocations,
+      (row) => row.id,
+      `${label}.invocations`,
+    );
+    for (const [index, invocation] of
+      hostToolCompatibility.invocations.entries()) {
+      invariant(
+        invocation.stdoutSize <= hostToolCompatibility.maxStdoutBytes &&
+          invocation.stderrSize <= hostToolCompatibility.maxStderrBytes,
+        `${label}.invocations[${index}]: captured stream limit exceeded`,
+      );
+      assertSortedUnique(
+        invocation.outputFiles,
+        (row) => row.path,
+        `${label}.invocations[${index}].outputFiles`,
+      );
+      invariant(
+        invocation.outputFiles.reduce((sum, output) => sum + output.size, 0) <=
+          hostToolCompatibility.maxOutputBytes,
+        `${label}.invocations[${index}]: output byte limit exceeded`,
+      );
+      assertSortedUnique(
+        invocation.bytecodeOutputs,
+        (row) => row.path,
+        `${label}.invocations[${index}].bytecodeOutputs`,
+      );
+      for (const bytecode of invocation.bytecodeOutputs) {
+        const output = invocation.outputFiles.find(
+          (candidate) => candidate.path === bytecode.path,
+        );
+        invariant(output !== undefined, "bytecode observation names no output file");
+        invariant(
+          bytecode.bytecodeVersion === manifest.profile.hermesBytecodeVersion,
+          "host tool produced another Hermes bytecode version",
+        );
+        const source = hostToolCompatibility.inputFixtures.find(
+          (input) =>
+            input.workspacePath === bytecode.sourcePath &&
+            input.digest === bytecode.sourceDigest,
+        );
+        invariant(
+          source !== undefined && invocation.argv.includes(bytecode.sourcePath),
+          "bytecode observation does not bind an invoked source fixture",
+        );
+      }
+    }
+    const matchingHostTools = manifest.interface.hostTools.filter(
+      (row) =>
+        row.path === hostToolCompatibility.toolPath &&
+        row.digest === hostToolCompatibility.toolDigest,
+    );
+    invariant(
+      matchingHostTools.length === 1,
+      `${label}: compatibility has no exact manifest tool`,
+    );
+    invariant(
+      matchingHostTools[0].compatibilityDigest ===
+        computeDomainDigest(
+          "ibex.portable-engine-host-tool-compatibility.v1",
+          hostToolCompatibility,
+        ),
+      `${label}: compatibilityDigest does not bind its behavior vector`,
+    );
+  }
+  assertSame(
+    [...consumedFixturePaths].sort(utf8Compare),
+    [...rawHostToolInputs.keys()].sort(utf8Compare),
+    "complete host-tool fixture byte membership",
+  );
+  invariant(
+    manifest.interface.hostTools.length ===
+      hostToolCompatibilityDocuments.length,
+    "host-tool behavior document membership is incomplete",
+  );
+
+  const authorityEntries = manifest.entries.filter(
+    (entry) =>
+      entry.path === "META-INF" || entry.path.startsWith("META-INF/authority"),
+  );
+  assertSame(
+    authorityEntries,
+    expectedAuthorityInputEntries(documents),
+    "portable authority input payload membership",
   );
 }
 
@@ -527,6 +1392,13 @@ function mappedInstanceSemantics(mapped, portable) {
   );
   invariant(mapped.before.size === mapped.after.size, "mapped size changed");
 
+  const targetPolicy = admittedTarget(portable.target.triple);
+  invariant(
+    mapped.mappingProof.class === targetPolicy.mappingProof.class &&
+      mapped.mappingProof.platformObservation.platform ===
+        targetPolicy.mappingProof.platform,
+    "mapping proof is not admitted for the portable target",
+  );
   const observation = mapped.mappingProof.platformObservation;
   if (mapped.mappingProof.class === "macos-proc-pid-region-path-info") {
     invariant(observation.platform === "macos", "macOS proof discriminator mismatch");
@@ -594,7 +1466,7 @@ function assignmentSemantics(suite, assignment) {
   );
 }
 
-function bundleSemantics(documents) {
+function bundleSemantics(documents, rawFixtures = validVectors.rawFixtures) {
   const {
     assignment,
     assignmentBundle,
@@ -609,6 +1481,7 @@ function bundleSemantics(documents) {
     trustPolicy,
   } = documents;
 
+  authorityInputSemantics(documents, rawFixtures);
   manifestSemantics(manifest);
   invariant(
     installationReceipt.artifactId === manifest.artifactId,
@@ -628,8 +1501,30 @@ function bundleSemantics(documents) {
       ),
     "receipt verificationPolicyDigest mismatch",
   );
+  const detachedBundleBytes = Buffer.from(
+    rawFixtures.detachedBundleByteProjectionBase64,
+    "base64",
+  );
   invariant(
-    trustPolicy.enginePublisher.enabled === true &&
+    detachedBundleBytes.length <=
+      trustPolicy.provenanceBundleBytes.maxBundleBytes,
+    "detached provenance bundle exceeds the byte limit",
+  );
+  const detachedBundle = parseJsonStrict(
+    detachedBundleBytes,
+    "detached provenance byte-projection fixture",
+  );
+  invariant(
+    detachedBundle.mediaType === trustPolicy.provenanceBundleBytes.mediaType,
+    "detached provenance bundle media type mismatch",
+  );
+  invariant(
+    installationReceipt.provenanceBundleDigest === rawSha256(detachedBundleBytes),
+    "receipt does not bind the exact detached provenance bytes",
+  );
+  invariant(
+    trustPolicy.portableArtifactAcceptanceEnabled === false &&
+      trustPolicy.enginePublisher.enabled === true &&
       trustPolicy.authoritativeConformance.sameRunnerOnly === true &&
       Object.values(trustPolicy.crossRunnerConformance).every(
         (enabled) => enabled === false,
@@ -888,7 +1783,323 @@ describe("LLP 0034 portable engine authority schemas", () => {
       assertIJson(document, documentName);
       assertSchemaValid(ajv, schemaFile, document, documentName);
     }
+    validVectors.documents.hostToolCompatibilityDocuments.forEach(
+      (document, index) => {
+        assertIJson(document, `hostToolCompatibilityDocuments[${index}]`);
+        assertSchemaValid(
+          ajv,
+          "portable-engine-host-tool-compatibility-v1.schema.json",
+          document,
+          `hostToolCompatibilityDocuments[${index}]`,
+        );
+      },
+    );
     bundleSemantics(validVectors.documents);
+  });
+
+  test("golden DAG updater is schema-checked and content-idempotent", () => {
+    const result = Bun.spawnSync({
+      cmd: [
+        "bun",
+        path.join(
+          repoRoot,
+          "packages/ibex-devtools/src/scripts/update-portable-engine-provenance-vectors.mjs",
+        ),
+        "--check",
+      ],
+      cwd: repoRoot,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (result.exitCode !== 0) {
+      throw new Error(new TextDecoder().decode(result.stderr));
+    }
+    expect(new TextDecoder().decode(result.stdout)).toContain(
+      "portable engine provenance vectors checked",
+    );
+  });
+
+  test("detached bundle fixture proves only the raw-byte projection while acceptance is disabled", () => {
+    const bytes = Buffer.from(
+      validVectors.rawFixtures.detachedBundleByteProjectionBase64,
+      "base64",
+    );
+    const fixture = parseJsonStrict(
+      bytes,
+      "detached provenance byte-projection fixture",
+    );
+    expect(bytes.length).toBeLessThanOrEqual(
+      checkedTrustPolicy.provenanceBundleBytes.maxBundleBytes,
+    );
+    expect(fixture.mediaType).toBe(
+      checkedTrustPolicy.provenanceBundleBytes.mediaType,
+    );
+    expect(fixture.verificationMaterial).toEqual({});
+    expect(fixture.dsseEnvelope).toEqual({});
+    expect(checkedTrustPolicy.portableArtifactAcceptanceEnabled).toBe(false);
+    expect(
+      checkedTrustPolicy.provenanceBundleBytes
+        .acceptanceRequiresOfflineVerification,
+    ).toBe(true);
+    const digest = rawSha256(bytes);
+    expect(digest).toBe(
+      validVectors.documents.installationReceipt.provenanceBundleDigest,
+    );
+
+    const normalized = Buffer.from(bytes.toString("utf8").trimEnd(), "utf8");
+    expect(createHash("sha256").update(normalized).digest("hex")).not.toBe(
+      createHash("sha256").update(bytes).digest("hex"),
+    );
+  });
+
+  test("a coherent unsupported-target rewrite has no fallback family", () => {
+    const documents = structuredClone(validVectors.documents);
+    const unsupported = "aarch64-unknown-freebsd";
+    documents.manifest.target.triple = unsupported;
+    documents.reviewedProfileIdentity.targetTriple = unsupported;
+    documents.requiredExports.targetTriple = unsupported;
+    documents.forbiddenExports.targetTriple = unsupported;
+    documents.headerSet.targetTriple = unsupported;
+    documents.abiContract.target.triple = unsupported;
+    expect(() =>
+      authorityInputSemantics(documents, validVectors.rawFixtures),
+    ).toThrow("target is not exactly admitted");
+  });
+
+  test("Git source identity verifies the commit object to tree object edge", () => {
+    const rawFixtures = structuredClone(validVectors.rawFixtures);
+    const treeBytes = Buffer.from(rawFixtures.sourceTreeObjectBase64, "base64");
+    rawFixtures.sourceTreeObjectBase64 = Buffer.concat([
+      treeBytes,
+      Buffer.from([0]),
+    ]).toString("base64");
+    expect(() =>
+      authorityInputSemantics(validVectors.documents, rawFixtures),
+    ).toThrow("tree object ID does not bind");
+  });
+
+  test("Git source identity cannot coherently switch object formats", () => {
+    const documents = structuredClone(validVectors.documents);
+    const rawFixtures = structuredClone(validVectors.rawFixtures);
+    const treeBytes = Buffer.from(rawFixtures.sourceTreeObjectBase64, "base64");
+    const treeId = gitObjectId("sha256", "tree", treeBytes);
+    const originalCommit = new TextDecoder().decode(
+      Buffer.from(rawFixtures.sourceCommitObjectBase64, "base64"),
+    );
+    const commitBytes = Buffer.from(
+      originalCommit.replace(/^tree [0-9a-f]+$/mu, `tree ${treeId}`),
+      "utf8",
+    );
+    rawFixtures.sourceCommitObjectBase64 = commitBytes.toString("base64");
+    documents.sourceTreeIdentity.gitObjectFormat = "sha256";
+    documents.sourceTreeIdentity.treeObjectId = treeId;
+    documents.sourceTreeIdentity.sourceRevision = gitObjectId(
+      "sha256",
+      "commit",
+      commitBytes,
+    );
+    documents.manifest.build.sourceRevision =
+      documents.sourceTreeIdentity.sourceRevision;
+    expect(() => authorityInputSemantics(documents, rawFixtures)).toThrow(
+      "source tree Git object format is not admitted",
+    );
+  });
+
+  test("manifest profile cannot coherently select another build mode", () => {
+    const manifest = structuredClone(validVectors.documents.manifest);
+    manifest.profile.configuration = "Debug";
+    manifest.profile.debugger = true;
+    manifest.profile.hermesBytecodeVersion = 97;
+    expect(() => manifestSemantics(manifest)).toThrow(
+      "manifest admitted profile",
+    );
+  });
+
+  test("manifest build authorities include the reviewed publisher workflow", () => {
+    const manifest = structuredClone(validVectors.documents.manifest);
+    manifest.build.authorityDigests = manifest.build.authorityDigests.filter(
+      (row) => row.path !== ".github/workflows/hermes-artifacts.yml",
+    );
+    expect(() => manifestSemantics(manifest)).toThrow(
+      "manifest admitted build-authority membership",
+    );
+  });
+
+  test("reviewed profile projection is derived from exact receipt bytes", () => {
+    const documents = structuredClone(validVectors.documents);
+    const rawFixtures = structuredClone(validVectors.rawFixtures);
+    const receipt = parseJsonStrict(
+      Buffer.from(rawFixtures.profileReceiptBytesBase64, "base64"),
+      "profile receipt mutation source",
+    );
+    receipt.origin.reviewedProfileIdentity.sourceVersion = "0.13.1";
+    const receiptBytes = Buffer.from(`${JSON.stringify(receipt)}\n`, "utf8");
+    rawFixtures.profileReceiptBytesBase64 = receiptBytes.toString("base64");
+    documents.reviewedProfileIdentity.receiptDigest = rawSha256(receiptBytes);
+    const receiptEntry = documents.manifest.entries.find(
+      (entry) => entry.path === documents.reviewedProfileIdentity.receiptPath,
+    );
+    receiptEntry.digest = rawSha256(receiptBytes);
+    receiptEntry.size = receiptBytes.length;
+    expect(() => authorityInputSemantics(documents, rawFixtures)).toThrow(
+      "reviewed profile projection from receipt",
+    );
+  });
+
+  test("reviewed source ref keeps the producer's version-stable shape", () => {
+    const documents = structuredClone(validVectors.documents);
+    const rawFixtures = structuredClone(validVectors.rawFixtures);
+    const receipt = parseJsonStrict(
+      Buffer.from(rawFixtures.profileReceiptBytesBase64, "base64"),
+      "profile receipt source-ref mutation",
+    );
+    receipt.origin.reviewedProfileIdentity.sourceRef = "refs/tags/v0.13.0";
+    const receiptBytes = Buffer.from(`${JSON.stringify(receipt)}\n`, "utf8");
+    rawFixtures.profileReceiptBytesBase64 = receiptBytes.toString("base64");
+    documents.reviewedProfileIdentity.receiptDigest = rawSha256(receiptBytes);
+    documents.reviewedProfileIdentity.reviewedProfileIdentity.sourceRef =
+      receipt.origin.reviewedProfileIdentity.sourceRef;
+    documents.manifest.source.sourceRef =
+      receipt.origin.reviewedProfileIdentity.sourceRef;
+    const receiptEntry = documents.manifest.entries.find(
+      (entry) => entry.path === documents.reviewedProfileIdentity.receiptPath,
+    );
+    receiptEntry.digest = rawSha256(receiptBytes);
+    receiptEntry.size = receiptBytes.length;
+    expect(() => authorityInputSemantics(documents, rawFixtures)).toThrow(
+      "reviewed Hermes source ref is not derived from its version",
+    );
+  });
+
+  test("reviewed source cache key is reconstructed from its authorities", () => {
+    const documents = structuredClone(validVectors.documents);
+    const rawFixtures = structuredClone(validVectors.rawFixtures);
+    const receipt = parseJsonStrict(
+      Buffer.from(rawFixtures.profileReceiptBytesBase64, "base64"),
+      "profile receipt cache-key mutation",
+    );
+    receipt.origin.cacheKey = `b${receipt.origin.cacheKey.slice(1)}`;
+    const receiptBytes = Buffer.from(`${JSON.stringify(receipt)}\n`, "utf8");
+    rawFixtures.profileReceiptBytesBase64 = receiptBytes.toString("base64");
+    documents.reviewedProfileIdentity.receiptDigest = rawSha256(receiptBytes);
+    const receiptEntry = documents.manifest.entries.find(
+      (entry) => entry.path === documents.reviewedProfileIdentity.receiptPath,
+    );
+    receiptEntry.digest = rawSha256(receiptBytes);
+    receiptEntry.size = receiptBytes.length;
+    expect(() => authorityInputSemantics(documents, rawFixtures)).toThrow(
+      "profile receipt cache key is not the reviewed Release key",
+    );
+  });
+
+  test("export observations prove required presence and forbidden absence", () => {
+    const rawFixtures = structuredClone(validVectors.rawFixtures);
+    const observation = rawFixtures.exportObservations[0];
+    observation.symbolNameBytesBase64.unshift(
+      Buffer.from("CDPAgent", "utf8").toString("base64"),
+    );
+    expect(() =>
+      authorityInputSemantics(validVectors.documents, rawFixtures),
+    ).toThrow("forbidden export matcher has the wrong observed result");
+  });
+
+  test("export matchers cannot be weakened inside a coherent package", () => {
+    const documents = structuredClone(validVectors.documents);
+    documents.forbiddenExports.matchers =
+      documents.forbiddenExports.matchers.slice(1);
+    expect(() =>
+      authorityInputSemantics(documents, validVectors.rawFixtures),
+    ).toThrow("forbidden export matcher policy");
+  });
+
+  test("export checks cover every non-system loadable component", () => {
+    const documents = structuredClone(validVectors.documents);
+    const extraDigest = `sha256-${"6".repeat(64)}`;
+    documents.manifest.interface.loadableComponents.splice(1, 0, {
+      role: "runtime-dependency",
+      path: "lib/libextra.dylib",
+      digest: extraDigest,
+      system: false,
+    });
+    documents.manifest.entries.push({
+      kind: "regular",
+      role: "runtime-dependency",
+      path: "lib/libextra.dylib",
+      digest: extraDigest,
+      size: 4096,
+      executable: true,
+    });
+    documents.manifest.entries.sort((left, right) =>
+      utf8Compare(left.path, right.path),
+    );
+    expect(() =>
+      authorityInputSemantics(documents, validVectors.rawFixtures),
+    ).toThrow("non-system loadable component topology is not admitted");
+  });
+
+  test("the admitted host-tool set cannot be removed", () => {
+    const documents = structuredClone(validVectors.documents);
+    documents.manifest.interface.hostTools = [];
+    documents.hostToolCompatibilityDocuments = [];
+    expect(() =>
+      authorityInputSemantics(documents, validVectors.rawFixtures),
+    ).toThrow("required host-tool membership");
+  });
+
+  test("manifest-carried host-tool fixture bytes are exact", () => {
+    const rawFixtures = structuredClone(validVectors.rawFixtures);
+    rawFixtures.hostToolInputs[0].bytesBase64 = Buffer.from(
+      "globalThis.answer = 43;\n",
+      "utf8",
+    ).toString("base64");
+    expect(() =>
+      authorityInputSemantics(validVectors.documents, rawFixtures),
+    ).toThrow("fixture bytes disagree");
+  });
+
+  test("host-tool fixtures cannot overwrite one staged workspace path", () => {
+    const documents = structuredClone(validVectors.documents);
+    const rawFixtures = structuredClone(validVectors.rawFixtures);
+    const bytes = Buffer.from("globalThis.other = 7;\n", "utf8");
+    const fixturePayloadPath =
+      "share/compatibility/host-tools/input/other.js";
+    rawFixtures.hostToolInputs.unshift({
+      path: fixturePayloadPath,
+      bytesBase64: bytes.toString("base64"),
+      executable: false,
+    });
+    documents.hostToolCompatibilityDocuments[0].inputFixtures.unshift({
+      fixturePayloadPath,
+      workspacePath: "input/smoke.js",
+      digest: rawSha256(bytes),
+      size: bytes.length,
+      executable: false,
+    });
+    documents.manifest.entries.push({
+      kind: "regular",
+      role: "compatibility-fixture",
+      path: fixturePayloadPath,
+      digest: rawSha256(bytes),
+      size: bytes.length,
+      executable: false,
+    });
+    documents.manifest.entries.sort((left, right) =>
+      utf8Compare(left.path, right.path),
+    );
+    expect(() => authorityInputSemantics(documents, rawFixtures)).toThrow(
+      "duplicate fixture workspace path",
+    );
+  });
+
+  test("detached bundle byte limit fails before any provenance authority", () => {
+    const rawFixtures = structuredClone(validVectors.rawFixtures);
+    rawFixtures.detachedBundleByteProjectionBase64 = Buffer.alloc(
+      checkedTrustPolicy.provenanceBundleBytes.maxBundleBytes + 1,
+      0x20,
+    ).toString("base64");
+    expect(() => bundleSemantics(validVectors.documents, rawFixtures)).toThrow(
+      "detached provenance bundle exceeds the byte limit",
+    );
   });
 
   test("JCS cases and explicit domain-separated projections match goldens", () => {
@@ -942,7 +2153,7 @@ describe("LLP 0034 portable engine authority schemas", () => {
   for (const vector of invalidVectors.cases) {
     test(`rejects mutation vector: ${vector.id}`, () => {
       const documents = structuredClone(validVectors.documents);
-      const document = documents[vector.documentPath];
+      const document = resolvePath(documents, vector.documentPath);
       applyMutation(document, vector.mutation);
       const ajv = buildAjv();
       const validate = validatorFor(ajv, vector.schema);

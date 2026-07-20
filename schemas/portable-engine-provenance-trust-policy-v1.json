@@ -1,5 +1,119 @@
 {
   "schema": "ibex/portable-engine-provenance-trust-policy/1",
+  "portableArtifactAcceptanceEnabled": false,
+  "admittedTargets": [
+    {
+      "triple": "aarch64-apple-darwin",
+      "targetFamily": "apple",
+      "structuralFeatures": [
+        "dynamic-library",
+        "framework"
+      ],
+      "nonSystemLoadableComponentPolicy": "runtime-only",
+      "profile": {
+        "id": "source-patched",
+        "targetVariant": "default",
+        "configuration": "Release",
+        "debugger": false,
+        "hermesBytecodeVersion": 96
+      },
+      "sourceTreeGitObjectFormat": "sha1",
+      "reviewedProfileOriginKind": "source-patched-cache",
+      "exportExtractor": "macho-nlist-external-defined",
+      "exportPolicy": {
+        "requiredMatchers": [
+          {
+            "kind": "contains",
+            "value": "makeHermesRuntime"
+          },
+          {
+            "kind": "exact",
+            "value": "_ex_hermes_vm_current_package_id"
+          }
+        ],
+        "forbiddenMatchers": [
+          {
+            "kind": "contains",
+            "value": "AsyncDebuggerAPI"
+          },
+          {
+            "kind": "contains",
+            "value": "CDPAgent"
+          },
+          {
+            "kind": "contains",
+            "value": "CDPDebugAPI"
+          }
+        ]
+      },
+      "requiredHostTools": [
+        {
+          "toolRole": "bytecode-compiler",
+          "toolPath": "bin/hermesc"
+        }
+      ],
+      "buildAuthorityPaths": [
+        ".github/workflows/hermes-artifacts.yml",
+        "scripts/apply-hermes-patches.sh",
+        "scripts/build-hermes-linux.sh",
+        "scripts/build-hermes.sh",
+        "scripts/hermes-version.sh"
+      ],
+      "mappingProof": {
+        "class": "macos-proc-pid-region-path-info",
+        "platform": "macos"
+      },
+      "receiptTargetArchitectures": [
+        "aarch64",
+        "universal"
+      ],
+      "hostTool": {
+        "actualHostTriple": "aarch64-apple-darwin",
+        "binaryMachine": {
+          "format": "mach-o",
+          "architecture": "arm64"
+        },
+        "dependencyExtractorFormat": "mach-o",
+        "systemDependencyPolicyKey": "apple",
+        "executionContract": {
+          "environmentMode": "replace-exactly",
+          "environment": [
+            {
+              "name": "LC_ALL",
+              "value": "C"
+            },
+            {
+              "name": "TZ",
+              "value": "UTC"
+            }
+          ],
+          "stdin": "empty",
+          "workingDirectoryLifetime": "fresh-private-per-invocation",
+          "argv0": "exact-tool-path",
+          "timeoutMs": 30000,
+          "maxStdoutBytes": 1048576,
+          "maxStderrBytes": 1048576,
+          "maxOutputBytes": 1048576
+        }
+      },
+      "systemDependencyPolicyKey": "apple",
+      "directJsiAbi": {
+        "languageBoundary": "cxx-jsi-direct",
+        "cxxStandard": "c++17",
+        "compilerAbi": "itanium",
+        "standardLibraryAbi": "libc++",
+        "exceptions": "enabled",
+        "rtti": "enabled",
+        "pointerWidth": 64,
+        "endianness": "little",
+        "allocationBoundary": "cxx-allocator-compatible",
+        "contractFeatures": [
+          "direct-jsi-objects",
+          "hermes-bytecode-v96"
+        ]
+      }
+    }
+  ],
   "enginePublisher": {
     "enabled": true,
     "repository": "ccheever/ibex",
@@ -7,6 +121,17 @@
     "sourceRef": "refs/heads/main",
     "runnerClass": "github-hosted",
     "provenanceRoot": "github-oidc-artifact-attestations"
+  },
+  "provenanceBundleBytes": {
+    "container": "single-json-document",
+    "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+    "textEncoding": "utf-8",
+    "jsonContract": "strict-ijson-no-duplicate-keys",
+    "byteProjection": "entire-file-as-stored",
+    "normalization": "none",
+    "digest": "sha256-lowercase-hex",
+    "maxBundleBytes": 16777216,
+    "acceptanceRequiresOfflineVerification": true
   },
   "authoritativeConformance": {
     "runnerClass": "github-hosted",

@@ -1,0 +1,478 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-host-tool-compatibility-v1.schema.json",
+  "title": "Ibex portable engine host-tool compatibility evidence v1",
+  "description": "A closed, reproducible execution contract for one exact manifest host tool.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "toolRole",
+    "toolPath",
+    "toolDigest",
+    "actualHostTriple",
+    "binaryMachine",
+    "environmentMode",
+    "environment",
+    "stdin",
+    "workingDirectoryLifetime",
+    "argv0",
+    "timeoutMs",
+    "maxStdoutBytes",
+    "maxStderrBytes",
+    "maxOutputBytes",
+    "dependencyClosure",
+    "inputFixtures",
+    "invocations"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/portable-engine-host-tool-compatibility/1" },
+    "toolRole": { "enum": ["bytecode-compiler", "engine-cli"] },
+    "toolPath": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath"
+    },
+    "toolDigest": {
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+    },
+    "actualHostTriple": {
+      "description": "The normalized triple of the host that physically executed every invocation.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+){2,3}$"
+    },
+    "binaryMachine": { "$ref": "#/$defs/binaryMachine" },
+    "environmentMode": {
+      "description": "Start from no inherited variables and install exactly the declared environment array.",
+      "const": "replace-exactly"
+    },
+    "environment": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/environmentEntry" }
+    },
+    "stdin": {
+      "description": "Supply zero bytes and immediate EOF to every invocation.",
+      "const": "empty"
+    },
+    "workingDirectoryLifetime": {
+      "description": "Create a new empty private directory for each invocation, stage only declared fixtures, capture declared outputs, and destroy it after that invocation.",
+      "const": "fresh-private-per-invocation"
+    },
+    "argv0": {
+      "description": "Set argv[0] to the exact verified materialized path corresponding to toolPath.",
+      "const": "exact-tool-path"
+    },
+    "timeoutMs": {
+      "description": "Per-invocation wall-clock deadline in milliseconds.",
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/positiveSafeInteger"
+    },
+    "maxStdoutBytes": {
+      "description": "Maximum captured stdout bytes for each invocation.",
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/safeInteger"
+    },
+    "maxStderrBytes": {
+      "description": "Maximum captured stderr bytes for each invocation.",
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/safeInteger"
+    },
+    "maxOutputBytes": {
+      "description": "Maximum aggregate regular output-file bytes for each invocation.",
+      "$ref": "portable-engine-common-v1.schema.json#/$defs/safeInteger"
+    },
+    "dependencyClosure": { "$ref": "#/$defs/dependencyClosure" },
+    "inputFixtures": {
+      "description": "The complete fixture set copied from exact regular manifest entries into each fresh workspace.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/inputFixture" }
+    },
+    "invocations": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/invocation" }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "required": ["toolRole"],
+        "properties": { "toolRole": { "const": "bytecode-compiler" } }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "invocations": {
+            "type": "array",
+            "contains": {
+              "type": "object",
+              "required": ["bytecodeOutputs"],
+              "properties": {
+                "bytecodeOutputs": { "type": "array", "minItems": 1 }
+              }
+            },
+            "minContains": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "required": ["toolRole"],
+        "properties": { "toolRole": { "const": "engine-cli" } }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "invocations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["bytecodeOutputs"],
+              "properties": {
+                "bytecodeOutputs": { "type": "array", "maxItems": 0 }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "required": ["binaryMachine"],
+        "properties": {
+          "binaryMachine": {
+            "type": "object",
+            "required": ["format"],
+            "properties": { "format": { "const": "mach-o" } }
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "dependencyClosure": {
+            "type": "object",
+            "required": ["extractor"],
+            "properties": {
+              "extractor": {
+                "type": "object",
+                "required": ["format"],
+                "properties": { "format": { "const": "mach-o" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "required": ["binaryMachine"],
+        "properties": {
+          "binaryMachine": {
+            "type": "object",
+            "required": ["format"],
+            "properties": { "format": { "const": "elf" } }
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "dependencyClosure": {
+            "type": "object",
+            "required": ["extractor"],
+            "properties": {
+              "extractor": {
+                "type": "object",
+                "required": ["format"],
+                "properties": { "format": { "const": "elf" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "required": ["binaryMachine"],
+        "properties": {
+          "binaryMachine": {
+            "type": "object",
+            "required": ["format"],
+            "properties": { "format": { "const": "pe" } }
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "dependencyClosure": {
+            "type": "object",
+            "required": ["extractor"],
+            "properties": {
+              "extractor": {
+                "type": "object",
+                "required": ["format"],
+                "properties": { "format": { "const": "pe" } }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "binaryMachine": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["format", "architecture"],
+          "properties": {
+            "format": { "const": "mach-o" },
+            "architecture": { "enum": ["arm64", "x86_64"] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["format", "architecture"],
+          "properties": {
+            "format": { "const": "elf" },
+            "architecture": { "enum": ["aarch64", "x86_64"] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["format", "architecture"],
+          "properties": {
+            "format": { "const": "pe" },
+            "architecture": { "enum": ["arm64", "x86_64"] }
+          }
+        }
+      ]
+    },
+    "environmentEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+        "value": {
+          "type": "string",
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*$"
+        }
+      }
+    },
+    "inputFixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fixturePayloadPath",
+        "workspacePath",
+        "digest",
+        "size",
+        "executable"
+      ],
+      "properties": {
+        "fixturePayloadPath": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath"
+        },
+        "workspacePath": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath"
+        },
+        "digest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "size": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/safeInteger"
+        },
+        "executable": { "type": "boolean" }
+      }
+    },
+    "dependencyClosure": {
+      "description": "The complete transitive host-load dependency closure of the exact tool binary.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "extractor",
+        "nonSystemDependencies",
+        "systemDependencies"
+      ],
+      "properties": {
+        "extractor": { "$ref": "#/$defs/dependencyExtractor" },
+        "nonSystemDependencies": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonSystemDependency" }
+        },
+        "systemDependencies": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "portable-engine-common-v1.schema.json#/$defs/systemDependencyName"
+          }
+        }
+      }
+    },
+    "dependencyExtractor": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["format", "tables", "transitive"],
+          "properties": {
+            "format": { "const": "mach-o" },
+            "tables": {
+              "const": [
+                "LC_LAZY_LOAD_DYLIB",
+                "LC_LOAD_DYLIB",
+                "LC_LOAD_UPWARD_DYLIB",
+                "LC_LOAD_WEAK_DYLIB",
+                "LC_REEXPORT_DYLIB"
+              ]
+            },
+            "transitive": { "const": true }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["format", "tables", "transitive"],
+          "properties": {
+            "format": { "const": "elf" },
+            "tables": { "const": ["DT_NEEDED"] },
+            "transitive": { "const": true }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["format", "tables", "transitive"],
+          "properties": {
+            "format": { "const": "pe" },
+            "tables": {
+              "const": ["delay-import", "export-forwarder", "import"]
+            },
+            "transitive": { "const": true }
+          }
+        }
+      ]
+    },
+    "nonSystemDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "digest"],
+      "properties": {
+        "path": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath"
+        },
+        "digest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        }
+      }
+    },
+    "outputFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "digest", "size", "executable"],
+      "properties": {
+        "path": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath"
+        },
+        "digest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "size": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/safeInteger"
+        },
+        "executable": { "type": "boolean" }
+      }
+    },
+    "bytecodeOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "bytecodeVersion",
+        "sourcePath",
+        "sourceDigest"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath"
+        },
+        "bytecodeVersion": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/safeInteger"
+        },
+        "sourcePath": {
+          "description": "The exact workspacePath of the declared source fixture compiled into this output.",
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/normalizedPayloadPath"
+        },
+        "sourceDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        }
+      }
+    },
+    "invocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "argv",
+        "expectedExitCode",
+        "stdoutDigest",
+        "stdoutSize",
+        "stderrDigest",
+        "stderrSize",
+        "outputFiles",
+        "bytecodeOutputs"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/stableId"
+        },
+        "argv": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "portable-engine-common-v1.schema.json#/$defs/nonEmptyString"
+          }
+        },
+        "expectedExitCode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "stdoutDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "stdoutSize": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/safeInteger"
+        },
+        "stderrDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        },
+        "stderrSize": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/safeInteger"
+        },
+        "outputFiles": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/outputFile" }
+        },
+        "bytecodeOutputs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/bytecodeOutput" }
+        }
+      }
+    }
+  }
+}

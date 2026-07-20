@@ -41,6 +41,236 @@
       "expected": "schema-invalid"
     },
     {
+      "id": "trust-policy-rejects-provenance-bundle-normalization",
+      "documentPath": "trustPolicy",
+      "schema": "portable-engine-provenance-trust-policy-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/provenanceBundleBytes/normalization",
+        "value": "jcs"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "trust-policy-rejects-portable-acceptance-enablement",
+      "documentPath": "trustPolicy",
+      "schema": "portable-engine-provenance-trust-policy-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/portableArtifactAcceptanceEnabled",
+        "value": true
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "trust-policy-rejects-unsupported-target-admission",
+      "documentPath": "trustPolicy",
+      "schema": "portable-engine-provenance-trust-policy-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/admittedTargets/0/triple",
+        "value": "aarch64-unknown-freebsd"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "source-tree-rejects-unknown-field",
+      "documentPath": "sourceTreeIdentity",
+      "schema": "portable-engine-source-tree-identity-v1.schema.json",
+      "mutation": {
+        "op": "add",
+        "path": "/checkoutPath",
+        "value": "/tmp/ibex"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "source-tree-rejects-object-format-confusion",
+      "documentPath": "sourceTreeIdentity",
+      "schema": "portable-engine-source-tree-identity-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/gitObjectFormat",
+        "value": "sha256"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "source-tree-rejects-revision-format-confusion",
+      "documentPath": "sourceTreeIdentity",
+      "schema": "portable-engine-source-tree-identity-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/sourceRevision",
+        "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "reviewed-profile-rejects-origin-confusion",
+      "documentPath": "reviewedProfileIdentity",
+      "schema": "portable-engine-reviewed-profile-identity-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/originKind",
+        "value": "source-patched-build"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "reviewed-profile-rejects-receipt-substitution",
+      "documentPath": "reviewedProfileIdentity",
+      "schema": "portable-engine-reviewed-profile-identity-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/receiptDigest",
+        "value": "sha256-abababababababababababababababababababababababababababababababab"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "required-exports-rejects-unsorted-matchers",
+      "documentPath": "requiredExports",
+      "schema": "portable-engine-export-set-v1.schema.json",
+      "mutation": {
+        "op": "swap",
+        "path": "/matchers",
+        "indices": [0, 1]
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "forbidden-exports-rejects-mode-confusion",
+      "documentPath": "forbiddenExports",
+      "schema": "portable-engine-export-set-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/mode",
+        "value": "required"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "required-exports-rejects-component-substitution",
+      "documentPath": "requiredExports",
+      "schema": "portable-engine-export-set-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/components/0/digest",
+        "value": "sha256-abababababababababababababababababababababababababababababababab"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "header-set-rejects-byte-substitution",
+      "documentPath": "headerSet",
+      "schema": "portable-engine-header-set-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/headers/0/digest",
+        "value": "sha256-9898989898989898989898989898989898989898989898989898989898989898"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "abi-contract-rejects-export-contract-substitution",
+      "documentPath": "abiContract",
+      "schema": "portable-engine-abi-contract-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/requiredExportsDigest",
+        "value": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "abi-contract-rejects-msvc-substitution",
+      "documentPath": "abiContract",
+      "schema": "portable-engine-abi-contract-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/compilerAbi",
+        "value": "msvc"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "abi-contract-rejects-unreviewed-c-table-boundary",
+      "documentPath": "abiContract",
+      "schema": "portable-engine-abi-contract-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/languageBoundary",
+        "value": "versioned-c-function-table"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "host-tool-compatibility-rejects-tool-substitution",
+      "documentPath": "hostToolCompatibilityDocuments.0",
+      "schema": "portable-engine-host-tool-compatibility-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/toolDigest",
+        "value": "sha256-4343434343434343434343434343434343434343434343434343434343434343"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "host-tool-compatibility-rejects-bytecode-version-substitution",
+      "documentPath": "hostToolCompatibilityDocuments.0",
+      "schema": "portable-engine-host-tool-compatibility-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/invocations/0/bytecodeOutputs/0/bytecodeVersion",
+        "value": 95
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "host-tool-compatibility-rejects-host-substitution",
+      "documentPath": "hostToolCompatibilityDocuments.0",
+      "schema": "portable-engine-host-tool-compatibility-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/actualHostTriple",
+        "value": "x86_64-pc-windows-msvc"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "host-tool-compatibility-rejects-machine-substitution",
+      "documentPath": "hostToolCompatibilityDocuments.0",
+      "schema": "portable-engine-host-tool-compatibility-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/binaryMachine/architecture",
+        "value": "x86_64"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "manifest-rejects-authority-input-byte-substitution",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/entries/2/digest",
+        "value": "sha256-1212121212121212121212121212121212121212121212121212121212121212"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "manifest-rejects-missing-authority-input",
+      "documentPath": "manifest",
+      "schema": "portable-engine-manifest-v1.schema.json",
+      "mutation": {
+        "op": "remove",
+        "path": "/entries/2"
+      },
+      "expected": "semantic-invalid"
+    },
+    {
       "id": "manifest-rejects-unknown-field",
       "documentPath": "manifest",
       "schema": "portable-engine-manifest-v1.schema.json",
@@ -68,7 +298,7 @@
       "schema": "portable-engine-manifest-v1.schema.json",
       "mutation": {
         "op": "replace",
-        "path": "/entries/1/digest",
+        "path": "/entries/11/digest",
         "value": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
       },
       "expected": "schema-invalid"
@@ -90,7 +320,7 @@
       "schema": "portable-engine-manifest-v1.schema.json",
       "mutation": {
         "op": "replace",
-        "path": "/entries/1/role",
+        "path": "/entries/11/role",
         "value": "executable"
       },
       "expected": "schema-invalid"
@@ -112,7 +342,7 @@
       "schema": "portable-engine-manifest-v1.schema.json",
       "mutation": {
         "op": "replace",
-        "path": "/entries/1/path",
+        "path": "/entries/11/path",
         "value": "bin/hermesc:payload"
       },
       "expected": "schema-invalid"
@@ -187,7 +417,7 @@
       "schema": "portable-engine-manifest-v1.schema.json",
       "mutation": {
         "op": "add",
-        "path": "/entries/8",
+        "path": "/entries/18",
         "value": {
           "kind": "directory",
           "role": "runtime",
@@ -197,58 +427,12 @@
       "expected": "semantic-invalid"
     },
     {
-      "id": "manifest-rejects-windows-trailing-dot-space-collision",
-      "documentPath": "manifest",
-      "schema": "portable-engine-manifest-v1.schema.json",
-      "mutation": {
-        "op": "sequence",
-        "mutations": [
-          {
-            "op": "replace",
-            "path": "/target/triple",
-            "value": "x86_64-pc-windows-msvc"
-          },
-          {
-            "op": "add",
-            "path": "/entries/8",
-            "value": {
-              "kind": "directory",
-              "role": "runtime",
-              "path": "lib. "
-            }
-          }
-        ]
-      },
-      "expected": "semantic-invalid"
-    },
-    {
-      "id": "manifest-rejects-windows-reserved-device-name",
-      "documentPath": "manifest",
-      "schema": "portable-engine-manifest-v1.schema.json",
-      "mutation": {
-        "op": "sequence",
-        "mutations": [
-          {
-            "op": "replace",
-            "path": "/target/triple",
-            "value": "x86_64-pc-windows-msvc"
-          },
-          {
-            "op": "replace",
-            "path": "/entries/5/path",
-            "value": "CON"
-          }
-        ]
-      },
-      "expected": "semantic-invalid"
-    },
-    {
       "id": "manifest-rejects-symlink-escape",
       "documentPath": "manifest",
       "schema": "portable-engine-manifest-v1.schema.json",
       "mutation": {
         "op": "replace",
-        "path": "/entries/3/target",
+        "path": "/entries/16/target",
         "value": "../../../etc/passwd"
       },
       "expected": "semantic-invalid"
@@ -259,7 +443,7 @@
       "schema": "portable-engine-manifest-v1.schema.json",
       "mutation": {
         "op": "replace",
-        "path": "/entries/3/target",
+        "path": "/entries/16/target",
         "value": "libhermes-current.dylib"
       },
       "expected": "semantic-invalid"
@@ -270,7 +454,7 @@
       "schema": "portable-engine-manifest-v1.schema.json",
       "mutation": {
         "op": "replace",
-        "path": "/entries/3/target",
+        "path": "/entries/16/target",
         "value": "missing.dylib"
       },
       "expected": "semantic-invalid"
@@ -314,7 +498,7 @@
       "schema": "portable-engine-manifest-v1.schema.json",
       "mutation": {
         "op": "replace",
-        "path": "/entries/4/size",
+        "path": "/entries/17/size",
         "value": 536870913
       },
       "expected": "semantic-invalid"

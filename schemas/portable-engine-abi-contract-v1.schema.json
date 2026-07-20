@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-abi-contract-v1.schema.json",
+  "title": "Ibex portable engine ABI contract v1",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/directJsiContract"
+    }
+  ],
+  "$defs": {
+    "directJsiContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "target",
+        "languageBoundary",
+        "cxxStandard",
+        "compilerAbi",
+        "standardLibraryAbi",
+        "exceptions",
+        "rtti",
+        "pointerWidth",
+        "endianness",
+        "allocationBoundary",
+        "headerSetDigest",
+        "requiredExportsDigest",
+        "forbiddenExportsDigest",
+        "contractFeatures"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ibex/portable-engine-abi-contract/1"
+        },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "triple",
+            "structuralFeatures"
+          ],
+          "properties": {
+            "triple": {
+              "const": "aarch64-apple-darwin"
+            },
+            "structuralFeatures": {
+              "const": [
+                "dynamic-library",
+                "framework"
+              ]
+            }
+          }
+        },
+        "languageBoundary": {
+          "const": "cxx-jsi-direct"
+        },
+        "cxxStandard": {
+          "const": "c++17"
+        },
+        "compilerAbi": {
+          "const": "itanium"
+        },
+        "standardLibraryAbi": {
+          "const": "libc++"
+        },
+        "exceptions": {
+          "const": "enabled"
+        },
+        "rtti": {
+          "const": "enabled"
+        },
+        "pointerWidth": {
+          "const": 64
+        },
+        "endianness": {
+          "const": "little"
+        },
+        "allocationBoundary": {
+          "const": "cxx-allocator-compatible"
+        },
+        "headerSetDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+        },
+        "requiredExportsDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+        },
+        "forbiddenExportsDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/semanticDigest"
+        },
+        "contractFeatures": {
+          "const": [
+            "direct-jsi-objects",
+            "hermes-bytecode-v96"
+          ]
+        }
+      }
+    }
+  }
+}

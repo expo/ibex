@@ -5,10 +5,10 @@
 **Systems:** Security, Engine, Build, Distribution, CI, Runtime, Host ABI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-19 (Phase 0 freezes the closed outer authority schemas,
-digest DAG, publisher policy, archive/path constraints, and macOS system
-dependency set while keeping authority disabled pending the remaining
-source/profile/interface digest projections and Sigstore byte contract)
+**Revised:** 2026-07-19 (Phase 0 now also freezes the source-tree, reviewed-
+profile, header, export-policy, ABI, and host-tool compatibility inputs plus
+the raw Sigstore bundle byte contract; authority remains disabled pending RFC
+review, physical non-Apple dependency validation, and the Windows bridge spike)
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021; LLP 0032
 
 ## Summary
@@ -288,6 +288,103 @@ The nested exact field sets are:
   exactly one `loadableComponents` row whose role is `runtime` and whose
   `system` value is false.
 
+The semantic digest inputs named by those fields are themselves closed JCS
+documents, not implementation-defined strings:
+
+- `sourceTreeDigest` is the domain-separated digest of
+  `ibex/portable-engine-source-tree-identity/1`, whose exact fields are
+  `schema, repository, sourceRevision, sourceRef, gitObjectFormat,
+  sourceRevisionObjectType, treeObjectId, treeObjectType`.
+  `sourceRevisionObjectType` and `treeObjectType` are exactly `commit` and
+  `tree`; `gitObjectFormat` is `sha1` or `sha256` and determines the required
+  40- or 64-hex width of both IDs. Verification hashes the supplied/fetched Git
+  objects with their type-and-length prefixes and proves that the commit's
+  single `tree` header names the declared tree object. Merely presenting two
+  well-shaped IDs is insufficient. The external admitted-target policy pins
+  the current GitHub repository to `sha1`; a coherent rewrite of the whole
+  object graph to `sha256` is not admission. Its domain is
+  `ibex.portable-engine-source-tree-identity.v1`.
+- `reviewedProfileIdentityDigest` is the domain-separated digest of
+  `ibex/portable-engine-reviewed-profile-identity/1`, whose exact outer fields
+  are `schema, profileId, targetVariant, targetTriple, originKind,
+  receiptPath, receiptDigest, reviewedProfileIdentity`. `receiptPath` names an
+  exact regular `profile-receipt` payload member and `receiptDigest` binds its
+  raw bytes. Verification strict-parses the schema-2 receipt, checks its exact
+  target-specific field sets and runtime artifact binding, and derives the
+  other outer fields plus `reviewedProfileIdentity` from that receipt rather
+  than trusting a copied projection. Its three disjoint variants import the
+  source-cache, Windows source-build, or Android Maven identity already
+  enforced by receipt schema 2; the origin discriminator and identity shape
+  must agree. For source-built Hermes the source commit is exactly 40
+  lowercase hexadecimal digits, `sourceRef` is exactly
+  `<sourceVersion>-stable`, and the source-cache key is reconstructed from the
+  commit plus the complete patch/build/identity authority digests rather than
+  trusted as an opaque receipt string. Its domain is
+  `ibex.portable-engine-reviewed-profile-identity.v1`.
+- `requiredExportsDigest` and `forbiddenExportsDigest` each bind one
+  `ibex/portable-engine-export-set/1` document with exact fields `schema, mode,
+  targetTriple, extractor, components, symbolNameSemantics, matchers`.
+  `components` is a strictly sorted exact set of payload paths and raw digests,
+  equal to the complete non-system `loadableComponents` set; each row must bind
+  a regular manifest component before extraction. The
+  extractor is one of the Mach-O external-defined nlist, ELF defined
+  global/weak dynsym, or PE export-name table contracts. Symbol names are
+  valid UTF-8 compared as exact bytes with no normalization. A matcher is only
+  exact equality or a case-sensitive contiguous-byte `contains` check;
+  regular expressions, demangling, locale folding, and tool-rendered lines are
+  not inputs. Golden observations carry each parsed symbol name as separate
+  base64-encoded bytes, preserving the no-normalization comparison contract.
+  Every
+  required matcher must match at least one extracted name and every forbidden
+  matcher must match none. Matchers are unique and sorted by `(kind, value)`.
+  Their domains are respectively `ibex.portable-engine-required-exports.v1`
+  and `ibex.portable-engine-forbidden-exports.v1`.
+- `headerSetDigest` binds `ibex/portable-engine-header-set/1`, with exact
+  fields `schema, targetTriple, includeRoots, headers`. Include roots and
+  `{path, digest, size}` header rows are strictly sorted and unique; the header
+  rows must equal the complete regular `header` membership in the manifest.
+  Its domain is `ibex.portable-engine-header-set.v1`.
+- `abiContractDigest` binds `ibex/portable-engine-abi-contract/1`. The closed
+  direct-JSI contract records target, C++ standard, compiler and
+  standard-library ABI families, exception and RTTI modes, pointer width,
+  endianness, allocation boundary, sorted contract features, and the three
+  header/export digests above. Phase 0 accepts only the exact current macOS
+  arm64 direct-JSI dimensions. The proposed Windows versioned C table is not a
+  v1 variant until its spike freezes a version, getter symbol, calling
+  convention, table layout/size, function-set digest, and ownership contract.
+  Its domain is
+  `ibex.portable-engine-abi-contract.v1`.
+- Each host-tool `compatibilityDigest` binds one
+  `ibex/portable-engine-host-tool-compatibility/1` document. It names the exact
+  tool path/bytes, actual host triple, binary format/machine, and complete
+  transitive host dependency closure. Its reviewed execution contract replaces
+  rather than inherits the environment, supplies empty stdin, fixes argv0,
+  uses a fresh private directory per invocation, and bounds time, stdout,
+  stderr, and output bytes. Every fixture is an exact regular
+  `compatibility-fixture` manifest member with independently unique payload and
+  staged workspace paths, so two fixtures cannot overwrite one staged file;
+  invocation evidence binds exit, stdout/stderr sizes and
+  digests, complete outputs, and bytecode version plus source path/digest.
+  There is exactly one behavior document per manifest host tool, and the
+  updater and verifier iterate the complete sorted collection. Its domain is
+  `ibex.portable-engine-host-tool-compatibility.v1`.
+
+All seven documents reject unknown fields. Their golden vectors join each
+digest back to the manifest before deriving the interface digest and portable
+artifact ID, so changing an inner contract necessarily changes every
+downstream identity.
+
+The exact JCS bytes of these inputs are declared `metadata` payload entries,
+so a consumer never has to recover a digest preimage from an opaque string.
+The six singleton documents live at fixed paths under
+`payload/META-INF/authority/`; host-tool documents live under
+`payload/META-INF/authority/host-tools/<compatibilityDigest>.json`. That
+reserved namespace contains exactly the declared directories and one document
+for every manifest host tool. Each entry's raw digest and size bind the JCS
+bytes, while its semantic digest binds the parsed closed document. Missing,
+additional, non-canonical, renamed, or byte-substituted authority inputs are
+rejected before artifact-ID derivation or component use.
+
 `entries` is unique and sorted by normalized path's UTF-8 bytes. Its members
 are one of three disjoint exact-field variants:
 
@@ -370,6 +467,22 @@ portable artifact ID in a canonical installation receipt. The receipt is not
 trusted because it says `verified`; later consumers either reverify the
 retained signed bundle or rely on a shard-provenance statement whose trusted
 job independently performed that verification.
+
+V1 retains exactly one Sigstore bundle JSON document with media type
+`application/vnd.dev.sigstore.bundle.v0.3+json`. The stored file must be UTF-8
+strict I-JSON with no duplicate keys or trailing second document.
+`provenanceBundleDigest` is lowercase hexadecimal SHA-256 over the entire file
+exactly as stored, including insignificant JSON whitespace and a final newline
+if present. There is no JCS or newline normalization. Verification parses
+those same retained bytes and validates their contained signature and claims;
+re-serializing an equivalent JSON value produces different retained bytes and
+a different digest. The checked trust policy freezes this byte projection and
+media type, caps the stored bundle at 16 MiB, and requires offline signature,
+subject, workflow/ref, and claim reverification before acceptance. The current
+golden bundle is deliberately a **byte-projection-only** fixture with empty
+verification material; it is not provenance-valid and grants no authority.
+`portableArtifactAcceptanceEnabled` remains exactly false until a real
+offline-verifiable bundle corpus and verifier exist.
 
 The v1 installation receipt has exact fields `schema, artifactId,
 manifestDigest, archiveDigest, provenanceBundleDigest,
@@ -706,16 +819,41 @@ trust policy, and valid/invalid vectors now freeze the outer manifest,
 installation receipt, portable and mapped identities, coordinator assignment
 chain, and diagnostic shard DAG. The policy admits only the `ccheever/ibex`
 `hermes-artifacts.yml` publisher on `refs/heads/main` with a GitHub-hosted
-runner, retains same-runner-only conformance authority, and explicitly disables
-cross-runner assignment, diagnostic transport, promotion authority, retry, and
-resumption. It also fixes finite archive limits, the versioned payload-path
-equivalence policy, symlink containment rules, and the empirically observed
-macOS Release runtime's Apple system dependency set.
+runner, retains same-runner-only conformance authority, explicitly disables
+portable artifact acceptance, and disables cross-runner assignment, diagnostic
+transport, promotion authority, retry, and resumption. Its admitted-target
+table contains exactly `aarch64-apple-darwin`; that row joins structural
+features, the exact `source-patched/default/Release` debugger-off bytecode-v96
+profile, SHA-1 source-object format, profile origin, the exact required and
+forbidden export matcher policy, complete build-authority path membership
+(for the currently existing Hermes build inputs), the required `bin/hermesc`
+behavior proof, the runtime-only non-system loadable-component topology, export extractor,
+mapping proof, dependency policy, receipt architecture, exact direct-JSI ABI
+dimensions, and the hermetic host-tool execution contract. Unknown triples
+have no default family. The
+policy also fixes finite archive and detached-bundle limits, the versioned
+payload-path equivalence policy, symlink containment rules, and the empirically
+observed macOS Release runtime's Apple system dependency set.
+
+The inner vectors now verify Git commit-to-tree object identity, derive the
+reviewed profile projection and producer-shaped source/cache identity from
+exact schema-2 receipt bytes, bind externally reviewed export policies to every
+non-system loadable component and exact observed symbol-name bytes, carry
+host-tool fixtures as exact payload members with collision-free staging, and
+iterate the externally required complete host-tool behavior document set. The
+Windows C-table ABI variant remains deliberately absent.
 
 The golden vectors freeze these semantic digest purposes and projections:
 
 | Purpose | Domain | Projection |
 |---|---|---|
+| Source-tree identity | `ibex.portable-engine-source-tree-identity.v1` | complete source-tree identity document |
+| Reviewed profile identity | `ibex.portable-engine-reviewed-profile-identity.v1` | complete reviewed-profile identity document |
+| Required exports | `ibex.portable-engine-required-exports.v1` | complete required export-set document |
+| Forbidden exports | `ibex.portable-engine-forbidden-exports.v1` | complete forbidden export-set document |
+| Header set | `ibex.portable-engine-header-set.v1` | complete header-set document |
+| ABI contract | `ibex.portable-engine-abi-contract.v1` | complete ABI-contract document |
+| Host-tool compatibility | `ibex.portable-engine-host-tool-compatibility.v1` | one complete host-tool behavior document |
 | Portable artifact ID | `ibex.portable-engine-manifest.v1` | manifest without `artifactId` |
 | Complete manifest digest | `ibex.portable-engine-manifest-digest.v1` | complete manifest |
 | Trust-policy digest | `ibex.portable-engine-provenance-trust-policy.v1` | complete checked policy |
@@ -727,15 +865,22 @@ The golden vectors freeze these semantic digest purposes and projections:
 | Diagnostic-manifest digest | `ibex.portable-engine-diagnostic-shard-manifest.v1` | shard manifest without `manifestDigest` |
 | Diagnostic-bundle digest | `ibex.portable-engine-diagnostic-shard-bundle.v1` | complete diagnostic bundle |
 
+The checked policy additionally selects one raw Sigstore bundle v0.3 JSON file
+and lowercase-hex SHA-256 of its exact stored bytes for
+`provenanceBundleDigest`; the vectors prove that whitespace normalization
+changes that digest. This is only a byte-projection vector, not a valid
+signature/claim vector, and portable acceptance remains killed.
+
 This checkpoint intentionally consumes no new authority and does not complete
-Phase 0. Before a manifest may be accepted, an amendment must freeze or import
-normative input schemas and digest domains for `sourceTreeDigest`,
-`reviewedProfileIdentityDigest`, the ABI/required-export/forbidden-export/header
-set digests, and each host-tool `compatibilityDigest`. It must also choose and
-bind the exact raw or normalized Sigstore/provenance-bundle bytes named by
-`provenanceBundleDigest`. Linux and Windows system dependency allowlists remain
-platform-specific physical blockers. Reports and advertisements therefore stay
-unchanged and empty.
+Phase 0. The Windows function-table inventory/feasibility spike and physical
+Linux and Windows system-dependency allowlist validation remain open, and this
+Draft has not completed its author-approved review. No installer or runtime is
+yet permitted to accept these documents as promotion authority. The golden-
+vector updater is not an artifact producer; Phase 1 must add the real manifest
+packager to the publisher workflow and extend `buildAuthorityPaths` to its
+complete code, schema, dependency-lock, and identity-authority closure before
+any physical package can be admitted. Reports and advertisements therefore
+stay unchanged and empty.
 
 Exit: two paths containing the same validated payload derive the same portable
 ID, every local/provenance field mutation is classified correctly, and no new
@@ -875,18 +1020,15 @@ keep the target unadvertised.
 
 ## Open questions
 
-1. Should the repository retain raw Sigstore bundles directly, or normalize
-   them into a smaller checked schema while preserving independently
-   verifiable signatures?
-2. Should the first publisher require deterministic transport archives, even
+1. Should the first publisher require deterministic transport archives, even
    though archive digests are deliberately distinct from portable artifact
    identity?
-3. Does the ABI contract need compiler and C++ standard-library identities in
-   addition to header/export digests for every platform?
-4. Should a universal macOS runtime use one whole-file component identity or a
+2. The ABI contract now binds compiler and standard-library ABI families. Must
+   it also bind exact compiler and SDK build identities for every platform?
+3. Should a universal macOS runtime use one whole-file component identity or a
    second Mach-O slice identity for per-architecture diagnostics?
-5. Which protected-branch and environment rules are required before
+4. Which protected-branch and environment rules are required before
    conformance shard attestations from a release workflow are accepted as
    promotion authority?
-6. Should a future offline/local promotion ceremony have a separate admitted
+5. Should a future offline/local promotion ceremony have a separate admitted
    signing root, or remain explicitly unsupported?
