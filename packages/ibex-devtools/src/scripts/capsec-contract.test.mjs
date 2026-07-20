@@ -109,6 +109,13 @@ describe("LLP 0021 capsec contract", () => {
     });
   });
 
+  test("invalid fixture errors use manifest-relative canonical paths", () => {
+    const contract = loadAndValidateContract();
+    expect(() => validateInvalidFixture("duplicate-key.json", contract)).toThrow(
+      /^testdata\/invalid\/duplicate-key\.json: duplicate JSON object key "cap"/,
+    );
+  }, 30_000);
+
   test("schema-declared sets must use canonical order", () => {
     const contract = loadAndValidateContract();
     const value = structuredClone(
