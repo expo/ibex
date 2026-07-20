@@ -455,16 +455,16 @@ describe("LLP 0023 output-disposition dataset", () => {
     );
   });
 
-  test("accounts for all 7,378 covered surfaces and emits 6,421 context-bound output rows", async () => {
+  test("accounts for all 7,379 covered surfaces and emits 6,421 context-bound output rows", async () => {
     const { catalog, coverage } = await repositoryCatalogFixture();
     expect(catalog.outputShapeCatalogSchema).toBe(
       "ibex/capsec-output-shape-catalog/2",
     );
     expect(catalog.counts).toEqual({
-      coverageSurfaces: 7_378,
+      coverageSurfaces: 7_379,
       outputBearingSurfaces: 5_750,
       structuralOnlySurfaces: 1_556,
-      unresolvedSurfaces: 72,
+      unresolvedSurfaces: 73,
       catalogRows: 6_421,
       parameterizedBindings: 1,
       sourceInventoryRows: 6_014,
@@ -484,7 +484,7 @@ describe("LLP 0023 output-disposition dataset", () => {
     ).toEqual({
       "output-bearing": 5_750,
       "structural-only": 1_556,
-      unresolved: 72,
+      unresolved: 73,
     });
     expect(
       catalog.rows.filter(
@@ -1370,7 +1370,7 @@ describe("LLP 0023 output-disposition dataset", () => {
           },
         },
       }),
-    ).toThrow(/verified output catalog has 72 unresolved surface accounts/);
+    ).toThrow(/verified output catalog has 73 unresolved surface accounts/);
   }, 30_000);
 
   test("rejects incomplete accounts and registrar-only value evidence", async () => {
