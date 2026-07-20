@@ -2564,6 +2564,25 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ).toBe(true);
   });
 
+  test("bootstrap scanner authority is pinned to canonical LF checkout bytes", () => {
+    const attributes = fs.readFileSync(
+      path.join(repoRoot, ".gitattributes"),
+      "utf8",
+    );
+    expect(attributes).toContain("src/engine/bootstrap/** text eol=lf");
+    expect(
+      fs
+        .readFileSync(
+          path.join(
+            repoRoot,
+            "src/engine/bootstrap/web-streams-polyfill.js",
+          ),
+          "utf8",
+        )
+        .includes("\r"),
+    ).toBe(false);
+  });
+
   test("global discovery rejects open computed names and resolves closed installers", () => {
     expect(() =>
       scanStaticGlobalApiSurfaces(

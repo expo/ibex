@@ -27,5 +27,6 @@ src/engine/hermes_runtime.cc text eol=lf
 # every authority byte-identical across checkouts so the hermetic build's
 # content check is genuinely portable to Windows.
 src/builtins/** text eol=lf
+src/engine/bootstrap/** text eol=lf
 packages/ibex-runtime-js/src/** text eol=lf
 modules.ts text eol=lf
