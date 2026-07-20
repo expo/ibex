@@ -135138,37 +135138,6 @@
       ]
     },
     {
-      "edgeId": "surface.loader.function.javascript.makewindowscryptomodule.0029u8l",
-      "observedKey": "loader:function:javascript:makeWindowsCryptoModule",
-      "branchId": "surface.loader.function.javascript.makewindowscryptomodule.0029u8l.main",
-      "enforcementBranchId": "surface.loader.function.javascript.makewindowscryptomodule.0029u8l.main",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "loader:function:javascript:makeWindowsCryptoModule"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/module-loader.js#makeWindowsCryptoModule"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/module-loader.js#makeWindowsCryptoModule"
-        ],
-        "terminalObservedKey": "loader:function:javascript:makeWindowsCryptoModule"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/module-loader.js#makeWindowsCryptoModule"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.loader.function.javascript.makewindowscryptomodule.0029u8l.main.non-capability"
-      ]
-    },
-    {
       "edgeId": "surface.loader.function.javascript.moduledynamicimport.19ocrkj",
       "observedKey": "loader:function:javascript:moduleDynamicImport",
       "branchId": "surface.loader.function.javascript.moduledynamicimport.19ocrkj.main",
@@ -268484,44 +268453,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-8n5_pefZDzrt6pbVwFt-_8ztlJvwD2MAyorcNFM4mVc"
+      "rawContentDigest": "sha256-i3LsbwomrMnMGLs7jxNWJyKqom-V33Uh_MovnMr8T5s"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-shN5iTNiQYLe-8ri3WPKbAhbWbw5QsgWNK-aN_YMFpA"
+      "rawContentDigest": "sha256-2GAC81QIEZQyKvt_Y-lSZXE2mrb-NRJ1VPDn2K6m4QU"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-iIZ6jFk9ECsJdeSfl-dziGYhKd0jPGZ2yy07t9jGK88"
+      "rawContentDigest": "sha256-BzBCEYrmWw3_UrvGtnrD3p1z0L7AqdbyX-8sYhOJj8A"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-7fGQAzaHKqLqwxB3M7YIYwRxqnwgTFeM6zgCKdgNEYs"
+      "rawContentDigest": "sha256-l-L5fFXf-p0QEs27kRT0Le-VMTwRsyJlBNBn_VAEOFg"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-wPLVz-Hl-k0pOAgifhCX6CySZFKSPgF-jIHYN2qFJME"
+      "rawContentDigest": "sha256-ZJMCowFNIjPQouLDHFXzpIoA-kcualHiyWKwezPpp_M"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-k4juKVDjv3Xa9KdJeJPqy9jutUqlVBSNW8iG55dylVA"
+      "rawContentDigest": "sha256-tvYpDIHUp8pY8vM3eutavve-qCbWCbxGnlSyWbM8SEM"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-vaClgU5xlpNaOd1PHukmvbnk5xWn12hR0S1yRJteF9w"
+      "rawContentDigest": "sha256-YLI4Ywz-RlVw5dkwmUfZwYGrX0i-Ymd_33AfRm-4Sog"
     }
   ],
   "counts": {
-    "observedReferences": 13058,
-    "logicalSurfaces": 7208,
-    "enforcementBranches": 7408,
-    "coverageEdges": 7208,
-    "targetCells": 14416
+    "observedReferences": 13057,
+    "logicalSurfaces": 7207,
+    "enforcementBranches": 7407,
+    "coverageEdges": 7207,
+    "targetCells": 14414
   }
 }

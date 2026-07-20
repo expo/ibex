@@ -5988,7 +5988,6 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:javascript:loadInternal",
     "function:javascript:looksLikeCompleteModuleStatement",
     "function:javascript:looksLikeModuleSyntax",
-    "function:javascript:makeWindowsCryptoModule",
     "function:javascript:moduleDynamicImport",
     "function:javascript:moduleStaticImport",
     "function:javascript:packagePrincipalFor",

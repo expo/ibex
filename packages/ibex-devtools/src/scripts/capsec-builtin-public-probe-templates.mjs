@@ -1508,31 +1508,7 @@ const NONCAP_GENERIC_EXPORT_EXCLUSIONS = new Set([
   "node_os",
 ]);
 
-const TARGET_REPLACED_PUBLIC_SOURCES = new Map([
-  ["x86_64-pc-windows-msvc", new Set(["exact_crypto"])],
-]);
-
-function targetReplacesPublicSource(surface, target) {
-  const triple =
-    typeof target === "string"
-      ? target
-      : typeof target?.triple === "string"
-        ? target.triple
-        : null;
-  const sourceKey = surface?.metadata?.sourceKey;
-  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — Windows node:crypto is a reduced bootstrap-local replacement, so recipes bound to src/builtins/crypto.js cannot prove the installed target implementation.
-  return Boolean(
-    triple &&
-      surface?.metadata?.surfaceType === "export" &&
-      typeof sourceKey === "string" &&
-      TARGET_REPLACED_PUBLIC_SOURCES.get(triple)?.has(sourceKey),
-  );
-}
-
 function targetUnavailablePublicExportReason(surface, target) {
-  if (targetReplacesPublicSource(surface, target)) {
-    return "builtin-export-source-replaced-on-target";
-  }
   const triple =
     typeof target === "string"
       ? target
