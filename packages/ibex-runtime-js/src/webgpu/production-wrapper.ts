@@ -23,11 +23,7 @@ import {
 import { WEBGPU_PRODUCTION_PLAN } from './production-plan.generated';
 import { WEBGPU_OBJECT_KIND_TAGS } from './production-codecs.generated';
 import { EventTarget } from '../events/EventTarget';
-import {
-  isDetachedArrayBuffer,
-  markDetachedArrayBuffer,
-  markNonTransferableArrayBuffer,
-} from '../arraybuffer-detach';
+import { markNonTransferableArrayBuffer } from '../arraybuffer-detach';
 
 type ProductionRoute = (typeof WEBGPU_PRODUCTION_PLAN.routes)[number];
 type ProductionGpuAllocatedWrapperKind = Exclude<
@@ -71,7 +67,6 @@ const INTRINSIC_ARRAY_BUFFER = ArrayBuffer;
 const INTRINSIC_ARRAY_BUFFER_IS_VIEW = INTRINSIC_ARRAY_BUFFER.isView;
 const INTRINSIC_UINT8_ARRAY = Uint8Array;
 const INTRINSIC_UINT32_ARRAY = Uint32Array;
-const INTRINSIC_UINT8_ARRAY_SET = Uint8Array.prototype.set;
 const INTRINSIC_REFLECT_APPLY = Reflect.apply;
 const INTRINSIC_REFLECT_CONSTRUCT = Reflect.construct;
 const INTRINSIC_TYPED_ARRAY_PROTOTYPE = Object.getPrototypeOf(
@@ -158,6 +153,7 @@ interface BufferMappedRangeLease {
   readonly offset: number;
   readonly size: number;
   readonly bytes: ArrayBuffer;
+  live: boolean;
 }
 
 interface ActiveBufferMappingState {
@@ -165,8 +161,8 @@ interface ActiveBufferMappingState {
   readonly mode: 1 | 2;
   readonly offset: number;
   readonly size: number;
-  readonly bytes: ArrayBuffer;
-  readonly writeback: Uint8Array;
+  /** The exact affine view retained from the codec or mapped-at-creation root. */
+  readonly bytes: Uint8Array;
   readonly ranges: BufferMappedRangeLease[];
 }
 
@@ -231,7 +227,6 @@ interface WrapperState {
   bufferSize: number | undefined;
   bufferUsage: number | undefined;
   bufferMapState: 'mapped' | 'pending' | 'unmapped' | undefined;
-  bufferMappedBytes: ArrayBuffer | undefined;
   bufferNextMapGeneration: string;
   bufferMapGenerationExhausted: boolean;
   bufferNextCleanupGeneration: string;
@@ -1281,44 +1276,7 @@ export function createProductionWebGpuPrivateBinding(
     ) as number;
   };
 
-  const copyArrayBufferRange = (
-    source: ArrayBuffer,
-    offset: number,
-    size: number,
-  ): ArrayBuffer => {
-    const sourceLength = intrinsicArrayBufferByteLength(source);
-    if (
-      isDetachedArrayBuffer(source) ||
-      !Number.isSafeInteger(offset) ||
-      !Number.isSafeInteger(size) ||
-      offset < 0 ||
-      size < 0 ||
-      offset > sourceLength - size
-    ) {
-      throw namedError('OperationError', 'GPUBuffer mapped byte block is unavailable');
-    }
-    let result: ArrayBuffer;
-    try {
-      result = INTRINSIC_REFLECT_CONSTRUCT(
-        INTRINSIC_ARRAY_BUFFER,
-        [size],
-      ) as ArrayBuffer;
-      const sourceView = INTRINSIC_REFLECT_CONSTRUCT(
-        INTRINSIC_UINT8_ARRAY,
-        [source, offset, size],
-      ) as Uint8Array;
-      const resultView = INTRINSIC_REFLECT_CONSTRUCT(
-        INTRINSIC_UINT8_ARRAY,
-        [result],
-      ) as Uint8Array;
-      INTRINSIC_REFLECT_APPLY(INTRINSIC_UINT8_ARRAY_SET, resultView, [sourceView]);
-    } catch {
-      throw new RangeError('GPUBuffer mapped byte copy could not be allocated');
-    }
-    return result;
-  };
-
-  const copyOwnedUint8View = (value: unknown, expectedSize: number): ArrayBuffer => {
+  const retainOwnedUint8View = (value: unknown, expectedSize: number): Uint8Array => {
     if (
       !INTRINSIC_TYPED_ARRAY_TAG_GETTER ||
       !INTRINSIC_TYPED_ARRAY_BUFFER_GETTER ||
@@ -1350,29 +1308,15 @@ export function createProductionWebGpuPrivateBinding(
     if (sourceLength !== expectedSize) {
       throw new TypeError('GPUBuffer map completion byte extent is inconsistent');
     }
-    return copyArrayBufferRange(sourceBuffer, sourceOffset, sourceLength);
-  };
-
-  const copyMappedRangeInto = (
-    destination: ArrayBuffer,
-    destinationOffset: number,
-    source: ArrayBuffer,
-  ): void => {
-    if (isDetachedArrayBuffer(source)) return;
-    const sourceLength = intrinsicArrayBufferByteLength(source);
-    const destinationLength = intrinsicArrayBufferByteLength(destination);
-    if (destinationOffset < 0 || destinationOffset > destinationLength - sourceLength) {
-      throw new Error('GPUBuffer mapped range writeback is outside its owned block');
+    const sourceBufferLength = intrinsicArrayBufferByteLength(sourceBuffer);
+    if (
+      !Number.isSafeInteger(sourceOffset) ||
+      sourceOffset < 0 ||
+      sourceOffset > sourceBufferLength - sourceLength
+    ) {
+      throw new TypeError('GPUBuffer map completion affine view is inconsistent');
     }
-    const destinationView = INTRINSIC_REFLECT_CONSTRUCT(
-      INTRINSIC_UINT8_ARRAY,
-      [destination, destinationOffset, sourceLength],
-    ) as Uint8Array;
-    const sourceView = INTRINSIC_REFLECT_CONSTRUCT(
-      INTRINSIC_UINT8_ARRAY,
-      [source],
-    ) as Uint8Array;
-    INTRINSIC_REFLECT_APPLY(INTRINSIC_UINT8_ARRAY_SET, destinationView, [sourceView]);
+    return value as Uint8Array;
   };
 
   const makePendingBufferMap = (
@@ -1455,19 +1399,40 @@ export function createProductionWebGpuPrivateBinding(
     return pending;
   };
 
+  const detachMappedRangeLeases = (
+    active: ActiveBufferMappingState,
+  ): boolean => {
+    let contradicted = false;
+    for (const range of active.ranges) {
+      if (!range.live) continue;
+      // Consume wrapper authority before crossing the native boundary. Even a
+      // throwing or false-returning bridge must never cause a second detach
+      // attempt for the same engine-keyed alias.
+      range.live = false;
+      try {
+        if (bridge.detachMappedRange(range.bytes) !== true) contradicted = true;
+      } catch {
+        contradicted = true;
+      }
+    }
+    return contradicted;
+  };
+
   const detachActiveBufferMapping = (
     buffer: WrapperState,
   ): ActiveBufferMappingState | undefined => {
     const active = buffer.bufferActiveMapping;
     if (!active) return undefined;
-    for (const range of active.ranges) {
-      markDetachedArrayBuffer(range.bytes);
-    }
-    markDetachedArrayBuffer(active.bytes);
+    const detachContradiction = detachMappedRangeLeases(active);
     buffer.bufferActiveMapping = undefined;
-    buffer.bufferMappedBytes = undefined;
     buffer.bufferMapState = buffer.bufferPendingMap ? 'pending' : 'unmapped';
     releaseBufferLifecycleIfIdle(buffer);
+    if (detachContradiction) {
+      closeRealmCounterIndependently(
+        'buffer-mapped-range-detach-contradiction',
+        'The WebGPU realm closed after mapped-range detachment contradicted the engine bridge',
+      );
+    }
     return active;
   };
 
@@ -1476,40 +1441,25 @@ export function createProductionWebGpuPrivateBinding(
   ): ActiveBufferMappingState | undefined => {
     const active = buffer.bufferActiveMapping;
     if (!active) return undefined;
-    for (const range of active.ranges) {
-      markDetachedArrayBuffer(range.bytes);
-    }
-    // The private owned block is moved into the authenticated cleanup
-    // snapshot. It must not be detached here: doing so would destroy the
-    // exact MAP_WRITE bytes before a retryable service submission can consume
-    // them. No app-visible lease aliases this block; getMappedRange() returns
-    // separate non-transferable copies.
+    const detachContradiction = detachMappedRangeLeases(active);
+    // The retained affine root view is moved into the authenticated cleanup
+    // snapshot. Engine-keyed app-visible aliases were detached above; their
+    // MAP_WRITE mutations already share this root block and require no shadow
+    // copy or range-by-range writeback.
     buffer.bufferActiveMapping = undefined;
-    buffer.bufferMappedBytes = undefined;
     buffer.bufferMapState = buffer.bufferPendingMap ? 'pending' : 'unmapped';
     releaseBufferLifecycleIfIdle(buffer);
+    if (detachContradiction) {
+      closeRealmCounterIndependently(
+        'buffer-mapped-range-detach-contradiction',
+        'The WebGPU realm closed after mapped-range detachment contradicted the engine bridge',
+      );
+    }
     return active;
   };
 
   const discardPendingBufferCleanup = (buffer: WrapperState): void => {
-    const pendingCleanup = buffer.bufferPendingCleanup;
-    if (!pendingCleanup) return;
-    if (
-      INTRINSIC_TYPED_ARRAY_BUFFER_GETTER &&
-      INTRINSIC_TYPED_ARRAY_BYTE_LENGTH_GETTER &&
-      (INTRINSIC_REFLECT_APPLY(
-        INTRINSIC_TYPED_ARRAY_BYTE_LENGTH_GETTER,
-        pendingCleanup.body.writeback,
-        [],
-      ) as number) > 0
-    ) {
-      const backing = INTRINSIC_REFLECT_APPLY(
-        INTRINSIC_TYPED_ARRAY_BUFFER_GETTER,
-        pendingCleanup.body.writeback,
-        [],
-      );
-      markDetachedArrayBuffer(backing as ArrayBuffer);
-    }
+    if (!buffer.bufferPendingCleanup) return;
     buffer.bufferPendingCleanup = undefined;
     releaseBufferLifecycleIfIdle(buffer);
   };
@@ -1774,7 +1724,6 @@ export function createProductionWebGpuPrivateBinding(
       bufferSize: undefined,
       bufferUsage: undefined,
       bufferMapState: undefined,
-      bufferMappedBytes: undefined,
       bufferNextMapGeneration: counterSeed(
         'nextBufferMapGeneration',
         '1',
@@ -3419,8 +3368,7 @@ export function createProductionWebGpuPrivateBinding(
       size: number;
       usage: number;
     }>;
-    let mappedBytes: ArrayBuffer | undefined;
-    let mappedWriteback: Uint8Array | undefined;
+    let mappedBytes: Uint8Array | undefined;
     if (converted.mappedAtCreation) {
       if (converted.size % 4 !== 0) {
         throw new RangeError(
@@ -3438,12 +3386,8 @@ export function createProductionWebGpuPrivateBinding(
       }
       try {
         mappedBytes = INTRINSIC_REFLECT_CONSTRUCT(
-          INTRINSIC_ARRAY_BUFFER,
-          [converted.size],
-        ) as ArrayBuffer;
-        mappedWriteback = INTRINSIC_REFLECT_CONSTRUCT(
           INTRINSIC_UINT8_ARRAY,
-          [mappedBytes],
+          [converted.size],
         ) as Uint8Array;
       } catch {
         throw new RangeError(
@@ -3465,9 +3409,8 @@ export function createProductionWebGpuPrivateBinding(
     buffer.bufferSize = converted.size;
     buffer.bufferUsage = converted.usage;
     buffer.bufferMapState = converted.mappedAtCreation ? 'mapped' : 'unmapped';
-    buffer.bufferMappedBytes = mappedBytes;
     if (converted.mappedAtCreation) {
-      if (!mappedBytes || !mappedWriteback) {
+      if (!mappedBytes) {
         throw new Error('GPUBuffer mapped-at-creation byte block is missing');
       }
       buffer.bufferActiveMapping = {
@@ -3476,7 +3419,6 @@ export function createProductionWebGpuPrivateBinding(
         offset: 0,
         size: converted.size,
         bytes: mappedBytes,
-        writeback: mappedWriteback,
         ranges: [],
       };
       if (compareCanonicalU64Decimal(buffer.bufferNextMapGeneration, '1') <= 0) {
@@ -5075,14 +5017,9 @@ export function createProductionWebGpuPrivateBinding(
       );
       return;
     }
-    let ownedBlock: ArrayBuffer;
-    let ownedWriteback: Uint8Array;
+    let ownedBlock: Uint8Array;
     try {
-      ownedBlock = copyOwnedUint8View(completion.ownedBytes, completion.size);
-      ownedWriteback = INTRINSIC_REFLECT_CONSTRUCT(
-        INTRINSIC_UINT8_ARRAY,
-        [ownedBlock],
-      ) as Uint8Array;
+      ownedBlock = retainOwnedUint8View(completion.ownedBytes, completion.size);
     } catch (error) {
       reclaimRejectedBufferMapCompletion(
         buffer,
@@ -5102,10 +5039,8 @@ export function createProductionWebGpuPrivateBinding(
       offset: pending.offset,
       size: pending.size,
       bytes: ownedBlock,
-      writeback: ownedWriteback,
       ranges: [],
     };
-    buffer.bufferMappedBytes = ownedBlock;
     buffer.bufferMapState = 'mapped';
     settlePendingBufferMap(pending);
   };
@@ -5147,20 +5082,12 @@ export function createProductionWebGpuPrivateBinding(
       buffer.bufferCleanupGenerationExhausted,
       'buffer cleanup generation',
     );
-    if (active?.mode === 2) {
-      for (const range of active.ranges) {
-        copyMappedRangeInto(
-          active.bytes,
-          range.offset - active.offset,
-          range.bytes,
-        );
-      }
-    }
-    // Move the wrapper-owned affine block into cleanup instead of allocating
-    // and copying another full mapped block. App-visible mapped ranges are
-    // separate leases and are detached below before this method returns.
+    // Move the exact retained affine root view into cleanup. Engine aliases
+    // share this block, so MAP_WRITE needs neither range shadow copies nor a
+    // second full-extent allocation. Aliases are detached below before this
+    // method returns.
     const writeback = active?.mode === 2
-      ? active.writeback
+      ? active.bytes
       : EMPTY_BUFFER_WRITEBACK;
     const body = Object.freeze({
       kind: 'cleanup-v1' as const,
@@ -5345,17 +5272,68 @@ export function createProductionWebGpuPrivateBinding(
     ) {
       throw namedError('OperationError', 'GPUBuffer mapped range is unavailable');
     }
-    const bytes = copyArrayBufferRange(
+    if (
+      !INTRINSIC_TYPED_ARRAY_BUFFER_GETTER ||
+      !INTRINSIC_TYPED_ARRAY_BYTE_OFFSET_GETTER
+    ) {
+      closeRealmCounterIndependently(
+        'buffer-mapped-range-source-unavailable',
+        'The WebGPU realm closed because the mapped-range source intrinsics are unavailable',
+      );
+      throw namedError('OperationError', 'GPUBuffer mapped byte block is unavailable');
+    }
+    const source = INTRINSIC_REFLECT_APPLY(
+      INTRINSIC_TYPED_ARRAY_BUFFER_GETTER,
       active.bytes,
-      rangeOffset - active.offset,
-      rangeSize,
-    );
-    markNonTransferableArrayBuffer(bytes);
-    active.ranges.push(Object.freeze({
+      [],
+    ) as ArrayBuffer;
+    const sourceViewOffset = INTRINSIC_REFLECT_APPLY(
+      INTRINSIC_TYPED_ARRAY_BYTE_OFFSET_GETTER,
+      active.bytes,
+      [],
+    ) as number;
+    const aliasOffset = sourceViewOffset + rangeOffset - active.offset;
+    let bytes: ArrayBuffer;
+    try {
+      bytes = bridge.createMappedRangeAlias(source, aliasOffset, rangeSize);
+    } catch {
+      closeRealmCounterIndependently(
+        'buffer-mapped-range-mint-contradiction',
+        'The WebGPU realm closed after mapped-range minting contradicted the engine bridge',
+      );
+      throw namedError('OperationError', 'GPUBuffer mapped range could not be minted');
+    }
+    // Ownership begins at the native return boundary. Track before inspecting
+    // the result so even a malformed engine value is offered exactly once to
+    // the matching detach method during fail-closed realm cleanup.
+    const lease: BufferMappedRangeLease = {
       offset: rangeOffset,
       size: rangeSize,
       bytes,
-    }));
+      live: true,
+    };
+    active.ranges.push(lease);
+    let aliasLength: number;
+    try {
+      aliasLength = intrinsicArrayBufferByteLength(bytes);
+    } catch {
+      closeRealmCounterIndependently(
+        'buffer-mapped-range-mint-contradiction',
+        'The WebGPU realm closed after mapped-range minting contradicted the engine bridge',
+      );
+      throw namedError('OperationError', 'GPUBuffer mapped range is invalid');
+    }
+    if (aliasLength !== rangeSize) {
+      closeRealmCounterIndependently(
+        'buffer-mapped-range-mint-contradiction',
+        'The WebGPU realm closed after mapped-range minting contradicted the engine bridge',
+      );
+      throw namedError('OperationError', 'GPUBuffer mapped range has the wrong extent');
+    }
+    // Hermes' detach key is the engine authority. Mirror the validated alias
+    // into Ibex's private set as well so its JS structuredClone implementation
+    // rejects before attempting the separate legacy transfer fallback.
+    markNonTransferableArrayBuffer(bytes);
     return bytes;
   });
 

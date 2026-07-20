@@ -934,6 +934,12 @@ extern "C" {
     #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     fn ibex_test_gpu_v2_last_promise_reaction_order() -> u64;
     #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_v2_operation_result_payload_materializations() -> u64;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_v2_operation_result_reused_mailbox_backing() -> u32;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_v2_last_receipt_resolved_undefined() -> u32;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     fn ibex_test_gpu_v2_pause_after_terminal_pop();
     #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     fn ibex_test_gpu_v2_terminal_pop_pause_state() -> u32;
@@ -971,6 +977,12 @@ extern "C" {
     ) -> i32;
     #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     fn ibex_test_gpu_v2_private_bridge_present(runtime: *mut HermesRuntimeOpaque) -> i32;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_v2_mapped_array_buffer_gate(runtime: *mut HermesRuntimeOpaque) -> i32;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_v2_force_mapped_array_buffer_gate_failure(failure: u32) -> i32;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_v2_mapped_range_bridge_roundtrip(runtime: *mut HermesRuntimeOpaque) -> i32;
     #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     fn ibex_test_gpu_v2_pending_receipts(runtime: *mut HermesRuntimeOpaque) -> usize;
     #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
@@ -10332,6 +10344,104 @@ module.exports = JSON.stringify({
         drop(runtime);
         drop(engine);
         release_fake_gpu_v2_client();
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_v2_mapped_alias_host_functions_and_payload_have_one_backing() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_gpu_v2_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                finalize_fake_gpu_v2_runtime(raw, 0);
+                unsafe {
+                    assert_eq!(ibex_test_gpu_v2_mapped_array_buffer_gate(raw), 1);
+                    assert_eq!(ibex_test_gpu_v2_private_bridge_present(raw), 1);
+                    assert_eq!(ibex_test_gpu_v2_mapped_range_bridge_roundtrip(raw), 1);
+                    assert_eq!(ibex_test_gpu_v2_install_event_observer(raw), 1);
+                }
+
+                let template = gpu_v2_template_call(7, 1, &[]);
+                assert_eq!(submit_gpu_v2_test_call(raw, &template, true), (0, 1, 1));
+                let call = fake_gpu_v2_state().lock().unwrap().submit_calls[0].call;
+                let mapped_payload = [1_u8, 2, 3, 4, 5, 6, 7, 8];
+                let event = gpu_v2_result_event(gpu_v2_provenance(&call, true, 1), &mapped_payload);
+                assert_eq!(deliver_gpu_v2_event(&event), 1);
+                unsafe {
+                    assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 1);
+                    assert_eq!(ibex_test_gpu_v2_resolve_calls(), 1);
+                    assert_eq!(ibex_test_gpu_v2_wrapper_event_calls(), 1);
+                    assert_eq!(
+                        ibex_test_gpu_v2_operation_result_payload_materializations(),
+                        1
+                    );
+                    assert_eq!(
+                        ibex_test_gpu_v2_operation_result_reused_mailbox_backing(),
+                        1
+                    );
+                    assert_eq!(ibex_test_gpu_v2_last_receipt_resolved_undefined(), 1);
+                }
+            })
+            .unwrap();
+        drop(runtime);
+        drop(engine);
+        release_fake_gpu_v2_client();
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_v2_mapped_alias_gate_failures_rollback_finalization() {
+        let _lock = hermes_engine_test_lock().lock().await;
+
+        // Exercise both fail-closed inputs to the production publication gate:
+        // an artifact without the compile-time interface declaration, and a
+        // runtime whose UUID cast does not expose the live interface.
+        for failure in [1_u32, 2_u32] {
+            let (_reset, digest) = install_armed_gpu_v2_test_host();
+            reset_fake_gpu_v2(0);
+            let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+            let runtime = engine.ensure_runtime().await.unwrap();
+            let operations = [7_u32, 11_u32, 19_u32];
+            let api = fake_gpu_v2_api();
+            let descriptor = fake_gpu_v2_descriptor(&api, &operations);
+            runtime
+                .with_runtime(|raw| unsafe {
+                    assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
+                    assert_eq!(ex_hermes_set_gpu_provider_v2(raw, &descriptor), 0);
+                    assert_eq!(
+                        ibex_test_gpu_v2_force_mapped_array_buffer_gate_failure(failure),
+                        0
+                    );
+                    let status = ex_hermes_finalize_embedder_capabilities_v1(raw);
+                    assert_eq!(
+                        ibex_test_gpu_v2_force_mapped_array_buffer_gate_failure(0),
+                        0
+                    );
+                    assert_eq!(status, EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED);
+                    assert_eq!(ibex_test_gpu_v2_private_bridge_present(raw), 0);
+                })
+                .unwrap();
+
+            let state = fake_gpu_v2_state().lock().unwrap();
+            assert_eq!(state.open_calls, 1);
+            assert_eq!(state.activate_calls, 1);
+            assert_eq!(state.close_calls.len(), 1);
+            assert_eq!(state.release_service_calls, 1);
+            drop(state);
+            drop(runtime);
+            drop(engine);
+            release_fake_gpu_v2_client();
+        }
     }
 
     #[cfg(all(

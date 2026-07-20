@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
 import { AbortController } from '../abort';
-import { isDetachedArrayBuffer } from '../arraybuffer-detach';
+import {
+  isDetachedArrayBuffer,
+  markDetachedArrayBuffer,
+} from '../arraybuffer-detach';
 import { structuredClone as ibexStructuredClone } from '../clone/structuredClone';
 import { Event } from '../events/Event';
 import { EventTarget } from '../events/EventTarget';
@@ -102,6 +105,13 @@ interface RecordedSubmission {
   readonly payload: ArrayBuffer | ArrayBufferView;
 }
 
+interface FakeMappedRangeAliasMint {
+  readonly source: ArrayBuffer;
+  readonly byteOffset: number;
+  readonly byteLength: number;
+  readonly alias: ArrayBuffer;
+}
+
 type PromiseResultHook = (
   event: OperationResultEvent,
 ) => NativeGpuEventV2 | Promise<NativeGpuEventV2>;
@@ -112,18 +122,25 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
     operationInstanceId: string;
     promiseId: string;
   }>>;
+  readonly mappedRangeAliasMints: FakeMappedRangeAliasMint[];
+  readonly mappedRangeDetachAttempts: ArrayBuffer[];
   emit(event: NativeGpuEventV2): void;
   setSubmitHook(
     hook: ((operationId: number, metadata: NativeGpuCallMetadataV2) => number | void) |
       undefined,
   ): void;
   setPromiseResultHook(hook: PromiseResultHook | undefined): void;
+  setDetachMappedRangeHook(
+    hook: ((buffer: ArrayBuffer) => boolean | void) | undefined,
+  ): void;
 } {
   let sink: ((event: NativeGpuEventV2) => void) | undefined;
   let submitHook:
     ((operationId: number, metadata: NativeGpuCallMetadataV2) => number | void) |
     undefined;
   let promiseResultHook: PromiseResultHook | undefined;
+  let detachMappedRangeHook:
+    ((buffer: ArrayBuffer) => boolean | void) | undefined;
   let nextOperation = 1;
   let nextPromise = 1;
   const submissions: RecordedSubmission[] = [];
@@ -131,15 +148,27 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
     operationInstanceId: string;
     promiseId: string;
   }>> = [];
+  const mappedRangeAliasMints: FakeMappedRangeAliasMint[] = [];
+  const mappedRangeDetachAttempts: ArrayBuffer[] = [];
+  const mappedRangeAliases = new Map<ArrayBuffer, Readonly<{
+    source: ArrayBuffer;
+    byteOffset: number;
+    initial: Uint8Array;
+  }>>();
   const bridge: NativeGpuBridgeV2 & {
     readonly submissions: RecordedSubmission[];
     readonly cancellations: typeof cancellations;
+    readonly mappedRangeAliasMints: FakeMappedRangeAliasMint[];
+    readonly mappedRangeDetachAttempts: ArrayBuffer[];
     emit(event: NativeGpuEventV2): void;
     setSubmitHook(
       hook: ((operationId: number, metadata: NativeGpuCallMetadataV2) => number | void) |
         undefined,
     ): void;
     setPromiseResultHook(hook: PromiseResultHook | undefined): void;
+    setDetachMappedRangeHook(
+      hook: ((buffer: ArrayBuffer) => boolean | void) | undefined,
+    ): void;
   } = {
     abiVersion: 0x0002_0000,
     runtimeAddress: '11',
@@ -151,6 +180,8 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
     rootAuthorityDigest: new Uint8Array(32).fill(7),
     submissions,
     cancellations,
+    mappedRangeAliasMints,
+    mappedRangeDetachAttempts,
     submit(operationId, wantsPromise, metadata, payload) {
       submissions.push({ operationId, wantsPromise, metadata, payload });
       const submissionStatus = submitHook?.(operationId, metadata) ?? 0;
@@ -220,9 +251,39 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
     },
     retire: () => 0,
     createMappedRangeAlias(source, offset, length) {
-      return source.slice(offset, offset + length);
+      const alias = source.slice(offset, offset + length);
+      mappedRangeAliases.set(alias, Object.freeze({
+        source,
+        byteOffset: offset,
+        initial: Uint8Array.from(new Uint8Array(alias)),
+      }));
+      mappedRangeAliasMints.push(Object.freeze({
+        source,
+        byteOffset: offset,
+        byteLength: length,
+        alias,
+      }));
+      return alias;
     },
-    detachMappedRange: () => true,
+    detachMappedRange(buffer) {
+      mappedRangeDetachAttempts.push(buffer);
+      if (detachMappedRangeHook?.(buffer) === false) return false;
+      const record = mappedRangeAliases.get(buffer);
+      if (!record || isDetachedArrayBuffer(buffer)) return false;
+      const aliasBytes = new Uint8Array(buffer);
+      const sourceBytes = new Uint8Array(record.source);
+      // JavaScript cannot mint independently detachable ArrayBuffers over one
+      // backing store. Reconcile only bytes changed through this fake alias so
+      // overlapping leases emulate native shared write-through at cleanup.
+      for (let index = 0; index < aliasBytes.length; index += 1) {
+        if (aliasBytes[index] !== record.initial[index]) {
+          sourceBytes[record.byteOffset + index] = aliasBytes[index]!;
+        }
+      }
+      mappedRangeAliases.delete(buffer);
+      markDetachedArrayBuffer(buffer);
+      return true;
+    },
     setEventSink(nextSink) {
       if (sink) throw new TypeError('event sink is one-shot');
       sink = nextSink;
@@ -235,6 +296,9 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
     },
     setPromiseResultHook(hook) {
       promiseResultHook = hook;
+    },
+    setDetachMappedRangeHook(hook) {
+      detachMappedRangeHook = hook;
     },
   };
   return bridge;
@@ -4491,7 +4555,7 @@ describe('production-private WebGPU wrapper factory', () => {
 });
 
 describe('production-private GPUBuffer lifecycle', () => {
-  test('keeps mapped-at-creation state coherent and writes back one exact full extent', async () => {
+  test('aliases the mapped-at-creation root and writes back one exact full extent', async () => {
     const bridge = createFakeBridge();
     const codecs = createFakeCodecs();
     const binding = createProductionWebGpuPrivateBinding(bridge, codecs, {
@@ -4509,6 +4573,17 @@ describe('production-private GPUBuffer lifecycle', () => {
     const first = buffer.getMappedRange(0, 4);
     const second = buffer.getMappedRange(8, 8);
     expect(() => buffer.getMappedRange(0, 4)).toThrow('unavailable');
+    expect(bridge.mappedRangeAliasMints).toHaveLength(2);
+    expect(bridge.mappedRangeAliasMints.map((mint) => ({
+      byteOffset: mint.byteOffset,
+      byteLength: mint.byteLength,
+      alias: mint.alias,
+    }))).toEqual([
+      { byteOffset: 0, byteLength: 4, alias: first },
+      { byteOffset: 8, byteLength: 8, alias: second },
+    ]);
+    expect(bridge.mappedRangeAliasMints[1]!.source)
+      .toBe(bridge.mappedRangeAliasMints[0]!.source);
     new Uint8Array(first).set([1, 2, 3, 4]);
     new Uint8Array(second).set([9, 10, 11, 12, 13, 14, 15, 16]);
 
@@ -4519,6 +4594,7 @@ describe('production-private GPUBuffer lifecycle', () => {
     expect(inspectBinding(binding).current.trackedBufferLifecycleCount).toBe(0);
     expect(isDetachedArrayBuffer(first)).toBe(true);
     expect(isDetachedArrayBuffer(second)).toBe(true);
+    expect(bridge.mappedRangeDetachAttempts).toEqual([first, second]);
 
     const unmapBody = bufferLifecycleEncodings(codecs, 'GPUBuffer.unmap').at(-1);
     expect(unmapBody).toMatchObject({
@@ -4573,9 +4649,85 @@ describe('production-private GPUBuffer lifecycle', () => {
     expect(buffer.destroy()).toBeUndefined();
     expect(bridge.submissions).toHaveLength(afterDestroy);
     binding.revoke();
+    expect(bridge.mappedRangeDetachAttempts).toEqual([first, second]);
   });
 
-  test('copies typed MAP_READ completions into wrapper ownership and discards mutations', async () => {
+  test('rejects overlapping wrapper leases before minting a second engine alias', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+    );
+    const device = await requestTestLifecycleDevice(binding);
+    const buffer = device.createBuffer({
+      mappedAtCreation: true,
+      size: 24,
+      usage: 9,
+    });
+    const first = buffer.getMappedRange(0, 12);
+
+    expect(() => buffer.getMappedRange(8, 8)).toThrow('unavailable');
+    expect(bridge.mappedRangeAliasMints.map((mint) => mint.alias)).toEqual([first]);
+    buffer.destroy();
+    expect(bridge.mappedRangeDetachAttempts).toEqual([first]);
+    binding.revoke();
+  });
+
+  test('tracks a malformed minted alias before validation and offers one detach', async () => {
+    const bridge = createFakeBridge();
+    const malformedAlias = new ArrayBuffer(3);
+    Object.defineProperty(bridge, 'createMappedRangeAlias', {
+      configurable: true,
+      value: () => malformedAlias,
+    });
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+      { enableStateInspection: true },
+    );
+    const device = await requestTestLifecycleDevice(binding);
+    const buffer = device.createBuffer({
+      mappedAtCreation: true,
+      size: 8,
+      usage: 9,
+    });
+
+    expect(() => buffer.getMappedRange(0, 4)).toThrow('wrong extent');
+    expect(bridge.mappedRangeDetachAttempts).toEqual([malformedAlias]);
+    expect(inspectBinding(binding).current).toMatchObject({
+      active: false,
+      closeReason: 'buffer-mapped-range-mint-contradiction',
+      trackedBufferLifecycleCount: 0,
+    });
+
+    binding.revoke();
+    expect(bridge.mappedRangeDetachAttempts).toEqual([malformedAlias]);
+  });
+
+  test('detaches mapped aliases exactly once on device destroy', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+    );
+    const device = await requestTestLifecycleDevice(binding);
+    const buffer = device.createBuffer({
+      mappedAtCreation: true,
+      size: 8,
+      usage: 9,
+    });
+    const range = buffer.getMappedRange();
+
+    expect(device.destroy()).toBeUndefined();
+    expect(buffer.mapState).toBe('unmapped');
+    expect(isDetachedArrayBuffer(range)).toBe(true);
+    expect(bridge.mappedRangeDetachAttempts).toEqual([range]);
+    expect(device.destroy()).toBeUndefined();
+    binding.revoke();
+    expect(bridge.mappedRangeDetachAttempts).toEqual([range]);
+  });
+
+  test('retains the typed MAP_READ completion view without copying and discards mutations', async () => {
     const bridge = createFakeBridge();
     const codecs = createFakeCodecs();
     let decodedOwnedBytes: Uint8Array | undefined;
@@ -4612,7 +4764,14 @@ describe('production-private GPUBuffer lifecycle', () => {
     expect(decodedOwnedBytes).toBeDefined();
     decodedOwnedBytes!.fill(99);
     const range = buffer.getMappedRange();
-    expect(Array.from(new Uint8Array(range))).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(Array.from(new Uint8Array(range))).toEqual(new Array(8).fill(99));
+    expect(bridge.mappedRangeAliasMints).toHaveLength(1);
+    expect(bridge.mappedRangeAliasMints[0]).toMatchObject({
+      source: decodedOwnedBytes!.buffer,
+      byteOffset: decodedOwnedBytes!.byteOffset,
+      byteLength: decodedOwnedBytes!.byteLength,
+      alias: range,
+    });
     new Uint8Array(range).fill(42);
     buffer.unmap();
     expect(isDetachedArrayBuffer(range)).toBe(true);
@@ -4628,6 +4787,49 @@ describe('production-private GPUBuffer lifecycle', () => {
       throw new Error('missing MAP_READ cleanup');
     }
     expect(cleanup.writeback.byteLength).toBe(0);
+    binding.revoke();
+  });
+
+  test('shares MAP_WRITE aliases with the retained codec view without shadow writeback', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    let decodedOwnedBytes: Uint8Array | undefined;
+    const decode = codecs.decodeServiceResult.bind(codecs);
+    Object.defineProperty(codecs, 'decodeServiceResult', {
+      value(operationId: string, event: OperationResultEvent) {
+        const result = decode(operationId, event);
+        if (operationId === 'GPUBuffer.mapAsync' && result.kind === 'value') {
+          decodedOwnedBytes = (
+            result.value as Readonly<{ ownedBytes: Uint8Array }>
+          ).ownedBytes;
+        }
+        return result;
+      },
+    });
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs);
+    const device = await requestTestLifecycleDevice(binding);
+    const buffer = device.createBuffer({ size: 8, usage: 2 });
+    bridge.setPromiseResultHook((event) => bufferMapResultEvent(event, {
+      variant: 'mapped-bytes',
+      pendingMapGeneration: '1',
+      mode: 2,
+      offset: '0',
+      size: '8',
+      ownedBytes: new Uint8Array(8),
+    }));
+
+    await expect(buffer.mapAsync(2, 0, 8)).resolves.toBeUndefined();
+    const range = buffer.getMappedRange();
+    new Uint8Array(range).set([8, 7, 6, 5, 4, 3, 2, 1]);
+    buffer.unmap();
+
+    const cleanup = bufferLifecycleEncodings(codecs, 'GPUBuffer.unmap').at(-1);
+    if (!cleanup || cleanup.kind !== 'cleanup-v1' || !decodedOwnedBytes) {
+      throw new Error('missing MAP_WRITE cleanup or retained codec view');
+    }
+    expect(cleanup.writeback).toBe(decodedOwnedBytes);
+    expect(Array.from(cleanup.writeback)).toEqual([8, 7, 6, 5, 4, 3, 2, 1]);
+    expect(bridge.mappedRangeDetachAttempts).toEqual([range]);
     binding.revoke();
   });
 
@@ -5350,6 +5552,40 @@ describe('production-private GPUBuffer lifecycle', () => {
     binding.revoke();
   });
 
+  test('fails closed without duplicate detach when the engine returns false or throws', async () => {
+    for (const behavior of ['false', 'throw'] as const) {
+      const bridge = createFakeBridge();
+      const binding = createProductionWebGpuPrivateBinding(
+        bridge,
+        createFakeCodecs(),
+        { enableStateInspection: true },
+      );
+      const device = await requestTestLifecycleDevice(binding);
+      const buffer = device.createBuffer({
+        mappedAtCreation: true,
+        size: 8,
+        usage: 9,
+      });
+      const first = buffer.getMappedRange(0, 4);
+      const second = buffer.getMappedRange(8, 0);
+      bridge.setDetachMappedRangeHook(() => {
+        if (behavior === 'throw') throw new Error('engine detach contradiction');
+        return false;
+      });
+
+      expect(buffer.unmap()).toBeUndefined();
+      expect(buffer.mapState).toBe('unmapped');
+      expect(inspectBinding(binding).current).toMatchObject({
+        active: false,
+        closeReason: 'buffer-mapped-range-detach-contradiction',
+        trackedBufferLifecycleCount: 0,
+      });
+      expect(bridge.mappedRangeDetachAttempts).toEqual([first, second]);
+      binding.revoke();
+      expect(bridge.mappedRangeDetachAttempts).toEqual([first, second]);
+    }
+  });
+
   test('drops retained cleanup on loss and keeps later unmap or destroy local-only', async () => {
     const bridge = createFakeBridge();
     const codecs = createFakeCodecs();
@@ -5389,6 +5625,7 @@ describe('production-private GPUBuffer lifecycle', () => {
     expect(active.mapState).toBe('mapped');
     expect(isDetachedArrayBuffer(activeRange)).toBe(false);
     expect(isDetachedArrayBuffer(destroyedRange)).toBe(false);
+    expect(bridge.mappedRangeDetachAttempts).toHaveLength(0);
 
     const submissionsAfterLoss = bridge.submissions.length;
     const cleanupEncodingsAfterLoss =
@@ -5465,6 +5702,10 @@ describe('production-private GPUBuffer lifecycle', () => {
       expect(destroyedAfterLoss.mapState).toBe('unmapped');
       expect(isDetachedArrayBuffer(activeRange)).toBe(true);
       expect(isDetachedArrayBuffer(destroyedRange)).toBe(true);
+      expect(bridge.mappedRangeDetachAttempts).toEqual([
+        activeRange,
+        destroyedRange,
+      ]);
       expect(inspectBinding(binding).current.trackedBufferLifecycleCount).toBe(0);
     } finally {
       if (previousGlobalThis) {
@@ -5494,6 +5735,10 @@ describe('production-private GPUBuffer lifecycle', () => {
     });
     expect(bridge.submissions).toHaveLength(beforeDestroyedMap);
     binding.revoke();
+    expect(bridge.mappedRangeDetachAttempts).toEqual([
+      activeRange,
+      destroyedRange,
+    ]);
   });
 
   test('marks mapped range leases non-transferable for Ibex structuredClone', async () => {
@@ -5568,7 +5813,9 @@ describe('production-private GPUBuffer lifecycle', () => {
     await expect(device.lost).resolves.toMatchObject({ reason: 'unknown' });
     expect(buffer.mapState).toBe('mapped');
     expect(isDetachedArrayBuffer(range)).toBe(false);
+    expect(bridge.mappedRangeDetachAttempts).toHaveLength(0);
     binding.revoke();
     expect(isDetachedArrayBuffer(range)).toBe(true);
+    expect(bridge.mappedRangeDetachAttempts).toEqual([range]);
   });
 });

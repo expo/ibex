@@ -1451,6 +1451,11 @@ fn main() {
     }
     if std::env::var_os("CARGO_FEATURE_GPU_BRIDGE_TEST_HOOKS").is_some() {
         build.define("IBEX_GPU_BRIDGE_TEST_HOOKS", None);
+        // The mapped-range composition probe verifies that aliases minted by
+        // the private HostFunction are rejected by Hermes' transfer path.
+        // ISerialization is intentionally behind JSI_UNSTABLE; expose that
+        // interface only in test-hook artifacts, never ordinary binaries.
+        build.define("JSI_UNSTABLE", None);
     }
 
     if target_os == "windows" {

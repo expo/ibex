@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-19 (extends the construction-private GPU V2 bridge with engine-backed mapped-range alias minting and matching-key detach, retains the native-owned map completion block without a second copy, rejects ordinary transfer of keyed aliases, and withholds the entire bridge when the pinned Hermes capability is absent; no public issuer, global installation, positive platform edge, or support claim is added)
+**Revised:** 2026-07-19 (composes GPUBuffer mapping with true engine aliases: first aliasing promotes an internal mapped-at-creation source to shared external ownership in place, all aliases are tracked from native mint through one matching-key detach attempt, operation-result bytes have one wrapper carrier while the success receipt resolves undefined, and either compile-time or live-cast engine-capability absence fails finalization closed with rollback; no public issuer, global installation, positive platform edge, or support claim is added)
 **Revised:** 2026-07-19 (hardens the construction-private GPUBuffer lifecycle: retained cleanup, destroyed state, and an existing pending or active mapping fence new maps without service work; all post-WebIDL `mapAsync` failures remain Promise rejections; void cleanup suppresses known non-admission while retaining the exact retry snapshot and closes on ambiguous admission; spontaneous loss discards detached retry snapshots, preserves active views, and makes their later explicit cleanup local-only with private detachment bookkeeping; cleanup moves the existing private MAP_WRITE block without a second full allocation; and Ibex structured clone/ArrayBuffer transfer entry points enforce mapped-range non-transferability through an inaccessible lexical set and captured operations without claiming native Hermes detachment; the embedded codec slot, public issuer, positive CapSec support, ordinary global installation, and support claim remain absent)
 **Revised:** 2026-07-19 (materializes construction-private `GPUBuffer.destroy`, `GPUBuffer.getMappedRange`, `GPUBuffer.mapAsync`, and `GPUBuffer.unmap` over the authenticated existing lifecycle codecs and V2 routes, with wrapper-owned mapped bytes, independent positive map/cleanup generations, generation-fenced cancellation and typed completion, bounded nonoverlapping mapped-range leases, exact MAP_WRITE cleanup, MAP_READ discard, and synchronous detachment on owning cleanup; the embedded codec slot, public issuer, positive CapSec support, ordinary global installation, and support claim remain absent)
 **Revised:** 2026-07-19 (materializes authenticated `GPUDevice.createComputePipeline` and `GPUQueue.writeBuffer` methods inside the construction-private wrapper, adds the `GPUComputePipeline` and existing `GPUComputePassEncoder` interface objects to that gated installation inventory, and consumes distinct positive queue ingress for `writeBuffer` without consuming pending command records; the embedded codec slot, public issuer, positive CapSec support, ordinary global installation, and support claim remain absent)
@@ -819,13 +819,24 @@ and provider generations. `GPUBuffer.usage` and `mapState` are immutable
 wrapper metadata reads. A mapped-at-creation buffer begins with one
 wrapper-owned zeroed WRITE mapping at generation one; an ordinary buffer begins
 `unmapped`. The construction-private wrapper now also materializes the four
-buffer lifecycle methods. `getMappedRange` remains entirely wrapper-local: it
-performs converted alignment, active-extent, nonoverlap, and temporary
-4,096-lease checks before returning and tracking one non-transferable copied
-range. `mapAsync` installs one independently increasing positive pending-map
+buffer lifecycle methods. `getMappedRange` keeps its validation and lease
+bookkeeping wrapper-local: it performs converted alignment, active-extent,
+nonoverlap, and temporary
+4,096-lease checks before asking the construction-private bridge to mint an
+independently detachable engine alias over the retained root view. The wrapper
+records ownership immediately when that native call returns, before inspecting
+the result, so even a malformed alias is offered exactly once to matching-key
+detach during fail-closed cleanup. A mapped-at-creation root begins as an
+ordinary internal `Uint8Array`; the first alias promotes that same allocation
+to shared external ownership in place without copying, changing its address, or
+replacing the source `ArrayBuffer`. Overlapping aliases share writes, although
+the wrapper's WebGPU lease check rejects overlap before a second native mint.
+`mapAsync` installs one independently increasing positive pending-map
 generation before the native call, commits that generation only after
 synchronous service acceptance, and accepts only the matching typed completion
-variant, mode, offset, size, and owned byte extent. Provider failure rejects
+variant, mode, offset, size, and exact owned `Uint8Array` extent. It retains that
+codec view itself as the mapping root rather than copying into a shadow block.
+Provider failure rejects
 `OperationError`, wrapper allocation failure rejects `RangeError`, and late
 cleanup rejects `AbortError`; a stale or mismatched terminal cannot publish an
 active mapping. Destroyed buffers, buffers retaining any cleanup snapshot, and
@@ -838,11 +849,15 @@ A kind-2 receipt rejection is the captured validation terminal for that call
 and is never reinterpreted as an uncaptured-error notification.
 
 `unmap` and `destroy` synchronously cancel the current pending generation,
-detach every issued mapped `ArrayBuffer` through the shared detach helper, and
+consume wrapper authority for every live engine alias before calling the
+matching private detach HostFunction exactly once for each, and
 clear the wrapper mapping state before submitting cleanup. MAP_READ mutations
-are discarded. MAP_WRITE ranges are copied into the wrapper-owned complete
-mapped block; cleanup then moves that private affine block directly, avoiding a
-second full-extent allocation or alias fabrication. Cleanup uses its own
+are discarded. MAP_WRITE alias mutations already share the retained complete
+mapping block; cleanup moves that exact affine root view directly, with no
+range reconciliation, shadow writeback, second full-extent allocation, or alias
+fabrication. A false return or throw from any detach still visits every other
+live alias once, then closes the realm as an engine contradiction without
+retrying an already-consumed key. Cleanup uses its own
 positive per-buffer generation. Known service non-admission is not observable
 as a throw from the void `unmap`/`destroy` methods: it retains the exact
 generation and affine writeback for a later retry while consuming a fresh
@@ -852,28 +867,29 @@ Spontaneous physical device/provider loss rejects pending maps and discards any
 wrapper-detached retry snapshot whose target disappeared, while preserving an
 ordinary already-active mapping until explicit owning cleanup. That later
 `unmap` or `destroy` only detaches and discards local state; it cannot submit
-against the dead target or mint retry authority. Private detachment bookkeeping
-and captured intrinsic operations make that transition independent of the
-app-visible legacy detached-buffer registry, which is observed and published
-only through captured own-descriptor operations and remains a best-effort
-compatibility mirror for the separate Buffer builtin. Map and cleanup
+against the dead target or mint retry authority. Engine matching-key
+detachment makes that transition independent of the app-visible legacy
+detached-buffer registry, which remains only a best-effort compatibility mirror
+for the separate Buffer builtin. Map and cleanup
 generations, active mode/range, native Promise identity, and late terminals are
 all checked against the exact branded buffer generation.
 
-Mapped range copies are tagged in an inaccessible module-lexical
-non-transferable set, queried and populated through captured intrinsic
-operations rather than a realm-global symbol registry or mutable prototype
-lookup. Ibex structured clone rejects both reachable and transfer-list-only
-attempts, and the runtime-installed
-`ArrayBuffer.prototype.transfer` / `transferToFixedLength` fences reject before
-moving or detaching the source. This is wrapper enforcement, not a claim that
-Hermes now exposes true engine-level detachment: the existing tracked/zeroed
-fallback remains where no native transfer intrinsic exists. Copied mapped
-ranges and the construction-private allocation guard therefore remain
-activation blockers alongside the absent native alias/detach and service-ledger
-reservation authorities. These methods remain reachable only from the
-explicitly injected private factory; they add no embedded codec, global, CapSec
-support edge, or platform-support claim.
+Hermes tags every minted alias with the `WebGPUBufferMapping` detach key.
+Ordinary structured-clone transfer rejects before ejection, a keyed alias
+cannot become an alias source, detach with a wrong source or consumed key
+returns false without mutation, and only the private matching-key operation can
+detach it. After validating the native result, the wrapper also mirrors it into
+Ibex's inaccessible non-transferable set so the JS structured-clone
+implementation rejects before entering its legacy transfer fallback; that
+mirror is not detachment or ownership authority. The optional native interface
+is required in both the compiled
+headers and the live runtime UUID cast. Either absent leg withholds the entire
+six-method V2 bridge and fails capability finalization closed; rollback closes
+the allocated realm and releases the retained service. These methods remain
+reachable only from the explicitly injected private factory. True alias and
+detach mechanics remove the earlier copy fallback, but add no embedded codec,
+global, CapSec support edge, service-ledger authority, positive platform edge,
+or WebGPU support claim.
 
 The corpus pins 21 reviewed calls totaling
 49,545,804 resource bytes. A mapped extent records the same backing without a

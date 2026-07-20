@@ -7,7 +7,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 subject="$repo_root/scripts/apply-hermes-patches.sh"
 pinned_commit="ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138"
-reviewed_final_tree="c5589f7ca3d1ec68f9c282c0e4cd5b675f8268b8"
+reviewed_final_tree="a6e9b222128ab97f9b740839e354f8edd357a388"
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/ibex-hermes-patch-test.XXXXXX")"
 trap 'rm -rf "$work"' EXIT

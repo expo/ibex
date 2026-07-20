@@ -1596,6 +1596,13 @@ std::atomic<uint64_t> gGpuV2LastLogicalLossOrder{0};
 std::atomic<uint64_t> gGpuV2LastDetachedLossOrder{0};
 std::atomic<uint64_t> gGpuV2LastDeviceLostReactionOrder{0};
 std::atomic<uint64_t> gGpuV2LastPromiseReactionOrder{0};
+std::atomic<uint64_t> gGpuV2OperationResultPayloadMaterializations{0};
+std::atomic<uint32_t> gGpuV2OperationResultReusedMailboxBacking{0};
+std::atomic<uint32_t> gGpuV2LastReceiptResolvedUndefined{0};
+// 0 = use the compiled/live engine capability, 1 = simulate an artifact
+// without the interface declaration, 2 = simulate a failed live UUID cast.
+// Both negative legs run through the same publication gate used in production.
+std::atomic<uint32_t> gGpuV2MappedArrayBufferGateFailure{0};
 std::atomic<uint32_t> gGpuV2DrainPauseState{0};
 std::atomic<uint32_t> gGpuV2ServiceEntryPauseKind{0};
 std::atomic<uint32_t> gGpuV2ServiceEntryPauseState{0};
@@ -2173,11 +2180,30 @@ void setGpuV2OperationProperties(
 
 facebook::jsi::Object makeGpuV2WrapperEvent(
     facebook::jsi::Runtime& rt,
-    const CopiedGpuEventV2& copied) {
-  const auto& event = copied.event;
+    const ExactGpuServiceEventV2& event,
+    std::vector<uint8_t> payload) {
   facebook::jsi::Object value(rt);
   value.setProperty(rt, "kind", static_cast<double>(event.kind));
-  value.setProperty(rt, "payload", makeUint8Array(rt, copied.payload));
+  const auto* payloadData = payload.data();
+  const size_t payloadSize = payload.size();
+  auto payloadValue = makeUint8Array(rt, std::move(payload));
+#ifdef IBEX_GPU_BRIDGE_TEST_HOOKS
+  if (event.kind == EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2) {
+    gGpuV2OperationResultPayloadMaterializations.fetch_add(
+        1, std::memory_order_seq_cst);
+    const uint8_t* exposedData = nullptr;
+    size_t exposedSize = 0;
+    const auto payloadObject = payloadValue.asObject(rt);
+    gGpuV2OperationResultReusedMailboxBacking.store(
+        extractArrayBufferView(rt, payloadObject, exposedData, exposedSize) &&
+                exposedSize == payloadSize &&
+                (payloadSize == 0 || exposedData == payloadData)
+            ? 1
+            : 0,
+        std::memory_order_seq_cst);
+  }
+#endif
+  value.setProperty(rt, "payload", std::move(payloadValue));
   switch (event.kind) {
     case EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2: {
       const auto& record = event.record.operation_result;
@@ -2395,7 +2421,8 @@ facebook::jsi::Object makeGpuV2WrapperEvent(
 bool deliverGpuV2WrapperEvent(
     ExactGpuRuntimeBindingV2& binding,
     facebook::jsi::Runtime& rt,
-    const CopiedGpuEventV2& copied) noexcept {
+    CopiedGpuEventV2& copied,
+    bool retainPayloadForCaller = false) noexcept {
   if (!binding.wrapper_event_sink) {
     try {
       if (binding.deferred_wrapper_events.size() >= kMaxGpuQueuedEventsV2 ||
@@ -2404,14 +2431,29 @@ bool deliverGpuV2WrapperEvent(
         return false;
       }
       binding.deferred_wrapper_payload_bytes += copied.payload.size();
-      binding.deferred_wrapper_events.push_back(copied);
+      if (retainPayloadForCaller) {
+        binding.deferred_wrapper_events.push_back(copied);
+      } else {
+        CopiedGpuEventV2 deferred;
+        deferred.event = copied.event;
+        deferred.payload = std::move(copied.payload);
+        binding.deferred_wrapper_events.push_back(std::move(deferred));
+      }
       return true;
     } catch (...) {
       return false;
     }
   }
   try {
-    binding.wrapper_event_sink->call(rt, makeGpuV2WrapperEvent(rt, copied));
+    if (retainPayloadForCaller) {
+      binding.wrapper_event_sink->call(
+          rt, makeGpuV2WrapperEvent(rt, copied.event, copied.payload));
+    } else {
+      binding.wrapper_event_sink->call(
+          rt,
+          makeGpuV2WrapperEvent(
+              rt, copied.event, std::move(copied.payload)));
+    }
     return true;
   } catch (...) {
     return false;
@@ -2425,7 +2467,7 @@ bool flushGpuV2WrapperEvents(
     auto copied = std::move(binding.deferred_wrapper_events.front());
     binding.deferred_wrapper_events.pop_front();
     binding.deferred_wrapper_payload_bytes -= copied.payload.size();
-    if (!deliverGpuV2WrapperEvent(binding, rt, std::move(copied))) {
+    if (!deliverGpuV2WrapperEvent(binding, rt, copied)) {
       return false;
     }
   }
@@ -2555,7 +2597,7 @@ void drainGpuMailboxV2(
       }
       mailbox->phase.store(
           GpuMailboxPhaseV2::Closing, std::memory_order_release);
-      if (!deliverGpuV2WrapperEvent(binding, rt, std::move(copied))) {
+      if (!deliverGpuV2WrapperEvent(binding, rt, copied)) {
         return;
       }
       return;
@@ -2565,7 +2607,7 @@ void drainGpuMailboxV2(
     // GPUDevice.lost settlement. Keep it observable by the private wrapper,
     // but do not terminalize any logical device or its pending operations.
     if (event.kind == EXACT_GPU_SERVICE_EVENT_PROVIDER_LOSS_V2) {
-      if (!deliverGpuV2WrapperEvent(binding, rt, std::move(copied))) {
+      if (!deliverGpuV2WrapperEvent(binding, rt, copied)) {
         quarantineProtocolViolation();
         return;
       }
@@ -2584,7 +2626,7 @@ void drainGpuMailboxV2(
       // Lifecycle settlement is distinct from operation settlement. The
       // authenticated semantic service emits one typed terminal for each
       // affected positive operation while cleanup operations remain pending.
-      if (!deliverGpuV2WrapperEvent(binding, rt, std::move(copied))) {
+      if (!deliverGpuV2WrapperEvent(binding, rt, copied)) {
         quarantineProtocolViolation();
         return;
       }
@@ -2602,7 +2644,11 @@ void drainGpuMailboxV2(
     // settling the correlated Promise so a reaction can never observe a
     // carrier result whose object identity is still deferred. A throwing sink
     // quarantines while the receipt remains pending for realm reduction.
-    if (!deliverGpuV2WrapperEvent(binding, rt, copied)) {
+    const bool retainPayloadForReceipt =
+        event.kind == EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2 &&
+        operation->promise_id != 0;
+    if (!deliverGpuV2WrapperEvent(
+            binding, rt, copied, retainPayloadForReceipt)) {
       quarantineProtocolViolation();
       return;
     }
@@ -2617,41 +2663,15 @@ void drainGpuMailboxV2(
       auto receipt = std::move(pending->second);
       binding.pending_receipts.erase(pending);
       if (event.kind == EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2) {
-        const auto& resultRecord = event.record.operation_result;
         try {
-          facebook::jsi::Object result(rt);
-          result.setProperty(
-              rt,
-              "operationInstanceId",
-              gpuV2Uint64String(rt, operation->operation_instance_id));
-          result.setProperty(
-              rt, "promiseId", gpuV2Uint64String(rt, operation->promise_id));
-          result.setProperty(
-              rt,
-              "physicalSequence",
-              gpuV2Uint64String(rt, operation->physical_sequence));
-          result.setProperty(
-              rt,
-              "resultKind",
-              static_cast<double>(resultRecord.result_kind));
-          const bool detachedAlreadyLost =
-              isServiceDetachedAssignedV2(resultRecord.operation);
-          result.setProperty(rt, "detachedAlreadyLost", detachedAlreadyLost);
-          if (detachedAlreadyLost) {
-            result.setProperty(
-                rt,
-                "lossReason",
-                static_cast<double>(EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2));
-            result.setProperty(
-                rt,
-                "backendClass",
-                static_cast<double>(EXACT_GPU_BACKEND_NONE_V2));
-          }
-          result.setProperty(rt, "payload", makeUint8Array(rt, copied.payload));
 #ifdef IBEX_GPU_BRIDGE_TEST_HOOKS
           gGpuV2ResolveCalls.fetch_add(1, std::memory_order_seq_cst);
 #endif
-          receipt.resolve->call(rt, result);
+          // The raw wrapper event is the sole typed result carrier. Promise
+          // fulfillment is only an ordering signal, so mapped payload bytes
+          // have exactly one external ArrayBuffer backing and are never
+          // materialized a second time for an ignored receipt value.
+          receipt.resolve->call(rt, facebook::jsi::Value::undefined());
         } catch (...) {
           rejectGpuV2Receipt(
               rt,
@@ -3005,6 +3025,26 @@ size_t parseGpuV2MappedArrayBufferIndex(
         rt, std::string(label) + " must be an unsigned 32-bit integer");
   }
   return static_cast<size_t>(number);
+}
+
+bool hasGpuV2MappedArrayBufferApi(facebook::jsi::Runtime& rt) noexcept {
+#ifdef IBEX_GPU_BRIDGE_TEST_HOOKS
+  if (gGpuV2MappedArrayBufferGateFailure.load(std::memory_order_seq_cst) == 1) {
+    return false;
+  }
+#endif
+#if !defined(EXACT_HAVE_WEBGPU_MAPPED_ARRAY_BUFFER)
+  (void)rt;
+  return false;
+#else
+#ifdef IBEX_GPU_BRIDGE_TEST_HOOKS
+  if (gGpuV2MappedArrayBufferGateFailure.load(std::memory_order_seq_cst) == 2) {
+    return false;
+  }
+#endif
+  return facebook::jsi::castInterface<
+             facebook::hermes::IExactWebGpuArrayBuffer>(&rt) != nullptr;
+#endif
 }
 
 #if defined(EXACT_HAVE_WEBGPU_MAPPED_ARRAY_BUFFER)
@@ -3749,19 +3789,11 @@ bool exactGpuV2PublishPrivateBridge(ExactHermesRuntime* runtime) {
           GpuMailboxPhaseV2::Live) {
     return false;
   }
-#if !defined(EXACT_HAVE_WEBGPU_MAPPED_ARRAY_BUFFER)
   // The construction-private wrapper includes GPUBuffer mapping methods only
   // when Hermes can mint true aliases and honor WebGPUBufferMapping's detach
   // key. Never substitute copy-and-shadow semantics.
-  return false;
-#endif
   auto& rt = *runtime->runtime;
-#if defined(EXACT_HAVE_WEBGPU_MAPPED_ARRAY_BUFFER)
-  if (facebook::jsi::castInterface<
-          facebook::hermes::IExactWebGpuArrayBuffer>(&rt) == nullptr) {
-    return false;
-  }
-#endif
+  if (!hasGpuV2MappedArrayBufferApi(rt)) return false;
 #if defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
     defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \
     defined(createGpuV2MappedRangeAliasBridgeCall) || \
@@ -4006,6 +4038,12 @@ extern "C" void ibex_test_gpu_v2_reset_observer(void) {
   gGpuV2LastDetachedLossOrder.store(0, std::memory_order_seq_cst);
   gGpuV2LastDeviceLostReactionOrder.store(0, std::memory_order_seq_cst);
   gGpuV2LastPromiseReactionOrder.store(0, std::memory_order_seq_cst);
+  gGpuV2OperationResultPayloadMaterializations.store(
+      0, std::memory_order_seq_cst);
+  gGpuV2OperationResultReusedMailboxBacking.store(
+      0, std::memory_order_seq_cst);
+  gGpuV2LastReceiptResolvedUndefined.store(0, std::memory_order_seq_cst);
+  gGpuV2MappedArrayBufferGateFailure.store(0, std::memory_order_seq_cst);
   gGpuV2DrainPauseState.store(0, std::memory_order_seq_cst);
   gGpuV2ServiceEntryPauseKind.store(0, std::memory_order_seq_cst);
   gGpuV2ServiceEntryPauseState.store(0, std::memory_order_seq_cst);
@@ -4158,6 +4196,22 @@ extern "C" uint64_t ibex_test_gpu_v2_last_device_lost_reaction_order(void) {
 
 extern "C" uint64_t ibex_test_gpu_v2_last_promise_reaction_order(void) {
   return gGpuV2LastPromiseReactionOrder.load(std::memory_order_seq_cst);
+}
+
+extern "C" uint64_t
+ibex_test_gpu_v2_operation_result_payload_materializations(void) {
+  return gGpuV2OperationResultPayloadMaterializations.load(
+      std::memory_order_seq_cst);
+}
+
+extern "C" uint32_t
+ibex_test_gpu_v2_operation_result_reused_mailbox_backing(void) {
+  return gGpuV2OperationResultReusedMailboxBacking.load(
+      std::memory_order_seq_cst);
+}
+
+extern "C" uint32_t ibex_test_gpu_v2_last_receipt_resolved_undefined(void) {
+  return gGpuV2LastReceiptResolvedUndefined.load(std::memory_order_seq_cst);
 }
 
 extern "C" void ibex_test_gpu_v2_pause_after_terminal_pop(void) {
@@ -4365,6 +4419,114 @@ extern "C" int32_t ibex_test_gpu_v2_private_bridge_present(
       : 0;
 }
 
+extern "C" int32_t ibex_test_gpu_v2_mapped_array_buffer_gate(
+    ExactHermesRuntime* runtime) {
+  if (!runtime || !runtime->runtime ||
+      runtime->runtime_thread != std::this_thread::get_id()) {
+    return -1;
+  }
+  return hasGpuV2MappedArrayBufferApi(*runtime->runtime) ? 1 : 0;
+}
+
+extern "C" int32_t ibex_test_gpu_v2_force_mapped_array_buffer_gate_failure(
+    uint32_t failure) {
+  if (failure > 2) return -1;
+  gGpuV2MappedArrayBufferGateFailure.store(failure, std::memory_order_seq_cst);
+  return 0;
+}
+
+extern "C" int32_t ibex_test_gpu_v2_mapped_range_bridge_roundtrip(
+    ExactHermesRuntime* runtime) {
+  if (!runtime || !runtime->runtime ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->gpu_binding_v2 || !runtime->gpu_binding_v2->private_bridge ||
+      !hasGpuV2MappedArrayBufferApi(*runtime->runtime)) {
+    return 0;
+  }
+  try {
+    auto& rt = *runtime->runtime;
+    auto& bridge = *runtime->gpu_binding_v2->private_bridge;
+    auto createAlias =
+        bridge.getPropertyAsFunction(rt, "createMappedRangeAlias");
+    auto detachAlias = bridge.getPropertyAsFunction(rt, "detachMappedRange");
+    auto sourceObject = rt.global()
+                            .getPropertyAsFunction(rt, "ArrayBuffer")
+                            .callAsConstructor(rt, 16)
+                            .getObject(rt);
+    auto source = sourceObject.getArrayBuffer(rt);
+    source.data(rt)[5] = 17;
+    auto aliasObject = createAlias
+                           .callWithThis(rt, bridge, sourceObject, 4, 6)
+                           .getObject(rt);
+    if (!aliasObject.isArrayBuffer(rt)) return 0;
+    auto alias = aliasObject.getArrayBuffer(rt);
+    if (alias.size(rt) != 6 || alias.data(rt)[1] != 17) return 0;
+    alias.data(rt)[2] = 29;
+    if (source.data(rt)[6] != 29) return 0;
+
+    // Exercise composition through the construction-private HostFunction,
+    // rather than only calling Hermes' engine interface directly: overlapping
+    // aliases share the source, while OOB and alias-as-source requests reject.
+    auto overlappingObject = createAlias
+                                 .callWithThis(rt, bridge, sourceObject, 5, 3)
+                                 .getObject(rt);
+    if (!overlappingObject.isArrayBuffer(rt)) return 0;
+    auto overlapping = overlappingObject.getArrayBuffer(rt);
+    if (overlapping.size(rt) != 3 || overlapping.data(rt)[1] != 29) return 0;
+    overlapping.data(rt)[0] = 37;
+    if (source.data(rt)[5] != 37 || alias.data(rt)[1] != 37) return 0;
+
+    bool outOfBoundsRejected = false;
+    try {
+      (void)createAlias.callWithThis(rt, bridge, sourceObject, 15, 2);
+    } catch (...) {
+      outOfBoundsRejected = true;
+    }
+    bool aliasSourceRejected = false;
+    try {
+      (void)createAlias.callWithThis(rt, bridge, aliasObject, 0, 1);
+    } catch (...) {
+      aliasSourceRejected = true;
+    }
+
+#if defined(JSI_UNSTABLE)
+    bool transferRejected = false;
+    auto* serialization =
+        facebook::jsi::castInterface<facebook::jsi::ISerialization>(&rt);
+    if (!serialization) return 0;
+    auto transfers = facebook::jsi::Array::createWithElements(
+        rt, facebook::jsi::Value(rt, alias));
+    try {
+      (void)serialization->serializeWithTransfer(
+          facebook::jsi::Value(rt, alias), transfers);
+    } catch (...) {
+      transferRejected = true;
+    }
+#else
+    const bool transferRejected = false;
+#endif
+
+    const auto detached =
+        detachAlias.callWithThis(rt, bridge, aliasObject);
+    const auto duplicate =
+        detachAlias.callWithThis(rt, bridge, aliasObject);
+    const auto wrongSource =
+        detachAlias.callWithThis(rt, bridge, sourceObject);
+    const auto overlappingDetached =
+        detachAlias.callWithThis(rt, bridge, overlappingObject);
+    return detached.isBool() && detached.getBool() && duplicate.isBool() &&
+            !duplicate.getBool() && wrongSource.isBool() &&
+            !wrongSource.getBool() && overlappingDetached.isBool() &&
+            overlappingDetached.getBool() && outOfBoundsRejected &&
+            aliasSourceRejected && transferRejected && source.size(rt) == 16 &&
+            source.data(rt)[5] == 37 && source.data(rt)[6] == 29
+        ? 1
+        : 0;
+  } catch (...) {
+    return 0;
+  }
+}
+
 extern "C" size_t ibex_test_gpu_v2_pending_receipts(
     ExactHermesRuntime* runtime) {
   if (!runtime || runtime->runtime_thread != std::this_thread::get_id() ||
@@ -4453,14 +4615,17 @@ extern "C" int32_t ibex_test_gpu_v2_submit(
           1,
           [](facebook::jsi::Runtime&,
              const facebook::jsi::Value&,
-             const facebook::jsi::Value*,
-             size_t) {
+             const facebook::jsi::Value* args,
+             size_t count) {
             const uint64_t order =
                 gGpuV2ObserverOrderClock.fetch_add(
                     1, std::memory_order_seq_cst) +
                 1;
             gGpuV2LastPromiseReactionOrder.store(
                 order, std::memory_order_seq_cst);
+            gGpuV2LastReceiptResolvedUndefined.store(
+                count == 1 && args[0].isUndefined() ? 1 : 0,
+                std::memory_order_seq_cst);
             return facebook::jsi::Value::undefined();
           });
       auto then = promiseObject.getPropertyAsFunction(*runtime->runtime, "then");
