@@ -31,8 +31,8 @@
     "operationSetSha256": "fb12107ac42d8495067e50f096b4d6c4aed9e3f2af64d6d147f9c99efcaa6687",
     "semanticProgramSetSha256": "a9b9703d59b3b906ba888ff33fac85313fafc2785f0dd364e6b5648a6ef46ad6",
     "runtimeRoutingSha256": "d7cf4c201fb58a0a05cd65cd50b0eb3eb2a64cc17c4724e0079e8359b3e63bf7",
-    "webgpuCVocabularySha256": "cfc2607b87939ddc180a9e6359ee55ec5f8f934ab095af14b197290d687fe7ef",
-    "projectionPayloadSha256": "e77c1c5c622cda33eac713b9a746bd2c459d055829f2ded1dc99f90ca12f3f44"
+    "webgpuCVocabularySha256": "2d05f921b51319f36ce13755e26087d1c3df76f4bea3387463da405bcdab983f",
+    "projectionPayloadSha256": "434b3208fe3d9bbca412324617a22e5a0098c190396d82d2c29cac57626c9d47"
   },
   "payload": {
     "profileId": "exact-webgpu-v1-draft",
@@ -44,7 +44,7 @@
       "publicGlobalStatus": "not-installed",
       "nativeBindingStatus": "not-installed",
       "wrapperCodeStatus": "private-generated-not-publicly-installed",
-      "wireCodecStatus": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-native-codec-not-installed",
+      "wireCodecStatus": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed",
       "webIdlConversionStatus": "generated-injection-only-not-installed",
       "nativeServiceDecoderStatus": "not-installed",
       "semanticServiceStatus": "not-installed",
@@ -224,8 +224,8 @@
     "wireEnvelope": {
       "serviceCall": "ExactGpuSemanticCallV2",
       "serviceEvent": "ExactGpuServiceEventV2",
-      "payloadEncoding": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-operation-selected-tagged-binary-v1",
-      "layoutStatus": "authenticated-abi-v2-carrier-with-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-native-codec-not-installed",
+      "payloadEncoding": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-operation-selected-tagged-binary-v1",
+      "layoutStatus": "authenticated-abi-v2-carrier-with-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed",
       "currentAbiReadiness": "abi-v2-carrier-installed-runtime-install-still-blocked",
       "graduationTarget": "native-decoder-semantic-service-embedded-codec-arming-capsec-and-global-install-required",
       "carrierStatus": {
@@ -15098,7 +15098,7 @@
         "wedgedProviderDisposition": "force-loss-and-quarantine-generation",
         "redactedDiagnostic": "gpu-provider-shutdown-deadline-exceeded-v1"
       },
-      "webgpuCVocabularyDigest": "cfc2607b87939ddc180a9e6359ee55ec5f8f934ab095af14b197290d687fe7ef",
+      "webgpuCVocabularyDigest": "2d05f921b51319f36ce13755e26087d1c3df76f4bea3387463da405bcdab983f",
       "operationSetDigest": "fb12107ac42d8495067e50f096b4d6c4aed9e3f2af64d6d147f9c99efcaa6687",
       "semanticProgramDigest": "a9b9703d59b3b906ba888ff33fac85313fafc2785f0dd364e6b5648a6ef46ad6",
       "runtimeRoutingDigest": "d7cf4c201fb58a0a05cd65cd50b0eb3eb2a64cc17c4724e0079e8359b3e63bf7",

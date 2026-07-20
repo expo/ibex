@@ -2,11 +2,11 @@
 // Do not edit in Ibex; the normalized Exact authorities own these identities.
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  "projection": "e77c1c5c622cda33eac713b9a746bd2c459d055829f2ded1dc99f90ca12f3f44",
+  "projection": "434b3208fe3d9bbca412324617a22e5a0098c190396d82d2c29cac57626c9d47",
   "operationSet": "fb12107ac42d8495067e50f096b4d6c4aed9e3f2af64d6d147f9c99efcaa6687",
   "semanticProgramSet": "a9b9703d59b3b906ba888ff33fac85313fafc2785f0dd364e6b5648a6ef46ad6",
   "runtimeRouting": "d7cf4c201fb58a0a05cd65cd50b0eb3eb2a64cc17c4724e0079e8359b3e63bf7",
-  "webgpuCVocabulary": "cfc2607b87939ddc180a9e6359ee55ec5f8f934ab095af14b197290d687fe7ef"
+  "webgpuCVocabulary": "2d05f921b51319f36ce13755e26087d1c3df76f4bea3387463da405bcdab983f"
 });
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({
   "semanticProjection": "286fad19fe97a8a4ff6769223b49f00ea3f3e4a8514e60043f1e4fca51c9e9e5",
