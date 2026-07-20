@@ -1,0 +1,102 @@
+{
+  "schema": "ibex/webgpu-render-pipeline-conversion-fixtures/1",
+  "source": {
+    "typegpuVersion": "0.11.9",
+    "exactSemanticJoinSha256": "3a4f9df11b928d03097e994fcc6aa005c3bbde5898aca2bb0fa49772587249d3",
+    "projectionSha256": "8c10180c96b699793dd9dea7dcc6a04fd7196e26a055980125c1f432d812a3fe",
+    "projectionCanonicalization": "recursive-key-sorted-json-utf8",
+    "purpose": "Source-shape and materialized post-WebIDL default fixtures for the four authenticated Exact TypeGPU render-pipeline cohorts"
+  },
+  "materializedDefaults": [
+    "vertex.constants",
+    "vertex.buffers",
+    "fragment.constants",
+    "multisample",
+    "primitive",
+    "fragment.targets[0].writeMask"
+  ],
+  "sharedOmissions": [
+    "vertex.entryPoint",
+    "fragment.entryPoint",
+    "depthStencil",
+    "primitive.stripIndexFormat"
+  ],
+  "rows": [
+    {
+      "workload": "GeneticTextureUtility",
+      "label": "",
+      "sourceVertexBuffersPresence": "omitted",
+      "sourcePrimitivePresence": "present",
+      "primitive": {
+        "topology": "triangle-list"
+      },
+      "targetFormat": "rgba8unorm"
+    },
+    {
+      "workload": "GeneticTrack",
+      "label": "trackPipeline",
+      "sourceVertexBuffersPresence": "present",
+      "vertexBuffers": [],
+      "sourcePrimitivePresence": "omitted",
+      "targetFormat": "bgra8unorm"
+    },
+    {
+      "workload": "GeneticCar",
+      "label": "carPipeline",
+      "sourceVertexBuffersPresence": "present",
+      "vertexBuffers": [
+        {
+          "arrayStride": 40,
+          "attributes": [
+            {
+              "format": "float32x2",
+              "offset": 0,
+              "shaderLocation": 0
+            },
+            {
+              "format": "float32",
+              "offset": 8,
+              "shaderLocation": 1
+            },
+            {
+              "format": "uint32",
+              "offset": 12,
+              "shaderLocation": 2
+            },
+            {
+              "format": "float32",
+              "offset": 16,
+              "shaderLocation": 3
+            }
+          ],
+          "stepMode": "instance"
+        }
+      ],
+      "sourcePrimitivePresence": "present",
+      "primitive": {
+        "topology": "triangle-strip"
+      },
+      "targetFormat": "bgra8unorm",
+      "blend": {
+        "alpha": {
+          "dstFactor": "one-minus-src-alpha",
+          "operation": "add",
+          "srcFactor": "one"
+        },
+        "color": {
+          "dstFactor": "one-minus-src-alpha",
+          "operation": "add",
+          "srcFactor": "one"
+        }
+      }
+    },
+    {
+      "workload": "JellySlider",
+      "label": "pipeline",
+      "sourceVertexBuffersPresence": "present",
+      "vertexBuffers": [],
+      "sourcePrimitivePresence": "omitted",
+      "targetFormat": "bgra8unorm"
+    }
+  ]
+}

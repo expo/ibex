@@ -1,10 +1,10 @@
 {
   "outputDispositionDatasetSchema": "ibex/capsec-output-dispositions/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256-V7J0-btgopk7uCHP38uLR-8iSOxTrpfj-D_cFOvxwhQ",
+  "catalogKeyDigest": "sha256-QRVmpzpNE1iB6Tp3YP0TI_g7yh-st775Y8G5I4JoF0k",
   "evidence": {
     "status": "unpromotable",
-    "reason": "The output corpus remains unpromotable: one native module-marker surface account and three inherited-intrinsic alias surface accounts are unresolved, and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes all three account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations."
+    "reason": "The output corpus remains unpromotable: one native module-marker surface account and three inherited-intrinsic alias surface accounts are unresolved; the construction-private WebGPU program contributes 54 additional unresolved accounts (two callback ingresses, seven private bridge methods, and 45 operation routes) while public installation and platform support remain absent; and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes these account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations."
   },
   "dispositions": [
     "absent",
@@ -50342,6 +50342,57 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.begin.app.bundle.evaluation.v1.0heml9g",
+        "output": "[[return]]",
+        "alias": "ex_hermes_begin_app_bundle_evaluation_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.begin.embedder.capabilities.v1.0e96o0g",
+        "output": "[[return]]",
+        "alias": "ex_hermes_begin_embedder_capabilities_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.begin.gpu.canvas.app.bundle.v1.1ny5zud",
+        "output": "[[return]]",
+        "alias": "ex_hermes_begin_gpu_canvas_app_bundle_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.bytecode.version.1ay7fmv",
         "output": "[[return]]",
         "alias": "ex_hermes_bytecode_version",
@@ -50379,6 +50430,23 @@
         "surfaceId": "surface.host.abi.ex.hermes.cancel.structured.work.target.1sdm041",
         "output": "[[return]]",
         "alias": "ex_hermes_cancel_structured_work_target",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.classify.prepared.native.startup.v1.0aj7l67",
+        "output": "[[return]]",
+        "alias": "ex_hermes_classify_prepared_native_startup_v1",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -50648,6 +50716,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.complete.gpu.decoded.image.v1.0b51h0a",
+        "output": "[[return]]",
+        "alias": "ex_hermes_complete_gpu_decoded_image_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.create.04wgtwz",
         "output": "[[return]]",
         "alias": "ex_hermes_create",
@@ -50821,6 +50906,23 @@
         "surfaceId": "surface.host.abi.ex.hermes.debugger.set.breakpoint.1dotu6v",
         "output": "[[return]]",
         "alias": "ex_hermes_debugger_set_breakpoint",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.deliver.gpu.canvas.attachment.receipt.v1.0v946lb",
+        "output": "[[return]]",
+        "alias": "ex_hermes_deliver_gpu_canvas_attachment_receipt_v1",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -51059,6 +51161,74 @@
         "surfaceId": "surface.host.abi.ex.hermes.eval.1t7nlsx",
         "output": "out:value",
         "alias": "ex_hermes_eval",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.eval.gpu.canvas.app.bundle.immediate.v1.0xwvp9s",
+        "output": "[[return]]",
+        "alias": "ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.eval.gpu.canvas.app.bundle.immediate.v1.0xwvp9s",
+        "output": "out:error",
+        "alias": "ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.eval.gpu.canvas.app.bundle.with.prelude.immediate.v1.1c9miel",
+        "output": "[[return]]",
+        "alias": "ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.eval.gpu.canvas.app.bundle.with.prelude.immediate.v1.1c9miel",
+        "output": "out:error",
+        "alias": "ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -52552,9 +52722,60 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.finalize.embedder.capabilities.v1.0x08s3n",
+        "output": "[[return]]",
+        "alias": "ex_hermes_finalize_embedder_capabilities_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.finish.app.bundle.evaluation.v1.1ss4yws",
+        "output": "[[return]]",
+        "alias": "ex_hermes_finish_app_bundle_evaluation_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.finish.bootstrap.11ahb91",
         "output": "[[return]]",
         "alias": "ex_hermes_finish_bootstrap",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.finish.gpu.canvas.app.bundle.v1.1xpcpkd",
+        "output": "[[return]]",
+        "alias": "ex_hermes_finish_gpu_canvas_app_bundle_v1",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -52589,6 +52810,108 @@
         "surfaceId": "surface.host.abi.ex.hermes.get.heap.info.0sv0nxd",
         "output": "[[return]]",
         "alias": "ex_hermes_get_heap_info",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.gpu.decoded.image.abi.version.v1.0insuqi",
+        "output": "[[return]]",
+        "alias": "ex_hermes_gpu_decoded_image_abi_version_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.gpu.decoded.image.descriptor.size.v1.0gfsf8c",
+        "output": "[[return]]",
+        "alias": "ex_hermes_gpu_decoded_image_descriptor_size_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.gpu.provider.abi.version.0x7nnjz",
+        "output": "[[return]]",
+        "alias": "ex_hermes_gpu_provider_abi_version",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.gpu.provider.abi.version.v2.1rrvsxc",
+        "output": "[[return]]",
+        "alias": "ex_hermes_gpu_provider_abi_version_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v1.0zmd32n",
+        "output": "[[return]]",
+        "alias": "ex_hermes_gpu_provider_descriptor_size_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v2.0zwcorm",
+        "output": "[[return]]",
+        "alias": "ex_hermes_gpu_provider_descriptor_size_v2",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -53402,6 +53725,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.quarantine.runtime.v1.104iqhs",
+        "output": "[[return]]",
+        "alias": "ex_hermes_quarantine_runtime_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.resume.structured.session.0q4sn5x",
         "output": "[[return]]",
         "alias": "ex_hermes_resume_structured_session",
@@ -53725,6 +54065,57 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.run.prepared.app.v1.12n10zc",
+        "output": "[[return]]",
+        "alias": "ex_hermes_run_prepared_app_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.run.prepared.app.v1.12n10zc",
+        "output": "out:error",
+        "alias": "ex_hermes_run_prepared_app_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.runtime.is.quarantined.v1.0eo02vr",
+        "output": "[[return]]",
+        "alias": "ex_hermes_runtime_is_quarantined_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.runtime.nonce.0sqhs3l",
         "output": "[[return]]",
         "alias": "ex_hermes_runtime_nonce",
@@ -53745,6 +54136,23 @@
         "surfaceId": "surface.host.abi.ex.hermes.schedule.watchdog.heartbeat.for.generation.1tz4x4i",
         "output": "callback:callback/0",
         "alias": "ex_hermes_schedule_watchdog_heartbeat_for_generation",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.seal.armed.shared.runtime.globals.v1.1gs1iq6",
+        "output": "[[return]]",
+        "alias": "ex_hermes_seal_armed_shared_runtime_globals_v1",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -53963,6 +54371,57 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.gpu.decoded.image.provider.v1.17z20ln",
+        "output": "[[return]]",
+        "alias": "ex_hermes_set_gpu_decoded_image_provider_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.gpu.provider.v1.15ll1cc",
+        "output": "[[return]]",
+        "alias": "ex_hermes_set_gpu_provider_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.gpu.provider.v2.16fjuf9",
+        "output": "[[return]]",
+        "alias": "ex_hermes_set_gpu_provider_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.set.host.call.16xhko5",
         "output": "callback:callback/0",
         "alias": "ex_hermes_set_host_call",
@@ -54147,6 +54606,40 @@
         "normalizedValue": "absent"
       },
       "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.set.module.sync.callback.0c126e2.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-KowjGOHArws_Jat_1nd4CiucC_Pp05sjwv2Tv0xaY_w, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.stage.prepared.native.startup.v1.1a6m6ld",
+        "output": "[[return]]",
+        "alias": "ex_hermes_stage_prepared_native_startup_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.stage.prepared.native.startup.v1.1a6m6ld",
+        "output": "out:error",
+        "alias": "ex_hermes_stage_prepared_native_startup_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
     },
     {
       "key": {
@@ -55102,6 +55595,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.verify.prepared.native.startup.absent.v1.064gzo2",
+        "output": "[[return]]",
+        "alias": "ex_hermes_verify_prepared_native_startup_absent_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.host.armed.bootstrap.compatibility.flags.1m94svg",
         "output": "[[return]]",
         "alias": "ex_host_armed_bootstrap_compatibility_flags",
@@ -55136,9 +55646,77 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.host.authorize.embedder.capability.set.0c3to9p",
+        "output": "[[return]]",
+        "alias": "ex_host_authorize_embedder_capability_set",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.host.authorize.exact.endowment.035a1se",
         "output": "[[return]]",
         "alias": "ex_host_authorize_exact_endowment",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.authorize.exact.gpu.provider.1lavehd",
+        "output": "[[return]]",
+        "alias": "ex_host_authorize_exact_gpu_provider",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.authorize.exact.gpu.provider.v2.0p7bkxe",
+        "output": "[[return]]",
+        "alias": "ex_host_authorize_exact_gpu_provider_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.authorize.exact.gpu.provider.v2.0p7bkxe",
+        "output": "out:authority_digest",
+        "alias": "ex_host_authorize_exact_gpu_provider_v2",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -55326,6 +55904,91 @@
         "surfaceId": "surface.host.abi.ex.host.build.exact.armed.embedder.artifacts.0ec6i9m",
         "output": "[[return]]",
         "alias": "ex_host_build_exact_armed_embedder_artifacts",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.build.exact.experimental.webgpu.pre1a.armed.embedder.artifacts.1rzd21y",
+        "output": "[[return]]",
+        "alias": "ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.build.exact.gpu.armed.embedder.artifacts.0pk4s1p",
+        "output": "[[return]]",
+        "alias": "ex_host_build_exact_gpu_armed_embedder_artifacts",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.capture.exact.gpu.authority.context.v2.1il17lt",
+        "output": "[[return]]",
+        "alias": "ex_host_capture_exact_gpu_authority_context_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.capture.exact.gpu.authority.context.v2.1il17lt",
+        "output": "out:authority_session_id",
+        "alias": "ex_host_capture_exact_gpu_authority_context_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.capture.exact.gpu.authority.context.v2.1il17lt",
+        "output": "out:digest",
+        "alias": "ex_host_capture_exact_gpu_authority_context_v2",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -55581,6 +56244,57 @@
         "surfaceId": "surface.host.abi.ex.host.evaluate.typed.decision.0qfg4sy",
         "output": "[[return]]",
         "alias": "ex_host_evaluate_typed_decision",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.exact.gpu.authority.session.api.v2.12651ze",
+        "output": "[[return]]",
+        "alias": "ex_host_exact_gpu_authority_session_api_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.exact.gpu.authority.session.requested.v2.1qhv1j2",
+        "output": "[[return]]",
+        "alias": "ex_host_exact_gpu_authority_session_requested_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.force.retire.exact.gpu.authority.session.v2.04a1p2h",
+        "output": "[[return]]",
+        "alias": "ex_host_force_retire_exact_gpu_authority_session_v2",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -56737,6 +57451,23 @@
         "surfaceId": "surface.host.abi.ex.host.install.armed.0zuu8pe",
         "output": "[[return]]",
         "alias": "ex_host_install_armed",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.install.armed.experimental.webgpu.pre1a.1vyupem",
+        "output": "[[return]]",
+        "alias": "ex_host_install_armed_experimental_webgpu_pre1a",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -76794,6 +77525,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.native.op.global.createimagebitmap.0rbailr",
+        "output": "[[value]]",
+        "alias": "global:createImageBitmap",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.native.op.global.crypto.05lvgvq",
         "output": "[[return]]",
         "alias": "global:Crypto",
@@ -84600,6 +85348,533 @@
         "surfaceId": "surface.native.op.global.global.1ur9eoc",
         "output": "[[value]]",
         "alias": "global:global",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpu.1ui4rqn",
+        "output": "[[value]]",
+        "alias": "global:GPU",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuadapter.14eu3zq",
+        "output": "[[value]]",
+        "alias": "global:GPUAdapter",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpubindgrouplayout.0pjs9xd",
+        "output": "[[value]]",
+        "alias": "global:GPUBindGroupLayout",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpubuffer.1vy1rid",
+        "output": "[[value]]",
+        "alias": "global:GPUBuffer",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpubufferusage.1aqx9u0",
+        "output": "[[value]]",
+        "alias": "global:GPUBufferUsage",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpucanvascontext.0mtodaa",
+        "output": "[[value]]",
+        "alias": "global:GPUCanvasContext",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpucolorwrite.0i5fm61",
+        "output": "[[value]]",
+        "alias": "global:GPUColorWrite",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpucommandbuffer.1d4ltly",
+        "output": "[[value]]",
+        "alias": "global:GPUCommandBuffer",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpucommandencoder.07kskj8",
+        "output": "[[value]]",
+        "alias": "global:GPUCommandEncoder",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpucomputepassencoder.1hyirez",
+        "output": "[[value]]",
+        "alias": "global:GPUComputePassEncoder",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpucomputepipeline.1buodqe",
+        "output": "[[value]]",
+        "alias": "global:GPUComputePipeline",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpudevice.0lrubnp",
+        "output": "[[value]]",
+        "alias": "global:GPUDevice",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpudevicelostinfo.1lenyin",
+        "output": "[[value]]",
+        "alias": "global:GPUDeviceLostInfo",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuerror.0c29ikf",
+        "output": "[[value]]",
+        "alias": "global:GPUError",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuinternalerror.000fb0w",
+        "output": "[[value]]",
+        "alias": "global:GPUInternalError",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpumapmode.132t0bs",
+        "output": "[[value]]",
+        "alias": "global:GPUMapMode",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuoutofmemoryerror.1ahnb3r",
+        "output": "[[value]]",
+        "alias": "global:GPUOutOfMemoryError",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpupipelinelayout.0a068mr",
+        "output": "[[value]]",
+        "alias": "global:GPUPipelineLayout",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuqueue.038r0jq",
+        "output": "[[value]]",
+        "alias": "global:GPUQueue",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpurenderpassencoder.0wzq9oi",
+        "output": "[[value]]",
+        "alias": "global:GPURenderPassEncoder",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpurenderpipeline.1uzysnh",
+        "output": "[[value]]",
+        "alias": "global:GPURenderPipeline",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpusampler.1u62ynx",
+        "output": "[[value]]",
+        "alias": "global:GPUSampler",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpushadermodule.0hsy4ja",
+        "output": "[[value]]",
+        "alias": "global:GPUShaderModule",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpushaderstage.1gts084",
+        "output": "[[value]]",
+        "alias": "global:GPUShaderStage",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpusupportedfeatures.1u2zxh0",
+        "output": "[[value]]",
+        "alias": "global:GPUSupportedFeatures",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpusupportedlimits.0vlaq5r",
+        "output": "[[value]]",
+        "alias": "global:GPUSupportedLimits",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gputexture.1cenb66",
+        "output": "[[value]]",
+        "alias": "global:GPUTexture",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gputextureusage.17o0v49",
+        "output": "[[value]]",
+        "alias": "global:GPUTextureUsage",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gputextureview.10piij3",
+        "output": "[[value]]",
+        "alias": "global:GPUTextureView",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuuncapturederrorevent.08sacdo",
+        "output": "[[value]]",
+        "alias": "global:GPUUncapturedErrorEvent",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuvalidationerror.18jez7a",
+        "output": "[[value]]",
+        "alias": "global:GPUValidationError",
         "mode": "all",
         "sourceKind": "native-op",
         "returnVariant": "default",
@@ -92913,6 +94188,23 @@
         "surfaceId": "surface.native.op.global.navigator.0aqnh6o",
         "output": "[[value]]",
         "alias": "global:navigator",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.navigator.gpu.0k3b5ao",
+        "output": "[[value]]",
+        "alias": "global:navigator.gpu",
         "mode": "all",
         "sourceKind": "native-op",
         "returnVariant": "default",
@@ -107768,6 +109060,40 @@
     },
     {
       "key": {
+        "surfaceId": "surface.native.op.ibexcapturegpucanvasruntimeintegration.0suajp6",
+        "output": "[[return]]",
+        "alias": "__ibexCaptureGpuCanvasRuntimeIntegration",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.ibexcapturegpunativebridge.1no4kru",
+        "output": "[[return]]",
+        "alias": "__ibexCaptureGpuNativeBridge",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.native.op.ibexcompartmentbaselinefinalized.124fmzn",
         "output": "[[value]]",
         "alias": "__ibexCompartmentBaselineFinalized",
@@ -108907,12 +110233,12 @@
     }
   ],
   "counts": {
-    "catalogRows": 6405,
-    "dispositionRows": 6405,
+    "catalogRows": 6483,
+    "dispositionRows": 6483,
     "byDisposition": {
       "absent": 152,
       "closed": 28,
-      "non-path": 6077,
+      "non-path": 6155,
       "private-native-path": 5,
       "refused": 12,
       "reserved-constant": 1,

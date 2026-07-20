@@ -5117,6 +5117,9 @@ fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Valu
         "ex_hermes_finish_bootstrap" => {
             returned_number(unsafe { ex_hermes_finish_bootstrap(runtime.raw) })
         }
+        "ex_hermes_seal_armed_shared_runtime_globals_v1" => returned_number(unsafe {
+            ex_hermes_seal_armed_shared_runtime_globals_v1(runtime.raw)
+        }),
         "ex_hermes_gc" => {
             unsafe { ex_hermes_gc(runtime.raw) };
             returned_undefined()

@@ -144,9 +144,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_857);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_475);
-    expect(recipes.summary.unresolvedFixtures).toBe(21_382);
+    expect(recipes.summary.requiredFixtures).toBe(23_815);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_469);
+    expect(recipes.summary.unresolvedFixtures).toBe(21_346);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -242,9 +242,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_742);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_119);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_623);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_700);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_327);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_373);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -704,7 +704,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(2_922);
+    expect(rationaleOnly).toHaveLength(2_862);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -713,12 +713,12 @@ describe("exact-target CapSec executable recipes", () => {
         ]),
       ),
     ).toEqual({
-      "attribution-missing-deny": 510,
-      "generation-recheck": 510,
-      "principal-restore": 510,
-      "snapshot-mismatch-deny": 510,
-      "cannot-widen-authority": 441,
-      "post-lockdown-invariant": 441,
+      "attribution-missing-deny": 512,
+      "generation-recheck": 512,
+      "principal-restore": 512,
+      "snapshot-mismatch-deny": 512,
+      "cannot-widen-authority": 407,
+      "post-lockdown-invariant": 407,
     });
     expect(
       rationaleOnly.every(

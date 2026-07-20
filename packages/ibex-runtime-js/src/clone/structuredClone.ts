@@ -7,7 +7,11 @@
  */
 
 import { DOMException, createDataCloneError } from '../events/DOMException';
-import { isDetachedArrayBuffer, markDetachedArrayBuffer } from '../arraybuffer-detach';
+import {
+  isDetachedArrayBuffer,
+  isNonTransferableArrayBuffer,
+  markDetachedArrayBuffer,
+} from '../arraybuffer-detach';
 import { Blob as ExactBlob } from '../blob/Blob';
 
 // Lazy imports to break circular dependency:
@@ -118,6 +122,14 @@ export function structuredClone<T>(
     if (transferable instanceof ArrayBuffer && isDetachedArrayBuffer(transferable)) {
       throw createDataCloneError(
         'An ArrayBuffer is detached and could not be transferred.'
+      );
+    }
+    if (
+      transferable instanceof ArrayBuffer &&
+      isNonTransferableArrayBuffer(transferable)
+    ) {
+      throw createDataCloneError(
+        'This ArrayBuffer is non-transferable.'
       );
     }
     if (transferable && typeof transferable === 'object') {

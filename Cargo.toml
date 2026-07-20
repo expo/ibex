@@ -59,6 +59,8 @@ getrandom = "0.2"
 rusqlite = { version = "0.31", features = ["bundled", "column_decltype", "hooks"] }
 
 # Module resolution (Node/ESM)
+# `authenticated_module_resolve_options` disables ambient NODE_PATH lookup via
+# `ResolveOptions::node_path`, which was added in oxc_resolver 11.19.1.
 oxc_resolver = "=11.24.2"
 oxc_ast = "=0.140.0"
 oxc_ast_visit = "=0.140.0"
@@ -150,6 +152,19 @@ host-http-server = []
 # recipe harness. The production decision path is unchanged; the observer is
 # inert until a test explicitly scopes one terminal branch.
 capsec-conformance-observer = []
+# Compiles the optional, provider-independent Exact GPU service registration
+# seam. The public version/query/install ABI remains present without this
+# feature and deterministically reports unsupported; no wgpu dependency is
+# added. With an authenticated V2 provider, runtime bootstrap may publish only
+# the source-reviewed wrapper globals; this does not advertise platform support.
+# @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
+webgpu-binding = []
+# Test-only visibility into the private GPU bridge and receipt mailbox. This
+# feature is intentionally separate from both `webgpu-binding` and the CapSec
+# conformance observer so ordinary feature-on builds expose no observer ABI.
+# Bridge tests enable both features explicitly; keeping this independent also
+# lets the feature-off matrix exercise construction-capture failure paths.
+gpu-bridge-test-hooks = []
 openssl-crypto = ["dep:openssl-sys"]
 # Retained as a CLI scheduling profile switch. The callback symbol itself is
 # always supplied by the library; the CLI registers a wake hook at runtime so

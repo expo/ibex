@@ -2,7 +2,7 @@
   "rootGlobalDispositionManifestSchema": "ibex/root-global-disposition-manifest/1",
   "profile": "ibex/capsec/1",
   "status": "enforced-by-armed-live-sweep",
-  "sourceDigest": "sha256-tSzzZxpYZ1QmeXISq1X2rMUrmSYeedgJmUM_Gfh8Ilw",
+  "sourceDigest": "sha256-heF2hn5RQh5R5lx7qLxVCp9eBo8huMN2Q7-N-3REqoY",
   "sweep": {
     "roots": [
       "globalThis"
@@ -778,6 +778,7 @@
       "surface.native.op.global.countqueuingstrategy.symbol.tostringtag.0f14jk5",
       "surface.native.op.global.createexternalizablestring.19yj3au",
       "surface.native.op.global.createexternalizabletwobytestring.1n1gg90",
+      "surface.native.op.global.createimagebitmap.0rbailr",
       "surface.native.op.global.crypto.05lvgvq",
       "surface.native.op.global.crypto.1l70l5i",
       "surface.native.op.global.crypto.getrandomvalues.1d0f6cx",
@@ -1228,6 +1229,37 @@
       "surface.native.op.global.gc.0dj0o95",
       "surface.native.op.global.generatorfunction.05wtx3w",
       "surface.native.op.global.global.1ur9eoc",
+      "surface.native.op.global.gpu.1ui4rqn",
+      "surface.native.op.global.gpuadapter.14eu3zq",
+      "surface.native.op.global.gpubindgrouplayout.0pjs9xd",
+      "surface.native.op.global.gpubuffer.1vy1rid",
+      "surface.native.op.global.gpubufferusage.1aqx9u0",
+      "surface.native.op.global.gpucanvascontext.0mtodaa",
+      "surface.native.op.global.gpucolorwrite.0i5fm61",
+      "surface.native.op.global.gpucommandbuffer.1d4ltly",
+      "surface.native.op.global.gpucommandencoder.07kskj8",
+      "surface.native.op.global.gpucomputepassencoder.1hyirez",
+      "surface.native.op.global.gpucomputepipeline.1buodqe",
+      "surface.native.op.global.gpudevice.0lrubnp",
+      "surface.native.op.global.gpudevicelostinfo.1lenyin",
+      "surface.native.op.global.gpuerror.0c29ikf",
+      "surface.native.op.global.gpuinternalerror.000fb0w",
+      "surface.native.op.global.gpumapmode.132t0bs",
+      "surface.native.op.global.gpuoutofmemoryerror.1ahnb3r",
+      "surface.native.op.global.gpupipelinelayout.0a068mr",
+      "surface.native.op.global.gpuqueue.038r0jq",
+      "surface.native.op.global.gpurenderpassencoder.0wzq9oi",
+      "surface.native.op.global.gpurenderpipeline.1uzysnh",
+      "surface.native.op.global.gpusampler.1u62ynx",
+      "surface.native.op.global.gpushadermodule.0hsy4ja",
+      "surface.native.op.global.gpushaderstage.1gts084",
+      "surface.native.op.global.gpusupportedfeatures.1u2zxh0",
+      "surface.native.op.global.gpusupportedlimits.0vlaq5r",
+      "surface.native.op.global.gputexture.1cenb66",
+      "surface.native.op.global.gputextureusage.17o0v49",
+      "surface.native.op.global.gputextureview.10piij3",
+      "surface.native.op.global.gpuuncapturederrorevent.08sacdo",
+      "surface.native.op.global.gpuvalidationerror.18jez7a",
       "surface.native.op.global.headers.1a963tj",
       "surface.native.op.global.headers.append.1mbwaor",
       "surface.native.op.global.headers.count.1hdc6mi",
@@ -1718,6 +1750,7 @@
       "surface.native.op.global.messageport.symbol.binding.structuredclonetransfersymbol.0q1lfok",
       "surface.native.op.global.messageport.symbol.tostringtag.1opls8b",
       "surface.native.op.global.navigator.0aqnh6o",
+      "surface.native.op.global.navigator.gpu.0k3b5ao",
       "surface.native.op.global.ok.06w1n7d",
       "surface.native.op.global.performance.19v50zv",
       "surface.native.op.global.performance.1rh3iej",
@@ -2582,6 +2615,8 @@
       "surface.native.op.hostcall.0q81rao",
       "surface.native.op.hostcallasync.0sg4x10",
       "surface.native.op.ibexbarepackagename.0duyjc3",
+      "surface.native.op.ibexcapturegpucanvasruntimeintegration.0suajp6",
+      "surface.native.op.ibexcapturegpunativebridge.1no4kru",
       "surface.native.op.ibexcompartmentbaselinefinalized.124fmzn",
       "surface.native.op.ibexcompartmentregistryready.09cm8o6",
       "surface.native.op.ibexendowraw.004oyaj",
@@ -3223,41 +3258,6 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.asyncfunction.224676dff7f26546",
-      "observedKey": "native-op:global:AsyncFunction",
-      "registryEdgeId": "surface.native.op.global.asyncfunction.12527a5",
-      "branch": {
-        "id": "windows",
-        "routes": [
-          "hermes-intrinsic-windows-source-patched-c1f3df89055e-84bc50a29f72"
-        ],
-        "sourceRefs": [
-          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-c1f3df89055e0791e636aac0fbee262134192ca52cf3f1188ca68c908f0f7e4d",
-          "scripts/install-windows-hermes.ps1#hermes-windows-",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
-          "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
-        ],
-        "targetVariant": "windows",
-        "activation": "intrinsic-reference-only"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "AsyncFunction"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "source-derived",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
       "installId": "root-global.asyncfunction.a704ea86dddd989a",
       "observedKey": "native-op:global:AsyncFunction",
       "registryEdgeId": "surface.native.op.global.asyncfunction.12527a5",
@@ -3298,13 +3298,48 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.asyncfunction.e561d43b8e5f8824",
+      "installId": "root-global.asyncfunction.d922872f99be9e43",
+      "observedKey": "native-op:global:AsyncFunction",
+      "registryEdgeId": "surface.native.op.global.asyncfunction.12527a5",
+      "branch": {
+        "id": "windows",
+        "routes": [
+          "hermes-intrinsic-windows-source-patched-bcd4d101dbe7-84bc50a29f72"
+        ],
+        "sourceRefs": [
+          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-bcd4d101dbe751cd719ea502393948df592e094b8f61ca7f993b105ae77fe368",
+          "scripts/install-windows-hermes.ps1#hermes-windows-",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
+        ],
+        "targetVariant": "windows",
+        "activation": "intrinsic-reference-only"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "AsyncFunction"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "source-derived",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.asyncfunction.ebb5d6089c3bf27b",
       "observedKey": "native-op:global:AsyncFunction",
       "registryEdgeId": "surface.native.op.global.asyncfunction.12527a5",
       "branch": {
         "id": "default",
         "routes": [
-          "hermes-intrinsic-source-patched-29cbb561c089-84bc50a29f72"
+          "hermes-intrinsic-source-patched-a9ee5ad0b15c-84bc50a29f72"
         ],
         "sourceRefs": [
           "patches/hermes/0001-domain-package-principal.patch#patch-content",
@@ -3318,13 +3353,14 @@
           "patches/hermes/0009-raw-throw-capture.patch#patch-content",
           "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
           "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-29cbb561c0894a35dd2f5f471e4b809de37d763d4f62fe8861c0c84283473868",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-a9ee5ad0b15cb4667d0c952f6ed36a8a03e6da967ac7ad81b1966eba7e832a97",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -16956,6 +16992,37 @@
       "nativeImplementation": false
     },
     {
+      "installId": "root-global.createimagebitmap.3f6ed00f28b13e37",
+      "observedKey": "native-op:global:createImageBitmap",
+      "registryEdgeId": "surface.native.op.global.createimagebitmap.0rbailr",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:createImageBitmap"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-decoded-image"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "createImageBitmap"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
       "installId": "root-global.crypto.d8a2297d2c5983f7",
       "observedKey": "native-op:global:Crypto",
       "registryEdgeId": "surface.native.op.global.crypto.05lvgvq",
@@ -21922,17 +21989,17 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.eval.03202cae8768a131",
+      "installId": "root-global.eval.3484d335d891e00b",
       "observedKey": "native-op:global:eval",
       "registryEdgeId": "surface.native.op.global.eval.018ogi5",
       "branch": {
         "id": "windows",
         "routes": [
-          "hermes-intrinsic-windows-source-patched-c1f3df89055e-84bc50a29f72"
+          "hermes-intrinsic-windows-source-patched-bcd4d101dbe7-84bc50a29f72"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-c1f3df89055e0791e636aac0fbee262134192ca52cf3f1188ca68c908f0f7e4d",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-bcd4d101dbe751cd719ea502393948df592e094b8f61ca7f993b105ae77fe368",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
@@ -21957,13 +22024,13 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.eval.15feb3fde4fe3dca",
+      "installId": "root-global.eval.b89857424e99884b",
       "observedKey": "native-op:global:eval",
       "registryEdgeId": "surface.native.op.global.eval.018ogi5",
       "branch": {
         "id": "default",
         "routes": [
-          "hermes-intrinsic-source-patched-29cbb561c089-84bc50a29f72",
+          "hermes-intrinsic-source-patched-a9ee5ad0b15c-84bc50a29f72",
           "legacy-bootstrap"
         ],
         "sourceRefs": [
@@ -21978,13 +22045,14 @@
           "patches/hermes/0009-raw-throw-capture.patch#patch-content",
           "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
           "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-29cbb561c0894a35dd2f5f471e4b809de37d763d4f62fe8861c0c84283473868",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-a9ee5ad0b15cb4667d0c952f6ed36a8a03e6da967ac7ad81b1966eba7e832a97",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/bootstrap/compat-polyfills.js#eval",
           "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -26400,7 +26468,7 @@
           "src/engine/hermes_runtime.cc#jsi-global:exact.invokeHostAsync"
         ],
         "targetVariant": "default",
-        "activation": "post-bootstrap-embedder-endowment"
+        "activation": "authenticated-exact-host-ingress"
       },
       "property": {
         "root": {
@@ -48987,38 +49055,22 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.function.19cfe6ff54b7fbfd",
+      "installId": "root-global.function.0f6223d17956aada",
       "observedKey": "native-op:global:Function",
       "registryEdgeId": "surface.native.op.global.function.132ixh3",
       "branch": {
-        "id": "default",
+        "id": "windows",
         "routes": [
-          "hermes-intrinsic-source-patched-29cbb561c089-84bc50a29f72"
+          "hermes-intrinsic-windows-source-patched-bcd4d101dbe7-84bc50a29f72"
         ],
         "sourceRefs": [
-          "patches/hermes/0001-domain-package-principal.patch#patch-content",
-          "patches/hermes/0002-frame-attribution-helper.patch#patch-content",
-          "patches/hermes/0003-capability-bridge-exports.patch#patch-content",
-          "patches/hermes/0004-native-compartment-globals.patch#patch-content",
-          "patches/hermes/0005-native-compartment-refinements.patch#patch-content",
-          "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
-          "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
-          "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
-          "patches/hermes/0009-raw-throw-capture.patch#patch-content",
-          "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
-          "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
-          "scripts/apply-hermes-patches.sh#patches",
-          "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
-          "scripts/build-hermes.sh#apply-hermes-patches.sh",
-          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
-          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
-          "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-29cbb561c0894a35dd2f5f471e4b809de37d763d4f62fe8861c0c84283473868",
-          "scripts/hermes-version.sh#ibex_hermes_patch_digest",
+          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-bcd4d101dbe751cd719ea502393948df592e094b8f61ca7f993b105ae77fe368",
+          "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
-        "targetVariant": "default",
+        "targetVariant": "windows",
         "activation": "always"
       },
       "property": {
@@ -49078,22 +49130,39 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.function.796efcb3403881b7",
+      "installId": "root-global.function.e34d10f6c7e1b26c",
       "observedKey": "native-op:global:Function",
       "registryEdgeId": "surface.native.op.global.function.132ixh3",
       "branch": {
-        "id": "windows",
+        "id": "default",
         "routes": [
-          "hermes-intrinsic-windows-source-patched-c1f3df89055e-84bc50a29f72"
+          "hermes-intrinsic-source-patched-a9ee5ad0b15c-84bc50a29f72"
         ],
         "sourceRefs": [
-          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-c1f3df89055e0791e636aac0fbee262134192ca52cf3f1188ca68c908f0f7e4d",
-          "scripts/install-windows-hermes.ps1#hermes-windows-",
+          "patches/hermes/0001-domain-package-principal.patch#patch-content",
+          "patches/hermes/0002-frame-attribution-helper.patch#patch-content",
+          "patches/hermes/0003-capability-bridge-exports.patch#patch-content",
+          "patches/hermes/0004-native-compartment-globals.patch#patch-content",
+          "patches/hermes/0005-native-compartment-refinements.patch#patch-content",
+          "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
+          "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
+          "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+          "patches/hermes/0009-raw-throw-capture.patch#patch-content",
+          "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
+          "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
+          "scripts/apply-hermes-patches.sh#patches",
+          "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
+          "scripts/build-hermes.sh#apply-hermes-patches.sh",
+          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
+          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
+          "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-a9ee5ad0b15cb4667d0c952f6ed36a8a03e6da967ac7ad81b1966eba7e832a97",
+          "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
-        "targetVariant": "windows",
+        "targetVariant": "default",
         "activation": "always"
       },
       "property": {
@@ -49144,17 +49213,69 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.generatorfunction.872699ee7a4a8f63",
+      "installId": "root-global.generatorfunction.37a4c1ebd646e153",
+      "observedKey": "native-op:global:GeneratorFunction",
+      "registryEdgeId": "surface.native.op.global.generatorfunction.05wtx3w",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "hermes-intrinsic-source-patched-a9ee5ad0b15c-84bc50a29f72"
+        ],
+        "sourceRefs": [
+          "patches/hermes/0001-domain-package-principal.patch#patch-content",
+          "patches/hermes/0002-frame-attribution-helper.patch#patch-content",
+          "patches/hermes/0003-capability-bridge-exports.patch#patch-content",
+          "patches/hermes/0004-native-compartment-globals.patch#patch-content",
+          "patches/hermes/0005-native-compartment-refinements.patch#patch-content",
+          "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
+          "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
+          "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+          "patches/hermes/0009-raw-throw-capture.patch#patch-content",
+          "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
+          "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
+          "scripts/apply-hermes-patches.sh#patches",
+          "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
+          "scripts/build-hermes.sh#apply-hermes-patches.sh",
+          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
+          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
+          "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-a9ee5ad0b15cb4667d0c952f6ed36a8a03e6da967ac7ad81b1966eba7e832a97",
+          "scripts/hermes-version.sh#ibex_hermes_patch_digest",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
+        ],
+        "targetVariant": "default",
+        "activation": "intrinsic-reference-only"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GeneratorFunction"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "source-derived",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.generatorfunction.9c28dcb7bd078bba",
       "observedKey": "native-op:global:GeneratorFunction",
       "registryEdgeId": "surface.native.op.global.generatorfunction.05wtx3w",
       "branch": {
         "id": "windows",
         "routes": [
-          "hermes-intrinsic-windows-source-patched-c1f3df89055e-84bc50a29f72"
+          "hermes-intrinsic-windows-source-patched-bcd4d101dbe7-84bc50a29f72"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-c1f3df89055e0791e636aac0fbee262134192ca52cf3f1188ca68c908f0f7e4d",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-bcd4d101dbe751cd719ea502393948df592e094b8f61ca7f993b105ae77fe368",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -49200,57 +49321,6 @@
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
         ],
         "targetVariant": "android",
-        "activation": "intrinsic-reference-only"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "GeneratorFunction"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "source-derived",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.generatorfunction.efa2faced4aec2b2",
-      "observedKey": "native-op:global:GeneratorFunction",
-      "registryEdgeId": "surface.native.op.global.generatorfunction.05wtx3w",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "hermes-intrinsic-source-patched-29cbb561c089-84bc50a29f72"
-        ],
-        "sourceRefs": [
-          "patches/hermes/0001-domain-package-principal.patch#patch-content",
-          "patches/hermes/0002-frame-attribution-helper.patch#patch-content",
-          "patches/hermes/0003-capability-bridge-exports.patch#patch-content",
-          "patches/hermes/0004-native-compartment-globals.patch#patch-content",
-          "patches/hermes/0005-native-compartment-refinements.patch#patch-content",
-          "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
-          "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
-          "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
-          "patches/hermes/0009-raw-throw-capture.patch#patch-content",
-          "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
-          "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
-          "scripts/apply-hermes-patches.sh#patches",
-          "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
-          "scripts/build-hermes.sh#apply-hermes-patches.sh",
-          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
-          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
-          "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-29cbb561c0894a35dd2f5f471e4b809de37d763d4f62fe8861c0c84283473868",
-          "scripts/hermes-version.sh#ibex_hermes_patch_digest",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
-          "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
-        ],
-        "targetVariant": "default",
         "activation": "intrinsic-reference-only"
       },
       "property": {
@@ -49317,6 +49387,967 @@
           "path": []
         }
       ],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpu.a6b8c056d21898de",
+      "observedKey": "native-op:global:GPU",
+      "registryEdgeId": "surface.native.op.global.gpu.1ui4rqn",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPU"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPU"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpuadapter.21c51cf01f7be50f",
+      "observedKey": "native-op:global:GPUAdapter",
+      "registryEdgeId": "surface.native.op.global.gpuadapter.14eu3zq",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUAdapter"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUAdapter"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpubindgrouplayout.f831387501a09019",
+      "observedKey": "native-op:global:GPUBindGroupLayout",
+      "registryEdgeId": "surface.native.op.global.gpubindgrouplayout.0pjs9xd",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBindGroupLayout"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUBindGroupLayout"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpubuffer.1355dfe6eb630989",
+      "observedKey": "native-op:global:GPUBuffer",
+      "registryEdgeId": "surface.native.op.global.gpubuffer.1vy1rid",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBuffer"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUBuffer"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpubufferusage.2139daf28fb3e32d",
+      "observedKey": "native-op:global:GPUBufferUsage",
+      "registryEdgeId": "surface.native.op.global.gpubufferusage.1aqx9u0",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBufferUsage"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUBufferUsage"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpucanvascontext.d1f53d6eab1dd7b1",
+      "observedKey": "native-op:global:GPUCanvasContext",
+      "registryEdgeId": "surface.native.op.global.gpucanvascontext.0mtodaa",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCanvasContext"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUCanvasContext"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpucolorwrite.5520f4d8c5972474",
+      "observedKey": "native-op:global:GPUColorWrite",
+      "registryEdgeId": "surface.native.op.global.gpucolorwrite.0i5fm61",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUColorWrite"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUColorWrite"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpucommandbuffer.4a626a58d52c5d7b",
+      "observedKey": "native-op:global:GPUCommandBuffer",
+      "registryEdgeId": "surface.native.op.global.gpucommandbuffer.1d4ltly",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCommandBuffer"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUCommandBuffer"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpucommandencoder.73368e0ab5d5301e",
+      "observedKey": "native-op:global:GPUCommandEncoder",
+      "registryEdgeId": "surface.native.op.global.gpucommandencoder.07kskj8",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCommandEncoder"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUCommandEncoder"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpucomputepassencoder.5401df1b47c9be78",
+      "observedKey": "native-op:global:GPUComputePassEncoder",
+      "registryEdgeId": "surface.native.op.global.gpucomputepassencoder.1hyirez",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUComputePassEncoder"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUComputePassEncoder"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpucomputepipeline.4c8719f683cc0d89",
+      "observedKey": "native-op:global:GPUComputePipeline",
+      "registryEdgeId": "surface.native.op.global.gpucomputepipeline.1buodqe",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUComputePipeline"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUComputePipeline"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpudevice.e7cc2c037ffc8f25",
+      "observedKey": "native-op:global:GPUDevice",
+      "registryEdgeId": "surface.native.op.global.gpudevice.0lrubnp",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUDevice"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUDevice"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpudevicelostinfo.e542fbd2658b4fa0",
+      "observedKey": "native-op:global:GPUDeviceLostInfo",
+      "registryEdgeId": "surface.native.op.global.gpudevicelostinfo.1lenyin",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUDeviceLostInfo"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUDeviceLostInfo"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpuerror.2cdb1268231bef9f",
+      "observedKey": "native-op:global:GPUError",
+      "registryEdgeId": "surface.native.op.global.gpuerror.0c29ikf",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUError"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUError"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpuinternalerror.c662bc33bf4daf11",
+      "observedKey": "native-op:global:GPUInternalError",
+      "registryEdgeId": "surface.native.op.global.gpuinternalerror.000fb0w",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUInternalError"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUInternalError"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpumapmode.bd6e635ab9914717",
+      "observedKey": "native-op:global:GPUMapMode",
+      "registryEdgeId": "surface.native.op.global.gpumapmode.132t0bs",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUMapMode"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUMapMode"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpuoutofmemoryerror.ee8a54e505a3de2d",
+      "observedKey": "native-op:global:GPUOutOfMemoryError",
+      "registryEdgeId": "surface.native.op.global.gpuoutofmemoryerror.1ahnb3r",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUOutOfMemoryError"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUOutOfMemoryError"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpupipelinelayout.7feffc1138c52377",
+      "observedKey": "native-op:global:GPUPipelineLayout",
+      "registryEdgeId": "surface.native.op.global.gpupipelinelayout.0a068mr",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUPipelineLayout"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUPipelineLayout"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpuqueue.9dc6c95f53632a2f",
+      "observedKey": "native-op:global:GPUQueue",
+      "registryEdgeId": "surface.native.op.global.gpuqueue.038r0jq",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUQueue"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUQueue"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpurenderpassencoder.d5b9bab7fed92c4f",
+      "observedKey": "native-op:global:GPURenderPassEncoder",
+      "registryEdgeId": "surface.native.op.global.gpurenderpassencoder.0wzq9oi",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPURenderPassEncoder"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPURenderPassEncoder"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpurenderpipeline.b073b691539534c2",
+      "observedKey": "native-op:global:GPURenderPipeline",
+      "registryEdgeId": "surface.native.op.global.gpurenderpipeline.1uzysnh",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPURenderPipeline"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPURenderPipeline"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpusampler.aa1de2aa98b91c31",
+      "observedKey": "native-op:global:GPUSampler",
+      "registryEdgeId": "surface.native.op.global.gpusampler.1u62ynx",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSampler"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUSampler"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpushadermodule.5bf78cd55f91ca17",
+      "observedKey": "native-op:global:GPUShaderModule",
+      "registryEdgeId": "surface.native.op.global.gpushadermodule.0hsy4ja",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUShaderModule"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUShaderModule"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpushaderstage.cff1899e92ed12b6",
+      "observedKey": "native-op:global:GPUShaderStage",
+      "registryEdgeId": "surface.native.op.global.gpushaderstage.1gts084",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUShaderStage"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUShaderStage"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpusupportedfeatures.6064826433be0298",
+      "observedKey": "native-op:global:GPUSupportedFeatures",
+      "registryEdgeId": "surface.native.op.global.gpusupportedfeatures.1u2zxh0",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSupportedFeatures"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUSupportedFeatures"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpusupportedlimits.ebfe7554c3a8d0a2",
+      "observedKey": "native-op:global:GPUSupportedLimits",
+      "registryEdgeId": "surface.native.op.global.gpusupportedlimits.0vlaq5r",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSupportedLimits"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUSupportedLimits"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gputexture.b5b9bfe4c10c3191",
+      "observedKey": "native-op:global:GPUTexture",
+      "registryEdgeId": "surface.native.op.global.gputexture.1cenb66",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTexture"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUTexture"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gputextureusage.2e1c5d048ad1a153",
+      "observedKey": "native-op:global:GPUTextureUsage",
+      "registryEdgeId": "surface.native.op.global.gputextureusage.17o0v49",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTextureUsage"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUTextureUsage"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gputextureview.533d5a22ded465a5",
+      "observedKey": "native-op:global:GPUTextureView",
+      "registryEdgeId": "surface.native.op.global.gputextureview.10piij3",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTextureView"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUTextureView"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpuuncapturederrorevent.b1e79a228362d938",
+      "observedKey": "native-op:global:GPUUncapturedErrorEvent",
+      "registryEdgeId": "surface.native.op.global.gpuuncapturederrorevent.08sacdo",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUUncapturedErrorEvent"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUUncapturedErrorEvent"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpuvalidationerror.bc0c70bf7ab3a4e5",
+      "observedKey": "native-op:global:GPUValidationError",
+      "registryEdgeId": "surface.native.op.global.gpuvalidationerror.18jez7a",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUValidationError"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUValidationError"
+        },
+        "path": []
+      },
+      "aliases": [],
       "installPhase": "shared-runtime",
       "privateConsumer": null,
       "disposition": "exposed",
@@ -51156,6 +52187,68 @@
       "liveExpectation": "absent",
       "resolution": "static",
       "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.ibexcapturegpucanvasruntimeintegration.c28b61a390d47f30",
+      "observedKey": "native-op:__ibexCaptureGpuCanvasRuntimeIntegration",
+      "registryEdgeId": "surface.native.op.ibexcapturegpucanvasruntimeintegration.0suajp6",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/runtime-internal.ts#beginExactGpuCanvasAppBundle:globals:__ibexCaptureGpuCanvasRuntimeIntegration"
+        ],
+        "targetVariant": "all",
+        "activation": "shared-runtime-bundle"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__ibexCaptureGpuCanvasRuntimeIntegration"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": "exact-app-bundle-evaluation-transaction",
+      "disposition": "private",
+      "traversal": "descend",
+      "liveExpectation": "absent",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.ibexcapturegpunativebridge.8b602be668decc92",
+      "observedKey": "native-op:__ibexCaptureGpuNativeBridge",
+      "registryEdgeId": "surface.native.op.ibexcapturegpunativebridge.1no4kru",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/native-bridge.ts#installNativeGpuBridgeCapture:globals:__ibexCaptureGpuNativeBridge"
+        ],
+        "targetVariant": "all",
+        "activation": "shared-runtime-bundle"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__ibexCaptureGpuNativeBridge"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": "authenticated-webgpu-provider-construction-handoff",
+      "disposition": "private",
+      "traversal": "descend",
+      "liveExpectation": "absent",
+      "resolution": "static",
+      "nativeImplementation": false
     },
     {
       "installId": "root-global.ibexcompartmentbaselinefinalized.0f72ba360c92490f",
@@ -68250,6 +69343,42 @@
       "installPhase": "shared-runtime",
       "privateConsumer": null,
       "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.navigator.gpu.d738610e82710d93",
+      "observedKey": "native-op:global:navigator.gpu",
+      "registryEdgeId": "surface.native.op.global.navigator.gpu.0k3b5ao",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:navigator.gpu"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "navigator"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "gpu"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
       "traversal": "descend",
       "liveExpectation": "reachable",
       "resolution": "static",
@@ -102337,10 +103466,10 @@
     }
   ],
   "counts": {
-    "installBranches": 2722,
-    "logicalGlobals": 2574,
-    "registryEdges": 2574,
-    "sealedOrPrivate": 346,
-    "permittedReachable": 2376
+    "installBranches": 2757,
+    "logicalGlobals": 2609,
+    "registryEdges": 2609,
+    "sealedOrPrivate": 348,
+    "permittedReachable": 2409
   }
 }

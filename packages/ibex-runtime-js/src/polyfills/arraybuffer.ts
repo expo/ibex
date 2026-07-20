@@ -6,7 +6,81 @@
  * - ArrayBuffer.prototype.transferToFixedLength()
  */
 
-import { markDetachedArrayBuffer } from "../arraybuffer-detach";
+import {
+  isNonTransferableArrayBuffer,
+  markDetachedArrayBuffer,
+} from "../arraybuffer-detach";
+
+const ARRAY_BUFFER_TRANSFER_FENCE = Symbol.for(
+  'exact.arrayBufferTransferFence',
+);
+const ENGINE_ARRAY_BUFFER_TRANSFER =
+  typeof (ArrayBuffer.prototype as any).transfer === 'function'
+    ? (ArrayBuffer.prototype as any).transfer as (
+      this: ArrayBuffer,
+      newLength?: number,
+    ) => ArrayBuffer
+    : undefined;
+const ENGINE_ARRAY_BUFFER_TRANSFER_TO_FIXED_LENGTH =
+  typeof (ArrayBuffer.prototype as any).transferToFixedLength === 'function'
+    ? (ArrayBuffer.prototype as any).transferToFixedLength as (
+      this: ArrayBuffer,
+      newLength?: number,
+    ) => ArrayBuffer
+    : undefined;
+
+function installTransferFence(
+  name: 'transfer' | 'transferToFixedLength',
+  nativeTransfer: ((this: ArrayBuffer, newLength?: number) => ArrayBuffer) |
+    undefined,
+): void {
+  const current = (ArrayBuffer.prototype as any)[name];
+  if (typeof current === 'function' && current[ARRAY_BUFFER_TRANSFER_FENCE]) {
+    return;
+  }
+  const fencedTransfer = function (
+    this: ArrayBuffer,
+    newLength?: number,
+  ): ArrayBuffer {
+    if (!(this instanceof ArrayBuffer)) {
+      throw new TypeError(`${name} called on non-ArrayBuffer`);
+    }
+    if (isNonTransferableArrayBuffer(this)) {
+      throw new TypeError('This ArrayBuffer is non-transferable');
+    }
+    if (nativeTransfer) {
+      return newLength === undefined
+        ? nativeTransfer.call(this)
+        : nativeTransfer.call(this, newLength);
+    }
+
+    const oldLength = this.byteLength;
+    const targetLength = newLength !== undefined ? Number(newLength) : oldLength;
+    if (targetLength < 0 || !Number.isFinite(targetLength)) {
+      throw new RangeError('Invalid array buffer length');
+    }
+    const newBuffer = new ArrayBuffer(targetLength);
+    const copyLength = Math.min(oldLength, targetLength);
+    if (copyLength > 0) {
+      const source = new Uint8Array(this, 0, copyLength);
+      const target = new Uint8Array(newBuffer, 0, copyLength);
+      target.set(source);
+    }
+    // On engines without a native transfer intrinsic this remains Ibex's
+    // tracked/zeroed fallback; it does not claim native Hermes detachment.
+    markDetachedArrayBuffer(this);
+    return newBuffer;
+  };
+  Object.defineProperty(fencedTransfer, ARRAY_BUFFER_TRANSFER_FENCE, {
+    value: true,
+  });
+  Object.defineProperty(ArrayBuffer.prototype, name, {
+    value: fencedTransfer,
+    writable: true,
+    enumerable: false,
+    configurable: true,
+  });
+}
 
 export function installArrayBufferPolyfills(): void {
   const NativeArrayBuffer = ArrayBuffer;
@@ -98,84 +172,13 @@ export function installArrayBufferPolyfills(): void {
     });
   }
 
-  // --------------------------------------------------------------------------
-  // ArrayBuffer.prototype.transfer (ES2024)
-  // Creates a new ArrayBuffer with the same byte content, optionally resized,
-  // and detaches (neuters) the original. Since we cannot truly detach in pure
-  // JS, we zero the original buffer's bytes to simulate detachment.
-  // --------------------------------------------------------------------------
-  if (typeof ArrayBuffer.prototype.transfer !== 'function') {
-    Object.defineProperty(ArrayBuffer.prototype, 'transfer', {
-      value: function transfer(this: ArrayBuffer, newLength?: number): ArrayBuffer {
-        if (!(this instanceof ArrayBuffer)) {
-          throw new TypeError('transfer called on non-ArrayBuffer');
-        }
-
-        const oldLength = this.byteLength;
-        const targetLength = newLength !== undefined ? Number(newLength) : oldLength;
-
-        if (targetLength < 0 || !Number.isFinite(targetLength)) {
-          throw new RangeError('Invalid array buffer length');
-        }
-
-        const newBuffer = new ArrayBuffer(targetLength);
-        const copyLength = Math.min(oldLength, targetLength);
-
-        if (copyLength > 0) {
-          const source = new Uint8Array(this, 0, copyLength);
-          const target = new Uint8Array(newBuffer, 0, copyLength);
-          target.set(source);
-        }
-
-        markDetachedArrayBuffer(this);
-
-        return newBuffer;
-      },
-      writable: true,
-      enumerable: false,
-      configurable: true,
-    });
-  }
-
-  // --------------------------------------------------------------------------
-  // ArrayBuffer.prototype.transferToFixedLength (ES2024)
-  // Same as transfer, but the result is always a non-resizable ArrayBuffer.
-  // In our polyfill, all ArrayBuffers are fixed-length, so this is identical
-  // to transfer.
-  // --------------------------------------------------------------------------
-  if (typeof ArrayBuffer.prototype.transferToFixedLength !== 'function') {
-    Object.defineProperty(ArrayBuffer.prototype, 'transferToFixedLength', {
-      value: function transferToFixedLength(
-        this: ArrayBuffer,
-        newLength?: number,
-      ): ArrayBuffer {
-        if (!(this instanceof ArrayBuffer)) {
-          throw new TypeError('transferToFixedLength called on non-ArrayBuffer');
-        }
-
-        const oldLength = this.byteLength;
-        const targetLength = newLength !== undefined ? Number(newLength) : oldLength;
-
-        if (targetLength < 0 || !Number.isFinite(targetLength)) {
-          throw new RangeError('Invalid array buffer length');
-        }
-
-        const newBuffer = new ArrayBuffer(targetLength);
-        const copyLength = Math.min(oldLength, targetLength);
-
-        if (copyLength > 0) {
-          const source = new Uint8Array(this, 0, copyLength);
-          const target = new Uint8Array(newBuffer, 0, copyLength);
-          target.set(source);
-        }
-
-        markDetachedArrayBuffer(this);
-
-        return newBuffer;
-      },
-      writable: true,
-      enumerable: false,
-      configurable: true,
-    });
-  }
+  // Fence both engine-native and fallback transfer entry points. The runtime
+  // installs these wrappers before app code can capture an unfenced native
+  // method, while internal detachment continues to use its separately captured
+  // engine intrinsic.
+  installTransferFence('transfer', ENGINE_ARRAY_BUFFER_TRANSFER);
+  installTransferFence(
+    'transferToFixedLength',
+    ENGINE_ARRAY_BUFFER_TRANSFER_TO_FIXED_LENGTH,
+  );
 }

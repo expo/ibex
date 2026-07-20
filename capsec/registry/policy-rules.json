@@ -532,6 +532,13 @@
       "subset": "fs.path.subset.v1"
     },
     {
+      "id": "gpu.operation.v1",
+      "selector": "gpu.operation.selector.v1",
+      "occurrence": "gpu.operation.occurrence.v1",
+      "matcher": "gpu.operation.matcher.v1",
+      "subset": "gpu.operation.subset.v1"
+    },
+    {
       "id": "lifecycle.exit.v1",
       "selector": "lifecycle.exit.selector.v1",
       "occurrence": "lifecycle.exit.occurrence.v1",

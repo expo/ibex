@@ -153,6 +153,9 @@
           "enum": [
             "always",
             "android-platform-state",
+            "authenticated-exact-host-ingress",
+            "authenticated-webgpu-decoded-image",
+            "authenticated-webgpu-provider",
             "baseline-input",
             "bun-compat-shared-or-legacy-fallback",
             "bun-compat-shared-runtime",
@@ -163,7 +166,6 @@
             "shared-runtime-bundle",
             "legacy-runtime-fallback",
             "openssl-crypto",
-            "post-bootstrap-embedder-endowment",
             "post-bootstrap-lazy",
             "web-streams-polyfill",
             "windows-native"

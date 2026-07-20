@@ -144,10 +144,10 @@ describe("source-bound Host ABI output templates", () => {
     const legacyScalarAuthored = scalarAuthored.filter(({ edge }) =>
       legacyNames.has(edge.surface.name),
     );
-    expect(ordinaryScalarAuthored).toHaveLength(221);
+    expect(ordinaryScalarAuthored).toHaveLength(223);
     expect(
       new Set(ordinaryScalarAuthored.map(({ edge }) => edge.surface.name)).size,
-    ).toBe(216);
+    ).toBe(218);
     expect(legacyScalarAuthored.length).toBe(
       catalog.rows.filter(
         (row) =>
@@ -174,14 +174,14 @@ describe("source-bound Host ABI output templates", () => {
       "native-hermes-authenticated-session-runtime": 10,
       "rust-host-bounded-basic": 26,
       "rust-host-authenticated-typed-authority": 17,
-      "rust-host-authenticated-stateful-output": 10,
+      "rust-host-authenticated-stateful-output": 11,
       "rust-host-fs-sandbox": 25,
       "rust-host-authenticated-vfs-output": 5,
       "rust-host-authenticated-javascript-absence": 5,
       "rust-host-http-live-server": 24,
       "rust-host-sqlite-memory": 13,
       "rust-host-terminal-inert": 8,
-      "native-hermes-diagnostic-runtime": 24,
+      "native-hermes-diagnostic-runtime": 25,
       "native-hermes-bounded-dispatch-runtime": 3,
       "native-hermes-module-runner-runtime": 25,
       "native-hermes-owned-runtime-teardown": 1,

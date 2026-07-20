@@ -434,6 +434,9 @@ extern "C" int32_t ex_host_authorize_exact_endowment(
     const char* operation_manifest_digest,
     const uint32_t* operation_ids,
     size_t operation_count);
+extern "C" int32_t ex_host_authorize_embedder_capability_set(
+    uint64_t host_context_id,
+    uint32_t installed_flags);
 extern "C" int32_t ex_host_typed_dynamic_grant(uint64_t module_id,
                                                  const uint8_t* request,
                                                  size_t request_len);
@@ -488,6 +491,81 @@ extern "C" int64_t ex_host_env_compiled_key_at(
 extern "C" int32_t ex_host_random_fill(uint8_t* buf, uint32_t len);
 
 namespace {
+
+template <typename Error, typename = void>
+struct HasJsiTypeErrorFactory : std::false_type {};
+
+template <typename Error>
+struct HasJsiTypeErrorFactory<
+    Error,
+    std::void_t<decltype(Error::createTypeError(
+        std::declval<facebook::jsi::Runtime&>(),
+        std::declval<std::string>()))>> : std::true_type {};
+
+template <typename Error, typename = void>
+struct HasJsiReferenceErrorFactory : std::false_type {};
+
+template <typename Error>
+struct HasJsiReferenceErrorFactory<
+    Error,
+    std::void_t<decltype(Error::createReferenceError(
+        std::declval<facebook::jsi::Runtime&>(),
+        std::declval<std::string>()))>> : std::true_type {};
+
+template <typename Error, typename = void>
+struct HasJsiSyntaxErrorFactory : std::false_type {};
+
+template <typename Error>
+struct HasJsiSyntaxErrorFactory<
+    Error,
+    std::void_t<decltype(Error::createSyntaxError(
+        std::declval<facebook::jsi::Runtime&>(),
+        std::declval<std::string>()))>> : std::true_type {};
+
+template <typename Error = facebook::jsi::JSError>
+Error exactCreateTypeError(
+    facebook::jsi::Runtime& runtime,
+    const std::string& message) {
+  if constexpr (HasJsiTypeErrorFactory<Error>::value) {
+    return Error::createTypeError(runtime, message);
+  }
+  auto value = runtime.global()
+                   .getPropertyAsFunction(runtime, "TypeError")
+                   .callAsConstructor(
+                       runtime,
+                       facebook::jsi::String::createFromUtf8(runtime, message));
+  return Error(runtime, std::move(value));
+}
+
+template <typename Error = facebook::jsi::JSError>
+Error exactCreateReferenceError(
+    facebook::jsi::Runtime& runtime,
+    const std::string& message) {
+  if constexpr (HasJsiReferenceErrorFactory<Error>::value) {
+    return Error::createReferenceError(runtime, message);
+  }
+  auto value = runtime.global()
+                   .getPropertyAsFunction(runtime, "ReferenceError")
+                   .callAsConstructor(
+                       runtime,
+                       facebook::jsi::String::createFromUtf8(runtime, message));
+  return Error(runtime, std::move(value));
+}
+
+template <typename Error = facebook::jsi::JSError>
+Error exactCreateSyntaxError(
+    facebook::jsi::Runtime& runtime,
+    const std::string& message) {
+  if constexpr (HasJsiSyntaxErrorFactory<Error>::value) {
+    return Error::createSyntaxError(runtime, message);
+  }
+  auto value = runtime.global()
+                   .getPropertyAsFunction(runtime, "SyntaxError")
+                   .callAsConstructor(
+                       runtime,
+                       facebook::jsi::String::createFromUtf8(runtime, message));
+  return Error(runtime, std::move(value));
+}
 
 std::string takeVfsBytes(uint8_t* data, uint64_t length) {
   std::string value;
@@ -1039,7 +1117,7 @@ int32_t normalizeLifecycleExitCode(
           : runtime.global().getPropertyAsFunction(runtime, "Number").call(
                 runtime, value);
   if (!numeric.isNumber()) {
-    throw facebook::jsi::JSError::createTypeError(
+    throw exactCreateTypeError(
         runtime, "lifecycle exit code did not coerce to a number");
   }
   double number = numeric.asNumber();
@@ -2199,10 +2277,15 @@ void handlePendingPromiseRejection(
   }
 }
 
+bool hasPendingPromiseRejectionCheckpointWork(
+    const ExactHermesRuntime* runtime) {
+  return structuredWorkPublicationEnabled(runtime) &&
+         (!runtime->structured_pending_promise_rejections.empty() ||
+          runtime->structured_pending_promise_rejection_dropped != 0);
+}
+
 void flushPendingPromiseRejections(ExactHermesRuntime* runtime) {
-  if (!structuredWorkPublicationEnabled(runtime) ||
-      (runtime->structured_pending_promise_rejections.empty() &&
-       runtime->structured_pending_promise_rejection_dropped == 0)) {
+  if (!hasPendingPromiseRejectionCheckpointWork(runtime)) {
     return;
   }
   const uint64_t pendingDropped =
@@ -2299,11 +2382,11 @@ bool configurePromiseRejectionCheckpointTracker(ExactHermesRuntime* runtime) {
 #endif
 }
 
-void drainMicrotasks(facebook::jsi::Runtime& rt) {
+bool drainMicrotasks(facebook::jsi::Runtime& rt) {
 #if defined(_WIN32)
-  rt.drainMicrotasks(1024);
+  return rt.drainMicrotasks(1024);
 #else
-  rt.drainMicrotasks(-1);
+  return rt.drainMicrotasks(-1);
 #endif
 }
 
@@ -2413,14 +2496,21 @@ bool disposeAsyncCallbackError(ExactHermesRuntime* runtime,
 // extern "C" boundary and std::terminate the host (ENG-23731 leg 1).
 // Hermes leaves the remaining jobs queued when one throws, so on a consumed
 // error we resume draining rather than strand the rest of the queue.
-void drainMicrotasksGuarded(ExactHermesRuntime* runtime) {
+enum class GuardedMicrotaskDrainResult {
+  Drained,
+  BoundedIncomplete,
+  Failed,
+};
+
+GuardedMicrotaskDrainResult drainMicrotasksGuarded(
+    ExactHermesRuntime* runtime) {
   for (;;) {
-    if (runtime->structured_lifecycle_pending) return;
-    ScopedNativeWorkUnit workUnit(
-        runtime, EX_HERMES_WORK_UNIT_MICROTASK_DRAIN);
-    const bool rawCapture =
-        structuredWorkPublicationEnabled(runtime) &&
-        ScopedRawThrowCapture::available();
+    if (runtime->structured_lifecycle_pending) {
+      return GuardedMicrotaskDrainResult::Drained;
+    }
+    ScopedNativeWorkUnit workUnit(runtime, EX_HERMES_WORK_UNIT_MICROTASK_DRAIN);
+    const bool rawCapture = structuredWorkPublicationEnabled(runtime) &&
+                            ScopedRawThrowCapture::available();
     ScopedRawThrowCapture rawThrowCapture(runtime->runtime.get(), rawCapture);
     ScopedAsyncFailureContext failureContext(
         runtime,
@@ -2431,9 +2521,10 @@ void drainMicrotasksGuarded(ExactHermesRuntime* runtime) {
             workUnit.targetId(),
             exactCurrentAsyncEvaluationAssociation(runtime)});
     try {
-      drainMicrotasks(*runtime->runtime);
+      const bool fullyDrained = drainMicrotasks(*runtime->runtime);
       workUnit.finish();
-      return;
+      return fullyDrained ? GuardedMicrotaskDrainResult::Drained
+                          : GuardedMicrotaskDrainResult::BoundedIncomplete;
     } catch (const facebook::jsi::JSError& err) {
       std::optional<ScopedAsyncFailureContext> failedJobContext;
 #if defined(HERMES_HAS_PROMISE_REJECTION_CHECKPOINT_HOOK) && \
@@ -2456,28 +2547,33 @@ void drainMicrotasksGuarded(ExactHermesRuntime* runtime) {
                 associatedEvaluation));
       }
 #endif
-      if ((rawCapture
-               ? workUnit.finishRawCapturedJsThrow()
-               : workUnit.finish(err))) return;
-      if (runtime->structured_lifecycle_pending) return;
+      if ((rawCapture ? workUnit.finishRawCapturedJsThrow()
+                      : workUnit.finish(err))) {
+        return GuardedMicrotaskDrainResult::Drained;
+      }
+      if (runtime->structured_lifecycle_pending) {
+        return GuardedMicrotaskDrainResult::Drained;
+      }
       if (!disposeAsyncCallbackError(runtime, err)) {
-        return;
+        return GuardedMicrotaskDrainResult::Drained;
       }
     } catch (const std::exception& err) {
-      if (workUnit.finish()) return;
-      if (runtime->structured_lifecycle_pending) return;
+      if (workUnit.finish()) return GuardedMicrotaskDrainResult::Drained;
+      if (runtime->structured_lifecycle_pending) {
+        return GuardedMicrotaskDrainResult::Drained;
+      }
       // Non-JS failure: no per-job progress guarantee (unlike the JSError
       // arm, which consumes the throwing job), so never loop — leave any
       // remaining jobs for the next poll.
       if (structuredWorkPublicationEnabled(runtime)) {
         recordStructuredAsyncFailureDrop(runtime);
-        return;
+        return GuardedMicrotaskDrainResult::Failed;
       }
       ex_host_console_log(1, err.what());
       if (!runtime->keep_alive_on_async_error) {
         runtime->fatal_async_error = true;
       }
-      return;
+      return GuardedMicrotaskDrainResult::Failed;
     }
   }
 }
@@ -2510,6 +2606,7 @@ std::mutex g_runtimeRegistryMutex;
 
 enum class RuntimeLifecycleState : uint8_t {
   Running,
+  Quarantined,
   Closing,
 };
 
@@ -2631,6 +2728,18 @@ extern "C" uint64_t ex_hermes_runtime_nonce(ExactHermesRuntime* runtime) {
   return it->second.nonce;
 }
 
+extern "C" uint32_t ex_hermes_runtime_is_quarantined_v1(
+    const ExactHermesRuntime* runtime) {
+  if (runtime == nullptr) return 0;
+  std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
+  auto it = g_activeRuntimes.find(
+      const_cast<ExactHermesRuntime*>(runtime));
+  return it != g_activeRuntimes.end() &&
+          it->second.state == RuntimeLifecycleState::Quarantined
+      ? 1
+      : 0;
+}
+
 void registerRuntime(ExactHermesRuntime* runtime) {
   if (!runtime || runtime->runtime_nonce == 0) return;
   std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
@@ -2640,20 +2749,34 @@ void registerRuntime(ExactHermesRuntime* runtime) {
 }
 
 ExactRuntimeDriveGuard::ExactRuntimeDriveGuard(
-    ExactHermesRuntime* runtime, uint64_t expectedNonce)
+    ExactHermesRuntime* runtime,
+    uint64_t expectedNonce,
+    bool allowQuarantined,
+    bool allowAppBundleEvaluation)
     : runtime_(runtime) {
   if (runtime == nullptr) return;
   {
     std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
     auto it = g_activeRuntimes.find(runtime);
     if (it == g_activeRuntimes.end() ||
-        it->second.state != RuntimeLifecycleState::Running ||
+        (it->second.state != RuntimeLifecycleState::Running &&
+         !(allowQuarantined &&
+           it->second.state == RuntimeLifecycleState::Quarantined)) ||
         (expectedNonce != 0 && it->second.nonce != expectedNonce)) {
-      status_ = EXACT_RUNTIME_DRIVE_STALE;
+      status_ = it != g_activeRuntimes.end() &&
+              it->second.state == RuntimeLifecycleState::Quarantined
+          ? EXACT_RUNTIME_DRIVE_QUARANTINED
+          : EXACT_RUNTIME_DRIVE_STALE;
       return;
     }
     if (it->second.owner != std::this_thread::get_id()) {
       status_ = EXACT_RUNTIME_DRIVE_OFF_OWNER;
+      return;
+    }
+    if (runtime->app_bundle_evaluation_open.load(
+            std::memory_order_acquire) &&
+        !allowAppBundleEvaluation) {
+      status_ = EXACT_RUNTIME_DRIVE_APP_BUNDLE_OPEN;
       return;
     }
     if (it->second.drive_active) {
@@ -2703,6 +2826,36 @@ ExactRuntimeDriveGuard::ExactRuntimeDriveGuard(
   g_vm_runtime = runtime->attribution_runtime;
 #endif
   dynamic_scope_active_ = true;
+}
+
+bool exactRuntimeQuarantine(ExactHermesRuntime* runtime) noexcept {
+  if (runtime == nullptr) return false;
+  {
+    std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
+    auto it = g_activeRuntimes.find(runtime);
+    if (it == g_activeRuntimes.end() ||
+        it->second.nonce != runtime->runtime_nonce ||
+        (it->second.state != RuntimeLifecycleState::Running &&
+         it->second.state != RuntimeLifecycleState::Quarantined) ||
+        it->second.owner != std::this_thread::get_id() ||
+        !it->second.drive_active) {
+      return false;
+    }
+    runtime->runtime_quarantined.store(true, std::memory_order_release);
+    it->second.state = RuntimeLifecycleState::Quarantined;
+  }
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
+  exactRuntimeCancelPendingDebuggerCommands(runtime);
+#endif
+  return true;
+}
+
+extern "C" int32_t ex_hermes_quarantine_runtime_v1(
+    ExactHermesRuntime* runtime) {
+  ExactRuntimeDriveGuard drive(runtime, 0, true, true);
+  if (!drive) return drive.status();
+  return exactRuntimeQuarantine(runtime) ? EXACT_RUNTIME_DRIVE_OK
+                                         : EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
 }
 
 ExactRuntimeDriveGuard::~ExactRuntimeDriveGuard() {
@@ -2901,7 +3054,8 @@ static int32_t beginRuntimeTeardown(
   std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
   auto it = g_activeRuntimes.find(runtime);
   if (it == g_activeRuntimes.end() ||
-      it->second.state != RuntimeLifecycleState::Running ||
+      (it->second.state != RuntimeLifecycleState::Running &&
+       it->second.state != RuntimeLifecycleState::Quarantined) ||
       (expectedNonce != 0 && it->second.nonce != expectedNonce)) {
     return EXACT_RUNTIME_DRIVE_STALE;
   }
@@ -3927,6 +4081,59 @@ void defineExactCapability(
       descriptor);
 }
 
+void removeProvisionalExactCapability(
+    ExactHermesRuntime* runtime,
+    const char* name) noexcept {
+  try {
+    auto& rt = *runtime->runtime;
+    auto exactValue = rt.global().getProperty(rt, "exact");
+    if (!exactValue.isObject()) return;
+    auto exactObject = exactValue.getObject(rt);
+    auto descriptor = rt.global()
+                          .getPropertyAsObject(rt, "Object")
+                          .getPropertyAsFunction(rt, "getOwnPropertyDescriptor")
+                          .call(
+                              rt,
+                              exactObject,
+                              facebook::jsi::String::createFromAscii(rt, name));
+    if (!descriptor.isObject()) return;
+    auto configurable = descriptor.getObject(rt).getProperty(rt, "configurable");
+    if (!configurable.isBool() || !configurable.getBool()) return;
+    rt.global()
+        .getPropertyAsObject(rt, "Reflect")
+        .getPropertyAsFunction(rt, "deleteProperty")
+        .call(
+            rt,
+            exactObject,
+            facebook::jsi::String::createFromAscii(rt, name));
+  } catch (...) {
+    // Rollback is best effort only after the primary install failure. A sealed
+    // property is intentionally irreversible and occurs only after finalize.
+  }
+}
+
+void rollbackExactHostIngress(ExactHermesRuntime* runtime) noexcept {
+  if (!runtime) return;
+  removeProvisionalExactCapability(runtime, "invokeHostAsync");
+  runtime->exact_host_call_async_fn = nullptr;
+  runtime->exact_host_call_async_context = nullptr;
+  runtime->exact_host_context = 0;
+  runtime->exact_host_operations.clear();
+}
+
+bool sealExactHostIngress(ExactHermesRuntime* runtime) {
+  if (!runtime->exact_host_call_async_fn) return true;
+  auto& rt = *runtime->runtime;
+  auto exactValue = rt.global().getProperty(rt, "exact");
+  if (!exactValue.isObject()) return false;
+  auto exactObject = exactValue.getObject(rt);
+  auto installed = exactObject.getProperty(rt, "invokeHostAsync");
+  if (!installed.isObject() || !installed.getObject(rt).isFunction(rt)) return false;
+  defineExactCapability(
+      rt, exactObject, "invokeHostAsync", std::move(installed), false);
+  return true;
+}
+
 void installBootstrapCompatibilityModes(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
   size_t count = (handle->bootstrap_bun_compat ? 1u : 0u) +
@@ -4111,7 +4318,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
             if (count != 1 || !args[0].isObject() ||
                 !args[0].asObject(callbackRuntime).isFunction(
                     callbackRuntime)) {
-              throw facebook::jsi::JSError::createTypeError(
+              throw exactCreateTypeError(
                   callbackRuntime,
                   "unhandled rejection checkpoint handler must be a function");
             }
@@ -4138,7 +4345,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
             if (count != 1 || !args[0].isObject() ||
                 !args[0].asObject(callbackRuntime).isFunction(
                     callbackRuntime)) {
-              throw facebook::jsi::JSError::createTypeError(
+              throw exactCreateTypeError(
                   callbackRuntime,
                   "rejectionhandled checkpoint handler must be a function");
             }
@@ -4226,7 +4433,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                  size_t count) -> facebook::jsi::Value {
           if (count != 2 || !args[0].isString() ||
               (!args[1].isString() && !args[1].isUndefined())) {
-            throw facebook::jsi::JSError::createTypeError(
+            throw exactCreateTypeError(
                 runtime,
                 "environment overlay mutation requires a name and string or undefined value");
           }
@@ -4945,13 +5152,13 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         uint32_t resolutionKind = 0;
         if (count > 2) {
           if (!args[2].isNumber()) {
-            throw facebook::jsi::JSError::createTypeError(
+            throw exactCreateTypeError(
                 runtime, "module resolution kind must be an integer from 0 through 3");
           }
           auto value = args[2].asNumber();
           if (!(value >= 0 && value <= 3) ||
               value != static_cast<double>(static_cast<uint32_t>(value))) {
-            throw facebook::jsi::JSError::createTypeError(
+            throw exactCreateTypeError(
                 runtime, "module resolution kind must be an integer from 0 through 3");
           }
           resolutionKind = static_cast<uint32_t>(value);
@@ -4993,7 +5200,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
               if (count != 1 || !args[0].isObject() ||
                   !args[0].getObject(runtime).isFunction(runtime) ||
                   handle->structured_session_import_materializer) {
-                throw facebook::jsi::JSError::createTypeError(
+                throw exactCreateTypeError(
                     runtime, "invalid session static-import materializer capture");
               }
               handle->structured_session_import_materializer =
@@ -5014,7 +5221,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                                        size_t count) -> facebook::jsi::Value {
                           if (count != 3 || !args[0].isString() ||
                               !args[1].isString() || !args[2].isNumber()) {
-                            throw facebook::jsi::JSError::createTypeError(
+                            throw exactCreateTypeError(
                                 runtime,
                                 "session-root resolution requires a specifier, logical referrer, and typed resolution kind");
                           }
@@ -5026,7 +5233,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                           if (!(kindValue >= 0 && kindValue <= 3) ||
                               kindValue != static_cast<double>(
                                   static_cast<uint32_t>(kindValue))) {
-                            throw facebook::jsi::JSError::createTypeError(
+                            throw exactCreateTypeError(
                                 runtime,
                                 "session-root resolution kind must be an integer from 0 through 3");
                           }
@@ -5138,13 +5345,13 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         uint32_t resolutionKind = 0;
         if (count > 2) {
           if (!args[2].isNumber()) {
-            throw facebook::jsi::JSError::createTypeError(
+            throw exactCreateTypeError(
                 runtime, "module resolution kind must be an integer from 0 through 3");
           }
           auto value = args[2].asNumber();
           if (!(value >= 0 && value <= 3) ||
               value != static_cast<double>(static_cast<uint32_t>(value))) {
-            throw facebook::jsi::JSError::createTypeError(
+            throw exactCreateTypeError(
                 runtime, "module resolution kind must be an integer from 0 through 3");
           }
           resolutionKind = static_cast<uint32_t>(value);
@@ -5363,9 +5570,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // than an explicit revoke() no longer leaks one native HandleGrant per request
   // until OOM (ENG-23010). Revoking an already-revoked/missing id is a no-op, so
   // a finalizer that races an explicit revoke (or an ancestor's subtree
-  // eviction) is harmless. Guarded on the primitive: with only the
-  // compat-polyfill FinalizationRegistry (which never fires) this degrades to the
-  // prior explicit-revoke-only behavior.
+  // eviction) is harmless. Guarded on the native primitive: runtimes without
+  // FinalizationRegistry retain the explicit-revoke-only behavior rather than
+  // installing a strong-reference compatibility shim that cannot finalize.
   var handleFinalizer = (typeof FinalizationRegistry === 'function')
     ? new FinalizationRegistry(function (id) { g.__exactRevokeHandle(id); })
     : null;
@@ -6053,7 +6260,153 @@ void runNextTickQueue(ExactHermesRuntime* runtime) {
   }
 }
 
-} // namespace
+GuardedMicrotaskDrainResult drainGpuHostTaskJobsToCheckpoint(
+    ExactHermesRuntime* runtime) {
+  for (;;) {
+    runNextTickQueue(runtime);
+    if (runtime->structured_session_terminated ||
+        runtime->structured_lifecycle_pending) {
+      return GuardedMicrotaskDrainResult::Drained;
+    }
+    const auto drainResult = drainMicrotasksGuarded(runtime);
+    if (drainResult != GuardedMicrotaskDrainResult::Drained) {
+      return drainResult;
+    }
+    if (runtime->structured_session_terminated ||
+        runtime->structured_lifecycle_pending || runtime->next_tick.empty()) {
+      return GuardedMicrotaskDrainResult::Drained;
+    }
+    // A Promise job may enqueue process.nextTick work, and that callback may
+    // enqueue more Promise jobs. Stay in the same host task until both queues
+    // reach a fixed point; only a bounded Windows microtask slice may yield.
+  }
+}
+
+}  // namespace
+
+bool exactResumeGpuHostTaskContinuation(ExactHermesRuntime* runtime) noexcept {
+  if (!runtime || !runtime->runtime ||
+      runtime->gpu_host_task_checkpoint_failed) {
+    return false;
+  }
+  if (!runtime->gpu_host_task_microtask_continuation) return true;
+  if (runtime->gpu_host_task_depth != 0 ||
+      runtime->active_gpu_host_task_id == 0) {
+    runtime->gpu_host_task_checkpoint_failed = true;
+    return false;
+  }
+
+  try {
+    // Keep the logical outer task active while callbacks from the retained
+    // drain run. Any synchronous re-entry joins at depth 2 and cannot allocate
+    // a successor identity or checkpoint independently.
+    runtime->gpu_host_task_depth = 1;
+    const auto drainResult =
+        runtime->runtime_quarantined.load(std::memory_order_acquire)
+            ? GuardedMicrotaskDrainResult::Drained
+            : drainGpuHostTaskJobsToCheckpoint(runtime);
+    if (drainResult == GuardedMicrotaskDrainResult::BoundedIncomplete) {
+      runtime->gpu_host_task_depth = 0;
+      return false;
+    }
+    if (drainResult == GuardedMicrotaskDrainResult::Failed) {
+      runtime->gpu_host_task_depth = 0;
+      runtime->gpu_host_task_microtask_continuation = false;
+      runtime->gpu_host_task_checkpoint_failed = true;
+      (void)exactRuntimeQuarantine(runtime);
+      return false;
+    }
+    runtime->gpu_host_task_depth = 0;
+    runtime->gpu_host_task_microtask_continuation = false;
+    runtime->active_gpu_host_task_id = 0;
+    if (!exactGpuCheckpointHostTask(runtime)) {
+      runtime->gpu_host_task_checkpoint_failed = true;
+      return false;
+    }
+    return true;
+  } catch (...) {
+    runtime->gpu_host_task_depth = 0;
+    runtime->gpu_host_task_checkpoint_failed = true;
+    return false;
+  }
+}
+
+ScopedGpuHostTask::ScopedGpuHostTask(ExactHermesRuntime* runtime) noexcept
+    : runtime_(runtime) {
+  if (!runtime_ || !runtime_->runtime ||
+      runtime_->runtime_thread != std::this_thread::get_id() ||
+      runtime_->gpu_host_task_checkpoint_failed) {
+    return;
+  }
+  if (runtime_->gpu_host_task_depth == 0 &&
+      !exactResumeGpuHostTaskContinuation(runtime_)) {
+    return;
+  }
+  if (runtime_->gpu_host_task_depth == 0) {
+    uint64_t taskId = runtime_->next_gpu_host_task_id++;
+    if (taskId == 0) {
+      taskId = runtime_->next_gpu_host_task_id++;
+    }
+    if (taskId == 0) {
+      runtime_->gpu_host_task_checkpoint_failed = true;
+      return;
+    }
+    runtime_->active_gpu_host_task_id = taskId;
+  }
+  runtime_->gpu_host_task_depth += 1;
+  active_ = true;
+}
+
+ScopedGpuHostTask::~ScopedGpuHostTask() { (void)finish(); }
+
+bool ScopedGpuHostTask::finish() noexcept {
+  if (!active_) {
+    return runtime_ && !runtime_->gpu_host_task_checkpoint_failed &&
+           !runtime_->gpu_host_task_microtask_continuation;
+  }
+  active_ = false;
+  if (!runtime_ || runtime_->gpu_host_task_depth == 0) {
+    if (runtime_) runtime_->gpu_host_task_checkpoint_failed = true;
+    return false;
+  }
+  if (runtime_->gpu_host_task_depth > 1) {
+    runtime_->gpu_host_task_depth -= 1;
+    return true;
+  }
+
+  try {
+    // Depth 1 is a finalizing sentinel until all jobs reach a fixed point.
+    // Re-entrant owner-thread work therefore joins this exact task.
+    const auto drainResult =
+        runtime_->runtime_quarantined.load(std::memory_order_acquire)
+            ? GuardedMicrotaskDrainResult::Drained
+            : drainGpuHostTaskJobsToCheckpoint(runtime_);
+    if (drainResult == GuardedMicrotaskDrainResult::BoundedIncomplete) {
+      runtime_->gpu_host_task_depth = 0;
+      runtime_->gpu_host_task_microtask_continuation = true;
+      return true;
+    }
+    if (drainResult == GuardedMicrotaskDrainResult::Failed) {
+      runtime_->gpu_host_task_depth = 0;
+      runtime_->gpu_host_task_microtask_continuation = false;
+      runtime_->gpu_host_task_checkpoint_failed = true;
+      (void)exactRuntimeQuarantine(runtime_);
+      return false;
+    }
+    runtime_->gpu_host_task_depth = 0;
+    runtime_->gpu_host_task_microtask_continuation = false;
+    runtime_->active_gpu_host_task_id = 0;
+    if (!exactGpuCheckpointHostTask(runtime_)) {
+      runtime_->gpu_host_task_checkpoint_failed = true;
+      return false;
+    }
+    return true;
+  } catch (...) {
+    runtime_->gpu_host_task_depth = 0;
+    runtime_->gpu_host_task_checkpoint_failed = true;
+    return false;
+  }
+}
 
 #if defined(_WIN32)
 static HMODULE exactHermesRuntimeImageModule() {
@@ -6108,6 +6461,9 @@ static HMODULE exactHermesRuntimeImageModule() {
 #if EXACT_HAS_HERMES_ASYNC_DEBUGGER
 void emitNewScripts(ExactHermesRuntime* runtime,
                     facebook::hermes::debugger::Debugger& debugger) {
+  if (!exactRuntimeDebuggerIngressAllowed(runtime)) {
+    return;
+  }
   emitNewScriptsImpl(runtime, debugger);
 }
 #endif
@@ -6402,6 +6758,9 @@ static bool captureRootGlobalDispositionIntrinsics(
     handle->root_global_get_prototype_of =
         std::make_unique<facebook::jsi::Function>(
             object.getPropertyAsFunction(rt, "getPrototypeOf"));
+    handle->root_global_object_is_frozen =
+        std::make_unique<facebook::jsi::Function>(
+            object.getPropertyAsFunction(rt, "isFrozen"));
     handle->root_global_reflect_delete_property =
         std::make_unique<facebook::jsi::Function>(
             reflect.getPropertyAsFunction(rt, "deleteProperty"));
@@ -6422,6 +6781,7 @@ static bool captureRootGlobalDispositionIntrinsics(
     handle->root_global_get_own_property_symbols.reset();
     handle->root_global_get_own_property_descriptor.reset();
     handle->root_global_get_prototype_of.reset();
+    handle->root_global_object_is_frozen.reset();
     handle->root_global_reflect_delete_property.reset();
     handle->root_global_baseline_keys.clear();
     return false;
@@ -6468,6 +6828,19 @@ static bool rootGlobalTargetApplies(
   return false;
 }
 
+static bool exactAuthenticatedHostIngressActive(
+    const ExactHermesRuntime* handle) {
+  if (!handle ||
+      handle->embedder_capability_state !=
+          EmbedderCapabilityState::Finalized ||
+      handle->exact_host_call_async_fn == nullptr ||
+      handle->exact_host_operations.empty()) {
+    return false;
+  }
+  return handle->exact_host_context == EXACT_EMBEDDER_CONTEXT_APP ||
+      handle->exact_host_context == EXACT_EMBEDDER_CONTEXT_AGENT;
+}
+
 static bool rootGlobalActivationApplies(
     ExactHermesRuntime* handle,
     const char* activation,
@@ -6497,6 +6870,17 @@ static bool rootGlobalActivationApplies(
   }
   if (std::strcmp(activation, "ipc-channel-bootstrap") == 0) {
     return handle->process_ipc_fd >= 0;
+  }
+  if (std::strcmp(activation, "authenticated-exact-host-ingress") == 0) {
+    return exactAuthenticatedHostIngressActive(handle);
+  }
+  if (std::strcmp(activation, "authenticated-webgpu-provider") == 0) {
+    return exactGpuAuthenticatedV2ProviderGlobalsActive(handle);
+  }
+  if (
+      std::strcmp(
+          activation, "authenticated-webgpu-decoded-image") == 0) {
+    return exactGpuAuthenticatedDecodedImageGlobalActive(handle);
   }
   if (std::strcmp(activation, "openssl-crypto") == 0) {
 #if defined(EXACT_NO_OPENSSL)
@@ -6538,7 +6922,6 @@ static bool rootGlobalActivationApplies(
   if (
       std::strcmp(activation, "diagnostic-unarmed-promise-fallback") == 0 ||
       std::strcmp(activation, "intrinsic-reference-only") == 0 ||
-      std::strcmp(activation, "post-bootstrap-embedder-endowment") == 0 ||
       std::strcmp(activation, "post-bootstrap-lazy") == 0) {
     return false;
   }
@@ -6560,6 +6943,18 @@ static bool rootGlobalDispositionFailure(const std::string& detail) {
       detail;
   ex_host_console_log(1, message.c_str());
   return false;
+}
+
+static void failRootGlobalDispositionFinalization(
+    ExactHermesRuntime* handle) noexcept {
+  if (!handle) return;
+  handle->root_global_disposition_verified_for_user_execution = false;
+  // The WebGPU publication remains revocable through the native-held capture
+  // result until teardown. A failed final sweep must use that result now so
+  // no provider-created root survives even though the runtime is terminal.
+  rollbackExactHostIngress(handle);
+  exactGpuRollbackInstall(handle);
+  handle->embedder_capability_state = EmbedderCapabilityState::Failed;
 }
 
 static std::vector<std::string> splitRootGlobalLogicalPath(
@@ -6658,6 +7053,552 @@ static bool deleteRootGlobalOwnProperty(
   return deleted.isBool() && deleted.getBool();
 }
 
+constexpr char kPreparedNativeStartupGlobalV1[] =
+    "__exactPreparedNativeStartupV1";
+
+static facebook::jsi::Value preparedNativeStartupOwnDataValueV1(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::Object& object,
+    const char* name) {
+  auto& rt = *runtime->runtime;
+  auto descriptor = rootGlobalOwnDescriptor(
+      runtime,
+      object,
+      facebook::jsi::String::createFromAscii(rt, name));
+  if (!descriptor.isObject()) {
+    throw std::runtime_error(
+        std::string("prepared startup field missing: ") + name);
+  }
+  auto descriptorObject = descriptor.asObject(rt);
+  auto getter = rootGlobalDescriptorField(runtime, descriptorObject, "get");
+  auto setter = rootGlobalDescriptorField(runtime, descriptorObject, "set");
+  if (!getter.isUndefined() || !setter.isUndefined()) {
+    throw std::runtime_error(
+        std::string("prepared startup accessor refused: ") + name);
+  }
+  return rootGlobalDescriptorField(runtime, descriptorObject, "value");
+}
+
+static bool preparedNativeStartupObjectHasExactKeysV1(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::Object& object) {
+  auto& rt = *runtime->runtime;
+  auto namesValue = runtime->root_global_get_own_property_names->call(
+      rt, object);
+  auto symbolsValue = runtime->root_global_get_own_property_symbols->call(
+      rt, object);
+  if (!namesValue.isObject() || !namesValue.asObject(rt).isArray(rt) ||
+      !symbolsValue.isObject() || !symbolsValue.asObject(rt).isArray(rt)) {
+    return false;
+  }
+  auto symbols = symbolsValue.asObject(rt).asArray(rt);
+  if (symbols.size(rt) != 0) return false;
+
+  auto names = namesValue.asObject(rt).asArray(rt);
+  std::vector<std::string> observed;
+  observed.reserve(names.size(rt));
+  for (size_t index = 0; index < names.size(rt); ++index) {
+    auto name = names.getValueAtIndex(rt, index);
+    if (!name.isString()) return false;
+    observed.push_back(name.asString(rt).utf8(rt));
+  }
+  std::sort(observed.begin(), observed.end());
+  static const std::vector<std::string> expected{
+      "consumeGpuRuntimeIntegration",
+      "disposition",
+      "preparedStartupVersion",
+      "runApp",
+  };
+  return observed == expected;
+}
+
+static bool preparedNativeStartupMatchesV1(
+    ExactHermesRuntime* runtime,
+    uint32_t expectedDisposition) {
+  if (!runtime->root_global_get_own_property_names ||
+      !runtime->root_global_get_own_property_symbols ||
+      !runtime->root_global_get_own_property_descriptor ||
+      !runtime->root_global_object_is_frozen) {
+    return false;
+  }
+  auto& rt = *runtime->runtime;
+  auto descriptor = rootGlobalOwnDescriptor(
+      runtime,
+      rt.global(),
+      facebook::jsi::String::createFromAscii(
+          rt, kPreparedNativeStartupGlobalV1));
+  if (!descriptor.isObject()) return false;
+  auto descriptorObject = descriptor.asObject(rt);
+  auto value = rootGlobalDescriptorField(runtime, descriptorObject, "value");
+  auto writable =
+      rootGlobalDescriptorField(runtime, descriptorObject, "writable");
+  auto enumerable =
+      rootGlobalDescriptorField(runtime, descriptorObject, "enumerable");
+  auto configurable =
+      rootGlobalDescriptorField(runtime, descriptorObject, "configurable");
+  auto getter = rootGlobalDescriptorField(runtime, descriptorObject, "get");
+  auto setter = rootGlobalDescriptorField(runtime, descriptorObject, "set");
+  if (!value.isObject() || !writable.isBool() || writable.getBool() ||
+      !enumerable.isBool() || enumerable.getBool() ||
+      !configurable.isBool() || !configurable.getBool() ||
+      !getter.isUndefined() || !setter.isUndefined()) {
+    return false;
+  }
+
+  auto prepared = value.asObject(rt);
+  auto frozen = runtime->root_global_object_is_frozen->call(rt, prepared);
+  if (!frozen.isBool() || !frozen.getBool() ||
+      !preparedNativeStartupObjectHasExactKeysV1(runtime, prepared)) {
+    return false;
+  }
+
+  auto version = preparedNativeStartupOwnDataValueV1(
+      runtime, prepared, "preparedStartupVersion");
+  auto disposition = preparedNativeStartupOwnDataValueV1(
+      runtime, prepared, "disposition");
+  auto consume = preparedNativeStartupOwnDataValueV1(
+      runtime, prepared, "consumeGpuRuntimeIntegration");
+  auto runApp = preparedNativeStartupOwnDataValueV1(
+      runtime, prepared, "runApp");
+  const char* expectedDispositionText =
+      expectedDisposition ==
+              EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1
+          ? "consume-required"
+          : "unused-valid";
+  return version.isNumber() && version.getNumber() == 1 &&
+      disposition.isString() &&
+      disposition.asString(rt).utf8(rt) == expectedDispositionText &&
+      consume.isObject() && consume.asObject(rt).isFunction(rt) &&
+      runApp.isObject() && runApp.asObject(rt).isFunction(rt);
+}
+
+static int32_t verifyPreparedNativeStartupAbsentUncheckedV1(
+    ExactHermesRuntime* runtime) noexcept {
+  try {
+    auto& rt = *runtime->runtime;
+    auto descriptor = rootGlobalOwnDescriptor(
+        runtime,
+        rt.global(),
+        facebook::jsi::String::createFromAscii(
+            rt, kPreparedNativeStartupGlobalV1));
+    if (descriptor.isUndefined()) {
+      return EXACT_PREPARED_NATIVE_STARTUP_OK_V1;
+    }
+    const bool removed = deleteRootGlobalOwnProperty(
+        runtime, rt.global(), kPreparedNativeStartupGlobalV1);
+    const bool absent = rootGlobalOwnDescriptor(
+                            runtime,
+                            rt.global(),
+                            facebook::jsi::String::createFromAscii(
+                                rt, kPreparedNativeStartupGlobalV1))
+                            .isUndefined();
+    (void)exactRuntimeQuarantine(runtime);
+    return removed && absent
+        ? EXACT_PREPARED_NATIVE_STARTUP_REMOVED_AND_QUARANTINED_V1
+        : EXACT_PREPARED_NATIVE_STARTUP_CLEANUP_FAILED_V1;
+  } catch (...) {
+    (void)exactRuntimeQuarantine(runtime);
+    return EXACT_PREPARED_NATIVE_STARTUP_CLEANUP_FAILED_V1;
+  }
+}
+
+extern "C" int32_t ex_hermes_begin_app_bundle_evaluation_v1(
+    ExactHermesRuntime* runtime,
+    uint32_t expected_prepared_disposition) {
+  if (runtime == nullptr ||
+      (expected_prepared_disposition !=
+           EXACT_PREPARED_NATIVE_STARTUP_NONE_V1 &&
+       expected_prepared_disposition !=
+           EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1 &&
+       expected_prepared_disposition !=
+           EXACT_PREPARED_NATIVE_STARTUP_UNUSED_VALID_V1)) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return drive.status();
+  if (runtime->app_bundle_evaluation_open.load(std::memory_order_acquire) ||
+      runtime->gpu_canvas_app_bundle_transaction_open.load(
+          std::memory_order_acquire)) {
+    return EXACT_RUNTIME_DRIVE_APP_BUNDLE_OPEN;
+  }
+  // The debugger is detached before any generated preparation can publish its
+  // carrier. The outer-open bit then makes every ordinary eval/poll/dispatch
+  // drive refuse until native finish has re-proved the carrier absent.
+  if (!exactRuntimeBeginGpuCanvasDebuggerExclusion(runtime)) {
+    (void)exactRuntimeQuarantine(runtime);
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  // This is the app's first possible instruction boundary. With debugger
+  // ingress already excluded but before outer-open changes drive semantics,
+  // close the construction-only runtime-js capture and permanently fence later
+  // native capability publication. Armed runtimes must also have completed
+  // their trusted bootstrap: exactRuntimeEnterUserExecution intentionally does
+  // not mark execution while that phase remains open.
+  if (!exactRuntimeEnterUserExecution(runtime) ||
+      !runtime->user_execution_started) {
+    (void)exactRuntimeQuarantine(runtime);
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  runtime->app_bundle_evaluation_open.store(
+      true, std::memory_order_release);
+  runtime->app_bundle_expected_prepared_disposition =
+      expected_prepared_disposition;
+  runtime->app_bundle_immediate_evaluation_completed = false;
+  runtime->app_bundle_immediate_source_fallback_allowed = false;
+  runtime->app_bundle_prepared_classified = false;
+  runtime->app_bundle_prepared_staged = false;
+  runtime->app_bundle_prepared_invoked = false;
+  runtime->app_bundle_prepared_consume_gpu_integration.reset();
+  runtime->app_bundle_prepared_run_app.reset();
+
+  const int32_t absence = verifyPreparedNativeStartupAbsentUncheckedV1(runtime);
+  if (absence == EXACT_PREPARED_NATIVE_STARTUP_OK_V1) {
+    return EXACT_RUNTIME_DRIVE_OK;
+  }
+
+  runtime->app_bundle_evaluation_open.store(
+      false, std::memory_order_release);
+  runtime->app_bundle_expected_prepared_disposition = 0;
+  if (!exactRuntimeFinishGpuCanvasDebuggerExclusion(runtime)) {
+    (void)exactRuntimeQuarantine(runtime);
+    return EXACT_PREPARED_NATIVE_STARTUP_CLEANUP_FAILED_V1;
+  }
+  return absence;
+}
+
+extern "C" int32_t ex_hermes_finish_app_bundle_evaluation_v1(
+    ExactHermesRuntime* runtime,
+    uint32_t evaluation_succeeded) {
+  if (runtime == nullptr || evaluation_succeeded > 1) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  ExactRuntimeDriveGuard drive(runtime, 0, true, true);
+  if (!drive) return drive.status();
+  if (!runtime->app_bundle_evaluation_open.load(std::memory_order_acquire) ||
+      runtime->gpu_canvas_app_bundle_transaction_open.load(
+          std::memory_order_acquire)) {
+    return EXACT_RUNTIME_DRIVE_APP_BUNDLE_OPEN;
+  }
+
+  if (evaluation_succeeded == 0) {
+    (void)exactRuntimeQuarantine(runtime);
+  } else if (!runtime->app_bundle_immediate_evaluation_completed) {
+    (void)exactRuntimeQuarantine(runtime);
+  } else if (runtime->app_bundle_expected_prepared_disposition != 0 &&
+             (!runtime->app_bundle_prepared_staged ||
+              !runtime->app_bundle_prepared_invoked)) {
+    (void)exactRuntimeQuarantine(runtime);
+  }
+  const int32_t absence = verifyPreparedNativeStartupAbsentUncheckedV1(runtime);
+  runtime->app_bundle_prepared_consume_gpu_integration.reset();
+  runtime->app_bundle_prepared_run_app.reset();
+  runtime->app_bundle_immediate_evaluation_completed = false;
+  runtime->app_bundle_immediate_source_fallback_allowed = false;
+  runtime->app_bundle_prepared_classified = false;
+  runtime->app_bundle_prepared_staged = false;
+  runtime->app_bundle_prepared_invoked = false;
+  runtime->app_bundle_expected_prepared_disposition = 0;
+  runtime->app_bundle_evaluation_open.store(
+      false, std::memory_order_release);
+  if (!exactRuntimeFinishGpuCanvasDebuggerExclusion(runtime)) {
+    (void)exactRuntimeQuarantine(runtime);
+    return EXACT_PREPARED_NATIVE_STARTUP_CLEANUP_FAILED_V1;
+  }
+  if (absence != EXACT_PREPARED_NATIVE_STARTUP_OK_V1) {
+    return absence;
+  }
+  return runtime->runtime_quarantined.load(std::memory_order_acquire)
+      ? EXACT_RUNTIME_DRIVE_QUARANTINED
+      : EXACT_RUNTIME_DRIVE_OK;
+}
+
+extern "C" int32_t ex_hermes_classify_prepared_native_startup_v1(
+    ExactHermesRuntime* runtime,
+    uint32_t expected_disposition) {
+  if (expected_disposition !=
+          EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1 &&
+      expected_disposition !=
+          EXACT_PREPARED_NATIVE_STARTUP_UNUSED_VALID_V1) {
+    ExactRuntimeDriveGuard drive(runtime, 0, false, true);
+    if (drive && runtime->app_bundle_evaluation_open.load(
+                     std::memory_order_acquire)) {
+      (void)exactRuntimeQuarantine(runtime);
+    }
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  ExactRuntimeDriveGuard drive(runtime, 0, false, true);
+  if (!drive) return drive.status();
+  if (!runtime->app_bundle_evaluation_open.load(std::memory_order_acquire) ||
+      runtime->gpu_canvas_app_bundle_transaction_open.load(
+          std::memory_order_acquire) ||
+      runtime->app_bundle_expected_prepared_disposition == 0 ||
+      runtime->app_bundle_expected_prepared_disposition !=
+          expected_disposition ||
+      !runtime->app_bundle_immediate_evaluation_completed ||
+      runtime->app_bundle_prepared_classified) {
+    if (runtime->app_bundle_evaluation_open.load(
+            std::memory_order_acquire)) {
+      (void)exactRuntimeQuarantine(runtime);
+    }
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  try {
+    auto& rt = *runtime->runtime;
+    auto descriptor = rootGlobalOwnDescriptor(
+        runtime,
+        rt.global(),
+        facebook::jsi::String::createFromAscii(
+            rt, kPreparedNativeStartupGlobalV1));
+    if (descriptor.isUndefined()) {
+      (void)exactRuntimeQuarantine(runtime);
+      return EXACT_PREPARED_NATIVE_STARTUP_MISSING_V1;
+    }
+    if (!preparedNativeStartupMatchesV1(runtime, expected_disposition)) {
+      (void)exactRuntimeQuarantine(runtime);
+      return EXACT_PREPARED_NATIVE_STARTUP_INVALID_SHAPE_V1;
+    }
+    auto prepared = rootGlobalDescriptorField(
+                        runtime, descriptor.asObject(rt), "value")
+                        .asObject(rt);
+    auto consume = preparedNativeStartupOwnDataValueV1(
+        runtime, prepared, "consumeGpuRuntimeIntegration");
+    auto runApp = preparedNativeStartupOwnDataValueV1(
+        runtime, prepared, "runApp");
+    runtime->app_bundle_prepared_consume_gpu_integration =
+        std::make_unique<facebook::jsi::Function>(
+            consume.asObject(rt).asFunction(rt));
+    runtime->app_bundle_prepared_run_app =
+        std::make_unique<facebook::jsi::Function>(
+            runApp.asObject(rt).asFunction(rt));
+    runtime->app_bundle_prepared_classified = true;
+    return EXACT_PREPARED_NATIVE_STARTUP_OK_V1;
+  } catch (...) {
+    (void)exactRuntimeQuarantine(runtime);
+    return EXACT_PREPARED_NATIVE_STARTUP_INVALID_SHAPE_V1;
+  }
+}
+
+static bool removeExpectedPreparedNativeStartupUncheckedV1(
+    ExactHermesRuntime* runtime) noexcept {
+  try {
+    auto& rt = *runtime->runtime;
+    auto descriptor = rootGlobalOwnDescriptor(
+        runtime,
+        rt.global(),
+        facebook::jsi::String::createFromAscii(
+            rt, kPreparedNativeStartupGlobalV1));
+    if (!descriptor.isObject()) return false;
+    return deleteRootGlobalOwnProperty(
+               runtime, rt.global(), kPreparedNativeStartupGlobalV1) &&
+        rootGlobalOwnDescriptor(
+            runtime,
+            rt.global(),
+            facebook::jsi::String::createFromAscii(
+                rt, kPreparedNativeStartupGlobalV1))
+            .isUndefined();
+  } catch (...) {
+    return false;
+  }
+}
+
+static void writePreparedNativeStartupErrorV1(
+    char** outError,
+    const std::string& message) noexcept {
+  if (outError == nullptr) return;
+  *outError = nullptr;
+  auto* copy = static_cast<char*>(malloc(message.size() + 1));
+  if (copy == nullptr) return;
+  memcpy(copy, message.data(), message.size());
+  copy[message.size()] = '\0';
+  *outError = copy;
+}
+
+// @abi-output ex_hermes_stage_prepared_native_startup_v1 out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+extern "C" int32_t ex_hermes_stage_prepared_native_startup_v1(
+    ExactHermesRuntime* runtime,
+    char** out_error) {
+  if (out_error != nullptr) *out_error = nullptr;
+  ExactRuntimeDriveGuard drive(runtime, 0, false, true);
+  if (!drive) {
+    writePreparedNativeStartupErrorV1(
+        out_error, "Prepared startup staging refused by runtime drive gate");
+    return drive.status();
+  }
+  const uint32_t disposition =
+      runtime->app_bundle_expected_prepared_disposition;
+  const bool canvasOpen =
+      runtime->gpu_canvas_app_bundle_transaction_open.load(
+          std::memory_order_acquire);
+  if (!runtime->app_bundle_evaluation_open.load(std::memory_order_acquire) ||
+      (disposition == EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1 &&
+       !canvasOpen) ||
+      (disposition != EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1 &&
+       disposition != EXACT_PREPARED_NATIVE_STARTUP_UNUSED_VALID_V1) ||
+      !runtime->app_bundle_prepared_classified ||
+      runtime->app_bundle_prepared_staged ||
+      runtime->app_bundle_prepared_invoked ||
+      !runtime->app_bundle_prepared_consume_gpu_integration ||
+      !runtime->app_bundle_prepared_run_app) {
+    if (runtime->app_bundle_evaluation_open.load(
+            std::memory_order_acquire)) {
+      (void)exactRuntimeQuarantine(runtime);
+    }
+    writePreparedNativeStartupErrorV1(
+        out_error, "Prepared startup staging is out of sequence");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+
+  auto consume = std::move(
+      runtime->app_bundle_prepared_consume_gpu_integration);
+  if (!removeExpectedPreparedNativeStartupUncheckedV1(runtime)) {
+    (void)exactRuntimeQuarantine(runtime);
+    writePreparedNativeStartupErrorV1(
+        out_error, "Prepared startup root cleanup failed");
+    return EXACT_PREPARED_NATIVE_STARTUP_CLEANUP_FAILED_V1;
+  }
+
+  ScopedGpuHostTask hostTask(runtime);
+  if (!hostTask) {
+    (void)exactRuntimeQuarantine(runtime);
+    writePreparedNativeStartupErrorV1(
+        out_error, "Prepared startup consume could not enter a host task");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+
+  try {
+    auto& rt = *runtime->runtime;
+    if (disposition ==
+        EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1) {
+      // The function was captured from the frozen, host-authenticated
+      // generated carrier before Canvas begin. No mutable Object/Reflect lookup
+      // occurs while the one-shot capture root is exposed.
+      (void)consume->call(rt);
+    }
+    // The cached consume is generated code, but re-prove that it did not
+    // republish the carrier before the outer transaction can enter arbitrary
+    // project code through runApp.
+    const int32_t absence =
+        verifyPreparedNativeStartupAbsentUncheckedV1(runtime);
+    if (absence != EXACT_PREPARED_NATIVE_STARTUP_OK_V1) {
+      writePreparedNativeStartupErrorV1(
+          out_error, "Prepared startup root was republished during staging");
+      return absence;
+    }
+    runtime->app_bundle_prepared_staged = true;
+    if (!hostTask.finish()) {
+      (void)exactRuntimeQuarantine(runtime);
+      writePreparedNativeStartupErrorV1(
+          out_error, "Prepared startup consume host-task checkpoint failed");
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
+    return EXACT_PREPARED_NATIVE_STARTUP_OK_V1;
+  } catch (const facebook::jsi::JSError& err) {
+    (void)exactRuntimeQuarantine(runtime);
+    try {
+      const auto message = err.getMessage();
+      const auto stack = err.getStack();
+      writePreparedNativeStartupErrorV1(
+          out_error, stack.empty() ? message : message + "\n" + stack);
+    } catch (...) {
+      writePreparedNativeStartupErrorV1(
+          out_error, "Prepared startup consume invocation failed");
+    }
+    return 1;
+  } catch (const std::exception& err) {
+    (void)exactRuntimeQuarantine(runtime);
+    writePreparedNativeStartupErrorV1(out_error, err.what());
+    return 1;
+  } catch (...) {
+    (void)exactRuntimeQuarantine(runtime);
+    writePreparedNativeStartupErrorV1(
+        out_error, "Prepared startup native staging failed");
+    return 1;
+  }
+}
+
+// @abi-output ex_hermes_run_prepared_app_v1 out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+extern "C" int32_t ex_hermes_run_prepared_app_v1(
+    ExactHermesRuntime* runtime,
+    char** out_error) {
+  if (out_error != nullptr) *out_error = nullptr;
+  ExactRuntimeDriveGuard drive(runtime, 0, false, true);
+  if (!drive) {
+    writePreparedNativeStartupErrorV1(
+        out_error, "Prepared runApp refused by runtime drive gate");
+    return drive.status();
+  }
+  if (!runtime->app_bundle_evaluation_open.load(std::memory_order_acquire) ||
+      runtime->gpu_canvas_app_bundle_transaction_open.load(
+          std::memory_order_acquire) ||
+      !runtime->app_bundle_prepared_classified ||
+      !runtime->app_bundle_prepared_staged ||
+      runtime->app_bundle_prepared_invoked ||
+      runtime->app_bundle_prepared_consume_gpu_integration ||
+      !runtime->app_bundle_prepared_run_app) {
+    if (runtime->app_bundle_evaluation_open.load(
+            std::memory_order_acquire)) {
+      (void)exactRuntimeQuarantine(runtime);
+    }
+    writePreparedNativeStartupErrorV1(
+        out_error, "Prepared runApp is out of sequence");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+
+  const int32_t absence = verifyPreparedNativeStartupAbsentUncheckedV1(runtime);
+  if (absence != EXACT_PREPARED_NATIVE_STARTUP_OK_V1) {
+    writePreparedNativeStartupErrorV1(
+        out_error, "Prepared startup root is present before runApp");
+    return absence;
+  }
+  auto runApp = std::move(runtime->app_bundle_prepared_run_app);
+  ScopedGpuHostTask hostTask(runtime);
+  if (!hostTask) {
+    (void)exactRuntimeQuarantine(runtime);
+    writePreparedNativeStartupErrorV1(
+        out_error, "Prepared runApp could not enter a host task");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  try {
+    (void)runApp->call(*runtime->runtime);
+    runtime->app_bundle_prepared_invoked = true;
+    if (!hostTask.finish()) {
+      (void)exactRuntimeQuarantine(runtime);
+      writePreparedNativeStartupErrorV1(
+          out_error, "Prepared runApp GPU host-task checkpoint failed");
+      return EXACT_RUNTIME_DRIVE_INVALID;
+    }
+    return EXACT_PREPARED_NATIVE_STARTUP_OK_V1;
+  } catch (const facebook::jsi::JSError& err) {
+    (void)exactRuntimeQuarantine(runtime);
+    try {
+      const auto message = err.getMessage();
+      const auto stack = err.getStack();
+      writePreparedNativeStartupErrorV1(
+          out_error, stack.empty() ? message : message + "\n" + stack);
+    } catch (...) {
+      writePreparedNativeStartupErrorV1(
+          out_error, "Prepared runApp JavaScript invocation failed");
+    }
+    return 1;
+  } catch (const std::exception& err) {
+    (void)exactRuntimeQuarantine(runtime);
+    writePreparedNativeStartupErrorV1(out_error, err.what());
+    return 1;
+  } catch (...) {
+    (void)exactRuntimeQuarantine(runtime);
+    writePreparedNativeStartupErrorV1(
+        out_error, "Prepared runApp native invocation failed");
+    return 1;
+  }
+}
+
+extern "C" int32_t ex_hermes_verify_prepared_native_startup_absent_v1(
+    ExactHermesRuntime* runtime) {
+  ExactRuntimeDriveGuard drive(runtime, 0, true, true);
+  if (!drive) return drive.status();
+  return verifyPreparedNativeStartupAbsentUncheckedV1(runtime);
+}
+
 static bool capturePrivateBridgeConsumers(ExactHermesRuntime* handle) {
   // Verify that the trusted loader retained the native bridge function objects
   // it passes only to authenticated builtin wrappers. The seal below then
@@ -6699,6 +7640,10 @@ static bool capturePrivateBridgeConsumers(ExactHermesRuntime* handle) {
         facebook::jsi::String::createFromAscii(rt, "assert-private-bridges"));
     if (!captured.isBool() || !captured.getBool()) {
       throw std::runtime_error("private bootstrap bridge capture is incomplete");
+    }
+    if (!exactGpuRetainConstructionCaptureForBootstrapSeal(handle)) {
+      throw std::runtime_error(
+          "GPU provider construction handoff could not be retained privately");
     }
     return true;
   } catch (const facebook::jsi::JSError& error) {
@@ -6939,6 +7884,34 @@ static bool verifyRootGlobalDisposition(ExactHermesRuntime* handle) {
       }
     }
 
+    // Provider-finalized public projections are conditional in both
+    // directions. When authenticated, every generated path must exist; when
+    // inactive, none may survive. This explicit logical-path check is needed
+    // for nested publication such as navigator.gpu, which cannot be proven by
+    // root-key cardinality alone. Traversal remains descriptor-only.
+    // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+    for (const auto& expectation :
+         exact::root_global_disposition::
+             kConditionalLiveSweepExpectations) {
+      if (!rootGlobalTargetApplies(handle, expectation.target_variant)) {
+        continue;
+      }
+      const bool active = rootGlobalActivationApplies(
+          handle, expectation.activation, expectation.logical_path);
+      const bool absent = rootGlobalLogicalPathAbsent(
+          handle, expectation.logical_path);
+      if (active && absent) {
+        return rootGlobalDispositionFailure(
+            std::string("authenticated conditional path is missing: ") +
+            expectation.logical_path);
+      }
+      if (!active && !absent) {
+        return rootGlobalDispositionFailure(
+            std::string("inactive conditional path remains reachable: ") +
+            expectation.logical_path);
+      }
+    }
+
     std::unordered_set<std::string> requiredNativeKeys;
     std::unordered_set<std::string> permittedKeys;
     for (const auto& expectation :
@@ -7097,6 +8070,26 @@ static bool verifyRootGlobalDisposition(ExactHermesRuntime* handle) {
   }
 }
 
+// Authentication, baseline refresh, and property sealing all complete before
+// this transition. Finalized is therefore the native activation witness for
+// the generated Exact typed-ingress row. A bootstrap that is already closed
+// must immediately re-run the exact disposition join; failure terminally
+// replaces Finalized with Failed and revokes every still-revocable binding.
+static bool finalizeEmbedderCapabilityDisposition(
+    ExactHermesRuntime* runtime) {
+  runtime->embedder_capability_state = EmbedderCapabilityState::Finalized;
+  if (runtime->armed_bootstrap_eval_open) return true;
+
+  runtime->root_global_disposition_verified_for_user_execution = false;
+  if (!injectRootGlobalDispositionTestAccessor(runtime) ||
+      !verifyRootGlobalDisposition(runtime)) {
+    failRootGlobalDispositionFinalization(runtime);
+    return false;
+  }
+  runtime->root_global_disposition_verified_for_user_execution = true;
+  return true;
+}
+
 uint64_t exactAllocateRuntimeNonce() {
   // Zero is the unscoped sentinel. Refuse before the monotonic namespace can
   // wrap and make an old runtime's fd/socket authority addressable again.
@@ -7115,11 +8108,18 @@ uint64_t exactAllocateRuntimeNonce() {
 }
 
 static bool verifyArmedRuntimePosture(ExactHermesRuntime* handle) {
-  if (handle == nullptr || !handle->runtime) return false;
+  if (handle == nullptr || !handle->runtime) {
+    ex_host_console_log(1, "Armed startup posture refused: runtime is unavailable");
+    return false;
+  }
 #ifndef EXACT_HAVE_FRAME_ATTRIBUTION
+  ex_host_console_log(1, "Armed startup posture refused: frame attribution is unavailable");
   return false;
 #else
-  if (handle->attribution_runtime == nullptr) return false;
+  if (handle->attribution_runtime == nullptr) {
+    ex_host_console_log(1, "Armed startup posture refused: attribution runtime is unavailable");
+    return false;
+  }
 #endif
   try {
     auto& rt = *handle->runtime;
@@ -7160,9 +8160,22 @@ static bool verifyArmedRuntimePosture(ExactHermesRuntime* handle) {
     bool sealed = std::all_of(
         std::begin(kSealedGlobals), std::end(kSealedGlobals),
         [&rt](const char* name) { return !rt.global().hasProperty(rt, name); });
-    return locked.isBool() && locked.getBool() && compartments.isObject() &&
+    bool valid = locked.isBool() && locked.getBool() && compartments.isObject() &&
         require.isObject() && require.asObject(rt).isFunction(rt) && tamed && sealed;
+    if (!valid) {
+      std::string detail =
+          "Armed startup posture refused: locked=" +
+          std::to_string(locked.isBool() && locked.getBool()) +
+          " compartments=" + std::to_string(compartments.isObject()) +
+          " require=" + std::to_string(
+              require.isObject() && require.asObject(rt).isFunction(rt)) +
+          " functionTamed=" + std::to_string(tamed) +
+          " sealed=" + std::to_string(sealed);
+      ex_host_console_log(1, detail.c_str());
+    }
+    return valid;
   } catch (...) {
+    ex_host_console_log(1, "Armed startup posture refused: inspection threw");
     return false;
   }
 }
@@ -7267,12 +8280,14 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   handle->runtime_thread = std::this_thread::get_id();
   handle->host_context_id = host_context_id;
   handle->armed = armed;
+  handle->trusted_bootstrap_in_progress = true;
   // Both production and the explicitly named foreground diagnostic constructor
   // use structural isolation. Only production seals dynamic self-grant and
   // consumes authenticated endowments.
   handle->structural_lockdown = true;
   handle->runtime_nonce = exactAllocateRuntimeNonce();
   if (handle->runtime_nonce == 0) {
+    ex_host_console_log(1, "Armed startup refused: runtime nonce unavailable");
     delete handle;
     return nullptr;
   }
@@ -7323,10 +8338,14 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
     cleanupPartiallyConstructedRuntime(handle);
     return nullptr;
   }
-  if (armed && !captureRootGlobalDispositionIntrinsics(handle)) {
+  // App-bundle transactions are available to both armed production runtimes
+  // and the legacy/diagnostic startup path. Capture reflection before either
+  // kind can run project code; lazy capture at bundle time would trust mutable
+  // Object/Reflect globals.
+  if (!captureRootGlobalDispositionIntrinsics(handle)) {
     ex_host_console_log(
         1,
-        "Armed startup refused: could not capture pristine root-global reflection intrinsics");
+        "Runtime startup refused: could not capture pristine root-global reflection intrinsics");
     cleanupPartiallyConstructedRuntime(handle);
     return nullptr;
   }
@@ -7491,6 +8510,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
     return nullptr;
   }
   if (!compartmentRegistryInstalled) {
+    ex_host_console_log(1, "Armed startup refused: compartment registry unavailable");
     TRACE_END(compartment_registry);
     cleanupPartiallyConstructedRuntime(handle);
     return nullptr;
@@ -7503,6 +8523,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
     // Verify the armed posture after that final seal, while retaining full
     // partial-runtime cleanup for every refusal.
     // @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+    ex_host_console_log(1, "Armed startup refused: runtime posture verification failed");
     cleanupPartiallyConstructedRuntime(handle);
     return nullptr;
   }
@@ -7519,6 +8540,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   }
 
   handle->bootstrap_in_progress = false;
+  handle->trusted_bootstrap_in_progress = false;
   registerRuntime(handle);
 
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
@@ -7666,6 +8688,115 @@ bool installStructuredLifecycleAccessors(ExactHermesRuntime* handle) {
   }
 }
 
+// This program is deliberately native-owned: every embedder invokes the same
+// reviewed bytes through the named transition below, so neither the Ibex CLI
+// nor Exact carries a security-critical root list of its own.
+// @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+// @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+static constexpr char kArmedSharedRuntimeGlobalSealV1[] = R"JS((function(){
+  var rootNames = ['Exact', 'Bun'];
+  for (var index = 0; index < rootNames.length; index += 1) {
+    var rootName = rootNames[index];
+    var rootDescriptor = Object.getOwnPropertyDescriptor(globalThis, rootName);
+    if (rootDescriptor === undefined) {
+      if (rootName in globalThis) {
+        throw new Error('armed runtime inherited the ' + rootName + ' namespace');
+      }
+      continue;
+    }
+    if (!Object.prototype.hasOwnProperty.call(rootDescriptor, 'value')) {
+      throw new Error('armed runtime exposed an accessor-backed ' + rootName + ' namespace');
+    }
+    var root = rootDescriptor.value;
+    if ((typeof root !== 'object' && typeof root !== 'function') || root === null) continue;
+    var descriptor = Object.getOwnPropertyDescriptor(root, 'accessibility');
+    if (descriptor === undefined) {
+      if ('accessibility' in root) {
+        throw new Error('armed runtime inherited the accessibility namespace');
+      }
+      continue;
+    }
+    if (descriptor.configurable !== true || !delete root.accessibility ||
+        'accessibility' in root) {
+      throw new Error('armed runtime could not seal the accessibility namespace');
+    }
+  }
+  var closedAmbientRoots = [
+    'BroadcastChannel', 'MessageChannel', 'MessagePort',
+    'caches', 'localStorage', 'sessionStorage',
+    'indexedDB', 'IDBCursor', 'IDBCursorWithValue', 'IDBDatabase', 'IDBIndex',
+    'IDBKeyRange', 'IDBObjectStore', 'IDBOpenDBRequest', 'IDBRequest', 'IDBTransaction'
+  ];
+  for (var ambientIndex = 0; ambientIndex < closedAmbientRoots.length; ambientIndex += 1) {
+    var ambientRoot = closedAmbientRoots[ambientIndex];
+    var ambientDescriptor = Object.getOwnPropertyDescriptor(globalThis, ambientRoot);
+    if (ambientDescriptor === undefined) {
+      if (ambientRoot in globalThis) {
+        throw new Error('armed runtime inherited the ' + ambientRoot + ' namespace');
+      }
+      continue;
+    }
+    if (ambientDescriptor.configurable !== true || !delete globalThis[ambientRoot] ||
+        ambientRoot in globalThis) {
+      throw new Error('armed runtime could not seal the ' + ambientRoot + ' namespace');
+    }
+  }
+})();)JS";
+
+extern "C" uint32_t ex_hermes_seal_armed_shared_runtime_globals_v1(
+    ExactHermesRuntime* runtime) {
+  if (runtime == nullptr) {
+    return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return structuredRuntimeDriveFault(drive.status());
+  if (!runtime->armed) {
+    return EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED;
+  }
+  if (runtime->embedder_capability_state ==
+          EmbedderCapabilityState::Configuring ||
+      runtime->embedder_capability_state == EmbedderCapabilityState::Failed) {
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+  if (runtime->armed_shared_runtime_globals_sealed) {
+    return EX_HERMES_EVAL_FAULT_NONE;
+  }
+  if (!runtime->armed_bootstrap_eval_open ||
+      runtime->user_execution_started ||
+      runtime->structured_evaluation_in_flight ||
+      runtime->trusted_bootstrap_in_progress ||
+      !runtime->shared_runtime_bundle_installed) {
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+
+  ScopedRuntimeSecurityContext securityContext(runtime);
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  ScopedActiveAttributionRuntime activeAttributionRuntime(
+      runtime->attribution_runtime);
+#endif
+  try {
+    auto source = std::make_shared<MemoryBuffer>(
+        reinterpret_cast<const uint8_t*>(kArmedSharedRuntimeGlobalSealV1),
+        sizeof(kArmedSharedRuntimeGlobalSealV1) - 1);
+    (void)runtime->runtime->evaluateJavaScript(
+        source, "<armed-shared-runtime-seal-v1>");
+    runtime->armed_shared_runtime_globals_sealed = true;
+    return EX_HERMES_EVAL_FAULT_NONE;
+  } catch (const facebook::jsi::JSError& error) {
+    rootGlobalDispositionFailure(
+        "armed shared-runtime global seal failed: " + error.getMessage());
+  } catch (const std::exception& error) {
+    rootGlobalDispositionFailure(
+        "armed shared-runtime global seal failed: " +
+        std::string(error.what()));
+  } catch (...) {
+    rootGlobalDispositionFailure(
+        "armed shared-runtime global seal failed with an unknown exception");
+  }
+  (void)exactRuntimeQuarantine(runtime);
+  return EX_HERMES_EVAL_FAULT_ENGINE;
+}
+
 extern "C" uint32_t ex_hermes_finish_bootstrap(
     ExactHermesRuntime* runtime) {
   if (runtime == nullptr) {
@@ -7679,22 +8810,33 @@ extern "C" uint32_t ex_hermes_finish_bootstrap(
   if (!runtime->armed_bootstrap_eval_open) {
     return EX_HERMES_EVAL_FAULT_NONE;
   }
+  runtime->root_global_disposition_verified_for_user_execution = false;
+  if (!runtime->armed_shared_runtime_globals_sealed) {
+    rootGlobalDispositionFailure(
+        "named armed shared-runtime global seal did not complete before bootstrap finalization");
+    failRootGlobalDispositionFinalization(runtime);
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
   if (!verifyArmedBootstrapFinalized(runtime)) {
     rootGlobalDispositionFailure(
         "armed bootstrap posture was not finalized before disposition sweep");
+    failRootGlobalDispositionFinalization(runtime);
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
   if (!captureStructuredSessionIntrinsics(runtime)) {
     rootGlobalDispositionFailure(
         "structured-session intrinsics/private import bridge were not captured");
+    failRootGlobalDispositionFinalization(runtime);
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
   if (!installStructuredLifecycleAccessors(runtime)) {
     rootGlobalDispositionFailure(
         "structured lifecycle accessors could not be installed");
+    failRootGlobalDispositionFinalization(runtime);
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
   if (!capturePrivateBridgeConsumers(runtime)) {
+    failRootGlobalDispositionFinalization(runtime);
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
   // Trusted bootstrap has now captured the only private consumers of the
@@ -7703,15 +8845,22 @@ extern "C" uint32_t ex_hermes_finish_bootstrap(
   // descriptor graph to the generated three-set disposition join.
   // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
   if (!sealRootGlobalSessionBridges(runtime)) {
+    failRootGlobalDispositionFinalization(runtime);
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
   if (!injectRootGlobalDispositionTestAccessor(runtime)) {
+    failRootGlobalDispositionFinalization(runtime);
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
   if (!verifyRootGlobalDisposition(runtime)) {
+    failRootGlobalDispositionFinalization(runtime);
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
   runtime->armed_bootstrap_eval_open = false;
+  runtime->root_global_disposition_verified_for_user_execution =
+      runtime->embedder_capability_state !=
+          EmbedderCapabilityState::Configuring &&
+      runtime->embedder_capability_state != EmbedderCapabilityState::Failed;
   return EX_HERMES_EVAL_FAULT_NONE;
 }
 
@@ -7744,6 +8893,10 @@ extern "C" int32_t ex_hermes_try_destroy(
   // registered in Closing. Already-admitted JSI-bearing producers retain a
   // native-worker pin, may enqueue their captures, and are drained below.
   unregisterAndroidHostFunctions(runtime);
+  // The GPU mailbox is plain native state and deliberately holds no
+  // realm-long worker pin. Detach before closing the service realm, then
+  // continue teardown without waiting for a provider terminal callback.
+  exactGpuBeginRuntimeTeardown(runtime);
   unregisterSignalRuntime(runtime);
   disableDebugger(runtime);
   forgetHostCallTargets(target);
@@ -8407,112 +9560,118 @@ int evaluateStructuredSource(
   ScopedActiveAttributionRuntime activeAttributionRuntime(
       runtime->attribution_runtime);
 #endif
-  ScopedRawThrowCapture rawThrowCapture(runtime->runtime.get());
 
-  try {
-    const std::string label(
-        reinterpret_cast<const char*>(source_label), source_label_length);
-    const char* source_chars = source_length == 0
-        ? ""
-        : reinterpret_cast<const char*>(source);
-    runtime->sources_by_name[label] = std::string(source_chars, source_length);
-
-    static const uint8_t empty = 0;
-    const uint8_t* source_data = source_length == 0 ? &empty : source;
-    auto source_buffer =
-        std::make_shared<MemoryBuffer>(source_data, source_length);
-    auto value = runtime->runtime->evaluateJavaScript(source_buffer, label);
-    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
-      return 0;
-    }
-    bool completion_was_empty = false;
-#ifdef HERMES_HAS_COMPLETION_RECORD
-    if (distinguish_empty) {
-      // Read this immediately: later event-loop work must not become the
-      // completion discriminator for the submitted Script.
-      completion_was_empty =
-          runtime->runtime->lastEvaluationResultWasEmpty();
-    }
-#else
-    (void)distinguish_empty;
-#endif
-    runNextTickQueue(runtime);
-    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
-      return 0;
-    }
-    // The Script completion has already settled. A user-scheduled job drained
-    // at this checkpoint is background work, so publish its throw through the
-    // asynchronous-failure channel instead of turning it into this input's
-    // Throw outcome. @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
-    if (structuredWorkPublicationEnabled(runtime)) {
-      drainMicrotasksGuarded(runtime);
-    } else {
-      // The diagnostic-only seam has no authenticated event channel and keeps
-      // its historical foreground outcome behavior.
-      drainMicrotasks(*runtime->runtime);
-    }
-    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
-      return 0;
-    }
-#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
-    if (runtime->debugger_attached.load()) {
-      emitNewScripts(runtime, runtime->runtime->getDebugger());
-    }
-#endif
-    if (completion_was_empty) {
-      result->outcome_tag = EX_HERMES_EVAL_OUTCOME_EMPTY;
-      result->fault = EX_HERMES_EVAL_FAULT_NONE;
-      result->capability_flags = capability_flags;
-      return 0;
-    }
-    if (!mintStructuredValueHandle(runtime, value, &result->value)) {
-      structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
-      return 0;
-    }
-    result->outcome_tag = EX_HERMES_EVAL_OUTCOME_VALUE;
-    result->fault = EX_HERMES_EVAL_FAULT_NONE;
-    result->capability_flags = capability_flags;
-    return 0;
-  } catch (const facebook::jsi::JSError& error) {
-    if (evaluation != nullptr) {
-      evaluation->observeHermesTimeout(error);
-    }
-    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
-      return 0;
-    }
-    try {
-      if (!mintStructuredValueHandle(runtime, error.value(), &result->value)) {
-        structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
-        return 0;
-      }
-    } catch (const std::bad_alloc&) {
-      structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
-      return 0;
-    }
-    result->outcome_tag = EX_HERMES_EVAL_OUTCOME_THROW;
-    result->fault = EX_HERMES_EVAL_FAULT_NONE;
-    result->capability_flags = capability_flags;
-    populateStructuredSafeThrowMetadata(runtime, error.value(), result);
-    return 0;
-  } catch (const std::bad_alloc&) {
-    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
-      return 0;
-    }
-    structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
-    return 0;
-  } catch (const std::exception&) {
-    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
-      return 0;
-    }
-    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
-    return 0;
-  } catch (...) {
-    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
-      return 0;
-    }
+  ScopedGpuHostTask evalTask(runtime);
+  if (!evalTask) {
     structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
     return 0;
   }
+  ScopedRawThrowCapture rawThrowCapture(runtime->runtime.get());
+
+  auto evaluateBody = [&]() -> int {
+    try {
+      const std::string label(reinterpret_cast<const char*>(source_label),
+                              source_label_length);
+      const char* source_chars =
+          source_length == 0 ? "" : reinterpret_cast<const char*>(source);
+      runtime->sources_by_name[label] =
+          std::string(source_chars, source_length);
+
+      static const uint8_t empty = 0;
+      const uint8_t* source_data = source_length == 0 ? &empty : source;
+      auto source_buffer =
+          std::make_shared<MemoryBuffer>(source_data, source_length);
+      auto value = runtime->runtime->evaluateJavaScript(source_buffer, label);
+      if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
+        return 0;
+      }
+      bool completion_was_empty = false;
+#ifdef HERMES_HAS_COMPLETION_RECORD
+      if (distinguish_empty) {
+        // Read this immediately: later event-loop work must not become the
+        // completion discriminator for the submitted Script.
+        completion_was_empty = runtime->runtime->lastEvaluationResultWasEmpty();
+      }
+#else
+      (void)distinguish_empty;
+#endif
+      // The Script completion has already settled. The enclosing host-task
+      // finalizer drains nextTick and Promise jobs as background work before
+      // the staged result becomes observable to the embedder.
+      // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
+      if (runtime->debugger_attached.load()) {
+        emitNewScripts(runtime, runtime->runtime->getDebugger());
+      }
+#endif
+      if (completion_was_empty) {
+        result->outcome_tag = EX_HERMES_EVAL_OUTCOME_EMPTY;
+        result->fault = EX_HERMES_EVAL_FAULT_NONE;
+        result->capability_flags = capability_flags;
+        return 0;
+      }
+      if (!mintStructuredValueHandle(runtime, value, &result->value)) {
+        structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+        return 0;
+      }
+      result->outcome_tag = EX_HERMES_EVAL_OUTCOME_VALUE;
+      result->fault = EX_HERMES_EVAL_FAULT_NONE;
+      result->capability_flags = capability_flags;
+      return 0;
+    } catch (const facebook::jsi::JSError& error) {
+      if (evaluation != nullptr) {
+        evaluation->observeHermesTimeout(error);
+      }
+      if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
+        return 0;
+      }
+      try {
+        if (!mintStructuredValueHandle(runtime, error.value(),
+                                       &result->value)) {
+          structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+          return 0;
+        }
+      } catch (const std::bad_alloc&) {
+        structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+        return 0;
+      }
+      result->outcome_tag = EX_HERMES_EVAL_OUTCOME_THROW;
+      result->fault = EX_HERMES_EVAL_FAULT_NONE;
+      result->capability_flags = capability_flags;
+      populateStructuredSafeThrowMetadata(runtime, error.value(), result);
+      return 0;
+    } catch (const std::bad_alloc&) {
+      if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
+        return 0;
+      }
+      structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+      return 0;
+    } catch (const std::exception&) {
+      if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
+        return 0;
+      }
+      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+      return 0;
+    } catch (...) {
+      if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
+        return 0;
+      }
+      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+      return 0;
+    }
+  };
+
+  const int status = evaluateBody();
+  if (!evalTask.finish()) {
+    discardStructuredEvaluationResultPayload(runtime, result);
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+    return 0;
+  }
+  if (runtime->structured_lifecycle_pending) {
+    discardStructuredEvaluationResultPayload(runtime, result);
+    (void)structuredLifecycleOutcome(runtime, result, capability_flags);
+  }
+  return status;
 }
 
 struct StructuredOwnDescriptor {
@@ -8534,7 +9693,7 @@ StructuredOwnDescriptor structuredOwnDescriptor(
       facebook::jsi::String::createFromUtf8(rt, name));
   if (descriptorValue.isUndefined()) return {};
   if (!descriptorValue.isObject()) {
-    throw facebook::jsi::JSError::createTypeError(
+    throw exactCreateTypeError(
         rt, "session descriptor intrinsic returned a non-object");
   }
   auto descriptor = descriptorValue.asObject(rt);
@@ -8666,7 +9825,7 @@ facebook::jsi::Value readStructuredSessionName(
   auto cell = handle->structured_session_cells.find(name);
   if (cell != handle->structured_session_cells.end()) {
     if (!cell->second->initialized || !cell->second->value) {
-      throw facebook::jsi::JSError::createReferenceError(
+      throw exactCreateReferenceError(
           rt, "Cannot access '" + name + "' before initialization");
     }
     return facebook::jsi::Value(rt, *cell->second->value);
@@ -8675,7 +9834,7 @@ facebook::jsi::Value readStructuredSessionName(
   if (global.hasProperty(rt, name.c_str())) {
     return global.getProperty(rt, name.c_str());
   }
-  throw facebook::jsi::JSError::createReferenceError(
+  throw exactCreateReferenceError(
       rt, name + " is not defined");
 }
 
@@ -8703,7 +9862,7 @@ void writeStructuredSessionName(
   if (cell != handle->structured_session_cells.end()) {
     if (initialize) {
       if (cell->second->initialized) {
-        throw facebook::jsi::JSError::createReferenceError(
+        throw exactCreateReferenceError(
             rt, "Binding '" + name + "' has already been initialized");
       }
       cell->second->value =
@@ -8713,12 +9872,12 @@ void writeStructuredSessionName(
       return;
     }
     if (!cell->second->initialized) {
-      throw facebook::jsi::JSError::createReferenceError(
+      throw exactCreateReferenceError(
           rt, "Cannot access '" + name + "' before initialization");
     }
     if (cell->second->kind == StructuredSessionCellKind::Const ||
         cell->second->kind == StructuredSessionCellKind::Import) {
-      throw facebook::jsi::JSError::createTypeError(
+      throw exactCreateTypeError(
           rt, "Assignment to constant binding '" + name + "'");
     }
     cell->second->value =
@@ -8726,14 +9885,14 @@ void writeStructuredSessionName(
     return;
   }
   if (initialize) {
-    throw facebook::jsi::JSError::createReferenceError(
+    throw exactCreateReferenceError(
         rt, "No pending lexical binding named '" + name + "'");
   }
 
   auto global = rt.global();
   if (!global.hasProperty(rt, name.c_str())) {
     if (strict) {
-      throw facebook::jsi::JSError::createReferenceError(
+      throw exactCreateReferenceError(
           rt, name + " is not defined");
     }
     global.setProperty(rt, name.c_str(), value);
@@ -8746,7 +9905,7 @@ void writeStructuredSessionName(
       value,
       global);
   if ((!written.isBool() || !written.getBool()) && strict) {
-    throw facebook::jsi::JSError::createTypeError(
+    throw exactCreateTypeError(
         rt, "Cannot assign to global binding '" + name + "'");
   }
 }
@@ -8778,7 +9937,7 @@ class StructuredSessionReferenceHostObject final
       const facebook::jsi::PropNameID& property,
       const facebook::jsi::Value& value) override {
     if (property.utf8(rt) != "value") {
-      throw facebook::jsi::JSError::createTypeError(
+      throw exactCreateTypeError(
           rt, "invalid checked-cell property");
     }
     writeStructuredSessionName(
@@ -8804,7 +9963,7 @@ std::string structuredNameArgument(
     const facebook::jsi::Value* args,
     size_t count) {
   if (count == 0 || !args[0].isString()) {
-    throw facebook::jsi::JSError::createTypeError(
+    throw exactCreateTypeError(
         rt, "checked-cell operation requires a string name");
   }
   return args[0].getString(rt).utf8(rt);
@@ -8917,7 +10076,7 @@ facebook::jsi::Object makeStructuredSessionHooks(
             handle->structured_session_terminated ||
             !handle->structured_session_import_materializer ||
             logicalReferrer.empty()) {
-          throw facebook::jsi::JSError::createTypeError(
+          throw exactCreateTypeError(
               runtime, "authenticated session dynamic import is unavailable");
         }
         // The trusted JS dispatcher converts invalid specifiers and resolver
@@ -8945,7 +10104,7 @@ facebook::jsi::Object makeStructuredSessionHooks(
             !args[1].getObject(runtime).isFunction(runtime) ||
             handle->structured_session_var_declared_names.count(name) == 0 ||
             handle->structured_session_cells.count(name) != 0) {
-          throw facebook::jsi::JSError::createTypeError(
+          throw exactCreateTypeError(
               runtime, "invalid session function hoist");
         }
         defineStructuredGlobal(handle, name, args[1]);
@@ -8962,7 +10121,7 @@ facebook::jsi::Object makeStructuredSessionHooks(
                const facebook::jsi::Value* args,
                size_t count) -> facebook::jsi::Value {
         if (count < 2 || !args[0].isBool()) {
-          throw facebook::jsi::JSError::createTypeError(
+          throw exactCreateTypeError(
               runtime, "invalid session completion");
         }
         handle->structured_session_completion_has_value = args[0].getBool();
@@ -9816,8 +10975,8 @@ void structuredDeclarationRefusal(
       : "session declaration '" + feasibility.name + "' is not permitted";
   const auto refusal = feasibility.refusal ==
           StructuredDeclarationRefusalKind::RestrictedGlobal
-      ? facebook::jsi::JSError::createSyntaxError(rt, message)
-      : facebook::jsi::JSError::createTypeError(rt, message);
+      ? exactCreateSyntaxError(rt, message)
+      : exactCreateTypeError(rt, message);
   structuredThrowValue(
       handle, refusal.value(), capabilityFlags, result);
 }
@@ -10161,6 +11320,13 @@ extern "C" uint32_t ex_hermes_structured_session_bind(
     return EX_HERMES_EVAL_FAULT_BOOTSTRAP_NOT_SEALED;
   }
   if (!runtime->structured_session_bound) {
+    // Binding creates the session-visible `$_` accessor. Do not mutate the
+    // verified root graph while an embedder capability projection remains
+    // provisional; the authenticated caller can retry the same unconsumed
+    // submission after finalization.
+    if (!exactRuntimeEnterUserExecution(runtime)) {
+      return EX_HERMES_EVAL_FAULT_ENGINE;
+    }
     // @ref LLP 0024#78-the-last-value-binding — the reserved binding is a
     // runtime-owned configurable accessor installed only for a bound session.
     if (!installStructuredLastValueAccessor(runtime)) {
@@ -10318,6 +11484,12 @@ extern "C" uint32_t ex_hermes_structured_submission_admit(
     return EX_HERMES_EVAL_FAULT_WRONG_ORDINAL;
   }
   if (runtime->next_structured_work_target_id == 0) {
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+  // Admission is the common source boundary for lowered scripts, generated
+  // entries, and native module graphs. A valid credential cannot reserve an
+  // ordinal or work target while embedder capabilities are provisional.
+  if (!exactRuntimeEnterUserExecution(runtime)) {
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
 
@@ -11320,6 +12492,18 @@ extern "C" int ex_hermes_eval_structured_session(
       expected_ordinal == std::numeric_limits<uint64_t>::max()
       ? 0
       : expected_ordinal + 1;
+  // A valid, accepted session credential still cannot cross a provisional
+  // embedder capability transaction. Gate after consuming the credential so
+  // the native ordinal stays aligned with the Rust linear submission permit
+  // on this terminal engine fault, but before allocating work or running any
+  // project instruction.
+  if (runtime->embedder_capability_state ==
+          EmbedderCapabilityState::Configuring ||
+      runtime->embedder_capability_state == EmbedderCapabilityState::Failed ||
+      !exactRuntimeEnterUserExecution(runtime)) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+    return 0;
+  }
   result->work_target_id = allocateStructuredWorkTarget(runtime);
   if (result->work_target_id == 0) {
     structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
@@ -11684,28 +12868,116 @@ extern "C" int ex_hermes_eval_lowered_session(
   ScopedActiveAttributionRuntime activeAttributionRuntime(
       runtime->attribution_runtime);
 #endif
+  ScopedGpuHostTask loweredEvalTask(runtime);
+  if (!loweredEvalTask) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+    return 0;
+  }
   ScopedRawThrowCapture rawThrowCapture(runtime->runtime.get());
   std::unique_ptr<ScopedStructuredEvaluation> evaluation;
-  try {
-    if (!declarationCollision.empty()) {
-      const auto collision = facebook::jsi::JSError::createSyntaxError(
-          *runtime->runtime, declarationCollision);
-      structuredThrowValue(
-          runtime,
-          collision.value(),
-          kStructuredEvaluatorCapabilities,
-          result);
-      return 0;
-    }
-    const std::string label(
-        reinterpret_cast<const char*>(source_label), source_label_length);
-    if (commonJsEntry) {
-      const char* sourceChars = lowered_source_length == 0
-          ? ""
-          : reinterpret_cast<const char*>(lowered_source);
-      const std::string source(sourceChars, lowered_source_length);
-      runtime->sources_by_name[label] = source;
-      runtime->source_maps_by_name[label].clear();
+  auto evaluateBody = [&]() -> int {
+    try {
+      if (!declarationCollision.empty()) {
+        const auto collision =
+            exactCreateSyntaxError(*runtime->runtime, declarationCollision);
+        structuredThrowValue(runtime, collision.value(),
+                             kStructuredEvaluatorCapabilities, result);
+        return 0;
+      }
+      const std::string label(reinterpret_cast<const char*>(source_label),
+                              source_label_length);
+      if (commonJsEntry) {
+        const char* sourceChars =
+            lowered_source_length == 0
+                ? ""
+                : reinterpret_cast<const char*>(lowered_source);
+        const std::string source(sourceChars, lowered_source_length);
+        runtime->sources_by_name[label] = source;
+        runtime->source_maps_by_name[label].clear();
+
+        evaluation = std::make_unique<ScopedStructuredEvaluation>(
+            runtime, result, true, credential->ordinal);
+        if (evaluation->invalidTarget()) {
+          structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+          return 0;
+        }
+        activeTarget.transfer();
+        if (evaluation->cancelAtCooperativeBoundary()) return 0;
+        if (!applyStructuredFileArguments(runtime, staticImportPlan)) {
+          structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+          evaluation->close();
+          return 0;
+        }
+        ScopedStructuredEntryCacheReservation entryCache(
+            runtime, result->work_target_id);
+        const bool cacheTransactionReady =
+            generatedCommonJsEntry
+                ? entryCache.beginGenerated()
+                : entryCache.reserve(staticImportPlan, label);
+        if (!cacheTransactionReady) {
+          if (evaluation->cancelAtCooperativeBoundary()) return 0;
+          structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+          evaluation->close();
+          return 0;
+        }
+        if (evaluation->cancelAtCooperativeBoundary()) return 0;
+        auto value = generatedCommonJsEntry
+                         ? evaluateStructuredGeneratedCommonJsEntry(
+                               runtime, source, label, staticImportPlan)
+                         : evaluateStructuredCommonJsEntry(
+                               runtime, source, label, staticImportPlan);
+        if (structuredLifecycleOutcome(runtime, result,
+                                       kStructuredEvaluatorCapabilities)) {
+          entryCache.finalize(result);
+          evaluation->close();
+          return 0;
+        }
+        if (!mintStructuredValueHandle(runtime, value, &result->value)) {
+          structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+        } else {
+          result->outcome_tag = EX_HERMES_EVAL_OUTCOME_VALUE;
+          result->fault = EX_HERMES_EVAL_FAULT_NONE;
+          result->capability_flags = kStructuredEvaluatorCapabilities;
+          runtime->structured_pending_display_work_target_id =
+              result->work_target_id;
+          runtime->structured_pending_display_handle_id =
+              result->value.handle_id;
+        }
+        entryCache.finalize(result);
+        evaluation->close();
+        return 0;
+      }
+      auto sourceBuffer =
+          std::make_shared<MemoryBuffer>(lowered_source, lowered_source_length);
+      std::shared_ptr<const facebook::jsi::Buffer> sourceMapBuffer;
+      if (lowered_source_map_length != 0) {
+        sourceMapBuffer = std::make_shared<MemoryBuffer>(
+            lowered_source_map, lowered_source_map_length);
+      }
+
+      // `prepareJavaScript` compiles without executing the wrapper expression.
+      // No session mutation occurs unless both compilation and the complete
+      // feasibility vector succeed.
+      auto prepared = runtime->runtime->prepareJavaScript(sourceBuffer, label);
+      const auto initialFeasibility =
+          structuredDeclarationPlanFeasibility(runtime, plan);
+      if (!initialFeasibility.feasible()) {
+        // Feasibility is a JavaScript declaration-instantiation result, not an
+        // invalid lowering payload. Preserve the model's error class: a
+        // restricted lexical is SyntaxError, while CanDeclareGlobal* refusal is
+        // TypeError.
+        // @ref LLP
+        // 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+        structuredDeclarationRefusal(runtime, initialFeasibility, false,
+                                     kStructuredEvaluatorCapabilities, result);
+        return 0;
+      }
+
+      runtime->sources_by_name[label] = std::string(
+          reinterpret_cast<const char*>(lowered_source), lowered_source_length);
+      runtime->source_maps_by_name[label] =
+          std::string(reinterpret_cast<const char*>(lowered_source_map),
+                      lowered_source_map_length);
 
       evaluation = std::make_unique<ScopedStructuredEvaluation>(
           runtime, result, true, credential->ordinal);
@@ -11714,235 +12986,135 @@ extern "C" int ex_hermes_eval_lowered_session(
         return 0;
       }
       activeTarget.transfer();
-      if (evaluation->cancelAtCooperativeBoundary()) return 0;
+      if (evaluation->cancelAtCooperativeBoundary()) {
+        return 0;
+      }
       if (!applyStructuredFileArguments(runtime, staticImportPlan)) {
         structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
         evaluation->close();
         return 0;
       }
-      ScopedStructuredEntryCacheReservation entryCache(
-          runtime, result->work_target_id);
-      const bool cacheTransactionReady = generatedCommonJsEntry
-          ? entryCache.beginGenerated()
-          : entryCache.reserve(staticImportPlan, label);
-      if (!cacheTransactionReady) {
-        if (evaluation->cancelAtCooperativeBoundary()) return 0;
+      ScopedStructuredEntryCacheReservation entryCache(runtime,
+                                                       result->work_target_id);
+      if (!entryCache.reserve(staticImportPlan, label)) {
+        if (evaluation->cancelAtCooperativeBoundary()) {
+          return 0;
+        }
         structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
         evaluation->close();
         return 0;
       }
-      if (evaluation->cancelAtCooperativeBoundary()) return 0;
-      auto value = generatedCommonJsEntry
-          ? evaluateStructuredGeneratedCommonJsEntry(
-                runtime, source, label, staticImportPlan)
-          : evaluateStructuredCommonJsEntry(
-                runtime, source, label, staticImportPlan);
-      if (structuredLifecycleOutcome(
-              runtime,
-              result,
-              kStructuredEvaluatorCapabilities)) {
-        entryCache.finalize(result);
-        evaluation->close();
-        return 0;
-      }
-      if (!mintStructuredValueHandle(runtime, value, &result->value)) {
-        structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
-      } else {
-        result->outcome_tag = EX_HERMES_EVAL_OUTCOME_VALUE;
-        result->fault = EX_HERMES_EVAL_FAULT_NONE;
-        result->capability_flags = kStructuredEvaluatorCapabilities;
-        runtime->structured_pending_display_work_target_id =
-            result->work_target_id;
-        runtime->structured_pending_display_handle_id =
-            result->value.handle_id;
-      }
-      entryCache.finalize(result);
-      evaluation->close();
-      return 0;
-    }
-    auto sourceBuffer = std::make_shared<MemoryBuffer>(
-        lowered_source, lowered_source_length);
-    std::shared_ptr<const facebook::jsi::Buffer> sourceMapBuffer;
-    if (lowered_source_map_length != 0) {
-      sourceMapBuffer = std::make_shared<MemoryBuffer>(
-          lowered_source_map, lowered_source_map_length);
-    }
-
-    // `prepareJavaScript` compiles without executing the wrapper expression.
-    // No session mutation occurs unless both compilation and the complete
-    // feasibility vector succeed.
-    auto prepared = runtime->runtime->prepareJavaScript(sourceBuffer, label);
-    const auto initialFeasibility =
-        structuredDeclarationPlanFeasibility(runtime, plan);
-    if (!initialFeasibility.feasible()) {
-      // Feasibility is a JavaScript declaration-instantiation result, not an
-      // invalid lowering payload. Preserve the model's error class: a
-      // restricted lexical is SyntaxError, while CanDeclareGlobal* refusal is
-      // TypeError.
-      // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
-      structuredDeclarationRefusal(
-          runtime,
-          initialFeasibility,
-          false,
-          kStructuredEvaluatorCapabilities,
-          result);
-      return 0;
-    }
-
-    runtime->sources_by_name[label] = std::string(
-        reinterpret_cast<const char*>(lowered_source),
-        lowered_source_length);
-    runtime->source_maps_by_name[label] = std::string(
-        reinterpret_cast<const char*>(lowered_source_map),
-        lowered_source_map_length);
-
-    evaluation = std::make_unique<ScopedStructuredEvaluation>(
-        runtime, result, true, credential->ordinal);
-    if (evaluation->invalidTarget()) {
-      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
-      return 0;
-    }
-    activeTarget.transfer();
-    if (evaluation->cancelAtCooperativeBoundary()) {
-      return 0;
-    }
-    if (!applyStructuredFileArguments(runtime, staticImportPlan)) {
-      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
-      evaluation->close();
-      return 0;
-    }
-    ScopedStructuredEntryCacheReservation entryCache(
-        runtime, result->work_target_id);
-    if (!entryCache.reserve(staticImportPlan, label)) {
       if (evaluation->cancelAtCooperativeBoundary()) {
         return 0;
       }
-      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
-      evaluation->close();
-      return 0;
-    }
-    if (evaluation->cancelAtCooperativeBoundary()) {
-      return 0;
-    }
-    std::vector<StructuredMaterializedImportBinding> materializedImports;
-    try {
-      if (!materializeStructuredStaticImports(
-              runtime,
-              staticImportPlan,
-              evaluation.get(),
-              &materializedImports)) {
-        return 0;
-      }
-    } catch (const facebook::jsi::JSError& error) {
-      evaluation->observeHermesTimeout(error);
-      if (structuredLifecycleOutcome(
-              runtime,
-              result,
-              kStructuredEvaluatorCapabilities)) {
+      std::vector<StructuredMaterializedImportBinding> materializedImports;
+      try {
+        if (!materializeStructuredStaticImports(runtime, staticImportPlan,
+                                                evaluation.get(),
+                                                &materializedImports)) {
+          return 0;
+        }
+      } catch (const facebook::jsi::JSError& error) {
+        evaluation->observeHermesTimeout(error);
+        if (structuredLifecycleOutcome(runtime, result,
+                                       kStructuredEvaluatorCapabilities)) {
+          evaluation->close();
+          return 0;
+        }
+        structuredThrowValue(runtime, error.value(),
+                             kStructuredEvaluatorCapabilities, result);
         evaluation->close();
         return 0;
       }
-      structuredThrowValue(
-          runtime,
-          error.value(),
-          kStructuredEvaluatorCapabilities,
-          result);
-      evaluation->close();
-      return 0;
-    }
 
-    // Module evaluation may run arbitrary project code. Repeat the complete
-    // collision/descriptor feasibility vector after every import has loaded
-    // and every named/default Get has completed, but before publishing a
-    // single session declaration.
-    // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
-    const auto recheckedFeasibility =
-        structuredDeclarationPlanFeasibility(runtime, plan);
-    if (!recheckedFeasibility.feasible()) {
-      structuredDeclarationRefusal(
-          runtime,
-          recheckedFeasibility,
-          true,
-          kStructuredEvaluatorCapabilities,
-          result);
-      evaluation->close();
-      return 0;
-    }
-    if (evaluation->cancelAtCooperativeBoundary()) {
-      return 0;
-    }
-    ScopedStructuredCancellationCriticalSection phase5(
-        runtime, result->work_target_id);
-    if (!phase5.entered()) {
-      if (phase5.cancellationPending() &&
-          evaluation->cancelAtCooperativeBoundary()) {
-        return 0;
-      }
-      throw std::logic_error(
-          "phase-5 cancellation critical section could not be entered");
-    }
-    beginStructuredSessionTransaction(runtime, plan);
-    initializeStructuredImportCells(runtime, &materializedImports);
-    phase5.leave();
-    if (evaluation->cancelAtCooperativeBoundary()) {
-      return 0;
-    }
-    const int status = evaluateLoweredPreparedSession(
-        runtime,
-        prepared,
-        sourceBuffer,
-        sourceMapBuffer,
-        label,
-        staticImportPlan.logicalReferrer,
-        asynchronous,
-        kStructuredEvaluatorCapabilities,
-        result,
-        evaluation.get());
-    entryCache.finalize(result);
-    return status;
-  } catch (const facebook::jsi::JSError& error) {
-    if (evaluation) {
-      evaluation->observeHermesTimeout(error);
-      if (structuredLifecycleOutcome(
-              runtime,
-              result,
-              kStructuredEvaluatorCapabilities)) {
+      // Module evaluation may run arbitrary project code. Repeat the complete
+      // collision/descriptor feasibility vector after every import has loaded
+      // and every named/default Get has completed, but before publishing a
+      // single session declaration.
+      // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+      const auto recheckedFeasibility =
+          structuredDeclarationPlanFeasibility(runtime, plan);
+      if (!recheckedFeasibility.feasible()) {
+        structuredDeclarationRefusal(runtime, recheckedFeasibility, true,
+                                     kStructuredEvaluatorCapabilities, result);
         evaluation->close();
         return 0;
       }
-      finishStructuredSessionTransaction(runtime, false);
-      structuredThrowValue(
-          runtime,
-          error.value(),
-          kStructuredEvaluatorCapabilities,
-          result);
-      evaluation->close();
+      if (evaluation->cancelAtCooperativeBoundary()) {
+        return 0;
+      }
+      ScopedStructuredCancellationCriticalSection phase5(
+          runtime, result->work_target_id);
+      if (!phase5.entered()) {
+        if (phase5.cancellationPending() &&
+            evaluation->cancelAtCooperativeBoundary()) {
+          return 0;
+        }
+        throw std::logic_error(
+            "phase-5 cancellation critical section could not be entered");
+      }
+      beginStructuredSessionTransaction(runtime, plan);
+      initializeStructuredImportCells(runtime, &materializedImports);
+      phase5.leave();
+      if (evaluation->cancelAtCooperativeBoundary()) {
+        return 0;
+      }
+      const int status = evaluateLoweredPreparedSession(
+          runtime, prepared, sourceBuffer, sourceMapBuffer, label,
+          staticImportPlan.logicalReferrer, asynchronous,
+          kStructuredEvaluatorCapabilities, result, evaluation.get());
+      entryCache.finalize(result);
+      return status;
+    } catch (const facebook::jsi::JSError& error) {
+      if (evaluation) {
+        evaluation->observeHermesTimeout(error);
+        if (structuredLifecycleOutcome(runtime, result,
+                                       kStructuredEvaluatorCapabilities)) {
+          evaluation->close();
+          return 0;
+        }
+        finishStructuredSessionTransaction(runtime, false);
+        structuredThrowValue(runtime, error.value(),
+                             kStructuredEvaluatorCapabilities, result);
+        evaluation->close();
+        return 0;
+      }
+      runtime->structured_session_terminated = true;
+      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+      return 0;
+    } catch (const std::bad_alloc&) {
+      if (result->work_target_id != 0) {
+        finishStructuredSessionTransaction(runtime, false);
+        runtime->structured_session_terminated = true;
+      }
+      structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+      return 0;
+    } catch (...) {
+      if (structuredLifecycleOutcome(runtime, result,
+                                     kStructuredEvaluatorCapabilities)) {
+        return 0;
+      }
+      if (result->work_target_id != 0) {
+        finishStructuredSessionTransaction(runtime, false);
+        runtime->structured_session_terminated = true;
+      }
+      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
       return 0;
     }
-    runtime->structured_session_terminated = true;
-    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
-    return 0;
-  } catch (const std::bad_alloc&) {
-    if (result->work_target_id != 0) {
-      finishStructuredSessionTransaction(runtime, false);
-      runtime->structured_session_terminated = true;
-    }
-    structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
-    return 0;
-  } catch (...) {
-    if (structuredLifecycleOutcome(
-            runtime,
-            result,
-            kStructuredEvaluatorCapabilities)) {
-      return 0;
-    }
-    if (result->work_target_id != 0) {
-      finishStructuredSessionTransaction(runtime, false);
-      runtime->structured_session_terminated = true;
-    }
+  };
+
+  const int status = evaluateBody();
+  if (!loweredEvalTask.finish()) {
+    discardStructuredEvaluationResultPayload(runtime, result);
     structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
     return 0;
   }
+  if (runtime->structured_lifecycle_pending) {
+    discardStructuredEvaluationResultPayload(runtime, result);
+    (void)structuredLifecycleOutcome(runtime, result,
+                                     kStructuredEvaluatorCapabilities);
+  }
+  return status;
 }
 
 // @abi-output ex_hermes_resume_structured_session result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* elements=positions ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
@@ -12389,6 +13561,132 @@ int exactHermesBootstrapEval(
       runtime, data, len, sourceUrl, isBytecode, outValue);
 }
 
+int exactHermesEvalImmediateNoJobs(
+    ExactHermesRuntime* runtime,
+    const uint8_t* data,
+    size_t len,
+    const char* sourceUrl,
+    int isBytecode,
+    char** outError,
+    const uint8_t* preludeData,
+    size_t preludeLen,
+    const char* preludeSourceUrl) {
+  if (outError != nullptr) *outError = nullptr;
+  auto writeError = [&](const std::string& text) noexcept {
+    if (outError == nullptr) return;
+    auto* copy = static_cast<char*>(malloc(text.size() + 1));
+    if (copy == nullptr) return;
+    memcpy(copy, text.data(), text.size());
+    copy[text.size()] = '\0';
+    *outError = copy;
+  };
+
+  if (runtime == nullptr || runtime->runtime == nullptr || data == nullptr ||
+      len == 0 || (isBytecode != 0 && isBytecode != 1) ||
+      ((preludeData == nullptr) != (preludeLen == 0))) {
+    writeError("Hermes immediate eval received invalid input");
+    return 1;
+  }
+  if (runtime->runtime_thread != std::this_thread::get_id()) {
+    writeError("Hermes immediate eval refused a non-owner thread");
+    return 1;
+  }
+
+  ScopedRuntimeSecurityContext securityContext(runtime);
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  ScopedActiveAttributionRuntime activeAttributionRuntime(
+      runtime->attribution_runtime);
+#endif
+
+  try {
+    const std::string source = sourceUrl != nullptr
+        ? sourceUrl
+        : (isBytecode != 0 ? "<immediate-bytecode>" : "<immediate-eval>");
+    std::shared_ptr<facebook::jsi::Buffer> sourceBuffer;
+    if (isBytecode != 0) {
+      sourceBuffer = std::make_shared<AlignedBytecodeBuffer>(data, len);
+      const auto* alignedData = sourceBuffer->data();
+#if defined(EXACT_HAVE_HERMES_RUNTIME_BYTECODE_SANITY_CHECK)
+      std::string reason;
+      if (!facebook::hermes::HermesRuntime::hermesBytecodeSanityCheck(
+              alignedData, len, &reason)) {
+        writeError("Bytecode sanity check failed: " + reason);
+        // This is the sole immediate-eval status that proves no program
+        // instruction ran, and therefore the sole source-fallback eligibility
+        // signal for a still-open transaction.
+        // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+        return 2;
+      }
+#elif defined(EXACT_HAVE_HERMES_ROOT_BYTECODE_SANITY_CHECK)
+      std::string reason;
+      auto* root = facebook::jsi::castInterface<facebook::hermes::IHermesRootAPI>(
+          facebook::hermes::makeHermesRootAPI());
+      if (root == nullptr ||
+          !root->hermesBytecodeSanityCheck(alignedData, len, &reason)) {
+        writeError(
+            "Bytecode sanity check failed: " +
+            (root == nullptr ? std::string("Hermes root API unavailable")
+                             : reason));
+        return 2;
+      }
+#else
+      (void)alignedData;
+      // Never hand an unvalidated buffer to Hermes from this security boundary.
+      // Older engine profiles without either native sanity API fail closed to
+      // the same pre-instruction/source-fallback result.
+      writeError(
+          "Bytecode sanity check failed: Hermes bytecode sanity API unavailable");
+      return 2;
+#endif
+    } else {
+      sourceBuffer = std::make_shared<MemoryBuffer>(data, len);
+    }
+
+    std::shared_ptr<facebook::jsi::Buffer> preludeBuffer;
+    if (preludeData != nullptr) {
+      preludeBuffer =
+          std::make_shared<MemoryBuffer>(preludeData, preludeLen);
+    }
+
+    // HBC sanity above is deliberately complete before the prelude runs, so a
+    // status-2 fallback never follows partial prelude mutation. Deliberately
+    // discard both raw JSI values. Even converting one to a string or asking
+    // whether it is thenable can invoke arbitrary project code. No queue
+    // drain, debugger emission, Promise unwrap/poll, or post-eval hook runs
+    // between or after these calls.
+    if (preludeBuffer) {
+      const std::string preludeSource = preludeSourceUrl != nullptr
+          ? preludeSourceUrl
+          : "<immediate-prelude>";
+      (void)runtime->runtime->evaluateJavaScript(
+          preludeBuffer, preludeSource);
+    }
+    (void)runtime->runtime->evaluateJavaScript(sourceBuffer, source);
+    return 0;
+  } catch (const facebook::jsi::JSError& err) {
+    // Do not consult __exactUncaughtExceptionHandler. It is mutable project
+    // state and calling it would be another untrusted ingress before finish.
+    try {
+      const auto message = err.getMessage();
+      const auto stack = err.getStack();
+      writeError(stack.empty() ? message : message + "\n" + stack);
+    } catch (...) {
+      writeError("Hermes immediate eval threw a JavaScript exception");
+    }
+    return 1;
+  } catch (const std::exception& err) {
+    try {
+      writeError(err.what());
+    } catch (...) {
+      writeError("Hermes immediate eval failed");
+    }
+    return 1;
+  } catch (...) {
+    writeError("Unknown non-std exception during Hermes immediate eval");
+    return 1;
+  }
+}
+
 static int evalRuntimeUnchecked(
     ExactHermesRuntime* runtime,
     const uint8_t* data,
@@ -12399,6 +13697,11 @@ static int evalRuntimeUnchecked(
   auto writeOutError = [&](const std::string& text) -> bool {
     if (!out_value) {
       return true;
+    }
+
+    if (*out_value != nullptr) {
+      free(*out_value);
+      *out_value = nullptr;
     }
 
     char* heap = static_cast<char*>(malloc(text.size() + 1));
@@ -12423,6 +13726,10 @@ static int evalRuntimeUnchecked(
     writeOutError("Hermes eval refused a non-owner thread");
     return 1;
   }
+  if (!exactRuntimeEnterUserExecution(runtime)) {
+    writeOutError("Hermes embedder capability transaction is not finalized");
+    return 1;
+  }
   if (runtime->armed &&
       (!runtime->armed_bootstrap_eval_open ||
        runtime->structured_evaluation_in_flight)) {
@@ -12441,7 +13748,14 @@ static int evalRuntimeUnchecked(
       runtime->attribution_runtime);
 #endif
 
-  std::string source = source_url ? source_url : (is_bytecode ? "<bytecode>" : "<eval>");
+  ScopedGpuHostTask evalTask(runtime);
+  if (!evalTask) {
+    writeOutError("Hermes eval could not enter the runtime host-task boundary");
+    return 1;
+  }
+
+  std::string source =
+      source_url ? source_url : (is_bytecode ? "<bytecode>" : "<eval>");
   bool traceEval = startup_trace_enabled();
   if (!is_bytecode) {
     runtime->sources_by_name[source] = std::string(reinterpret_cast<const char*>(data), len);
@@ -12477,6 +13791,11 @@ static int evalRuntimeUnchecked(
         // and threw" — only the former may delete a cached .hbc and
         // re-run the JS source (see is_bytecode_load_error, ENG-23484).
         // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+        if (!evalTask.finish()) {
+          writeOutError(
+              "Hermes host-task checkpoint failed after bytecode refusal");
+          return 1;
+        }
         writeOutError("Bytecode sanity check failed: " + reason);
         return 2;
       }
@@ -12486,6 +13805,11 @@ static int evalRuntimeUnchecked(
           facebook::hermes::makeHermesRootAPI());
       if (root == nullptr ||
           !root->hermesBytecodeSanityCheck(aligned_data, len, &reason)) {
+        if (!evalTask.finish()) {
+          writeOutError(
+              "Hermes host-task checkpoint failed after bytecode refusal");
+          return 1;
+        }
         writeOutError("Bytecode sanity check failed: " +
                       (root == nullptr ? std::string("Hermes root API unavailable") : reason));
         // A distinct status is the native proof that no program instruction
@@ -12507,18 +13831,6 @@ static int evalRuntimeUnchecked(
     if (traceEval) {
       fprintf(stderr, "[eval] evaluate_end %s\n", source.c_str());
     }
-    if (traceEval) {
-      fprintf(stderr, "[eval] next_tick_start %s\n", source.c_str());
-    }
-    runNextTickQueue(runtime);
-    if (traceEval) {
-      fprintf(stderr, "[eval] next_tick_end %s\n", source.c_str());
-      fprintf(stderr, "[eval] microtasks_start %s\n", source.c_str());
-    }
-    drainMicrotasks(*runtime->runtime);
-    if (traceEval) {
-      fprintf(stderr, "[eval] microtasks_end %s\n", source.c_str());
-    }
 #if EXACT_HAS_HERMES_ASYNC_DEBUGGER
     if (runtime->debugger_attached.load()) {
       emitNewScripts(runtime, runtime->runtime->getDebugger());
@@ -12532,6 +13844,24 @@ static int evalRuntimeUnchecked(
     // @ref LLP 0024#engine-premises — authoritative target tests verify the
     // async-wrapper premise before the legacy seam is offered on that target.
     if (result.isObject()) {
+      if (traceEval) {
+        fprintf(stderr, "[eval] host_task_checkpoint_start %s\n",
+                source.c_str());
+      }
+      if (!evalTask.finish()) {
+        writeOutError(
+            "Hermes GPU host-task checkpoint failed after evaluation");
+        return 1;
+      }
+      if (traceEval) {
+        fprintf(stderr, "[eval] host_task_checkpoint_end %s\n", source.c_str());
+      }
+
+      ScopedGpuHostTask unwrapTask(runtime);
+      if (!unwrapTask) {
+        writeOutError("Hermes Promise unwrap could not enter a host task");
+        return 1;
+      }
       auto& rt = *runtime->runtime;
       // Stash the result as a temp global so JS can inspect it
       rt.global().setProperty(rt, "__ex_p",
@@ -12550,26 +13880,37 @@ static int evalRuntimeUnchecked(
           reinterpret_cast<const uint8_t*>(unwrap_code),
           strlen(unwrap_code));
       auto check = rt.evaluateJavaScript(ubuf, "<promise-unwrap>");
-      drainMicrotasks(rt);
+      if (!unwrapTask.finish()) {
+        writeOutError(
+            "Hermes GPU host-task checkpoint failed during Promise unwrap");
+        return 1;
+      }
 
       if (!check.isNull() && check.isObject()) {
         auto promiseState = check.getObject(rt);
         auto resolvePromiseResult = [&]() -> std::optional<bool> {
+          ScopedGpuHostTask advanceTask(runtime);
+          if (!advanceTask) {
+            runtime->gpu_host_task_checkpoint_failed = true;
+            return false;
+          }
           auto doneProp = promiseState.getProperty(rt, "done");
           if (!doneProp.isBool() || !doneProp.getBool()) {
+            if (!advanceTask.finish()) return false;
             return std::nullopt;
           }
 
           auto ok = promiseState.getProperty(rt, "ok");
           if (ok.isBool() && ok.getBool()) {
             result = promiseState.getProperty(rt, "v");
+            if (!advanceTask.finish()) return false;
             return true;
           }
 
           auto errVal = promiseState.getProperty(rt, "v");
-          if (!writeOutString(valueToString(rt, errVal))) {
-            return false;
-          }
+          const auto errorText = valueToString(rt, errVal);
+          if (!advanceTask.finish()) return false;
+          if (!writeOutString(errorText)) return false;
           return false;
         };
 
@@ -12643,24 +13984,56 @@ static int evalRuntimeUnchecked(
         }
       }
     }
+    const bool resultWasUndefined = result.isUndefined();
+    std::string resultText;
+    auto coerceResult = [&]() {
+      if (!out_value || resultWasUndefined) return;
+      resultText = valueToString(*runtime->runtime, result);
+    };
+
+    if (evalTask) {
+      coerceResult();
+      if (!evalTask.finish()) {
+        writeOutError(
+            "Hermes GPU host-task checkpoint failed after result coercion");
+        return 1;
+      }
+    } else {
+      ScopedGpuHostTask resultTask(runtime);
+      if (!resultTask) {
+        writeOutError("Hermes result coercion could not enter a host task");
+        return 1;
+      }
+      coerceResult();
+      if (!resultTask.finish()) {
+        writeOutError(
+            "Hermes GPU host-task checkpoint failed after result coercion");
+        return 1;
+      }
+    }
+
     if (out_value) {
-      if (result.isUndefined()) {
+      if (resultWasUndefined) {
         *out_value = nullptr;
-      } else {
-        auto text = valueToString(*runtime->runtime, result);
-        auto size = text.size();
-        char* heap = static_cast<char*>(malloc(size + 1));
-        if (!heap) {
-          return 1;
-        }
-        memcpy(heap, text.data(), size);
-        heap[size] = '\0';
-        *out_value = heap;
+      } else if (!writeOutString(resultText)) {
+        writeOutError("Hermes result allocation failed");
+        return 1;
       }
     }
 
     return 0;
   } catch (const facebook::jsi::JSError& err) {
+    std::unique_ptr<ScopedGpuHostTask> errorTask;
+    if (!evalTask) {
+      errorTask = std::make_unique<ScopedGpuHostTask>(runtime);
+    }
+    if (!evalTask && (!errorTask || !*errorTask)) {
+      writeOutError("Hermes exception disposition host-task boundary failed");
+      return 1;
+    }
+    auto finishErrorTask = [&]() {
+      return evalTask ? evalTask.finish() : errorTask->finish();
+    };
     // Try to call process uncaughtException handler before reporting error
     auto& rt = *runtime->runtime;
     try {
@@ -12673,6 +14046,10 @@ static int evalRuntimeUnchecked(
         auto result = handler.asObject(rt).asFunction(rt).call(rt, std::move(errObj));
         if (result.isBool() && result.getBool()) {
           // Handler returned true — exception was handled, don't crash
+          if (!finishErrorTask()) {
+            writeOutError("Hermes exception checkpoint failed");
+            return 1;
+          }
           if (out_value) *out_value = nullptr;
           return 0;
         }
@@ -12681,44 +14058,44 @@ static int evalRuntimeUnchecked(
       // If the handler itself throws, fall through to normal error reporting
     }
 
-    if (out_value) {
-      auto message = err.getMessage();
-      auto stack = err.getStack();
-      // Include stack trace if available
-      std::string full;
-      if (!stack.empty()) {
-        full = message + "\n" + stack;
-      } else {
-        full = message;
-      }
-      auto size = full.size();
-      char* heap = static_cast<char*>(malloc(size + 1));
-      if (!heap) {
-        return 1;
-      }
-      memcpy(heap, full.data(), size);
-      heap[size] = '\0';
-      *out_value = heap;
-    }
-    return 1;
-  } catch (const std::exception& err) {
-    if (out_value) {
-      auto message = std::string(err.what());
-      auto size = message.size();
-      char* heap = static_cast<char*>(malloc(size + 1));
-      if (!heap) {
-        return 1;
-      }
-      memcpy(heap, message.data(), size);
-      heap[size] = '\0';
-      *out_value = heap;
-    }
-    return 1;
-  } catch (...) {
-    std::string source_label = source_url ? source_url : (is_bytecode ? "<bytecode>" : "<eval>");
-    if (!writeOutError("Unknown non-std exception while evaluating " + source_label)) {
+    auto message = err.getMessage();
+    auto stack = err.getStack();
+    const std::string full = stack.empty() ? message : message + "\n" + stack;
+    if (!finishErrorTask()) {
+      writeOutError("Hermes exception checkpoint failed");
       return 1;
     }
+    (void)writeOutError(full);
+    return 1;
+  } catch (const std::exception& err) {
+    std::unique_ptr<ScopedGpuHostTask> errorTask;
+    if (!evalTask) {
+      errorTask = std::make_unique<ScopedGpuHostTask>(runtime);
+    }
+    if (!evalTask && (!errorTask || !*errorTask)) return 1;
+    const std::string message(err.what());
+    const bool finished = evalTask ? evalTask.finish() : errorTask->finish();
+    if (!finished) {
+      writeOutError("Hermes exception checkpoint failed");
+      return 1;
+    }
+    (void)writeOutError(message);
+    return 1;
+  } catch (...) {
+    std::unique_ptr<ScopedGpuHostTask> errorTask;
+    if (!evalTask) {
+      errorTask = std::make_unique<ScopedGpuHostTask>(runtime);
+    }
+    if (!evalTask && (!errorTask || !*errorTask)) return 1;
+    const std::string sourceLabel =
+        source_url ? source_url : (is_bytecode ? "<bytecode>" : "<eval>");
+    const bool finished = evalTask ? evalTask.finish() : errorTask->finish();
+    if (!finished) {
+      writeOutError("Hermes exception checkpoint failed");
+      return 1;
+    }
+    (void)writeOutError("Unknown non-std exception while evaluating " +
+                        sourceLabel);
     return 1;
   }
 }
@@ -13086,6 +14463,8 @@ namespace {
 constexpr size_t kMaxExactHostOperationCount = 4096;
 constexpr size_t kMaxExactHostPayloadBytes = 16 * 1024 * 1024;
 constexpr size_t kMaxExactPendingHostCalls = 1024;
+constexpr uint32_t kEmbedderCapabilityExactIngress = 1u << 0;
+constexpr uint32_t kEmbedderCapabilityGpuProvider = 1u << 1;
 
 bool exactHostContextIsValid(uint32_t context) {
   return context == EXACT_EMBEDDER_CONTEXT_APP ||
@@ -13093,6 +14472,117 @@ bool exactHostContextIsValid(uint32_t context) {
 }
 
 }  // namespace
+
+extern "C" int32_t ex_hermes_begin_embedder_capabilities_v1(
+    ExactHermesRuntime* runtime) {
+  // @ref LLP 0002#the-optional-exact-gpu-service-registration-seam — no user
+  // evaluation may race provisional native capability publication.
+  if (!runtime || !runtime->runtime) {
+    return EXACT_EMBEDDER_CAPABILITIES_INVALID_ARGUMENT;
+  }
+  if (runtime->runtime_thread != std::this_thread::get_id()) {
+    return EXACT_EMBEDDER_CAPABILITIES_WRONG_THREAD;
+  }
+  if (runtime->restricted) {
+    return EXACT_EMBEDDER_CAPABILITIES_RESTRICTED_RUNTIME;
+  }
+  if (runtime->embedder_capability_state !=
+          EmbedderCapabilityState::LegacyAutoFinalize ||
+      runtime->user_execution_started || runtime->exact_host_call_async_fn ||
+      exactGpuBindingInstalled(runtime)) {
+    return EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE;
+  }
+  runtime->embedder_capability_state = EmbedderCapabilityState::Configuring;
+  runtime->root_global_disposition_verified_for_user_execution = false;
+  return EXACT_EMBEDDER_CAPABILITIES_OK;
+}
+
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+extern "C" uint32_t ibex_test_embedder_capability_state_v1(
+    ExactHermesRuntime* runtime) {
+  if (!runtime || runtime->runtime_thread != std::this_thread::get_id()) {
+    return UINT32_MAX;
+  }
+  return static_cast<uint32_t>(runtime->embedder_capability_state);
+}
+#endif
+
+extern "C" int32_t ex_hermes_finalize_embedder_capabilities_v1(
+    ExactHermesRuntime* runtime) {
+  if (!runtime || !runtime->runtime) {
+    return EXACT_EMBEDDER_CAPABILITIES_INVALID_ARGUMENT;
+  }
+  if (runtime->runtime_thread != std::this_thread::get_id()) {
+    return EXACT_EMBEDDER_CAPABILITIES_WRONG_THREAD;
+  }
+  if (runtime->restricted) {
+    return EXACT_EMBEDDER_CAPABILITIES_RESTRICTED_RUNTIME;
+  }
+  if (runtime->embedder_capability_state !=
+      EmbedderCapabilityState::Configuring) {
+    return EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE;
+  }
+
+  uint32_t installed = 0;
+  if (runtime->exact_host_call_async_fn) {
+    installed |= kEmbedderCapabilityExactIngress;
+  }
+  if (exactGpuBindingInstalled(runtime)) {
+    installed |= kEmbedderCapabilityGpuProvider;
+  }
+  if (ex_host_authorize_embedder_capability_set(
+          runtime->host_context_id, installed) != 1) {
+    rollbackExactHostIngress(runtime);
+    exactGpuRollbackInstall(runtime);
+    runtime->root_global_disposition_verified_for_user_execution = false;
+    runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
+    return EXACT_EMBEDDER_CAPABILITIES_AUTHENTICATION_FAILED;
+  }
+  // Open the provisional GPU realm only after every capability setter has
+  // supplied its identity. This makes GPU-first and Exact-ingress-first
+  // transactions select the same app/agent realm context.
+  if (exactGpuActivateInstall(runtime) != EXACT_GPU_PROVIDER_OK) {
+    rollbackExactHostIngress(runtime);
+    exactGpuRollbackInstall(runtime);
+    runtime->root_global_disposition_verified_for_user_execution = false;
+    runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
+    return EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED;
+  }
+  // Publish the low-level GPU bridge only after the authenticated realm is
+  // live. Its module-private capture remains revocable until the package
+  // baseline and every other provisional capability have finalized, so every
+  // failure leg below can remove it before the runtime becomes user-drivable.
+  if (!exactGpuPublishPrivateBridge(runtime)) {
+    rollbackExactHostIngress(runtime);
+    exactGpuRollbackInstall(runtime);
+    runtime->root_global_disposition_verified_for_user_execution = false;
+    runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
+    return EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED;
+  }
+
+  try {
+    if (!finalizeCompartmentBaselineForEmbedder(runtime) ||
+        !sealExactHostIngress(runtime) ||
+        !exactGpuSealPrivateBridge(runtime)) {
+      throw std::runtime_error("embedder capability finalization failed");
+    }
+  } catch (...) {
+    rollbackExactHostIngress(runtime);
+    exactGpuRollbackInstall(runtime);
+    runtime->root_global_disposition_verified_for_user_execution = false;
+    runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
+    return EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED;
+  }
+  // Apple hosts may finish the trusted runtime bootstrap before or after
+  // provider registration. If it is already closed, publication and sealing
+  // changed the live root graph and the descriptor-only exact join must run
+  // again here. Otherwise finish_bootstrap performs the same sweep after it
+  // removes the remaining construction-only session bridges.
+  if (!finalizeEmbedderCapabilityDisposition(runtime)) {
+    return EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED;
+  }
+  return EXACT_EMBEDDER_CAPABILITIES_OK;
+}
 
 extern "C" int ex_hermes_set_exact_host_call_async(
     ExactHermesRuntime* runtime,
@@ -13127,6 +14617,10 @@ extern "C" int ex_hermes_set_exact_host_call_async(
       runtime->exact_host_context != 0 ||
       !runtime->exact_host_operations.empty()) {
     return -5;
+  }
+  if (runtime->embedder_capability_state == EmbedderCapabilityState::Finalized ||
+      runtime->embedder_capability_state == EmbedderCapabilityState::Failed) {
+    return -9;
   }
 
   std::unordered_set<uint32_t> operations;
@@ -13261,51 +14755,23 @@ extern "C" int ex_hermes_set_exact_host_call_async(
     // below is immediately visible through every package compartment too.
     defineExactCapability(
         rt, exactObject, "invokeHostAsync", std::move(invoke), true);
-    if (!finalizeCompartmentBaselineForEmbedder(runtime)) {
+    if (runtime->embedder_capability_state ==
+        EmbedderCapabilityState::Configuring) {
+      // The explicit transaction keeps the method removable until every
+      // authenticated native capability has been installed.
+      return 0;
+    }
+    if (ex_host_authorize_embedder_capability_set(
+            runtime->host_context_id, kEmbedderCapabilityExactIngress) != 1 ||
+        !finalizeCompartmentBaselineForEmbedder(runtime) ||
+        !sealExactHostIngress(runtime)) {
       throw facebook::jsi::JSError(
           rt,
-          "exact.invokeHostAsync could not finalize the package-compartment baseline");
+          "exact.invokeHostAsync could not authenticate and finalize the package-compartment baseline");
     }
-    auto installed = exactObject.getProperty(rt, "invokeHostAsync");
-    defineExactCapability(
-        rt, exactObject, "invokeHostAsync", std::move(installed), false);
+    if (!finalizeEmbedderCapabilityDisposition(runtime)) return -6;
   } catch (...) {
-    try {
-      auto& rt = *runtime->runtime;
-      auto exactValue = rt.global().getProperty(rt, "exact");
-      if (exactValue.isObject()) {
-        auto exactObject = exactValue.getObject(rt);
-        auto descriptor = rt.global()
-                              .getPropertyAsObject(rt, "Object")
-                              .getPropertyAsFunction(rt, "getOwnPropertyDescriptor")
-                              .call(
-                                  rt,
-                                  exactObject,
-                                  facebook::jsi::String::createFromAscii(
-                                      rt, "invokeHostAsync"));
-        if (descriptor.isObject()) {
-          auto configurable = descriptor.getObject(rt).getProperty(
-              rt, "configurable");
-          if (configurable.isBool() && configurable.getBool()) {
-            rt.global()
-                .getPropertyAsObject(rt, "Reflect")
-                .getPropertyAsFunction(rt, "deleteProperty")
-                .call(
-                    rt,
-                    exactObject,
-                    facebook::jsi::String::createFromAscii(
-                        rt, "invokeHostAsync"));
-          }
-        }
-      }
-    } catch (...) {
-      // The primary failure still wins. A successfully sealed property is
-      // intentionally irreversible and can only occur after finalization.
-    }
-    runtime->exact_host_call_async_fn = nullptr;
-    runtime->exact_host_call_async_context = nullptr;
-    runtime->exact_host_context = 0;
-    runtime->exact_host_operations.clear();
+    rollbackExactHostIngress(runtime);
     return -6;
   }
   return 0;
@@ -13456,10 +14922,14 @@ static int pollTypedAuthorityGenerations(ExactHermesRuntime* runtime) {
   return 0;
 }
 
-static int pollRuntime(
-    ExactHermesRuntime* runtime,
-    uint64_t now_ms,
-    bool external_keep_alive) {
+static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms,
+                       bool external_keep_alive) {
+  if (runtime->gpu_host_task_checkpoint_failed) return -1;
+  if (runtime->gpu_host_task_microtask_continuation) {
+    if (!exactResumeGpuHostTaskContinuation(runtime)) {
+      return runtime->gpu_host_task_checkpoint_failed ? -1 : 0;
+    }
+  }
   if (runtime->structured_session_terminated) {
     return -1;
   }
@@ -13472,6 +14942,9 @@ static int pollRuntime(
   ScopedActiveAttributionRuntime activeAttributionRuntime(
       runtime->attribution_runtime);
 #endif
+
+  ScopedGpuHostTask pollBatchTask(runtime);
+  if (!pollBatchTask) return -1;
 
   int executed = 0;
   executed += pollTypedAuthorityGenerations(runtime);
@@ -13486,6 +14959,12 @@ static int pollRuntime(
     return -1;
   }
   drainRuntimeFinalizers(runtime);
+
+  // GPU provider callbacks normally arrive through callbackQueue. If that
+  // queue cannot allocate while publishing a drain, the mailbox raises this
+  // durable allocation-free owner flag instead so polling still retires every
+  // Promise exactly once.
+  executed += exactGpuDrainOwnerFallback(runtime);
 
   // Drain cross-thread callback queue (HTTP server responses, etc.)
   executed += drainCallbackQueue(runtime);
@@ -13567,16 +15046,10 @@ static int pollRuntime(
     return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
   }
 
-  runNextTickQueue(runtime);
-  if (runtime->structured_session_terminated) {
-    return -1;
-  }
-  if (runtime->structured_lifecycle_pending) {
-    return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
-  }
-  // Guarded: a throwing microtask must not escape the extern "C" boundary
-  // (std::terminate → host SIGABRT; ENG-23731 leg 1).
-  drainMicrotasksGuarded(runtime);
+  // The poll-batch boundary owns nextTick/microtask draining in its finally
+  // path. This keeps all callbacks admitted above in one declared Exact task.
+  if (!pollBatchTask.finish()) return -1;
+  if (runtime->gpu_host_task_microtask_continuation) return executed;
   if (runtime->structured_session_terminated) {
     return -1;
   }
@@ -13672,6 +15145,8 @@ static int pollRuntime(
       }
       continue;
     }
+    ScopedGpuHostTask timerTask(runtime);
+    if (!timerTask) return -1;
     consumeStructuredTimerDue(runtime, id);
     // Retire or reschedule the fired timer. Must run before any error return
     // below: otherwise a throwing one-shot timer stays due and refires on
@@ -13734,34 +15209,15 @@ static int pollRuntime(
         retireTimer();
         return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
       }
-      runNextTickQueue(runtime);
-      if (runtime->structured_session_terminated) {
-        retireTimer();
-        return -1;
-      }
-      if (runtime->structured_lifecycle_pending) {
-        retireTimer();
-        return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
-      }
-      // Guarded: a microtask throw here must neither escape (SIGABRT) nor be
-      // misattributed to the timer catch below (which would retire an
-      // innocent timer and, for the CLI, return -1). (ENG-23731)
-      drainMicrotasksGuarded(runtime);
-      if (runtime->structured_session_terminated) {
-        retireTimer();
-        return -1;
-      }
-      if (runtime->structured_lifecycle_pending) {
-        retireTimer();
-        return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
-      }
     } catch (const facebook::jsi::JSError& err) {
       executed += 1;
       if ((rawCapture
                ? workUnit.finishRawCapturedJsThrow()
                : workUnit.finish(err))) {
         retireTimer();
+        if (!timerTask.finish()) return -1;
         if (runtime->structured_session_terminated) return -1;
+        if (runtime->gpu_host_task_microtask_continuation) return executed;
         continue;
       }
       if (runtime->structured_lifecycle_pending) {
@@ -13778,32 +15234,16 @@ static int pollRuntime(
           // leaving the flag set would report it again on the next poll.
           runtime->fatal_async_error = false;
         }
+        (void)timerTask.finish();
         return -1;
-      }
-      // Continue processing remaining timers after a consumed exception
-      runNextTickQueue(runtime);
-      if (runtime->structured_session_terminated) {
-        retireTimer();
-        return -1;
-      }
-      if (runtime->structured_lifecycle_pending) {
-        retireTimer();
-        return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
-      }
-      drainMicrotasksGuarded(runtime);
-      if (runtime->structured_session_terminated) {
-        retireTimer();
-        return -1;
-      }
-      if (runtime->structured_lifecycle_pending) {
-        retireTimer();
-        return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
       }
     } catch (const std::exception& err) {
       if (workUnit.finish()) {
         retireTimer();
+        if (!timerTask.finish()) return -1;
         if (runtime->structured_session_terminated) return -1;
         executed += 1;
+        if (runtime->gpu_host_task_microtask_continuation) return executed;
         continue;
       }
       retireTimer();
@@ -13813,6 +15253,8 @@ static int pollRuntime(
       if (structuredWorkPublicationEnabled(runtime)) {
         recordStructuredAsyncFailureDrop(runtime);
         executed += 1;
+        if (!timerTask.finish()) return -1;
+        if (runtime->gpu_host_task_microtask_continuation) return executed;
         continue;
       }
       ex_host_console_log(1, err.what());
@@ -13822,13 +15264,25 @@ static int pollRuntime(
     }
 
     retireTimer();
+    if (!timerTask.finish()) return -1;
+    if (runtime->gpu_host_task_microtask_continuation) return executed;
+    if (runtime->structured_session_terminated) return -1;
+    if (runtime->structured_lifecycle_pending) {
+      return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
+    }
   }
 
   // Pinned rejection-determination checkpoint: all work admitted to this poll
   // iteration has run, so a still-pending promise is now reportable. A handler
   // attached anywhere above removed its exact promise record first.
   // @ref LLP 0024#9-asynchronous-failures
-  flushPendingPromiseRejections(runtime);
+  if (hasPendingPromiseRejectionCheckpointWork(runtime)) {
+    ScopedGpuHostTask rejectionCheckpointTask(runtime);
+    if (!rejectionCheckpointTask) return -1;
+    flushPendingPromiseRejections(runtime);
+    if (!rejectionCheckpointTask.finish()) return -1;
+    if (runtime->gpu_host_task_microtask_continuation) return executed;
+  }
   if (runtime->structured_session_terminated) return -1;
   if (runtime->structured_lifecycle_pending) {
     return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
@@ -13848,17 +15302,50 @@ static int pollRuntime(
   return executed;
 }
 
+static std::optional<int> pollAppBundleHostTaskContinuation(
+    ExactHermesRuntime* runtime) {
+  if (!runtime->app_bundle_evaluation_open.load(std::memory_order_acquire)) {
+    return std::nullopt;
+  }
+  // The only ordinary poll admitted while the outer bundle transaction is
+  // open resumes phase 0's retained Windows microtask slice. Even when that
+  // slice completes, return before admitting a successor callback or timer;
+  // the host must retry begin with the same expectation first.
+  if (!runtime->gpu_host_task_microtask_continuation.load(
+          std::memory_order_acquire)) {
+    return EXACT_RUNTIME_DRIVE_APP_BUNDLE_OPEN;
+  }
+  if (!exactResumeGpuHostTaskContinuation(runtime) &&
+      runtime->gpu_host_task_checkpoint_failed.load(
+          std::memory_order_acquire)) {
+    return -1;
+  }
+  return 0;
+}
+
 extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
-  ExactRuntimeDriveGuard drive(runtime);
+  ExactRuntimeDriveGuard drive(runtime, 0, false, true);
   if (!drive) return drive.status();
+  if (auto appBundlePoll = pollAppBundleHostTaskContinuation(runtime)) {
+    return *appBundlePoll;
+  }
+  // Poll can invoke queued callbacks, nextTick, microtasks, and timers. During
+  // a construction transaction it must preserve those queues without exposing
+  // provisional capabilities; after any ordinary poll, begin() is permanently
+  // closed even if this particular turn happened to find no work.
+  if (!exactRuntimeEnterUserExecution(runtime)) return 0;
   return pollRuntime(runtime, now_ms, false);
 }
 
 extern "C" int ex_hermes_poll_with_external_keep_alive(
     ExactHermesRuntime* runtime,
     uint64_t now_ms) {
-  ExactRuntimeDriveGuard drive(runtime);
+  ExactRuntimeDriveGuard drive(runtime, 0, false, true);
   if (!drive) return drive.status();
+  if (auto appBundlePoll = pollAppBundleHostTaskContinuation(runtime)) {
+    return *appBundlePoll;
+  }
+  if (!exactRuntimeEnterUserExecution(runtime)) return 0;
   return pollRuntime(runtime, now_ms, true);
 }
 
@@ -13898,6 +15385,12 @@ static int hasPendingTasksUnchecked(ExactHermesRuntime* runtime) {
   if (runtime->structured_lifecycle_pending) {
     return 1;
   }
+  if (runtime->gpu_host_task_microtask_continuation.load(
+          std::memory_order_acquire) ||
+      runtime->gpu_host_task_checkpoint_failed.load(
+          std::memory_order_acquire)) {
+    return 1;
+  }
   if (!runtime->structured_pending_promise_rejections.empty() ||
       runtime->structured_pending_promise_rejection_dropped != 0) {
     return 1;
@@ -13907,6 +15400,9 @@ static int hasPendingTasksUnchecked(ExactHermesRuntime* runtime) {
     return 1;
   }
   if (!runtime->next_tick.empty()) {
+    return 1;
+  }
+  if (exactGpuOwnerDrainPending(runtime)) {
     return 1;
   }
   if (runtime->active_spawn_processes.load(std::memory_order_relaxed) > 0) {
@@ -13966,9 +15462,16 @@ extern "C" uint32_t ex_hermes_callback_backlog(ExactHermesRuntime* runtime) {
         runtimeIt->second.state != RuntimeLifecycleState::Running) {
       return 0;
     }
+    if (exactGpuOwnerDrainPending(runtime) ||
+        runtime->gpu_host_task_microtask_continuation.load(
+            std::memory_order_acquire) ||
+        runtime->gpu_host_task_checkpoint_failed.load(
+            std::memory_order_acquire)) {
+      backlog += 1;
+    }
     {
       std::lock_guard<std::mutex> callbackLock(runtime->callbackMutex);
-      backlog = runtime->callbackQueue.size();
+      backlog += runtime->callbackQueue.size();
     }
     {
       std::lock_guard<std::mutex> finalizerLock(runtime->finalizerMutex);

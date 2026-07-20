@@ -93,6 +93,65 @@
       },
       "additionalProperties": false
     },
+    "exactGpuProvider": {
+      "type": "object",
+      "required": [
+        "schema",
+        "abiVersion",
+        "profileId",
+        "profileDigest",
+        "webgpuCVocabularyDigest",
+        "operationSetDigest",
+        "semanticProgramDigest",
+        "operationIds",
+        "topology"
+      ],
+      "properties": {
+        "schema": { "const": "exact/webgpu-provider/1" },
+        "abiVersion": { "enum": [65536, 131072] },
+        "profileId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[a-z0-9][a-z0-9._/-]*$"
+        },
+        "profileDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "webgpuCVocabularyDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "operationSetDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "semanticProgramDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "runtimeRoutingDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "operationIds": { "$ref": "#/$defs/exactGpuOperationSet" },
+        "topology": { "const": "isolated-per-logical-v1" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "abiVersion": { "const": 131072 } },
+            "required": ["abiVersion"]
+          },
+          "then": {
+            "properties": {
+              "runtimeRoutingDigest": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+              }
+            },
+            "required": ["runtimeRoutingDigest"]
+          },
+          "else": { "properties": { "runtimeRoutingDigest": false } }
+        }
+      ],
+      "additionalProperties": false
+    },
     "runNonce": {
       "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/base64url"
     },
@@ -207,7 +266,7 @@
         "required": ["role", "object", "deniedActions"],
         "properties": {
           "role": {
-            "enum": ["armed-policy", "engine-binary", "exact-operation-manifest", "package-graph", "registry"]
+            "enum": ["armed-policy", "engine-binary", "exact-operation-manifest", "exact-webgpu-profile", "package-graph", "registry"]
           },
           "object": {
             "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/objectIdentity"
@@ -376,6 +435,13 @@
     },
     "exactOperationEndowment": {
       "type": "array",
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
+    },
+    "exactGpuOperationSet": {
+      "type": "array",
+      "minItems": 1,
       "maxItems": 4096,
       "uniqueItems": true,
       "items": { "type": "integer", "minimum": 1, "maximum": 4294967295 }

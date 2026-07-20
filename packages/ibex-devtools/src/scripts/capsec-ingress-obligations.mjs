@@ -33,10 +33,13 @@ export const REQUIRED_INGRESS_OBLIGATIONS = Object.freeze([
   Object.freeze({
     id: "armed-session-bound",
     assertion:
-      "Submission requires an armed runtime whose bootstrap seam is sealed and whose exact opaque session token has already been bound.",
+      "Submission requires an armed runtime whose named shared-runtime global seal and bootstrap finalization completed and whose exact opaque session token has already been bound.",
     sourceEvidence: Object.freeze([
       freezeEvidence("src/engine/hermes_runtime.cc", [
         "if (!runtime->armed) {",
+        'extern "C" uint32_t ex_hermes_seal_armed_shared_runtime_globals_v1(',
+        "runtime->armed_shared_runtime_globals_sealed = true;",
+        "if (!runtime->armed_shared_runtime_globals_sealed) {",
         "if (runtime->armed_bootstrap_eval_open) {",
         "runtime->structured_session_bound = true;",
         "if (!runtime->structured_session_bound) {",
@@ -514,6 +517,17 @@ export const REQUIRED_INGRESS_SUPPORTING_SURFACES = Object.freeze([
     rationaleId: "authority-control-plane",
   }),
   Object.freeze({
+    role: "shared-runtime-global-seal",
+    edgeId:
+      "surface.host.abi.ex.hermes.seal.armed.shared.runtime.globals.v1.1gs1iq6",
+    surface: Object.freeze({
+      kind: "host-abi",
+      name: "ex_hermes_seal_armed_shared_runtime_globals_v1",
+    }),
+    classification: "non-capability",
+    rationaleId: "runtime-bootstrap-state",
+  }),
+  Object.freeze({
     role: "submission-admission",
     edgeId:
       "surface.host.abi.ex.hermes.structured.submission.admit.1hsgiyn",
@@ -790,21 +804,21 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
   "src/engine/hermes_runtime.cc": Object.freeze([
     freezeReviewedRange(
       "finish-bootstrap",
-      'extern "C" uint32_t ex_hermes_finish_bootstrap(',
+      'extern "C" uint32_t ex_hermes_seal_armed_shared_runtime_globals_v1(',
       'extern "C" void ex_hermes_destroy(',
-      "sha256-3lFRyEuLpBO2YptCHLec6OQoDNyhOt8VHOCDzAtP6tg",
+      "sha256-HszPpxQbubbYP1aaaFKNMYEeeMpkfHwHVf-hxLgpNcc",
     ),
     freezeReviewedRange(
       "structured-session-ingress",
       'extern "C" uint32_t ex_hermes_structured_session_bind(',
       'extern "C" int ex_hermes_resume_structured_session(',
-      "sha256-8PkiqqixfxIe_neGw62No1g2DB34ExNKm8sMUwEm0SM",
+      "sha256-ff6yHEffdqZZiMWFVgNZA_KfXMoPnuHmSy7djcisOAM",
     ),
     freezeReviewedRange(
       "sealed-bare-evaluator",
       'extern "C" int ex_hermes_eval(',
       'extern "C" int ibex_test_install_capsec_context_observer(',
-      "sha256-huIQhkZZF7N5BeRsIUJQjErXlkKOGRMVFC86zAnsyo4",
+      "sha256-knoLPE2pIjUFHLOCpq67o2EwSPDlGlhXJV_DpT3Dj40",
     ),
   ]),
   "src/engine/hermes_structured.rs": Object.freeze([

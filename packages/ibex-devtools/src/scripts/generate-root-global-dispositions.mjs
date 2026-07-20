@@ -79,6 +79,12 @@ function logicalPathText(property) {
   return [property.root, ...property.path].map(keyText).join(".");
 }
 
+const CONDITIONAL_LIVE_SWEEP_ACTIVATIONS = new Set([
+  "authenticated-exact-host-ingress",
+  "authenticated-webgpu-decoded-image",
+  "authenticated-webgpu-provider",
+]);
+
 const EVALUATED_NATIVE_SCRIPT_ROOTS = Object.freeze([
   Object.freeze({
     observedKey: "native-op:__ibexLockedDown",
@@ -160,6 +166,40 @@ function renderAbsentEntries(manifest) {
     .map(
       (row) =>
         `    {${quoteCxx(row.installId)}, ${quoteCxx(logicalPathText(row.property))}, ${quoteCxx(row.privateConsumer ?? "")}, ${quoteCxx(row.branch.targetVariant)}, ${quoteCxx(row.branch.activation)}},`,
+    )
+    .join("\n");
+}
+
+function conditionalLiveSweepRows(manifest) {
+  return manifest.rows
+    .filter(
+      (row) =>
+        row.liveExpectation === "reachable" &&
+        CONDITIONAL_LIVE_SWEEP_ACTIVATIONS.has(row.branch.activation) &&
+        [row.property.root, ...row.property.path].every((key) =>
+          new Set(["string", "well-known-symbol"]).has(key.kind),
+        ),
+    )
+    .map((row) => ({
+      installId: row.installId,
+      logicalPath: logicalPathText(row.property),
+      targetVariant: row.branch.targetVariant,
+      activation: row.branch.activation,
+    }))
+    .sort(
+      (left, right) =>
+        compareText(left.logicalPath, right.logicalPath) ||
+        compareText(left.targetVariant, right.targetVariant) ||
+        compareText(left.activation, right.activation) ||
+        compareText(left.installId, right.installId),
+    );
+}
+
+function renderConditionalLiveSweepEntries(manifest) {
+  return conditionalLiveSweepRows(manifest)
+    .map(
+      (row) =>
+        `    {${quoteCxx(row.installId)}, ${quoteCxx(row.logicalPath)}, ${quoteCxx(row.targetVariant)}, ${quoteCxx(row.activation)}},`,
     )
     .join("\n");
 }
@@ -259,6 +299,7 @@ export function renderRootGlobalDispositionHeader(manifest, jsonSource) {
         new Set(["string", "well-known-symbol"]).has(key.kind),
       ),
   ).length;
+  const conditionalLiveSweepCount = conditionalLiveSweepRows(manifest).length;
   const nativeRows = manifest.rows.filter(
     (row) =>
       row.nativeImplementation &&
@@ -333,6 +374,12 @@ export function renderRootGlobalDispositionHeader(manifest, jsonSource) {
     "  const char* target_variant;",
     "  const char* activation;",
     "};",
+    "struct ConditionalLiveSweepExpectation {",
+    "  const char* install_id;",
+    "  const char* logical_path;",
+    "  const char* target_variant;",
+    "  const char* activation;",
+    "};",
     "using PermittedKeyExpectation = NativeKeyExpectation;",
     "",
     `inline constexpr std::size_t kMaxDepth = ${manifest.sweep.maxDepth};`,
@@ -344,6 +391,9 @@ export function renderRootGlobalDispositionHeader(manifest, jsonSource) {
     "};",
     `inline constexpr AbsentExpectation kAbsentExpectations[${absentCount}] = {`,
     renderAbsentEntries(manifest),
+    "};",
+    `inline constexpr ConditionalLiveSweepExpectation kConditionalLiveSweepExpectations[${conditionalLiveSweepCount}] = {`,
+    renderConditionalLiveSweepEntries(manifest),
     "};",
     `inline constexpr NativeKeyExpectation kNativeKeyExpectations[${nativeCount}] = {`,
     renderNativeKeys(manifest),

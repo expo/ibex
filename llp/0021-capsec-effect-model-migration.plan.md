@@ -5,6 +5,9 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-25076 adds the target-local Exact GPU binding/profile producer and independently executed preparation evidence while preserving empty advertisements)
+**Revised:** 2026-07-17 (ENG-24578 moves the lockdown startup postcondition to authenticated direct-file native-graph execution while retaining a separate zero-decision startup window, because persistent-session lowering intentionally closes evaluator syntax)
+**Revised:** 2026-07-17 (ENG-24578 moves the four lockdown-tamed evaluator probes from the deliberately syntax-closed persistent-session route to authenticated direct-file native-graph admission, preserving exact loaded-engine evidence without reopening REPL dynamic code)
 **Revised:** 2026-07-18 (CLI protected-artifact publication now uses the
 target durability boundary, and external JavaScript tools receive ordinary
 Windows path spellings only after authenticated canonical selection)
@@ -738,16 +741,18 @@ the content-addressed hard link is installed: Unix syncs the parent directory,
 while Windows re-flushes the still-pinned file object because Rust's ordinary
 file API cannot open a directory for `sync_all`. Both paths validate the
 read-only file and its exact bytes before publication; this portability split
-does not relax artifact identity or immutability.
-The bundled-root producer is complete, while package-bearing policy input
-remains a separate future contract. Apple/Windows conformance reports and
-target advertisements remain incomplete. The refreshed per-target catalogs each have
-22,938 required fixtures: Apple has 5,129 fully executable recipes and 17,809
-unresolved fixtures, while Windows has 5,011 executable and 17,927 unresolved.
-The Windows difference is explicit target applicability: 102 Apple
-target-absence probes are not applicable and 16 Windows non-capability paths
-remain unauthored. None of those differences is credited as a pass. The latest
-source-bound tranches add 322 armed shared-runtime global
+does not relax artifact identity or immutability. Exact's bundled-root producer
+is complete and now also has an additive GPU path that
+validates the complete `exactGpuProvider` identity, verifies the exact profile
+bytes before cache publication, and protects that profile as the sixth
+artifact. The non-GPU path cannot acquire this binding, while package-bearing
+policy input remains a separate future contract. Apple/Windows conformance
+reports and target
+advertisements remain incomplete. The merge reconciles both per-target
+catalogs from the source registry before retaining evidence; point counts from
+either pre-merge catalog are not publication authority. Windows differences
+remain explicit target-applicability or unauthored-path facts, and none is
+credited as a pass. The latest source-bound tranches add 322 armed shared-runtime global
 absence recipes, nine armed direct-native global absence recipes, 18 physical
 no-debugger ABI closure recipes, 106
 terminal-builtin closure recipes, four public SQLite extension-load and
@@ -812,8 +817,9 @@ reassigned. This reduces `ambiguous-static-enforcement-route` from 7,496 to
 ambiguity is not itself public execution evidence. The later terminal-builtin
 denial tranche resolves 106 exact source and alias facets before module evaluation,
 including 49 otherwise ambiguous call graphs, so the current residual counts
-are 7,043 ambiguous routes with 17,809 unresolved Apple fixtures and 17,927
-unresolved Windows fixtures. Nine direct native
+are 7,043 ambiguous routes. The current Apple catalog has 23,815 required,
+2,469 executable, and 21,346 unresolved fixtures; Windows has 23,700 required,
+2,327 executable, and 21,373 unresolved fixtures. Nine direct native
 compatibility, diagnostic, IPC, signal, process, and working-directory globals
 are now deleted after lazy installation on the armed lockdown path, and their
 exact source-derived JSI cells prove physical absence. The armed runtime also
@@ -2058,7 +2064,7 @@ Deterministic registry, contract, generated-policy, aggregate-generated, and
 LLP-reference drift checks run as an evidence-retained preflight before engine
 attestation or physical fixture execution, so stale source artifacts cannot
 consume an authoritative matrix run before refusing the report.
-Its current catalog has 5,011 executable and 17,927 unresolved fixtures. The
+Its current catalog has 2,327 executable and 21,373 unresolved fixtures. The
 first authoritative Windows attempt physically rejected the published DLL:
 although its manifest claimed the no-debugger Release profile, its PE export
 table still contained the full `AsyncDebuggerAPI`/CDP implementation. The

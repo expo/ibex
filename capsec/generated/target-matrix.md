@@ -2,9 +2,9 @@
 <!-- @ref LLP 0021#default-and-target-claim — exact-target claims derive only from content-addressed conformance reports -->
 # Generated capsec target matrix
 
-The registry contains 7371 semantic coverage edges, including 0 conditional-unrefined edges. 0 exact target(s) are advertised from verified conformance reports.
+The registry contains 7528 semantic coverage edges, including 0 conditional-unrefined edges. 0 exact target(s) are advertised from verified conformance reports.
 
 | Exact target | Structural features | Selected implementation branches | Branchless cells | Enforced | Closed | Non-capability | Absent | Unsupported |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
-| aarch64-apple-darwin | hermes-frame-attribution, native-compartments, native-lockdown | 7266 | 112 | 0 | 0 | 0 | 0 | 7371 |
-| x86_64-pc-windows-msvc | hermes-frame-attribution, native-compartments, native-lockdown | 7234 | 144 | 0 | 0 | 0 | 0 | 7371 |
+| aarch64-apple-darwin | hermes-frame-attribution, native-compartments, native-lockdown | 7423 | 112 | 0 | 0 | 0 | 0 | 7528 |
+| x86_64-pc-windows-msvc | hermes-frame-attribution, native-compartments, native-lockdown | 7391 | 144 | 0 | 0 | 0 | 0 | 7528 |

@@ -1,6 +1,7 @@
 use super::*;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use std::collections::BTreeMap;
 #[cfg(not(feature = "host-http-server"))]
 use std::io::Write as _;
@@ -414,6 +415,13 @@ fn expected_invariant(
             "host-abi:ex_host_authorize_exact_endowment" => (
                 "authority-control-plane",
                 "exact-endowment-authorize",
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            ),
+            "host-abi:ex_host_build_exact_gpu_armed_embedder_artifacts" => (
+                "authority-control-plane",
+                "exact-gpu-artifact-prepare-round-trip",
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
@@ -1479,12 +1487,18 @@ fn install_armed_host(host: &crate::host::Host) -> HostResetGuard {
 }
 
 async fn armed_engine(host: &crate::host::Host, digest: &str) -> AuthenticatedCallbackEngine {
+    let digest_c = std::ffi::CString::new(digest).unwrap();
+    assert_eq!(
+        unsafe { crate::host::abi::ex_host_matches_armed_snapshot_digest(digest_c.as_ptr()) },
+        1,
+        "installed callback-invariant Host must authenticate the selected snapshot"
+    );
     let engine = HermesEngine::new_with_armed_snapshot(Some(digest))
         .expect("create exact callback invariant engine");
-    engine
-        .load_runtime()
-        .await
-        .expect("load exact callback invariant runtime");
+    if let Err(error) = engine.load_runtime().await {
+        crate::host::abi::ex_host_console_flush(1_000);
+        panic!("load exact callback invariant runtime: {error:#}");
+    }
     let engine = AuthenticatedCallbackEngine {
         host: host.clone(),
         engine,
@@ -2216,7 +2230,48 @@ async fn execute_exact_artifact_prepare(recipe: &Recipe) -> ScenarioExecution {
     let session = format!("exact-artifact-prepare:{}", recipe.plan_digest);
     begin_observation(&session);
     let manifest = br#"{"schema":"exact.host-call-operations/v1","schemaVersion":1,"operations":[{"id":1000,"name":"app.render"},{"id":2200,"name":"agentIsolate.appRuntimeHealth"},{"id":2201,"name":"agentIsolate.bindFailed"},{"id":2202,"name":"agentIsolate.config"},{"id":2203,"name":"agentIsolate.ready"}],"endowments":{"app":[1000],"agentIsolate":[2200,2201,2202,2203],"uiWorklet":[]}}"#;
-    let output = if recipe.terminal_observed_key
+    let gpu_builder = recipe.terminal_observed_key
+        == "host-abi:ex_host_build_exact_gpu_armed_embedder_artifacts";
+    let gpu_profile = br#"{"schema":"exact/webgpu-profile/1","profileId":"fixture-v1","operations":[101,207]}"#;
+    let digest_bytes = |bytes: &[u8]| {
+        format!(
+            "sha256-{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(bytes))
+        )
+    };
+    let gpu_binding = serde_json::json!({
+        "schema": "exact/webgpu-provider/1",
+        "abiVersion": 0x0001_0000_u32,
+        "profileId": "fixture-v1",
+        "profileDigest": digest_bytes(gpu_profile),
+        "webgpuCVocabularyDigest": digest_bytes(b"fixture-webgpu-c-vocabulary"),
+        "operationSetDigest": digest_bytes(b"fixture-operation-set"),
+        "semanticProgramDigest": digest_bytes(b"fixture-semantic-program"),
+        "operationIds": [101, 207],
+        "topology": "isolated-per-logical-v1",
+    });
+    let gpu_binding_bytes =
+        serde_json::to_vec(&gpu_binding).expect("serialize Exact GPU provider binding");
+    let output = if gpu_builder {
+        let root = fixture
+            ._directory
+            .path()
+            .to_str()
+            .expect("Exact GPU builder fixture root must be UTF-8")
+            .as_bytes();
+        unsafe {
+            crate::host::abi::ex_host_build_exact_gpu_armed_embedder_artifacts(
+                root.as_ptr(),
+                root.len(),
+                manifest.as_ptr(),
+                manifest.len(),
+                gpu_binding_bytes.as_ptr(),
+                gpu_binding_bytes.len(),
+                gpu_profile.as_ptr(),
+                gpu_profile.len(),
+            )
+        }
+    } else if recipe.terminal_observed_key
         == "host-abi:ex_host_build_exact_armed_embedder_artifacts"
     {
         let root = fixture
@@ -2297,21 +2352,124 @@ async fn execute_exact_artifact_prepare(recipe: &Recipe) -> ScenarioExecution {
     let reloaded = capsec_semantics::arming::ArmedSnapshot::load(&snapshot, &expected)
         .expect("prepared artifact pair must authenticate");
     assert_eq!(reloaded.digest().as_str(), fresh_digest);
+    if gpu_builder {
+        assert_eq!(
+            artifacts["snapshot"]["exactGpuProvider"], gpu_binding,
+            "GPU builder must preserve the complete provider descriptor"
+        );
+        assert_eq!(
+            serde_json::to_value(
+                reloaded
+                    .exact_gpu_provider_binding()
+                    .expect("decode prepared GPU provider binding")
+                    .expect("GPU builder omitted its provider binding")
+            )
+            .unwrap(),
+            gpu_binding
+        );
+        assert_eq!(expected.protected_artifacts.len(), 6);
+        let profile_artifact = expected
+            .protected_artifacts
+            .iter()
+            .find(|artifact| {
+                artifact.role
+                    == capsec_semantics::arming::ProtectedArtifactRole::ExactWebgpuProfile
+            })
+            .expect("GPU builder omitted the protected WebGPU profile");
+        assert_eq!(
+            profile_artifact.content_digest.as_str(),
+            gpu_binding["profileDigest"].as_str().unwrap()
+        );
+        let profile_object = artifacts["snapshot"]["protectedObjects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["role"] == "exact-webgpu-profile")
+            .expect("GPU snapshot omitted the protected profile role");
+        assert_eq!(
+            profile_object["object"],
+            serde_json::to_value(&profile_artifact.object).unwrap()
+        );
+        let identity_digests = [
+            "profileDigest",
+            "webgpuCVocabularyDigest",
+            "operationSetDigest",
+            "semanticProgramDigest",
+        ]
+        .map(|field| gpu_binding[field].as_str().unwrap())
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(identity_digests.len(), 4);
+        #[cfg(unix)]
+        let mut profile_path = std::path::PathBuf::from("/");
+        #[cfg(windows)]
+        let mut profile_path = std::path::PathBuf::new();
+        for component in &profile_artifact.host_path.components {
+            #[cfg(unix)]
+            {
+                use std::os::unix::ffi::OsStringExt as _;
+                profile_path.push(std::ffi::OsString::from_vec(component.bytes().to_vec()));
+            }
+            #[cfg(windows)]
+            profile_path.push(
+                std::str::from_utf8(component.bytes())
+                    .expect("Windows profile path component must be UTF-8"),
+            );
+        }
+        assert_eq!(
+            std::fs::read(&profile_path).expect("read protected Exact WebGPU profile"),
+            gpu_profile
+        );
+        assert_eq!(
+            artifact_object_identity(&profile_path),
+            profile_artifact.object
+        );
+        assert_eq!(
+            artifact_content_digest(gpu_profile),
+            profile_artifact.content_digest
+        );
+    }
+    let checks = if gpu_builder {
+        serde_json::json!({
+            "executionMechanism": "exact-gpu-artifact-prepare-round-trip",
+            "artifactPrepared": true,
+            "artifactSchema": artifacts["artifactSchema"],
+            "nonceFreshened": true,
+            "digestRebound": true,
+            "sourceDigest": fixture.source_digest,
+            "preparedDigest": fresh_digest,
+            "preparedPairAuthenticated": true,
+            "descriptorAuthenticated": true,
+            "profileProtected": true,
+            "profileArtifactContentAuthenticated": true,
+            "protectedArtifactCount": 6,
+            "profileId": gpu_binding["profileId"],
+            "profileDigest": gpu_binding["profileDigest"],
+            "profileArtifactDigest": gpu_binding["profileDigest"],
+            "webgpuCVocabularyDigest": gpu_binding["webgpuCVocabularyDigest"],
+            "operationSetDigest": gpu_binding["operationSetDigest"],
+            "semanticProgramDigest": gpu_binding["semanticProgramDigest"],
+            "operationIds": gpu_binding["operationIds"],
+            "topology": gpu_binding["topology"],
+        })
+    } else {
+        serde_json::json!({
+            "executionMechanism": "exact-artifact-prepare-round-trip",
+            "artifactPrepared": true,
+            "artifactSchema": artifacts["artifactSchema"],
+            "nonceFreshened": true,
+            "digestRebound": true,
+            "sourceDigest": fixture.source_digest,
+            "preparedDigest": fresh_digest,
+            "preparedPairAuthenticated": true,
+        })
+    };
     ScenarioExecution {
         result: serde_json::json!({
             "kind": "callback-security-invariant",
             "scenario": recipe.scenario,
             "outcome": "passed",
-            "checks": {
-                "executionMechanism": "exact-artifact-prepare-round-trip",
-                "artifactPrepared": true,
-                "artifactSchema": artifacts["artifactSchema"],
-                "nonceFreshened": true,
-                "digestRebound": true,
-                "sourceDigest": fixture.source_digest,
-                "preparedDigest": fresh_digest,
-                "preparedPairAuthenticated": true,
-            },
+            "checks": checks,
         }),
         typed_decisions,
         legacy_observation_count: 0,
@@ -2337,7 +2495,9 @@ async fn execute_mechanism(
         "exact-host-call-round-trip" => execute_exact_host_call_round_trip(recipe).await,
         "exact-endowment-install" => execute_exact_endowment_install(recipe).await,
         "exact-endowment-authorize" => execute_exact_endowment_authorize(recipe).await,
-        "exact-artifact-prepare-round-trip" => execute_exact_artifact_prepare(recipe).await,
+        "exact-artifact-prepare-round-trip" | "exact-gpu-artifact-prepare-round-trip" => {
+            execute_exact_artifact_prepare(recipe).await
+        }
         other => panic!("unsupported callback invariant execution mechanism {other}"),
     }
 }
@@ -2394,6 +2554,7 @@ pub(super) async fn execute_exact_fixture_runtime_observation(
             | "exact-endowment-install"
             | "exact-endowment-authorize"
             | "exact-artifact-prepare-round-trip"
+            | "exact-gpu-artifact-prepare-round-trip"
     ));
     let (branches, edges) = checked_registry_rows();
     validate_recipe_source_binding(&recipe, &branches, &edges);
@@ -2551,6 +2712,10 @@ async fn capsec_callback_invariant_mechanisms_smoke() {
         (
             "host-abi:ex_host_build_exact_armed_embedder_artifacts",
             "exact-artifact-prepare-round-trip",
+        ),
+        (
+            "host-abi:ex_host_build_exact_gpu_armed_embedder_artifacts",
+            "exact-gpu-artifact-prepare-round-trip",
         ),
         (
             "host-abi:ex_host_prepare_armed_embedder_artifacts",

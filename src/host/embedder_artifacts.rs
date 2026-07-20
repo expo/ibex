@@ -11,8 +11,8 @@
 use anyhow::{Context as _, Result};
 use base64::Engine as _;
 use capsec_semantics::arming::{
-    ArmedSnapshot, ExactEmbedderBinding, ExactEmbedderEndowments, ExpectedArmingIdentity,
-    ExpectedProtectedArtifact, ProtectedArtifactRole,
+    ArmedSnapshot, ExactEmbedderBinding, ExactEmbedderEndowments, ExactGpuProviderBinding,
+    ExpectedArmingIdentity, ExpectedProtectedArtifact, ProtectedArtifactRole,
 };
 use capsec_semantics::digest::{
     compute_checked_contract_digest, compute_domain_digest, DigestKind,
@@ -205,6 +205,26 @@ fn parse_exact_operation_manifest(bytes: &[u8]) -> Result<ExactEmbedderBinding> 
             ui_worklet: manifest.endowments.ui_worklet,
         },
     })
+}
+
+fn parse_exact_gpu_provider_binding(bytes: &[u8]) -> Result<ExactGpuProviderBinding> {
+    let text = std::str::from_utf8(bytes).context("Exact GPU provider binding is not UTF-8")?;
+    let value = capsec_semantics::strict_json::parse_strict(text)
+        .context("Exact GPU provider binding is not strict JSON")?;
+    let binding: ExactGpuProviderBinding =
+        serde_json::from_value(value).context("invalid Exact GPU provider binding")?;
+    capsec_semantics::arming::validate_exact_gpu_provider_binding(&binding)
+        .map_err(anyhow::Error::msg)
+        .context("Exact GPU provider binding refused")?;
+    Ok(binding)
+}
+
+fn digest_bytes(bytes: &[u8]) -> Result<Digest> {
+    Digest::new(format!(
+        "sha256-{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(bytes))
+    ))
+    .map_err(anyhow::Error::msg)
 }
 
 fn absolute_artifact_path(path: &Path) -> Result<LogicalPath> {
@@ -589,6 +609,77 @@ pub fn build_exact_embedder_artifacts(
     project_root: &Path,
     operation_manifest_bytes: &[u8],
 ) -> Result<PreparedEmbedderArtifacts> {
+    build_exact_embedder_artifacts_with_gpu(
+        project_root,
+        operation_manifest_bytes,
+        None,
+        None,
+        false,
+    )
+}
+
+/// Build the target-local Exact artifact pair with the optional GPU service
+/// identity and its exact, independently protected WebGPU profile.
+///
+/// The binding is strict JSON and the profile bytes must hash to its declared
+/// `profileDigest`. The existing non-GPU builder remains unchanged so clients
+/// cannot accidentally acquire the provider seam by calling the legacy path.
+/// @ref LLP 0002#the-optional-exact-gpu-service-registration-seam — the
+/// provider identity and profile artifact are authenticated before runtime
+/// construction can install the optional service.
+pub fn build_exact_gpu_embedder_artifacts(
+    project_root: &Path,
+    operation_manifest_bytes: &[u8],
+    gpu_provider_binding_bytes: &[u8],
+    webgpu_profile_bytes: &[u8],
+) -> Result<PreparedEmbedderArtifacts> {
+    build_exact_embedder_artifacts_with_gpu(
+        project_root,
+        operation_manifest_bytes,
+        Some(gpu_provider_binding_bytes),
+        Some(webgpu_profile_bytes),
+        false,
+    )
+}
+
+/// Build the named Exact WebGPU Pre-1A artifact pair. Unlike the ordinary GPU
+/// builder, this path writes the checked private registry's exact positive
+/// selectors into the authenticated root floor. The companion experimental
+/// installer re-proves that exact set and installs the 58 private cells while
+/// keeping every ordinary target cell closed.
+/// @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
+pub fn build_exact_experimental_webgpu_pre1a_embedder_artifacts(
+    project_root: &Path,
+    operation_manifest_bytes: &[u8],
+    gpu_provider_binding_bytes: &[u8],
+    webgpu_profile_bytes: &[u8],
+) -> Result<PreparedEmbedderArtifacts> {
+    build_exact_embedder_artifacts_with_gpu(
+        project_root,
+        operation_manifest_bytes,
+        Some(gpu_provider_binding_bytes),
+        Some(webgpu_profile_bytes),
+        true,
+    )
+}
+
+fn build_exact_embedder_artifacts_with_gpu(
+    project_root: &Path,
+    operation_manifest_bytes: &[u8],
+    gpu_provider_binding_bytes: Option<&[u8]>,
+    webgpu_profile_bytes: Option<&[u8]>,
+    experimental_webgpu_pre1a: bool,
+) -> Result<PreparedEmbedderArtifacts> {
+    anyhow::ensure!(
+        gpu_provider_binding_bytes.is_some() == webgpu_profile_bytes.is_some(),
+        "Exact GPU provider binding and WebGPU profile must be supplied together"
+    );
+    if let Some(profile_bytes) = webgpu_profile_bytes {
+        anyhow::ensure!(
+            !profile_bytes.is_empty(),
+            "Exact WebGPU profile must not be empty"
+        );
+    }
     super::reject_closed_startup_environment()?;
     let project_root = std::fs::canonicalize(project_root).with_context(|| {
         format!(
@@ -680,6 +771,31 @@ pub fn build_exact_embedder_artifacts(
 
     let engine = crate::engine::loaded_engine_binary_identity().map_err(anyhow::Error::msg)?;
     let binding = parse_exact_operation_manifest(operation_manifest_bytes)?;
+    let gpu_binding = gpu_provider_binding_bytes
+        .map(parse_exact_gpu_provider_binding)
+        .transpose()?;
+    if let (Some(gpu_binding), Some(profile_bytes)) = (gpu_binding.as_ref(), webgpu_profile_bytes) {
+        anyhow::ensure!(
+            digest_bytes(profile_bytes)? == gpu_binding.profile_digest,
+            "Exact WebGPU profile bytes do not match the provider profile digest"
+        );
+    }
+    let experimental_private_arming = if experimental_webgpu_pre1a {
+        let binding = gpu_binding.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "experimental WebGPU Pre-1A construction requires a GPU provider binding"
+            )
+        })?;
+        Some(
+            super::gpu_authority::experimental_webgpu_pre1a_arming(binding).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "experimental WebGPU Pre-1A provider or checked private registry is unavailable"
+                )
+            })?,
+        )
+    } else {
+        None
+    };
     let mut root_builtins = crate::module_loader::RUNTIME_GATED_NODE_BUILTINS
         .iter()
         .map(|name| format!("node:{name}"))
@@ -709,7 +825,10 @@ pub fn build_exact_embedder_artifacts(
     });
     document["principals"] = serde_json::json!([{
         "principal": {"kind": "root", "identity": "project-root"},
-        "floor": [],
+        "floor": experimental_private_arming
+            .as_ref()
+            .map(|arming| arming.positive_selectors.clone())
+            .unwrap_or_default(),
         "denials": [],
         "escalationCeiling": [],
         "imports": {"builtins": root_builtins, "packages": []},
@@ -762,6 +881,9 @@ pub fn build_exact_embedder_artifacts(
         (cache_root.as_path(), &cache_object),
     ])?)?;
     document["exactEmbedder"] = serde_json::to_value(&binding)?;
+    if let Some(gpu_binding) = gpu_binding.as_ref() {
+        document["exactGpuProvider"] = serde_json::to_value(gpu_binding)?;
+    }
 
     let policy_bytes = capsec_semantics::canonical::to_jcs_bytes(&policy)?;
     let graph_bytes = capsec_semantics::canonical::to_jcs_bytes(&document["packageGraph"])?;
@@ -798,16 +920,33 @@ pub fn build_exact_embedder_artifacts(
         operation_manifest_bytes,
         &binding.operation_manifest_digest,
     )?;
-    document["protectedObjects"] = serde_json::json!([
-        {"role": "armed-policy", "object": policy_artifact.object, "deniedActions": ["fs:write"]},
-        {"role": "engine-binary", "object": engine.object, "deniedActions": ["fs:write"]},
-        {"role": "package-graph", "object": graph_artifact.object, "deniedActions": ["fs:write"]},
-        {"role": "registry", "object": registry_artifact.object, "deniedActions": ["fs:write"]},
-        {"role": "exact-operation-manifest", "object": manifest_artifact.object, "deniedActions": ["fs:write"]},
-    ]);
+    let gpu_profile_artifact = match (gpu_binding.as_ref(), webgpu_profile_bytes) {
+        (Some(gpu_binding), Some(profile_bytes)) => Some(materialize_protected_artifact(
+            "exact-webgpu-profile",
+            profile_bytes,
+            &gpu_binding.profile_digest,
+        )?),
+        (None, None) => None,
+        _ => unreachable!("GPU artifact inputs were checked as a pair"),
+    };
+    let mut protected_objects = vec![
+        serde_json::json!({"role": "armed-policy", "object": policy_artifact.object, "deniedActions": ["fs:write"]}),
+        serde_json::json!({"role": "engine-binary", "object": engine.object, "deniedActions": ["fs:write"]}),
+        serde_json::json!({"role": "package-graph", "object": graph_artifact.object, "deniedActions": ["fs:write"]}),
+        serde_json::json!({"role": "registry", "object": registry_artifact.object, "deniedActions": ["fs:write"]}),
+        serde_json::json!({"role": "exact-operation-manifest", "object": manifest_artifact.object, "deniedActions": ["fs:write"]}),
+    ];
+    if let Some(profile_artifact) = gpu_profile_artifact.as_ref() {
+        protected_objects.push(serde_json::json!({
+            "role": "exact-webgpu-profile",
+            "object": profile_artifact.object,
+            "deniedActions": ["fs:write"],
+        }));
+    }
+    document["protectedObjects"] = serde_json::Value::Array(protected_objects);
     let armed_digest = freshen_document(&mut document, fresh_production_nonce()?)?;
 
-    let expected = ExpectedArmingIdentity {
+    let mut expected = ExpectedArmingIdentity {
         profile: crate::capsec_registry_generated::CAPSEC_PROFILE.into(),
         semantic_core: crate::capsec_registry_generated::CAPSEC_SEMANTIC_CORE.into(),
         vocab_digest,
@@ -855,6 +994,16 @@ pub fn build_exact_embedder_artifacts(
         ],
         embedded_protected_artifacts: Vec::new(),
     };
+    if let Some(profile_artifact) = gpu_profile_artifact {
+        expected
+            .protected_artifacts
+            .push(ExpectedProtectedArtifact {
+                role: ProtectedArtifactRole::ExactWebgpuProfile,
+                host_path: profile_artifact.host_path,
+                object: profile_artifact.object,
+                content_digest: profile_artifact.content_digest,
+            });
+    }
     let snapshot_bytes = serde_json::to_vec(&document)?;
     let snapshot = ArmedSnapshot::load(&snapshot_bytes, &expected)
         .map_err(|error| anyhow::anyhow!("built Exact snapshot authentication refused: {error}"))?;
@@ -1208,6 +1357,26 @@ mod tests {
         .to_vec()
     }
 
+    fn exact_webgpu_profile() -> Vec<u8> {
+        br#"{"schema":"exact/webgpu-profile/1","profileId":"bone-tide-v1","operations":[1,2]}"#
+            .to_vec()
+    }
+
+    fn exact_gpu_provider_binding(profile: &[u8]) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "schema": "exact/webgpu-provider/1",
+            "abiVersion": 0x0001_0000_u32,
+            "profileId": "bone-tide-v1",
+            "profileDigest": content_digest(profile),
+            "webgpuCVocabularyDigest": content_digest(b"webgpu-c-vocabulary"),
+            "operationSetDigest": content_digest(b"operation-set"),
+            "semanticProgramDigest": content_digest(b"semantic-program"),
+            "operationIds": [1, 2],
+            "topology": "isolated-per-logical-v1",
+        }))
+        .unwrap()
+    }
+
     fn prepare_exact_through_abi(fixture: &RealEmbedderFixture) -> serde_json::Value {
         let manifest = exact_manifest();
         let output = unsafe {
@@ -1237,6 +1406,31 @@ mod tests {
                 root.len(),
                 manifest.as_ptr(),
                 manifest.len(),
+            )
+        };
+        assert!(!output.is_null());
+        let bytes = unsafe { std::ffi::CStr::from_ptr(output) }
+            .to_bytes()
+            .to_vec();
+        crate::host::abi::ex_host_free_string(output);
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    fn build_exact_gpu_through_abi(project_root: &std::path::Path) -> serde_json::Value {
+        let root = project_root.to_str().unwrap().as_bytes();
+        let manifest = exact_manifest();
+        let profile = exact_webgpu_profile();
+        let binding = exact_gpu_provider_binding(&profile);
+        let output = unsafe {
+            crate::host::abi::ex_host_build_exact_gpu_armed_embedder_artifacts(
+                root.as_ptr(),
+                root.len(),
+                manifest.as_ptr(),
+                manifest.len(),
+                binding.as_ptr(),
+                binding.len(),
+                profile.as_ptr(),
+                profile.len(),
             )
         };
         assert!(!output.is_null());
@@ -1452,6 +1646,95 @@ mod tests {
             &expected,
         )
         .unwrap();
+    }
+
+    #[test]
+    fn target_local_exact_gpu_builder_protects_the_bound_profile() {
+        let project = tempfile::tempdir().unwrap();
+        let envelope = build_exact_gpu_through_abi(project.path());
+        assert_eq!(envelope["ok"], true, "{envelope}");
+        let artifacts = &envelope["artifacts"];
+        assert_eq!(
+            artifacts["expectedIdentity"]["protectedArtifacts"]
+                .as_array()
+                .unwrap()
+                .len(),
+            6
+        );
+        assert_eq!(
+            artifacts["snapshot"]["exactGpuProvider"]["topology"],
+            "isolated-per-logical-v1"
+        );
+        assert_eq!(
+            artifacts["snapshot"]["exactGpuProvider"]["profileDigest"],
+            serde_json::to_value(content_digest(&exact_webgpu_profile())).unwrap()
+        );
+        assert_eq!(
+            artifacts["snapshot"]["principals"][0]["floor"],
+            serde_json::json!([]),
+            "the canonical GPU builder must not opt into private WebGPU selectors"
+        );
+        assert!(artifacts["snapshot"]["protectedObjects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["role"] == "exact-webgpu-profile"));
+        assert!(artifacts["expectedIdentity"]["protectedArtifacts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["role"] == "exact-webgpu-profile"));
+        let expected: ExpectedArmingIdentity =
+            serde_json::from_value(artifacts["expectedIdentity"].clone()).unwrap();
+        let snapshot = ArmedSnapshot::load(
+            &serde_json::to_vec(&artifacts["snapshot"]).unwrap(),
+            &expected,
+        )
+        .unwrap();
+        assert_eq!(
+            snapshot
+                .exact_gpu_provider_binding()
+                .unwrap()
+                .unwrap()
+                .profile_id,
+            "bone-tide-v1"
+        );
+    }
+
+    #[test]
+    fn target_local_exact_gpu_builder_refuses_profile_digest_mismatch() {
+        let project = tempfile::tempdir().unwrap();
+        let mut nonce = [0_u8; 16];
+        getrandom::getrandom(&mut nonce).unwrap();
+        let profile = format!(
+            "{{\"schema\":\"exact/webgpu-profile/1\",\"nonce\":\"{}\"}}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(nonce)
+        )
+        .into_bytes();
+        let binding = exact_gpu_provider_binding(&profile);
+        let profile_digest = content_digest(&profile);
+        let profile_artifact = crate::runtime_cache_dir()
+            .unwrap()
+            .join("capsec-artifacts")
+            .join(format!(
+                "{}.exact-webgpu-profile.json",
+                profile_digest.as_str().trim_start_matches("sha256-")
+            ));
+        assert!(!profile_artifact.exists());
+        let error = build_exact_gpu_embedder_artifacts(
+            project.path(),
+            &exact_manifest(),
+            &binding,
+            b"different profile bytes",
+        )
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("profile bytes do not match the provider profile digest"));
+        assert!(
+            !profile_artifact.exists(),
+            "a refused profile must not be published into the artifact cache"
+        );
     }
 
     #[test]
