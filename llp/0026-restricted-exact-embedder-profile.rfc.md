@@ -5,7 +5,10 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-19 (r6 — adds the immutable activation-scoped checkpoint
+**Revised:** 2026-07-19 (r7 — makes restricted timer ref/unref absence an
+install-plan property and adds hostile startup/event checkpoint, malformed
+payload, missing-handler, post-poison, ambient-global, and dynamic-constructor
+fixtures without opening advertisement; r6 — adds the immutable activation-scoped checkpoint
 output sink, requires exactly one initial and one successor checkpoint per
 accepted semantic event, poisons failed event transitions, and regenerates the
 7,129-edge projection with 28 reachable/22 control-plane/7,079 absent rows;
@@ -332,7 +335,15 @@ publication authority. Bundle startup must publish exactly one initial
 checkpoint, and each successful semantic event must publish exactly one
 successor checkpoint; missing, duplicate, invalid, oversized, or throwing
 transitions poison the realm. Advertisements remain empty and `promotionReady`
-remains false. A strict activation-artifact schema
+remains false. The restricted timer installer now omits its ref/unref
+compatibility controls rather than installing and later deleting them. The
+native hostile corpus covers missing, duplicate, malformed, and oversized
+startup checkpoint output; missing, duplicate, malformed, and throwing event
+checkpoint transitions; malformed event JSON; missing event dispatch;
+post-poison poll/event/callback/replay refusal; the forbidden ambient-global
+set; and `Function`, `AsyncFunction`, and `GeneratorFunction` construction.
+These fixtures still require exact-target execution and per-obligation report
+materialization before they count as conformance evidence. A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full
 vocabulary/registry/source-edge identities; mapped Hermes binary, object, and

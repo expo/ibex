@@ -1339,6 +1339,12 @@ mod tests {
             is_bytecode: i32,
             out_value: *mut *mut std::ffi::c_char,
         ) -> i32;
+        fn ex_hermes_dispatch_event(
+            runtime: *mut HermesRuntimeOpaque,
+            handler_id: u32,
+            payload_json: *const std::ffi::c_char,
+        ) -> i32;
+        fn ex_hermes_poll(runtime: *mut HermesRuntimeOpaque, now_ms: u64) -> i32;
         fn ex_hermes_free_string(value: *mut std::ffi::c_char);
         fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
     }
@@ -1591,6 +1597,82 @@ mod tests {
             "engineBytecodeVersion": engine_bytecode_version,
         }))
         .unwrap()
+    }
+
+    unsafe fn configured_restricted_exact_runtime(
+        bundle: &[u8],
+    ) -> (*mut HermesRuntimeOpaque, Box<Vec<u8>>, Box<Vec<u8>>) {
+        let artifact = build_restricted_exact_embedder_artifact(
+            &exact_manifest(),
+            bundle,
+            &restricted_bundle_binding("source-utf8", None),
+        )
+        .unwrap();
+        let artifact_bytes = serde_json::to_vec(&artifact).unwrap();
+        let authenticated =
+            authenticate_restricted_exact_embedder_artifact(&artifact_bytes).unwrap();
+        let manifest_digest = std::ffi::CString::new(
+            authenticated
+                .operation_binding()
+                .operation_manifest_digest
+                .as_str(),
+        )
+        .unwrap();
+        let operations = authenticated.operation_binding().endowments.app.clone();
+        let installed_digest = unsafe {
+            crate::host::abi::install_restricted_exact_host_for_conformance(&artifact_bytes)
+        }
+        .unwrap();
+        let artifact_digest = std::ffi::CString::new(installed_digest).unwrap();
+        let runtime = unsafe { ex_hermes_create_restricted_exact(artifact_digest.as_ptr()) };
+        assert!(!runtime.is_null());
+        assert_eq!(
+            unsafe {
+                ex_hermes_configure_restricted_exact_activation(
+                    runtime,
+                    std::ptr::null(),
+                    0,
+                    1234,
+                    0x1234,
+                    0x5678,
+                )
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                ex_hermes_set_exact_host_call_async(
+                    runtime,
+                    1,
+                    operations.as_ptr(),
+                    operations.len(),
+                    manifest_digest.as_ptr(),
+                    reject_unexpected_host_call,
+                    std::ptr::null_mut(),
+                )
+            },
+            0
+        );
+        let mut dispatch = Box::new(Vec::<u8>::new());
+        unsafe {
+            ex_hermes_set_dispatch_callback(
+                runtime,
+                capture_dispatch,
+                (&mut *dispatch as *mut Vec<u8>).cast(),
+            );
+        }
+        let mut checkpoints = Box::new(Vec::<u8>::new());
+        assert_eq!(
+            unsafe {
+                ex_hermes_set_restricted_exact_checkpoint_callback(
+                    runtime,
+                    capture_dispatch,
+                    (&mut *checkpoints as *mut Vec<u8>).cast(),
+                )
+            },
+            0
+        );
+        (runtime, dispatch, checkpoints)
     }
 
     fn prepare_exact_through_abi(fixture: &RealEmbedderFixture) -> serde_json::Value {
@@ -1924,10 +2006,26 @@ mod tests {
                 typeof Math.random() !== 'number') {
               throw new Error('activation mismatch');
             }
-            for (const name of ['require', 'process', 'Bun', 'fetch', 'WebSocket']) {
+            for (const name of [
+              'require', 'process', 'Bun', 'Deno', 'Ibex', 'Exact', 'fetch',
+              'WebSocket', 'XMLHttpRequest', 'WebAssembly', 'SharedArrayBuffer',
+              'Atomics', '__hostCall', '__hostCallAsync', '__compartments',
+              '__exactCapabilityCheck', '__exactGetEnv', '__exactResolveModule',
+              '__exactTimerRef', '__exactTimerUnref'
+            ]) {
               if (typeof globalThis[name] !== 'undefined') {
                 throw new Error(`forbidden global ${name}`);
               }
+            }
+            const constructors = [
+              Function,
+              (async function () {}).constructor,
+              (function* () {}).constructor
+            ];
+            for (const constructor of constructors) {
+              let refused = false;
+              try { constructor('return globalThis')(); } catch (_) { refused = true; }
+              if (!refused) throw new Error('dynamic constructor escaped lockdown');
             }
             if (typeof exact.invokeHostAsync !== 'function' ||
                 typeof exact.dispatch !== 'function') {
@@ -2112,6 +2210,200 @@ mod tests {
             assert!(!eval_error.is_null());
             ex_hermes_free_string(eval_error);
             ex_hermes_destroy(runtime);
+        }
+    }
+
+    #[test]
+    fn restricted_exact_startup_checkpoint_failures_poison_the_runtime() {
+        let _guard = crate::host::abi::host_test_lock();
+        if crate::engine::loaded_engine_structural_features()
+            != [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown",
+            ]
+        {
+            return;
+        }
+        let fixtures: &[(&str, &[u8])] = &[
+            (
+                "missing-initial-checkpoint",
+                br#"(() => { exact.takeCheckpointBytes(); })();"#,
+            ),
+            (
+                "duplicate-initial-checkpoint",
+                br#"(() => {
+                  exact.takeCheckpointBytes();
+                  exact.publishCheckpoint(new Uint8Array([1]));
+                  exact.publishCheckpoint(new Uint8Array([2]));
+                })();"#,
+            ),
+            (
+                "malformed-initial-checkpoint",
+                br#"(() => {
+                  exact.takeCheckpointBytes();
+                  exact.publishCheckpoint({});
+                })();"#,
+            ),
+            (
+                "oversize-initial-checkpoint",
+                br#"(() => {
+                  exact.takeCheckpointBytes();
+                  exact.publishCheckpoint(new Uint8Array(16 * 1024 * 1024 + 1));
+                })();"#,
+            ),
+        ];
+        for (name, bundle) in fixtures {
+            let (runtime, _dispatch, mut checkpoints) =
+                unsafe { configured_restricted_exact_runtime(bundle) };
+            unsafe {
+                let mut error = std::ptr::null_mut();
+                assert_ne!(
+                    ex_hermes_run_restricted_exact_bundle(runtime, &mut error),
+                    0,
+                    "{name} unexpectedly succeeded"
+                );
+                assert!(!error.is_null(), "{name} returned no error");
+                ex_hermes_free_string(error);
+                assert_eq!(ex_hermes_poll(runtime, 1234), -1, "{name} still polled");
+                let payload = std::ffi::CString::new("{}").unwrap();
+                assert_eq!(
+                    ex_hermes_dispatch_event(runtime, 1, payload.as_ptr()),
+                    -1,
+                    "{name} still accepted events"
+                );
+                assert_eq!(
+                    ex_hermes_set_restricted_exact_checkpoint_callback(
+                        runtime,
+                        capture_dispatch,
+                        (&mut *checkpoints as *mut Vec<u8>).cast(),
+                    ),
+                    -9,
+                    "{name} allowed callback replacement after poison"
+                );
+                let mut replay_error = std::ptr::null_mut();
+                assert_ne!(
+                    ex_hermes_run_restricted_exact_bundle(runtime, &mut replay_error),
+                    0,
+                    "{name} allowed replay after poison"
+                );
+                assert!(!replay_error.is_null());
+                ex_hermes_free_string(replay_error);
+                ex_hermes_destroy(runtime);
+            }
+        }
+    }
+
+    #[test]
+    fn restricted_exact_event_checkpoint_failures_poison_the_runtime() {
+        let _guard = crate::host::abi::host_test_lock();
+        if crate::engine::loaded_engine_structural_features()
+            != [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown",
+            ]
+        {
+            return;
+        }
+        let bundle = br#"(() => {
+          exact.takeCheckpointBytes();
+          exact.publishCheckpoint(new Uint8Array([7]));
+          Object.defineProperty(globalThis, '__exactDispatchEvent', {
+            value: (handler) => {
+              if (handler === 1) return;
+              if (handler === 2) {
+                exact.publishCheckpoint(new Uint8Array([8]));
+                exact.publishCheckpoint(new Uint8Array([8]));
+                return;
+              }
+              if (handler === 3) throw new Error('hostile event');
+              if (handler === 4) {
+                exact.publishCheckpoint({});
+                return;
+              }
+              exact.publishCheckpoint(new Uint8Array([9]));
+            },
+            writable: false,
+            configurable: false
+          });
+        })();"#;
+        let payload = std::ffi::CString::new("{}").unwrap();
+
+        let (runtime, _dispatch, checkpoints) =
+            unsafe { configured_restricted_exact_runtime(bundle) };
+        unsafe {
+            let mut error = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_run_restricted_exact_bundle(runtime, &mut error),
+                0
+            );
+            assert!(error.is_null());
+            assert_eq!(ex_hermes_dispatch_event(runtime, 5, payload.as_ptr()), 0);
+            assert_eq!(*checkpoints, [7, 9]);
+            ex_hermes_destroy(runtime);
+        }
+
+        for handler in [1_u32, 2, 3, 4] {
+            let (runtime, _dispatch, _checkpoints) =
+                unsafe { configured_restricted_exact_runtime(bundle) };
+            unsafe {
+                let mut error = std::ptr::null_mut();
+                assert_eq!(
+                    ex_hermes_run_restricted_exact_bundle(runtime, &mut error),
+                    0
+                );
+                assert!(error.is_null());
+                assert_eq!(
+                    ex_hermes_dispatch_event(runtime, handler, payload.as_ptr()),
+                    -1,
+                    "hostile handler {handler} unexpectedly succeeded"
+                );
+                assert_eq!(ex_hermes_poll(runtime, 1234), -1);
+                assert_eq!(ex_hermes_dispatch_event(runtime, 5, payload.as_ptr()), -1);
+                ex_hermes_destroy(runtime);
+            }
+        }
+
+        let (missing_handler_runtime, _dispatch, _checkpoints) = unsafe {
+            configured_restricted_exact_runtime(
+                br#"(() => {
+                  exact.takeCheckpointBytes();
+                  exact.publishCheckpoint(new Uint8Array([7]));
+                })();"#,
+            )
+        };
+        unsafe {
+            let mut error = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_run_restricted_exact_bundle(missing_handler_runtime, &mut error),
+                0
+            );
+            assert!(error.is_null());
+            assert_eq!(
+                ex_hermes_dispatch_event(missing_handler_runtime, 1, payload.as_ptr()),
+                -1
+            );
+            assert_eq!(ex_hermes_poll(missing_handler_runtime, 1234), -1);
+            ex_hermes_destroy(missing_handler_runtime);
+        }
+
+        let (malformed_payload_runtime, _dispatch, _checkpoints) =
+            unsafe { configured_restricted_exact_runtime(bundle) };
+        unsafe {
+            let mut error = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_run_restricted_exact_bundle(malformed_payload_runtime, &mut error),
+                0
+            );
+            assert!(error.is_null());
+            let malformed = std::ffi::CString::new("{").unwrap();
+            assert_eq!(
+                ex_hermes_dispatch_event(malformed_payload_runtime, 5, malformed.as_ptr()),
+                -1
+            );
+            assert_eq!(ex_hermes_poll(malformed_payload_runtime, 1234), -1);
+            ex_hermes_destroy(malformed_payload_runtime);
         }
     }
 

@@ -1077,7 +1077,9 @@ void installTlsHostFunctions(ExactHermesRuntime* handle);
 void installHttpHostFunctions(ExactHermesRuntime* handle);
 void installSqliteHostFunctions(ExactHermesRuntime* handle);
 void installConsoleGlobals(ExactHermesRuntime* handle);
-void installTimerGlobals(ExactHermesRuntime* handle);
+void installTimerGlobals(
+    ExactHermesRuntime* handle,
+    bool install_ref_controls);
 void installOsInfoGlobals(ExactHermesRuntime* handle);
 void installProcessSetup(ExactHermesRuntime* handle);
 void installWebSocketGlobals(ExactHermesRuntime* handle);

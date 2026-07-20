@@ -1892,7 +1892,10 @@ void defineExactCapability(
 void installRestrictedExactGlobals(struct ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
   ensureExactEmbedderObject(handle);
-  installTimerGlobals(handle);
+  // The ref/unref compatibility controls are not installed in the restricted
+  // profile at all. Their absence is an install-plan property, not a later
+  // best-effort deletion from attacker-visible globalThis.
+  installTimerGlobals(handle, false);
 
   auto exactObject = rt.global().getPropertyAsObject(rt, "exact");
   auto checkpoint = facebook::jsi::Function::createFromHostFunction(
@@ -2004,8 +2007,7 @@ void installRestrictedExactGlobals(struct ExactHermesRuntime* handle) {
         '__exactGrantCapability', '__exactCheckImport',
         '__exactSetCompartmentFor', '__exactEnsureFs', '__exactEnsureHttp',
         '__exactEnsureSqlite', '__exactEnsureDns',
-        '__exactEnsureChildProcess', '__exactEnsureNet', '__exactTimerRef',
-        '__exactTimerUnref'
+        '__exactEnsureChildProcess', '__exactEnsureNet'
       ]) {
         try { delete g[name]; } catch (_) {}
       }
@@ -2049,7 +2051,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     reportStartupFailure(handle, "Host function install", "disabled by startup control");
   } else {
   IG_TRACE_START(host_functions);
-  installTimerGlobals(handle);
+  installTimerGlobals(handle, true);
   installAndroidHostFunctions(handle);
 
   auto capabilityCheckFn = facebook::jsi::Function::createFromHostFunction(
