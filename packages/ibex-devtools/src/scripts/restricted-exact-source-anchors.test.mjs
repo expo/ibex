@@ -876,6 +876,38 @@ void install(Runtime& rt) {
     }
   });
 
+  test("binds aliased legacy global members through their exact capture", () => {
+    const branch = {
+      branchId: "surface.native.op.global.process.stdin.pause.default",
+      observedKey: "native-op:global:process.stdin.pause",
+      targetVariant: "default",
+    };
+    const sourceRef =
+      "src/engine/bootstrap/compat-polyfills.js#process.stdin.pause";
+    const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+    expect(binding.locatorKind).toBe("javascript-alias-terminal-route");
+    expect(binding.sites.some((site) => site.role === "retention")).toBe(true);
+    expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status)
+      .toBe("executable");
+  });
+
+  test("binds each stdio lazy method through exact table entries", () => {
+    for (const locator of ["process.stdout.on", "process.stdin.write", "process.stderr.emit"]) {
+      const branch = {
+        branchId: `surface.native.op.global.${locator}.default`,
+        observedKey: `native-op:global:${locator}`,
+        targetVariant: "default",
+      };
+      const sourceRef = `src/engine/bootstrap/lazy-getters.js#${locator}`;
+      const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+      expect(binding.locatorKind).toBe("javascript-stdio-lazy-method-route");
+      expect(binding.sites.filter((site) => site.role === "registration"))
+        .toHaveLength(2);
+      expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status)
+        .toBe("executable");
+    }
+  });
+
   test("binds an object-literal global member without crediting its installer", () => {
     const branch = {
       branchId: "surface.native.op.global.atomics.add.all",
@@ -917,6 +949,24 @@ void install(Runtime& rt) {
       "packages/ibex-runtime-js/src/core/accessibility.ts#installExactAccessibilityGlobal:globals:Exact.accessibility",
     ]);
     expect(route.status).toBe("executable");
+    expect(route.sites.filter((site) => site.role === "publication").length)
+      .toBeGreaterThanOrEqual(2);
+  });
+
+  test("binds accessibility factory methods through Exact publication", () => {
+    const branch = {
+      branchId: "surface.native.op.global.exact.accessibility.announce.all",
+      observedKey: "native-op:global:Exact.accessibility.announce",
+      targetVariant: "all",
+    };
+    const refs = [
+      "packages/ibex-runtime-js/src/core/accessibility.ts#announce.announce",
+      "packages/ibex-runtime-js/src/core/accessibility.ts#installExactAccessibilityGlobal:globals:Exact.accessibility",
+    ];
+    expect(resolveRestrictedExactBranchSourceBinding(branch, refs[0]).locatorKind)
+      .toBe("typescript-factory-object-member");
+    expect(buildRestrictedExactBranchSourceRoute(branch, refs).status)
+      .toBe("executable");
   });
 
   test("composes members through their most-specific global publication", () => {

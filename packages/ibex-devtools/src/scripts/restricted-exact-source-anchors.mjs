@@ -1820,6 +1820,47 @@ function typescriptObjectMemberBinding({ branch, sourceRef, sourcePath, locator,
   });
 }
 
+function typescriptFactoryObjectMemberBinding({ sourceRef, sourcePath, locator, absolute, text, bytes }) {
+  if (!sourcePath.startsWith("packages/ibex-runtime-js/src/")
+    || !/\.tsx?$/u.test(sourcePath)
+    || locator.includes(":")
+    || locator.includes("[[")) return null;
+  const parts = locator.split(".");
+  if (parts.length !== 2) return null;
+  let [factoryName, memberName] = parts;
+  if (sourcePath === "packages/ibex-runtime-js/src/core/accessibility.ts"
+    && factoryName === memberName) {
+    factoryName = "createAccessibilityNamespace";
+  }
+  const index = javascriptIndex(absolute, text);
+  const declaration = declarationFor(index, factoryName);
+  const factory = declaration?.node ?? declaration?.value;
+  if (!factory || factory.start === undefined || factory.end === undefined) return null;
+  const candidates = [];
+  walkJavaScript(factory, (node) => {
+    if (["ObjectMethod", "ObjectProperty"].includes(node.type)
+      && propertyName(node.key) === memberName) candidates.push(node);
+  });
+  const unique = [...new Map(candidates.map((node) => [`${node.start}:${node.end}`, node])).values()];
+  if (unique.length !== 1) return null;
+  const site = sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "value-producer",
+    siteKey: `${factoryName}.${memberName}.factory-member`,
+    range: { startByte: unique[0].start, endByte: unique[0].end },
+    text,
+    bytes,
+  });
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "typescript-factory-object-member",
+    resolutionPolicy: "provenance-only",
+    sites: [site],
+    producerPaths: [],
+  });
+}
+
 function javascriptSymbolProvenanceBinding({ sourceRef, sourcePath, locator, text, bytes }) {
   if (!sourcePath.endsWith(".js")
     || locator.includes(":")
@@ -2624,6 +2665,155 @@ function legacyJavascriptTerminalRouteBinding({
     resolutionPolicy: producerPaths.length > 1 ? "conditioned-alternatives" : "composite-path",
     sites,
     producerPaths,
+  });
+}
+
+function legacyJavascriptAliasRouteBinding({
+  branch,
+  sourceRef,
+  sourcePath,
+  locator,
+  text,
+  bytes,
+}) {
+  if (!branch?.observedKey?.startsWith("native-op:global:")
+    || !sourcePath.startsWith("src/engine/bootstrap/")
+    || !sourcePath.endsWith(".js")
+    || locator.includes(":")
+    || locator.includes("[[")) return null;
+  const observedPath = branch.observedKey.slice("native-op:global:".length);
+  if (observedPath !== locator) return null;
+  const logicalPath = locator.split(".");
+  if (logicalPath.length < 2) return null;
+  const normalize = (segments) => {
+    if (!segments) return null;
+    return ["globalThis", "__global", "g", "self", "window"].includes(segments[0])
+      ? segments.slice(1)
+      : segments;
+  };
+  const ast = parse(text, { sourceType: "script", allowReturnOutsideFunction: true });
+  const aliases = [];
+  walkJavaScript(ast.program, (node) => {
+    let alias = null;
+    let value = null;
+    let range = null;
+    if (node.type === "VariableDeclarator" && node.id?.type === "Identifier") {
+      alias = node.id.name;
+      value = normalize(memberSegments(node.init));
+      range = { startByte: node.start, endByte: node.end };
+    } else if (node.type === "AssignmentExpression" && node.left?.type === "Identifier") {
+      alias = node.left.name;
+      value = normalize(memberSegments(node.right));
+      range = { startByte: node.start, endByte: node.end };
+    }
+    if (!alias || !value || value.length >= logicalPath.length) return;
+    if (JSON.stringify(value) !== JSON.stringify(logicalPath.slice(0, value.length))) return;
+    aliases.push({ alias, value, range });
+  });
+  const candidates = [];
+  walkJavaScript(ast.program, (node, parent) => {
+    const segments = memberSegments(node);
+    if (!segments || segments.length < 2) return;
+    for (const alias of aliases) {
+      const remaining = logicalPath.slice(alias.value.length);
+      if (alias.range.endByte >= node.start
+        || JSON.stringify(segments) !== JSON.stringify([alias.alias, ...remaining])) continue;
+      const laterAlias = aliases.some((candidate) =>
+        candidate.alias === alias.alias
+        && candidate.range.startByte > alias.range.startByte
+        && candidate.range.startByte < node.start);
+      if (laterAlias) continue;
+      candidates.push({
+        alias,
+        terminal: { startByte: node.start, endByte: node.end },
+        statement: lineRange(text, node.start),
+        publication: parent?.type === "AssignmentExpression" && parent.left === node,
+      });
+    }
+  });
+  const unique = [...new Map(candidates.map((candidate) => [
+    `${candidate.alias.range.startByte}:${candidate.terminal.startByte}:${candidate.terminal.endByte}`,
+    candidate,
+  ])).values()];
+  if (unique.length === 0) return null;
+  const sites = [];
+  const producerPaths = [];
+  for (const [indexValue, candidate] of unique.entries()) {
+    const aliasSite = sourceSite({ sourceRef, path: sourcePath, role: "retention", siteKey: `${locator}.alias.${indexValue}`, range: candidate.alias.range, text, bytes });
+    const terminalSite = sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${locator}.terminal.${indexValue}`, range: candidate.terminal, text, bytes });
+    const executionSite = sourceSite({ sourceRef, path: sourcePath, role: candidate.publication ? "publication" : "dispatch", siteKey: `${locator}.execution.${indexValue}`, range: candidate.statement, text, bytes });
+    sites.push(aliasSite, terminalSite, executionSite);
+    producerPaths.push({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0legacy-alias\0${indexValue}`),
+      conditionId: `legacy-alias-site:${sourcePath}:${candidate.terminal.startByte}`,
+      requiredSiteIds: [aliasSite.siteId, terminalSite.siteId, executionSite.siteId],
+    });
+  }
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "javascript-alias-terminal-route",
+    targetGlobalPath: observedPath,
+    resolutionPolicy: producerPaths.length > 1 ? "conditioned-alternatives" : "composite-path",
+    sites,
+    producerPaths,
+  });
+}
+
+function legacyStdioLazyMethodBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (sourcePath !== "src/engine/bootstrap/lazy-getters.js"
+    || branch?.observedKey !== `native-op:global:${locator}`) return null;
+  const match = /^process\.(stdin|stdout|stderr)\.([A-Za-z_$][A-Za-z0-9_$]*)$/u.exec(locator);
+  if (!match) return null;
+  const [, streamName, methodName] = match;
+  const allowedMethods = new Set([
+    "on", "once", "pipe", "cork", "uncork", "end", "write",
+    "addListener", "removeListener", "emit",
+  ]);
+  if (!allowedMethods.has(methodName)) return null;
+  const streamEntries = tokenRangesWithin(
+    text,
+    `'${streamName}'`,
+    { startByte: 0, endByte: text.length },
+  );
+  const methodEntries = tokenRangesWithin(
+    text,
+    `'${methodName}'`,
+    { startByte: 0, endByte: text.length },
+  );
+  const processCapture = uniqueTokenRange(text, ["  var p = globalThis.process;"]);
+  const streamCapture = uniqueTokenRange(text, ["      var stream = p[streams[si]];"]);
+  const stubDefinition = uniqueTokenRange(text, ["            var stub = function() {"]);
+  const publication = uniqueTokenRange(text, ["            s[method] = stub;"]);
+  const dispatch = uniqueTokenRange(text, [
+    "        })(stream, streams[si], methods[mi]);",
+  ]);
+  if (streamEntries.length !== 1
+    || methodEntries.length !== 1
+    || !processCapture
+    || !streamCapture
+    || !stubDefinition
+    || !publication
+    || !dispatch) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "registration", siteKey: `${streamName}.stream-entry`, range: streamEntries[0], text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "registration", siteKey: `${methodName}.method-entry`, range: methodEntries[0], text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "retention", siteKey: "process.capture", range: processCapture, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "retention", siteKey: `${streamName}.capture`, range: streamCapture, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${streamName}.${methodName}.stub`, range: stubDefinition, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: `${streamName}.${methodName}.loop-dispatch`, range: dispatch, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${streamName}.${methodName}.publication`, range: publication, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "javascript-stdio-lazy-method-route",
+    targetGlobalPath: locator,
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0stdio-lazy-method`),
+      conditionId: `stdio-lazy-table:${streamName}:${methodName}:missing`,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
   });
 }
 
@@ -6457,6 +6647,7 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? typescriptStaticDescriptorBinding({ branch, sourceRef, ...loaded })
     ?? typescriptComputedMemberBinding({ branch, sourceRef, ...loaded })
     ?? typescriptClassMemberBinding({ branch, sourceRef, ...loaded })
+    ?? typescriptFactoryObjectMemberBinding({ branch, sourceRef, ...loaded })
     ?? typescriptObjectMemberBinding({ branch, sourceRef, ...loaded })
     ?? typescriptBundleMemberBinding({ branch, sourceRef, ...loaded })
     ?? typescriptModuleGlobalMemberBinding({ branch, sourceRef, ...loaded })
@@ -6467,7 +6658,9 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? legacyViewConstructorTableBinding({ branch, sourceRef, ...loaded })
     ?? legacyReturnedPrototypeMemberBinding({ branch, sourceRef, ...loaded })
     ?? legacyJavascriptGlobalRouteBinding({ branch, sourceRef, ...loaded })
+    ?? legacyStdioLazyMethodBinding({ branch, sourceRef, ...loaded })
     ?? legacyJavascriptTerminalRouteBinding({ branch, sourceRef, ...loaded })
+    ?? legacyJavascriptAliasRouteBinding({ branch, sourceRef, ...loaded })
     ?? generatedJavascriptGlobalBinding({ branch, sourceRef, ...loaded })
     ?? javascriptSymbolProvenanceBinding({ branch, sourceRef, ...loaded });
   return contextual ?? resolveRestrictedExactSourceBinding(sourceRef, root);
@@ -6487,6 +6680,7 @@ function selectGlobalProducerEntry(observedPath, entries) {
       "typescript-class-member",
       "typescript-class-inheritance",
       "typescript-computed-member",
+      "typescript-factory-object-member",
       "typescript-object-member",
     ].includes(binding.locatorKind),
   );
@@ -6687,9 +6881,7 @@ export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root =
       ? `Exact.${observedParts.slice(1).join(".")}`
       : null;
     const exactAliasEntries = exactAliasPath
-      ? entries.filter((entry) =>
-        entry.binding.locatorKind === "typescript-global-installer-route"
-        && entryTargetsGlobalPath(entry, exactAliasPath))
+      ? selectGlobalPublicationEntries(exactAliasPath, entries)
       : [];
     if (producer && publications.length > 0) {
       selectedEntries.add(producer);
@@ -6712,16 +6904,34 @@ export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root =
           (conditionCounts.get(publicationPath.conditionId) ?? 0) + 1,
         );
       }
-      for (const { publication, publicationPath } of composedPublications) {
+      const composedAliases = exactAliasEntries.flatMap((publication) => {
+        selectedEntries.add(publication);
+        const paths = publication.binding.producerPaths.length > 0
+          ? publication.binding.producerPaths
+          : [{
+              conditionId: publication.binding.locatorKind === "typescript-lazy-global-publication"
+                ? "runtime-bundle:global-missing"
+                : `target-branch:${branch.targetVariant}`,
+              requiredSiteIds: publication.binding.sites.map((site) => site.siteId),
+            }];
+        return paths.map((publicationPath) => ({ publication, publicationPath }));
+      });
+      const routes = composedAliases.length > 0
+        ? composedPublications.flatMap((publication) =>
+          composedAliases.map((alias) => ({ publication, alias })))
+        : composedPublications.map((publication) => ({ publication, alias: null }));
+      for (const { publication, alias } of routes) {
+        const { publicationPath } = publication;
         const conditionId = conditionCounts.get(publicationPath.conditionId) === 1
-          ? publicationPath.conditionId
-          : `${publicationPath.conditionId}+publication:${stableId("source", publication.sourceRef)}`;
+          ? `${publicationPath.conditionId}${alias ? `+alias:${alias.publicationPath.conditionId}` : ""}`
+          : `${publicationPath.conditionId}+publication:${stableId("source", publication.publication.sourceRef)}${alias ? `+alias:${alias.publicationPath.conditionId}` : ""}`;
         producerPaths.push({
           pathId: stableId("producer", `${branch.branchId}\0${conditionId}`),
           conditionId,
           requiredSiteIds: [
             ...producer.binding.sites.map((site) => site.siteId),
             ...publicationPath.requiredSiteIds,
+            ...(alias?.publicationPath.requiredSiteIds ?? []),
           ],
         });
       }
