@@ -159,8 +159,8 @@ describe("confined generated output writes", () => {
   });
 });
 
-describe("canonical generated checkout bytes", () => {
-  test("pins byte-sensitive authorities and outputs to LF", () => {
+describe("canonical authority checkout bytes", () => {
+  test("pins byte-sensitive generators, outputs, and lock authority to LF", () => {
     const attributes = fs.readFileSync(
       path.join(repoRoot, ".gitattributes"),
       "utf8",
@@ -171,6 +171,7 @@ describe("canonical generated checkout bytes", () => {
       "session/** text eol=lf",
       "llp/fixtures/** text eol=lf",
       "runtime-surface.json text eol=lf",
+      "Cargo.lock text eol=lf",
     ]) {
       expect(attributes).toContain(rule);
     }
@@ -181,6 +182,7 @@ describe("canonical generated checkout bytes", () => {
       "session/session-constants.v1.json",
       "llp/fixtures/0023-vfs-error-union.v1.json",
       "runtime-surface.json",
+      "Cargo.lock",
     ]) {
       expect(
         fs.readFileSync(path.join(repoRoot, sourcePath), "utf8").includes("\r"),

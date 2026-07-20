@@ -23,6 +23,10 @@ session/** text eol=lf
 llp/fixtures/** text eol=lf
 runtime-surface.json text eol=lf
 
+# Parser-pin conformance searches the lockfile's checked-in text with an
+# LF-delimited exact version record.
+Cargo.lock text eol=lf
+
 # Evaluator identity review hashes these checked-in bytes. Keep a Windows
 # checkout byte-identical to the reviewed LF source and patch authorities.
 patches/hermes/*.patch text eol=lf -whitespace
