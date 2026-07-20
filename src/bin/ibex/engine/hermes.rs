@@ -1343,9 +1343,7 @@ extern "C" {
         handles: *const u64,
         handle_count: usize,
     ) -> i32;
-    #[cfg(any(test, feature = "module-runner"))]
     fn ex_hermes_seal_armed_shared_runtime_globals_v1(runtime: *mut HermesRuntimeOpaque) -> u32;
-    #[cfg(any(test, feature = "module-runner"))]
     fn ex_hermes_finish_bootstrap(runtime: *mut HermesRuntimeOpaque) -> u32;
     fn ex_hermes_runtime_nonce(runtime: *mut HermesRuntimeOpaque) -> u64;
     #[cfg(feature = "module-runner")]
