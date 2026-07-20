@@ -51,7 +51,9 @@ if ! bun run check:root-global-dispositions >/dev/null 2>&1; then
   stale+=("capsec/generated/root-global-disposition-manifest.json" "src/engine/root_global_disposition.generated.h")
 fi
 bun run check:restricted-exact-profile
-bun run check:restricted-exact-macos-report
+# Historical failed-review reports are immutable evidence, not active generated
+# authorities. Fresh exact-target reports are regenerated only from evidence
+# whose source and authority digests match the current candidate revision.
 if ! bun run generate:capability-bits --check >/dev/null 2>&1; then
   stale+=("packages/ibex-runtime-js/src/security/capability-bits.generated.ts")
 fi

@@ -5,7 +5,12 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (r18 — refreshes the source-derived authority after
+**Revised:** 2026-07-20 (r19 — records the first pinned Linux exact-engine
+absence run, reclassifies the observed deterministic
+`Intl.NumberFormat.prototype.formatToParts` edge as reachable, regenerates the
+authority at 132 reachable/7,193 absent/22 control rows, and keeps all prior
+reports historical and advertisements empty pending fresh complete evidence;
+r18 — refreshes the source-derived authority after
 executable-route completion replaced three synthetic stream export rows with
 52 exact inherited-member rows and removed two false performance-name rows;
 the 7,347-edge projection now has 7,194 structural absences, 7,408 source
@@ -64,7 +69,7 @@ installing a Host or consuming an advertisement; r2 — implements the Phase 0 a
 full-edge-set-pinned 7,111-row projection, empty advertisement authority,
 implementation-manifest binding, and mutation-sensitive drift gate; all 7,111
 rows remain evidence-pending and no target is advertised)
-**Related:** LLP 0002 (host embedding ABI); LLP 0013 (per-package capability compartments); LLP 0021 (capability-security effect model); LLP 0032 (command-envelope execution authority); Exact LLP 0373 (pooled server-resident Contract sessions, cross-repository consumer)
+**Related:** LLP 0002 (host embedding ABI); LLP 0013 (per-package capability compartments); LLP 0021 (capability-security effect model); LLP 0032 (command-envelope execution authority); Exact LLP 0377 (pooled server-resident Contract sessions, cross-repository consumer)
 
 ## 1. Summary
 
@@ -359,8 +364,8 @@ empty.
 Implementation status (2026-07-20): the additive definition, projection, and
 advertisement schemas and their non-writing drift gate are implemented. The
 authored definition pins the exact 7,347-edge full-registry set and binds each
-of 131 candidate reachable and 22 trusted-control-plane rows to its
-source-derived kind and name; the remaining 7,194 rows are candidate
+of 132 candidate reachable and 22 trusted-control-plane rows to its
+source-derived kind and name; the remaining 7,193 rows are candidate
 structural absences whose source-install and live-reachability evidence is
 explicitly pending. The projection also binds the raw definition, coverage,
 implementation-manifest, and three profile-schema byte digests. Six mutation
@@ -401,11 +406,16 @@ Executable-route completion now covers all 7,566 implementation branches with
 no incomplete source route. Its inventory correction replaced three synthetic
 `node_stream` export rows with 52 exact inherited writable-member rows and
 removed the false `PerformanceMark.name` and `PerformanceMeasure.name` rows.
-The regenerated authority has 7,194 absent edges, 7,408 source-install probes,
-9,796 live-reachability probes, and descriptor-prefix probes for 2,460 edges.
+The regenerated authority has 7,193 absent edges, 7,407 source-install probes,
+9,794 live-reachability probes, and descriptor-prefix probes for 2,459 edges.
 Because the definition, coverage, projection, probe plan, route graph, and
 fixture-plan bindings changed, every earlier Apple evidence artifact and report
 is historical only and cannot contribute to promotion.
+The first pinned Linux run then reached the absence executor and found
+`Intl.NumberFormat.prototype.formatToParts` live in the no-debugger Intl build.
+The fail-closed mismatch invalidated that run; the exact edge is now admitted
+as reachable and must receive its own fresh invocation observation before any
+Linux report can conform.
 A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full

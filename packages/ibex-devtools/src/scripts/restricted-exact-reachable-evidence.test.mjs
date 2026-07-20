@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { describe, expect, test } from "bun:test";
 
 import { capsecRoot } from "./capsec-contract.mjs";
@@ -22,6 +23,38 @@ const currentAbsenceEvidencePath = path.join(
 );
 const currentAbsenceArtifact = JSON.parse(
   fs.readFileSync(currentAbsenceEvidencePath, "utf8"),
+);
+const historicalAuthorityPaths = {
+  definition: "capsec/registry/restricted-exact-profile-definition.json",
+  projection: "capsec/generated/restricted-exact-profile-projection.json",
+  coverage: "capsec/registry/coverage-edges.json",
+  implementationManifest: "capsec/generated/implementation-manifest.json",
+  fixturePlan: "capsec/registry/restricted-exact-fixture-plan.json",
+  reportSchema: "capsec/schema/restricted-profile-target-report.schema.json",
+  rootManifest: "capsec/generated/root-global-disposition-manifest.json",
+  absenceProbePlan: "capsec/generated/restricted-exact-absence-probe-plan.json",
+  absenceRouteGraph: "capsec/generated/restricted-exact-absence-route-graph.json",
+};
+
+function historicalAuthorities(revision) {
+  const rawAuthorities = Object.fromEntries(Object.entries(historicalAuthorityPaths).map(
+    ([name, relativePath]) => [name, execFileSync(
+      "git",
+      ["show", `${revision}:${relativePath}`],
+      { cwd: path.resolve(capsecRoot, ".."), maxBuffer: 64 * 1024 * 1024 },
+    )],
+  ));
+  return {
+    projection: JSON.parse(rawAuthorities.projection),
+    coverage: JSON.parse(rawAuthorities.coverage),
+    implementationManifest: JSON.parse(rawAuthorities.implementationManifest),
+    fixturePlan: JSON.parse(rawAuthorities.fixturePlan),
+    rawAuthorities,
+  };
+}
+
+const currentHistoricalAuthorities = historicalAuthorities(
+  currentAbsenceArtifact.sourceRevision,
 );
 
 function currentArtifact() {
@@ -70,6 +103,7 @@ describe("LLP 0033 per-edge absence evidence", () => {
     observation.proof.probeResults.pop();
     expect(() => ingestRestrictedAbsenceEvidence(
       Buffer.from(`${JSON.stringify(artifact)}\n`),
+      currentHistoricalAuthorities,
     )).toThrow("wrong receipt count");
   }, 30_000);
 
@@ -81,6 +115,7 @@ describe("LLP 0033 per-edge absence evidence", () => {
     observation.proof.probeResults[0].outcome = "reachable";
     expect(() => ingestRestrictedAbsenceEvidence(
       Buffer.from(`${JSON.stringify(artifact)}\n`),
+      currentHistoricalAuthorities,
     )).toThrow("live-reachability proof drift");
   }, 30_000);
 
@@ -90,6 +125,7 @@ describe("LLP 0033 per-edge absence evidence", () => {
     source.proof.probeResults[0].routeReceipt.runtimeGeneration += 1;
     expect(() => ingestRestrictedAbsenceEvidence(
       Buffer.from(`${JSON.stringify(generation)}\n`),
+      currentHistoricalAuthorities,
     )).toThrow(/receipt drift|crossed runtime generations/u);
 
     const boundary = currentArtifact();
@@ -98,6 +134,7 @@ describe("LLP 0033 per-edge absence evidence", () => {
       "terminal.forged-bypass";
     expect(() => ingestRestrictedAbsenceEvidence(
       Buffer.from(`${JSON.stringify(boundary)}\n`),
+      currentHistoricalAuthorities,
     )).toThrow("absence route receipt drift");
   }, 30_000);
 
@@ -107,6 +144,7 @@ describe("LLP 0033 per-edge absence evidence", () => {
     live.proof.probeResults[0].routeReceipts[0].probeTarget = "builtin:substituted";
     expect(() => ingestRestrictedAbsenceEvidence(
       Buffer.from(`${JSON.stringify(target)}\n`),
+      currentHistoricalAuthorities,
     )).toThrow("absence route receipt drift");
 
     const missing = currentArtifact();
@@ -114,6 +152,7 @@ describe("LLP 0033 per-edge absence evidence", () => {
     missingLive.proof.probeResults[0].routeReceipts = [];
     expect(() => ingestRestrictedAbsenceEvidence(
       Buffer.from(`${JSON.stringify(missing)}\n`),
+      currentHistoricalAuthorities,
     )).toThrow("lacks complete routes");
 
     const reused = currentArtifact();
@@ -123,6 +162,7 @@ describe("LLP 0033 per-edge absence evidence", () => {
       reusedSource.proof.probeResults[0].routeReceipt;
     expect(() => ingestRestrictedAbsenceEvidence(
       Buffer.from(`${JSON.stringify(reused)}\n`),
+      currentHistoricalAuthorities,
     )).toThrow("absence route receipt drift");
   }, 30_000);
 });

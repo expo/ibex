@@ -3,7 +3,7 @@
   "profile": "ibex/exact-embedder-contract/1",
   "fullProfile": "ibex/capsec/1",
   "status": "phase0-candidate-evidence-pending",
-  "definitionRawContentDigest": "sha256-dtU_bFQdIYkn5zhp4992j6ePmpOOvXq1aDZEFKd5SA0",
+  "definitionRawContentDigest": "sha256-ClZIcMzR4WG71KH3EO_xsbgRIc-q3JO9l3doE_4AD64",
   "coverageRawContentDigest": "sha256-HAE42W6gCg2kA5x_CBPckbSLwdDRaGvHuzdrGTSVudg",
   "implementationManifestRawContentDigest": "sha256-_sqfg-MEhdABqxlp0RQKh8fhtpq3nSOK3922Nt5wVP0",
   "schemaRawContentDigests": {
@@ -38,8 +38,8 @@
   ],
   "counts": {
     "total": 7347,
-    "reachable": 131,
-    "structurallyAbsent": 7194,
+    "reachable": 132,
+    "structurallyAbsent": 7193,
     "trustedControlPlane": 22,
     "evidenced": 0
   },
@@ -5995,7 +5995,7 @@
     ["surface.native.op.global.intl.numberformat.prototype.019kzas","reachable","pending"],
     ["surface.native.op.global.intl.numberformat.prototype.formatrange.1vcjs96","structurally-absent","pending"],
     ["surface.native.op.global.intl.numberformat.prototype.formatrangetoparts.1rh3swz","structurally-absent","pending"],
-    ["surface.native.op.global.intl.numberformat.prototype.formattoparts.1ogrg4u","structurally-absent","pending"],
+    ["surface.native.op.global.intl.numberformat.prototype.formattoparts.1ogrg4u","reachable","pending"],
     ["surface.native.op.global.intl.pluralrules.1gah40v","structurally-absent","pending"],
     ["surface.native.op.global.intl.pluralrules.resolvedoptions.03u4xjj","structurally-absent","pending"],
     ["surface.native.op.global.intl.pluralrules.select.0pe2ac3","structurally-absent","pending"],

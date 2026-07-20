@@ -25,6 +25,8 @@ const rootManifestRelativePath =
   "capsec/generated/root-global-disposition-manifest.json";
 const routeGraphRelativePath =
   "capsec/generated/restricted-exact-absence-route-graph.json";
+const revisionByteCache = new Map();
+const validatedRouteGraphInputs = new Set();
 
 const expectedForbiddenRoots = [
   "Atomics",
@@ -63,11 +65,24 @@ function barrierFor(kind) {
 }
 
 function revisionBytes(revision, relativePath) {
+  const cacheKey = `${revision}\0${relativePath}`;
+  const cached = revisionByteCache.get(cacheKey);
+  if (cached !== undefined) return cached;
   try {
-    return execFileSync("git", ["show", `${revision}:${relativePath}`], {
+    const treeEntry = execFileSync(
+      "git",
+      ["ls-tree", revision, "--", relativePath],
+      { cwd: repoRoot, encoding: "utf8", maxBuffer: 1024 * 1024 },
+    );
+    if (!/^100(?:644|755) blob [0-9a-f]{40}\t/u.test(treeEntry)) {
+      throw new Error("not a regular Git blob");
+    }
+    const bytes = execFileSync("git", ["show", `${revision}:${relativePath}`], {
       cwd: repoRoot,
       maxBuffer: 64 * 1024 * 1024,
     });
+    revisionByteCache.set(cacheKey, bytes);
+    return bytes;
   } catch {
     throw new Error(`absence evidence revision omits ${relativePath}`);
   }
@@ -188,7 +203,8 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
   }
   const cutsetRuntimeGeneration =
     barrier.actualCutsetObservations[0].runtimeGeneration;
-  const rootManifestBytes = fs.readFileSync(path.join(repoRoot, rootManifestRelativePath));
+  const rootManifestBytes = reportAuthorities.rawAuthorities.rootManifest
+    ?? fs.readFileSync(path.join(repoRoot, rootManifestRelativePath));
   const historicalRootManifestBytes = revisionBytes(
     artifact.sourceRevision,
     rootManifestRelativePath,
@@ -223,7 +239,10 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
     .filter((row) => row[1] === "structurally-absent")
     .map((row) => row[0]);
   const absentSet = new Set(absentIds);
-  const probePlan = validateRestrictedFixturePlan(reportAuthorities.fixturePlan);
+  const probePlan = validateRestrictedFixturePlan(
+    reportAuthorities.fixturePlan,
+    reportAuthorities.rawAuthorities,
+  );
   const plannedByEdge = new Map(probePlan.edges.map((row) => [row.edgeId, row]));
   if (
     canonicalJson(probePlan.edges.map((row) => row.edgeId))
@@ -233,7 +252,8 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
   }
   const probePlanRawContentDigest = reportAuthorities.fixturePlan
     .absenceProbePlan.rawContentDigest;
-  const routeGraphBytes = fs.readFileSync(path.join(repoRoot, routeGraphRelativePath));
+  const routeGraphBytes = reportAuthorities.rawAuthorities.absenceRouteGraph
+    ?? fs.readFileSync(path.join(repoRoot, routeGraphRelativePath));
   const historicalRouteGraphBytes = revisionBytes(
     artifact.sourceRevision,
     routeGraphRelativePath,
@@ -247,10 +267,23 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
     throw new Error("absence evidence does not bind the historical route graph");
   }
   const routeGraph = parseJsonStrict(routeGraphBytes, routeGraphRelativePath);
-  validateRestrictedExactAbsenceRouteGraph(routeGraph, {
-    probePlan,
-    implementationManifest: reportAuthorities.implementationManifest,
-  });
+  const validatedRouteGraphKey = [
+    artifact.sourceRevision,
+    routeGraphRawContentDigest,
+    artifact.authorityDigests.implementationManifestRawContentDigest,
+  ].join("\0");
+  if (!validatedRouteGraphInputs.has(validatedRouteGraphKey)) {
+    validateRestrictedExactAbsenceRouteGraph(routeGraph, {
+      probePlan,
+      implementationManifest: reportAuthorities.implementationManifest,
+      readSourceFile: (relativePath) => revisionBytes(
+        artifact.sourceRevision,
+        relativePath,
+      ),
+      sourceFilesAreAuthenticatedGitBlobs: true,
+    });
+    validatedRouteGraphInputs.add(validatedRouteGraphKey);
+  }
   const routeBySourceProbe = new Map(
     routeGraph.routes.map((route) => [route.sourceProbeId, route]),
   );

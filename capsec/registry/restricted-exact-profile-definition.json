@@ -441,6 +441,12 @@
       "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Intl.NumberFormat.prototype"
     },
     {
+      "edgeId": "surface.native.op.global.intl.numberformat.prototype.formattoparts.1ogrg4u",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Intl.NumberFormat.prototype.formatToParts",
+      "reason": "the pinned Linux Intl build exposes this deterministic NumberFormat operation after restricted lockdown"
+    },
+    {
       "edgeId": "surface.native.op.global.iterator.06iood9",
       "surfaceKind": "native-op",
       "surfaceName": "global:Iterator",

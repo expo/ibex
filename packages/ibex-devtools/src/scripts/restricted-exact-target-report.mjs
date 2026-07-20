@@ -251,7 +251,7 @@ function assertSortedUnique(values, label) {
   }
 }
 
-export function validateRestrictedFixturePlan(fixturePlan) {
+export function validateRestrictedFixturePlan(fixturePlan, sourceBytes = {}) {
   assertSchema(
     schemaValidator(fixturePlanSchemaPath),
     fixturePlan,
@@ -282,11 +282,19 @@ export function validateRestrictedFixturePlan(fixturePlan) {
   if (!probePlanPath.startsWith(generatedRoot)) {
     throw new Error("restricted absence probe plan path escapes capsec/generated");
   }
-  const stat = fs.lstatSync(probePlanPath);
-  if (!stat.isFile() || stat.isSymbolicLink()) {
-    throw new Error("restricted absence probe plan must be a regular non-symlink file");
+  let rawProbePlan;
+  if (sourceBytes.absenceProbePlan === undefined) {
+    const stat = fs.lstatSync(probePlanPath);
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      throw new Error("restricted absence probe plan must be a regular non-symlink file");
+    }
+    rawProbePlan = fs.readFileSync(probePlanPath);
+  } else {
+    rawProbePlan = sourceBytes.absenceProbePlan;
+    if (!Buffer.isBuffer(rawProbePlan)) {
+      throw new Error("restricted historical absence probe plan must be bytes");
+    }
   }
-  const rawProbePlan = fs.readFileSync(probePlanPath);
   if (taggedDigest(rawProbePlan) !== fixturePlan.absenceProbePlan.rawContentDigest) {
     throw new Error("restricted absence probe plan raw-content digest mismatch");
   }
@@ -315,11 +323,19 @@ export function validateRestrictedFixturePlan(fixturePlan) {
   if (!routeGraphPath.startsWith(generatedRoot)) {
     throw new Error("restricted absence route graph path escapes capsec/generated");
   }
-  const routeGraphStat = fs.lstatSync(routeGraphPath);
-  if (!routeGraphStat.isFile() || routeGraphStat.isSymbolicLink()) {
-    throw new Error("restricted absence route graph must be a regular non-symlink file");
+  let rawRouteGraph;
+  if (sourceBytes.absenceRouteGraph === undefined) {
+    const routeGraphStat = fs.lstatSync(routeGraphPath);
+    if (!routeGraphStat.isFile() || routeGraphStat.isSymbolicLink()) {
+      throw new Error("restricted absence route graph must be a regular non-symlink file");
+    }
+    rawRouteGraph = fs.readFileSync(routeGraphPath);
+  } else {
+    rawRouteGraph = sourceBytes.absenceRouteGraph;
+    if (!Buffer.isBuffer(rawRouteGraph)) {
+      throw new Error("restricted historical absence route graph must be bytes");
+    }
   }
-  const rawRouteGraph = fs.readFileSync(routeGraphPath);
   if (taggedDigest(rawRouteGraph) !== fixturePlan.absenceRouteGraph.rawContentDigest) {
     throw new Error("restricted absence route graph raw-content digest mismatch");
   }

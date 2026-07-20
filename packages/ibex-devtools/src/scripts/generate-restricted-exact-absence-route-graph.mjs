@@ -107,8 +107,14 @@ function observerFor(kind) {
   }[kind];
 }
 
-function sourceSpan(spanId, sourcePath, startToken, endToken) {
-  const bytes = fs.readFileSync(path.join(repoRoot, sourcePath));
+function sourceSpan(
+  spanId,
+  sourcePath,
+  startToken,
+  endToken,
+  readSourceFile = (relativePath) => fs.readFileSync(path.join(repoRoot, relativePath)),
+) {
+  const bytes = readSourceFile(sourcePath);
   const text = bytes.toString("utf8");
   const startByte = text.indexOf(startToken);
   if (startByte < 0 || text.indexOf(startToken, startByte + 1) >= 0) {
@@ -259,7 +265,12 @@ function reachableNodes(topology, root, blocked = new Set()) {
   return reached;
 }
 
-function validateSourceDerivedTopology(topology, probePlan, implementationManifest) {
+function validateSourceDerivedTopology(
+  topology,
+  probePlan,
+  implementationManifest,
+  readSourceFile,
+) {
   const nodeIds = topology.nodes.map((node) => node.nodeId);
   sortedUnique(nodeIds, "absence topology node IDs");
   const nodeSet = new Set(nodeIds);
@@ -313,27 +324,57 @@ function validateSourceDerivedTopology(topology, probePlan, implementationManife
     }
   }
   for (const span of topology.sourceSpans) {
-    const current = sourceSpan(span.spanId, span.path, span.startToken, span.endToken);
+    const current = sourceSpan(
+      span.spanId,
+      span.path,
+      span.startToken,
+      span.endToken,
+      readSourceFile,
+    );
     if (JSON.stringify(current) !== JSON.stringify(span)) {
       throw new Error(`absence topology source span drifted: ${span.spanId}`);
     }
   }
 }
 
-export function validateRestrictedExactAbsenceRouteGraph(graph, { probePlan, implementationManifest }) {
+export function validateRestrictedExactAbsenceRouteGraph(
+  graph,
+  {
+    probePlan,
+    implementationManifest,
+    readSourceFile = (relativePath) => fs.readFileSync(path.join(repoRoot, relativePath)),
+    sourceFilesAreAuthenticatedGitBlobs = false,
+  },
+) {
   for (const sourceFile of graph.sourceFiles) {
     const absolute = path.resolve(repoRoot, sourceFile.path);
     const relative = path.relative(repoRoot, absolute);
     if (relative.startsWith("..") || path.isAbsolute(relative)) {
       throw new Error(`route graph source file escapes repository: ${sourceFile.path}`);
     }
-    const stat = fs.lstatSync(absolute);
-    if (!stat.isFile() || stat.isSymbolicLink()
-      || digest(fs.readFileSync(absolute)) !== sourceFile.rawContentDigest) {
+    if (!sourceFilesAreAuthenticatedGitBlobs) {
+      const stat = fs.lstatSync(absolute);
+      if (!stat.isFile() || stat.isSymbolicLink()) {
+        throw new Error(`route graph source file is not a regular file: ${sourceFile.path}`);
+      }
+    }
+    let sourceBytes;
+    try {
+      sourceBytes = readSourceFile(sourceFile.path);
+    } catch {
+      throw new Error(`route graph source file is unavailable: ${sourceFile.path}`);
+    }
+    if (!Buffer.isBuffer(sourceBytes)
+      || digest(sourceBytes) !== sourceFile.rawContentDigest) {
       throw new Error(`route graph source file drifted: ${sourceFile.path}`);
     }
   }
-  validateSourceDerivedTopology(graph.topology, probePlan, implementationManifest);
+  validateSourceDerivedTopology(
+    graph.topology,
+    probePlan,
+    implementationManifest,
+    readSourceFile,
+  );
   const routesBySourceProbe = new Map();
   const liveProbeCounts = new Map();
   const implementationByBranch = new Map(implementationManifest.surfaces.map((row) => [row.branchId, row]));

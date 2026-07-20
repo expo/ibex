@@ -36,6 +36,11 @@ jobs:
     steps:
       - name: Check out Ibex
         uses: actions/checkout@v4
+        with:
+          # Evidence validation authenticates the source trees named by
+          # committed prior reports. A shallow checkout cannot prove those
+          # historical Git identities and must fail closed.
+          fetch-depth: 0
 
       - name: Install Rust toolchain
         run: |
@@ -145,6 +150,10 @@ jobs:
     steps:
       - name: Check out Ibex
         uses: actions/checkout@v4
+        with:
+          # Generated-drift checks re-authenticate committed evidence against
+          # its exact source revision, so retain the complete object history.
+          fetch-depth: 0
 
       - name: Install Rust toolchain
         run: |
@@ -257,6 +266,10 @@ jobs:
     steps:
       - name: Check out Ibex
         uses: actions/checkout@v4
+        with:
+          # Generated-drift checks re-authenticate committed evidence against
+          # its exact source revision, so retain the complete object history.
+          fetch-depth: 0
 
       - name: Configure MSVC developer environment
         uses: ilammy/msvc-dev-cmd@v1

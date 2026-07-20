@@ -97,7 +97,7 @@ describe("LLP 0033 restricted Exact target report", () => {
     expect(report.summary.total).toBe(7347);
     expect(report.summary.conformant).toBe(0);
     expect(report.summary.incomplete).toBe(7347);
-    expect(report.summary.missingObservations).toBe(14541);
+    expect(report.summary.missingObservations).toBe(14540);
     expect(report.rows.every((row) => row.executionIds.length === 0)).toBe(true);
   }, 15_000);
 
@@ -138,7 +138,7 @@ describe("LLP 0033 restricted Exact target report", () => {
     expect(report.summary.conformant).toBe(1);
     expect(report.summary.incomplete).toBe(7346);
     expect(report.summary.passedObservations).toBe(1);
-    expect(report.summary.missingObservations).toBe(14540);
+    expect(report.summary.missingObservations).toBe(14539);
   }, 15_000);
 
   test("requires both source-install and live-reachability for absence", () => {

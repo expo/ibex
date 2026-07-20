@@ -1,14 +1,14 @@
 {
   "probePlanSchema": "ibex/restricted-profile-absence-probe-plan/1",
   "profile": "ibex/exact-embedder-contract/1",
-  "projectionRawContentDigest": "sha256-mHn15f_8W945Jz_Wj7zRbhduqQDSvOfNmmsd9WAnNvg",
+  "projectionRawContentDigest": "sha256-5VojUThBnALhLC_lPYtwPF7ch3-u8dJcMGFWxRzgDRA",
   "coverageRawContentDigest": "sha256-HAE42W6gCg2kA5x_CBPckbSLwdDRaGvHuzdrGTSVudg",
   "implementationManifestRawContentDigest": "sha256-_sqfg-MEhdABqxlp0RQKh8fhtpq3nSOK3922Nt5wVP0",
   "rootGlobalManifestRawContentDigest": "sha256-qrz6Up3VxwZP6uhK3oiJxmze4Rj0Few2NkL09L73Y28",
   "counts": {
-    "edges": 7194,
-    "sourceInstallProbes": 7408,
-    "liveReachabilityProbes": 9796
+    "edges": 7193,
+    "sourceInstallProbes": 7407,
+    "liveReachabilityProbes": 9794
   },
   "edges": [
     {
@@ -186361,42 +186361,6 @@
           "probeId": "live.surface.native.op.global.intl.numberformat.prototype.formatrangetoparts.1rh3swz.route.0",
           "routeKind": "restricted-native-installer-route",
           "target": "native-op:global:Intl.NumberFormat.prototype.formatRangeToParts",
-          "expected": "unreachable"
-        }
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.global.intl.numberformat.prototype.formattoparts.1ogrg4u",
-      "surfaceKind": "native-op",
-      "surfaceName": "global:Intl.NumberFormat.prototype.formatToParts",
-      "observedIdentity": "native-op:global:Intl.NumberFormat.prototype.formatToParts",
-      "sourceInstall": [
-        {
-          "probeId": "source.surface.native.op.global.intl.numberformat.prototype.formattoparts.1ogrg4u.0",
-          "branchId": "surface.native.op.global.intl.numberformat.prototype.formattoparts.1ogrg4u.all",
-          "enforcementBranchId": "enforcement.lintlpolyfills.globals.intl.numberformat.prototype.formattoparts.07uw1o1",
-          "enforcementRouteKind": "exact-source-and-semantics",
-          "sourceRefs": [
-            "packages/ibex-runtime-js/src/polyfills/intl.ts#installIntlPolyfills:globals:Intl.NumberFormat.prototype.formatToParts"
-          ],
-          "proofPaths": [
-            "native-op:global:Intl.NumberFormat.prototype.formatToParts"
-          ],
-          "expected": "not-selected-or-retained"
-        }
-      ],
-      "liveReachability": [
-        {
-          "probeId": "live.surface.native.op.global.intl.numberformat.prototype.formattoparts.1ogrg4u.descriptor.0",
-          "routeKind": "descriptor-prefix",
-          "target": "Intl.NumberFormat.prototype.formatToParts",
-          "unresolvedSegment": null,
-          "expected": "unreachable"
-        },
-        {
-          "probeId": "live.surface.native.op.global.intl.numberformat.prototype.formattoparts.1ogrg4u.route.0",
-          "routeKind": "restricted-native-installer-route",
-          "target": "native-op:global:Intl.NumberFormat.prototype.formatToParts",
           "expected": "unreachable"
         }
       ]
