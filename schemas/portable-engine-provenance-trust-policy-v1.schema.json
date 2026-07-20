@@ -156,6 +156,7 @@
         "buildType",
         "certificateIssuer",
         "enabled",
+        "offlineVerifier",
         "repository",
         "repositoryId",
         "repositoryOwnerId",
@@ -172,6 +173,14 @@
         "buildType": { "const": "https://actions.github.io/buildtypes/workflow/v1" },
         "certificateIssuer": { "const": "https://token.actions.githubusercontent.com" },
         "enabled": { "const": true },
+        "offlineVerifier": {
+          "const": {
+            "binaryDigest": "sha256-f69505f54caad78b6012519ac866eea23c19ade9d274bd61044c791a1e30f594",
+            "binarySize": 25130562,
+            "goVersion": "go1.26.5",
+            "targetTriple": "aarch64-apple-darwin"
+          }
+        },
         "repository": { "const": "ccheever/ibex" },
         "repositoryId": { "const": "1268046138" },
         "repositoryOwnerId": { "const": "56719" },

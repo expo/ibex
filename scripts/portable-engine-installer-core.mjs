@@ -958,10 +958,72 @@ function validateCanonicalVerificationResult(resultBytes, { expectationsBytes, e
   return result;
 }
 
-async function unavailableRealVerifier() {
-  fail(
-    "portable engine installation remains fail-closed: production offline-verifier invocation is deliberately not wired into this foundation; dependency injection is test-only until the reviewed verifier and checked publisher-expectation policy are integrated",
-  );
+async function productionOfflineVerifier({ archivePath, bundlePath, expectations, expectationsBytes, context }, { repoRoot, storeRoot, runtime }) {
+  const targetRoot = path.join(repoRoot, "target");
+  const toolsRoot = path.join(targetRoot, "tools");
+  const sourceVerifier = path.join(toolsRoot, "portable-engine-attestation-verifier");
+  for (const [nodePath, label, kind] of [
+    [targetRoot, "verifier target directory", "directory"],
+    [toolsRoot, "verifier tools directory", "directory"],
+    [sourceVerifier, "offline verifier executable", "regular"],
+  ]) {
+    let status;
+    try {
+      status = await fsp.lstat(nodePath, { bigint: true });
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        fail(`${label} is absent at ${nodePath}; run scripts/build-portable-engine-attestation-verifier.sh first`);
+      }
+      throw error;
+    }
+    assert(!status.isSymbolicLink() && (kind === "directory" ? status.isDirectory() : status.isFile()), `${label} is redirected or has the wrong type`);
+    await assertOwnedTrustedNode(nodePath, status, runtime, label);
+  }
+
+  const workspace = await fsp.mkdtemp(path.join(storeRoot, ".verify-"));
+  await fsp.chmod(workspace, 0o700);
+  await assertOwnedTrustedNode(workspace, await fsp.lstat(workspace, { bigint: true }), runtime, "offline verifier workspace", { exactMode: 0o700 });
+  const pinnedVerifier = path.join(workspace, "verifier");
+  const expectationsPath = path.join(workspace, "expectations.json");
+  try {
+    const verifierAuthority = context.policy.enginePublisher.offlineVerifier;
+    assert(verifierAuthority.targetTriple === TARGET_TRIPLE, "offline verifier authority is for another target");
+    const pinned = await copyPinnedRegular(sourceVerifier, pinnedVerifier, "offline verifier executable", 256 * 1024 * 1024);
+    assert(pinned.digest === verifierAuthority.binaryDigest && pinned.size === verifierAuthority.binarySize, "offline verifier executable differs from checked policy bytes");
+    await fsp.chmod(pinnedVerifier, 0o500);
+    await assertOwnedTrustedNode(pinnedVerifier, await fsp.lstat(pinnedVerifier, { bigint: true }), runtime, "pinned offline verifier executable", { exactMode: 0o500 });
+    const verifierBefore = await digestRegularFile(pinnedVerifier, "pinned offline verifier executable", 256 * 1024 * 1024);
+
+    const writtenExpectations = await writeCanonicalExclusive(expectationsPath, expectations, 0o400);
+    assert(Buffer.from(expectationsBytes).equals(writtenExpectations), "fixed verifier expectations bytes changed before invocation");
+    await assertOwnedTrustedNode(expectationsPath, await fsp.lstat(expectationsPath, { bigint: true }), runtime, "offline verifier expectations", { exactMode: 0o400 });
+    const expectationsBefore = await digestRegularFile(expectationsPath, "offline verifier expectations", 64 * 1024);
+
+    const result = spawnSync(pinnedVerifier, [
+      "--bundle", bundlePath,
+      "--artifact", archivePath,
+      "--expectations", expectationsPath,
+    ], {
+      cwd: workspace,
+      encoding: null,
+      env: { LC_ALL: "C", LANG: "C", PATH: "/usr/bin:/bin", TZ: "UTC" },
+      maxBuffer: 1024 * 1024,
+      timeout: 120_000,
+      windowsHide: true,
+    });
+    assert(result.error === undefined, `offline verifier could not execute: ${result.error?.message ?? "unknown error"}`);
+    const stderr = Buffer.from(result.stderr ?? Buffer.alloc(0));
+    assert(result.status === 0 && result.signal === null, `offline verifier rejected the transport (status ${result.status ?? "none"}, signal ${result.signal ?? "none"}): ${stderr.toString("utf8").trim()}`);
+    assert(stderr.length === 0, "offline verifier wrote diagnostics on a successful verification");
+
+    const verifierAfter = await digestRegularFile(pinnedVerifier, "pinned offline verifier executable after invocation", 256 * 1024 * 1024);
+    assert(verifierAfter.digest === verifierBefore.digest && fileObjectEqual(verifierAfter.stat, verifierBefore.stat), "pinned offline verifier changed during invocation");
+    const expectationsAfter = await digestRegularFile(expectationsPath, "offline verifier expectations after invocation", 64 * 1024);
+    assert(expectationsAfter.digest === expectationsBefore.digest && fileObjectEqual(expectationsAfter.stat, expectationsBefore.stat), "offline verifier expectations changed during invocation");
+    return Buffer.from(result.stdout ?? Buffer.alloc(0));
+  } finally {
+    await fsp.rm(workspace, { recursive: true, force: true });
+  }
 }
 
 function parseCommitTree(commitBytes) {
@@ -1511,7 +1573,7 @@ async function verifyPortableEngineStoreCore(options, runtime, checkedContext = 
   }
   const selectedArchiveDigest = options.archiveDigest ?? transportNames[0];
   assert(transportNames.includes(selectedArchiveDigest), "selected transport record is absent");
-  const verifyAttestation = dependencies.verifyAttestation ?? unavailableRealVerifier;
+  const verifyAttestation = dependencies.verifyAttestation ?? ((input) => productionOfflineVerifier(input, { repoRoot, storeRoot, runtime }));
   const transport = await validateTransportRecord({ artifactRoot, archiveDigest: selectedArchiveDigest, manifest, context, sourceRevision, verifyAttestation, runtime });
   await verifyRetainedArchiveMaterialization({ repoRoot, storeRoot, artifactRoot, manifest, manifestBytes, installedGraph, context, sourceRevision, transport, runtime });
   return { artifactRoot, manifest, context, transport };
@@ -1815,7 +1877,7 @@ async function installPortableEngineCore(options, runtime) {
     const bundle = await copyPinnedRegular(options.bundlePath, pinnedBundle, "portable engine provenance bundle", context.policy.provenanceBundleBytes.maxBundleBytes);
     const expectations = buildFixedVerifierExpectations(context.policy, sourceRevision, path.basename(options.archivePath));
     const expectationsBytes = Buffer.from(canonicalJson(expectations), "utf8");
-    const verifyAttestation = dependencies.verifyAttestation ?? unavailableRealVerifier;
+    const verifyAttestation = dependencies.verifyAttestation ?? ((input) => productionOfflineVerifier(input, { repoRoot, storeRoot, runtime }));
     const verificationBytes = Buffer.from(await verifyAttestation({
       archivePath: pinnedArchive,
       bundlePath: pinnedBundle,

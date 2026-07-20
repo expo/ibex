@@ -136,6 +136,12 @@
     "buildType": "https://actions.github.io/buildtypes/workflow/v1",
     "certificateIssuer": "https://token.actions.githubusercontent.com",
     "enabled": true,
+    "offlineVerifier": {
+      "binaryDigest": "sha256-f69505f54caad78b6012519ac866eea23c19ade9d274bd61044c791a1e30f594",
+      "binarySize": 25130562,
+      "goVersion": "go1.26.5",
+      "targetTriple": "aarch64-apple-darwin"
+    },
     "repository": "ccheever/ibex",
     "repositoryId": "1268046138",
     "repositoryOwnerId": "56719",

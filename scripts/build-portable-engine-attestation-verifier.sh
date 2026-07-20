@@ -15,6 +15,13 @@ MODULE_DIR="$PROJECT_ROOT/tools/portable-engine-attestation-verifier"
 OUTPUT_PATH="${1:-$PROJECT_ROOT/target/tools/portable-engine-attestation-verifier}"
 GO_BINARY="${IBEX_ATTESTATION_GO:-go}"
 REQUIRED_GO_VERSION="go1.26.5"
+EXPECTED_BINARY_SHA256="f69505f54caad78b6012519ac866eea23c19ade9d274bd61044c791a1e30f594"
+EXPECTED_BINARY_SIZE="25130562"
+
+case "$OUTPUT_PATH" in
+    /*) ;;
+    *) OUTPUT_PATH="$PROJECT_ROOT/$OUTPUT_PATH" ;;
+esac
 
 if ! command -v "$GO_BINARY" >/dev/null 2>&1; then
     echo "portable verifier build: Go 1.26.5 was not found; set IBEX_ATTESTATION_GO" >&2
@@ -51,6 +58,18 @@ export TZ=UTC
         -o "$TEMP_OUTPUT" \
         .
 )
+
+case "$GO_VERSION" in
+    *" darwin/arm64")
+        ACTUAL_BINARY_SHA256="$(shasum -a 256 "$TEMP_OUTPUT" | awk '{print $1}')"
+        ACTUAL_BINARY_SIZE="$(wc -c < "$TEMP_OUTPUT" | tr -d ' ')"
+        if [[ "$ACTUAL_BINARY_SHA256" != "$EXPECTED_BINARY_SHA256" || "$ACTUAL_BINARY_SIZE" != "$EXPECTED_BINARY_SIZE" ]]; then
+            echo "portable verifier build: output does not match the checked Darwin arm64 verifier authority" >&2
+            echo "portable verifier build: got sha256-$ACTUAL_BINARY_SHA256 size $ACTUAL_BINARY_SIZE" >&2
+            exit 1
+        fi
+        ;;
+esac
 
 mv "$TEMP_OUTPUT" "$OUTPUT_PATH"
 trap - EXIT

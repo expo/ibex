@@ -5,11 +5,11 @@
 **Systems:** Security, Engine, Build, Distribution, CI, Runtime, Host ABI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (the diagnostic checkout-local installer now
-reconstructively verifies retained transports, isolates injectable tests from
-production stores, enforces owned ACL-free control nodes, and uses serialized
-durable quarantine/restart publication; production verifier integration,
-acceptance, runtime consumption, and advertisements remain off)
+**Revised:** 2026-07-20 (the checkout-local installer now has a policy-bound
+offline verifier expectation profile and exact Darwin arm64 verifier-binary
+identity in addition to reconstructive retained-transport verification;
+acceptance, runtime consumption, and advertisements remain off pending a real
+private Ibex corpus and the remaining build/runtime evidence gates)
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021; LLP 0032
 
 ## Summary
@@ -186,9 +186,13 @@ from this RFC's content addressing.
 
 The initial promotion trust roots are:
 
-- the checked-in expected repository, publisher workflow path, and protected
-  `refs/heads/main` source-ref policy;
+- the checked-in expected repository and numeric repository/owner IDs,
+  publisher workflow name/path, protected `refs/heads/main` source ref,
+  private visibility, GitHub-hosted runner class, allowed triggers, current
+  GitHub workflow build type, and OIDC issuer;
 - GitHub's OIDC-backed artifact-attestation verification root;
+- the exact checked-in private signed-timestamp trust-root digest/size and the
+  exact Go 1.26.5 Darwin arm64 offline-verifier output digest/size;
 - GitHub-hosted runner isolation for the reviewed publisher, authoritative
   shards, and aggregate; and
 - the reviewed Ibex source revision and suite plan.
@@ -198,6 +202,14 @@ workflow, ref, source revision, subject digest, or runner class. Mirrors may
 carry bytes but cannot change those expected identities. Self-hosted builders
 or conformance runners are diagnostic until a separate accepted trust policy
 admits them.
+
+Verifier expectations v2 contain only stable admission authority plus the
+externally selected source revision and exact subject basename. The selected
+allowed trigger, run ID, and run attempt are derived from the signed
+certificate, required to be canonical, and then joined exactly to the signed
+SLSA statement. An artifact channel therefore cannot choose repository,
+workflow, source, visibility, runner, root, or build-type authority, while the
+caller does not need to know signed run observations before verification.
 
 The runner operating system is trusted to report mapped file objects and to
 enforce file-handle sharing/locking semantics. Repository build and fixture
@@ -994,10 +1006,11 @@ and symlink-depth limits are applied before retaining input bytes and again
 while inspecting the archive. The workflow pins every invoked action by commit,
 requires the checked producer `HEAD` to equal `GITHUB_SHA`, separately attests
 this final archive, and retains the exact Sigstore bundle beside it. No
-production verifier-integrated installer, selector, `build.rs` consumer,
-post-link audit, runtime identity migration, or advertisement change is
-implemented by this checkpoint, and `portableArtifactAcceptanceEnabled`
-remains false.
+selector, `build.rs` consumer, post-link audit, runtime identity migration, or
+advertisement change is implemented by this checkpoint, and
+`portableArtifactAcceptanceEnabled` remains false. The production installer
+does invoke the pinned offline verifier, but no real private Ibex corpus has
+yet authorized a package and a missing or byte-different verifier fails closed.
 
 The checkout-local installer foundation now pins the archive and detached
 bundle into a private same-filesystem workspace, requires a canonical offline-
@@ -1023,12 +1036,15 @@ the separately named harness injects a verifier into a test-only store contract
 so it can exercise valid and adversarial transports without fabricating an
 Ibex signature or writing production local records. Effective-UID ownership,
 non-shared checkout/target modes, a mode-0700 store root, and rejection of
-macOS extended ACLs make the filesystem premise explicit. Production
-offline-verifier invocation is deliberately fail-closed in this foundation
-until the reviewed verifier expectation profile and real private Ibex corpus
-are integrated. The store still has no `build.rs`, post-link, runtime, REPL, or
-conformance consumer, and this diagnostic materialization does not enable
-portable acceptance.
+macOS extended ACLs make the filesystem premise explicit. Production copies
+the exact policy-digested verifier into a private workspace, writes canonical
+stable v2 expectations, invokes it without a shell or network-dependent
+inputs, bounds its output/time, and rehashes the verifier and expectations
+around execution. A missing, redirected, writable-by-another-principal, or
+byte-different verifier fails closed. A real private Ibex archive/bundle corpus
+is still required before this path can furnish promotion evidence. The store
+still has no `build.rs`, post-link, runtime, REPL, or conformance consumer, and
+this materialization does not enable portable acceptance.
 
 Exit: a clean checkout can install and run the reviewed Release engine without
 another worktree, and archive/manifest/path/profile tampering fails before

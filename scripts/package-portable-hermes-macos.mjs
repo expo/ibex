@@ -294,6 +294,7 @@ function validateTrustPolicy(policy, sourceRef) {
       "buildType",
       "certificateIssuer",
       "enabled",
+      "offlineVerifier",
       "repository",
       "repositoryId",
       "repositoryOwnerId",
@@ -309,6 +310,12 @@ function validateTrustPolicy(policy, sourceRef) {
   );
   assert(
     policy.enginePublisher.enabled === true &&
+      canonicalJson(policy.enginePublisher.offlineVerifier) === canonicalJson({
+        binaryDigest: "sha256-f69505f54caad78b6012519ac866eea23c19ade9d274bd61044c791a1e30f594",
+        binarySize: 25130562,
+        goVersion: "go1.26.5",
+        targetTriple: "aarch64-apple-darwin",
+      }) &&
       policy.enginePublisher.repository === "ccheever/ibex" &&
       policy.enginePublisher.repositoryId === "1268046138" &&
       policy.enginePublisher.repositoryOwnerId === "56719" &&

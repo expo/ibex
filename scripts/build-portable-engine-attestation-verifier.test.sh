@@ -14,7 +14,7 @@ cat >"$FAKE_GO" <<'FAKE_GO_EOF'
 set -euo pipefail
 
 if [[ "${1:-}" == "version" ]]; then
-    echo "go version go1.26.5 darwin/arm64"
+    echo "go version go1.26.5 linux/amd64"
     exit 0
 fi
 
