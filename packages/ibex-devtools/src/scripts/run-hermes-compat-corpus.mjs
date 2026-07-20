@@ -48,7 +48,7 @@ export function canRunHermes(candidate) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'ibex-forof-hermes-probe-'));
   const file = path.join(dir, 'fixture.js');
   writeFileSync(file, 'print("ok");\n');
-  const result = spawnSync(candidate, [file], { encoding: 'utf8', timeout: 30000 });
+  const result = spawnSync(candidate, hermesArgs(file), { encoding: 'utf8', timeout: 30000 });
   return result.status === 0 && result.stdout.trim() === 'ok';
 }
 
@@ -66,11 +66,19 @@ export function runV8(code) {
   return lines.join('\n');
 }
 
+export function legacyHermesBlockScoping(env = process.env) {
+  return /^(?:1|true|yes|on)$/i.test(env.IBEX_LEGACY_HERMES_BLOCK_SCOPING ?? '');
+}
+
+function hermesArgs(file, env = process.env) {
+  return legacyHermesBlockScoping(env) ? [file] : ['-Xes6-block-scoping', file];
+}
+
 function runHermes(hermesBin, code) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'ibex-forof-hermes-'));
   const file = path.join(dir, 'fixture.js');
   writeFileSync(file, code);
-  const result = spawnSync(hermesBin, [file], { encoding: 'utf8', timeout: 30000 });
+  const result = spawnSync(hermesBin, hermesArgs(file), { encoding: 'utf8', timeout: 30000 });
   if (result.status !== 0) {
     throw new Error(
       `hermes failed: signal=${result.signal ?? 'none'} error=${result.error?.message ?? 'none'} stderr=${result.stderr}`,
@@ -100,6 +108,7 @@ export function hermesConformanceRequired(env = process.env) {
 
 export function runCorpus({ hermesBin = resolveHermesBin() } = {}) {
   const hermesUsable = canRunHermes(hermesBin);
+  const legacyBlockScoping = legacyHermesBlockScoping();
   const results = [];
 
   for (const fixture of forOfScopingCorpus) {
@@ -141,10 +150,10 @@ export function runCorpus({ hermesBin = resolveHermesBin() } = {}) {
     if (hermesUsable && oracle !== undefined) {
       hermesChecked = true;
       // Most fixtures assert the transform output yields spec semantics on the
-      // shipping Hermes config. The documented hole (hermesMatchesOracle=false)
-      // is a hazard-bailed loop whose raw output keeps capture-last on Hermes;
-      // for it we assert the divergence via rawHermesCaptureLast instead.
-      if (fixture.hermesMatchesOracle !== false) {
+      // configured Hermes mode. In explicit legacy mode, the documented hole
+      // (hermesMatchesOracle=false) is a hazard-bailed loop whose raw output
+      // keeps capture-last; assert that via rawHermesCaptureLast instead.
+      if (!legacyBlockScoping || fixture.hermesMatchesOracle !== false) {
         try {
           const transformedOnHermes = runHermes(hermesBin, transformed);
           if (transformedOnHermes !== oracle) {
@@ -157,9 +166,11 @@ export function runCorpus({ hermesBin = resolveHermesBin() } = {}) {
       if (fixture.rawHermesCaptureLast !== undefined) {
         try {
           const rawOnHermes = runHermes(hermesBin, fixture.source);
-          if (rawOnHermes !== fixture.rawHermesCaptureLast) {
+          const expectedRaw = legacyBlockScoping ? fixture.rawHermesCaptureLast : oracle;
+          if (rawOnHermes !== expectedRaw) {
             failures.push(
-              `raw on Hermes != documented capture-last: hermes=${rawOnHermes} expected=${fixture.rawHermesCaptureLast}`,
+              `raw on Hermes != ${legacyBlockScoping ? 'documented legacy capture-last' : 'block-scoping oracle'}: ` +
+                `hermes=${rawOnHermes} expected=${expectedRaw}`,
             );
           }
         } catch (error) {

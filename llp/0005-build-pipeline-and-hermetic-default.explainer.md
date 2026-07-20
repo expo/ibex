@@ -5,7 +5,7 @@
 **Systems:** Build, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-17 (ENG-24933 adds patched Windows source/release bundles and a downloadable macOS no-debugger Release profile, each bound to exact build authority and binary identity); 2026-07-15 (ENG-25064 publishes directory-atomic prepared module graphs inside the existing deployment cache and admits them before execution); 2026-07-15 (ENG-25064 prepared module carriers bind HBC to loaded-engine identity and preserve the pre-execution-only fallback boundary); 2026-07-15 (Hermes source-cache/asset identity binds every source receipt authority and the Darwin/Linux builders share one kernel-backed build lock); 2026-07-14 (ENG-24851: `hermesc -output-source-map` is a boolean and the compiler-derived `<-out>.map` is published to the caller's requested path); 2026-07-12 (ENG-24264: Windows Hermes DLL publication is content-digest checked, atomic per file, and bundle-serialized across build processes, with real Windows locked-file coverage); 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495); 2026-07-11 (generated capsec registry bindings and drift gate — ENG-24145)
+**Revised:** 2026-07-19 (LLP 0034: all owned `hermesc` paths and executable-code cache identities share the resolved ES6 block-scoping mode); 2026-07-17 (ENG-24933 adds patched Windows source/release bundles and a downloadable macOS no-debugger Release profile, each bound to exact build authority and binary identity); 2026-07-15 (ENG-25064 publishes directory-atomic prepared module graphs inside the existing deployment cache and admits them before execution); 2026-07-15 (ENG-25064 prepared module carriers bind HBC to loaded-engine identity and preserve the pre-execution-only fallback boundary); 2026-07-15 (Hermes source-cache/asset identity binds every source receipt authority and the Darwin/Linux builders share one kernel-backed build lock); 2026-07-14 (ENG-24851: `hermesc -output-source-map` is a boolean and the compiler-derived `<-out>.map` is published to the caller's requested path); 2026-07-12 (ENG-24264: Windows Hermes DLL publication is content-digest checked, atomic per file, and bundle-serialized across build processes, with real Windows locked-file coverage); 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495); 2026-07-11 (generated capsec registry bindings and drift gate — ENG-24145)
 **Related:** LLP 0000; LLP 0001 (platforms); LLP 0003 (engine bridge); LLP 0004 (module loading)
 
 ## Summary
@@ -103,6 +103,15 @@ instead of using the bootstrap panic path `[observed]` (`build.rs:1676-1735`).
 The engine prefers bytecode and falls back to source at startup
 ([LLP 0003](./0003-hermes-engine-bridge.explainer.md),
 `src/engine/hermes_bootstrap.cc:44-69`).
+
+Every Ibex-owned `hermesc` invocation passes `-Xes6-block-scoping` by default,
+matching the main and worklet `RuntimeConfig` used for source compilation.
+`IBEX_LEGACY_HERMES_BLOCK_SCOPING=1` omits the flag and selects the old runtime
+setting as a temporary rollback. Because this setting changes executable
+semantics without changing the HBC format version, runtime-entry toolchain and
+bundle cache identities include a stable enabled/legacy mode token; artifacts
+from opposite modes are never interchangeable ([LLP 0034](./0034-hermes-es6-block-scoping.decision.md);
+`build.rs`; `src/bin/ibex/engine/hermes.rs`; `src/bin/ibex/runtime.rs`).
 
 At run time the CLI keeps a parallel cache for **entry** bytecode: a bundled
 (or standalone) entry is compiled to a sibling `.hbc` when `hermesc` is

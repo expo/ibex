@@ -501,6 +501,7 @@ fn windows_import_library_for_link(
 }
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=IBEX_LEGACY_HERMES_BLOCK_SCOPING");
     let manifest_dir = env_path("CARGO_MANIFEST_DIR");
     // Resolve the root that holds Hermes build inputs (linux/, tools/hermes/,
     // scripts/). Two supported layouts:
@@ -1246,7 +1247,7 @@ fn main() {
                 break;
             }
 
-            let status = std::process::Command::new(&hermesc)
+            let status = hermesc_command(&hermesc)
                 .arg("-emit-binary")
                 .arg("-O")
                 .arg("-out")
@@ -1633,6 +1634,19 @@ fn main() {
     }
     if file_contains_all(&runtime_config_header, &["MicrotaskQueue"]) {
         build.define("EXACT_HAVE_HERMES_MICROTASK_CONFIG", None);
+    }
+    if file_contains_all(&runtime_config_header, &["ES6BlockScoping"]) {
+        build.define("EXACT_HAVE_HERMES_ES6_BLOCK_SCOPING_CONFIG", None);
+    } else if file_contains_all(&runtime_config_header, &["EnableBlockScoping"]) {
+        // Hermes 0.11 used the older builder spelling. Keep the semantic mode
+        // explicit on that SDK rather than silently falling back to its false
+        // default. @ref LLP 0034#decision
+        build.define("EXACT_HAVE_HERMES_ENABLE_BLOCK_SCOPING_CONFIG", None);
+    } else if hermes_es6_block_scoping_enabled() {
+        panic!(
+            "Hermes RuntimeConfig at {} has no block-scoping setting. Set IBEX_LEGACY_HERMES_BLOCK_SCOPING=1 for the temporary legacy profile or install a supported Hermes SDK.",
+            runtime_config_header.display()
+        );
     }
     if file_contains_all(&hermes_header, &["static bool hermesBytecodeSanityCheck"]) {
         build.define("EXACT_HAVE_HERMES_RUNTIME_BYTECODE_SANITY_CHECK", None);
@@ -2692,7 +2706,7 @@ fn generate_runtime_bundle_bytecode_header(
         return;
     }
 
-    let status = std::process::Command::new(&hermesc)
+    let status = hermesc_command(&hermesc)
         .arg("-emit-binary")
         .arg("-O")
         .arg("-out")
@@ -3043,6 +3057,18 @@ fn parse_env_flag(name: &str) -> Option<bool> {
             "1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON"
         )
     })
+}
+
+fn hermes_es6_block_scoping_enabled() -> bool {
+    !parse_env_flag("IBEX_LEGACY_HERMES_BLOCK_SCOPING").unwrap_or(false)
+}
+
+fn hermesc_command(hermesc: &Path) -> std::process::Command {
+    let mut command = std::process::Command::new(hermesc);
+    if hermes_es6_block_scoping_enabled() {
+        command.arg("-Xes6-block-scoping");
+    }
+    command
 }
 
 fn resolve_macos_hermes_framework(lib_root: &Path) -> Option<AppleFramework> {

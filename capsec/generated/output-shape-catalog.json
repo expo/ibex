@@ -81213,6 +81213,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.startup.env.ibex.legacy.hermes.block.scoping.0sb3swi",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/bin/ibex/main.rs#env_flag_enabled:IBEX_LEGACY_HERMES_BLOCK_SCOPING:read"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.startup.env.ibex.legacy.module.loader.0jlar90",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
@@ -82954,9 +82963,9 @@
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
   "catalogKeyDigest": "sha256-pfKwYtRvBNs7G4wx_GOS9cQvQ0rYDmcxdWne7tiG4nM",
   "counts": {
-    "coverageSurfaces": 7283,
+    "coverageSurfaces": 7284,
     "outputBearingSurfaces": 5729,
-    "structuralOnlySurfaces": 1550,
+    "structuralOnlySurfaces": 1551,
     "unresolvedSurfaces": 4,
     "catalogRows": 6397,
     "parameterizedBindings": 1,

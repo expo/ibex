@@ -8879,6 +8879,12 @@ fn bundle_cache_key(entry: &Path, bundle_format: BundleFormat) -> Result<String>
     let mut hasher = Sha256::new();
     digest_field(&mut hasher, "cache-version", b"bundle-cache-v8-sha256");
     digest_field(&mut hasher, "format", bundle_format.as_str().as_bytes());
+    let block_scoping_mode: &[u8] = if crate::hermes_es6_block_scoping_enabled() {
+        b"enabled"
+    } else {
+        b"legacy"
+    };
+    digest_field(&mut hasher, "hermes-es6-block-scoping", block_scoping_mode);
     // @ref LLP 0013#mechanism-2 — a compartmentalized bundle references the
     // `__compartments` registry, which only exists under lockdown/compartments.
     // It MUST NOT be reused for a non-compartment run (the reference would throw
