@@ -37,7 +37,7 @@ const (
 	maximumSignatureBytes    = 16 * 1024
 	bundleMediaType          = "application/vnd.dev.sigstore.bundle.v0.3+json"
 	trustedRootMediaType     = "application/vnd.dev.sigstore.trustedroot+json;version=0.1"
-	expectationsSchema       = "ibex/github-private-artifact-attestation-expectations/1"
+	expectationsSchema       = "ibex/github-private-artifact-attestation-expectations/2"
 	verificationSchema       = "ibex/github-private-artifact-attestation-verification/1"
 	statementType            = "https://in-toto.io/Statement/v1"
 	predicateType            = "https://slsa.dev/provenance/v1"
@@ -68,14 +68,11 @@ type expectations struct {
 	RepositoryID         string
 	RepositoryOwnerID    string
 	WorkflowPath         string
-	WorkflowName         string
 	SourceRef            string
 	SourceRevision       string
-	Trigger              string
+	AllowedTriggers      []string
 	RunnerEnvironment    string
 	RepositoryVisibility string
-	RunID                string
-	RunAttempt           string
 	CertificateSAN       string
 	CertificateIssuer    string
 	BuildType            string
@@ -86,8 +83,15 @@ type derivedClaims struct {
 	repositoryURL string
 	ownerURL      string
 	workflowURI   string
-	invocationURI string
 	dependencyURI string
+}
+
+type observedClaims struct {
+	workflowName  string
+	trigger       string
+	invocationURI string
+	runID         string
+	runAttempt    string
 }
 
 type rawBundleProfile struct {
@@ -178,11 +182,12 @@ func verifyFiles(bundlePath, artifactPath, expectationsPath string) ([]byte, err
 	if err != nil {
 		return nil, fmt.Errorf("read artifact: %w", err)
 	}
-	if err := validateStatement(profile.statement, expected, claims, artifactDigest); err != nil {
-		return nil, fmt.Errorf("invalid signed provenance statement: %w", err)
-	}
-	if err := validateCertificateClaims(profile.cert, expected, claims); err != nil {
+	observed, err := validateCertificateClaims(profile.cert, expected, claims)
+	if err != nil {
 		return nil, fmt.Errorf("invalid signing certificate claims: %w", err)
+	}
+	if err := validateStatement(profile.statement, expected, claims, observed, artifactDigest); err != nil {
+		return nil, fmt.Errorf("invalid signed provenance statement: %w", err)
 	}
 
 	trustedMaterial, err := loadPinnedTrustedRoot()
@@ -193,7 +198,7 @@ func verifyFiles(bundlePath, artifactPath, expectationsPath string) ([]byte, err
 	if err := parsedBundle.UnmarshalJSON(bundleRaw); err != nil {
 		return nil, fmt.Errorf("sigstore-go rejected bundle: %w", err)
 	}
-	identity, err := certificateIdentity(expected, claims)
+	identity, err := certificateIdentity(expected, claims, observed)
 	if err != nil {
 		return nil, fmt.Errorf("construct certificate policy: %w", err)
 	}
@@ -249,21 +254,21 @@ func verifyFiles(bundlePath, artifactPath, expectationsPath string) ([]byte, err
 			RepositoryID:         expected.RepositoryID,
 			RepositoryOwnerID:    expected.RepositoryOwnerID,
 			WorkflowPath:         expected.WorkflowPath,
-			WorkflowName:         expected.WorkflowName,
+			WorkflowName:         observed.workflowName,
 			SourceRef:            expected.SourceRef,
 			SourceRevision:       expected.SourceRevision,
-			Trigger:              expected.Trigger,
+			Trigger:              observed.trigger,
 			RunnerEnvironment:    expected.RunnerEnvironment,
 			RepositoryVisibility: expected.RepositoryVisibility,
-			RunID:                expected.RunID,
-			RunAttempt:           expected.RunAttempt,
+			RunID:                observed.runID,
+			RunAttempt:           observed.runAttempt,
 		},
 		Provenance: canonicalProvenance{
 			StatementType: statementType,
 			PredicateType: predicateType,
 			BuildType:     expected.BuildType,
 			BuilderID:     expected.BuilderID,
-			InvocationID:  claims.invocationURI,
+			InvocationID:  observed.invocationURI,
 		},
 		Timestamp: canonicalVerifiedTimestamp{
 			Type:  timestamp.Type,
@@ -293,8 +298,8 @@ func parseExpectations(raw []byte) (expectations, derivedClaims, error) {
 	}
 	fields := []string{
 		"schema", "subjectName", "repository", "repositoryId", "repositoryOwnerId",
-		"workflowPath", "workflowName", "sourceRef", "sourceRevision", "trigger",
-		"runnerEnvironment", "repositoryVisibility", "runId", "runAttempt",
+		"workflowPath", "sourceRef", "sourceRevision", "allowedTriggers",
+		"runnerEnvironment", "repositoryVisibility",
 		"certificateSAN", "certificateIssuer", "buildType", "builderId",
 	}
 	if err := exactFields(object, "$", fields...); err != nil {
@@ -302,17 +307,43 @@ func parseExpectations(raw []byte) (expectations, derivedClaims, error) {
 	}
 	get := func(field string) (string, error) { return stringAt(object[field], "$."+field) }
 	e := expectations{}
+	stringFields := []string{
+		"schema", "subjectName", "repository", "repositoryId", "repositoryOwnerId",
+		"workflowPath", "sourceRef", "sourceRevision", "runnerEnvironment",
+		"repositoryVisibility", "certificateSAN", "certificateIssuer", "buildType",
+		"builderId",
+	}
 	values := []*string{
 		&e.Schema, &e.SubjectName, &e.Repository, &e.RepositoryID, &e.RepositoryOwnerID,
-		&e.WorkflowPath, &e.WorkflowName, &e.SourceRef, &e.SourceRevision, &e.Trigger,
-		&e.RunnerEnvironment, &e.RepositoryVisibility, &e.RunID, &e.RunAttempt,
-		&e.CertificateSAN, &e.CertificateIssuer, &e.BuildType, &e.BuilderID,
+		&e.WorkflowPath, &e.SourceRef, &e.SourceRevision, &e.RunnerEnvironment,
+		&e.RepositoryVisibility, &e.CertificateSAN, &e.CertificateIssuer, &e.BuildType,
+		&e.BuilderID,
 	}
-	for index, field := range fields {
+	for index, field := range stringFields {
 		*values[index], err = get(field)
 		if err != nil {
 			return expectations{}, derivedClaims{}, err
 		}
+	}
+	allowedTriggers, err := arrayAt(object["allowedTriggers"], "$.allowedTriggers")
+	if err != nil {
+		return expectations{}, derivedClaims{}, err
+	}
+	if len(allowedTriggers) < 1 || len(allowedTriggers) > 2 {
+		return expectations{}, derivedClaims{}, fmt.Errorf("allowedTriggers must contain one or two admitted events")
+	}
+	for index, value := range allowedTriggers {
+		trigger, err := stringAt(value, fmt.Sprintf("$.allowedTriggers[%d]", index))
+		if err != nil {
+			return expectations{}, derivedClaims{}, err
+		}
+		if trigger != "push" && trigger != "workflow_dispatch" {
+			return expectations{}, derivedClaims{}, fmt.Errorf("allowedTriggers contains an event outside the closed publisher profile: %q", trigger)
+		}
+		if index > 0 && e.AllowedTriggers[index-1] >= trigger {
+			return expectations{}, derivedClaims{}, fmt.Errorf("allowedTriggers must be strictly sorted and unique")
+		}
+		e.AllowedTriggers = append(e.AllowedTriggers, trigger)
 	}
 	if e.Schema != expectationsSchema {
 		return expectations{}, derivedClaims{}, fmt.Errorf("schema: expected %q, got %q", expectationsSchema, e.Schema)
@@ -329,9 +360,6 @@ func parseExpectations(raw []byte) (expectations, derivedClaims, error) {
 	if e.WorkflowPath == "" || len(e.WorkflowPath) > 1024 || !strings.HasPrefix(e.WorkflowPath, ".github/workflows/") || path.Clean(e.WorkflowPath) != e.WorkflowPath || !regexp.MustCompile(`^[A-Za-z0-9_./-]+\.ya?ml$`).MatchString(e.WorkflowPath) {
 		return expectations{}, derivedClaims{}, fmt.Errorf("workflowPath must be a normalized .github/workflows/ path")
 	}
-	if e.WorkflowName == "" || len(e.WorkflowName) > 256 || hasControlCharacter(e.WorkflowName) {
-		return expectations{}, derivedClaims{}, fmt.Errorf("workflowName must not be empty")
-	}
 	if err := requireCanonicalGitRef(e.SourceRef); err != nil {
 		return expectations{}, derivedClaims{}, err
 	}
@@ -340,14 +368,10 @@ func parseExpectations(raw []byte) (expectations, derivedClaims, error) {
 	}
 	for label, value := range map[string]string{
 		"repositoryId": e.RepositoryID, "repositoryOwnerId": e.RepositoryOwnerID,
-		"runId": e.RunID, "runAttempt": e.RunAttempt,
 	} {
 		if err := requireCanonicalPositiveDecimal(label, value); err != nil {
 			return expectations{}, derivedClaims{}, err
 		}
-	}
-	if !regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`).MatchString(e.Trigger) {
-		return expectations{}, derivedClaims{}, fmt.Errorf("trigger must be one canonical GitHub event name")
 	}
 	if e.RunnerEnvironment != githubHostedRunner {
 		return expectations{}, derivedClaims{}, fmt.Errorf("runnerEnvironment must be %q", githubHostedRunner)
@@ -367,7 +391,6 @@ func parseExpectations(raw []byte) (expectations, derivedClaims, error) {
 		repositoryURL: "https://github.com/" + e.Repository,
 		ownerURL:      "https://github.com/" + owner,
 		workflowURI:   "https://github.com/" + e.Repository + "/" + e.WorkflowPath + "@" + e.SourceRef,
-		invocationURI: "https://github.com/" + e.Repository + "/actions/runs/" + e.RunID + "/attempts/" + e.RunAttempt,
 		dependencyURI: "git+https://github.com/" + e.Repository + "@" + e.SourceRef,
 	}
 	if e.CertificateSAN != claims.workflowURI {
@@ -508,7 +531,7 @@ func parsePrivateBundleProfile(raw []byte) (rawBundleProfile, error) {
 
 // @ref LLP 0035#transport-and-distribution-provenance — the signed subject,
 // source revision, workflow, ref, run, and publisher identity are exact joins.
-func validateStatement(statement map[string]any, expected expectations, claims derivedClaims, artifactDigest [sha256.Size]byte) error {
+func validateStatement(statement map[string]any, expected expectations, claims derivedClaims, observed observedClaims, artifactDigest [sha256.Size]byte) error {
 	if err := exactFields(statement, "$", "_type", "subject", "predicateType", "predicate"); err != nil {
 		return err
 	}
@@ -605,7 +628,7 @@ func validateStatement(statement map[string]any, expected expectations, claims d
 	if err := exactFields(github, "$.predicate.buildDefinition.internalParameters.github", githubFields...); err != nil {
 		return err
 	}
-	if err := exactString(github, "event_name", expected.Trigger, "$.predicate.buildDefinition.internalParameters.github"); err != nil {
+	if err := exactString(github, "event_name", observed.trigger, "$.predicate.buildDefinition.internalParameters.github"); err != nil {
 		return err
 	}
 	if err := exactString(github, "repository_id", expected.RepositoryID, "$.predicate.buildDefinition.internalParameters.github"); err != nil {
@@ -672,36 +695,78 @@ func validateStatement(statement map[string]any, expected expectations, claims d
 	if err := exactFields(metadata, "$.predicate.runDetails.metadata", "invocationId"); err != nil {
 		return err
 	}
-	return exactString(metadata, "invocationId", claims.invocationURI, "$.predicate.runDetails.metadata")
+	return exactString(metadata, "invocationId", observed.invocationURI, "$.predicate.runDetails.metadata")
 }
 
-func validateCertificateClaims(leaf *x509.Certificate, expected expectations, claims derivedClaims) error {
+func validateCertificateClaims(leaf *x509.Certificate, expected expectations, claims derivedClaims) (observedClaims, error) {
 	rawSAN, err := exactCertificateURISAN(leaf)
 	if err != nil {
-		return err
+		return observedClaims{}, err
 	}
 	if rawSAN != expected.CertificateSAN {
-		return fmt.Errorf("expected raw URI SAN %q, got %q", expected.CertificateSAN, rawSAN)
+		return observedClaims{}, fmt.Errorf("expected raw URI SAN %q, got %q", expected.CertificateSAN, rawSAN)
 	}
 	if len(leaf.URIs) != 1 || leaf.URIs[0].String() != expected.CertificateSAN {
-		return fmt.Errorf("expected one URI SAN %q, got %v", expected.CertificateSAN, leaf.URIs)
+		return observedClaims{}, fmt.Errorf("expected one URI SAN %q, got %v", expected.CertificateSAN, leaf.URIs)
 	}
 	if len(leaf.DNSNames) != 0 || len(leaf.EmailAddresses) != 0 || len(leaf.IPAddresses) != 0 {
-		return fmt.Errorf("unexpected non-URI subject alternative names")
+		return observedClaims{}, fmt.Errorf("unexpected non-URI subject alternative names")
 	}
 	if len(leaf.Issuer.Organization) != 1 || leaf.Issuer.Organization[0] != "GitHub, Inc." {
-		return fmt.Errorf("leaf issuer organization is not the GitHub-private CA")
+		return observedClaims{}, fmt.Errorf("leaf issuer organization is not the GitHub-private CA")
 	}
 
 	values, err := exactSigstoreExtensions(leaf)
 	if err != nil {
-		return err
+		return observedClaims{}, err
+	}
+	if len(values) != 21 {
+		return observedClaims{}, fmt.Errorf("expected 21 exact Sigstore claim extensions, got %d", len(values))
+	}
+	trigger, ok := values["2"]
+	if !ok {
+		return observedClaims{}, fmt.Errorf("missing Sigstore certificate extension 1.3.6.1.4.1.57264.1.2")
+	}
+	triggerAllowed := false
+	for _, allowed := range expected.AllowedTriggers {
+		triggerAllowed = triggerAllowed || trigger == allowed
+	}
+	if !triggerAllowed {
+		return observedClaims{}, fmt.Errorf("signed workflow trigger %q is outside allowedTriggers", trigger)
+	}
+	workflowName, ok := values["4"]
+	if !ok || workflowName == "" || len(workflowName) > 256 || hasControlCharacter(workflowName) {
+		return observedClaims{}, fmt.Errorf("signed workflow name is absent or malformed")
+	}
+	invocationURI, ok := values["21"]
+	if !ok {
+		return observedClaims{}, fmt.Errorf("missing Sigstore certificate extension 1.3.6.1.4.1.57264.1.21")
+	}
+	invocationPattern := regexp.MustCompile(
+		`^https://github\.com/` + regexp.QuoteMeta(expected.Repository) + `/actions/runs/([1-9][0-9]*)/attempts/([1-9][0-9]*)$`,
+	)
+	invocationParts := invocationPattern.FindStringSubmatch(invocationURI)
+	if len(invocationParts) != 3 {
+		return observedClaims{}, fmt.Errorf("signed run invocation URI is not canonical for repository %q", expected.Repository)
+	}
+	if err := requireCanonicalPositiveDecimal("signed runId", invocationParts[1]); err != nil {
+		return observedClaims{}, err
+	}
+	if err := requireCanonicalPositiveDecimal("signed runAttempt", invocationParts[2]); err != nil {
+		return observedClaims{}, err
+	}
+	observed := observedClaims{
+		workflowName:  workflowName,
+		trigger:       trigger,
+		invocationURI: invocationURI,
+		runID:         invocationParts[1],
+		runAttempt:    invocationParts[2],
 	}
 	want := map[string]string{
 		"1":  expected.CertificateIssuer,
-		"2":  expected.Trigger,
+		"2":  observed.trigger,
 		"3":  expected.SourceRevision,
-		"4":  expected.WorkflowName,
+		"4":  observed.workflowName,
 		"5":  expected.Repository,
 		"6":  expected.SourceRef,
 		"8":  expected.CertificateIssuer,
@@ -716,23 +781,20 @@ func validateCertificateClaims(leaf *x509.Certificate, expected expectations, cl
 		"17": expected.RepositoryOwnerID,
 		"18": claims.workflowURI,
 		"19": expected.SourceRevision,
-		"20": expected.Trigger,
-		"21": claims.invocationURI,
+		"20": observed.trigger,
+		"21": observed.invocationURI,
 		"22": expected.RepositoryVisibility,
-	}
-	if len(values) != len(want) {
-		return fmt.Errorf("expected %d exact Sigstore claim extensions, got %d", len(want), len(values))
 	}
 	for oid, expectedValue := range want {
 		actual, ok := values[oid]
 		if !ok {
-			return fmt.Errorf("missing Sigstore certificate extension 1.3.6.1.4.1.57264.1.%s", oid)
+			return observedClaims{}, fmt.Errorf("missing Sigstore certificate extension 1.3.6.1.4.1.57264.1.%s", oid)
 		}
 		if actual != expectedValue {
-			return fmt.Errorf("Sigstore extension 1.3.6.1.4.1.57264.1.%s: expected %q, got %q", oid, expectedValue, actual)
+			return observedClaims{}, fmt.Errorf("Sigstore extension 1.3.6.1.4.1.57264.1.%s: expected %q, got %q", oid, expectedValue, actual)
 		}
 	}
-	return nil
+	return observed, nil
 }
 
 func exactCertificateURISAN(leaf *x509.Certificate) (string, error) {
@@ -804,7 +866,7 @@ func exactSigstoreExtensions(leaf *x509.Certificate) (map[string]string, error) 
 	return values, nil
 }
 
-func certificateIdentity(expected expectations, claims derivedClaims) (verify.CertificateIdentity, error) {
+func certificateIdentity(expected expectations, claims derivedClaims, observed observedClaims) (verify.CertificateIdentity, error) {
 	san, err := verify.NewSANMatcher(expected.CertificateSAN, "")
 	if err != nil {
 		return verify.CertificateIdentity{}, err
@@ -814,9 +876,9 @@ func certificateIdentity(expected expectations, claims derivedClaims) (verify.Ce
 		return verify.CertificateIdentity{}, err
 	}
 	extensions := certificate.Extensions{
-		GithubWorkflowTrigger:               expected.Trigger,
+		GithubWorkflowTrigger:               observed.trigger,
 		GithubWorkflowSHA:                   expected.SourceRevision,
-		GithubWorkflowName:                  expected.WorkflowName,
+		GithubWorkflowName:                  observed.workflowName,
 		GithubWorkflowRepository:            expected.Repository,
 		GithubWorkflowRef:                   expected.SourceRef,
 		BuildSignerURI:                      claims.workflowURI,
@@ -830,8 +892,8 @@ func certificateIdentity(expected expectations, claims derivedClaims) (verify.Ce
 		SourceRepositoryOwnerIdentifier:     expected.RepositoryOwnerID,
 		BuildConfigURI:                      claims.workflowURI,
 		BuildConfigDigest:                   expected.SourceRevision,
-		BuildTrigger:                        expected.Trigger,
-		RunInvocationURI:                    claims.invocationURI,
+		BuildTrigger:                        observed.trigger,
+		RunInvocationURI:                    observed.invocationURI,
 		SourceRepositoryVisibilityAtSigning: expected.RepositoryVisibility,
 	}
 	return verify.NewCertificateIdentity(san, issuer, extensions)

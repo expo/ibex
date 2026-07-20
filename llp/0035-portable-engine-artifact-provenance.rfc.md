@@ -472,6 +472,18 @@ verified attestation claims. A correctly signed archive whose internal
 manifest names a different build authority is rejected; neither side may
 self-assert the other's binding.
 
+The offline verifier's expectation document contains only independently
+selected policy: subject name, repository and numeric identities, publisher
+workflow path, source ref/revision, admitted event set, hosted-runner class,
+private visibility, and the closed certificate/build identities derived from
+those values. A workflow display name, the selected event, run ID, and attempt
+are signed observations rather than local authority inputs. The verifier
+derives them from the signing certificate, requires the selected event to be a
+member of the admitted set, validates the run URI canonically, and joins both
+the event and invocation exactly to the signed provenance statement. An
+installer MUST NOT accept those run-specific observations from the bundle,
+release metadata, or caller as if they were independent expectations.
+
 The installer retains the verified attestation bundle, archive digest,
 verification policy identity, signer workflow/ref/source revision, and
 portable artifact ID in a canonical installation receipt. The receipt is not

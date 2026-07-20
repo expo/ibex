@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/base64"
@@ -18,7 +19,7 @@ import (
 const (
 	githubPrivateOracleDirectory = "testdata/oracle/github-cli-v2.93.0-private"
 	sigstorePublicOracleBundle   = "testdata/oracle/sigstore-go-v1.2.2-public/othername.bundle.json"
-	githubPrivateOracleOutput    = `{"bundle":{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json","sha256":"4f8c096e38a0eee242574ab100d16701928605409225e59784a3636f742bb27e","size":4885},"expectationsDigest":"9d8908dd1dc6e6e4ba050b2c3723d9b0cece523a40a14f7a2c4ebe9c51c0ab83","provenance":{"buildType":"https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1","builderId":"https://github.com/actions/runner/github-hosted","invocationId":"https://github.com/actions/attest-demo/actions/runs/8788389601/attempts/1","predicateType":"https://slsa.dev/provenance/v1","statementType":"https://in-toto.io/Statement/v1"},"schema":"ibex/github-private-artifact-attestation-verification/1","signer":{"issuer":"https://token.actions.githubusercontent.com","repository":"actions/attest-demo","repositoryId":"763287532","repositoryOwnerId":"44036562","repositoryVisibility":"private","runAttempt":"1","runId":"8788389601","runnerEnvironment":"github-hosted","san":"https://github.com/actions/attest-demo/.github/workflows/build-python.yml@refs/heads/main","sourceRef":"refs/heads/main","sourceRevision":"a6c23b9806c593664f68637c8f9d45dfcf98b2db","trigger":"workflow_dispatch","workflowName":"Build package and publish to PyPI","workflowPath":".github/workflows/build-python.yml"},"subject":{"name":"github_provenance_demo-0.0.12-py3-none-any.whl","sha256":"ae57936def59bc4c75edd3a837d89bcefc6d3a5e31d55a6fa7a71624f92c3c3b","size":1437},"timestamp":{"type":"TimestampAuthority","uri":"timestamp.githubapp.com","value":"2024-04-22T17:33:26Z"},"trustRoot":{"profile":"github-private-signed-timestamp-v1","sha256":"484cdfe1a7c65479c5ba2a22193d1be90f0020db1997de696ab207434c62fbb7","size":31645}}`
+	githubPrivateOracleOutput    = `{"bundle":{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json","sha256":"4f8c096e38a0eee242574ab100d16701928605409225e59784a3636f742bb27e","size":4885},"expectationsDigest":"bdc0f6ac7cccd1480b362115c111f9d81e7c8e05ba2360d95f540436c797d18f","provenance":{"buildType":"https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1","builderId":"https://github.com/actions/runner/github-hosted","invocationId":"https://github.com/actions/attest-demo/actions/runs/8788389601/attempts/1","predicateType":"https://slsa.dev/provenance/v1","statementType":"https://in-toto.io/Statement/v1"},"schema":"ibex/github-private-artifact-attestation-verification/1","signer":{"issuer":"https://token.actions.githubusercontent.com","repository":"actions/attest-demo","repositoryId":"763287532","repositoryOwnerId":"44036562","repositoryVisibility":"private","runAttempt":"1","runId":"8788389601","runnerEnvironment":"github-hosted","san":"https://github.com/actions/attest-demo/.github/workflows/build-python.yml@refs/heads/main","sourceRef":"refs/heads/main","sourceRevision":"a6c23b9806c593664f68637c8f9d45dfcf98b2db","trigger":"workflow_dispatch","workflowName":"Build package and publish to PyPI","workflowPath":".github/workflows/build-python.yml"},"subject":{"name":"github_provenance_demo-0.0.12-py3-none-any.whl","sha256":"ae57936def59bc4c75edd3a837d89bcefc6d3a5e31d55a6fa7a71624f92c3c3b","size":1437},"timestamp":{"type":"TimestampAuthority","uri":"timestamp.githubapp.com","value":"2024-04-22T17:33:26Z"},"trustRoot":{"profile":"github-private-signed-timestamp-v1","sha256":"484cdfe1a7c65479c5ba2a22193d1be90f0020db1997de696ab207434c62fbb7","size":31645}}`
 )
 
 // This is an upstream GitHub CLI oracle, not an Ibex publisher corpus and not
@@ -282,17 +283,14 @@ func TestEveryExternalExpectationIsEnforced(t *testing.T) {
 			e["workflowPath"] = ".github/workflows/other.yml"
 			e["certificateSAN"] = "https://github.com/actions/attest-demo/.github/workflows/other.yml@refs/heads/main"
 		}},
-		{"workflow name", func(e map[string]any) { e["workflowName"] = "Other workflow" }},
 		{"source ref", func(e map[string]any) {
 			e["sourceRef"] = "refs/heads/release"
 			e["certificateSAN"] = "https://github.com/actions/attest-demo/.github/workflows/build-python.yml@refs/heads/release"
 		}},
 		{"source revision", func(e map[string]any) { e["sourceRevision"] = strings.Repeat("0", 40) }},
-		{"trigger", func(e map[string]any) { e["trigger"] = "push" }},
+		{"allowed triggers", func(e map[string]any) { e["allowedTriggers"] = []any{"push"} }},
 		{"runner environment", func(e map[string]any) { e["runnerEnvironment"] = "self-hosted" }},
 		{"repository visibility", func(e map[string]any) { e["repositoryVisibility"] = "public" }},
-		{"run id", func(e map[string]any) { e["runId"] = "8788389602" }},
-		{"run attempt", func(e map[string]any) { e["runAttempt"] = "2" }},
 		{"certificate SAN", func(e map[string]any) { e["certificateSAN"] = "https://github.com/actions/other" }},
 		{"certificate issuer", func(e map[string]any) { e["certificateIssuer"] = "https://example.invalid" }},
 		{"build type", func(e map[string]any) {
@@ -301,7 +299,7 @@ func TestEveryExternalExpectationIsEnforced(t *testing.T) {
 		}},
 		{"builder id", func(e map[string]any) { e["builderId"] = "https://github.com/actions/other" }},
 		{"schema", func(e map[string]any) { e["schema"] = "ibex/unknown/1" }},
-		{"missing field", func(e map[string]any) { delete(e, "runAttempt") }},
+		{"missing field", func(e map[string]any) { delete(e, "allowedTriggers") }},
 		{"unknown field", func(e map[string]any) { e["extra"] = "no" }},
 	}
 	for _, test := range tests {
@@ -333,6 +331,10 @@ func TestCurrentAttestBuildProvenanceV2StatementShapeOracleOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	observed, err := validateCertificateClaims(profile.cert, expected, claims)
+	if err != nil {
+		t.Fatal(err)
+	}
 	statement := cloneJSONObject(t, profile.statement)
 	predicate := objectMember(t, statement, "predicate")
 	definition := objectMember(t, predicate, "buildDefinition")
@@ -346,12 +348,23 @@ func TestCurrentAttestBuildProvenanceV2StatementShapeOracleOnly(t *testing.T) {
 
 	artifact := mustReadFile(t, materializeOracleArtifact(t))
 	digest := sha256.Sum256(artifact)
-	if err := validateStatement(statement, expected, claims, digest); err != nil {
+	if err := validateStatement(statement, expected, claims, observed, digest); err != nil {
 		t.Fatalf("current action v2 statement shape rejected: %v", err)
 	}
+	github["event_name"] = "push"
+	if err := validateStatement(statement, expected, claims, observed, digest); err == nil {
+		t.Fatal("statement trigger differing from the signed certificate unexpectedly accepted")
+	}
+	github["event_name"] = observed.trigger
+	metadata := objectMember(t, objectMember(t, predicate, "runDetails"), "metadata")
+	metadata["invocationId"] = "https://github.com/actions/attest-demo/actions/runs/8788389602/attempts/1"
+	if err := validateStatement(statement, expected, claims, observed, digest); err == nil {
+		t.Fatal("statement invocation differing from the signed certificate unexpectedly accepted")
+	}
+	metadata["invocationId"] = observed.invocationURI
 
 	delete(github, "runner_environment")
-	if err := validateStatement(statement, expected, claims, digest); err == nil {
+	if err := validateStatement(statement, expected, claims, observed, digest); err == nil {
 		t.Fatal("current action shape without runner_environment unexpectedly accepted")
 	}
 	github["runner_environment"] = githubHostedRunner
@@ -359,7 +372,7 @@ func TestCurrentAttestBuildProvenanceV2StatementShapeOracleOnly(t *testing.T) {
 	expected.BuilderID = legacyGitHubBuilderID
 	definition["buildType"] = legacyGitHubBuildType
 	builder["id"] = legacyGitHubBuilderID
-	if err := validateStatement(statement, expected, claims, digest); err == nil {
+	if err := validateStatement(statement, expected, claims, observed, digest); err == nil {
 		t.Fatal("legacy shape with current-only runner_environment unexpectedly accepted")
 	}
 }
@@ -375,9 +388,77 @@ func TestCertificateProfileIsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateCertificateClaims(profile.cert, expected, claims); err != nil {
+	observed, err := validateCertificateClaims(profile.cert, expected, claims)
+	if err != nil {
 		t.Fatalf("oracle certificate rejected: %v", err)
 	}
+	if observed.workflowName != "Build package and publish to PyPI" ||
+		observed.trigger != "workflow_dispatch" ||
+		observed.runID != "8788389601" ||
+		observed.runAttempt != "1" {
+		t.Fatalf("dynamic signed claims were not derived exactly: %#v", observed)
+	}
+
+	t.Run("allowed trigger set admits the signed member", func(t *testing.T) {
+		broader := expected
+		broader.AllowedTriggers = []string{"push", "workflow_dispatch"}
+		if _, err := validateCertificateClaims(profile.cert, broader, claims); err != nil {
+			t.Fatalf("closed allowed trigger set rejected its signed member: %v", err)
+		}
+	})
+
+	t.Run("allowed push observation", func(t *testing.T) {
+		leaf := *profile.cert
+		leaf.Extensions = append([]pkix.Extension(nil), profile.cert.Extensions...)
+		setSigstoreExtensionString(t, &leaf, "2", "push")
+		setSigstoreExtensionString(t, &leaf, "20", "push")
+		broader := expected
+		broader.AllowedTriggers = []string{"push", "workflow_dispatch"}
+		observed, err := validateCertificateClaims(&leaf, broader, claims)
+		if err != nil {
+			t.Fatalf("admitted push observation rejected: %v", err)
+		}
+		if observed.trigger != "push" {
+			t.Fatalf("derived trigger: want push, got %q", observed.trigger)
+		}
+	})
+
+	t.Run("trigger extensions must agree", func(t *testing.T) {
+		leaf := *profile.cert
+		leaf.Extensions = append([]pkix.Extension(nil), profile.cert.Extensions...)
+		setSigstoreExtensionString(t, &leaf, "20", "push")
+		if _, err := validateCertificateClaims(&leaf, expected, claims); err == nil {
+			t.Fatal("disagreeing signed trigger extensions unexpectedly accepted")
+		}
+	})
+
+	t.Run("run invocation URI is canonical signed observation", func(t *testing.T) {
+		invalid := map[string]string{
+			"leading-zero run": "https://github.com/actions/attest-demo/actions/runs/01/attempts/1",
+			"zero attempt":     "https://github.com/actions/attest-demo/actions/runs/8788389601/attempts/0",
+			"unsafe run":       "https://github.com/actions/attest-demo/actions/runs/9007199254740992/attempts/1",
+			"wrong repository": "https://github.com/actions/other/actions/runs/8788389601/attempts/1",
+		}
+		for name, invocation := range invalid {
+			t.Run(name, func(t *testing.T) {
+				leaf := *profile.cert
+				leaf.Extensions = append([]pkix.Extension(nil), profile.cert.Extensions...)
+				setSigstoreExtensionString(t, &leaf, "21", invocation)
+				if _, err := validateCertificateClaims(&leaf, expected, claims); err == nil {
+					t.Fatal("invalid signed invocation URI unexpectedly accepted")
+				}
+			})
+		}
+	})
+
+	t.Run("workflow name is a bounded signed observation", func(t *testing.T) {
+		leaf := *profile.cert
+		leaf.Extensions = append([]pkix.Extension(nil), profile.cert.Extensions...)
+		setSigstoreExtensionString(t, &leaf, "4", "")
+		if _, err := validateCertificateClaims(&leaf, expected, claims); err == nil {
+			t.Fatal("empty signed workflow name unexpectedly accepted")
+		}
+	})
 
 	t.Run("SCT extension", func(t *testing.T) {
 		leaf := *profile.cert
@@ -449,7 +530,7 @@ func TestCertificateProfileIsClosed(t *testing.T) {
 			t.Fatal(err)
 		}
 		leaf.Extensions = append(leaf.Extensions, pkix.Extension{Id: asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 23}, Value: value})
-		if err := validateCertificateClaims(&leaf, expected, claims); err == nil {
+		if _, err := validateCertificateClaims(&leaf, expected, claims); err == nil {
 			t.Fatal("unknown Sigstore extension unexpectedly accepted")
 		}
 	})
@@ -503,10 +584,11 @@ func TestExpectationSyntaxIsCanonicalAndClosed(t *testing.T) {
 		func(e map[string]any) { e["sourceRef"] = "refs/heads/main@evil" },
 		func(e map[string]any) { e["sourceRef"] = "refs/heads/main#fragment" },
 		func(e map[string]any) { e["sourceRevision"] = strings.Repeat("A", 40) },
-		func(e map[string]any) { e["runId"] = "01" },
-		func(e map[string]any) { e["runAttempt"] = "0" },
-		func(e map[string]any) { e["runAttempt"] = float64(1) },
-		func(e map[string]any) { e["trigger"] = "pull request" },
+		func(e map[string]any) { e["allowedTriggers"] = []any{} },
+		func(e map[string]any) { e["allowedTriggers"] = []any{"workflow_dispatch", "push"} },
+		func(e map[string]any) { e["allowedTriggers"] = []any{"push", "push"} },
+		func(e map[string]any) { e["allowedTriggers"] = []any{"pull_request"} },
+		func(e map[string]any) { e["allowedTriggers"] = "push" },
 	}
 	for index, mutate := range tests {
 		expected := oracleExpectationsObject(t)
@@ -644,4 +726,25 @@ func mutateCanonicalBase64(t *testing.T, encoded string) string {
 		t.Fatalf("base64 mutation was not structurally valid: %v", err)
 	}
 	return mutated
+}
+
+func setSigstoreExtensionString(t *testing.T, leaf *x509.Certificate, suffix, value string) {
+	t.Helper()
+	oid := "1.3.6.1.4.1.57264.1." + suffix
+	for index := range leaf.Extensions {
+		if leaf.Extensions[index].Id.String() != oid {
+			continue
+		}
+		if suffix == "1" || suffix == "2" || suffix == "3" || suffix == "4" || suffix == "5" || suffix == "6" {
+			leaf.Extensions[index].Value = []byte(value)
+		} else {
+			encoded, err := asn1.Marshal(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			leaf.Extensions[index].Value = encoded
+		}
+		return
+	}
+	t.Fatalf("Sigstore extension %s is absent", oid)
 }

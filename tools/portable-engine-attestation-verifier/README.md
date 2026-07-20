@@ -31,12 +31,15 @@ It accepts only:
   sole signed subject digest; and
 - one strict, closed expectations document of at most 64 KiB.
 
-The expectations document supplies every admitted publisher claim: subject
-name, repository and numeric IDs, workflow path and name, source ref and exact
-40-hex revision, event, runner environment, private visibility, run and
-attempt IDs, certificate SAN and issuer, build type, and builder ID. Derived
-repository, workflow, dependency, invocation, SAN, and builder URIs must join
-exactly across the expectations, certificate, and SLSA provenance statement.
+The expectations document supplies only locally knowable authority claims:
+subject name, repository and numeric IDs, workflow path, source ref and exact
+40-hex revision, the closed allowed-trigger set, runner environment, private
+visibility, certificate SAN and issuer, build type, and builder ID. Workflow
+display name, selected trigger, run ID, and attempt are signed observations,
+not user-supplied trust inputs; the verifier derives them from the certificate,
+checks their canonical forms, and requires the SLSA statement to agree.
+Repository, workflow, dependency, invocation, SAN, and builder URIs join
+exactly across those policy inputs, certificate claims, and statement.
 
 The only trust root is
 [`trust/github-private/trusted_root.json`](trust/github-private/trusted_root.json).
