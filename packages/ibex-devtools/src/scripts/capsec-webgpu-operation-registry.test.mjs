@@ -99,7 +99,7 @@ describe("construction-private WebGPU CapSec operation registry", () => {
       expect(generated.privateTargetCellCount).toBe(57);
       expect(
         generated.operations.filter((operation) => operation.authoritySession),
-      ).toHaveLength(24);
+      ).toHaveLength(25);
       expect(generated.providerIdentity).toMatchObject({
         abiVersion: 0x0002_0000,
         topologyId: 1,
@@ -107,7 +107,7 @@ describe("construction-private WebGPU CapSec operation registry", () => {
         profileDigest:
           "eeda83784ff4297760619cb7df54f0e2f227a70562561909c47ecc9dc3232d95",
       });
-      expect(generated.providerIdentity.sortedOperationIds).toHaveLength(46);
+      expect(generated.providerIdentity.sortedOperationIds).toHaveLength(57);
       expect(
         new Set(generated.operations.map((operation) => operation.edgeId)).size,
       ).toBe(57);
