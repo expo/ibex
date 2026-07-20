@@ -1750,6 +1750,12 @@ std::string spawnAsyncWindowsJson(
   parentStdInWrite = nullptr;
   if (isValidHandle(proc->stdinWrite)) {
     std::thread(runWindowsStdinWriter, proc).detach();
+  } else {
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // ignore/inherit stdin has no parent writer thread. Mark that terminal
+    // state explicitly so disposal cannot wait six seconds for a thread that
+    // was never created.
+    proc->stdinWriterStopped = true;
   }
 
   if (parentStdOutRead) {

@@ -11,6 +11,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
+// A fresh foreground-audit app authenticates and bundles its entry before the
+// child behavior begins. Physical Windows runners can spend more than ten
+// seconds in that startup path under the complete CapSec matrix, so keep the
+// product deadline distinct from a startup-speed assertion.
+const APP_TIMEOUT: Duration = Duration::from_secs(30);
 
 struct AppRun {
     stdout: String,
@@ -138,7 +143,7 @@ c.on('close', function (code) {
   console.log('RESULT|code=' + code + '|timer=' + timerFired + '|out=' + out.trim());
 });
 "#;
-    let run = run_app("nonblocking", app, Duration::from_secs(15));
+    let run = run_app("nonblocking", app, APP_TIMEOUT);
     let line = result_line(&run);
     assert_eq!(field(line, "code="), Some("0"), "child failed: {line}");
     assert_eq!(
@@ -170,7 +175,7 @@ c.on('close', function (code) {
   console.log('RESULT|code=' + code + '|out=' + out.trim());
 });
 "#;
-    let run = run_app("stdin", app, Duration::from_secs(15));
+    let run = run_app("stdin", app, APP_TIMEOUT);
     let line = result_line(&run);
     assert_eq!(field(line, "code="), Some("0"), "child failed: {line}");
     assert_eq!(
@@ -198,7 +203,7 @@ setTimeout(function () {
   process.exit(0);
 }, 100);
 "#;
-    let run = run_app("stdin-dispose", app, Duration::from_secs(10));
+    let run = run_app("stdin-dispose", app, APP_TIMEOUT);
     let line = result_line(&run);
     assert_eq!(
         field(line, "timer="),
@@ -225,7 +230,7 @@ setTimeout(function () {
   process.exit(0);
 }, 10);
 "#;
-    let run = run_app("stdin-immediate-dispose", app, Duration::from_secs(10));
+    let run = run_app("stdin-immediate-dispose", app, APP_TIMEOUT);
     let line = result_line(&run);
     assert_eq!(field(line, "timer="), Some("true"), "{line}");
 }
@@ -244,7 +249,7 @@ c.on('close', function (code, signal) {
   console.log('RESULT2|code=' + code + '|signal=' + signal);
 });
 "#;
-    let run = run_app("kill", app, Duration::from_secs(15));
+    let run = run_app("kill", app, APP_TIMEOUT);
     let line = result_line(&run);
     assert_eq!(
         field(line, "kill="),
@@ -252,8 +257,8 @@ c.on('close', function (code, signal) {
         "kill() did not reach child: {line}"
     );
     assert!(
-        run.stdout.contains("RESULT2|code=1|signal=null"),
-        "killed child did not close with TerminateProcess exit code\nstdout:\n{}\nstderr:\n{}",
+        run.stdout.contains("RESULT2|code=null|signal=SIGTERM"),
+        "killed child did not close with the requested signal\nstdout:\n{}\nstderr:\n{}",
         run.stdout,
         run.stderr
     );
@@ -272,7 +277,7 @@ try {
   console.log('RESULT|code=' + err.code);
 }
 "#;
-    let run = run_app_in(&dir, app, Duration::from_secs(15));
+    let run = run_app_in(&dir, app, APP_TIMEOUT);
     let line = result_line(&run);
     assert_eq!(
         field(line, "code="),

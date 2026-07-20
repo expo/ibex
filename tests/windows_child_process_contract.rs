@@ -23,6 +23,18 @@ fn windows_stdin_writer_is_cancelable_and_pipe_close_is_serialized() {
         WINDOWS_PROCESS.contains("std::lock_guard<std::mutex> lock(proc->stdinMutex);"),
         "stdin teardown must serialize against the writer"
     );
+    let writer_start = WINDOWS_PROCESS
+        .split("proc->stdinWrite = parentStdInWrite;")
+        .nth(1)
+        .expect("Windows async spawn stdin assignment")
+        .split("if (parentStdOutRead)")
+        .next()
+        .unwrap();
+    assert!(
+        writer_start.contains("} else {")
+            && writer_start.contains("proc->stdinWriterStopped = true;"),
+        "a child without parent-side stdin must not wait for a nonexistent writer"
+    );
 }
 
 #[test]

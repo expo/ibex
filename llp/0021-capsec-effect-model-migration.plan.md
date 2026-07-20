@@ -2060,6 +2060,19 @@ Its sole Windows failure was the hand-authored manifest freshness fixture: it
 used Rust's verbatim canonical path instead of the authenticated JavaScript
 producer's ordinary Win32 path. The fixture now follows the production
 producer contract; it does not relax manifest verification.
+Physical run
+[`29710358891`](https://github.com/ccheever/ibex/actions/runs/29710358891)
+then passed all 317 library and 169 binary unit tests and reached the previously
+unexecuted Windows child-process integration suite. Two of six apps passed;
+four fresh foreground-audit apps exhausted 10–15 second whole-process deadlines
+while authenticating, bundling, and exercising the child. The kill case emitted
+the correct `code=null`, `signal=SIGTERM` result before the harness timeout,
+also exposing its stale TerminateProcess-code assertion. These behavioral tests
+now use a 30-second product deadline, separate from startup-performance claims.
+The same evidence exposed a real disposal delay: ignore/inherit stdin created no
+writer but left its state pending, so teardown waited for a nonexistent thread.
+No-writer children now enter the stopped state at construction; pipe-backed
+children retain the cancellation and initialization-race checks.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked
