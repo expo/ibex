@@ -3980,7 +3980,7 @@ mod tests {
             (left["edgeId"].as_str(), left["kind"].as_str())
                 .cmp(&(right["edgeId"].as_str(), right["kind"].as_str()))
         });
-        assert_eq!(observations.len(), 14_294);
+        assert_eq!(observations.len(), absent_ids.len() * 2);
 
         if let Ok(output_path) = std::env::var("IBEX_RESTRICTED_ABSENCE_EVIDENCE_OUTPUT") {
             assert!(

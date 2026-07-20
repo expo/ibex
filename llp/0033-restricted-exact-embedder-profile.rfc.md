@@ -5,7 +5,12 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (r22 — records the fourth pinned Linux release attempt,
+**Revised:** 2026-07-20 (r23 — records the fifth pinned Linux release attempt,
+which executed the complete absence route set but stopped before publication
+because its final observation assertion still expected 14,294 observations
+from the superseded 7,147-edge inventory; derives the required two observations
+per current absent edge and keeps advertisements empty pending another
+unchanged-policy run; r22 — records the fourth pinned Linux release attempt,
 which completed reachable and control-plane execution but exposed that the
 absence executor conflated 9,794 unique live probes with 10,298 route-to-probe
 bindings; asserts both quantities independently and keeps advertisements empty
@@ -458,6 +463,15 @@ unique-live-probe map was incorrectly compared with the larger
 route-to-live-probe binding count. The executor now independently asserts
 9,794 unique live probes and 10,298 total bindings. The run produced no target
 report or advertisement; a fresh unchanged-policy Linux run remains required.
+The fifth pinned Linux release attempt (Actions run `29779170801`, exact source
+`1ee736a016d108ea2a82d82b3d7a632826bd29ae`) executed reachable,
+control-plane, source-install, and live-reachability routes, then stopped before
+absence evidence publication because its final assertion still required
+14,294 observations from the superseded 7,147-edge authority. The current
+7,193 absent edges correctly produced 14,386 source/live observations. The
+executor now derives this invariant as exactly two observations per current
+absent edge. No target report or advertisement was produced; a fresh
+unchanged-policy Linux run remains required.
 A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full
