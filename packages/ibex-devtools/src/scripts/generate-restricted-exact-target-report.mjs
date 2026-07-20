@@ -17,16 +17,18 @@ import {
   taggedDigest,
 } from "./restricted-exact-target-report.mjs";
 
-function readFailedReview(reviewPath, evidencePaths, target) {
+function readSettledReview(reviewPath, evidencePaths, target, expectedVerdict) {
   const rawReview = fs.readFileSync(reviewPath);
   const review = parseJsonStrict(rawReview, reviewPath);
   if (
     review.kind !== "ibex-llp-0033-independent-security-review"
     || review.independent !== true
-    || review.verdict !== "fail"
-    || (review.unresolvedCritical < 1 && review.unresolvedHigh < 1)
+    || review.verdict !== expectedVerdict
+    || (expectedVerdict === "clear"
+      ? review.unresolvedCritical !== 0 || review.unresolvedHigh !== 0
+      : review.unresolvedCritical < 1 && review.unresolvedHigh < 1)
   ) {
-    throw new Error("restricted failed-review artifact is not a blocking independent review");
+    throw new Error(`restricted ${expectedVerdict}-review artifact has an invalid disposition`);
   }
   const reviewedReportPath = restrictedReportPathForTarget(target);
   const reviewedReportRaw = execFileSync(
@@ -39,12 +41,14 @@ function readFailedReview(reviewPath, evidencePaths, target) {
     taggedDigest(reviewedReportRaw) !== review.reviewedReportRawContentDigest
     || reviewedReport.reportDigest !== review.reviewedReportDigest
   ) {
-    throw new Error("restricted failed review does not bind its reviewed report");
+    throw new Error(`restricted ${expectedVerdict} review does not bind its reviewed report`);
   }
   for (const evidencePath of evidencePaths) {
     const expected = review.reviewedEvidenceRawContentDigests[path.basename(evidencePath)];
     if (!expected || taggedDigest(fs.readFileSync(evidencePath)) !== expected) {
-      throw new Error(`restricted failed review does not bind ${path.basename(evidencePath)}`);
+      throw new Error(
+        `restricted ${expectedVerdict} review does not bind ${path.basename(evidencePath)}`,
+      );
     }
   }
   return {
@@ -109,10 +113,11 @@ export function buildRestrictedTargetReportAfterFailedReview(
   if (canonicalJson(reachable.bindings) !== canonicalJson(control.bindings)) {
     throw new Error("restricted retained evidence bindings differ");
   }
-  const failed = readFailedReview(
+  const failed = readSettledReview(
     reviewPath,
     [reachablePath, controlPath, absencePath, corpusPath],
     reachable.bindings.target,
+    "fail",
   );
   return buildRestrictedTargetReport({
     ...authorities,
@@ -135,6 +140,40 @@ export function buildRestrictedTargetReportAfterFailedReview(
   });
 }
 
+export function buildRestrictedTargetReportAfterClearReview(
+  reachablePath,
+  controlPath,
+  absencePath,
+  corpusPath,
+  reviewPath,
+) {
+  const pending = buildRestrictedTargetReportFromEvidence(
+    reachablePath,
+    controlPath,
+    absencePath,
+    corpusPath,
+  );
+  const authorities = loadRestrictedReportAuthorities();
+  const clear = readSettledReview(
+    reviewPath,
+    [reachablePath, controlPath, absencePath, corpusPath],
+    pending.bindings.target,
+    "clear",
+  );
+  return buildRestrictedTargetReport({
+    ...authorities,
+    bindings: pending.bindings,
+    executions: pending.executions,
+    globalCorpora: pending.globalCorpora,
+    independentReview: {
+      status: "clear",
+      artifactDigest: clear.artifactDigest,
+      unresolvedCritical: 0,
+      unresolvedHigh: 0,
+    },
+  });
+}
+
 function render(value) {
   return `${JSON.stringify(JSON.parse(canonicalJson(value)), null, 2)}\n`;
 }
@@ -144,10 +183,16 @@ function main() {
   const write = args.includes("--write");
   const check = args.includes("--check") || !write;
   const failedReviewArgument = args.find((arg) => arg.startsWith("--failed-review="));
+  const clearReviewArgument = args.find((arg) => arg.startsWith("--clear-review="));
+  if (failedReviewArgument && clearReviewArgument) {
+    throw new Error("choose one settled restricted review disposition");
+  }
   if (write && args.includes("--check")) throw new Error("choose --write or --check");
   const positional = args.filter((arg) => !arg.startsWith("--"));
   if (positional.length !== 5) {
-    throw new Error("usage: generate-restricted-exact-target-report <reachable-evidence> <control-evidence> <absence-evidence> <global-corpora-evidence> <report> [--write|--check]");
+    throw new Error(
+      "usage: generate-restricted-exact-target-report <reachable-evidence> <control-evidence> <absence-evidence> <global-corpora-evidence> <report> [--write|--check] [--clear-review=<path>|--failed-review=<path>]",
+    );
   }
   const reachablePath = path.resolve(repoRoot, positional[0]);
   const controlPath = path.resolve(repoRoot, positional[1]);
@@ -156,6 +201,9 @@ function main() {
   const outputPath = path.resolve(repoRoot, positional[4]);
   const failedReviewPath = failedReviewArgument
     ? path.resolve(repoRoot, failedReviewArgument.slice("--failed-review=".length))
+    : null;
+  const clearReviewPath = clearReviewArgument
+    ? path.resolve(repoRoot, clearReviewArgument.slice("--clear-review=".length))
     : null;
   const conformanceRoot = `${path.resolve(repoRoot, "capsec/conformance")}${path.sep}`;
   if (
@@ -167,20 +215,28 @@ function main() {
   ) {
     throw new Error("restricted evidence and report must remain under capsec/conformance");
   }
-  const reportText = render(failedReviewPath
-    ? buildRestrictedTargetReportAfterFailedReview(
+  const reportText = render(clearReviewPath
+    ? buildRestrictedTargetReportAfterClearReview(
       reachablePath,
       controlPath,
       absencePath,
       corpusPath,
-      failedReviewPath,
+      clearReviewPath,
     )
-    : buildRestrictedTargetReportFromEvidence(
-      reachablePath,
-      controlPath,
-      absencePath,
-      corpusPath,
-    ));
+    : failedReviewPath
+      ? buildRestrictedTargetReportAfterFailedReview(
+        reachablePath,
+        controlPath,
+        absencePath,
+        corpusPath,
+        failedReviewPath,
+      )
+      : buildRestrictedTargetReportFromEvidence(
+        reachablePath,
+        controlPath,
+        absencePath,
+        corpusPath,
+      ));
   if (write) {
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
     fs.writeFileSync(outputPath, reportText, { flag: "w", mode: 0o644 });
