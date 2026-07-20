@@ -3580,7 +3580,11 @@ mod tests {
                     .push(route);
             }
         }
-        assert_eq!(routes_by_live_probe.len(), 10_298);
+        assert_eq!(routes_by_live_probe.len(), 9_794);
+        assert_eq!(
+            routes_by_live_probe.values().map(Vec::len).sum::<usize>(),
+            10_298
+        );
 
         let probe_logical_path = |path: &str, undefined_terminal_is_unreachable: bool| {
             let path_c = std::ffi::CString::new(path).unwrap();

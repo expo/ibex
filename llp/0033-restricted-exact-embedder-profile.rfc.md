@@ -5,7 +5,11 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (r21 — records the third pinned Linux release attempt,
+**Revised:** 2026-07-20 (r22 — records the fourth pinned Linux release attempt,
+which completed reachable and control-plane execution but exposed that the
+absence executor conflated 9,794 unique live probes with 10,298 route-to-probe
+bindings; asserts both quantities independently and keeps advertisements empty
+pending another unchanged-policy run; r21 — records the third pinned Linux release attempt,
 which completed the reachable and control-plane executors but stopped at an
 absence-executor invariant that still expected the superseded 7,361-route and
 9,749-live-binding topology; updates those assertions to the already generated
@@ -447,6 +451,13 @@ graph, fixture plan, and their tests already bind 7,407 source routes and
 was another fail-closed harness mismatch, not target evidence, and no
 advertisement was produced. A fresh unchanged-policy Linux run remains
 required.
+The fourth pinned Linux release attempt (Actions run `29775702754`, exact
+source `b1d38279120d2fe912e6bf5b0ae5e9e8fa4ec65f`) again completed reachable
+and control-plane execution, then stopped before absence evidence because its
+unique-live-probe map was incorrectly compared with the larger
+route-to-live-probe binding count. The executor now independently asserts
+9,794 unique live probes and 10,298 total bindings. The run produced no target
+report or advertisement; a fresh unchanged-policy Linux run remains required.
 A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full
