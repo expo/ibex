@@ -3,7 +3,7 @@
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
   "vocabDigest": "sha256-4idHyczjVIpxPMRFjidfVK4aJAl6tpHQvieRS8qqeOc",
-  "policyDigest": "sha256-KcyIStudagqE6nBHy2RTZXl2Zliy9RWCvqUAvKS2yUQ",
+  "policyDigest": "sha256-1JKbN3Cc0n2wwimnYOIGx0gt63cEn9_DMURjqCXyJp4",
   "purpose": "production",
   "mode": "enforce",
   "rootImports": [
@@ -133,5 +133,5 @@
       ]
     }
   ],
-  "registryDigest": "sha256-0V3wYLy4Jg4Mb7KjkaM6869i2mBvCNIPDB3xhUL77Cc"
+  "registryDigest": "sha256-irRtxdtql7QEjmaVNCOYhvFDkR-IlNemzwZdGrxb25o"
 }

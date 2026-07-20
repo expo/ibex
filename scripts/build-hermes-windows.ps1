@@ -250,7 +250,16 @@ try {
   New-Item -ItemType Directory -Force -Path $buildDir, $installDir | Out-Null
   $cmakeArch = if ($Arch -eq "arm64") { "ARM64" } else { "x64" }
   $debuggerFlag = if ($Debug) { "ON" } else { "OFF" }
-  cmake -S $sourceDir -B $buildDir -G "Visual Studio 17 2022" -A $cmakeArch `
+  $visualStudioVersion = [string]$env:VisualStudioVersion
+  $cmakeGenerator = switch -Regex ($visualStudioVersion) {
+    '^17(?:\.|$)' { "Visual Studio 17 2022"; break }
+    '^18(?:\.|$)' { "Visual Studio 18 2026"; break }
+    default {
+      throw "Unsupported or missing VisualStudioVersion '$visualStudioVersion'; expected reviewed VS 17 or VS 18 developer environment"
+    }
+  }
+  Write-Host "Using CMake generator: $cmakeGenerator (VisualStudioVersion=$visualStudioVersion)"
+  cmake -S $sourceDir -B $buildDir -G $cmakeGenerator -A $cmakeArch `
     "-DHERMES_ENABLE_DEBUGGER:BOOL=$debuggerFlag" `
     -DHERMES_ENABLE_INTL=OFF `
     -DHERMES_ENABLE_WIN10_ICU_FALLBACK=ON `

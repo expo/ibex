@@ -238,6 +238,12 @@ assert_windows_locked_pristine_publication() {
         || fail "Windows builder lock is not an exclusive OS file handle"
     grep -Fq 'finally {' "$builder" \
         || fail "Windows builder lock has no finally release path"
+    grep -Fq '"Visual Studio 17 2022"' "$builder" \
+        || fail "Windows builder lost the reviewed VS 2022 generator"
+    grep -Fq '"Visual Studio 18 2026"' "$builder" \
+        || fail "Windows builder does not support the windows-2025 VS 2026 image"
+    grep -Fq 'cmake -S $sourceDir -B $buildDir -G $cmakeGenerator' "$builder" \
+        || fail "Windows builder does not use its version-selected CMake generator"
 
     local check_lock_line check_release_line source_branch_line
     local installer_publish_line installer_remove_line installer_release_line
