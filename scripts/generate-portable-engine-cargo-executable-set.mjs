@@ -101,7 +101,7 @@ function activeRootFeatures(packageFeatures) {
 
 function rowsForTarget(target, features) {
   if (
-    !(target.required_features ?? []).every((feature) =>
+    !(target["required-features"] ?? []).every((feature) =>
       features.includes(feature),
     )
   )

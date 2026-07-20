@@ -1398,9 +1398,11 @@ bytes, binds exact membership in a schema-valid `COMPLETE.json` set record,
 and atomically renames the derived complete read-only evidence directory.
 Focused tests cover missing and concurrently changed executables, absolute,
 wrong, and duplicate rpath resolution, artifact substitution, duplicate
-Hermes load commands, and omitted, extra, duplicate, and ambiguous Cargo
-targets. This implementation does not change the trust-policy acceptance
-switch, reports, or advertisements; its production store-verifier and
+Hermes load commands, inactive required-feature target filtering, atomic path
+replacement, cross-identity path/file-object aliasing, and omitted, extra,
+duplicate, and ambiguous Cargo targets. This implementation does not change
+the trust-policy acceptance switch, reports, or advertisements; its
+production store-verifier and
 build-record producer seams become runnable only when independently accepted
 installer and build-consumption changes are integrated.
 

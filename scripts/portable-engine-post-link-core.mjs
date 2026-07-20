@@ -200,7 +200,22 @@ async function readPinnedRegular(
       fileObjectEqual(before, after),
       `${label}: file object changed while it was being read`,
     );
-    return bytes;
+    const pathAfter = await fsp.lstat(filePath, { bigint: true });
+    assert(
+      pathAfter.isFile() &&
+        !pathAfter.isSymbolicLink() &&
+        fileObjectEqual(after, pathAfter),
+      `${label}: path no longer names the opened file object`,
+    );
+    const realPathAfter = await fsp.realpath(filePath);
+    assert(
+      realPathAfter === filePath,
+      `${label}: path became redirected while it was being read`,
+    );
+    return {
+      bytes,
+      fileObject: Object.freeze({ dev: after.dev, ino: after.ino }),
+    };
   } finally {
     await handle.close();
   }
@@ -211,7 +226,7 @@ async function readCanonicalJsonFile(
   label,
   maximumBytes = MAX_JSON_BYTES,
 ) {
-  const bytes = await readPinnedRegular(filePath, label, maximumBytes);
+  const { bytes } = await readPinnedRegular(filePath, label, maximumBytes);
   const value = parseJsonStrict(bytes, label);
   assertCanonicalJsonBytes(bytes, value, label);
   return { bytes, value };
@@ -504,6 +519,7 @@ function parseCargoMessages(bytes, enumeration, repoRoot) {
     ]),
   );
   const observed = new Map();
+  const observedExecutablePaths = new Set();
   const expectedManifestPath = path.join(
     repoRoot,
     ...enumeration.package.manifestPath.split("/"),
@@ -576,7 +592,10 @@ function parseCargoMessages(bytes, enumeration, repoRoot) {
       message.target,
       message.profile.test,
     );
-    if (cargoTargetKind === null) continue;
+    assert(
+      cargoTargetKind !== null,
+      `Cargo emitted an unmatched root-package executable target ${message.target.name}`,
+    );
     const identity = `${cargoTargetKind}\0${message.target.name}\0${message.profile.test}`;
     const selected = expected.get(identity);
     assert(
@@ -603,6 +622,11 @@ function parseCargoMessages(bytes, enumeration, repoRoot) {
       isWithin(targetRoot, executablePath),
       `${selected.logicalName}: Cargo executable escapes the checkout target directory`,
     );
+    assert(
+      !observedExecutablePaths.has(executablePath),
+      `${selected.logicalName}: Cargo final executable path is shared by more than one logical identity`,
+    );
+    observedExecutablePaths.add(executablePath);
     observed.set(identity, { ...selected, executablePath });
   }
   assert(
@@ -624,6 +648,53 @@ function parseCargoMessages(bytes, enumeration, repoRoot) {
   return [...observed.values()].sort((left, right) =>
     compareUtf8(left.logicalName, right.logicalName),
   );
+}
+
+async function bindUniqueExecutableObjects(executables) {
+  const observedObjects = new Set();
+  const bound = [];
+  for (const selected of executables) {
+    const realPath = await fsp
+      .realpath(selected.executablePath)
+      .catch((error) => {
+        if (error && error.code === "ENOENT")
+          fail(`${selected.logicalName}: Cargo executable is missing`);
+        throw error;
+      });
+    assert(
+      realPath === selected.executablePath,
+      `${selected.logicalName}: Cargo executable path is redirected through a symlink`,
+    );
+    const handle = await fsp.open(selected.executablePath, OPEN_READ_NOFOLLOW);
+    let status;
+    try {
+      status = await handle.stat({ bigint: true });
+    } finally {
+      await handle.close();
+    }
+    assert(
+      status.isFile() && !status.isSymbolicLink(),
+      `${selected.logicalName}: Cargo executable is not one no-follow regular file`,
+    );
+    const objectKey = `${status.dev}\0${status.ino}`;
+    assert(
+      !observedObjects.has(objectKey),
+      `${selected.logicalName}: Cargo final executable file object is shared by more than one logical identity`,
+    );
+    observedObjects.add(objectKey);
+    bound.push({
+      ...selected,
+      expectedFileObject: Object.freeze({ dev: status.dev, ino: status.ino }),
+      linkCount: status.nlink,
+    });
+  }
+  for (const selected of bound) {
+    assert(
+      selected.linkCount === 1n,
+      `${selected.logicalName}: Cargo final executable is hard-linked`,
+    );
+  }
+  return bound;
 }
 
 function derivePortableIdentity(manifest) {
@@ -1060,7 +1131,7 @@ async function verifyRuntimeResolution({
   const expectedRpath = `@loader_path/${relativeRpathRoot
     .split(path.sep)
     .join("/")}`;
-  const runtimeBytes = await readPinnedRegular(
+  const { bytes: runtimeBytes } = await readPinnedRegular(
     expectedRuntimePath,
     "portable runtime component",
     MAX_EXECUTABLE_BYTES,
@@ -1154,7 +1225,7 @@ async function auditExecutable({
     realExecutable === selected.executablePath,
     `${selected.logicalName}: Cargo executable path is redirected through a symlink`,
   );
-  const bytes = await readPinnedRegular(
+  const { bytes, fileObject } = await readPinnedRegular(
     selected.executablePath,
     `${selected.logicalName} final executable`,
     MAX_EXECUTABLE_BYTES,
@@ -1220,6 +1291,7 @@ async function auditExecutable({
       rpaths: observation.rpaths,
       dependencies,
     },
+    fileObject,
   };
 }
 
@@ -1558,17 +1630,16 @@ async function verifyPortableEnginePostLinkCore(options, dependencies) {
     build.ibexFeatures,
     "checked Cargo executable enumeration features",
   );
-  const cargoMessages = await readPinnedRegular(
+  const { bytes: cargoMessages } = await readPinnedRegular(
     selectedOptions.cargoMessagesPath,
     "Cargo JSON message stream",
     MAX_CARGO_MESSAGES_BYTES,
   );
-  const executables = parseCargoMessages(
-    cargoMessages,
-    enumeration,
-    selectedOptions.repoRoot,
+  const executables = await bindUniqueExecutableObjects(
+    parseCargoMessages(cargoMessages, enumeration, selectedOptions.repoRoot),
   );
   const records = [];
+  const observedExecutableObjects = new Set();
   for (const selected of executables) {
     const observed = await auditExecutable({
       selected,
@@ -1579,6 +1650,17 @@ async function verifyPortableEnginePostLinkCore(options, dependencies) {
       targetPolicy: verified.context.targetPolicy,
       afterExecutableRead: dependencies.afterExecutableRead,
     });
+    const executableObjectKey = `${observed.fileObject.dev}\0${observed.fileObject.ino}`;
+    assert(
+      observed.fileObject.dev === selected.expectedFileObject.dev &&
+        observed.fileObject.ino === selected.expectedFileObject.ino,
+      `${selected.logicalName}: Cargo final executable path changed after enumeration`,
+    );
+    assert(
+      !observedExecutableObjects.has(executableObjectKey),
+      `${selected.logicalName}: Cargo final executable file object is shared by more than one logical identity`,
+    );
+    observedExecutableObjects.add(executableObjectKey);
     const record = {
       schema: POST_LINK_SCHEMA,
       portable: structuredClone(build.portable),

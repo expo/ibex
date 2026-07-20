@@ -500,8 +500,12 @@ function fixture({
       executable: executablePath,
     },
   ];
+  const selectedCargoRows =
+    typeof cargoRows === "function"
+      ? cargoRows({ executablePath, repoRoot })
+      : (cargoRows ?? defaultCargoRows);
   const cargoMessages = [
-    ...(cargoRows ?? defaultCargoRows),
+    ...selectedCargoRows,
     { reason: "build-finished", success: true },
   ];
   const inputs = {
@@ -607,9 +611,18 @@ describe("portable macOS post-link evidence", () => {
       ...cargoExecutableEnumerationContractTestOnly.path.split("/"),
     );
     const checked = fs.readFileSync(checkedPath);
-    assert.equal(
-      checked.toString("utf8"),
-      canonicalJson(generatePortableEngineCargoExecutableSet()),
+    const generated = generatePortableEngineCargoExecutableSet();
+    assert.equal(checked.toString("utf8"), canonicalJson(generated));
+    assert.deepEqual(
+      generated.targets.filter(
+        (row) =>
+          row.cargoTargetKind === "example" &&
+          ["module_runner_spike", "module_runner_test262_spike"].includes(
+            row.cargoTargetName,
+          ),
+      ),
+      [],
+      "inactive Cargo metadata required-features must omit gated examples",
     );
   });
 
@@ -689,6 +702,23 @@ describe("portable macOS post-link evidence", () => {
         fs.appendFileSync(filePath, Buffer.from([0]));
       },
     });
+  });
+
+  test("rejects atomic path replacement while an executable is pinned", async () => {
+    const subject = fixture();
+    await rejectsWithoutOutput(
+      subject,
+      /file object changed|path no longer names the opened file/u,
+      {
+        afterExecutableRead({ filePath }) {
+          const replacement = `${filePath}.replacement`;
+          fs.writeFileSync(replacement, subject.executableBytes, {
+            mode: 0o755,
+          });
+          fs.renameSync(replacement, filePath);
+        },
+      },
+    );
   });
 
   test("rejects absolute RPATHs", async () => {
@@ -886,6 +916,62 @@ describe("portable macOS post-link evidence", () => {
     );
   });
 
+  test("rejects distinct Cargo identities sharing one executable path", async () => {
+    const targetRows = ["alpha", "beta"].map((name) => ({
+      cargoTargetKind: "test",
+      cargoTargetKinds: ["test"],
+      cargoTargetName: name,
+      logicalName: `test/${name}`,
+      profileTest: true,
+      targetKind: "test",
+    }));
+    const subject = fixture({
+      evidenceTargetKind: "test",
+      executableRelativePath: "debug/deps/alpha-fixture",
+      targetRows,
+      cargoRows: ({ executablePath, repoRoot }) =>
+        targetRows.map((row) => ({
+          reason: "compiler-artifact",
+          package_id: "path+file:///fixture#ibex-runtime@0.1.0",
+          manifest_path: path.join(repoRoot, "Cargo.toml"),
+          target: { name: row.cargoTargetName, kind: ["test"] },
+          profile: { test: true },
+          executable: executablePath,
+        })),
+    });
+    await rejectsWithoutOutput(subject, /path is shared/u);
+  });
+
+  test("rejects distinct Cargo paths aliasing one executable file object", async () => {
+    const targetRows = ["alpha", "beta"].map((name) => ({
+      cargoTargetKind: "test",
+      cargoTargetKinds: ["test"],
+      cargoTargetName: name,
+      logicalName: `test/${name}`,
+      profileTest: true,
+      targetKind: "test",
+    }));
+    let aliasPath;
+    const subject = fixture({
+      evidenceTargetKind: "test",
+      executableRelativePath: "debug/deps/alpha-fixture",
+      targetRows,
+      cargoRows: ({ executablePath, repoRoot }) => {
+        aliasPath = path.join(path.dirname(executablePath), "beta-fixture");
+        return targetRows.map((row, index) => ({
+          reason: "compiler-artifact",
+          package_id: "path+file:///fixture#ibex-runtime@0.1.0",
+          manifest_path: path.join(repoRoot, "Cargo.toml"),
+          target: { name: row.cargoTargetName, kind: ["test"] },
+          profile: { test: true },
+          executable: index === 0 ? executablePath : aliasPath,
+        }));
+      },
+    });
+    fs.linkSync(subject.executablePath, aliasPath);
+    await rejectsWithoutOutput(subject, /file object is shared/u);
+  });
+
   test("rejects an ambiguous Cargo target-kind identity", async () => {
     const subject = fixture();
     const expected = subject.cargoMessages[0];
@@ -894,6 +980,19 @@ describe("portable macOS post-link evidence", () => {
       { reason: "build-finished", success: true },
     ]);
     await rejectsWithoutOutput(subject, /ambiguous final target kind/u);
+  });
+
+  test("rejects an unmatched root-package executable message", async () => {
+    const subject = fixture();
+    const expected = subject.cargoMessages[0];
+    rewriteCargoMessages(subject, [
+      {
+        ...expected,
+        target: { name: "unmatched", kind: ["custom-build"] },
+      },
+      { reason: "build-finished", success: true },
+    ]);
+    await rejectsWithoutOutput(subject, /unmatched root-package executable/u);
   });
 
   test("rejects unexpected and duplicate Hermes load commands", async () => {
