@@ -1364,6 +1364,9 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:node_dns:NOTINITIALIZED",
   "export:node_dns:REFUSED",
   "export:node_dns:Resolver",
+  "export:node_dns:Resolver._handle.cancel",
+  "export:node_dns:Resolver._handle.getServers",
+  "export:node_dns:Resolver._handle.setServers",
   "export:node_dns:Resolver.cancel",
   "export:node_dns:Resolver.getServers",
   "export:node_dns:Resolver.resolve",
@@ -1428,9 +1431,51 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:node_dns_promises:NOTIMP",
   "export:node_dns_promises:NOTINITIALIZED",
   "export:node_dns_promises:REFUSED",
+  "export:node_dns_promises:Resolver",
+  "export:node_dns_promises:Resolver._handle.cancel",
+  "export:node_dns_promises:Resolver._handle.getServers",
+  "export:node_dns_promises:Resolver._handle.setServers",
+  "export:node_dns_promises:Resolver.cancel",
+  "export:node_dns_promises:Resolver.getServers",
+  "export:node_dns_promises:Resolver.resolve",
+  "export:node_dns_promises:Resolver.resolve4",
+  "export:node_dns_promises:Resolver.resolve6",
+  "export:node_dns_promises:Resolver.resolveAny",
+  "export:node_dns_promises:Resolver.resolveCaa",
+  "export:node_dns_promises:Resolver.resolveCname",
+  "export:node_dns_promises:Resolver.resolveMx",
+  "export:node_dns_promises:Resolver.resolveNaptr",
+  "export:node_dns_promises:Resolver.resolveNs",
+  "export:node_dns_promises:Resolver.resolvePtr",
+  "export:node_dns_promises:Resolver.resolveSoa",
+  "export:node_dns_promises:Resolver.resolveSrv",
+  "export:node_dns_promises:Resolver.resolveTxt",
+  "export:node_dns_promises:Resolver.reverse",
+  "export:node_dns_promises:Resolver.setLocalAddress",
+  "export:node_dns_promises:Resolver.setServers",
   "export:node_dns_promises:SERVFAIL",
   "export:node_dns_promises:TIMEOUT",
   "export:node_dns_promises:default",
+  "export:node_dns_promises:getDefaultResultOrder",
+  "export:node_dns_promises:getServers",
+  "export:node_dns_promises:lookup",
+  "export:node_dns_promises:lookupService",
+  "export:node_dns_promises:resolve",
+  "export:node_dns_promises:resolve4",
+  "export:node_dns_promises:resolve6",
+  "export:node_dns_promises:resolveAny",
+  "export:node_dns_promises:resolveCaa",
+  "export:node_dns_promises:resolveCname",
+  "export:node_dns_promises:resolveMx",
+  "export:node_dns_promises:resolveNaptr",
+  "export:node_dns_promises:resolveNs",
+  "export:node_dns_promises:resolvePtr",
+  "export:node_dns_promises:resolveSoa",
+  "export:node_dns_promises:resolveSrv",
+  "export:node_dns_promises:resolveTxt",
+  "export:node_dns_promises:reverse",
+  "export:node_dns_promises:setDefaultResultOrder",
+  "export:node_dns_promises:setServers",
   "export:node_domain:Domain",
   "export:node_domain:Domain.add",
   "export:node_domain:Domain.bind",
@@ -6082,7 +6127,6 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "internal-route:_tls_common",
     "internal-route:assert/strict",
     "internal-route:bun:internal-for-testing",
-    "internal-route:dns/promises",
     "internal-route:internal/assert/myers_diff",
     "internal-route:internal/async_hooks",
     "internal-route:internal/child_process",
@@ -7551,19 +7595,6 @@ function sqliteCloseEffectSpec() {
   );
 }
 
-function resolverConfigLoadEffectSpec() {
-  const branch = (id, actions) => ({
-    id,
-    when: [{ fact: "filesystem.resolver-config", equals: id }],
-    actions,
-  });
-  return conditionalBranchEffectSpec(
-    [branch("absent", []), branch("present", ["fs:list", "fs:read"])],
-    "filesystem",
-    "WP5",
-  );
-}
-
 function filesystemStreamConstructionEffectSpec(action) {
   return conditionalBranchEffectSpec(
     [
@@ -7682,6 +7713,56 @@ function dnsResolverEffectSpec(fact) {
       {
         id: "system",
         when: [{ fact, equals: "system" }],
+        actions: ["network:resolve"],
+      },
+    ],
+    "network",
+    "WP6",
+    { lifetimeContract: "operation" },
+  );
+}
+
+function dnsSystemServersEffectSpec() {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "cached-or-custom",
+        when: [
+          {
+            fact: "network.dns.system-servers-state",
+            equals: "cached-or-custom",
+          },
+        ],
+        actions: [],
+      },
+      {
+        id: "filesystem-only",
+        when: [
+          {
+            fact: "network.dns.system-servers-state",
+            equals: "filesystem-only",
+          },
+        ],
+        actions: ["fs:list", "fs:read"],
+      },
+      {
+        id: "native-fallback",
+        when: [
+          {
+            fact: "network.dns.system-servers-state",
+            equals: "native-fallback",
+          },
+        ],
+        actions: ["fs:list", "fs:read", "network:resolve"],
+      },
+      {
+        id: "native-success",
+        when: [
+          {
+            fact: "network.dns.system-servers-state",
+            equals: "native-success",
+          },
+        ],
         actions: ["network:resolve"],
       },
     ],
@@ -8275,9 +8356,6 @@ const BUILTIN_ROOT_ENVIRONMENT_READ_SOURCES = new Set([
 ]);
 
 function builtinModuleInitializationClassification(source) {
-  if (source === "node_dns" || source === "node_dns_promises") {
-    return resolverConfigLoadEffectSpec();
-  }
   if (source === "node_diagnostics_channel") {
     return closedSpec(
       "ipc:channel",
@@ -8669,11 +8747,20 @@ function builtinExportClassification(surface) {
     if (/^resolvercancel$/u.test(name)) {
       return nonCapabilitySpec("authority-release", "WP6");
     }
+    if (/^resolverhandlecancel$/u.test(name)) {
+      return nonCapabilitySpec("authority-release", "WP6");
+    }
     if (/^resolver(?:getservers|setlocaladdress|setservers)$/u.test(name)) {
       return nonCapabilitySpec("authority-control-plane", "WP6");
     }
+    if (/^resolverhandle(?:getservers|setservers)$/u.test(name)) {
+      return nonCapabilitySpec("authority-control-plane", "WP6");
+    }
+    if (/^(?:getservers|resolver)$/u.test(name)) {
+      return dnsSystemServersEffectSpec();
+    }
     if (
-      /^(?:resolver|promises|addrgetnetworkparams|badfamily|badflags|badhints|badname|badquery|badresp|badstr|cancelled|connrefused|destruction|eof|file|formerr|loadiphlpapi|nodata|nomem|noname|notfound|notimp|notinitialized|refused|servfail|timeout|getdefaultresultorder|getservers)$/u.test(
+      /^(?:promises|addrgetnetworkparams|badfamily|badflags|badhints|badname|badquery|badresp|badstr|cancelled|connrefused|destruction|eof|file|formerr|loadiphlpapi|nodata|nomem|noname|notfound|notimp|notinitialized|refused|servfail|timeout|getdefaultresultorder)$/u.test(
         name,
       )
     ) {
@@ -9395,8 +9482,125 @@ function builtinExportClassification(surface) {
 const REVIEWED_BUILTIN_INHERITED_SHAPE_ID =
   "sha256-a38490336f46e4dd2791e1e1fa14a1164d7c0da99f2670894ded67a33d8d1e2c";
 
+// This is deliberately independent of the scanner's pin and name tables. A
+// one-sided discovery or classification edit must leave the projected shape
+// unclassified until both reviews are updated together.
+// @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory
+const REVIEWED_DNS_PROMISE_EXPORT_SHAPE_REVIEW_ID =
+  "sha256-161c4e4bf9027d0d3e4f9427954c18529f7ef0bd727be9064fc8f79270a75c75";
+const REVIEWED_DNS_PROMISE_EXPORT_SHAPE_NAMES = new Set([
+  "export:node_dns:Resolver._handle.cancel",
+  "export:node_dns:Resolver._handle.getServers",
+  "export:node_dns:Resolver._handle.setServers",
+  "export:node_dns_promises:Resolver",
+  "export:node_dns_promises:Resolver._handle.cancel",
+  "export:node_dns_promises:Resolver._handle.getServers",
+  "export:node_dns_promises:Resolver._handle.setServers",
+  "export:node_dns_promises:Resolver.cancel",
+  "export:node_dns_promises:Resolver.getServers",
+  "export:node_dns_promises:Resolver.resolve",
+  "export:node_dns_promises:Resolver.resolve4",
+  "export:node_dns_promises:Resolver.resolve6",
+  "export:node_dns_promises:Resolver.resolveAny",
+  "export:node_dns_promises:Resolver.resolveCaa",
+  "export:node_dns_promises:Resolver.resolveCname",
+  "export:node_dns_promises:Resolver.resolveMx",
+  "export:node_dns_promises:Resolver.resolveNaptr",
+  "export:node_dns_promises:Resolver.resolveNs",
+  "export:node_dns_promises:Resolver.resolvePtr",
+  "export:node_dns_promises:Resolver.resolveSoa",
+  "export:node_dns_promises:Resolver.resolveSrv",
+  "export:node_dns_promises:Resolver.resolveTxt",
+  "export:node_dns_promises:Resolver.reverse",
+  "export:node_dns_promises:Resolver.setLocalAddress",
+  "export:node_dns_promises:Resolver.setServers",
+  "export:node_dns_promises:getDefaultResultOrder",
+  "export:node_dns_promises:getServers",
+  "export:node_dns_promises:lookup",
+  "export:node_dns_promises:lookupService",
+  "export:node_dns_promises:resolve",
+  "export:node_dns_promises:resolve4",
+  "export:node_dns_promises:resolve6",
+  "export:node_dns_promises:resolveAny",
+  "export:node_dns_promises:resolveCaa",
+  "export:node_dns_promises:resolveCname",
+  "export:node_dns_promises:resolveMx",
+  "export:node_dns_promises:resolveNaptr",
+  "export:node_dns_promises:resolveNs",
+  "export:node_dns_promises:resolvePtr",
+  "export:node_dns_promises:resolveSoa",
+  "export:node_dns_promises:resolveSrv",
+  "export:node_dns_promises:resolveTxt",
+  "export:node_dns_promises:reverse",
+  "export:node_dns_promises:setDefaultResultOrder",
+  "export:node_dns_promises:setServers",
+]);
+
+function hasExactStringRecord(value, expected) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === Object.keys(expected).length &&
+    Object.entries(expected).every(([key, expectedValue]) =>
+      Object.hasOwn(value, key) && value[key] === expectedValue,
+    )
+  );
+}
+
+function hasReviewedDnsPromiseExportShape(surface) {
+  const metadata = surface.metadata;
+  if (
+    metadata?.dnsPromiseExportShapeReviewId !==
+    REVIEWED_DNS_PROMISE_EXPORT_SHAPE_REVIEW_ID
+  ) {
+    return false;
+  }
+  const carrierPrefix = "export:node_dns_promises:";
+  if (surface.name.startsWith(carrierPrefix)) {
+    const exportName = surface.name.slice(carrierPrefix.length);
+    return (
+      metadata.sourceKey === "node_dns_promises" &&
+      metadata.exportName === exportName &&
+      metadata.constructorInstanceProjection === undefined &&
+      hasExactStringRecord(metadata.crossSourceExportProjection, {
+        carrierBinding: "module.exports=dns.promises",
+        carrierSourceKey: "node_dns_promises",
+        kind: "immutable-commonjs-member-object",
+        memberPath: exportName,
+        providerBinding: "module.exports.promises",
+        providerSourceKey: "node_dns",
+      })
+    );
+  }
+  const providerPrefix = "export:node_dns:";
+  const exportName = surface.name.slice(providerPrefix.length);
+  return (
+    surface.name.startsWith(providerPrefix) &&
+    metadata.sourceKey === "node_dns" &&
+    metadata.exportName === exportName &&
+    metadata.crossSourceExportProjection === undefined &&
+    hasExactStringRecord(metadata.constructorInstanceProjection, {
+      constructorExport: "Resolver",
+      instancePath: exportName.slice("Resolver.".length),
+      kind: "constructor-installed-nested-object",
+    })
+  );
+}
+
 function builtinClassification(surface) {
   const isExport = surface.metadata?.surfaceType === "export";
+  const requiresDnsPromiseExportShapeReview =
+    isExport && REVIEWED_DNS_PROMISE_EXPORT_SHAPE_NAMES.has(surface.name);
+  const reviewedDnsPromiseExportShape =
+    requiresDnsPromiseExportShapeReview &&
+    hasReviewedDnsPromiseExportShape(surface);
+  if (
+    requiresDnsPromiseExportShapeReview &&
+    !reviewedDnsPromiseExportShape
+  ) {
+    return null;
+  }
   const inheritedShape = isExport && surface.metadata?.inheritedShape === true;
   const reviewedInheritedShape =
     inheritedShape &&
@@ -9404,8 +9608,12 @@ function builtinClassification(surface) {
       REVIEWED_BUILTIN_INHERITED_SHAPE_ID &&
     Array.isArray(surface.metadata?.semanticRoles) &&
     surface.metadata.semanticRoles.includes("inherited-export-shape");
+  const reviewedDnsPromiseInheritedShape =
+    inheritedShape && reviewedDnsPromiseExportShape;
   if (
-    (inheritedShape && !reviewedInheritedShape) ||
+    (inheritedShape &&
+      !reviewedInheritedShape &&
+      !reviewedDnsPromiseInheritedShape) ||
     (isExport &&
       !REVIEWED_BUILTIN_EXPORT_NAMES.has(surface.name) &&
       !reviewedInheritedShape) ||

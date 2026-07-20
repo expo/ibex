@@ -421,6 +421,17 @@ struct ExactHermesRuntime {
   // identity/semantics checks and one proves the fixed observer completed; no
   // callable authority is retained.
   uint32_t capsec_native_freeze_observation{0};
+  // One-shot, runtime-owned proof that the trusted loader crossed an
+  // authenticated builtin cache miss and completed the exact source body.
+  // The loader reports through its already-captured module-attribution
+  // HostFunction; project code cannot reach that closure after bootstrap.
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+  bool capsec_builtin_source_observer_armed{false};
+  bool capsec_builtin_source_observer_completed{false};
+  bool capsec_builtin_source_observer_duplicate{false};
+  std::string capsec_builtin_source_observation_id;
+  std::string capsec_builtin_source_expected_alias;
+  std::string capsec_builtin_source_id;
   // Deterministic conformance seam for the normal-return cancellation race.
   // The queued native task never enters JS, so a delivered Hermes break must
   // be drained by the consistency probe and resolve Defeated.

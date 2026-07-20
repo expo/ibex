@@ -113,6 +113,11 @@ function sourceDescriptor(surface, sourceKey, exportName, moduleSpecifier) {
     metadata?.sourceKey !== sourceKey ||
     metadata?.exportName !== exportName ||
     metadata?.surfaceType !== "export" ||
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // a reviewed cross-source property domain is presence evidence only. It
+    // needs a dedicated carrier/provider invocation before execution credit.
+    metadata.crossSourceExportProjection !== undefined ||
+    metadata.constructorInstanceProjection !== undefined ||
     !Array.isArray(metadata.moduleSpecifiers) ||
     !metadata.moduleSpecifiers.includes(moduleSpecifier) ||
     !Array.isArray(surface.sourceRefs) ||

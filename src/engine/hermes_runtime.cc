@@ -37,6 +37,7 @@
 #endif
 #include <chrono>
 #include <charconv>
+#include <cmath>
 #include <deque>
 #include <future>
 #include <iomanip>
@@ -4277,17 +4278,52 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSetActiveModuleId"),
       1,
-      [](facebook::jsi::Runtime&,
+      [handle](facebook::jsi::Runtime& runtime,
                const facebook::jsi::Value&,
                const facebook::jsi::Value* args,
                size_t count) -> facebook::jsi::Value {
         auto previous = g_active_module_id;
+        bool restoresPreviousExactly = false;
+        if (count == 4 && args[0].isNumber()) {
+          const auto restored = args[0].asNumber();
+          constexpr double kMaxSafeInteger = 9007199254740991.0;
+          restoresPreviousExactly = std::isfinite(restored) &&
+              restored >= 0.0 && restored <= kMaxSafeInteger &&
+              std::trunc(restored) == restored &&
+              static_cast<uint64_t>(restored) == previous;
+        }
         if (count > 0 && args[0].isNumber()) {
           auto next = args[0].asNumber();
           g_active_module_id = next < 0.0 ? 0 : static_cast<uint64_t>(next);
         } else {
           g_active_module_id = 0;
         }
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+        // The trusted loader supplies this completion tuple only after it has
+        // installed `module.loaded = true` for an authenticated builtin cache
+        // miss. The HostFunction itself is already loader-private and sealed;
+        // extending that existing call avoids introducing a new ambient hook.
+        // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+        if (handle->armed &&
+            handle->capsec_builtin_source_observer_armed && count == 4 &&
+            restoresPreviousExactly &&
+            args[1].isString() && args[2].isString() && args[3].isString()) {
+          auto sourceId = args[1].toString(runtime).utf8(runtime);
+          auto alias = args[2].toString(runtime).utf8(runtime);
+          auto marker = args[3].toString(runtime).utf8(runtime);
+          if (marker ==
+                  "ibex-capsec-authenticated-builtin-source-complete-v1" &&
+              alias == handle->capsec_builtin_source_expected_alias &&
+              sourceId.compare(0, 18, "ibex-source-id-v1:") == 0) {
+            if (handle->capsec_builtin_source_observer_completed) {
+              handle->capsec_builtin_source_observer_duplicate = true;
+            } else {
+              handle->capsec_builtin_source_id = std::move(sourceId);
+              handle->capsec_builtin_source_observer_completed = true;
+            }
+          }
+        }
+#endif
         return facebook::jsi::Value(static_cast<double>(previous));
       });
   rt.global().setProperty(rt, "__exactSetActiveModuleId", std::move(setActiveModuleIdFn));
@@ -5937,6 +5973,69 @@ extern "C" int ibex_test_native_freeze_observation(
   }
   *outMask = runtime->capsec_native_freeze_observation;
   return 1;
+}
+
+extern "C" int ibex_test_arm_builtin_source_observation(
+    ExactHermesRuntime* runtime,
+    const char* observationId,
+    const char* expectedAlias) {
+  if (runtime == nullptr || observationId == nullptr || expectedAlias == nullptr ||
+      !runtime->runtime || !runtime->armed ||
+      runtime->runtime_thread != std::this_thread::get_id()) {
+    return 0;
+  }
+  const std::string observation(observationId);
+  const std::string alias(expectedAlias);
+  if (observation.empty() || observation.size() > 4096 || alias.empty() ||
+      alias.size() > 4096 || runtime->capsec_builtin_source_observer_armed) {
+    return 0;
+  }
+  runtime->capsec_builtin_source_observation_id = observation;
+  runtime->capsec_builtin_source_expected_alias = alias;
+  runtime->capsec_builtin_source_id.clear();
+  runtime->capsec_builtin_source_observer_completed = false;
+  runtime->capsec_builtin_source_observer_duplicate = false;
+  runtime->capsec_builtin_source_observer_armed = true;
+  return 1;
+}
+
+extern "C" char* ibex_test_take_builtin_source_observation(
+    ExactHermesRuntime* runtime) {
+  if (runtime == nullptr || !runtime->runtime ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->capsec_builtin_source_observer_armed) {
+    return nullptr;
+  }
+  std::string status = "missing";
+  if (runtime->capsec_builtin_source_observer_duplicate) {
+    status = "duplicate";
+  } else if (runtime->capsec_builtin_source_observer_completed) {
+    status = "completed";
+  }
+  const std::string json =
+      std::string("{\"schema\":\"ibex/capsec-builtin-source-observation/1\",") +
+      "\"runtimeNonce\":" +
+      jsonString("u64:" + std::to_string(runtime->runtime_nonce)) +
+      ",\"observationId\":" +
+      jsonString(runtime->capsec_builtin_source_observation_id) +
+      ",\"expectedAlias\":" +
+      jsonString(runtime->capsec_builtin_source_expected_alias) +
+      ",\"status\":" + jsonString(status) + ",\"sourceId\":" +
+      (runtime->capsec_builtin_source_observer_completed
+           ? jsonString(runtime->capsec_builtin_source_id)
+           : std::string("null")) +
+      "}";
+  auto* output = static_cast<char*>(malloc(json.size() + 1));
+  if (output == nullptr) return nullptr;
+  memcpy(output, json.data(), json.size());
+  output[json.size()] = '\0';
+  runtime->capsec_builtin_source_observer_armed = false;
+  runtime->capsec_builtin_source_observer_completed = false;
+  runtime->capsec_builtin_source_observer_duplicate = false;
+  runtime->capsec_builtin_source_observation_id.clear();
+  runtime->capsec_builtin_source_expected_alias.clear();
+  runtime->capsec_builtin_source_id.clear();
+  return output;
 }
 #endif
 

@@ -21,6 +21,15 @@ const taggedDigest = (value) =>
     .createHash("sha256")
     .update(canonicalJson(value), "utf8")
     .digest("base64url")}`;
+const builtinCacheSourceId = (sourceKey) =>
+  `ibex-source-id-v1:${Buffer.from(
+    canonicalJson({
+      kind: "builtin",
+      key: sourceKey,
+      sourceIdSchema: "ibex.source-id.v1",
+    }),
+    "utf8",
+  ).toString("base64url")}`;
 
 const target = {
   triple: "aarch64-apple-darwin",
@@ -52,6 +61,19 @@ const coverage = {
       surface: { kind: "builtin", name: "node:util/types" },
       effects: [{ cap: "env:read", stages: ["requested", "commit"] }],
     },
+    ...[
+      ["edge.dns", "dns"],
+      ["edge.node-dns", "node:dns"],
+      ["edge.dns-promises", "dns/promises"],
+      ["edge.node-dns-promises", "node:dns/promises"],
+    ].map(([id, name]) => ({
+      id,
+      classification: "non-capability",
+      surface: { kind: "builtin", name },
+      rationaleId: "module-reachability-only",
+      rationale:
+        "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary.",
+    })),
     {
       id: "edge.mkdir-worker",
       surface: { kind: "native-op", name: "__exactMkdir" },
@@ -373,8 +395,8 @@ function effectBuiltinModuleImportObservation(recipe) {
   const decisionIdentity = {
     profile: "ibex/capsec/1",
     semanticCore: "capsec/semantics/1",
-    vocabDigest: "sha256-4AXYSBt6dvdLGoapYQXk9TUWUg0BTIBXGQICovWXfm0",
-    registryDigest: "sha256-LyxfUqgfQxZkXRhz12Iw29ftXeROWtT7Il9FCnY4o-k",
+    vocabDigest: "sha256-jdv3vHHRTJnw0k2OU6OwFzvtIKM2zzRw-ptnG3Q9ZkQ",
+    registryDigest: "sha256-yu37kGr2-lr5ld8QzBCWclzxXmfdDzIGwaeyyaXrLbs",
     policyDigest: `sha256-${"P".repeat(43)}`,
     armedSnapshotDigest: `sha256-${"S".repeat(43)}`,
   };
@@ -456,6 +478,151 @@ function effectBuiltinModuleImportObservation(recipe) {
       };
     }),
   };
+}
+
+function noncapDnsModuleImportRecipe(moduleSpecifier = "node:dns") {
+  const expectation = new Map([
+    ["dns", ["node_dns", "edge.dns"]],
+    ["node:dns", ["node_dns", "edge.node-dns"]],
+    ["dns/promises", ["node_dns_promises", "edge.dns-promises"]],
+    [
+      "node:dns/promises",
+      ["node_dns_promises", "edge.node-dns-promises"],
+    ],
+  ]).get(moduleSpecifier);
+  if (!expectation) throw new Error(`unknown DNS test alias ${moduleSpecifier}`);
+  const [sourceKey, edgeId] = expectation;
+  const surfaceObservedKey = `builtin:${moduleSpecifier}`;
+  const sourceDescriptor = {
+    kind: "builtin-module-alias",
+    moduleSpecifier,
+    sourceKey,
+    sourceRef: `modules.ts#specifiers:${sourceKey}`,
+    sourceMetadata: {
+      sourceKey,
+      bundleExternal: true,
+      importReachability: "public",
+      moduleBuiltin: true,
+    },
+    carrierEdgeId: edgeId,
+  };
+  return {
+    fixtureId: `fixture.noncap-dns-import.${moduleSpecifier}`,
+    planDigest: "sha256-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    classification: "non-capability",
+    scenario: "non-capability",
+    edgeIds: [edgeId],
+    implementationBranchIds: [`${edgeId}.main`],
+    enforcementBranchIds: [`${edgeId}.main`],
+    actionIds: [],
+    terminalObservedKey: surfaceObservedKey,
+    expectedObservation: {
+      kind: "enforcement-branch",
+      branchId: `${edgeId}.main`,
+    },
+    route: {
+      surfaceObservedKeys: [surfaceObservedKey],
+      alternatives: [
+        {
+          terminalObservedKey: surfaceObservedKey,
+          proofPaths: [surfaceObservedKey],
+        },
+      ],
+      ambiguousCallees: [],
+    },
+    adapterProbe: null,
+    publicSurfaceProbe: {
+      kind: "public-surface-invocation",
+      surfaceObservedKey,
+      command: ["cargo", "test", "capsec_public_noncap_builtin_recipe_batch"],
+      invocation: {
+        invocationSchema:
+          "ibex/capsec-builtin-module-import-no-effect-invocation/1",
+        kind: "builtin-module-import",
+        moduleSpecifier,
+        sourceDescriptor,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        arguments: [],
+        setup: { kind: "none" },
+        completion: {
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
+        },
+        requiredAuthority: [],
+        expectedResult: "return",
+        expectedTypedDecisionCount: 0,
+        expectedTypedStages: [],
+        allowedCoverageEdgeIds: [],
+        expectedActionIds: [],
+      },
+    },
+    status: "fully-executable",
+    residualReasons: [],
+  };
+}
+
+function noncapDnsModuleImportObservation(recipe, runtimeNonce = "u64:42") {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      moduleSpecifier: invocation.moduleSpecifier,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      sourceExecution: {
+        schema: "ibex/capsec-authenticated-builtin-source-execution/1",
+        observationId: recipe.fixtureId,
+        runtimeNonce,
+        moduleSpecifier: invocation.moduleSpecifier,
+        sourceId: builtinCacheSourceId(
+          invocation.sourceDescriptor.sourceKey,
+        ),
+        cacheMiss: true,
+        bodyCompleted: true,
+      },
+      completion: {
+        kind: invocation.completion.kind,
+        timeoutMilliseconds: invocation.completion.timeoutMilliseconds,
+        status: "quiescent",
+      },
+      result: {
+        kind: "return",
+        moduleSpecifier: invocation.moduleSpecifier,
+        valueType: "object",
+      },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [],
+  };
+}
+
+function completeDnsModuleImportCatalog() {
+  const recipes = [
+    "dns",
+    "node:dns",
+    "dns/promises",
+    "node:dns/promises",
+  ]
+    .map(noncapDnsModuleImportRecipe)
+    .sort((left, right) => left.fixtureId.localeCompare(right.fixtureId));
+  const catalog = {
+    recipeCatalogSchema: "ibex/capsec-executable-recipes/1",
+    profile: "ibex/capsec/1",
+    target,
+    recipes,
+    summary: {
+      requiredFixtures: recipes.length,
+      fullyExecutableFixtures: recipes.length,
+      adapterExecutableFixtures: 0,
+      unresolvedFixtures: 0,
+      byScenario: { "non-capability": recipes.length },
+      residualReasons: {},
+    },
+  };
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
 }
 
 function completeArtifact(catalog = completeCatalog()) {
@@ -2709,6 +2876,261 @@ describe("CapSec public-surface promotion evidence", () => {
         label,
       ).toThrow(expected);
     }
+  });
+
+  test("accepts exactly four zero-decision DNS imports without export conflation", () => {
+    for (const moduleSpecifier of [
+      "dns",
+      "node:dns",
+      "dns/promises",
+      "node:dns/promises",
+    ]) {
+      const recipe = noncapDnsModuleImportRecipe(moduleSpecifier);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: noncapDnsModuleImportObservation(recipe),
+          coverage,
+        }),
+      ).not.toThrow();
+    }
+
+    const rebindDescriptor = (value, recipe) => {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      invocation.sourceDescriptorDigest = taggedDigest(
+        invocation.sourceDescriptor,
+      );
+      value.invocation.sourceDescriptorDigest =
+        invocation.sourceDescriptorDigest;
+    };
+    for (const [mutate, expected] of [
+      [
+        (value) => {
+          value.invocation.exportName = "getServers";
+        },
+        /unknown or missing fields/,
+      ],
+      [
+        (value, recipe) => {
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey =
+            "node_fs";
+          rebindDescriptor(value, recipe);
+        },
+        /descriptor drift/,
+      ],
+      [
+        (value, recipe) => {
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceRef =
+            "src/builtins/dns.js#exports:getServers";
+          rebindDescriptor(value, recipe);
+        },
+        /descriptor drift/,
+      ],
+      [
+        (value, recipe) => {
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata.moduleBuiltin =
+            false;
+          rebindDescriptor(value, recipe);
+        },
+        /descriptor drift/,
+      ],
+      [
+        (value, recipe) => {
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.carrierEdgeId =
+            "edge.dns-promises";
+          rebindDescriptor(value, recipe);
+        },
+        /descriptor drift/,
+      ],
+      [
+        (_value, recipe) => {
+          recipe.route.alternatives[0].proofPaths = [
+            "builtin:node:dns",
+            "builtin:export:node_dns:getServers",
+          ];
+        },
+        /descriptor drift/,
+      ],
+      [
+        (value) => {
+          value.invocation.completion.status = "pending";
+        },
+        /descriptor drift/,
+      ],
+      [
+        (value) => {
+          delete value.invocation.sourceExecution;
+        },
+        /unknown or missing fields/,
+      ],
+      [
+        (value) => {
+          value.invocation.sourceExecution.sourceId =
+            "ibex-source-id-v1:forged";
+        },
+        /descriptor drift/,
+      ],
+      [
+        (value) => {
+          value.invocation.sourceExecution.moduleSpecifier = "dns";
+        },
+        /descriptor drift/,
+      ],
+      [
+        (value) => {
+          value.invocation.sourceExecution.observationId = "fixture.replayed";
+        },
+        /descriptor drift/,
+      ],
+      [
+        (value) => {
+          value.invocation.sourceExecution.runtimeNonce = 0;
+        },
+        /descriptor drift/,
+      ],
+      [
+        (value) => {
+          value.invocation.sourceExecution.runtimeNonce =
+            "u64:18446744073709551616";
+        },
+        /descriptor drift/,
+      ],
+      [
+        (value) => {
+          value.invocation.sourceExecution.cacheMiss = false;
+        },
+        /descriptor drift/,
+      ],
+      [
+        (value) => {
+          value.invocation.sourceExecution.bodyCompleted = false;
+        },
+        /descriptor drift/,
+      ],
+      [
+        (value) => {
+          value.typedDecisions.push({});
+        },
+        /malformed runtime public observation/,
+      ],
+      [
+        (value) => {
+          value.invocation.result.exportName = "getServers";
+        },
+        /unknown or missing fields/,
+      ],
+    ]) {
+      const recipe = noncapDnsModuleImportRecipe();
+      const observation = noncapDnsModuleImportObservation(recipe);
+      mutate(observation, recipe);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observation,
+          coverage,
+        }),
+      ).toThrow(expected);
+    }
+
+    for (const [label, mutateCoverage, expected] of [
+      [
+        "unknown carrier",
+        (_checked, recipe) => {
+          recipe.edgeIds = ["edge.unknown-dns-carrier"];
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.carrierEdgeId =
+            "edge.unknown-dns-carrier";
+        },
+        /not coverage-bound/,
+      ],
+      [
+        "wrong carrier classification",
+        (checked, recipe) => {
+          checked.edges.find((edge) => edge.id === recipe.edgeIds[0]).classification =
+            "effects";
+        },
+        /not coverage-bound/,
+      ],
+      [
+        "wrong carrier surface",
+        (checked, recipe) => {
+          checked.edges.find((edge) => edge.id === recipe.edgeIds[0]).surface.name =
+            "node:path";
+        },
+        /not coverage-bound/,
+      ],
+      [
+        "wrong carrier rationale",
+        (checked, recipe) => {
+          checked.edges.find((edge) => edge.id === recipe.edgeIds[0]).rationaleId =
+            "pure-in-memory";
+        },
+        /not coverage-bound/,
+      ],
+    ]) {
+      const recipe = noncapDnsModuleImportRecipe();
+      const observation = noncapDnsModuleImportObservation(recipe);
+      const checkedCoverage = structuredClone(coverage);
+      mutateCoverage(checkedCoverage, recipe);
+      rebindDescriptor(observation, recipe);
+      expect(
+        () =>
+          buildPublicFixtureEvidence({
+            recipe,
+            engineBinaryDigest: engine.binaryDigest,
+            runtimeObservation: observation,
+            coverage: checkedCoverage,
+          }),
+        label,
+      ).toThrow(expected);
+    }
+
+    const catalog = completeDnsModuleImportCatalog();
+    const executions = catalog.recipes.map((recipe, index) =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: noncapDnsModuleImportObservation(
+          recipe,
+          `u64:${index + 1}`,
+        ),
+        coverage,
+      }),
+    );
+    expect(() =>
+      buildPublicSurfaceExecutionArtifact({
+        recipeCatalog: catalog,
+        sourceRevision: "a".repeat(40),
+        sourceTreeDigest:
+          "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+        target,
+        engine,
+        coverage,
+        executions,
+      }),
+    ).not.toThrow();
+
+    const replayedRuntimeExecutions = catalog.recipes.map((recipe) =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: noncapDnsModuleImportObservation(recipe, "u64:7"),
+        coverage,
+      }),
+    );
+    expect(() =>
+      buildPublicSurfaceExecutionArtifact({
+        recipeCatalog: catalog,
+        sourceRevision: "a".repeat(40),
+        sourceTreeDigest:
+          "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+        target,
+        engine,
+        coverage,
+        executions: replayedRuntimeExecutions,
+      }),
+    ).toThrow(/reused a runtime nonce/);
   });
 
   test("accepts only the exact zero-decision builtin normal-return proof", () => {

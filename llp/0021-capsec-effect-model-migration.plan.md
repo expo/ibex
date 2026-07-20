@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-19 (binds the exact `dns/promises` carrier/provider callable shape to independent inventory and classifier review pins while leaving all 45 derived routes residual; strengthens four DNS no-effect alias receipts with exact cache-miss, VFS source, body-completion, alias, and runtime-nonce evidence)
 **Revised:** 2026-07-17 (ENG-24578 moves the lockdown startup postcondition to authenticated direct-file native-graph execution while retaining a separate zero-decision startup window, because persistent-session lowering intentionally closes evaluator syntax)
 **Revised:** 2026-07-17 (ENG-24578 moves the four lockdown-tamed evaluator probes from the deliberately syntax-closed persistent-session route to authenticated direct-file native-graph admission, preserving exact loaded-engine evidence without reopening REPL dynamic code)
 **Revised:** 2026-07-18 (ENG-24933 binds direct path truncation to retained-object typed authorization and physically proves five Apple scenarios)
@@ -82,6 +83,16 @@ unless the authenticated snapshot opts in.)
 public spelling in a fresh engine and binds its first-load `NODE_DEBUG` read to
 the independently observed native environment gate; platform and lazy DNS
 aliases remain residual.)
+**Revised:** 2026-07-19 (ENG-24933 reconciles the current lazy DNS sources with
+the coverage model: the four exact `dns`/`node:dns` and promises import
+spellings, plus both default namespace rows, are module-reachability-only;
+each import spelling now requires fresh-engine observation from before its
+first `require` through event-loop quiescence, while `getServers`, `Resolver`,
+and other exported operations remain separate and uncredited; the promises
+spellings now execute their declared `node_dns_promises` manifest source rather
+than a bootstrap-internal shadow; `getServers` and `Resolver` now carry the
+conditional native-resolution/filesystem-fallback effects that the lazy source
+actually triggers.)
 **Related:** LLP 0002 (host ABI); LLP 0004 (module loading); LLP 0005 (generated build artifacts); LLP 0013 (per-package enforcement mechanics); LLP 0014 (import-site grants and generated policy); LLP 0016 (architecture assessment); LLP 0020 (Oden portability research); LLP 0026 (module-runner authority amendments); LLP 0027 (module artifacts and interop); Oden LLP 0019 (Capability Security, Revision 2); Oden LLP 0020 (Capability Security by Default); ENG-24143
 
 ## Summary
@@ -895,7 +906,16 @@ provenance: direct calls, constructor bodies, locally authored callable
 alternatives, and literal CommonJS dependencies joined to the exact manifest
 source key and export. Reassigned or computed dependency receivers, opaque
 callable alternatives, intrinsic mutation, and unresolved cross-source exports
-remain explicit ambiguities. Multiple source-proven terminals are retained
+routinely remain explicit ambiguities. The bounded `dns/promises` exception
+projects exactly 42 callable carrier rows from the structurally reviewed
+`node_dns` provider plus three provider Resolver `_handle` instance rows. Both
+complete source ASTs, their exact source keys and paths, and the projection
+schema are bound to a pinned inventory digest; the semantic classifier carries
+an independent hardcoded digest and exact 45-name review set. Any one-sided
+source, scanner, metadata, or classifier drift therefore fails closed. The
+projection does not invent a call route: every row retains one explicit
+carrier/provider or constructor-instance ambiguity and no terminal. Multiple
+source-proven terminals are retained
 rather than guessed away; WP10 still requires bounded public arguments to show
 which route the bound engine actually executes.
 It also includes 178 host-ABI surfaces: the complete 84/36/10
@@ -1586,13 +1606,38 @@ first-load effect and each public spelling executes in a fresh armed engine
 whose observer opens before the first `require`. The reviewed `NODE_DEBUG`
 initialization family uses that path. Platform-classified filesystem,
 constants, and OS aliases remain residual because a bare import emits no typed
-decision; conditional DNS aliases remain residual because it does not select
-their modeled resolver-configuration filesystem branch. Non-capability aliases
-also remain residual: a shared-engine zero-decision result cannot establish
-that each spelling has an effect-free first load because later aliases reuse
-the module cache. Cache order is not independent execution evidence. Export
-reads and calls remain separate obligations: their exact public module is
-loaded and driven to
+decision. The current DNS sources are different from their former eager
+implementation: resolver configuration is loaded lazily only when an exported
+operation asks for it. Therefore exactly `dns`, `node:dns`, `dns/promises`, and
+`node:dns/promises` are classified as `module-reachability-only` and each is
+executed in its own fresh armed engine with the observer open before the first
+`require` and through event-loop quiescence. Evidence must contain zero legacy
+or typed decisions and must bind the exact alias source metadata and carrier
+edge. Each accepted receipt must prove exactly one authenticated module-cache
+miss, the exact VFS builtin `SourceId`, completed builtin-body evaluation, and
+the exact requested alias. The four receipts must also carry pairwise-distinct
+tagged runtime nonces, so neither a cache hit nor shared-engine alias reuse can
+stand in for an independent first load. In particular, the two promises
+spellings fall through `loadInternal` to
+their declared `node_dns_promises` manifest source; a synthesized
+`dns.promises` cache would not be source-bound evidence for that manifest
+alias. The two scanner-produced DNS `default` namespace rows share the corrected
+non-capability classification, but remain output-shape residuals while their
+value shape is unresolved. This import evidence does not execute or credit
+`getServers`, `Resolver`, or any other export; those calls remain separate
+obligations. The reviewed two-source shape makes 42 `node_dns_promises`
+callables and three `node_dns` Resolver `_handle` callables inventory-visible,
+but all 45 remain route residuals and are explicitly excluded from generic
+effect, closed, and non-capability probe authors. `getServers` and `Resolver`
+are effect-bearing conditional rows:
+uncached system-server discovery uses the native `network:resolve` gate and may
+fall back to `fs:list` plus `fs:read`; cached or explicitly configured server
+state is the no-effect branch. Other non-capability aliases remain residual: a
+shared-engine zero-decision result cannot establish that each spelling has an
+effect-free first load because later aliases reuse the module cache. Cache
+order is not independent execution evidence. Export reads and calls remain
+separate
+obligations: their exact public module is loaded and driven to
 event-loop quiescence before the per-export observer opens, then the invocation
 still performs the authenticated public `require` and resolves the
 source-derived export from that cache. This isolates both synchronous and

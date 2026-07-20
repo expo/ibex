@@ -1,7 +1,7 @@
 {
   "outputDispositionDatasetSchema": "ibex/capsec-output-dispositions/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256-pfKwYtRvBNs7G4wx_GOS9cQvQ0rYDmcxdWne7tiG4nM",
+  "catalogKeyDigest": "sha256-EtcgZThPjpr6tODohVlJjwWv2X44JvJa_0DNKP-mjvc",
   "evidence": {
     "status": "unpromotable",
     "reason": "The output corpus remains unpromotable: one native module-marker surface account and three inherited-intrinsic alias surface accounts are unresolved, and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes all three account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations."
@@ -14897,6 +14897,40 @@
     },
     {
       "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.getdefaultresultorder.0zgb2yf",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:getDefaultResultOrder",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.getservers.01v0q69",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:getServers",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.builtin.export.node.dns.promises.loadiphlpapi.0r9tsfk",
         "output": "[[value]]",
         "alias": "export:node_dns_promises:LOADIPHLPAPI",
@@ -14904,6 +14938,40 @@
         "sourceKind": "builtin",
         "returnVariant": "default",
         "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.lookup.1a9e80f",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:lookup",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.lookupservice.0nrxs0i",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:lookupService",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
       },
       "disposition": "non-path",
       "expectation": {
@@ -15033,6 +15101,618 @@
     },
     {
       "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolve.0qe3x1j",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolve",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolve4.1uhidzd",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolve4",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolve6.1txj6lf",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolve6",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolveany.1kwoqxj",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolveAny",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolvecaa.1yzg4si",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolveCaa",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolvecname.0inspqf",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolveCname",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolvemx.0vswwoi",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolveMx",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolvenaptr.1lzyqwo",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolveNaptr",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolvens.0viu5hk",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolveNs",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolveptr.1xc44vn",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolvePtr",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.1c0jtjj",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.cancel.1vz6z1x",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.cancel",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.getservers.1yzo3ff",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.getServers",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.handle.cancel.1tahyby",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver._handle.cancel",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.handle.getservers.1k4asmo",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver._handle.getServers",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.handle.setservers.0639f0c",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver._handle.setServers",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolve.1kh4ti5",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolve",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolve4.1n1q6vf",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolve4",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolve6.1nlpe9d",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolve6",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolveany.0pbf68l",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolveAny",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvecaa.04jkrj4",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolveCaa",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvecname.1j33v7l",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolveCname",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvemx.0d8cok8",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolveMx",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvenaptr.18jk9r6",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolveNaptr",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvens.0gahrou",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolveNs",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolveptr.1wfdac1",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolvePtr",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvesoa.0z3quuy",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolveSoa",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvesrv.0sruj7e",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolveSrv",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvetxt.0jkf1ev",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolveTxt",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.reverse.1hdraqf",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.reverse",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.setlocaladdress.0p03fr8",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.setLocalAddress",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.setservers.1bkicgv",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.setServers",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolvesoa.1d9c8uw",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolveSoa",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolvesrv.1j2lxbo",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolveSrv",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolvetxt.0ll4aqd",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolveTxt",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.reverse.1g76tz5",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:reverse",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.builtin.export.node.dns.promises.servfail.0ll95k5",
         "output": "[[value]]",
         "alias": "export:node_dns_promises:SERVFAIL",
@@ -15040,6 +15720,40 @@
         "sourceKind": "builtin",
         "returnVariant": "default",
         "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.setdefaultresultorder.04ul83n",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:setDefaultResultOrder",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.setservers.1s3ahhh",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:setServers",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
       },
       "disposition": "non-path",
       "expectation": {
@@ -15291,6 +16005,57 @@
         "surfaceId": "surface.builtin.export.node.dns.resolver.getservers.0i7lh38",
         "output": "[[return]]",
         "alias": "export:node_dns:Resolver.getServers",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.resolver.handle.cancel.0zr5wc9",
+        "output": "[[return]]",
+        "alias": "export:node_dns:Resolver._handle.cancel",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.resolver.handle.getservers.0czdntj",
+        "output": "[[return]]",
+        "alias": "export:node_dns:Resolver._handle.getServers",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.resolver.handle.setservers.1dh70kz",
+        "output": "[[return]]",
+        "alias": "export:node_dns:Resolver._handle.setServers",
         "mode": "all",
         "sourceKind": "builtin",
         "returnVariant": "default",
@@ -108771,12 +109536,12 @@
     }
   ],
   "counts": {
-    "catalogRows": 6397,
-    "dispositionRows": 6397,
+    "catalogRows": 6442,
+    "dispositionRows": 6442,
     "byDisposition": {
       "absent": 152,
       "closed": 28,
-      "non-path": 6069,
+      "non-path": 6114,
       "private-native-path": 5,
       "refused": 12,
       "reserved-constant": 1,

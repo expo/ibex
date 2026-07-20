@@ -22,6 +22,15 @@ import {
 
 const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
 const canonicalSet = (values) => [...new Set(values)].sort(compareText);
+const builtinCacheSourceId = (sourceKey) =>
+  `ibex-source-id-v1:${Buffer.from(
+    canonicalJson({
+      kind: "builtin",
+      key: sourceKey,
+      sourceIdSchema: "ibex.source-id.v1",
+    }),
+    "utf8",
+  ).toString("base64url")}`;
 const taggedDigest = (value) =>
   `sha256-${crypto
     .createHash("sha256")
@@ -66,6 +75,17 @@ const EFFECT_BUILTIN_MODULE_IMPORT_ALIASES = new Map(
       { sourceKey, bundleExternal, moduleBuiltin, actionId },
     ],
   ),
+);
+const NONCAP_BUILTIN_MODULE_IMPORT_ALIASES = new Map(
+  [
+    ["dns", "node_dns"],
+    ["node:dns", "node_dns"],
+    ["dns/promises", "node_dns_promises"],
+    ["node:dns/promises", "node_dns_promises"],
+  ].map(([moduleSpecifier, sourceKey]) => [
+    moduleSpecifier,
+    { sourceKey, bundleExternal: true, moduleBuiltin: true },
+  ]),
 );
 const EFFECT_BUILTIN_IMPORT_SCENARIOS = new Set([
   "allow",
@@ -496,6 +516,172 @@ function validateEffectBuiltinModuleImportInvocation(
   }
 }
 
+function validateNonCapabilityBuiltinModuleImportInvocation(
+  invocation,
+  authored,
+  recipe,
+) {
+  const expectation = NONCAP_BUILTIN_MODULE_IMPORT_ALIASES.get(
+    authored.moduleSpecifier,
+  );
+  const surfaceObservedKey = `builtin:${authored.moduleSpecifier}`;
+  const descriptor = authored.sourceDescriptor;
+  const sourceMetadata = descriptor?.sourceMetadata;
+
+  exactKeys(
+    invocation,
+    [
+      "invocationSchema",
+      "kind",
+      "surfaceObservedKey",
+      "moduleSpecifier",
+      "sourceDescriptorDigest",
+      "sourceExecution",
+      "completion",
+      "result",
+    ],
+    `${recipe.fixtureId}: non-capability builtin module-import runtime invocation`,
+  );
+  exactKeys(
+    invocation.sourceExecution,
+    [
+      "schema",
+      "observationId",
+      "runtimeNonce",
+      "moduleSpecifier",
+      "sourceId",
+      "cacheMiss",
+      "bodyCompleted",
+    ],
+    `${recipe.fixtureId}: authenticated builtin source execution`,
+  );
+  exactKeys(
+    authored,
+    [
+      "invocationSchema",
+      "kind",
+      "moduleSpecifier",
+      "sourceDescriptor",
+      "sourceDescriptorDigest",
+      "arguments",
+      "setup",
+      "completion",
+      "requiredAuthority",
+      "expectedResult",
+      "expectedTypedDecisionCount",
+      "expectedTypedStages",
+      "allowedCoverageEdgeIds",
+      "expectedActionIds",
+    ],
+    `${recipe.fixtureId}: authored non-capability builtin module import`,
+  );
+  exactKeys(
+    descriptor,
+    [
+      "kind",
+      "moduleSpecifier",
+      "sourceKey",
+      "sourceRef",
+      "sourceMetadata",
+      "carrierEdgeId",
+    ],
+    `${recipe.fixtureId}: non-capability builtin module-import source descriptor`,
+  );
+  exactKeys(
+    sourceMetadata,
+    ["sourceKey", "bundleExternal", "importReachability", "moduleBuiltin"],
+    `${recipe.fixtureId}: non-capability builtin module-import source metadata`,
+  );
+  exactKeys(
+    authored.setup,
+    ["kind"],
+    `${recipe.fixtureId}: non-capability builtin module-import setup`,
+  );
+  exactKeys(
+    authored.completion,
+    ["kind", "timeoutMilliseconds"],
+    `${recipe.fixtureId}: authored non-capability builtin completion`,
+  );
+  exactKeys(
+    invocation.completion,
+    ["kind", "status", "timeoutMilliseconds"],
+    `${recipe.fixtureId}: non-capability builtin runtime completion`,
+  );
+  exactKeys(
+    recipe.route,
+    ["surfaceObservedKeys", "alternatives", "ambiguousCallees"],
+    `${recipe.fixtureId}: non-capability builtin module-import route`,
+  );
+  if (recipe.route.alternatives?.length === 1) {
+    exactKeys(
+      recipe.route.alternatives[0],
+      ["terminalObservedKey", "proofPaths"],
+      `${recipe.fixtureId}: non-capability builtin module-import route alternative`,
+    );
+  }
+
+  if (
+    recipe.classification !== "non-capability" ||
+    recipe.scenario !== "non-capability" ||
+    expectation === undefined ||
+    authored.invocationSchema !==
+      "ibex/capsec-builtin-module-import-no-effect-invocation/1" ||
+    authored.kind !== "builtin-module-import" ||
+    invocation.kind !== authored.kind ||
+    invocation.moduleSpecifier !== authored.moduleSpecifier ||
+    recipe.publicSurfaceProbe?.surfaceObservedKey !== surfaceObservedKey ||
+    invocation.surfaceObservedKey !== surfaceObservedKey ||
+    recipe.terminalObservedKey !== surfaceObservedKey ||
+    canonicalJson(recipe.route.surfaceObservedKeys) !==
+      canonicalJson([surfaceObservedKey]) ||
+    recipe.route.alternatives?.length !== 1 ||
+    recipe.route.alternatives[0].terminalObservedKey !== surfaceObservedKey ||
+    canonicalJson(recipe.route.alternatives[0].proofPaths) !==
+      canonicalJson([surfaceObservedKey]) ||
+    canonicalJson(recipe.route.ambiguousCallees) !== canonicalJson([]) ||
+    !Array.isArray(recipe.edgeIds) ||
+    recipe.edgeIds.length !== 1 ||
+    descriptor.carrierEdgeId !== recipe.edgeIds[0] ||
+    canonicalJson(recipe.actionIds) !== canonicalJson([]) ||
+    descriptor.kind !== "builtin-module-alias" ||
+    descriptor.moduleSpecifier !== authored.moduleSpecifier ||
+    descriptor.sourceKey !== expectation.sourceKey ||
+    descriptor.sourceRef !==
+      `modules.ts#specifiers:${expectation.sourceKey}` ||
+    sourceMetadata.sourceKey !== expectation.sourceKey ||
+    sourceMetadata.bundleExternal !== expectation.bundleExternal ||
+    sourceMetadata.importReachability !== "public" ||
+    sourceMetadata.moduleBuiltin !== expectation.moduleBuiltin ||
+    canonicalJson(authored.arguments) !== canonicalJson([]) ||
+    authored.setup.kind !== "none" ||
+    authored.completion.kind !== "event-loop-quiescence" ||
+    authored.completion.timeoutMilliseconds !== 1_000 ||
+    invocation.completion.kind !== authored.completion.kind ||
+    invocation.completion.timeoutMilliseconds !==
+      authored.completion.timeoutMilliseconds ||
+    invocation.completion.status !== "quiescent" ||
+    invocation.sourceExecution.schema !==
+      "ibex/capsec-authenticated-builtin-source-execution/1" ||
+    invocation.sourceExecution.observationId !== recipe.fixtureId ||
+    !isTaggedRuntimeNonce(invocation.sourceExecution.runtimeNonce) ||
+    invocation.sourceExecution.moduleSpecifier !== authored.moduleSpecifier ||
+    invocation.sourceExecution.sourceId !==
+      builtinCacheSourceId(expectation.sourceKey) ||
+    invocation.sourceExecution.cacheMiss !== true ||
+    invocation.sourceExecution.bodyCompleted !== true ||
+    canonicalJson(authored.requiredAuthority) !== canonicalJson([]) ||
+    authored.expectedResult !== "return" ||
+    authored.expectedTypedDecisionCount !== 0 ||
+    canonicalJson(authored.expectedTypedStages) !== canonicalJson([]) ||
+    canonicalJson(authored.allowedCoverageEdgeIds) !== canonicalJson([]) ||
+    canonicalJson(authored.expectedActionIds) !== canonicalJson([])
+  ) {
+    throw new Error(
+      `${recipe.fixtureId}: non-capability builtin module-import invocation descriptor drift`,
+    );
+  }
+}
+
 function evidenceDigest(evidence) {
   const { evidenceDigest: _digest, ...payload } = evidence;
   return taggedDigest(payload);
@@ -657,7 +843,9 @@ function coverageTerminalMap(coverage) {
 const isTaggedDigest = (value) =>
   typeof value === "string" && /^sha256-[A-Za-z0-9_-]{43}$/u.test(value);
 const isTaggedRuntimeNonce = (value) =>
-  typeof value === "string" && /^u64:[1-9][0-9]*$/u.test(value);
+  typeof value === "string" &&
+  /^u64:[1-9][0-9]*$/u.test(value) &&
+  BigInt(value.slice(4)) <= 18_446_744_073_709_551_615n;
 
 const EXACT_OPERATION_MANIFEST_DIGEST =
   "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
@@ -1364,6 +1552,15 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: module-loader runtime invocation descriptor drift`,
       );
     }
+  } else if (
+    invocation?.invocationSchema ===
+    "ibex/capsec-builtin-module-import-no-effect-invocation/1"
+  ) {
+    validateNonCapabilityBuiltinModuleImportInvocation(
+      invocation,
+      authored,
+      recipe,
+    );
   } else if (
     invocation?.invocationSchema ===
     "ibex/capsec-builtin-module-import-invocation/1"
@@ -2515,6 +2712,9 @@ function validateRuntimeInvocation(observation, recipe) {
   const effectBuiltinModuleImport =
     authored.invocationSchema ===
     "ibex/capsec-builtin-module-import-invocation/1";
+  const noncapBuiltinModuleImport =
+    authored.invocationSchema ===
+    "ibex/capsec-builtin-module-import-no-effect-invocation/1";
   const outcomeDeclaredCarrier = callbackInvariant || startupEnvironment;
   const auxiliaryCarrier =
     outcomeDeclaredCarrier || effectBuiltinModuleImport;
@@ -2638,8 +2838,7 @@ function validateRuntimeInvocation(observation, recipe) {
       throw new Error(`${recipe.fixtureId}: public invocation did not return`);
     }
     if (
-      authored.invocationSchema ===
-      "ibex/capsec-builtin-module-import-invocation/1"
+      (effectBuiltinModuleImport || noncapBuiltinModuleImport)
     ) {
       exactKeys(
         invocation.result,
@@ -3370,9 +3569,14 @@ export function validatePublicFixtureRuntimeObservation(
   const effectBuiltinModuleImport =
     authored.invocationSchema ===
     "ibex/capsec-builtin-module-import-invocation/1";
+  const nonCapabilityBuiltinModuleImport =
+    authored.invocationSchema ===
+    "ibex/capsec-builtin-module-import-no-effect-invocation/1";
   const outcomeDeclaredCarrier = callbackInvariant || startupEnvironment;
   const auxiliaryCarrier =
-    outcomeDeclaredCarrier || effectBuiltinModuleImport;
+    outcomeDeclaredCarrier ||
+    effectBuiltinModuleImport ||
+    nonCapabilityBuiltinModuleImport;
   const nativeWorkerTerminal = nativeAsyncWorkerTerminal(authored);
   let effectBuiltinModuleImportIdentity = null;
   if (callbackInvariant) {
@@ -3501,6 +3705,32 @@ export function validatePublicFixtureRuntimeObservation(
     ) {
       throw new Error(
         `${recipe.fixtureId}: builtin module-import auxiliary decision is not coverage-bound`,
+      );
+    }
+  }
+  if (nonCapabilityBuiltinModuleImport) {
+    const descriptor = authored.sourceDescriptor;
+    const carrierEdge = coverage?.edges?.find(
+      (edge) => edge.id === descriptor?.carrierEdgeId,
+    );
+    const expectation = NONCAP_BUILTIN_MODULE_IMPORT_ALIASES.get(
+      authored.moduleSpecifier,
+    );
+    if (
+      expectation === undefined ||
+      carrierEdge?.classification !== "non-capability" ||
+      carrierEdge?.surface?.kind !== "builtin" ||
+      carrierEdge?.surface?.name !== authored.moduleSpecifier ||
+      carrierEdge?.rationaleId !== "module-reachability-only" ||
+      (carrierEdge.effects?.length ?? 0) !== 0 ||
+      carrierEdge?.id !== recipe.edgeIds?.[0] ||
+      descriptor.carrierEdgeId !== carrierEdge.id ||
+      descriptor.sourceKey !== expectation.sourceKey ||
+      descriptor.sourceMetadata?.sourceKey !== expectation.sourceKey ||
+      recipe.terminalObservedKey !== `builtin:${authored.moduleSpecifier}`
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: non-capability builtin module import is not coverage-bound`,
       );
     }
   }
@@ -4064,6 +4294,7 @@ export function validatePublicSurfaceExecutionArtifact(
     recipeCatalog.recipes.map((recipe) => [recipe.fixtureId, recipe]),
   );
   const seen = new Set();
+  const authenticatedBuiltinRuntimeNonces = new Set();
   for (const execution of artifact.executions) {
     const recipe = recipes.get(execution?.fixtureId);
     if (!recipe || seen.has(execution.fixtureId)) {
@@ -4078,6 +4309,19 @@ export function validatePublicSurfaceExecutionArtifact(
       artifact.engine?.binaryDigest,
       coverage,
     );
+    const authenticatedBuiltinRuntimeNonce =
+      execution.evidence?.runtimeObservation?.invocation?.sourceExecution
+        ?.runtimeNonce;
+    if (authenticatedBuiltinRuntimeNonce !== undefined) {
+      if (
+        authenticatedBuiltinRuntimeNonces.has(authenticatedBuiltinRuntimeNonce)
+      ) {
+        throw new Error(
+          "authenticated builtin source executions reused a runtime nonce",
+        );
+      }
+      authenticatedBuiltinRuntimeNonces.add(authenticatedBuiltinRuntimeNonce);
+    }
   }
   if (
     canonicalJson(artifact.executions.map((row) => row.fixtureId)) !==

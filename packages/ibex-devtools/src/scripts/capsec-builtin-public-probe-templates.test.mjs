@@ -26,6 +26,8 @@ const builtinInvocationHarness = new Function(
 )(createRequire(import.meta.url));
 
 function probeFor({
+  constructorInstanceProjection,
+  crossSourceExportProjection,
   sourceKey = "node_constants",
   exportName = "ENOENT",
   exportIdioms = ["object-binding", "object-source"],
@@ -56,6 +58,12 @@ function probeFor({
           sourceRefs: [`src/builtins/${sourceKey}.js#exports:${exportName}`],
           metadata: {
             sourceKey,
+            ...(crossSourceExportProjection === undefined
+              ? {}
+              : { crossSourceExportProjection }),
+            ...(constructorInstanceProjection === undefined
+              ? {}
+              : { constructorInstanceProjection }),
             exportName,
             exportIdioms,
             importReachability,
@@ -72,6 +80,42 @@ function probeFor({
 }
 
 describe("source-bound builtin public probes", () => {
+  test("keeps cross-source export projections residual even with one source ref", () => {
+    const input = {
+      sourceKey: "node_dns_promises",
+      exportName: "getDefaultResultOrder",
+      exportIdioms: ["cross-source-required-member-object-property"],
+      moduleSpecifiers: ["dns/promises", "node:dns/promises"],
+      valueShape: "data",
+    };
+    expect(probeFor(input)).not.toBeNull();
+    expect(
+      probeFor({
+        ...input,
+        crossSourceExportProjection: {
+          carrierSourceKey: "node_dns_promises",
+          kind: "immutable-commonjs-member-object",
+          providerSourceKey: "node_dns",
+        },
+      }),
+    ).toBeNull();
+  });
+
+  test("keeps constructor-instance projections residual even with one source ref", () => {
+    const input = {};
+    expect(probeFor(input)).not.toBeNull();
+    expect(
+      probeFor({
+        ...input,
+        constructorInstanceProjection: {
+          constructorExport: "Resolver",
+          instancePath: "_handle.cancel",
+          kind: "constructor-installed-nested-object",
+        },
+      }),
+    ).toBeNull();
+  });
+
   test("leaves cache-order-dependent module aliases residual", () => {
     for (const [moduleSpecifier, sourceKey, importReachability] of [
       ["node:path", "node_path", "public"],
@@ -106,6 +150,151 @@ describe("source-bound builtin public probes", () => {
         }),
       ).toBeNull();
     }
+  });
+
+  test("authors fresh-engine zero-decision probes for exactly four DNS aliases", () => {
+    for (const [moduleSpecifier, sourceKey, edgeId] of [
+      ["dns", "node_dns", "edge.dns"],
+      ["node:dns", "node_dns", "edge.node-dns"],
+      ["dns/promises", "node_dns_promises", "edge.dns-promises"],
+      [
+        "node:dns/promises",
+        "node_dns_promises",
+        "edge.node-dns-promises",
+      ],
+    ]) {
+      const observedKey = `builtin:${moduleSpecifier}`;
+      const probe = authoredNonCapabilityBuiltinProbe({
+        plan: { ...plan, edgeIds: [edgeId] },
+        scenario: "non-capability",
+        route: {
+          surfaceObservedKeys: [observedKey],
+          alternatives: [
+            { terminalObservedKey: observedKey, proofPaths: [observedKey] },
+          ],
+          ambiguousCallees: [],
+        },
+        liveByObservedKey: new Map([
+          [
+            observedKey,
+            {
+              kind: "builtin",
+              name: moduleSpecifier,
+              observedKey,
+              sourceRefs: [`modules.ts#specifiers:${sourceKey}`],
+              metadata: {
+                sourceKey,
+                bundleExternal: true,
+                importReachability: "public",
+                moduleBuiltin: true,
+              },
+            },
+          ],
+        ]),
+      });
+      expect(probe).toMatchObject({
+        kind: "public-surface-invocation",
+        surfaceObservedKey: observedKey,
+        invocation: {
+          invocationSchema:
+            "ibex/capsec-builtin-module-import-no-effect-invocation/1",
+          kind: "builtin-module-import",
+          moduleSpecifier,
+          arguments: [],
+          setup: { kind: "none" },
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          requiredAuthority: [],
+          expectedResult: "return",
+          expectedTypedDecisionCount: 0,
+          expectedTypedStages: [],
+          allowedCoverageEdgeIds: [],
+          expectedActionIds: [],
+          sourceDescriptor: {
+            kind: "builtin-module-alias",
+            moduleSpecifier,
+            sourceKey,
+            sourceRef: `modules.ts#specifiers:${sourceKey}`,
+            sourceMetadata: {
+              sourceKey,
+              bundleExternal: true,
+              importReachability: "public",
+              moduleBuiltin: true,
+            },
+            carrierEdgeId: edgeId,
+          },
+        },
+      });
+      expect(probe.invocation).not.toHaveProperty("exportName");
+    }
+  });
+
+  test("rejects near-miss DNS import carriers and export-call conflation", () => {
+    const invoke = ({
+      moduleSpecifier = "node:dns",
+      sourceKey = "node_dns",
+      sourceRef = `modules.ts#specifiers:${sourceKey}`,
+      metadata = {
+        sourceKey,
+        bundleExternal: true,
+        importReachability: "public",
+        moduleBuiltin: true,
+      },
+      proofPaths,
+    } = {}) => {
+      const observedKey = `builtin:${moduleSpecifier}`;
+      return authoredNonCapabilityBuiltinProbe({
+        plan: { ...plan, edgeIds: ["edge.node-dns"] },
+        scenario: "non-capability",
+        route: {
+          surfaceObservedKeys: [observedKey],
+          alternatives: [
+            {
+              terminalObservedKey: observedKey,
+              proofPaths: proofPaths ?? [observedKey],
+            },
+          ],
+          ambiguousCallees: [],
+        },
+        liveByObservedKey: new Map([
+          [
+            observedKey,
+            {
+              kind: "builtin",
+              name: moduleSpecifier,
+              observedKey,
+              sourceRefs: [sourceRef],
+              metadata,
+            },
+          ],
+        ]),
+      });
+    };
+
+    expect(invoke({ moduleSpecifier: "node:path", sourceKey: "node_path" })).toBeNull();
+    expect(invoke({ sourceKey: "node_dns_promises" })).toBeNull();
+    expect(invoke({ sourceRef: "src/builtins/dns.js#exports:getServers" })).toBeNull();
+    expect(
+      invoke({
+        metadata: {
+          sourceKey: "node_dns",
+          bundleExternal: true,
+          importReachability: "public",
+          moduleBuiltin: true,
+          exportName: "getServers",
+        },
+      }),
+    ).toBeNull();
+    expect(
+      invoke({
+        proofPaths: [
+          "builtin:node:dns",
+          "builtin:export:node_dns:getServers",
+        ],
+      }),
+    ).toBeNull();
   });
 
   test("reads an own export through the canonical public alias", () => {

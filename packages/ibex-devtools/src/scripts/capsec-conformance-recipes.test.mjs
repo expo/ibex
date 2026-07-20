@@ -9,6 +9,9 @@ import {
   fixtureScenario,
   nativeExpectedStageContractViolation,
 } from "./capsec-conformance-recipes.mjs";
+import { authoredNonCapabilityBuiltinProbe } from "./capsec-builtin-public-probe-templates.mjs";
+import { authoredClosedPublicProbe } from "./capsec-closed-probe-templates.mjs";
+import { authoredBuiltinPublicProbe } from "./capsec-public-probe-templates.mjs";
 import {
   fixtureCatalogForTarget,
   fixtureExecutionPlans,
@@ -34,6 +37,7 @@ describe("exact-target CapSec executable recipes", () => {
   let expectedFixtureIds;
   let capabilityDefinitions;
   let occurrenceExamples;
+  let inventory;
   let rules;
   let selectorExamples;
   let windowsRecipes;
@@ -76,7 +80,7 @@ describe("exact-target CapSec executable recipes", () => {
     selectorExamples = readJson(
       "capsec/examples/authority-selectors.canonical.json",
     );
-    const inventory = await discoverRepositorySurfaces(repoRoot);
+    inventory = await discoverRepositorySurfaces(repoRoot);
     recipes = buildConformanceRecipeCatalog({
       catalog,
       coverage,
@@ -114,6 +118,113 @@ describe("exact-target CapSec executable recipes", () => {
     );
   });
 
+  test("keeps all 45 review-bound DNS derived operations residual", () => {
+    const reviewId =
+      "sha256-161c4e4bf9027d0d3e4f9427954c18529f7ef0bd727be9064fc8f79270a75c75";
+    const rows = inventory.surfaces.filter(
+      (row) => row.metadata?.dnsPromiseExportShapeReviewId === reviewId,
+    );
+    expect(rows).toHaveLength(45);
+    expect(
+      rows.filter(
+        (row) => row.metadata.crossSourceExportProjection !== undefined,
+      ),
+    ).toHaveLength(42);
+    expect(
+      rows.filter(
+        (row) => row.metadata.constructorInstanceProjection !== undefined,
+      ),
+    ).toHaveLength(3);
+
+    const target = rules.initialProfile.candidateTargets.find(
+      (candidate) => candidate.triple === "aarch64-apple-darwin",
+    );
+    expect(target).toBeDefined();
+    const liveByObservedKey = new Map(
+      rows.map((row) => [row.observedKey, row]),
+    );
+    for (const row of rows) {
+      const evidence = row.metadata.enforcementRouteEvidence;
+      expect(evidence.paths, row.observedKey).toEqual([]);
+      expect(evidence.terminals, row.observedKey).toEqual([]);
+      expect(evidence.ambiguousCallees, row.observedKey).toHaveLength(1);
+
+      // Give each generic author the strongest synthetic direct route it
+      // could accept. Shape projection is still presence evidence only, so no
+      // author may turn it into an execution or enforcement claim.
+      const route = {
+        surfaceObservedKeys: [row.observedKey],
+        alternatives: [
+          {
+            terminalObservedKey: row.observedKey,
+            proofPaths: [row.observedKey],
+          },
+        ],
+        ambiguousCallees: [],
+      };
+      const coverageByObservedKey = new Map([
+        [
+          row.observedKey,
+          {
+            id: "synthetic.review-bound-dns-shape",
+            observedKey: row.observedKey,
+            surface: { kind: row.kind, name: row.name },
+            classification: "effects",
+            effects: [],
+          },
+        ],
+      ]);
+      expect(
+        authoredBuiltinPublicProbe({
+          plan: {
+            classification: "effects",
+            actionIds: [],
+            edgeIds: ["synthetic.review-bound-dns-shape"],
+          },
+          scenario: "allow",
+          route,
+          liveByObservedKey,
+          coverageByObservedKey,
+        }),
+        row.observedKey,
+      ).toBeNull();
+      expect(
+        authoredNonCapabilityBuiltinProbe({
+          plan: {
+            classification: "non-capability",
+            actionIds: [],
+            edgeIds: ["synthetic.review-bound-dns-shape"],
+          },
+          scenario: "non-capability",
+          route,
+          liveByObservedKey,
+          target,
+        }),
+        row.observedKey,
+      ).toBeNull();
+      coverageByObservedKey.get(row.observedKey).classification = "closed";
+      expect(
+        authoredClosedPublicProbe({
+          plan: {
+            classification: "closed",
+            actionIds: [],
+            edgeIds: ["synthetic.review-bound-dns-shape"],
+            expectedObservation: {
+              kind: "enforcement-branch",
+              branchId: "synthetic.review-bound-dns-shape",
+            },
+          },
+          scenario: "closed",
+          route,
+          liveByObservedKey,
+          coverageByObservedKey,
+          target,
+        }),
+        row.observedKey,
+      ).toBeNull();
+    }
+  });
+
   test("bounds native recipe stages to registry and source-bound internal contracts", () => {
     const semanticEffects = [
       { cap: "fs:list", stages: ["requested", "discovery"] },
@@ -144,9 +255,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_665);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_499);
-    expect(recipes.summary.unresolvedFixtures).toBe(21_166);
+    expect(recipes.summary.requiredFixtures).toBe(24_071);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_503);
+    expect(recipes.summary.unresolvedFixtures).toBe(21_568);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -242,9 +353,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_550);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_357);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_193);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_956);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_361);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_595);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -504,7 +615,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(2_830);
+    expect(rationaleOnly).toHaveLength(2_844);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -517,8 +628,8 @@ describe("exact-target CapSec executable recipes", () => {
       "generation-recheck": 510,
       "principal-restore": 510,
       "snapshot-mismatch-deny": 510,
-      "cannot-widen-authority": 395,
-      "post-lockdown-invariant": 395,
+      "cannot-widen-authority": 402,
+      "post-lockdown-invariant": 402,
     });
     expect(
       rationaleOnly.every(
@@ -2822,7 +2933,8 @@ describe("exact-target CapSec executable recipes", () => {
   test("isolates reviewed effect-bearing module imports and keeps other aliases residual", () => {
     const imports = recipes.recipes.filter(
       (recipe) =>
-        recipe.publicSurfaceProbe?.invocation?.kind === "builtin-module-import",
+        recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
+        "ibex/capsec-builtin-module-import-invocation/1",
     );
     const expectedAliases = new Map([
       ["node:sys", ["node_util", "surface.builtin.node.sys.1dbdr15"]],
@@ -2931,21 +3043,17 @@ describe("exact-target CapSec executable recipes", () => {
           "builtin:bun:fs",
           "builtin:bun:fs/promises",
           "builtin:constants",
-          "builtin:dns",
-          "builtin:dns/promises",
           "builtin:fs",
           "builtin:fs/promises",
           "builtin:internal/fs/promises",
           "builtin:node:constants",
-          "builtin:node:dns",
-          "builtin:node:dns/promises",
           "builtin:node:fs",
           "builtin:node:fs/promises",
           "builtin:node:os",
           "builtin:os",
         ].includes(recipe.route.surfaceObservedKeys[0]),
     );
-    expect(lazyOrDecisionFreeEffectAliases).toHaveLength(75);
+    expect(lazyOrDecisionFreeEffectAliases).toHaveLength(55);
     expect(
       lazyOrDecisionFreeEffectAliases.every(
         (recipe) =>
@@ -2964,14 +3072,87 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.route.surfaceObservedKeys[0].startsWith("builtin:") &&
         !recipe.route.surfaceObservedKeys[0].startsWith("builtin:export:"),
     );
-    expect(aliases).toHaveLength(33);
+    expect(aliases).toHaveLength(37);
+    const dnsImports = aliases.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
+        "ibex/capsec-builtin-module-import-no-effect-invocation/1",
+    );
     expect(
-      aliases.every(
+      dnsImports.map((recipe) => [
+        recipe.publicSurfaceProbe.invocation.moduleSpecifier,
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey,
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.carrierEdgeId,
+      ]),
+    ).toEqual([
+      ["dns", "node_dns", "surface.builtin.dns.1dztj15"],
+      [
+        "dns/promises",
+        "node_dns_promises",
+        "surface.builtin.dns.promises.1krunow",
+      ],
+      ["node:dns", "node_dns", "surface.builtin.node.dns.0nx113j"],
+      [
+        "node:dns/promises",
+        "node_dns_promises",
+        "surface.builtin.node.dns.promises.0izp08e",
+      ],
+    ]);
+    expect(
+      dnsImports.every((recipe) => {
+        const invocation = recipe.publicSurfaceProbe.invocation;
+        return (
+          recipe.status === "fully-executable" &&
+          recipe.actionIds.length === 0 &&
+          recipe.residualReasons.length === 0 &&
+          invocation.exportName === undefined &&
+          invocation.arguments.length === 0 &&
+          invocation.setup.kind === "none" &&
+          invocation.completion.kind === "event-loop-quiescence" &&
+          invocation.completion.timeoutMilliseconds === 1_000 &&
+          invocation.requiredAuthority.length === 0 &&
+          invocation.expectedResult === "return" &&
+          invocation.expectedTypedDecisionCount === 0 &&
+          invocation.expectedTypedStages.length === 0 &&
+          invocation.allowedCoverageEdgeIds.length === 0 &&
+          invocation.expectedActionIds.length === 0 &&
+          !recipe.route.surfaceObservedKeys[0].includes("getServers") &&
+          !recipe.route.surfaceObservedKeys[0].includes("Resolver")
+        );
+      }),
+    ).toBe(true);
+    const residualAliases = aliases.filter(
+      (recipe) => recipe.publicSurfaceProbe === null,
+    );
+    expect(residualAliases).toHaveLength(33);
+    expect(
+      residualAliases.every(
         (recipe) =>
           recipe.status === "unresolved" &&
           recipe.publicSurfaceProbe === null &&
           recipe.residualReasons.includes(
             "non-capability-no-decision-probe-not-authored",
+          ),
+      ),
+    ).toBe(true);
+
+    const dnsDefaults = recipes.recipes.filter((recipe) =>
+      [
+        "builtin:export:node_dns:default",
+        "builtin:export:node_dns_promises:default",
+      ].includes(recipe.terminalObservedKey),
+    );
+    expect(dnsDefaults).toHaveLength(2);
+    expect(
+      dnsDefaults.every(
+        (recipe) =>
+          recipe.classification === "non-capability" &&
+          recipe.scenario === "non-capability" &&
+          recipe.actionIds.length === 0 &&
+          recipe.status === "unresolved" &&
+          recipe.publicSurfaceProbe === null &&
+          recipe.residualReasons.includes(
+            "public-surface-invocation-not-authored",
           ),
       ),
     ).toBe(true);

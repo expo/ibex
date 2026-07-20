@@ -23,6 +23,7 @@ struct Recipe {
     plan_digest: String,
     classification: String,
     scenario: String,
+    edge_ids: Vec<String>,
     action_ids: Vec<String>,
     expected_observation: serde_json::Value,
     route: PublicRoute,
@@ -105,6 +106,37 @@ struct BuiltinSourceDescriptor {
     #[serde(default)]
     platform_availability: Option<Vec<String>>,
     access: BuiltinAccess,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BuiltinModuleAliasSourceDescriptor {
+    kind: String,
+    module_specifier: String,
+    source_key: String,
+    source_ref: String,
+    source_metadata: BuiltinModuleAliasSourceMetadata,
+    carrier_edge_id: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BuiltinModuleAliasSourceMetadata {
+    source_key: String,
+    bundle_external: bool,
+    import_reachability: String,
+    module_builtin: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BuiltinSourceObservation {
+    schema: String,
+    runtime_nonce: String,
+    observation_id: String,
+    expected_alias: String,
+    status: String,
+    source_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -236,6 +268,46 @@ fn tagged_jcs_digest(value: &serde_json::Value) -> String {
         "sha256-{}",
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest)
     )
+}
+
+fn expected_builtin_cache_source_id(source_key: &str) -> String {
+    let identity = serde_json::json!({
+        "kind": "builtin",
+        "key": source_key,
+        "sourceIdSchema": "ibex.source-id.v1",
+    });
+    let canonical = capsec_semantics::canonical::to_jcs_bytes(&identity)
+        .expect("builtin cache SourceId identity must canonicalize");
+    format!(
+        "ibex-source-id-v1:{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(canonical)
+    )
+}
+
+fn is_tagged_nonzero_u64(value: &str) -> bool {
+    let Some(decimal) = value.strip_prefix("u64:") else {
+        return false;
+    };
+    if decimal.is_empty() || decimal.starts_with('0') {
+        return false;
+    }
+    decimal.parse::<u64>().is_ok_and(|value| value != 0)
+}
+
+#[test]
+fn authenticated_builtin_runtime_nonce_uses_exact_u64_tagging() {
+    assert!(is_tagged_nonzero_u64("u64:1"));
+    assert!(is_tagged_nonzero_u64("u64:18446744073709551615"));
+    for rejected in [
+        "",
+        "1",
+        "u64:0",
+        "u64:01",
+        "u64:-1",
+        "u64:18446744073709551616",
+    ] {
+        assert!(!is_tagged_nonzero_u64(rejected), "accepted {rejected:?}");
+    }
 }
 
 fn load_catalog(path: &std::path::Path) -> RecipeCatalog {
@@ -677,8 +749,11 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         && invocation.kind == "builtin-export-read";
     let is_call = invocation.invocation_schema == "ibex/capsec-builtin-call-invocation/1"
         && invocation.kind == "builtin-export-call";
+    let is_module_import = invocation.invocation_schema
+        == "ibex/capsec-builtin-module-import-no-effect-invocation/1"
+        && invocation.kind == "builtin-module-import";
     assert!(
-        is_read || is_call,
+        is_read || is_call || is_module_import,
         "unsupported non-capability builtin probe"
     );
     assert_eq!(invocation.expected_typed_decision_count, 0);
@@ -691,6 +766,45 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         invocation.completion.timeout_milliseconds,
         EVENT_LOOP_COMPLETION_TIMEOUT_MS
     );
+
+    if is_module_import {
+        let descriptor: BuiltinModuleAliasSourceDescriptor =
+            serde_json::from_value(invocation.source_descriptor.clone())
+                .expect("non-capability builtin module descriptor must be exact");
+        let expected_source_key = match descriptor.module_specifier.as_str() {
+            "dns" | "node:dns" => "node_dns",
+            "dns/promises" | "node:dns/promises" => "node_dns_promises",
+            other => panic!("unsupported non-capability builtin module alias {other}"),
+        };
+        assert_eq!(descriptor.kind, "builtin-module-alias");
+        assert_eq!(descriptor.module_specifier, invocation.module_specifier);
+        assert_eq!(descriptor.source_key, expected_source_key);
+        assert_eq!(
+            descriptor.source_ref,
+            format!("modules.ts#specifiers:{expected_source_key}")
+        );
+        assert_eq!(descriptor.source_metadata.source_key, expected_source_key);
+        assert!(descriptor.source_metadata.bundle_external);
+        assert_eq!(descriptor.source_metadata.import_reachability, "public");
+        assert!(descriptor.source_metadata.module_builtin);
+        assert_eq!(recipe.edge_ids, vec![descriptor.carrier_edge_id.clone()]);
+        assert!(invocation.export_name.is_none());
+        assert!(invocation.template_id.is_none());
+        assert!(invocation.body_entry_proof.is_none());
+        assert!(invocation.arguments.is_empty());
+        assert_eq!(invocation.setup, serde_json::json!({"kind": "none"}));
+        assert_eq!(invocation.expected_result, "return");
+        assert_eq!(
+            probe.surface_observed_key,
+            format!("builtin:{}", invocation.module_specifier)
+        );
+        assert_eq!(
+            recipe.route.alternatives[0].proof_paths,
+            vec![probe.surface_observed_key.clone()]
+        );
+        validate_probe_binding(recipe, probe, invocation);
+        return;
+    }
 
     let descriptor: BuiltinSourceDescriptor =
         serde_json::from_value(invocation.source_descriptor.clone())
@@ -809,6 +923,9 @@ fn public_probe(recipe: &Recipe) -> Option<PublicSurfaceProbe> {
         ) | (
             "ibex/capsec-builtin-call-invocation/1",
             "builtin-export-call"
+        ) | (
+            "ibex/capsec-builtin-module-import-no-effect-invocation/1",
+            "builtin-module-import"
         )
     ) {
         return None;
@@ -834,6 +951,14 @@ fn invocation_script(invocation: &BuiltinInvocation) -> String {
         "JSON.stringify(({})({}))",
         HARNESS.trim(),
         serde_json::to_string(invocation).expect("serialize authored builtin invocation")
+    )
+}
+
+fn module_import_invocation_script(invocation: &BuiltinInvocation) -> String {
+    format!(
+        "JSON.stringify((function(moduleSpecifier){{try{{var value=require(moduleSpecifier);return {{kind:'return',moduleSpecifier:moduleSpecifier,valueType:value===null?'null':typeof value}};}}catch(error){{return {{kind:'throw',moduleSpecifier:moduleSpecifier,errorName:error&&error.name||'Error'}};}}}})({}))",
+        serde_json::to_string(&invocation.module_specifier)
+            .expect("serialize authored builtin module specifier")
     )
 }
 
@@ -895,63 +1020,154 @@ async fn drive_invocation_to_quiescence(
         .map_err(|error| error.to_string())
 }
 
+async fn observe_script_to_quiescence(
+    engine: &mut AuthenticatedNoncapEngine,
+    session_id: &str,
+    script: &str,
+    completion: &CompletionExpectation,
+    fixture_id: &str,
+) -> std::result::Result<
+    (
+        String,
+        Vec<ibex_runtime::host::capability::ObservedCapabilityDecision>,
+        Vec<ibex_runtime::host::ObservedTypedDecision>,
+    ),
+    String,
+> {
+    assert!(
+        ibex_runtime::host::abi::begin_installed_conformance_observation(session_id),
+        "public builtin observer has no installed host"
+    );
+    let encoded = engine.eval_immediate(script).await;
+    // Observation begins before source execution and remains open through all
+    // ready/future work. Taking it earlier would let either synchronous module
+    // initialization or deferred work evade a zero-decision claim.
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+    let quiescence = drive_invocation_to_quiescence(engine, completion, fixture_id).await;
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    quiescence?;
+    let encoded = encoded
+        .map_err(|error| format!("{fixture_id}: execute public builtin probe: {error:#}"))?
+        .ok_or_else(|| format!("{fixture_id}: public builtin probe returned no result"))?;
+    Ok((encoded, legacy, typed))
+}
+
 async fn execute_recipe(
     engine: &mut AuthenticatedNoncapEngine,
     recipe: &Recipe,
     engine_binary_digest: &str,
 ) -> std::result::Result<serde_json::Value, String> {
     let probe = public_probe(recipe).expect("builtin recipe has no public probe");
+    let is_module_import = probe.invocation.invocation_schema
+        == "ibex/capsec-builtin-module-import-no-effect-invocation/1";
+    if is_module_import {
+        engine
+            .arm_builtin_source_observation(
+                &recipe.fixture_id,
+                &probe.invocation.module_specifier,
+            )
+            .await
+            .map_err(|error| {
+                format!(
+                    "{}: arm authenticated builtin source observation: {error:#}",
+                    recipe.fixture_id
+                )
+            })?;
+    }
     // Import-only and exported-operation obligations are distinct. Load the
     // exact public module and settle its event loop before opening an export
     // observer so synchronous or deferred initialization cannot be attributed
     // to every later read/call; the invocation still performs a real
     // authenticated public require against that cache.
     // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
-    let preloaded = engine
-        .eval_immediate(&export_module_preload_script(&probe.invocation))
-        .await
-        .map_err(|error| {
-            format!(
-                "{}: preload public builtin module: {error:#}",
+    if !is_module_import {
+        let preloaded = engine
+            .eval_immediate(&export_module_preload_script(&probe.invocation))
+            .await
+            .map_err(|error| {
+                format!(
+                    "{}: preload public builtin module: {error:#}",
+                    recipe.fixture_id
+                )
+            })?
+            .ok_or_else(|| {
+                format!(
+                    "{}: public builtin module preload returned no result",
+                    recipe.fixture_id
+                )
+            })?;
+        if preloaded != "ibex-capsec-builtin-preloaded" {
+            return Err(format!(
+                "{}: public builtin module preload returned {preloaded:?}",
                 recipe.fixture_id
-            )
-        })?
-        .ok_or_else(|| {
-            format!(
-                "{}: public builtin module preload returned no result",
-                recipe.fixture_id
-            )
-        })?;
-    if preloaded != "ibex-capsec-builtin-preloaded" {
-        return Err(format!(
-            "{}: public builtin module preload returned {preloaded:?}",
-            recipe.fixture_id
-        ));
+            ));
+        }
+        drive_invocation_to_quiescence(
+            engine,
+            &probe.invocation.completion,
+            &format!("{}: module preload", recipe.fixture_id),
+        )
+        .await?;
     }
-    drive_invocation_to_quiescence(
+    let session_id = format!("public-observation:{}", recipe.plan_digest);
+    let script = if is_module_import {
+        module_import_invocation_script(&probe.invocation)
+    } else {
+        invocation_script(&probe.invocation)
+    };
+    let (encoded, legacy, typed) = observe_script_to_quiescence(
         engine,
+        &session_id,
+        &script,
         &probe.invocation.completion,
-        &format!("{}: module preload", recipe.fixture_id),
+        &recipe.fixture_id,
     )
     .await?;
-    let session_id = format!("public-observation:{}", recipe.plan_digest);
-    assert!(
-        ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id),
-        "public builtin observer has no installed host"
-    );
-    let encoded = engine
-        .eval_immediate(&invocation_script(&probe.invocation))
-        .await
-        .expect("execute public builtin probe")
-        .expect("public builtin probe returned no result");
-    // Keep the observer open across all ready/future work owned by this call.
-    // A bounded failure stops the batch before a later fixture can inherit it.
-    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
-    let quiescence =
-        drive_invocation_to_quiescence(engine, &probe.invocation.completion, &recipe.fixture_id)
-            .await;
-    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
-    quiescence?;
+    let source_execution = if is_module_import {
+        let observation_value = engine
+            .take_builtin_source_observation()
+            .await
+            .map_err(|error| {
+                format!(
+                    "{}: take authenticated builtin source observation: {error:#}",
+                    recipe.fixture_id
+                )
+            })?;
+        let observation: BuiltinSourceObservation =
+            serde_json::from_value(observation_value).map_err(|error| {
+                format!(
+                    "{}: decode authenticated builtin source observation: {error}",
+                    recipe.fixture_id
+                )
+            })?;
+        let descriptor: BuiltinModuleAliasSourceDescriptor =
+            serde_json::from_value(probe.invocation.source_descriptor.clone())
+                .expect("validated builtin module descriptor must remain exact");
+        let expected_source_id = expected_builtin_cache_source_id(&descriptor.source_key);
+        if observation.schema != "ibex/capsec-builtin-source-observation/1"
+            || !is_tagged_nonzero_u64(&observation.runtime_nonce)
+            || observation.observation_id != recipe.fixture_id
+            || observation.expected_alias != probe.invocation.module_specifier
+            || observation.status != "completed"
+            || observation.source_id.as_deref() != Some(expected_source_id.as_str())
+        {
+            return Err(format!(
+                "{}: authenticated builtin source did not complete one exact cache miss: {:?}",
+                recipe.fixture_id, observation
+            ));
+        }
+        Some(serde_json::json!({
+            "schema": "ibex/capsec-authenticated-builtin-source-execution/1",
+            "observationId": observation.observation_id,
+            "runtimeNonce": observation.runtime_nonce,
+            "moduleSpecifier": observation.expected_alias,
+            "sourceId": expected_source_id,
+            "cacheMiss": true,
+            "bodyCompleted": true,
+        }))
+    } else {
+        None
+    };
     let invocation_result: serde_json::Value =
         serde_json::from_str(&encoded).expect("public builtin returned invalid JSON");
     let expected_kind = if probe.invocation.expected_result == "absent" {
@@ -962,6 +1178,15 @@ async fn execute_recipe(
     if invocation_result["kind"] != expected_kind {
         return Err(format!(
             "{}: public builtin probe failed: {invocation_result}",
+            recipe.fixture_id
+        ));
+    }
+    if is_module_import
+        && (invocation_result["moduleSpecifier"] != probe.invocation.module_specifier
+            || invocation_result["valueType"] != "object")
+    {
+        return Err(format!(
+            "{}: DNS module import did not return its namespace without selecting an export: {invocation_result}",
             recipe.fixture_id
         ));
     }
@@ -998,22 +1223,37 @@ async fn execute_recipe(
                 .expect("serialize unexpected non-capability builtin decisions")
         ));
     }
+    let mut runtime_invocation = serde_json::json!({
+        "invocationSchema": probe.invocation.invocation_schema,
+        "kind": probe.invocation.kind,
+        "surfaceObservedKey": probe.surface_observed_key,
+        "moduleSpecifier": probe.invocation.module_specifier,
+        "sourceDescriptorDigest": probe.invocation.source_descriptor_digest,
+        "completion": {
+            "kind": probe.invocation.completion.kind,
+            "timeoutMilliseconds": probe.invocation.completion.timeout_milliseconds,
+            "status": "quiescent",
+        },
+        "result": invocation_result,
+    });
+    if let Some(source_execution) = source_execution {
+        runtime_invocation
+            .as_object_mut()
+            .expect("runtime invocation must be an object")
+            .insert("sourceExecution".into(), source_execution);
+    }
+    if let Some(export_name) = &probe.invocation.export_name {
+        runtime_invocation
+            .as_object_mut()
+            .expect("runtime invocation must be an object")
+            .insert(
+                "exportName".into(),
+                serde_json::Value::String(export_name.clone()),
+            );
+    }
     let runtime_observation = serde_json::json!({
         "observationSchema": "ibex/capsec-runtime-public-observation/1",
-        "invocation": {
-            "invocationSchema": probe.invocation.invocation_schema,
-            "kind": probe.invocation.kind,
-            "surfaceObservedKey": probe.surface_observed_key,
-            "moduleSpecifier": probe.invocation.module_specifier,
-            "exportName": probe.invocation.export_name,
-            "sourceDescriptorDigest": probe.invocation.source_descriptor_digest,
-            "completion": {
-                "kind": probe.invocation.completion.kind,
-                "timeoutMilliseconds": probe.invocation.completion.timeout_milliseconds,
-                "status": "quiescent",
-            },
-            "result": invocation_result,
-        },
+        "invocation": runtime_invocation,
         "legacyObservationCount": 0,
         "typedDecisions": [],
     });
@@ -1047,6 +1287,47 @@ async fn execute_recipe(
     }))
 }
 
+fn is_no_effect_module_import_recipe(recipe: &Recipe) -> bool {
+    public_probe(recipe).is_some_and(|probe| {
+        probe.invocation.invocation_schema
+            == "ibex/capsec-builtin-module-import-no-effect-invocation/1"
+    })
+}
+
+async fn execute_isolated_module_import_recipe(
+    recipe: &Recipe,
+    engine_binary_digest: &str,
+) -> std::result::Result<serde_json::Value, String> {
+    assert!(is_no_effect_module_import_recipe(recipe));
+    let module_specifier = public_probe(recipe)
+        .expect("isolated noncap module import has no probe")
+        .invocation
+        .module_specifier;
+    let (host, digest) =
+        build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |snapshot| {
+            snapshot["principals"][0]["imports"]["builtins"] =
+                serde_json::json!([module_specifier]);
+        });
+    assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+    let _reset = HostResetGuard;
+    let mut engine = authenticated_noncap_engine(&host, &digest).await;
+    let execution = execute_recipe(&mut engine, recipe, engine_binary_digest).await;
+    let finish = engine.finish().map_err(|error| {
+        format!(
+            "{}: finish isolated DNS import publication stream: {error:#}",
+            recipe.fixture_id
+        )
+    });
+    match (execution, finish) {
+        (Ok(execution), Ok(())) => Ok(execution),
+        (Err(execution_error), Ok(())) => Err(execution_error),
+        (Ok(_), Err(finish_error)) => Err(finish_error),
+        (Err(execution_error), Err(finish_error)) => {
+            Err(format!("{execution_error}; {finish_error}"))
+        }
+    }
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn capsec_public_noncap_builtin_recipe_batch() {
     let Ok(recipe_path) = std::env::var("IBEX_CAPSEC_RECIPE_CATALOG") else {
@@ -1063,7 +1344,22 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
         !recipes.is_empty(),
         "recipe catalog contains no non-capability builtin probes"
     );
-    let builtin_imports = recipes
+    let module_import_recipes = recipes
+        .iter()
+        .copied()
+        .filter(|recipe| is_no_effect_module_import_recipe(recipe))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        module_import_recipes.len(),
+        4,
+        "expected exactly four fresh-engine DNS import carriers"
+    );
+    let export_recipes = recipes
+        .iter()
+        .copied()
+        .filter(|recipe| !is_no_effect_module_import_recipe(recipe))
+        .collect::<Vec<_>>();
+    let builtin_imports = export_recipes
         .iter()
         .map(|recipe| public_probe(recipe).unwrap().invocation.module_specifier)
         .collect::<BTreeSet<_>>()
@@ -1071,31 +1367,70 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
         .collect::<Vec<_>>();
 
     let _lock = hermes_engine_test_lock().lock().await;
-    let (host, digest) =
-        build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |snapshot| {
-            snapshot["principals"][0]["imports"]["builtins"] = serde_json::json!(builtin_imports);
-        });
-    assert_ne!(crate::host::abi::install_host(host.clone()), 0);
-    let _reset = HostResetGuard;
     let identity_before = HermesEngine::loaded_engine_identity()
         .expect("attest exact loaded Hermes before noncap builtin public probes");
-    let mut engine = authenticated_noncap_engine(&host, &digest).await;
     let mut executions = Vec::with_capacity(recipes.len());
     let mut failures = Vec::new();
-    for (index, recipe) in recipes.iter().enumerate() {
-        match execute_recipe(&mut engine, recipe, &identity_before.binary_digest).await {
+
+    for recipe in &module_import_recipes {
+        match execute_isolated_module_import_recipe(recipe, &identity_before.binary_digest).await {
             Ok(execution) => executions.push(execution),
             Err(error) => {
                 failures.push(error);
                 break;
             }
         }
-        if index % 256 == 255 {
-            eprintln!(
-                "CapSec public non-capability builtin probes passed: {}/{}",
-                index + 1,
-                recipes.len()
-            );
+    }
+
+    if failures.is_empty() {
+        let module_import_runtime_nonces = executions
+            .iter()
+            .filter_map(|execution| {
+                execution["evidence"]["runtimeObservation"]["invocation"]["sourceExecution"]
+                    ["runtimeNonce"]
+                    .as_str()
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            module_import_runtime_nonces.len(),
+            module_import_recipes.len(),
+            "fresh-engine DNS import receipts reused or omitted a runtime nonce"
+        );
+        let (host, digest) = build_armed_test_host_custom(
+            None,
+            false,
+            false,
+            false,
+            Vec::new(),
+            None,
+            |snapshot| {
+                snapshot["principals"][0]["imports"]["builtins"] =
+                    serde_json::json!(builtin_imports);
+            },
+        );
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+        let mut engine = authenticated_noncap_engine(&host, &digest).await;
+        for (index, recipe) in export_recipes.iter().enumerate() {
+            match execute_recipe(&mut engine, recipe, &identity_before.binary_digest).await {
+                Ok(execution) => executions.push(execution),
+                Err(error) => {
+                    failures.push(error);
+                    break;
+                }
+            }
+            if index % 256 == 255 {
+                eprintln!(
+                    "CapSec public non-capability builtin export probes passed: {}/{}",
+                    index + 1,
+                    export_recipes.len()
+                );
+            }
+        }
+        if let Err(error) = engine.finish() {
+            failures.push(format!(
+                "finish authenticated public-builtin publication stream: {error:#}"
+            ));
         }
     }
     assert!(
@@ -1104,9 +1439,6 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
         failures.len(),
         failures.join("\n")
     );
-    engine
-        .finish()
-        .expect("finish authenticated public-builtin publication stream");
     executions.sort_by(|left, right| left["fixtureId"].as_str().cmp(&right["fixtureId"].as_str()));
     assert_eq!(executions.len(), recipes.len());
     let identity_after = HermesEngine::loaded_engine_identity()
@@ -1175,6 +1507,7 @@ fn mixed_public_catalog_selects_before_strict_builtin_decode() {
         plan_digest: "test-only".to_owned(),
         classification: "non-capability".to_owned(),
         scenario: "non-capability".to_owned(),
+        edge_ids: Vec::new(),
         action_ids: Vec::new(),
         expected_observation: serde_json::json!({}),
         route: PublicRoute {
@@ -1225,43 +1558,30 @@ fn mixed_public_catalog_selects_before_strict_builtin_decode() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn noncap_observer_covers_ready_work_before_completion() {
+async fn noncap_observer_covers_source_entry_and_ready_work_through_completion() {
     let _lock = hermes_engine_test_lock().lock().await;
     let (host, digest) =
         build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
     assert_ne!(crate::host::abi::install_host(host.clone()), 0);
     let _reset = HostResetGuard;
     let mut engine = authenticated_noncap_engine(&host, &digest).await;
-    assert!(
-        ibex_runtime::host::abi::begin_installed_conformance_observation(
-            "public.noncap.ready-work-completion"
-        )
-    );
-    assert_eq!(
-        engine
-            .eval_immediate(
-                "setTimeout(function(){try{void process.env.PATH;}catch(_error){}},0);'scheduled'",
-            )
-            .await
-            .expect("schedule completion-proof work")
-            .as_deref(),
-        Some("scheduled")
-    );
-    drive_invocation_to_quiescence(
+    let (result, legacy, typed) = observe_script_to_quiescence(
         &mut engine,
+        "public.noncap.source-entry-and-ready-work",
+        "try{void process.env.PATH;}catch(_error){};setTimeout(function(){try{void process.env.PATH;}catch(_error){}},0);'observed'",
         &CompletionExpectation {
             kind: EVENT_LOOP_COMPLETION_KIND.to_owned(),
             timeout_milliseconds: EVENT_LOOP_COMPLETION_TIMEOUT_MS,
         },
-        "fixture.test.ready-work-completion",
+        "fixture.test.source-entry-and-ready-work",
     )
     .await
-    .expect("drain completion-proof work");
-    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    .expect("observe synchronous source entry and completion-proof work");
+    assert_eq!(result, "observed");
     assert!(legacy.is_empty());
     assert!(
-        !typed.is_empty(),
-        "the observer must remain open while scheduled work reaches its typed gate"
+        typed.len() >= 2,
+        "the observer must begin before source entry and remain open while scheduled work reaches its typed gate"
     );
     engine
         .finish()
@@ -1313,6 +1633,69 @@ async fn authored_call_harness_never_counts_a_throw_as_body_entry() {
     engine
         .finish()
         .expect("finish authored-call publication stream");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn authenticated_builtin_source_observer_rejects_wrong_alias_and_cache_hit() {
+    let _lock = hermes_engine_test_lock().lock().await;
+    let (host, digest) =
+        build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |snapshot| {
+            snapshot["principals"][0]["imports"]["builtins"] =
+                serde_json::json!(["dns", "node:dns"]);
+        });
+    assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+    let _reset = HostResetGuard;
+    let mut engine = authenticated_noncap_engine(&host, &digest).await;
+
+    engine
+        .arm_builtin_source_observation("receipt.alias-mismatch", "node:dns")
+        .await
+        .expect("arm wrong-alias builtin source observation");
+    assert_eq!(
+        engine
+            .eval_immediate("typeof require('dns')")
+            .await
+            .expect("execute cold wrong-alias builtin import")
+            .as_deref(),
+        Some("object")
+    );
+    let wrong_alias: BuiltinSourceObservation = serde_json::from_value(
+        engine
+            .take_builtin_source_observation()
+            .await
+            .expect("take wrong-alias builtin source observation"),
+    )
+    .expect("decode wrong-alias builtin source observation");
+    assert_eq!(wrong_alias.status, "missing");
+    assert!(wrong_alias.source_id.is_none());
+    assert!(is_tagged_nonzero_u64(&wrong_alias.runtime_nonce));
+
+    engine
+        .arm_builtin_source_observation("receipt.cache-hit", "node:dns")
+        .await
+        .expect("arm cache-hit builtin source observation");
+    assert_eq!(
+        engine
+            .eval_immediate("typeof require('node:dns')")
+            .await
+            .expect("execute same-SourceId alias cache hit")
+            .as_deref(),
+        Some("object")
+    );
+    let cache_hit: BuiltinSourceObservation = serde_json::from_value(
+        engine
+            .take_builtin_source_observation()
+            .await
+            .expect("take cache-hit builtin source observation"),
+    )
+    .expect("decode cache-hit builtin source observation");
+    assert_eq!(cache_hit.status, "missing");
+    assert!(cache_hit.source_id.is_none());
+    assert_eq!(cache_hit.runtime_nonce, wrong_alias.runtime_nonce);
+
+    engine
+        .finish()
+        .expect("finish builtin source-observer negative stream");
 }
 
 #[tokio::test(flavor = "current_thread")]

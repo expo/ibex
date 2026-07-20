@@ -46,6 +46,8 @@ const rules = JSON.parse(
 const context = { definitions, rules };
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
   "sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c";
+const REVIEWED_DNS_PROMISE_EXPORT_SHAPE_REVIEW_ID =
+  "sha256-161c4e4bf9027d0d3e4f9427954c18529f7ef0bd727be9064fc8f79270a75c75";
 
 function surface(kind, name, metadata = undefined, sourceRefs = undefined) {
   return {
@@ -59,13 +61,39 @@ function surface(kind, name, metadata = undefined, sourceRefs = undefined) {
   };
 }
 
-function builtinExport(sourceKey, exportName) {
+function builtinExport(sourceKey, exportName, metadata = {}) {
   return surface(
     "builtin",
     `export:${sourceKey}:${exportName}`,
-    { surfaceType: "export", sourceKey, exportName },
+    { surfaceType: "export", sourceKey, exportName, ...metadata },
     [`modules.ts#${sourceKey}.${exportName}`],
   );
+}
+
+function reviewedDnsProjectionExport(sourceKey, exportName) {
+  if (sourceKey === "node_dns_promises") {
+    return builtinExport(sourceKey, exportName, {
+      crossSourceExportProjection: {
+        carrierBinding: "module.exports=dns.promises",
+        carrierSourceKey: "node_dns_promises",
+        kind: "immutable-commonjs-member-object",
+        memberPath: exportName,
+        providerBinding: "module.exports.promises",
+        providerSourceKey: "node_dns",
+      },
+      dnsPromiseExportShapeReviewId:
+        REVIEWED_DNS_PROMISE_EXPORT_SHAPE_REVIEW_ID,
+    });
+  }
+  return builtinExport(sourceKey, exportName, {
+    constructorInstanceProjection: {
+      constructorExport: "Resolver",
+      instancePath: exportName.slice("Resolver.".length),
+      kind: "constructor-installed-nested-object",
+    },
+    dnsPromiseExportShapeReviewId:
+      REVIEWED_DNS_PROMISE_EXPORT_SHAPE_REVIEW_ID,
+  });
 }
 
 function globalApi(globalName, memberName = null) {
@@ -1832,7 +1860,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     }
   });
 
-  test("DNS builtin loading accounts for synchronous resolver-file reads", () => {
+  test("DNS builtin roots and defaults are module-reachability-only", () => {
     for (const [alias, sourceKey] of [
       ["dns", "node_dns"],
       ["node:dns", "node_dns"],
@@ -1847,12 +1875,11 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         }),
         context,
       );
-      expect(edgeActions(classified), alias).toEqual(["fs:list", "fs:read"]);
-      expect(classified.edge.effectMode, alias).toBe("conditional");
-      expect(
-        classified.edge.logicalBranches.map((branch) => branch.id),
-        alias,
-      ).toEqual(["absent", "present"]);
+      expect(classified.edge.classification, alias).toBe("non-capability");
+      expect(classified.edge.rationaleId, alias).toBe(
+        "module-reachability-only",
+      );
+      expect(edgeActions(classified), alias).toEqual([]);
     }
 
     for (const sourceKey of ["node_dns", "node_dns_promises"]) {
@@ -1860,12 +1887,206 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         builtinExport(sourceKey, "default"),
         context,
       );
-      expect(edgeActions(classified), sourceKey).toEqual([
-        "fs:list",
-        "fs:read",
-      ]);
-      expect(classified.edge.effectMode, sourceKey).toBe("conditional");
+      expect(classified.edge.classification, sourceKey).toBe(
+        "non-capability",
+      );
+      expect(classified.edge.rationaleId, sourceKey).toBe(
+        "module-reachability-only",
+      );
+      expect(edgeActions(classified), sourceKey).toEqual([]);
     }
+
+    for (const sourceKey of ["node_dns", "node_dns_promises"]) {
+      for (const exportName of ["getServers", "Resolver"]) {
+        const edge = classifyObservedSurface(
+          sourceKey === "node_dns_promises"
+            ? reviewedDnsProjectionExport(sourceKey, exportName)
+            : builtinExport(sourceKey, exportName),
+          context,
+        ).edge;
+        expect(edge.classification, `${sourceKey}:${exportName}`).toBe(
+          "effects",
+        );
+        expect(edge.effectMode, `${sourceKey}:${exportName}`).toBe(
+          "conditional",
+        );
+        expect(edgeActions({ edge }), `${sourceKey}:${exportName}`).toEqual([
+          "fs:list",
+          "fs:read",
+          "network:resolve",
+        ]);
+        expect(
+          edge.logicalBranches.map((branch) => ({
+            id: branch.id,
+            when: branch.when,
+            actions: branch.effects.map((effect) => effect.cap),
+          })),
+          `${sourceKey}:${exportName}`,
+        ).toEqual([
+        {
+          id: "cached-or-custom",
+          when: [
+            {
+              fact: "network.dns.system-servers-state",
+              equals: "cached-or-custom",
+            },
+          ],
+          actions: [],
+        },
+        {
+          id: "filesystem-only",
+          when: [
+            {
+              fact: "network.dns.system-servers-state",
+              equals: "filesystem-only",
+            },
+          ],
+          actions: ["fs:list", "fs:read"],
+        },
+        {
+          id: "native-fallback",
+          when: [
+            {
+              fact: "network.dns.system-servers-state",
+              equals: "native-fallback",
+            },
+          ],
+          actions: ["fs:list", "fs:read", "network:resolve"],
+        },
+        {
+          id: "native-success",
+          when: [
+            {
+              fact: "network.dns.system-servers-state",
+              equals: "native-success",
+            },
+          ],
+          actions: ["network:resolve"],
+        },
+        ]);
+      }
+    }
+  });
+
+  test("classifies all 42 projected dns/promises operations without promoting their routes", () => {
+    const resolverEffects = [
+      "resolve",
+      "resolve4",
+      "resolve6",
+      "resolveAny",
+      "resolveCaa",
+      "resolveCname",
+      "resolveMx",
+      "resolveNaptr",
+      "resolveNs",
+      "resolvePtr",
+      "resolveSoa",
+      "resolveSrv",
+      "resolveTxt",
+      "reverse",
+    ];
+    const expected = new Map([
+      ...[
+        "Resolver",
+        "getServers",
+        "lookup",
+        "lookupService",
+        ...resolverEffects,
+        ...resolverEffects.map((name) => `Resolver.${name}`),
+      ].map((name) => [name, "effects"]),
+      ...["setDefaultResultOrder", "setServers"].map((name) => [
+        name,
+        "closed",
+      ]),
+      ...[
+        "getDefaultResultOrder",
+        "Resolver.cancel",
+        "Resolver.getServers",
+        "Resolver._handle.cancel",
+        "Resolver._handle.getServers",
+        "Resolver._handle.setServers",
+        "Resolver.setLocalAddress",
+        "Resolver.setServers",
+      ].map((name) => [name, "non-capability"]),
+    ]);
+    expect(expected.size).toBe(42);
+    const counts = new Map();
+    for (const [exportName, classification] of expected) {
+      const surface = reviewedDnsProjectionExport(
+        "node_dns_promises",
+        exportName,
+      );
+      const edge = classifyObservedSurface(
+        surface,
+        context,
+      ).edge;
+      expect(edge.classification, exportName).toBe(classification);
+      const unreviewed = structuredClone(surface);
+      delete unreviewed.metadata.dnsPromiseExportShapeReviewId;
+      expect(
+        () => classifyObservedSurface(unreviewed, context),
+        `${exportName} must require the independent classifier review pin`,
+      ).toThrow(/unclassified observed surface/);
+      counts.set(classification, (counts.get(classification) ?? 0) + 1);
+      if (resolverEffects.includes(exportName.replace(/^Resolver\./u, ""))) {
+        expect(edge.effectMode, exportName).toBe("conditional");
+        expect(edgeActions({ edge }), exportName).toEqual([
+          "network:connect",
+          "network:listen",
+          "network:resolve",
+        ]);
+      }
+    }
+    expect(Object.fromEntries(counts)).toEqual({
+      effects: 32,
+      closed: 2,
+      "non-capability": 8,
+    });
+  });
+
+  test("classifies six reviewed Resolver handle projections and rejects metadata drift", () => {
+    for (const sourceKey of ["node_dns", "node_dns_promises"]) {
+      for (const [exportName, rationaleId] of [
+        ["Resolver._handle.cancel", "authority-release"],
+        ["Resolver._handle.getServers", "authority-control-plane"],
+        ["Resolver._handle.setServers", "authority-control-plane"],
+      ]) {
+        const surface = reviewedDnsProjectionExport(sourceKey, exportName);
+        const edge = classifyObservedSurface(surface, context).edge;
+        expect(edge.classification, `${sourceKey}:${exportName}`).toBe(
+          "non-capability",
+        );
+        expect(edge.rationaleId, `${sourceKey}:${exportName}`).toBe(
+          rationaleId,
+        );
+
+        const unreviewed = structuredClone(surface);
+        delete unreviewed.metadata.dnsPromiseExportShapeReviewId;
+        expect(
+          () => classifyObservedSurface(unreviewed, context),
+          `${sourceKey}:${exportName} must require the independent classifier review pin`,
+        ).toThrow(/unclassified observed surface/);
+      }
+    }
+
+    const carrierDrift = reviewedDnsProjectionExport(
+      "node_dns_promises",
+      "lookup",
+    );
+    carrierDrift.metadata.crossSourceExportProjection.memberPath = "resolve";
+    expect(() => classifyObservedSurface(carrierDrift, context)).toThrow(
+      /unclassified observed surface/,
+    );
+
+    const providerDrift = reviewedDnsProjectionExport(
+      "node_dns",
+      "Resolver._handle.cancel",
+    );
+    providerDrift.metadata.constructorInstanceProjection.instancePath =
+      "_handle.getServers";
+    expect(() => classifyObservedSurface(providerDrift, context)).toThrow(
+      /unclassified observed surface/,
+    );
   });
 
   test("source-specific dgram membership compatibility stubs stay explicit", () => {
@@ -4664,10 +4885,23 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     // owner-gated appendHeader override and Duplex's materialized `_undestroy`
     // copy move two former inherited rows into the explicit export review, for
     // a net +20 inherited rows.
-    expect(inheritedBuiltinExports).toHaveLength(454);
+    expect(inheritedBuiltinExports).toHaveLength(458);
+    const dnsReviewedInheritedExports = inheritedBuiltinExports.filter(
+      (row) => row.metadata?.dnsPromiseExportShapeReviewId !== undefined,
+    );
+    expect(dnsReviewedInheritedExports).toHaveLength(4);
+    expect(
+      dnsReviewedInheritedExports.every(
+        (row) => row.metadata.inheritedShapeReviewId === undefined,
+      ),
+    ).toBe(true);
+    const genericallyReviewedInheritedExports = inheritedBuiltinExports.filter(
+      (row) => row.metadata?.dnsPromiseExportShapeReviewId === undefined,
+    );
+    expect(genericallyReviewedInheritedExports).toHaveLength(454);
     expect(
       new Set(
-        inheritedBuiltinExports.map(
+        genericallyReviewedInheritedExports.map(
           (row) => row.metadata.inheritedShapeReviewId,
         ),
       ),

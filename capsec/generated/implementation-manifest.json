@@ -486,9 +486,9 @@
       "edgeId": "surface.builtin.dns.1dztj15",
       "observedKey": "builtin:dns",
       "branchId": "surface.builtin.dns.1dztj15.main",
-      "enforcementBranchId": "enforcement.modules.ts.specifiers.node.dns.0jlcmvl",
+      "enforcementBranchId": "surface.builtin.dns.1dztj15.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:dns"
         ],
@@ -508,26 +508,18 @@
       "sourceRefs": [
         "modules.ts#specifiers:node_dns"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.modules.ts.specifiers.node.dns.0jlcmvl.logical.absent.branch-selection",
-        "enforcement.modules.ts.specifiers.node.dns.0jlcmvl.logical.absent.malformed-branch-facts",
-        "enforcement.modules.ts.specifiers.node.dns.0jlcmvl.logical.absent.no-effect",
-        "enforcement.modules.ts.specifiers.node.dns.0jlcmvl.logical.present.allow",
-        "enforcement.modules.ts.specifiers.node.dns.0jlcmvl.logical.present.branch-selection",
-        "enforcement.modules.ts.specifiers.node.dns.0jlcmvl.logical.present.deny",
-        "enforcement.modules.ts.specifiers.node.dns.0jlcmvl.logical.present.malformed",
-        "enforcement.modules.ts.specifiers.node.dns.0jlcmvl.logical.present.missing-attribution",
-        "enforcement.modules.ts.specifiers.node.dns.0jlcmvl.logical.present.wrong-principal"
+        "surface.builtin.dns.1dztj15.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.builtin.dns.promises.1krunow",
       "observedKey": "builtin:dns/promises",
       "branchId": "surface.builtin.dns.promises.1krunow.main",
-      "enforcementBranchId": "enforcement.modules.ts.specifiers.node.dns.promises.0xctun9",
+      "enforcementBranchId": "surface.builtin.dns.promises.1krunow.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:dns/promises"
         ],
@@ -547,17 +539,9 @@
       "sourceRefs": [
         "modules.ts#specifiers:node_dns_promises"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.modules.ts.specifiers.node.dns.promises.0xctun9.logical.absent.branch-selection",
-        "enforcement.modules.ts.specifiers.node.dns.promises.0xctun9.logical.absent.malformed-branch-facts",
-        "enforcement.modules.ts.specifiers.node.dns.promises.0xctun9.logical.absent.no-effect",
-        "enforcement.modules.ts.specifiers.node.dns.promises.0xctun9.logical.present.allow",
-        "enforcement.modules.ts.specifiers.node.dns.promises.0xctun9.logical.present.branch-selection",
-        "enforcement.modules.ts.specifiers.node.dns.promises.0xctun9.logical.present.deny",
-        "enforcement.modules.ts.specifiers.node.dns.promises.0xctun9.logical.present.malformed",
-        "enforcement.modules.ts.specifiers.node.dns.promises.0xctun9.logical.present.missing-attribution",
-        "enforcement.modules.ts.specifiers.node.dns.promises.0xctun9.logical.present.wrong-principal"
+        "surface.builtin.dns.promises.1krunow.main.non-capability"
       ]
     },
     {
@@ -27677,9 +27661,9 @@
       "edgeId": "surface.builtin.export.node.dns.default.1yp5dxd",
       "observedKey": "builtin:export:node_dns:default",
       "branchId": "surface.builtin.export.node.dns.default.1yp5dxd.main",
-      "enforcementBranchId": "enforcement.src.builtins.dns.js.exports.default.0kfjdbo",
+      "enforcementBranchId": "surface.builtin.export.node.dns.default.1yp5dxd.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_dns:default"
         ],
@@ -27699,17 +27683,9 @@
       "sourceRefs": [
         "src/builtins/dns.js#exports:default"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.builtins.dns.js.exports.default.0kfjdbo.logical.absent.branch-selection",
-        "enforcement.src.builtins.dns.js.exports.default.0kfjdbo.logical.absent.malformed-branch-facts",
-        "enforcement.src.builtins.dns.js.exports.default.0kfjdbo.logical.absent.no-effect",
-        "enforcement.src.builtins.dns.js.exports.default.0kfjdbo.logical.present.allow",
-        "enforcement.src.builtins.dns.js.exports.default.0kfjdbo.logical.present.branch-selection",
-        "enforcement.src.builtins.dns.js.exports.default.0kfjdbo.logical.present.deny",
-        "enforcement.src.builtins.dns.js.exports.default.0kfjdbo.logical.present.malformed",
-        "enforcement.src.builtins.dns.js.exports.default.0kfjdbo.logical.present.missing-attribution",
-        "enforcement.src.builtins.dns.js.exports.default.0kfjdbo.logical.present.wrong-principal"
+        "surface.builtin.export.node.dns.default.1yp5dxd.main.non-capability"
       ]
     },
     {
@@ -27871,9 +27847,9 @@
       "edgeId": "surface.builtin.export.node.dns.getservers.1lawjg0",
       "observedKey": "builtin:export:node_dns:getServers",
       "branchId": "surface.builtin.export.node.dns.getservers.1lawjg0.main",
-      "enforcementBranchId": "surface.builtin.export.node.dns.getservers.1lawjg0.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf",
       "enforcementRoute": {
-        "kind": "surface-branch",
+        "kind": "exact-source-and-semantics",
         "proofPaths": [
           "builtin:export:node_dns:getServers"
         ],
@@ -27895,7 +27871,27 @@
       ],
       "implementationOwner": "WP6",
       "fixtureObligations": [
-        "surface.builtin.export.node.dns.getservers.1lawjg0.main.non-capability"
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.cached-or-custom.branch-selection",
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.cached-or-custom.malformed-branch-facts",
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.cached-or-custom.no-effect",
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.filesystem-only.allow",
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.filesystem-only.branch-selection",
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.filesystem-only.deny",
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.filesystem-only.malformed",
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.filesystem-only.missing-attribution",
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.filesystem-only.wrong-principal",
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.native-fallback.allow",
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.native-fallback.branch-selection",
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.native-fallback.deny",
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.native-fallback.malformed",
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.native-fallback.missing-attribution",
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.native-fallback.wrong-principal",
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.native-success.allow",
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.native-success.branch-selection",
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.native-success.deny",
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.native-success.malformed",
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.native-success.missing-attribution",
+        "enforcement.src.builtins.dns.js.exports.getservers.0tyjucf.logical.native-success.wrong-principal"
       ]
     },
     {
@@ -28530,9 +28526,9 @@
       "edgeId": "surface.builtin.export.node.dns.promises.default.0td56d6",
       "observedKey": "builtin:export:node_dns_promises:default",
       "branchId": "surface.builtin.export.node.dns.promises.default.0td56d6.main",
-      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.exports.default.018ga0a",
+      "enforcementBranchId": "surface.builtin.export.node.dns.promises.default.0td56d6.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_dns_promises:default"
         ],
@@ -28552,17 +28548,9 @@
       "sourceRefs": [
         "src/builtins/dns-promises.js#exports:default"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.builtins.dns.promises.js.exports.default.018ga0a.logical.absent.branch-selection",
-        "enforcement.src.builtins.dns.promises.js.exports.default.018ga0a.logical.absent.malformed-branch-facts",
-        "enforcement.src.builtins.dns.promises.js.exports.default.018ga0a.logical.absent.no-effect",
-        "enforcement.src.builtins.dns.promises.js.exports.default.018ga0a.logical.present.allow",
-        "enforcement.src.builtins.dns.promises.js.exports.default.018ga0a.logical.present.branch-selection",
-        "enforcement.src.builtins.dns.promises.js.exports.default.018ga0a.logical.present.deny",
-        "enforcement.src.builtins.dns.promises.js.exports.default.018ga0a.logical.present.malformed",
-        "enforcement.src.builtins.dns.promises.js.exports.default.018ga0a.logical.present.missing-attribution",
-        "enforcement.src.builtins.dns.promises.js.exports.default.018ga0a.logical.present.wrong-principal"
+        "surface.builtin.export.node.dns.promises.default.0td56d6.main.non-capability"
       ]
     },
     {
@@ -28690,6 +28678,94 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.dns.promises.getdefaultresultorder.0zgb2yf",
+      "observedKey": "builtin:export:node_dns_promises:getDefaultResultOrder",
+      "branchId": "surface.builtin.export.node.dns.promises.getdefaultresultorder.0zgb2yf.main",
+      "enforcementBranchId": "surface.builtin.export.node.dns.promises.getdefaultresultorder.0zgb2yf.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:getDefaultResultOrder"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:getDefaultResultOrder"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:getDefaultResultOrder"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:getDefaultResultOrder"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:getDefaultResultOrder"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "surface.builtin.export.node.dns.promises.getdefaultresultorder.0zgb2yf.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.getservers.01v0q69",
+      "observedKey": "builtin:export:node_dns_promises:getServers",
+      "branchId": "surface.builtin.export.node.dns.promises.getservers.01v0q69.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:getServers"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:getServers"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:getServers"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:getServers"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:getServers"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.cached-or-custom.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.cached-or-custom.malformed-branch-facts",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.cached-or-custom.no-effect",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.filesystem-only.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.filesystem-only.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.filesystem-only.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.filesystem-only.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.filesystem-only.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.filesystem-only.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.native-fallback.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.native-fallback.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.native-fallback.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.native-fallback.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.native-fallback.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.native-fallback.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.native-success.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.native-success.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.native-success.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.native-success.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.native-success.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1eax993.logical.native-success.wrong-principal"
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.dns.promises.loadiphlpapi.0r9tsfk",
       "observedKey": "builtin:export:node_dns_promises:LOADIPHLPAPI",
       "branchId": "surface.builtin.export.node.dns.promises.loadiphlpapi.0r9tsfk.main",
@@ -28718,6 +28794,82 @@
       "implementationOwner": "WP6",
       "fixtureObligations": [
         "surface.builtin.export.node.dns.promises.loadiphlpapi.0r9tsfk.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.lookup.1a9e80f",
+      "observedKey": "builtin:export:node_dns_promises:lookup",
+      "branchId": "surface.builtin.export.node.dns.promises.lookup.1a9e80f.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1cd0ctg",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:lookup"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:lookup"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:lookup"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:lookup"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:lookup"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1cd0ctg.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1cd0ctg.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1cd0ctg.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1cd0ctg.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1cd0ctg.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.lookupservice.0nrxs0i",
+      "observedKey": "builtin:export:node_dns_promises:lookupService",
+      "branchId": "surface.builtin.export.node.dns.promises.lookupservice.0nrxs0i.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1v7xmpe",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:lookupService"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:lookupService"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:lookupService"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:lookupService"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:lookupService"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1v7xmpe.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1v7xmpe.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1v7xmpe.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1v7xmpe.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1v7xmpe.wrong-principal"
       ]
     },
     {
@@ -28938,6 +29090,1589 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolve.0qe3x1j",
+      "observedKey": "builtin:export:node_dns_promises:resolve",
+      "branchId": "surface.builtin.export.node.dns.promises.resolve.0qe3x1j.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1smyx9d",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:resolve"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolve"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolve"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:resolve"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolve"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1smyx9d.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1smyx9d.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1smyx9d.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1smyx9d.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1smyx9d.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1smyx9d.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1smyx9d.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1smyx9d.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1smyx9d.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1smyx9d.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1smyx9d.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1smyx9d.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolve4.1uhidzd",
+      "observedKey": "builtin:export:node_dns_promises:resolve4",
+      "branchId": "surface.builtin.export.node.dns.promises.resolve4.1uhidzd.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0hqdwx7",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:resolve4"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolve4"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolve4"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:resolve4"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolve4"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0hqdwx7.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0hqdwx7.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0hqdwx7.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0hqdwx7.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0hqdwx7.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0hqdwx7.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0hqdwx7.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0hqdwx7.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0hqdwx7.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0hqdwx7.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0hqdwx7.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0hqdwx7.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolve6.1txj6lf",
+      "observedKey": "builtin:export:node_dns_promises:resolve6",
+      "branchId": "surface.builtin.export.node.dns.promises.resolve6.1txj6lf.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0b5hnvb",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:resolve6"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolve6"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolve6"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:resolve6"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolve6"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0b5hnvb.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0b5hnvb.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0b5hnvb.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0b5hnvb.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0b5hnvb.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0b5hnvb.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0b5hnvb.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0b5hnvb.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0b5hnvb.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0b5hnvb.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0b5hnvb.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0b5hnvb.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolveany.1kwoqxj",
+      "observedKey": "builtin:export:node_dns_promises:resolveAny",
+      "branchId": "surface.builtin.export.node.dns.promises.resolveany.1kwoqxj.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0kmfm3f",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:resolveAny"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveAny"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveAny"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:resolveAny"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolveAny"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0kmfm3f.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0kmfm3f.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0kmfm3f.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0kmfm3f.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0kmfm3f.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0kmfm3f.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0kmfm3f.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0kmfm3f.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0kmfm3f.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0kmfm3f.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0kmfm3f.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0kmfm3f.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolvecaa.1yzg4si",
+      "observedKey": "builtin:export:node_dns_promises:resolveCaa",
+      "branchId": "surface.builtin.export.node.dns.promises.resolvecaa.1yzg4si.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ufmwu9",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:resolveCaa"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveCaa"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveCaa"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:resolveCaa"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolveCaa"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ufmwu9.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ufmwu9.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ufmwu9.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ufmwu9.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ufmwu9.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ufmwu9.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ufmwu9.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ufmwu9.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ufmwu9.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ufmwu9.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ufmwu9.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ufmwu9.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolvecname.0inspqf",
+      "observedKey": "builtin:export:node_dns_promises:resolveCname",
+      "branchId": "surface.builtin.export.node.dns.promises.resolvecname.0inspqf.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1d8d7nb",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:resolveCname"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveCname"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveCname"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:resolveCname"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolveCname"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1d8d7nb.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1d8d7nb.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1d8d7nb.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1d8d7nb.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1d8d7nb.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1d8d7nb.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1d8d7nb.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1d8d7nb.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1d8d7nb.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1d8d7nb.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1d8d7nb.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1d8d7nb.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolvemx.0vswwoi",
+      "observedKey": "builtin:export:node_dns_promises:resolveMx",
+      "branchId": "surface.builtin.export.node.dns.promises.resolvemx.0vswwoi.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0p4fyg1",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:resolveMx"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveMx"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveMx"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:resolveMx"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolveMx"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0p4fyg1.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0p4fyg1.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0p4fyg1.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0p4fyg1.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0p4fyg1.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0p4fyg1.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0p4fyg1.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0p4fyg1.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0p4fyg1.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0p4fyg1.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0p4fyg1.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0p4fyg1.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolvenaptr.1lzyqwo",
+      "observedKey": "builtin:export:node_dns_promises:resolveNaptr",
+      "branchId": "surface.builtin.export.node.dns.promises.resolvenaptr.1lzyqwo.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1huyog5",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:resolveNaptr"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveNaptr"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveNaptr"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:resolveNaptr"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolveNaptr"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1huyog5.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1huyog5.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1huyog5.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1huyog5.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1huyog5.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1huyog5.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1huyog5.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1huyog5.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1huyog5.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1huyog5.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1huyog5.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1huyog5.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolvens.0viu5hk",
+      "observedKey": "builtin:export:node_dns_promises:resolveNs",
+      "branchId": "surface.builtin.export.node.dns.promises.resolvens.0viu5hk.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1fg9fsh",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:resolveNs"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveNs"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveNs"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:resolveNs"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolveNs"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1fg9fsh.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1fg9fsh.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1fg9fsh.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1fg9fsh.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1fg9fsh.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1fg9fsh.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1fg9fsh.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1fg9fsh.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1fg9fsh.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1fg9fsh.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1fg9fsh.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1fg9fsh.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolveptr.1xc44vn",
+      "observedKey": "builtin:export:node_dns_promises:resolvePtr",
+      "branchId": "surface.builtin.export.node.dns.promises.resolveptr.1xc44vn.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.067aftb",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:resolvePtr"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolvePtr"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolvePtr"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:resolvePtr"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolvePtr"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.067aftb.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.067aftb.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.067aftb.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.067aftb.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.067aftb.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.067aftb.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.067aftb.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.067aftb.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.067aftb.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.067aftb.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.067aftb.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.067aftb.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.1c0jtjj",
+      "observedKey": "builtin:export:node_dns_promises:Resolver",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.1c0jtjj.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:Resolver:PromiseResolver"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:Resolver:PromiseResolver"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:Resolver:PromiseResolver"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.cached-or-custom.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.cached-or-custom.malformed-branch-facts",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.cached-or-custom.no-effect",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.filesystem-only.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.filesystem-only.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.filesystem-only.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.filesystem-only.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.filesystem-only.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.filesystem-only.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.native-fallback.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.native-fallback.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.native-fallback.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.native-fallback.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.native-fallback.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.native-fallback.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.native-success.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.native-success.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.native-success.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.native-success.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.native-success.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08fy9x4.logical.native-success.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.cancel.1vz6z1x",
+      "observedKey": "builtin:export:node_dns_promises:Resolver.cancel",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.cancel.1vz6z1x.main",
+      "enforcementBranchId": "surface.builtin.export.node.dns.promises.resolver.cancel.1vz6z1x.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver.cancel"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:Object.create:Resolver.prototype",
+          "src/builtins/dns.js#Resolver.prototype:cancel"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:Object.create:Resolver.prototype",
+          "src/builtins/dns.js#Resolver.prototype:cancel"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver.cancel"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:Object.create:Resolver.prototype",
+        "src/builtins/dns.js#Resolver.prototype:cancel"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "surface.builtin.export.node.dns.promises.resolver.cancel.1vz6z1x.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.getservers.1yzo3ff",
+      "observedKey": "builtin:export:node_dns_promises:Resolver.getServers",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.getservers.1yzo3ff.main",
+      "enforcementBranchId": "surface.builtin.export.node.dns.promises.resolver.getservers.1yzo3ff.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver.getServers"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:Object.create:Resolver.prototype",
+          "src/builtins/dns.js#Resolver.prototype:getServers"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:Object.create:Resolver.prototype",
+          "src/builtins/dns.js#Resolver.prototype:getServers"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver.getServers"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:Object.create:Resolver.prototype",
+        "src/builtins/dns.js#Resolver.prototype:getServers"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "surface.builtin.export.node.dns.promises.resolver.getservers.1yzo3ff.main.cannot-widen-authority",
+        "surface.builtin.export.node.dns.promises.resolver.getservers.1yzo3ff.main.non-capability",
+        "surface.builtin.export.node.dns.promises.resolver.getservers.1yzo3ff.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.handle.cancel.1tahyby",
+      "observedKey": "builtin:export:node_dns_promises:Resolver._handle.cancel",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.handle.cancel.1tahyby.main",
+      "enforcementBranchId": "surface.builtin.export.node.dns.promises.resolver.handle.cancel.1tahyby.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver._handle.cancel"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver:Resolver.call:this:options",
+          "src/builtins/dns.js#Resolver:instance:_handle.cancel"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver:Resolver.call:this:options",
+          "src/builtins/dns.js#Resolver:instance:_handle.cancel"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver._handle.cancel"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver:Resolver.call:this:options",
+        "src/builtins/dns.js#Resolver:instance:_handle.cancel"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "surface.builtin.export.node.dns.promises.resolver.handle.cancel.1tahyby.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.handle.getservers.1k4asmo",
+      "observedKey": "builtin:export:node_dns_promises:Resolver._handle.getServers",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.handle.getservers.1k4asmo.main",
+      "enforcementBranchId": "surface.builtin.export.node.dns.promises.resolver.handle.getservers.1k4asmo.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver._handle.getServers"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver:Resolver.call:this:options",
+          "src/builtins/dns.js#Resolver:instance:_handle.getServers"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver:Resolver.call:this:options",
+          "src/builtins/dns.js#Resolver:instance:_handle.getServers"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver._handle.getServers"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver:Resolver.call:this:options",
+        "src/builtins/dns.js#Resolver:instance:_handle.getServers"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "surface.builtin.export.node.dns.promises.resolver.handle.getservers.1k4asmo.main.cannot-widen-authority",
+        "surface.builtin.export.node.dns.promises.resolver.handle.getservers.1k4asmo.main.non-capability",
+        "surface.builtin.export.node.dns.promises.resolver.handle.getservers.1k4asmo.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.handle.setservers.0639f0c",
+      "observedKey": "builtin:export:node_dns_promises:Resolver._handle.setServers",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.handle.setservers.0639f0c.main",
+      "enforcementBranchId": "surface.builtin.export.node.dns.promises.resolver.handle.setservers.0639f0c.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver._handle.setServers"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver:Resolver.call:this:options",
+          "src/builtins/dns.js#Resolver:instance:_handle.setServers"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver:Resolver.call:this:options",
+          "src/builtins/dns.js#Resolver:instance:_handle.setServers"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver._handle.setServers"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver:Resolver.call:this:options",
+        "src/builtins/dns.js#Resolver:instance:_handle.setServers"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "surface.builtin.export.node.dns.promises.resolver.handle.setservers.0639f0c.main.cannot-widen-authority",
+        "surface.builtin.export.node.dns.promises.resolver.handle.setservers.0639f0c.main.non-capability",
+        "surface.builtin.export.node.dns.promises.resolver.handle.setservers.0639f0c.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolve.1kh4ti5",
+      "observedKey": "builtin:export:node_dns_promises:Resolver.resolve",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.resolve.1kh4ti5.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1259w5i",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver.resolve"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolve"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolve"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver.resolve"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolve"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1259w5i.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1259w5i.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1259w5i.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1259w5i.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1259w5i.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1259w5i.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1259w5i.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1259w5i.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1259w5i.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1259w5i.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1259w5i.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1259w5i.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolve4.1n1q6vf",
+      "observedKey": "builtin:export:node_dns_promises:Resolver.resolve4",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.resolve4.1n1q6vf.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0fmeh0m",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver.resolve4"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolve4"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolve4"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver.resolve4"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolve4"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0fmeh0m.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0fmeh0m.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0fmeh0m.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0fmeh0m.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0fmeh0m.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0fmeh0m.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0fmeh0m.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0fmeh0m.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0fmeh0m.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0fmeh0m.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0fmeh0m.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0fmeh0m.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolve6.1nlpe9d",
+      "observedKey": "builtin:export:node_dns_promises:Resolver.resolve6",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.resolve6.1nlpe9d.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1nbf0bq",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver.resolve6"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolve6"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolve6"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver.resolve6"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolve6"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1nbf0bq.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1nbf0bq.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1nbf0bq.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1nbf0bq.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1nbf0bq.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1nbf0bq.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1nbf0bq.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1nbf0bq.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1nbf0bq.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1nbf0bq.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1nbf0bq.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1nbf0bq.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolveany.0pbf68l",
+      "observedKey": "builtin:export:node_dns_promises:Resolver.resolveAny",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.resolveany.0pbf68l.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.016qe1i",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver.resolveAny"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveAny"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveAny"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver.resolveAny"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolveAny"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.016qe1i.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.016qe1i.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.016qe1i.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.016qe1i.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.016qe1i.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.016qe1i.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.016qe1i.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.016qe1i.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.016qe1i.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.016qe1i.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.016qe1i.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.016qe1i.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolvecaa.04jkrj4",
+      "observedKey": "builtin:export:node_dns_promises:Resolver.resolveCaa",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.resolvecaa.04jkrj4.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08ayaum",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver.resolveCaa"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveCaa"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveCaa"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver.resolveCaa"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolveCaa"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08ayaum.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08ayaum.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08ayaum.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08ayaum.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08ayaum.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08ayaum.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08ayaum.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08ayaum.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08ayaum.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08ayaum.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08ayaum.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.08ayaum.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolvecname.1j33v7l",
+      "observedKey": "builtin:export:node_dns_promises:Resolver.resolveCname",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.resolvecname.1j33v7l.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0smjgza",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver.resolveCname"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveCname"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveCname"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver.resolveCname"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolveCname"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0smjgza.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0smjgza.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0smjgza.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0smjgza.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0smjgza.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0smjgza.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0smjgza.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0smjgza.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0smjgza.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0smjgza.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0smjgza.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0smjgza.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolvemx.0d8cok8",
+      "observedKey": "builtin:export:node_dns_promises:Resolver.resolveMx",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.resolvemx.0d8cok8.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.07nqyw8",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver.resolveMx"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveMx"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveMx"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver.resolveMx"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolveMx"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.07nqyw8.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.07nqyw8.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.07nqyw8.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.07nqyw8.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.07nqyw8.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.07nqyw8.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.07nqyw8.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.07nqyw8.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.07nqyw8.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.07nqyw8.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.07nqyw8.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.07nqyw8.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolvenaptr.18jk9r6",
+      "observedKey": "builtin:export:node_dns_promises:Resolver.resolveNaptr",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.resolvenaptr.18jk9r6.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1pf8ete",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver.resolveNaptr"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveNaptr"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveNaptr"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver.resolveNaptr"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolveNaptr"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1pf8ete.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1pf8ete.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1pf8ete.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1pf8ete.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1pf8ete.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1pf8ete.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1pf8ete.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1pf8ete.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1pf8ete.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1pf8ete.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1pf8ete.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1pf8ete.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolvens.0gahrou",
+      "observedKey": "builtin:export:node_dns_promises:Resolver.resolveNs",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.resolvens.0gahrou.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1p5hbd0",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver.resolveNs"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveNs"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveNs"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver.resolveNs"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolveNs"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1p5hbd0.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1p5hbd0.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1p5hbd0.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1p5hbd0.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1p5hbd0.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1p5hbd0.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1p5hbd0.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1p5hbd0.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1p5hbd0.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1p5hbd0.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1p5hbd0.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1p5hbd0.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolveptr.1wfdac1",
+      "observedKey": "builtin:export:node_dns_promises:Resolver.resolvePtr",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.resolveptr.1wfdac1.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.01kyeva",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver.resolvePtr"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolvePtr"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolvePtr"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver.resolvePtr"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolvePtr"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.01kyeva.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.01kyeva.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.01kyeva.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.01kyeva.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.01kyeva.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.01kyeva.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.01kyeva.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.01kyeva.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.01kyeva.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.01kyeva.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.01kyeva.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.01kyeva.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolvesoa.0z3quuy",
+      "observedKey": "builtin:export:node_dns_promises:Resolver.resolveSoa",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.resolvesoa.0z3quuy.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0rvn2tq",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver.resolveSoa"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveSoa"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveSoa"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver.resolveSoa"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolveSoa"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0rvn2tq.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0rvn2tq.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0rvn2tq.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0rvn2tq.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0rvn2tq.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0rvn2tq.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0rvn2tq.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0rvn2tq.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0rvn2tq.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0rvn2tq.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0rvn2tq.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0rvn2tq.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolvesrv.0sruj7e",
+      "observedKey": "builtin:export:node_dns_promises:Resolver.resolveSrv",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.resolvesrv.0sruj7e.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0goh18i",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver.resolveSrv"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveSrv"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveSrv"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver.resolveSrv"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolveSrv"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0goh18i.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0goh18i.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0goh18i.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0goh18i.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0goh18i.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0goh18i.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0goh18i.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0goh18i.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0goh18i.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0goh18i.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0goh18i.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0goh18i.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolvetxt.0jkf1ev",
+      "observedKey": "builtin:export:node_dns_promises:Resolver.resolveTxt",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.resolvetxt.0jkf1ev.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1ufddn2",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver.resolveTxt"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveTxt"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveTxt"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver.resolveTxt"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolveTxt"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1ufddn2.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1ufddn2.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1ufddn2.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1ufddn2.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1ufddn2.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1ufddn2.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1ufddn2.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1ufddn2.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1ufddn2.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1ufddn2.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1ufddn2.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1ufddn2.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.reverse.1hdraqf",
+      "observedKey": "builtin:export:node_dns_promises:Resolver.reverse",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.reverse.1hdraqf.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0y42egq",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver.reverse"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:reverse"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:reverse"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver.reverse"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:reverse"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0y42egq.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0y42egq.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0y42egq.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0y42egq.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0y42egq.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0y42egq.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0y42egq.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0y42egq.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0y42egq.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0y42egq.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0y42egq.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0y42egq.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.setlocaladdress.0p03fr8",
+      "observedKey": "builtin:export:node_dns_promises:Resolver.setLocalAddress",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.setlocaladdress.0p03fr8.main",
+      "enforcementBranchId": "surface.builtin.export.node.dns.promises.resolver.setlocaladdress.0p03fr8.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver.setLocalAddress"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:Object.create:Resolver.prototype",
+          "src/builtins/dns.js#Resolver.prototype:setLocalAddress"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:Object.create:Resolver.prototype",
+          "src/builtins/dns.js#Resolver.prototype:setLocalAddress"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver.setLocalAddress"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:Object.create:Resolver.prototype",
+        "src/builtins/dns.js#Resolver.prototype:setLocalAddress"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "surface.builtin.export.node.dns.promises.resolver.setlocaladdress.0p03fr8.main.cannot-widen-authority",
+        "surface.builtin.export.node.dns.promises.resolver.setlocaladdress.0p03fr8.main.non-capability",
+        "surface.builtin.export.node.dns.promises.resolver.setlocaladdress.0p03fr8.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolver.setservers.1bkicgv",
+      "observedKey": "builtin:export:node_dns_promises:Resolver.setServers",
+      "branchId": "surface.builtin.export.node.dns.promises.resolver.setservers.1bkicgv.main",
+      "enforcementBranchId": "surface.builtin.export.node.dns.promises.resolver.setservers.1bkicgv.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:Resolver.setServers"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:Object.create:Resolver.prototype",
+          "src/builtins/dns.js#Resolver.prototype:setServers"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:Object.create:Resolver.prototype",
+          "src/builtins/dns.js#Resolver.prototype:setServers"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:Resolver.setServers"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:Object.create:Resolver.prototype",
+        "src/builtins/dns.js#Resolver.prototype:setServers"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "surface.builtin.export.node.dns.promises.resolver.setservers.1bkicgv.main.cannot-widen-authority",
+        "surface.builtin.export.node.dns.promises.resolver.setservers.1bkicgv.main.non-capability",
+        "surface.builtin.export.node.dns.promises.resolver.setservers.1bkicgv.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolvesoa.1d9c8uw",
+      "observedKey": "builtin:export:node_dns_promises:resolveSoa",
+      "branchId": "surface.builtin.export.node.dns.promises.resolvesoa.1d9c8uw.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0xlavbp",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:resolveSoa"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveSoa"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveSoa"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:resolveSoa"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolveSoa"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0xlavbp.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0xlavbp.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0xlavbp.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0xlavbp.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0xlavbp.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0xlavbp.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0xlavbp.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0xlavbp.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0xlavbp.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0xlavbp.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0xlavbp.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0xlavbp.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolvesrv.1j2lxbo",
+      "observedKey": "builtin:export:node_dns_promises:resolveSrv",
+      "branchId": "surface.builtin.export.node.dns.promises.resolvesrv.1j2lxbo.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0cede0x",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:resolveSrv"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveSrv"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveSrv"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:resolveSrv"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolveSrv"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0cede0x.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0cede0x.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0cede0x.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0cede0x.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0cede0x.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0cede0x.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0cede0x.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0cede0x.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0cede0x.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0cede0x.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0cede0x.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0cede0x.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.resolvetxt.0ll4aqd",
+      "observedKey": "builtin:export:node_dns_promises:resolveTxt",
+      "branchId": "surface.builtin.export.node.dns.promises.resolvetxt.0ll4aqd.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ga5usz",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:resolveTxt"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveTxt"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveTxt"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:resolveTxt"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolveTxt"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ga5usz.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ga5usz.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ga5usz.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ga5usz.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ga5usz.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ga5usz.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ga5usz.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ga5usz.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ga5usz.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ga5usz.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ga5usz.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.0ga5usz.logical.system.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.reverse.1g76tz5",
+      "observedKey": "builtin:export:node_dns_promises:reverse",
+      "branchId": "surface.builtin.export.node.dns.promises.reverse.1g76tz5.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1o2zzih",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:reverse"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:reverse"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:reverse"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:reverse"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:reverse"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1o2zzih.logical.custom-udp.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1o2zzih.logical.custom-udp.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1o2zzih.logical.custom-udp.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1o2zzih.logical.custom-udp.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1o2zzih.logical.custom-udp.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1o2zzih.logical.custom-udp.wrong-principal",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1o2zzih.logical.system.allow",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1o2zzih.logical.system.branch-selection",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1o2zzih.logical.system.deny",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1o2zzih.logical.system.malformed",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1o2zzih.logical.system.missing-attribution",
+        "enforcement.src.builtins.dns.promises.js.module.exports.dns.promises.1o2zzih.logical.system.wrong-principal"
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.dns.promises.servfail.0ll95k5",
       "observedKey": "builtin:export:node_dns_promises:SERVFAIL",
       "branchId": "surface.builtin.export.node.dns.promises.servfail.0ll95k5.main",
@@ -28966,6 +30701,74 @@
       "implementationOwner": "WP6",
       "fixtureObligations": [
         "surface.builtin.export.node.dns.promises.servfail.0ll95k5.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.setdefaultresultorder.04ul83n",
+      "observedKey": "builtin:export:node_dns_promises:setDefaultResultOrder",
+      "branchId": "surface.builtin.export.node.dns.promises.setdefaultresultorder.04ul83n.main",
+      "enforcementBranchId": "surface.builtin.export.node.dns.promises.setdefaultresultorder.04ul83n.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:setDefaultResultOrder"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:setDefaultResultOrder"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:setDefaultResultOrder"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:setDefaultResultOrder"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:setDefaultResultOrder"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.builtin.export.node.dns.promises.setdefaultresultorder.04ul83n.main.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.promises.setservers.1s3ahhh",
+      "observedKey": "builtin:export:node_dns_promises:setServers",
+      "branchId": "surface.builtin.export.node.dns.promises.setservers.1s3ahhh.main",
+      "enforcementBranchId": "surface.builtin.export.node.dns.promises.setservers.1s3ahhh.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_dns_promises:setServers"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:setServers"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:setServers"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns_promises:setServers"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:setServers"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.builtin.export.node.dns.promises.setservers.1s3ahhh.main.closed"
       ]
     },
     {
@@ -29454,9 +31257,9 @@
       "edgeId": "surface.builtin.export.node.dns.resolver.011t2fi",
       "observedKey": "builtin:export:node_dns:Resolver",
       "branchId": "surface.builtin.export.node.dns.resolver.011t2fi.main",
-      "enforcementBranchId": "surface.builtin.export.node.dns.resolver.011t2fi.main",
+      "enforcementBranchId": "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r",
       "enforcementRoute": {
-        "kind": "surface-branch",
+        "kind": "exact-source-and-semantics",
         "proofPaths": [
           "builtin:export:node_dns:Resolver"
         ],
@@ -29478,7 +31281,27 @@
       ],
       "implementationOwner": "WP6",
       "fixtureObligations": [
-        "surface.builtin.export.node.dns.resolver.011t2fi.main.non-capability"
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.cached-or-custom.branch-selection",
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.cached-or-custom.malformed-branch-facts",
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.cached-or-custom.no-effect",
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.filesystem-only.allow",
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.filesystem-only.branch-selection",
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.filesystem-only.deny",
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.filesystem-only.malformed",
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.filesystem-only.missing-attribution",
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.filesystem-only.wrong-principal",
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.native-fallback.allow",
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.native-fallback.branch-selection",
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.native-fallback.deny",
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.native-fallback.malformed",
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.native-fallback.missing-attribution",
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.native-fallback.wrong-principal",
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.native-success.allow",
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.native-success.branch-selection",
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.native-success.deny",
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.native-success.malformed",
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.native-success.missing-attribution",
+        "enforcement.src.builtins.dns.js.exports.resolver.1mhrr9r.logical.native-success.wrong-principal"
       ]
     },
     {
@@ -29543,6 +31366,112 @@
         "surface.builtin.export.node.dns.resolver.getservers.0i7lh38.main.cannot-widen-authority",
         "surface.builtin.export.node.dns.resolver.getservers.0i7lh38.main.non-capability",
         "surface.builtin.export.node.dns.resolver.getservers.0i7lh38.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.resolver.handle.cancel.0zr5wc9",
+      "observedKey": "builtin:export:node_dns:Resolver._handle.cancel",
+      "branchId": "surface.builtin.export.node.dns.resolver.handle.cancel.0zr5wc9.main",
+      "enforcementBranchId": "surface.builtin.export.node.dns.resolver.handle.cancel.0zr5wc9.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_dns:Resolver._handle.cancel"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns.js#Resolver:instance:_handle",
+          "src/builtins/dns.js#Resolver:instance:_handle.cancel"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns.js#Resolver:instance:_handle",
+          "src/builtins/dns.js#Resolver:instance:_handle.cancel"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns:Resolver._handle.cancel"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns.js#Resolver:instance:_handle",
+        "src/builtins/dns.js#Resolver:instance:_handle.cancel"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "surface.builtin.export.node.dns.resolver.handle.cancel.0zr5wc9.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.resolver.handle.getservers.0czdntj",
+      "observedKey": "builtin:export:node_dns:Resolver._handle.getServers",
+      "branchId": "surface.builtin.export.node.dns.resolver.handle.getservers.0czdntj.main",
+      "enforcementBranchId": "surface.builtin.export.node.dns.resolver.handle.getservers.0czdntj.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_dns:Resolver._handle.getServers"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns.js#Resolver:instance:_handle",
+          "src/builtins/dns.js#Resolver:instance:_handle.getServers"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns.js#Resolver:instance:_handle",
+          "src/builtins/dns.js#Resolver:instance:_handle.getServers"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns:Resolver._handle.getServers"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns.js#Resolver:instance:_handle",
+        "src/builtins/dns.js#Resolver:instance:_handle.getServers"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "surface.builtin.export.node.dns.resolver.handle.getservers.0czdntj.main.cannot-widen-authority",
+        "surface.builtin.export.node.dns.resolver.handle.getservers.0czdntj.main.non-capability",
+        "surface.builtin.export.node.dns.resolver.handle.getservers.0czdntj.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.dns.resolver.handle.setservers.1dh70kz",
+      "observedKey": "builtin:export:node_dns:Resolver._handle.setServers",
+      "branchId": "surface.builtin.export.node.dns.resolver.handle.setservers.1dh70kz.main",
+      "enforcementBranchId": "surface.builtin.export.node.dns.resolver.handle.setservers.1dh70kz.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_dns:Resolver._handle.setServers"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/dns.js#Resolver:instance:_handle",
+          "src/builtins/dns.js#Resolver:instance:_handle.setServers"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns.js#Resolver:instance:_handle",
+          "src/builtins/dns.js#Resolver:instance:_handle.setServers"
+        ],
+        "terminalObservedKey": "builtin:export:node_dns:Resolver._handle.setServers"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/dns.js#Resolver:instance:_handle",
+        "src/builtins/dns.js#Resolver:instance:_handle.setServers"
+      ],
+      "implementationOwner": "WP6",
+      "fixtureObligations": [
+        "surface.builtin.export.node.dns.resolver.handle.setservers.1dh70kz.main.cannot-widen-authority",
+        "surface.builtin.export.node.dns.resolver.handle.setservers.1dh70kz.main.non-capability",
+        "surface.builtin.export.node.dns.resolver.handle.setservers.1dh70kz.main.post-lockdown-invariant"
       ]
     },
     {
@@ -94883,9 +96812,9 @@
       "edgeId": "surface.builtin.node.dns.0nx113j",
       "observedKey": "builtin:node:dns",
       "branchId": "surface.builtin.node.dns.0nx113j.main",
-      "enforcementBranchId": "enforcement.modules.ts.specifiers.node.dns.10hu42v",
+      "enforcementBranchId": "surface.builtin.node.dns.0nx113j.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:node:dns"
         ],
@@ -94905,26 +96834,18 @@
       "sourceRefs": [
         "modules.ts#specifiers:node_dns"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.modules.ts.specifiers.node.dns.10hu42v.logical.absent.branch-selection",
-        "enforcement.modules.ts.specifiers.node.dns.10hu42v.logical.absent.malformed-branch-facts",
-        "enforcement.modules.ts.specifiers.node.dns.10hu42v.logical.absent.no-effect",
-        "enforcement.modules.ts.specifiers.node.dns.10hu42v.logical.present.allow",
-        "enforcement.modules.ts.specifiers.node.dns.10hu42v.logical.present.branch-selection",
-        "enforcement.modules.ts.specifiers.node.dns.10hu42v.logical.present.deny",
-        "enforcement.modules.ts.specifiers.node.dns.10hu42v.logical.present.malformed",
-        "enforcement.modules.ts.specifiers.node.dns.10hu42v.logical.present.missing-attribution",
-        "enforcement.modules.ts.specifiers.node.dns.10hu42v.logical.present.wrong-principal"
+        "surface.builtin.node.dns.0nx113j.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.builtin.node.dns.promises.0izp08e",
       "observedKey": "builtin:node:dns/promises",
       "branchId": "surface.builtin.node.dns.promises.0izp08e.main",
-      "enforcementBranchId": "enforcement.modules.ts.specifiers.node.dns.promises.1vdjc23",
+      "enforcementBranchId": "surface.builtin.node.dns.promises.0izp08e.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:node:dns/promises"
         ],
@@ -94944,17 +96865,9 @@
       "sourceRefs": [
         "modules.ts#specifiers:node_dns_promises"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.modules.ts.specifiers.node.dns.promises.1vdjc23.logical.absent.branch-selection",
-        "enforcement.modules.ts.specifiers.node.dns.promises.1vdjc23.logical.absent.malformed-branch-facts",
-        "enforcement.modules.ts.specifiers.node.dns.promises.1vdjc23.logical.absent.no-effect",
-        "enforcement.modules.ts.specifiers.node.dns.promises.1vdjc23.logical.present.allow",
-        "enforcement.modules.ts.specifiers.node.dns.promises.1vdjc23.logical.present.branch-selection",
-        "enforcement.modules.ts.specifiers.node.dns.promises.1vdjc23.logical.present.deny",
-        "enforcement.modules.ts.specifiers.node.dns.promises.1vdjc23.logical.present.malformed",
-        "enforcement.modules.ts.specifiers.node.dns.promises.1vdjc23.logical.present.missing-attribution",
-        "enforcement.modules.ts.specifiers.node.dns.promises.1vdjc23.logical.present.wrong-principal"
+        "surface.builtin.node.dns.promises.0izp08e.main.non-capability"
       ]
     },
     {
@@ -138062,37 +139975,6 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.loader.internal.route.bun.internal.for.testing.0e3izuy.main.non-capability"
-      ]
-    },
-    {
-      "edgeId": "surface.loader.internal.route.dns.promises.06jw73f",
-      "observedKey": "loader:internal-route:dns/promises",
-      "branchId": "surface.loader.internal.route.dns.promises.06jw73f.main",
-      "enforcementBranchId": "surface.loader.internal.route.dns.promises.06jw73f.main",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "loader:internal-route:dns/promises"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/module-loader.js#internal-route:dns/promises"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/module-loader.js#internal-route:dns/promises"
-        ],
-        "terminalObservedKey": "loader:internal-route:dns/promises"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/module-loader.js#internal-route:dns/promises"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.loader.internal.route.dns.promises.06jw73f.main.non-capability"
       ]
     },
     {
@@ -267081,8 +268963,6 @@
       "definitionId": "fs:list",
       "disposition": "covered",
       "edgeIds": [
-        "surface.builtin.dns.1dztj15",
-        "surface.builtin.dns.promises.1krunow",
         "surface.builtin.export.exact.process.chdir.0na1l8f",
         "surface.builtin.export.exact.process.execve.1hinwsf",
         "surface.builtin.export.exact.sqlite.database.19kdjrl",
@@ -267097,8 +268977,10 @@
         "surface.builtin.export.node.child.process.spawn.149aed0",
         "surface.builtin.export.node.child.process.spawnsync.0z8kcwn",
         "surface.builtin.export.node.cluster.fork.0ywb16n",
-        "surface.builtin.export.node.dns.default.1yp5dxd",
-        "surface.builtin.export.node.dns.promises.default.0td56d6",
+        "surface.builtin.export.node.dns.getservers.1lawjg0",
+        "surface.builtin.export.node.dns.promises.getservers.01v0q69",
+        "surface.builtin.export.node.dns.promises.resolver.1c0jtjj",
+        "surface.builtin.export.node.dns.resolver.011t2fi",
         "surface.builtin.export.node.fs.access.08cctx0",
         "surface.builtin.export.node.fs.accesssync.150k0pj",
         "surface.builtin.export.node.fs.createreadstream.1thoyf2",
@@ -267166,8 +269048,6 @@
         "surface.builtin.export.node.fs.writestream.open.0lpubfp",
         "surface.builtin.export.node.fs.writestream.write.0g2cl8d",
         "surface.builtin.export.node.fs.writestream.writev.0djj8lt",
-        "surface.builtin.node.dns.0nx113j",
-        "surface.builtin.node.dns.promises.0izp08e",
         "surface.host.abi.ex.host.fs.access.07ymnn7",
         "surface.host.abi.ex.host.fs.append.1uj49nd",
         "surface.host.abi.ex.host.fs.chmod.1fztam2",
@@ -267494,14 +269374,12 @@
         "surface.startup.supervisor.history.store.open.0u6mrwv",
         "surface.startup.supervisor.history.user.key.read.create.16p08qw"
       ],
-      "rationale": "Covered by 412 observed effect edges."
+      "rationale": "Covered by 410 observed effect edges."
     },
     {
       "definitionId": "fs:read",
       "disposition": "covered",
       "edgeIds": [
-        "surface.builtin.dns.1dztj15",
-        "surface.builtin.dns.promises.1krunow",
         "surface.builtin.export.exact.sqlite.database.19kdjrl",
         "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4",
         "surface.builtin.export.exact.sqlite.database.exec.0prbohg",
@@ -267535,8 +269413,10 @@
         "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij",
         "surface.builtin.export.exact.sqlite.statement.run.0ls49t6",
         "surface.builtin.export.exact.sqlite.statement.values.0gdqf17",
-        "surface.builtin.export.node.dns.default.1yp5dxd",
-        "surface.builtin.export.node.dns.promises.default.0td56d6",
+        "surface.builtin.export.node.dns.getservers.1lawjg0",
+        "surface.builtin.export.node.dns.promises.getservers.01v0q69",
+        "surface.builtin.export.node.dns.promises.resolver.1c0jtjj",
+        "surface.builtin.export.node.dns.resolver.011t2fi",
         "surface.builtin.export.node.fs.copyfile.020eib5",
         "surface.builtin.export.node.fs.copyfilesync.1lu78j2",
         "surface.builtin.export.node.fs.cp.0fhbdjd",
@@ -267573,8 +269453,6 @@
         "surface.builtin.export.node.net.createconnection.1tl708g",
         "surface.builtin.export.node.net.socket.connect.1kfqbvh",
         "surface.builtin.export.node.net.stream.connect.1dm8n0c",
-        "surface.builtin.node.dns.0nx113j",
-        "surface.builtin.node.dns.promises.0izp08e",
         "surface.host.abi.ex.host.fs.copy.0fqucdo",
         "surface.host.abi.ex.host.fs.copy.exclusive.1qw4533",
         "surface.host.abi.ex.host.fs.open.09qvr5d",
@@ -267800,7 +269678,7 @@
         "surface.startup.supervisor.history.journal.recover.1tl92hf",
         "surface.startup.supervisor.history.user.key.read.create.16p08qw"
       ],
-      "rationale": "Covered by 299 observed effect edges."
+      "rationale": "Covered by 297 observed effect edges."
     },
     {
       "definitionId": "fs:watch",
@@ -268529,6 +270407,34 @@
         "surface.builtin.export.node.dgram.socket.send.1ukrxv7",
         "surface.builtin.export.node.dgram.socket.sendto.02pesgu",
         "surface.builtin.export.node.dgram.socket.startrecv.150460m",
+        "surface.builtin.export.node.dns.promises.resolve.0qe3x1j",
+        "surface.builtin.export.node.dns.promises.resolve4.1uhidzd",
+        "surface.builtin.export.node.dns.promises.resolve6.1txj6lf",
+        "surface.builtin.export.node.dns.promises.resolveany.1kwoqxj",
+        "surface.builtin.export.node.dns.promises.resolvecaa.1yzg4si",
+        "surface.builtin.export.node.dns.promises.resolvecname.0inspqf",
+        "surface.builtin.export.node.dns.promises.resolvemx.0vswwoi",
+        "surface.builtin.export.node.dns.promises.resolvenaptr.1lzyqwo",
+        "surface.builtin.export.node.dns.promises.resolvens.0viu5hk",
+        "surface.builtin.export.node.dns.promises.resolveptr.1xc44vn",
+        "surface.builtin.export.node.dns.promises.resolver.resolve.1kh4ti5",
+        "surface.builtin.export.node.dns.promises.resolver.resolve4.1n1q6vf",
+        "surface.builtin.export.node.dns.promises.resolver.resolve6.1nlpe9d",
+        "surface.builtin.export.node.dns.promises.resolver.resolveany.0pbf68l",
+        "surface.builtin.export.node.dns.promises.resolver.resolvecaa.04jkrj4",
+        "surface.builtin.export.node.dns.promises.resolver.resolvecname.1j33v7l",
+        "surface.builtin.export.node.dns.promises.resolver.resolvemx.0d8cok8",
+        "surface.builtin.export.node.dns.promises.resolver.resolvenaptr.18jk9r6",
+        "surface.builtin.export.node.dns.promises.resolver.resolvens.0gahrou",
+        "surface.builtin.export.node.dns.promises.resolver.resolveptr.1wfdac1",
+        "surface.builtin.export.node.dns.promises.resolver.resolvesoa.0z3quuy",
+        "surface.builtin.export.node.dns.promises.resolver.resolvesrv.0sruj7e",
+        "surface.builtin.export.node.dns.promises.resolver.resolvetxt.0jkf1ev",
+        "surface.builtin.export.node.dns.promises.resolver.reverse.1hdraqf",
+        "surface.builtin.export.node.dns.promises.resolvesoa.1d9c8uw",
+        "surface.builtin.export.node.dns.promises.resolvesrv.1j2lxbo",
+        "surface.builtin.export.node.dns.promises.resolvetxt.0ll4aqd",
+        "surface.builtin.export.node.dns.promises.reverse.1g76tz5",
         "surface.builtin.export.node.dns.resolve.0b9xl48",
         "surface.builtin.export.node.dns.resolve4.05zgetw",
         "surface.builtin.export.node.dns.resolve6.06jfm7u",
@@ -268873,7 +270779,7 @@
         "surface.native.op.native.ws.connect.03a295b",
         "surface.native.op.native.ws.send.1to0w71"
       ],
-      "rationale": "Covered by 347 observed effect edges."
+      "rationale": "Covered by 375 observed effect edges."
     },
     {
       "definitionId": "network:fetch",
@@ -268903,6 +270809,34 @@
         "surface.builtin.export.node.dgram.socket.send.1ukrxv7",
         "surface.builtin.export.node.dgram.socket.sendto.02pesgu",
         "surface.builtin.export.node.dgram.socket.startrecv.150460m",
+        "surface.builtin.export.node.dns.promises.resolve.0qe3x1j",
+        "surface.builtin.export.node.dns.promises.resolve4.1uhidzd",
+        "surface.builtin.export.node.dns.promises.resolve6.1txj6lf",
+        "surface.builtin.export.node.dns.promises.resolveany.1kwoqxj",
+        "surface.builtin.export.node.dns.promises.resolvecaa.1yzg4si",
+        "surface.builtin.export.node.dns.promises.resolvecname.0inspqf",
+        "surface.builtin.export.node.dns.promises.resolvemx.0vswwoi",
+        "surface.builtin.export.node.dns.promises.resolvenaptr.1lzyqwo",
+        "surface.builtin.export.node.dns.promises.resolvens.0viu5hk",
+        "surface.builtin.export.node.dns.promises.resolveptr.1xc44vn",
+        "surface.builtin.export.node.dns.promises.resolver.resolve.1kh4ti5",
+        "surface.builtin.export.node.dns.promises.resolver.resolve4.1n1q6vf",
+        "surface.builtin.export.node.dns.promises.resolver.resolve6.1nlpe9d",
+        "surface.builtin.export.node.dns.promises.resolver.resolveany.0pbf68l",
+        "surface.builtin.export.node.dns.promises.resolver.resolvecaa.04jkrj4",
+        "surface.builtin.export.node.dns.promises.resolver.resolvecname.1j33v7l",
+        "surface.builtin.export.node.dns.promises.resolver.resolvemx.0d8cok8",
+        "surface.builtin.export.node.dns.promises.resolver.resolvenaptr.18jk9r6",
+        "surface.builtin.export.node.dns.promises.resolver.resolvens.0gahrou",
+        "surface.builtin.export.node.dns.promises.resolver.resolveptr.1wfdac1",
+        "surface.builtin.export.node.dns.promises.resolver.resolvesoa.0z3quuy",
+        "surface.builtin.export.node.dns.promises.resolver.resolvesrv.0sruj7e",
+        "surface.builtin.export.node.dns.promises.resolver.resolvetxt.0jkf1ev",
+        "surface.builtin.export.node.dns.promises.resolver.reverse.1hdraqf",
+        "surface.builtin.export.node.dns.promises.resolvesoa.1d9c8uw",
+        "surface.builtin.export.node.dns.promises.resolvesrv.1j2lxbo",
+        "surface.builtin.export.node.dns.promises.resolvetxt.0ll4aqd",
+        "surface.builtin.export.node.dns.promises.reverse.1g76tz5",
         "surface.builtin.export.node.dns.resolve.0b9xl48",
         "surface.builtin.export.node.dns.resolve4.05zgetw",
         "surface.builtin.export.node.dns.resolve6.06jfm7u",
@@ -269317,14 +271251,47 @@
         "surface.native.op.global.exact.serve.181oebn",
         "surface.startup.env.ibex.http.max.request.body.bytes.0x1qpbe"
       ],
-      "rationale": "Covered by 420 observed effect edges."
+      "rationale": "Covered by 448 observed effect edges."
     },
     {
       "definitionId": "network:resolve",
       "disposition": "covered",
       "edgeIds": [
+        "surface.builtin.export.node.dns.getservers.1lawjg0",
         "surface.builtin.export.node.dns.lookup.0446xte",
         "surface.builtin.export.node.dns.lookupservice.0qm5jrt",
+        "surface.builtin.export.node.dns.promises.getservers.01v0q69",
+        "surface.builtin.export.node.dns.promises.lookup.1a9e80f",
+        "surface.builtin.export.node.dns.promises.lookupservice.0nrxs0i",
+        "surface.builtin.export.node.dns.promises.resolve.0qe3x1j",
+        "surface.builtin.export.node.dns.promises.resolve4.1uhidzd",
+        "surface.builtin.export.node.dns.promises.resolve6.1txj6lf",
+        "surface.builtin.export.node.dns.promises.resolveany.1kwoqxj",
+        "surface.builtin.export.node.dns.promises.resolvecaa.1yzg4si",
+        "surface.builtin.export.node.dns.promises.resolvecname.0inspqf",
+        "surface.builtin.export.node.dns.promises.resolvemx.0vswwoi",
+        "surface.builtin.export.node.dns.promises.resolvenaptr.1lzyqwo",
+        "surface.builtin.export.node.dns.promises.resolvens.0viu5hk",
+        "surface.builtin.export.node.dns.promises.resolveptr.1xc44vn",
+        "surface.builtin.export.node.dns.promises.resolver.1c0jtjj",
+        "surface.builtin.export.node.dns.promises.resolver.resolve.1kh4ti5",
+        "surface.builtin.export.node.dns.promises.resolver.resolve4.1n1q6vf",
+        "surface.builtin.export.node.dns.promises.resolver.resolve6.1nlpe9d",
+        "surface.builtin.export.node.dns.promises.resolver.resolveany.0pbf68l",
+        "surface.builtin.export.node.dns.promises.resolver.resolvecaa.04jkrj4",
+        "surface.builtin.export.node.dns.promises.resolver.resolvecname.1j33v7l",
+        "surface.builtin.export.node.dns.promises.resolver.resolvemx.0d8cok8",
+        "surface.builtin.export.node.dns.promises.resolver.resolvenaptr.18jk9r6",
+        "surface.builtin.export.node.dns.promises.resolver.resolvens.0gahrou",
+        "surface.builtin.export.node.dns.promises.resolver.resolveptr.1wfdac1",
+        "surface.builtin.export.node.dns.promises.resolver.resolvesoa.0z3quuy",
+        "surface.builtin.export.node.dns.promises.resolver.resolvesrv.0sruj7e",
+        "surface.builtin.export.node.dns.promises.resolver.resolvetxt.0jkf1ev",
+        "surface.builtin.export.node.dns.promises.resolver.reverse.1hdraqf",
+        "surface.builtin.export.node.dns.promises.resolvesoa.1d9c8uw",
+        "surface.builtin.export.node.dns.promises.resolvesrv.1j2lxbo",
+        "surface.builtin.export.node.dns.promises.resolvetxt.0ll4aqd",
+        "surface.builtin.export.node.dns.promises.reverse.1g76tz5",
         "surface.builtin.export.node.dns.resolve.0b9xl48",
         "surface.builtin.export.node.dns.resolve4.05zgetw",
         "surface.builtin.export.node.dns.resolve6.06jfm7u",
@@ -269335,6 +271302,7 @@
         "surface.builtin.export.node.dns.resolvenaptr.1gdeyt9",
         "surface.builtin.export.node.dns.resolvens.0nezupf",
         "surface.builtin.export.node.dns.resolveptr.1jpx2c2",
+        "surface.builtin.export.node.dns.resolver.011t2fi",
         "surface.builtin.export.node.dns.resolver.resolve.0k7iuks",
         "surface.builtin.export.node.dns.resolver.resolve4.08ypn1k",
         "surface.builtin.export.node.dns.resolver.resolve6.09ioufi",
@@ -269368,7 +271336,7 @@
         "surface.startup.env.ibex.dns.server.0ggdo6d",
         "surface.startup.env.res.options.0e62k3i"
       ],
-      "rationale": "Covered by 44 observed effect edges."
+      "rationale": "Covered by 78 observed effect edges."
     },
     {
       "definitionId": "path:cwd-mutate",
@@ -269624,6 +271592,8 @@
         "surface.builtin.export.node.cluster.workers.1568406",
         "surface.builtin.export.node.dgram.default.1tcurix",
         "surface.builtin.export.node.dgram.socket.dynamic.table.inherited.2c961e573353.properties.1d67t90",
+        "surface.builtin.export.node.dns.promises.setdefaultresultorder.04ul83n",
+        "surface.builtin.export.node.dns.promises.setservers.1s3ahhh",
         "surface.builtin.export.node.dns.setdefaultresultorder.0c6xumo",
         "surface.builtin.export.node.dns.setservers.079v5to",
         "surface.builtin.export.node.domain.create.0jpviyf",
@@ -269988,7 +271958,7 @@
         "surface.startup.env.node.tls.reject.unauthorized.0548r0g",
         "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2"
       ],
-      "rationale": "Closed by 438 observed surface edges."
+      "rationale": "Closed by 440 observed surface edges."
     },
     {
       "definitionId": "stdio:query",
@@ -271017,59 +272987,59 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-DXOx4oxN5nzgiMIlYobSxAztVhg2zlg0in8aJ0GN3B4"
+      "rawContentDigest": "sha256-fBQZkyYBSLNfntnWJcwHB7JmPgMN14e8uJCk3Dxp_QY"
     },
     {
       "kind": "output-disposition-dataset",
       "path": "capsec/generated/output-dispositions.json",
-      "rawContentDigest": "sha256-87tButVAjg8vraiyo27E-G49S2AKxI4t1Blm72fMeDU"
+      "rawContentDigest": "sha256-s5YnbkJD0QDQcY9UH4kP-icR9yySORC40PIEi_eL2I4"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/output-dispositions.md",
-      "rawContentDigest": "sha256-rJIW-ZMUKZ7Es45vk4xGG3rt_qFd_wwPQSNwJM92HAo"
+      "rawContentDigest": "sha256-O15cu0t96luRf84zkhjyvm7FPvGVaFhv2Om1ykg2lsY"
     },
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-2AOIUFL-h7pe0vqTWV_crVWPQ5MiEwtiV9XPoAI8fSE"
+      "rawContentDigest": "sha256-U7ZYaG0oetIxbM4QkIyLuzJweunSERGvNg44rIHGyJU"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-GGX-Hw_prLmG9IzqJ97Tcv5MFAExKeRq5frimbPzxp4"
+      "rawContentDigest": "sha256-KlE-XMzXmjLJBytpIyQ4qm3DxVUZD86mhDrgsox-IpQ"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-5vOtRLOc27sWQSEJVv9mlg85JMycZ4ENkB1EHKHyCFw"
+      "rawContentDigest": "sha256-eKUjnwZ0rcVMhE0fSvb-d9SkBHuv3mA3NkD4ofPiTcw"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-DA42YzeRzPQeVfD06QYLfqpF-3txoW2adR7K-hGYZNM"
+      "rawContentDigest": "sha256-_pq--ZgkuMHbhppBZ9P9Ctgo4mWEF2lnh-YCrdcT7e0"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-dKwv_Wgplp53WDU9U6JQmmNiWFQknCn17t22dvyxEto"
+      "rawContentDigest": "sha256-_uCpQytvt72OCh5jIxQ8sU7uNI4a2xhz0W9oi3KBqls"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-8zzO4q5CZCRLRbbnAU5ge5H5LnErHac1eUkUMZfVE7Q"
+      "rawContentDigest": "sha256-Cj2xHhRhtTspc1UWBKV8DwchDus7pClcaKIamtdXKzA"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-VcD4qAqoEmCiFg94azMuoswQV9uBfb-Toz8pYhI5PqY"
+      "rawContentDigest": "sha256-YLc_AKv5vfxIhtx4oChtpEowMyCCQEhCfeP25Hzq0HI"
     }
   ],
   "counts": {
-    "observedReferences": 12773,
-    "logicalSurfaces": 7283,
-    "enforcementBranches": 7502,
-    "coverageEdges": 7283,
-    "targetCells": 14566
+    "observedReferences": 12869,
+    "logicalSurfaces": 7327,
+    "enforcementBranches": 7546,
+    "coverageEdges": 7327,
+    "targetCells": 14654
   }
 }

@@ -38,6 +38,10 @@ const SRC_EVENTS = [
   'module.exports = { EventEmitter: EventEmitter, evals: n };',
 ].join('\n');
 const SRC_UTIL = ['function inspect() {}', 'module.exports = { inspect: inspect };'].join('\n');
+const SRC_DNS_PROMISES = [
+  'var n = (globalThis.__dnsPromisesEvals = (globalThis.__dnsPromisesEvals || 0) + 1);',
+  "module.exports = { manifestSource: 'node_dns_promises', evals: n };",
+].join('\n');
 
 // Alias groups mirror modules.ts: every name in a group resolves to the SAME
 // source text; distinct modules resolve to distinct source text.
@@ -45,6 +49,10 @@ const GROUPS: Record<string, { names: string[]; source: string }> = {
   node_fs: { names: ['fs', 'node:fs', 'bun:fs'], source: SRC_FS },
   node_events: { names: ['events', 'node:events'], source: SRC_EVENTS },
   node_util: { names: ['util', 'sys', 'node:util', 'node:sys'], source: SRC_UTIL },
+  node_dns_promises: {
+    names: ['dns/promises', 'node:dns/promises'],
+    source: SRC_DNS_PROMISES,
+  },
 };
 
 function makeRequire(): (specifier: string) => any {
@@ -74,6 +82,69 @@ function makeRequire(): (specifier: string) => any {
   return sandbox.require.bind(sandbox);
 }
 
+function makeAuthenticatedReceiptHarness(
+  records: Record<string, { source: string; sourceId: string }>,
+) {
+  const sandbox: any = {};
+  const markerCalls: unknown[][] = [];
+  const receipts: unknown[][] = [];
+  let activeModuleId = 0;
+  let expectedAlias: string | null = null;
+  const resolve = function (specifier: string) {
+    const record = records[specifier];
+    if (!record) {
+      return JSON.stringify({ error: 'Module not found: ' + specifier });
+    }
+    return JSON.stringify({
+      schema: 'ibex/module-resolution/1',
+      id: specifier,
+      kind: 'builtin',
+      source: record.source,
+      sourceId: record.sourceId,
+    });
+  };
+  sandbox.globalThis = sandbox;
+  sandbox.console = console;
+  sandbox.Symbol = Symbol;
+  sandbox.Promise = Promise;
+  sandbox.__exactPinProcessStreams = function () {};
+  sandbox.__exactModuleResolve = resolve;
+  sandbox.__exactModuleResolveMeta = resolve;
+  sandbox.__exactCaptureSessionStaticImport = function () {
+    return { resolve, resolveMeta: resolve };
+  };
+  sandbox.__exactSetActiveModuleId = function (...args: unknown[]) {
+    const previous = activeModuleId;
+    const next = args[0];
+    activeModuleId =
+      typeof next === 'number' && Number.isSafeInteger(next) && next >= 0
+        ? next
+        : 0;
+    if (args.length === 4) {
+      markerCalls.push([...args]);
+      if (
+        next === previous &&
+        args[1] === records[String(args[2])]?.sourceId &&
+        args[2] === expectedAlias &&
+        args[3] === 'ibex-capsec-authenticated-builtin-source-complete-v1'
+      ) {
+        receipts.push([...args]);
+      }
+    }
+    return previous;
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(loaderSource, sandbox, { filename: 'module-loader.js' });
+  return {
+    require: sandbox.require.bind(sandbox) as (specifier: string) => any,
+    arm(alias: string) {
+      expectedAlias = alias;
+    },
+    markerCalls,
+    receipts,
+  };
+}
+
 test("require('fs') === require('node:fs') === require('bun:fs')", () => {
   const require = makeRequire();
   const bare = require('fs');
@@ -99,6 +170,76 @@ test('cross-name aliases sharing one source share identity (util/sys)', () => {
   const require = makeRequire();
   expect(require('util')).toBe(require('sys'));
   expect(require('util')).toBe(require('node:util'));
+});
+
+test('dns/promises aliases execute their declared manifest source', () => {
+  const require = makeRequire();
+  const bare = require('dns/promises');
+  const node = require('node:dns/promises');
+
+  expect(bare).toBe(node);
+  expect(bare.manifestSource).toBe('node_dns_promises');
+  expect(bare.evals).toBe(1);
+});
+
+test('authenticated builtin completion receipt requires one cold exact-alias body', () => {
+  const dnsSourceId = 'ibex-source-id-v1:bm9kZV9kbnM';
+  const harness = makeAuthenticatedReceiptHarness({
+    'node:dns': {
+      source: "module.exports = { loaded: 'node:dns' };",
+      sourceId: dnsSourceId,
+    },
+  });
+  harness.arm('node:dns');
+  expect(harness.require('node:dns').loaded).toBe('node:dns');
+  expect(harness.markerCalls).toEqual([
+    [
+      0,
+      dnsSourceId,
+      'node:dns',
+      'ibex-capsec-authenticated-builtin-source-complete-v1',
+    ],
+  ]);
+  expect(harness.receipts).toEqual(harness.markerCalls);
+
+  expect(harness.require('node:dns').loaded).toBe('node:dns');
+  expect(harness.markerCalls).toHaveLength(1);
+  expect(harness.receipts).toHaveLength(1);
+});
+
+test('authenticated builtin completion receipt rejects throws and cached wrong aliases', () => {
+  const sharedSourceId = 'ibex-source-id-v1:bm9kZV9kbnNfcHJvbWlzZXM';
+  const aliasHarness = makeAuthenticatedReceiptHarness({
+    'dns/promises': {
+      source: "module.exports = { loaded: 'dns/promises' };",
+      sourceId: sharedSourceId,
+    },
+    'node:dns/promises': {
+      source: "module.exports = { loaded: 'dns/promises' };",
+      sourceId: sharedSourceId,
+    },
+  });
+  aliasHarness.arm('node:dns/promises');
+  expect(aliasHarness.require('dns/promises').loaded).toBe('dns/promises');
+  expect(aliasHarness.markerCalls).toHaveLength(1);
+  expect(aliasHarness.markerCalls[0]?.[2]).toBe('dns/promises');
+  expect(aliasHarness.receipts).toHaveLength(0);
+  expect(aliasHarness.require('node:dns/promises').loaded).toBe('dns/promises');
+  expect(aliasHarness.markerCalls).toHaveLength(1);
+  expect(aliasHarness.receipts).toHaveLength(0);
+
+  const throwingHarness = makeAuthenticatedReceiptHarness({
+    'node:throwing': {
+      source: "throw new Error('body failed before completion');",
+      sourceId: 'ibex-source-id-v1:dGhyb3dpbmc',
+    },
+  });
+  throwingHarness.arm('node:throwing');
+  expect(() => throwingHarness.require('node:throwing')).toThrow(
+    /body failed before completion/,
+  );
+  expect(throwingHarness.markerCalls).toHaveLength(0);
+  expect(throwingHarness.receipts).toHaveLength(0);
 });
 
 test("require('events') === require('node:events') with a shared EventEmitter", () => {

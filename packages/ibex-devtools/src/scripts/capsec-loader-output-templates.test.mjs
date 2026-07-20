@@ -71,10 +71,10 @@ describe("source-bound module-loader output recipes", () => {
         ];
       }),
     );
-    expect(rows).toHaveLength(164);
+    expect(rows).toHaveLength(163);
     expect(counts).toEqual({
       base: { authored: 8, residual: 4 },
-      "internal-loader-route": { authored: 48, residual: 0 },
+      "internal-loader-route": { authored: 47, residual: 0 },
       "lazy-loader-installer-route": { authored: 39, residual: 0 },
       "loader-entry-route": { authored: 9, residual: 3 },
       "loader-function": { authored: 14, residual: 37 },
@@ -86,7 +86,7 @@ describe("source-bound module-loader output recipes", () => {
     const residual = rows.filter(
       ({ invocation }) => invocation.route.operation === "unexercisable",
     );
-    expect(authored).toHaveLength(119);
+    expect(authored).toHaveLength(118);
     expect(residual).toHaveLength(45);
     expect(
       residual
@@ -179,6 +179,15 @@ describe("source-bound module-loader output recipes", () => {
 
   test("routes internal aliases and lazy installers through their real specifiers", async () => {
     const rows = await currentInvocations();
+    expect(
+      rows.some(({ surface }) => surface.name === "internal-route:dns/promises"),
+    ).toBe(false);
+    expect(
+      rows.some(
+        ({ surface }) =>
+          surface.name === "lazy-installer:__exactEnsureDns:dns/promises",
+      ),
+    ).toBe(true);
     for (const { surface, invocation } of rows) {
       if (surface.metadata?.evidenceType === "internal-loader-route") {
         expect(invocation.route).toMatchObject({

@@ -211,8 +211,9 @@ function routeFor(surface) {
   }
   if (evidenceType === "lazy-loader-installer-route") {
     // __exactRequire is an already-exposed legacy entry. Unlike global require,
-    // it goes directly through load(), so aliases such as dns/promises cannot
-    // be intercepted by loadInternal before the lazy installer branch runs.
+    // it goes directly through load(), so no loadInternal route can preempt the
+    // lazy installer branch. The manifest-backed dns/promises aliases likewise
+    // have no bootstrap-internal shadow on the global-require path.
     return invoke("exact-require", surface.metadata.specifier);
   }
   if (evidenceType === "loader-entry-route") {

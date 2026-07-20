@@ -13888,6 +13888,1491 @@ export async function scanModuleSpecifiers(
   return scanModuleSpecifierEntries(moduleExports, sourcePath);
 }
 
+const REVIEWED_DNS_PROMISE_ERROR_CODES = Object.freeze(
+  [
+    "ADDRGETNETWORKPARAMS",
+    "BADFAMILY",
+    "BADFLAGS",
+    "BADHINTS",
+    "BADNAME",
+    "BADQUERY",
+    "BADRESP",
+    "BADSTR",
+    "CANCELLED",
+    "CONNREFUSED",
+    "DESTRUCTION",
+    "EOF",
+    "FILE",
+    "FORMERR",
+    "LOADIPHLPAPI",
+    "NODATA",
+    "NOMEM",
+    "NONAME",
+    "NOTFOUND",
+    "NOTIMP",
+    "NOTINITIALIZED",
+    "REFUSED",
+    "SERVFAIL",
+    "TIMEOUT",
+  ].sort(compareText),
+);
+
+const REVIEWED_DNS_PROMISE_TOP_OPERATIONS = Object.freeze(
+  [
+    "Resolver",
+    "getDefaultResultOrder",
+    "getServers",
+    "lookup",
+    "lookupService",
+    "resolve",
+    "resolve4",
+    "resolve6",
+    "resolveAny",
+    "resolveCaa",
+    "resolveCname",
+    "resolveMx",
+    "resolveNaptr",
+    "resolveNs",
+    "resolvePtr",
+    "resolveSoa",
+    "resolveSrv",
+    "resolveTxt",
+    "reverse",
+    "setDefaultResultOrder",
+    "setServers",
+  ].sort(compareText),
+);
+
+const REVIEWED_DNS_PROMISE_RESOLVER_OWN_OPERATIONS = Object.freeze(
+  [
+    "resolve",
+    "resolve4",
+    "resolve6",
+    "resolveAny",
+    "resolveCaa",
+    "resolveCname",
+    "resolveMx",
+    "resolveNaptr",
+    "resolveNs",
+    "resolvePtr",
+    "resolveSoa",
+    "resolveSrv",
+    "resolveTxt",
+    "reverse",
+  ].sort(compareText),
+);
+
+const REVIEWED_DNS_PROMISE_RESOLVER_INHERITED_OPERATIONS = Object.freeze(
+  ["cancel", "getServers", "setLocalAddress", "setServers"].sort(
+    compareText,
+  ),
+);
+
+const REVIEWED_DNS_PROMISE_RESOLVER_OPERATIONS = Object.freeze(
+  uniqueSorted([
+    ...REVIEWED_DNS_PROMISE_RESOLVER_OWN_OPERATIONS,
+    ...REVIEWED_DNS_PROMISE_RESOLVER_INHERITED_OPERATIONS,
+  ]),
+);
+
+export const DNS_PROMISE_EXPORT_SHAPE_REVIEW_SCHEMA =
+  "ibex/capsec-dns-promises-export-shape-review/1";
+export const REVIEWED_DNS_PROMISE_EXPORT_SHAPE_REVIEW_ID =
+  "sha256-161c4e4bf9027d0d3e4f9427954c18529f7ef0bd727be9064fc8f79270a75c75";
+
+const AST_REVIEW_OMITTED_KEYS = new Set([
+  "comments",
+  "end",
+  "errors",
+  "extra",
+  "loc",
+  "start",
+  "tokens",
+]);
+
+function canonicalReviewedAst(value) {
+  if (Array.isArray(value)) return value.map(canonicalReviewedAst);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value)
+        .filter(
+          (key) =>
+            !AST_REVIEW_OMITTED_KEYS.has(key) &&
+            !/(?:^|[a-z])Comments$/u.test(key),
+        )
+        .sort(compareText)
+        .map((key) => [key, canonicalReviewedAst(value[key])]),
+    );
+  }
+  return value;
+}
+
+function dnsPromiseExportShapeReviewId({
+  carrierProgram,
+  carrierSourcePath,
+  providerProgram,
+  providerSourcePath,
+}) {
+  return `sha256-${sha256Hex(
+    JSON.stringify(
+      canonicalReviewValue({
+        carrier: {
+          ast: canonicalReviewedAst(carrierProgram),
+          sourceKey: "node_dns_promises",
+          sourcePath: carrierSourcePath,
+        },
+        provider: {
+          ast: canonicalReviewedAst(providerProgram),
+          sourceKey: "node_dns",
+          sourcePath: providerSourcePath,
+        },
+        schema: DNS_PROMISE_EXPORT_SHAPE_REVIEW_SCHEMA,
+      }),
+    ),
+  )}`;
+}
+
+export function deriveDnsPromiseExportShapeReviewId(
+  carrierText,
+  providerText,
+  {
+    carrierSourcePath = "src/builtins/dns-promises.js",
+    providerSourcePath = "src/builtins/dns.js",
+  } = {},
+) {
+  return dnsPromiseExportShapeReviewId({
+    carrierProgram: parseJavaScript(carrierText, carrierSourcePath),
+    carrierSourcePath,
+    providerProgram: parseJavaScript(providerText, providerSourcePath),
+    providerSourcePath,
+  });
+}
+
+function assertReviewedNameSet(actualNames, expectedNames, label, sourcePath) {
+  const duplicateNames = uniqueSorted(
+    actualNames.filter(
+      (name, index) => actualNames.indexOf(name) !== index,
+    ),
+  );
+  const actual = uniqueSorted(actualNames);
+  const expected = uniqueSorted(expectedNames);
+  if (
+    duplicateNames.length > 0 ||
+    JSON.stringify(actual) !== JSON.stringify(expected)
+  ) {
+    const actualSet = new Set(actual);
+    const expectedSet = new Set(expected);
+    throw new Error(
+      `${sourcePath}: ${label} drift: missing [${expected
+        .filter((name) => !actualSet.has(name))
+        .join(", ")}]; extra [${actual
+        .filter((name) => !expectedSet.has(name))
+        .join(", ")}]; duplicates [${duplicateNames.join(", ")}]`,
+    );
+  }
+}
+
+function exactVariableDeclarator(program, name, sourcePath) {
+  const declarations = [];
+  walkAst(program, (node) => {
+    if (
+      node.type === "VariableDeclarator" &&
+      node.id?.type === "Identifier" &&
+      node.id.name === name
+    ) {
+      declarations.push(node);
+    }
+  });
+  if (declarations.length !== 1) {
+    throw new Error(
+      `${sourcePath}: expected one exact ${name} variable declaration; found ${declarations.length}`,
+    );
+  }
+  return declarations[0];
+}
+
+function exactRootModuleExportAssignment(program, sourcePath) {
+  const assignments = [];
+  walkAst(program, (node) => {
+    if (
+      node.type === "AssignmentExpression" &&
+      node.operator === "=" &&
+      isModuleExports(node.left)
+    ) {
+      assignments.push(node);
+    }
+  });
+  if (assignments.length !== 1) {
+    throw new Error(
+      `${sourcePath}: expected one exact module.exports assignment; found ${assignments.length}`,
+    );
+  }
+  return assignments[0];
+}
+
+function exactObjectPropertyEntries(object, label, sourcePath) {
+  if (object?.type !== "ObjectExpression") {
+    throw new Error(`${sourcePath}: ${label} must be an object literal`);
+  }
+  const entries = new Map();
+  for (const property of object.properties) {
+    if (
+      property.type !== "ObjectProperty" ||
+      property.computed ||
+      !["Identifier", "StringLiteral"].includes(property.key?.type)
+    ) {
+      throw new Error(
+        `${registrationContext("", property, sourcePath)}: ${label} contains an unresolved property shape`,
+      );
+    }
+    const name =
+      property.key.type === "Identifier"
+        ? property.key.name
+        : property.key.value;
+    if (entries.has(name)) {
+      throw new Error(`${sourcePath}: ${label} duplicates property ${name}`);
+    }
+    entries.set(name, property);
+  }
+  return entries;
+}
+
+function exactUnwrittenBinding(bindingIndex, declaration, label, sourcePath) {
+  const binding = bindingIndex.resolve(declaration.id);
+  if (!binding || binding.node !== declaration || binding.writes !== 0) {
+    throw new Error(
+      `${sourcePath}: ${label} must resolve to one immutable lexical binding`,
+    );
+  }
+  return binding;
+}
+
+function isNonReferenceIdentifier(node, parent) {
+  return Boolean(
+    (parent?.type === "MemberExpression" &&
+      parent.property === node &&
+      !parent.computed) ||
+      (parent?.type === "ObjectProperty" &&
+        parent.key === node &&
+        parent.value !== node &&
+        !parent.computed),
+  );
+}
+
+function assertReviewedBindingReferences({
+  program,
+  bindingIndex,
+  binding,
+  declaration,
+  label,
+  sourcePath,
+  allowed,
+}) {
+  walkAstWithAncestors(program, (node, ancestors) => {
+    if (
+      node.type !== "Identifier" ||
+      bindingIndex.resolve(node) !== binding ||
+      node === declaration.id
+    ) {
+      return;
+    }
+    const parent = ancestors.at(-1);
+    if (isNonReferenceIdentifier(node, parent)) return;
+    if (allowed(node, parent, ancestors)) return;
+    throw new Error(
+      `${registrationContext("", node, sourcePath)}: unreviewed ${label} reference`,
+    );
+  });
+}
+
+function isCodeIndex(node) {
+  return Boolean(
+    node?.type === "MemberExpression" &&
+      node.computed &&
+      node.object?.type === "Identifier" &&
+      node.object.name === "codes" &&
+      node.property?.type === "Identifier" &&
+      node.property.name === "i",
+  );
+}
+
+function isCodeMember(node, objectName) {
+  return Boolean(
+    node?.type === "MemberExpression" &&
+      node.computed &&
+      node.object?.type === "Identifier" &&
+      node.object.name === objectName &&
+      isCodeIndex(node.property),
+  );
+}
+
+function assertExactCarrierCodeCopy(program, sourcePath) {
+  const writes = [];
+  let writeAncestors = [];
+  walkAstWithAncestors(program, (node, ancestors) => {
+    if (
+      node.type === "AssignmentExpression" &&
+      node.left?.type === "MemberExpression" &&
+      node.left.object?.type === "Identifier" &&
+      node.left.object.name === "promises"
+    ) {
+      writes.push(node);
+      writeAncestors = ancestors;
+    }
+  });
+  if (
+    writes.length !== 1 ||
+    writes[0].operator !== "=" ||
+    !isCodeMember(writes[0].left, "promises") ||
+    !isCodeMember(writes[0].right, "dns")
+  ) {
+    throw new Error(
+      `${sourcePath}: expected one exact promises[codes[i]] copy`,
+    );
+  }
+  const assignment = writes[0];
+  let loop = null;
+  for (let index = writeAncestors.length - 1; index >= 0; index -= 1) {
+    if (writeAncestors[index].type === "ForStatement") {
+      loop = writeAncestors[index];
+      break;
+    }
+  }
+  const initializer = loop?.init;
+  const declaration = initializer?.declarations?.[0];
+  const test = loop?.test;
+  const update = loop?.update;
+  const bodyStatement = loop?.body?.body?.[0];
+  const consequent = bodyStatement?.consequent;
+  const copiedStatement =
+    consequent?.type === "BlockStatement"
+      ? consequent.body?.[0]
+      : consequent;
+  if (
+    !loop ||
+    initializer?.type !== "VariableDeclaration" ||
+    initializer.declarations.length !== 1 ||
+    declaration?.id?.type !== "Identifier" ||
+    declaration.id.name !== "i" ||
+    declaration.init?.type !== "NumericLiteral" ||
+    declaration.init.value !== 0 ||
+    test?.type !== "BinaryExpression" ||
+    test.operator !== "<" ||
+    test.left?.type !== "Identifier" ||
+    test.left.name !== "i" ||
+    test.right?.type !== "MemberExpression" ||
+    test.right.object?.type !== "Identifier" ||
+    test.right.object.name !== "codes" ||
+    directMemberName(test.right) !== "length" ||
+    update?.type !== "UpdateExpression" ||
+    update.operator !== "++" ||
+    update.argument?.type !== "Identifier" ||
+    update.argument.name !== "i" ||
+    loop.body?.type !== "BlockStatement" ||
+    loop.body.body.length !== 1 ||
+    bodyStatement?.type !== "IfStatement" ||
+    bodyStatement.alternate !== null ||
+    bodyStatement.test?.type !== "BinaryExpression" ||
+    bodyStatement.test.operator !== "!==" ||
+    !isCodeMember(bodyStatement.test.left, "dns") ||
+    bodyStatement.test.right?.type !== "Identifier" ||
+    bodyStatement.test.right.name !== "undefined" ||
+    copiedStatement?.type !== "ExpressionStatement" ||
+    copiedStatement.expression !== assignment ||
+    (consequent?.type === "BlockStatement" && consequent.body.length !== 1)
+  ) {
+    throw new Error(`${sourcePath}: reviewed error-code copy loop drifted`);
+  }
+  return assignment;
+}
+
+function isSourceProvenCallable(expression, bindingIndex, seen = new Set()) {
+  if (
+    expression?.type === "FunctionExpression" ||
+    expression?.type === "ArrowFunctionExpression"
+  ) {
+    return true;
+  }
+  if (expression?.type === "Identifier") {
+    const binding = bindingIndex.resolve(expression);
+    if (!binding || binding.writes !== 0 || seen.has(binding)) return false;
+    seen.add(binding);
+    if (
+      binding.node?.type === "FunctionDeclaration" ||
+      binding.node?.type === "ClassDeclaration"
+    ) {
+      return true;
+    }
+    if (binding.node?.type === "VariableDeclarator") {
+      return isSourceProvenCallable(binding.node.init, bindingIndex, seen);
+    }
+    return false;
+  }
+  if (
+    expression?.type === "CallExpression" &&
+    expression.callee?.type === "Identifier"
+  ) {
+    const binding = bindingIndex.resolve(expression.callee);
+    if (
+      !binding ||
+      binding.writes !== 0 ||
+      binding.node?.type !== "FunctionDeclaration" ||
+      binding.node.body?.type !== "BlockStatement" ||
+      binding.node.body.body.length !== 1
+    ) {
+      return false;
+    }
+    const statement = binding.node.body.body[0];
+    return Boolean(
+      statement.type === "ReturnStatement" &&
+        (statement.argument?.type === "FunctionExpression" ||
+          statement.argument?.type === "ArrowFunctionExpression"),
+    );
+  }
+  return false;
+}
+
+function prototypeAssignments(program, owner, sourcePath) {
+  const whole = [];
+  const members = new Map();
+  walkAst(program, (node) => {
+    if (node.type !== "AssignmentExpression" || node.operator !== "=") return;
+    if (prototypeOwner(node.left) === owner) {
+      whole.push(node);
+      return;
+    }
+    if (
+      node.left?.type !== "MemberExpression" ||
+      prototypeOwner(node.left.object) !== owner
+    ) {
+      return;
+    }
+    if (node.left.computed) {
+      throw new Error(
+        `${registrationContext("", node, sourcePath)}: ${owner}.prototype has a computed write`,
+      );
+    }
+    const name = directMemberName(node.left);
+    if (!name || members.has(name)) {
+      throw new Error(
+        `${sourcePath}: ${owner}.prototype has a duplicate or unresolved member`,
+      );
+    }
+    members.set(name, node);
+  });
+  return { whole, members };
+}
+
+function isExactPromiseResolverInheritance(expression) {
+  const argument = expression?.arguments?.[0];
+  return Boolean(
+    expression?.type === "CallExpression" &&
+      expression.arguments.length === 1 &&
+      expression.callee?.type === "MemberExpression" &&
+      expression.callee.object?.type === "Identifier" &&
+      expression.callee.object.name === "Object" &&
+      directMemberName(expression.callee) === "create" &&
+      prototypeOwner(argument) === "Resolver",
+  );
+}
+
+function assertReviewedPrototypeObjectUses({
+  program,
+  owner,
+  inheritance,
+  memberAssignments,
+  sourcePath,
+}) {
+  walkAstWithAncestors(program, (node, ancestors) => {
+    if (prototypeOwner(node) !== owner) return;
+    const parent = ancestors.at(-1);
+    if (owner === "PromiseResolver" && node === inheritance.left) return;
+    if (
+      owner === "Resolver" &&
+      node === inheritance.right?.arguments?.[0]
+    ) {
+      return;
+    }
+    if (
+      parent?.type === "MemberExpression" &&
+      parent.object === node
+    ) {
+      const mutation = ancestors.at(-2);
+      if (
+        mutation?.type === "AssignmentExpression" &&
+        mutation.left === parent &&
+        mutation.operator === "=" &&
+        memberAssignments.get(directMemberName(parent)) === mutation
+      ) {
+        return;
+      }
+      const applyMember = ancestors.at(-2);
+      const applyCall = ancestors.at(-3);
+      if (
+        owner === "Resolver" &&
+        parent.computed &&
+        parent.property?.type === "Identifier" &&
+        parent.property.name === "method" &&
+        applyMember?.type === "MemberExpression" &&
+        applyMember.object === parent &&
+        directMemberName(applyMember) === "apply" &&
+        applyCall?.type === "CallExpression" &&
+        applyCall.callee === applyMember
+      ) {
+        return;
+      }
+      throw new Error(
+        `${sourcePath}: ${owner}.prototype has an unreviewed member access or mutation`,
+      );
+    }
+    throw new Error(
+      `${registrationContext("", node, sourcePath)}: unreviewed ${owner}.prototype object escape`,
+    );
+  });
+}
+
+function nearestFunctionAncestor(ancestors) {
+  for (let index = ancestors.length - 1; index >= 0; index -= 1) {
+    if (isJavaScriptFunctionNode(ancestors[index])) return ancestors[index];
+  }
+  return null;
+}
+
+function assertReviewedResolverInstanceInitialization({
+  bindingIndex,
+  program,
+  providerText,
+  resolverFunction,
+  promiseResolverFunction,
+  sourcePath,
+}) {
+  const directWrites = new Map([
+    [resolverFunction, []],
+    [promiseResolverFunction, []],
+  ]);
+  walkAstWithAncestors(program, (node, ancestors) => {
+    if (node.type !== "ThisExpression") return;
+    const owner = nearestFunctionAncestor(ancestors);
+    if (!directWrites.has(owner)) return;
+    const parent = ancestors.at(-1);
+    if (
+      parent?.type === "BinaryExpression" &&
+      parent.operator === "instanceof" &&
+      parent.left === node
+    ) {
+      return;
+    }
+    if (
+      owner === promiseResolverFunction &&
+      parent?.type === "CallExpression" &&
+      parent.arguments[0] === node &&
+      parent.callee?.type === "MemberExpression" &&
+      parent.callee.object?.type === "Identifier" &&
+      parent.callee.object.name === "Resolver" &&
+      directMemberName(parent.callee) === "call" &&
+      parent.arguments.length === 2 &&
+      parent.arguments[1]?.type === "Identifier" &&
+      parent.arguments[1].name === "options"
+    ) {
+      return;
+    }
+    if (
+      owner === resolverFunction &&
+      parent?.type === "VariableDeclarator" &&
+      parent.id?.type === "Identifier" &&
+      parent.id.name === "self" &&
+      parent.init === node
+    ) {
+      return;
+    }
+    if (parent?.type === "MemberExpression" && parent.object === node) {
+      const name = directMemberName(parent);
+      if (parent.computed || !name?.startsWith("_")) {
+        throw new Error(
+          `${registrationContext(providerText, parent, sourcePath)}: Resolver constructor exposes an unreviewed public instance member`,
+        );
+      }
+      const mutation = ancestors.at(-2);
+      if (
+        mutation?.type === "AssignmentExpression" &&
+        mutation.left === parent
+      ) {
+        if (mutation.operator !== "=") {
+          throw new Error(
+            `${sourcePath}: Resolver instance initializer uses an unreviewed compound write`,
+          );
+        }
+        directWrites.get(owner).push({ assignment: mutation, name });
+      }
+      return;
+    }
+    throw new Error(
+      `${registrationContext(providerText, node, sourcePath)}: Resolver constructor has an unreviewed this escape`,
+    );
+  });
+  assertReviewedNameSet(
+    directWrites.get(resolverFunction).map(({ name }) => name),
+    [
+      "_activeQueries",
+      "_handle",
+      "_localAddressIPv4",
+      "_localAddressIPv6",
+      "_maxTimeout",
+      "_nextServerIndex",
+      "_pendingQueries",
+      "_servers",
+      "_timeout",
+      "_tries",
+      "_usesCustomServers",
+    ],
+    "Resolver constructor instance domain",
+    sourcePath,
+  );
+  assertReviewedNameSet(
+    directWrites.get(promiseResolverFunction).map(({ name }) => name),
+    [],
+    "PromiseResolver constructor instance domain",
+    sourcePath,
+  );
+
+  const selfDeclaration = exactVariableDeclarator(program, "self", sourcePath);
+  if (selfDeclaration.init?.type !== "ThisExpression") {
+    throw new Error(`${sourcePath}: Resolver self alias drifted`);
+  }
+  const selfBinding = exactUnwrittenBinding(
+    bindingIndex,
+    selfDeclaration,
+    "Resolver self alias",
+    sourcePath,
+  );
+  assertReviewedBindingReferences({
+    program,
+    bindingIndex,
+    binding: selfBinding,
+    declaration: selfDeclaration,
+    label: "Resolver self alias",
+    sourcePath,
+    allowed: (node, parent) => {
+      if (
+        parent?.type === "MemberExpression" &&
+        parent.object === node &&
+        !parent.computed &&
+        directMemberName(parent)?.startsWith("_")
+      ) {
+        return true;
+      }
+      return Boolean(
+        parent?.type === "CallExpression" &&
+          parent.arguments[0] === node &&
+          parent.arguments.length === 1 &&
+          parent.callee?.type === "Identifier" &&
+          parent.callee.name === "_cancelResolverQueries",
+      );
+    },
+  });
+  const handleAssignment = directWrites
+    .get(resolverFunction)
+    .find(({ name }) => name === "_handle")?.assignment;
+  const handleEntries = exactObjectPropertyEntries(
+    handleAssignment?.right,
+    "Resolver instance _handle",
+    sourcePath,
+  );
+  assertReviewedNameSet(
+    [...handleEntries.keys()],
+    ["cancel", "getServers", "setServers"],
+    "Resolver instance _handle callable domain",
+    sourcePath,
+  );
+  for (const [name, property] of handleEntries) {
+    if (!isSourceProvenCallable(property.value, bindingIndex)) {
+      throw new Error(
+        `${registrationContext(providerText, property, sourcePath)}: Resolver._handle.${name} is not source-proven callable`,
+      );
+    }
+  }
+  return { handleOperations: uniqueSorted(handleEntries.keys()) };
+}
+
+/**
+ * Resolve the one reviewed cross-source CommonJS object projection used by
+ * `dns/promises`. This proves the carrier/provider object identity and closes
+ * the exact callable property domain, but deliberately leaves every call route
+ * ambiguous until a public operation recipe executes it.
+ *
+ * @ref LLP 0004#one-source-many-specifiers — projected exports remain owned by
+ * the public carrier source rather than by the provider's aliases.
+ * @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory — an
+ * unreviewed write, alias, member, or prototype shape fails inventory.
+ */
+export function scanReviewedDnsPromisesProjection(
+  carrierText,
+  providerText,
+  {
+    carrierSourceKind = "generated",
+    carrierSourcePath = "src/builtins/dns-promises.js",
+    moduleSpecifiers = ["dns/promises", "node:dns/promises"],
+    providerSourcePath = "src/builtins/dns.js",
+  } = {},
+) {
+  const carrierProgram = parseJavaScript(carrierText, carrierSourcePath);
+  const providerProgram = parseJavaScript(providerText, providerSourcePath);
+  const carrierBindings = javascriptLexicalBindingIndex(carrierProgram);
+  const providerBindings = javascriptLexicalBindingIndex(providerProgram);
+
+  const dnsDeclaration = exactVariableDeclarator(
+    carrierProgram,
+    "dns",
+    carrierSourcePath,
+  );
+  const carrierPromisesDeclaration = exactVariableDeclarator(
+    carrierProgram,
+    "promises",
+    carrierSourcePath,
+  );
+  const codesDeclaration = exactVariableDeclarator(
+    carrierProgram,
+    "codes",
+    carrierSourcePath,
+  );
+  if (
+    dnsDeclaration.init?.type !== "CallExpression" ||
+    dnsDeclaration.init.callee?.type !== "Identifier" ||
+    dnsDeclaration.init.callee.name !== "require" ||
+    dnsDeclaration.init.arguments.length !== 1 ||
+    dnsDeclaration.init.arguments[0]?.type !== "StringLiteral" ||
+    dnsDeclaration.init.arguments[0].value !== "dns"
+  ) {
+    throw new Error(
+      `${carrierSourcePath}: dns must be bound by exact require("dns")`,
+    );
+  }
+  const carrierRequireCalls = [];
+  walkAst(carrierProgram, (node) => {
+    if (
+      node.type === "CallExpression" &&
+      ((node.callee?.type === "Identifier" &&
+        node.callee.name === "require") ||
+        (node.callee?.type === "MemberExpression" &&
+          directMemberName(node.callee) === "require"))
+    ) {
+      carrierRequireCalls.push(node);
+    }
+  });
+  if (
+    carrierRequireCalls.length !== 1 ||
+    carrierRequireCalls[0] !== dnsDeclaration.init
+  ) {
+    throw new Error(
+      `${carrierSourcePath}: reviewed carrier must have exactly one require call`,
+    );
+  }
+  if (
+    carrierPromisesDeclaration.init?.type !== "MemberExpression" ||
+    carrierPromisesDeclaration.init.object?.type !== "Identifier" ||
+    carrierPromisesDeclaration.init.object.name !== "dns" ||
+    carrierPromisesDeclaration.init.computed ||
+    directMemberName(carrierPromisesDeclaration.init) !== "promises"
+  ) {
+    throw new Error(
+      `${carrierSourcePath}: promises must be bound to exact dns.promises`,
+    );
+  }
+  if (
+    codesDeclaration.init?.type !== "ArrayExpression" ||
+    codesDeclaration.init.elements.some(
+      (element) => element?.type !== "StringLiteral",
+    )
+  ) {
+    throw new Error(
+      `${carrierSourcePath}: error codes must be an exact string array`,
+    );
+  }
+  assertReviewedNameSet(
+    codesDeclaration.init.elements.map((element) => element.value),
+    REVIEWED_DNS_PROMISE_ERROR_CODES,
+    "error-code domain",
+    carrierSourcePath,
+  );
+  const carrierExport = exactRootModuleExportAssignment(
+    carrierProgram,
+    carrierSourcePath,
+  );
+  if (
+    carrierExport.right?.type !== "Identifier" ||
+    carrierExport.right.name !== "promises"
+  ) {
+    throw new Error(
+      `${carrierSourcePath}: module.exports must be the promises binding`,
+    );
+  }
+  walkAstWithAncestors(carrierProgram, (node, ancestors) => {
+    const parent = ancestors.at(-1);
+    if (
+      (node.type === "MemberExpression" &&
+        isModuleExports(node) &&
+        node !== carrierExport.left) ||
+      (node.type === "Identifier" &&
+        node.name === "exports" &&
+        !(
+          parent?.type === "MemberExpression" &&
+          parent.property === node &&
+          !parent.computed
+        ))
+    ) {
+      throw new Error(
+        `${carrierSourcePath}: exported promises object has an unreviewed reacquisition`,
+      );
+    }
+  });
+  const codeCopy = assertExactCarrierCodeCopy(
+    carrierProgram,
+    carrierSourcePath,
+  );
+  const dnsBinding = exactUnwrittenBinding(
+    carrierBindings,
+    dnsDeclaration,
+    "dns",
+    carrierSourcePath,
+  );
+  const carrierPromisesBinding = exactUnwrittenBinding(
+    carrierBindings,
+    carrierPromisesDeclaration,
+    "promises",
+    carrierSourcePath,
+  );
+  const codesBinding = exactUnwrittenBinding(
+    carrierBindings,
+    codesDeclaration,
+    "codes",
+    carrierSourcePath,
+  );
+  assertReviewedBindingReferences({
+    program: carrierProgram,
+    bindingIndex: carrierBindings,
+    binding: dnsBinding,
+    declaration: dnsDeclaration,
+    label: "dns carrier",
+    sourcePath: carrierSourcePath,
+    allowed: (_node, parent) =>
+      parent?.type === "MemberExpression" &&
+      parent.object?.type === "Identifier" &&
+      parent.object.name === "dns" &&
+      (parent === carrierPromisesDeclaration.init ||
+        parent === codeCopy.right ||
+        isCodeMember(parent, "dns")),
+  });
+  assertReviewedBindingReferences({
+    program: carrierProgram,
+    bindingIndex: carrierBindings,
+    binding: carrierPromisesBinding,
+    declaration: carrierPromisesDeclaration,
+    label: "promises carrier",
+    sourcePath: carrierSourcePath,
+    allowed: (_node, parent, ancestors) =>
+      (parent === carrierExport && carrierExport.right === _node) ||
+      (parent === codeCopy.left &&
+        ancestors.at(-2) === codeCopy &&
+        codeCopy.left.object === _node),
+  });
+  assertReviewedBindingReferences({
+    program: carrierProgram,
+    bindingIndex: carrierBindings,
+    binding: codesBinding,
+    declaration: codesDeclaration,
+    label: "error-code table",
+    sourcePath: carrierSourcePath,
+    allowed: (_node, parent) =>
+      parent?.type === "MemberExpression" &&
+      parent.object === _node &&
+      (directMemberName(parent) === "length" || isCodeIndex(parent)),
+  });
+
+  const providerPromisesDeclaration = exactVariableDeclarator(
+    providerProgram,
+    "promises",
+    providerSourcePath,
+  );
+  const providerPromisesBinding = exactUnwrittenBinding(
+    providerBindings,
+    providerPromisesDeclaration,
+    "provider promises",
+    providerSourcePath,
+  );
+  const promiseEntries = exactObjectPropertyEntries(
+    providerPromisesDeclaration.init,
+    "promises object",
+    providerSourcePath,
+  );
+  assertReviewedNameSet(
+    [...promiseEntries.keys()],
+    REVIEWED_DNS_PROMISE_TOP_OPERATIONS,
+    "promises operation domain",
+    providerSourcePath,
+  );
+  for (const [name, property] of promiseEntries) {
+    if (!isSourceProvenCallable(property.value, providerBindings)) {
+      throw new Error(
+        `${registrationContext(providerText, property, providerSourcePath)}: promises.${name} is not source-proven callable`,
+      );
+    }
+  }
+
+  const providerPromiseWrites = new Map();
+  walkAst(providerProgram, (node) => {
+    if (
+      node.type !== "AssignmentExpression" ||
+      node.operator !== "=" ||
+      node.left?.type !== "MemberExpression" ||
+      node.left.object?.type !== "Identifier" ||
+      node.left.object.name !== "promises"
+    ) {
+      return;
+    }
+    if (node.left.computed) {
+      throw new Error(
+        `${registrationContext(providerText, node, providerSourcePath)}: promises has a computed write`,
+      );
+    }
+    const name = directMemberName(node.left);
+    if (!name || providerPromiseWrites.has(name)) {
+      throw new Error(
+        `${providerSourcePath}: promises has a duplicate or unresolved write`,
+      );
+    }
+    providerPromiseWrites.set(name, node);
+  });
+  assertReviewedNameSet(
+    [...providerPromiseWrites.keys()],
+    ["Resolver", ...REVIEWED_DNS_PROMISE_ERROR_CODES],
+    "promises post-declaration writes",
+    providerSourcePath,
+  );
+  for (const code of REVIEWED_DNS_PROMISE_ERROR_CODES) {
+    const value = providerPromiseWrites.get(code)?.right;
+    if (value?.type !== "Identifier" || value.name !== code) {
+      throw new Error(
+        `${providerSourcePath}: promises.${code} must copy the exact ${code} binding`,
+      );
+    }
+  }
+  const resolverWrite = providerPromiseWrites.get("Resolver");
+  if (
+    resolverWrite?.right?.type !== "Identifier" ||
+    resolverWrite.right.name !== "PromiseResolver" ||
+    !isSourceProvenCallable(resolverWrite.right, providerBindings)
+  ) {
+    throw new Error(
+      `${providerSourcePath}: promises.Resolver must bind PromiseResolver`,
+    );
+  }
+  const resolverFunction = providerBindings.resolve(
+    promiseEntries.get("Resolver").value,
+  )?.node;
+  const promiseResolverFunction = providerBindings.resolve(
+    resolverWrite.right,
+  )?.node;
+  if (
+    resolverFunction?.type !== "FunctionDeclaration" ||
+    resolverFunction.id?.name !== "Resolver" ||
+    promiseResolverFunction?.type !== "FunctionDeclaration" ||
+    promiseResolverFunction.id?.name !== "PromiseResolver"
+  ) {
+    throw new Error(
+      `${providerSourcePath}: reviewed Resolver constructors are not exact function declarations`,
+    );
+  }
+  const resolverInstanceShape = assertReviewedResolverInstanceInitialization({
+    bindingIndex: providerBindings,
+    program: providerProgram,
+    providerText,
+    resolverFunction,
+    promiseResolverFunction,
+    sourcePath: providerSourcePath,
+  });
+
+  const providerExport = exactRootModuleExportAssignment(
+    providerProgram,
+    providerSourcePath,
+  );
+  const providerDefaultAssignments = [];
+  walkAst(providerProgram, (node) => {
+    if (
+      node.type === "AssignmentExpression" &&
+      node.operator === "=" &&
+      node.left?.type === "MemberExpression" &&
+      isModuleExports(node.left.object) &&
+      directMemberName(node.left) === "default" &&
+      isModuleExports(node.right)
+    ) {
+      providerDefaultAssignments.push(node);
+    }
+  });
+  if (providerDefaultAssignments.length !== 1) {
+    throw new Error(
+      `${providerSourcePath}: expected one exact module.exports.default self-alias`,
+    );
+  }
+  const providerDefault = providerDefaultAssignments[0];
+  const reviewedModuleExportsNodes = new Set([
+    providerExport.left,
+    providerDefault.left.object,
+    providerDefault.right,
+  ]);
+  walkAstWithAncestors(providerProgram, (node, ancestors) => {
+    const parent = ancestors.at(-1);
+    if (
+      (node.type === "MemberExpression" &&
+        isModuleExports(node) &&
+        !reviewedModuleExportsNodes.has(node)) ||
+      (node.type === "Identifier" &&
+        node.name === "exports" &&
+        !(
+          parent?.type === "MemberExpression" &&
+          parent.property === node &&
+          !parent.computed
+        ))
+    ) {
+      throw new Error(
+        `${providerSourcePath}: module.exports has an unreviewed reference`,
+      );
+    }
+  });
+  const providerExportEntries = exactObjectPropertyEntries(
+    providerExport.right,
+    "module.exports object",
+    providerSourcePath,
+  );
+  const exportedPromises = providerExportEntries.get("promises");
+  if (
+    exportedPromises?.value?.type !== "Identifier" ||
+    providerBindings.resolve(exportedPromises.value) !== providerPromisesBinding
+  ) {
+    throw new Error(
+      `${providerSourcePath}: module.exports.promises must bind the reviewed promises object`,
+    );
+  }
+  walkAst(providerProgram, (node) => {
+    if (node.type === "MemberExpression") {
+      const chain = staticMemberChain(node);
+      if (
+        (chain?.[0] === "module" &&
+          chain[1] === "exports" &&
+          chain[2] === "promises") ||
+        (chain?.[0] === "exports" && chain[1] === "promises")
+      ) {
+        throw new Error(
+          `${providerSourcePath}: module.exports.promises has an unreviewed reacquisition`,
+        );
+      }
+    }
+    if (
+      node.type === "AssignmentExpression" &&
+      node.left?.type === "MemberExpression" &&
+      (isModuleExports(node.left.object) ||
+        (node.left.object?.type === "Identifier" &&
+          node.left.object.name === "exports")) &&
+      directMemberName(node.left) === "promises"
+    ) {
+      throw new Error(
+        `${providerSourcePath}: module.exports.promises has an unreviewed overwrite`,
+      );
+    }
+  });
+  assertReviewedBindingReferences({
+    program: providerProgram,
+    bindingIndex: providerBindings,
+    binding: providerPromisesBinding,
+    declaration: providerPromisesDeclaration,
+    label: "provider promises",
+    sourcePath: providerSourcePath,
+    allowed: (node, parent, ancestors) => {
+      if (
+        parent?.type === "MemberExpression" &&
+        parent.object === node &&
+        ancestors.at(-2)?.type === "AssignmentExpression" &&
+        ancestors.at(-2).left === parent &&
+        providerPromiseWrites.get(directMemberName(parent)) ===
+          ancestors.at(-2)
+      ) {
+        return true;
+      }
+      return Boolean(
+        parent === exportedPromises &&
+          exportedPromises.value === node &&
+          ancestors.at(-2) === providerExport.right,
+      );
+    },
+  });
+
+  const resolverPrototype = prototypeAssignments(
+    providerProgram,
+    "Resolver",
+    providerSourcePath,
+  );
+  const promiseResolverPrototype = prototypeAssignments(
+    providerProgram,
+    "PromiseResolver",
+    providerSourcePath,
+  );
+  if (resolverPrototype.whole.length !== 0) {
+    throw new Error(
+      `${providerSourcePath}: Resolver.prototype has an unreviewed replacement`,
+    );
+  }
+  assertReviewedNameSet(
+    [...resolverPrototype.members.keys()],
+    REVIEWED_DNS_PROMISE_RESOLVER_OPERATIONS,
+    "Resolver.prototype operation domain",
+    providerSourcePath,
+  );
+  if (
+    promiseResolverPrototype.whole.length !== 1 ||
+    !isExactPromiseResolverInheritance(
+      promiseResolverPrototype.whole[0].right,
+    )
+  ) {
+    throw new Error(
+      `${providerSourcePath}: PromiseResolver.prototype must inherit exact Resolver.prototype`,
+    );
+  }
+  assertReviewedNameSet(
+    [...promiseResolverPrototype.members.keys()],
+    ["constructor", ...REVIEWED_DNS_PROMISE_RESOLVER_OWN_OPERATIONS],
+    "PromiseResolver.prototype own domain",
+    providerSourcePath,
+  );
+  const constructorWrite = promiseResolverPrototype.members.get("constructor");
+  if (
+    constructorWrite?.right?.type !== "Identifier" ||
+    constructorWrite.right.name !== "PromiseResolver" ||
+    !isSourceProvenCallable(constructorWrite.right, providerBindings)
+  ) {
+    throw new Error(
+      `${providerSourcePath}: PromiseResolver.prototype.constructor drifted`,
+    );
+  }
+  for (const [name, assignment] of [
+    ...resolverPrototype.members,
+    ...[...promiseResolverPrototype.members].filter(
+      ([member]) => member !== "constructor",
+    ),
+  ]) {
+    if (!isSourceProvenCallable(assignment.right, providerBindings)) {
+      throw new Error(
+        `${registrationContext(providerText, assignment, providerSourcePath)}: ${name} prototype member is not source-proven callable`,
+      );
+    }
+  }
+  const inheritedOperations = [...resolverPrototype.members.keys()].filter(
+    (name) => !promiseResolverPrototype.members.has(name),
+  );
+  assertReviewedNameSet(
+    inheritedOperations,
+    REVIEWED_DNS_PROMISE_RESOLVER_INHERITED_OPERATIONS,
+    "PromiseResolver.prototype inherited domain",
+    providerSourcePath,
+  );
+
+  const inheritance = promiseResolverPrototype.whole[0];
+  assertReviewedPrototypeObjectUses({
+    program: providerProgram,
+    owner: "Resolver",
+    inheritance,
+    memberAssignments: resolverPrototype.members,
+    sourcePath: providerSourcePath,
+  });
+  assertReviewedPrototypeObjectUses({
+    program: providerProgram,
+    owner: "PromiseResolver",
+    inheritance,
+    memberAssignments: promiseResolverPrototype.members,
+    sourcePath: providerSourcePath,
+  });
+  const shapeReviewId = dnsPromiseExportShapeReviewId({
+    carrierProgram,
+    carrierSourcePath,
+    providerProgram,
+    providerSourcePath,
+  });
+  if (shapeReviewId !== REVIEWED_DNS_PROMISE_EXPORT_SHAPE_REVIEW_ID) {
+    throw new Error(
+      `dns/promises export-shape AST review drifted: observed ${shapeReviewId}; expected ${REVIEWED_DNS_PROMISE_EXPORT_SHAPE_REVIEW_ID}`,
+    );
+  }
+  const carrierRef = sourceSymbol(
+    carrierSourcePath,
+    "module.exports:dns.promises",
+  );
+  const specifiers = uniqueSorted(moduleSpecifiers);
+  const operationRows = [];
+  const addOperation = (
+    exportName,
+    providerRefs,
+    exportIdioms,
+    inheritedShape = false,
+  ) => {
+    const metadata = {
+      bootstrapInternalModuleSpecifiers: [],
+      crossSourceExportProjection: {
+        carrierBinding: "module.exports=dns.promises",
+        carrierSourceKey: "node_dns_promises",
+        kind: "immutable-commonjs-member-object",
+        memberPath: exportName,
+        providerBinding: "module.exports.promises",
+        providerSourceKey: "node_dns",
+      },
+      dnsPromiseExportShapeReviewId: shapeReviewId,
+      enforcementRouteEvidence: {
+        ambiguousCallees: [
+          `cross-source-export-projection:dns.promises:${exportName}`,
+        ],
+        kind: "static-builtin-call-graph",
+        paths: [],
+        terminals: [],
+      },
+      exportIdioms,
+      exportName,
+      importReachability: "public",
+      moduleSpecifiers: specifiers,
+      publicModuleSpecifiers: specifiers,
+      sourceKey: "node_dns_promises",
+      sourceKind: carrierSourceKind,
+      surfaceType: "export",
+      valueShape: "callable",
+    };
+    if (inheritedShape) {
+      metadata.inheritedShape = true;
+      metadata.semanticRoles = [
+        "cross-source-export-projection",
+        "inherited-export-shape",
+      ];
+    }
+    operationRows.push(
+      makeSurface(
+        "builtin",
+        `export:node_dns_promises:${exportName}`,
+        [carrierRef, ...providerRefs],
+        { metadata },
+      ),
+    );
+  };
+
+  for (const name of REVIEWED_DNS_PROMISE_TOP_OPERATIONS) {
+    addOperation(
+      name,
+      [
+        sourceSymbol(
+          providerSourcePath,
+          name === "Resolver"
+            ? "promises:Resolver:PromiseResolver"
+            : `promises:${name}`,
+        ),
+      ],
+      ["cross-source-required-member-object-property"],
+    );
+  }
+  for (const name of REVIEWED_DNS_PROMISE_RESOLVER_OWN_OPERATIONS) {
+    addOperation(
+      `Resolver.${name}`,
+      [sourceSymbol(providerSourcePath, `PromiseResolver.prototype:${name}`)],
+      ["exported-constructor-prototype"],
+    );
+  }
+  for (const name of REVIEWED_DNS_PROMISE_RESOLVER_INHERITED_OPERATIONS) {
+    addOperation(
+      `Resolver.${name}`,
+      [
+        sourceSymbol(
+          providerSourcePath,
+          "PromiseResolver.prototype:Object.create:Resolver.prototype",
+        ),
+        sourceSymbol(providerSourcePath, `Resolver.prototype:${name}`),
+      ],
+      ["exported-constructor-inherited-prototype"],
+      true,
+    );
+  }
+  for (const name of resolverInstanceShape.handleOperations) {
+    addOperation(
+      `Resolver._handle.${name}`,
+      [
+        sourceSymbol(
+          providerSourcePath,
+          "PromiseResolver:Resolver.call:this:options",
+        ),
+        sourceSymbol(providerSourcePath, `Resolver:instance:_handle.${name}`),
+      ],
+      ["exported-constructor-instance-nested-object"],
+    );
+  }
+  if (
+    inheritance.start === undefined ||
+    [...promiseResolverPrototype.members.values()].some(
+      (assignment) => assignment.start <= inheritance.start,
+    )
+  ) {
+    throw new Error(
+      `${providerSourcePath}: PromiseResolver prototype members must follow the reviewed inheritance join`,
+    );
+  }
+  assertUniqueObservedKeys(operationRows, "dns/promises projection");
+  return sortSurfaces(operationRows);
+}
+
+function reviewedDnsResolverHandleRows({
+  moduleSpecifiers,
+  providerSourceKind,
+  providerSourcePath,
+  shapeReviewId,
+}) {
+  return ["cancel", "getServers", "setServers"].map((name) => {
+    const exportName = `Resolver._handle.${name}`;
+    return makeSurface(
+      "builtin",
+      `export:node_dns:${exportName}`,
+      [
+        sourceSymbol(providerSourcePath, "Resolver:instance:_handle"),
+        sourceSymbol(providerSourcePath, `Resolver:instance:_handle.${name}`),
+      ],
+      {
+        metadata: {
+          bootstrapInternalModuleSpecifiers: [],
+          constructorInstanceProjection: {
+            constructorExport: "Resolver",
+            instancePath: `_handle.${name}`,
+            kind: "constructor-installed-nested-object",
+          },
+          dnsPromiseExportShapeReviewId: shapeReviewId,
+          enforcementRouteEvidence: {
+            ambiguousCallees: [
+              `constructor-instance-projection:Resolver._handle.${name}`,
+            ],
+            kind: "static-builtin-call-graph",
+            paths: [],
+            terminals: [],
+          },
+          exportIdioms: ["exported-constructor-instance-nested-object"],
+          exportName,
+          importReachability: "public",
+          moduleSpecifiers: uniqueSorted(moduleSpecifiers),
+          publicModuleSpecifiers: uniqueSorted(moduleSpecifiers),
+          sourceKey: "node_dns",
+          sourceKind: providerSourceKind,
+          surfaceType: "export",
+          valueShape: "callable",
+        },
+      },
+    );
+  });
+}
+
+function composeReviewedBuiltinExportShapes(exports, aliases, sourcesByKey) {
+  const carrier = sourcesByKey.get("node_dns_promises");
+  if (!carrier) return [];
+  const provider = sourcesByKey.get("node_dns");
+  if (!provider) {
+    throw new Error(
+      "modules.ts: node_dns_promises requires the reviewed node_dns provider source",
+    );
+  }
+  if (
+    carrier.source.kind !== "generated" ||
+    carrier.authoredPath !== "src/builtins/dns-promises.js" ||
+    provider.source.kind !== "generated" ||
+    provider.authoredPath !== "src/builtins/dns.js"
+  ) {
+    throw new Error(
+      "modules.ts: reviewed dns/promises projection source kind/path drifted",
+    );
+  }
+  const carrierAliases = aliases.filter(
+    (alias) => alias.metadata?.sourceKey === "node_dns_promises",
+  );
+  assertReviewedNameSet(
+    carrierAliases.map((alias) => alias.name),
+    ["dns/promises", "node:dns/promises"],
+    "node_dns_promises public aliases",
+    "modules.ts",
+  );
+  if (
+    carrierAliases.some(
+      (alias) => alias.metadata?.importReachability !== "public",
+    )
+  ) {
+    throw new Error(
+      "modules.ts: node_dns_promises aliases must remain publicly reachable",
+    );
+  }
+  const providerAliases = aliases.filter(
+    (alias) => alias.metadata?.sourceKey === "node_dns",
+  );
+  assertReviewedNameSet(
+    providerAliases.map((alias) => alias.name),
+    ["dns", "node:dns"],
+    "node_dns public aliases",
+    "modules.ts",
+  );
+  if (
+    providerAliases.some(
+      (alias) => alias.metadata?.importReachability !== "public",
+    )
+  ) {
+    throw new Error("modules.ts: node_dns aliases must remain publicly reachable");
+  }
+  const dnsAlias = aliases.find((alias) => alias.name === "dns");
+  if (
+    !dnsAlias ||
+    dnsAlias.metadata?.sourceKey !== "node_dns" ||
+    dnsAlias.metadata?.importReachability !== "public"
+  ) {
+    throw new Error(
+      'modules.ts: reviewed require("dns") must resolve publicly to node_dns',
+    );
+  }
+  const existingCarrierExports = exports
+    .filter(
+      (row) =>
+        row.metadata?.sourceKey === "node_dns_promises" &&
+        row.metadata?.surfaceType === "export",
+    )
+    .map((row) => row.metadata.exportName);
+  assertReviewedNameSet(
+    existingCarrierExports,
+    ["default", ...REVIEWED_DNS_PROMISE_ERROR_CODES],
+    "locally authored node_dns_promises exports",
+    carrier.authoredPath,
+  );
+  const carrierRows = scanReviewedDnsPromisesProjection(
+    carrier.text,
+    provider.text,
+    {
+    carrierSourceKind: carrier.source.kind,
+    carrierSourcePath: carrier.authoredPath,
+    moduleSpecifiers: carrierAliases.map((alias) => alias.name),
+    providerSourcePath: provider.authoredPath,
+    },
+  );
+  const shapeReviewIds = uniqueSorted(
+    carrierRows.map((row) => row.metadata.dnsPromiseExportShapeReviewId),
+  );
+  if (
+    shapeReviewIds.length !== 1 ||
+    shapeReviewIds[0] !== REVIEWED_DNS_PROMISE_EXPORT_SHAPE_REVIEW_ID
+  ) {
+    throw new Error("dns/promises projected rows lost their AST review binding");
+  }
+  return [
+    ...reviewedDnsResolverHandleRows({
+      moduleSpecifiers: providerAliases.map((alias) => alias.name),
+      providerSourceKind: provider.source.kind,
+      providerSourcePath: provider.authoredPath,
+      shapeReviewId: shapeReviewIds[0],
+    }),
+    ...carrierRows,
+  ];
+}
+
 // @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory —
 // literal immutable builtin dependencies join to exact source/export routes;
 // unresolved or tampered receivers remain explicit ambiguity.
@@ -14031,6 +15516,7 @@ export async function scanBuiltinSurfaces(
   }
 
   const exports = [];
+  const sourcesByKey = new Map();
   for (const sourceKey of Object.keys(moduleExports.sources).sort(
     compareText,
   )) {
@@ -14065,6 +15551,12 @@ export async function scanBuiltinSurfaces(
       );
     }
     const sourceAliases = aliasesBySource.get(sourceKey) ?? [];
+    sourcesByKey.set(sourceKey, {
+      authoredPath,
+      source,
+      sourceAliases,
+      text,
+    });
     exports.push(
       ...scanStaticBuiltinExports(text, {
         bootstrapInternalModuleSpecifiers: sourceAliases
@@ -14084,10 +15576,18 @@ export async function scanBuiltinSurfaces(
     );
   }
 
+  exports.push(
+    ...composeReviewedBuiltinExportShapes(exports, aliases, sourcesByKey),
+  );
+  assertUniqueObservedKeys(exports, "builtin export inventory");
   composeRequiredBuiltinRoutes(exports, aliases);
 
   const inheritedReviewRows = exports
-    .filter((row) => row.metadata?.inheritedShape === true)
+    .filter(
+      (row) =>
+        row.metadata?.inheritedShape === true &&
+        row.metadata?.dnsPromiseExportShapeReviewId === undefined,
+    )
     .map((row) => ({
       exportIdioms: row.metadata.exportIdioms,
       name: row.name,
@@ -14097,7 +15597,10 @@ export async function scanBuiltinSurfaces(
   if (inheritedReviewRows.length > 0) {
     const inheritedShapeReviewId = `sha256-${sha256Hex(JSON.stringify(inheritedReviewRows))}`;
     for (const row of exports) {
-      if (row.metadata?.inheritedShape === true) {
+      if (
+        row.metadata?.inheritedShape === true &&
+        row.metadata?.dnsPromiseExportShapeReviewId === undefined
+      ) {
         row.metadata.inheritedShapeReviewId = inheritedShapeReviewId;
       }
     }

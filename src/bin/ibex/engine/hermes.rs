@@ -600,6 +600,16 @@ extern "C" {
         out_mask: *mut u32,
     ) -> i32;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_arm_builtin_source_observation(
+        runtime: *mut HermesRuntimeOpaque,
+        observation_id: *const std::os::raw::c_char,
+        expected_alias: *const std::os::raw::c_char,
+    ) -> i32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_take_builtin_source_observation(
+        runtime: *mut HermesRuntimeOpaque,
+    ) -> *mut std::os::raw::c_char;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_enqueue_blocking_native_work(runtime: *mut HermesRuntimeOpaque) -> i32;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_enqueue_runtime_principal_throw(runtime: *mut HermesRuntimeOpaque) -> i32;
@@ -1972,6 +1982,46 @@ impl HermesEngine {
             "native-freeze observation did not complete"
         );
         Ok(mask)
+    }
+
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    pub(super) async fn arm_builtin_source_observation(
+        &self,
+        observation_id: &str,
+        expected_alias: &str,
+    ) -> Result<()> {
+        let observation_id = CString::new(observation_id)
+            .context("builtin source observation id contains an interior NUL")?;
+        let expected_alias = CString::new(expected_alias)
+            .context("builtin source observation alias contains an interior NUL")?;
+        let status = self.ensure_runtime().await?.with_runtime(|raw| unsafe {
+            ibex_test_arm_builtin_source_observation(
+                raw,
+                observation_id.as_ptr(),
+                expected_alias.as_ptr(),
+            )
+        })?;
+        anyhow::ensure!(status == 1, "builtin source observation could not be armed");
+        Ok(())
+    }
+
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    pub(super) async fn take_builtin_source_observation(&self) -> Result<Value> {
+        let output = self
+            .ensure_runtime()
+            .await?
+            .with_runtime(|raw| unsafe { ibex_test_take_builtin_source_observation(raw) })?;
+        anyhow::ensure!(
+            !output.is_null(),
+            "builtin source observation is unavailable"
+        );
+        let json = unsafe { CStr::from_ptr(output) }
+            .to_str()
+            .context("builtin source observation returned invalid UTF-8")?
+            .to_owned();
+        unsafe { ex_hermes_free_string(output) };
+        capsec_semantics::strict_json::parse_strict(&json)
+            .map_err(|error| anyhow!("builtin source observation returned invalid JSON: {error}"))
     }
 
     async fn finish_armed_bootstrap(&self) -> Result<()> {

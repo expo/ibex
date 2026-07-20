@@ -9893,6 +9893,30 @@
       ]
     },
     {
+      "surfaceId": "surface.builtin.export.node.dns.promises.getdefaultresultorder.0zgb2yf",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:getDefaultResultOrder"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.getservers.01v0q69",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:getServers"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
       "surfaceId": "surface.builtin.export.node.dns.promises.loadiphlpapi.0r9tsfk",
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
@@ -9901,6 +9925,30 @@
       ],
       "outputKinds": [
         "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.lookup.1a9e80f",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:lookup"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.lookupservice.0nrxs0i",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:lookupService"
+      ],
+      "outputKinds": [
+        "public-invocation"
       ]
     },
     {
@@ -9981,6 +10029,445 @@
       ]
     },
     {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolve.0qe3x1j",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolve"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolve4.1uhidzd",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolve4"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolve6.1txj6lf",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolve6"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolveany.1kwoqxj",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolveAny"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolvecaa.1yzg4si",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolveCaa"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolvecname.0inspqf",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolveCname"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolvemx.0vswwoi",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolveMx"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolvenaptr.1lzyqwo",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolveNaptr"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolvens.0viu5hk",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolveNs"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolveptr.1xc44vn",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolvePtr"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.1c0jtjj",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:Resolver:PromiseResolver"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.cancel.1vz6z1x",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:Object.create:Resolver.prototype",
+        "src/builtins/dns.js#Resolver.prototype:cancel"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.getservers.1yzo3ff",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:Object.create:Resolver.prototype",
+        "src/builtins/dns.js#Resolver.prototype:getServers"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.handle.cancel.1tahyby",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver:Resolver.call:this:options",
+        "src/builtins/dns.js#Resolver:instance:_handle.cancel"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.handle.getservers.1k4asmo",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver:Resolver.call:this:options",
+        "src/builtins/dns.js#Resolver:instance:_handle.getServers"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.handle.setservers.0639f0c",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver:Resolver.call:this:options",
+        "src/builtins/dns.js#Resolver:instance:_handle.setServers"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolve.1kh4ti5",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolve"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolve4.1n1q6vf",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolve4"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolve6.1nlpe9d",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolve6"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolveany.0pbf68l",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolveAny"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvecaa.04jkrj4",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolveCaa"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvecname.1j33v7l",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolveCname"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvemx.0d8cok8",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolveMx"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvenaptr.18jk9r6",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolveNaptr"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvens.0gahrou",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolveNs"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolveptr.1wfdac1",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolvePtr"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvesoa.0z3quuy",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolveSoa"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvesrv.0sruj7e",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolveSrv"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvetxt.0jkf1ev",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:resolveTxt"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.reverse.1hdraqf",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:reverse"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.setlocaladdress.0p03fr8",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:Object.create:Resolver.prototype",
+        "src/builtins/dns.js#Resolver.prototype:setLocalAddress"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolver.setservers.1bkicgv",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#PromiseResolver.prototype:Object.create:Resolver.prototype",
+        "src/builtins/dns.js#Resolver.prototype:setServers"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolvesoa.1d9c8uw",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolveSoa"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolvesrv.1j2lxbo",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolveSrv"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.resolvetxt.0ll4aqd",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:resolveTxt"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.reverse.1g76tz5",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:reverse"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
       "surfaceId": "surface.builtin.export.node.dns.promises.servfail.0ll95k5",
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
@@ -9989,6 +10476,30 @@
       ],
       "outputKinds": [
         "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.setdefaultresultorder.04ul83n",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:setDefaultResultOrder"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.promises.setservers.1s3ahhh",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns-promises.js#module.exports:dns.promises",
+        "src/builtins/dns.js#promises:setServers"
+      ],
+      "outputKinds": [
+        "public-invocation"
       ]
     },
     {
@@ -10151,6 +10662,42 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/builtins/dns.js#exports:Resolver.getServers"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.resolver.handle.cancel.0zr5wc9",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns.js#Resolver:instance:_handle",
+        "src/builtins/dns.js#Resolver:instance:_handle.cancel"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.resolver.handle.getservers.0czdntj",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns.js#Resolver:instance:_handle",
+        "src/builtins/dns.js#Resolver:instance:_handle.getServers"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.builtin.export.node.dns.resolver.handle.setservers.1dh70kz",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/builtins/dns.js#Resolver:instance:_handle",
+        "src/builtins/dns.js#Resolver:instance:_handle.setServers"
       ],
       "outputKinds": [
         "public-invocation"
@@ -43950,15 +44497,6 @@
       "reasonCode": "loader-structural-route",
       "sourceRefs": [
         "src/engine/bootstrap/module-loader.js#internal-route:bun:internal-for-testing"
-      ],
-      "outputKinds": []
-    },
-    {
-      "surfaceId": "surface.loader.internal.route.dns.promises.06jw73f",
-      "status": "structural-only",
-      "reasonCode": "loader-structural-route",
-      "sourceRefs": [
-        "src/engine/bootstrap/module-loader.js#internal-route:dns/promises"
       ],
       "outputKinds": []
     },
@@ -82952,15 +83490,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-pfKwYtRvBNs7G4wx_GOS9cQvQ0rYDmcxdWne7tiG4nM",
+  "catalogKeyDigest": "sha256-EtcgZThPjpr6tODohVlJjwWv2X44JvJa_0DNKP-mjvc",
   "counts": {
-    "coverageSurfaces": 7283,
-    "outputBearingSurfaces": 5729,
-    "structuralOnlySurfaces": 1550,
+    "coverageSurfaces": 7327,
+    "outputBearingSurfaces": 5774,
+    "structuralOnlySurfaces": 1549,
     "unresolvedSurfaces": 4,
-    "catalogRows": 6397,
+    "catalogRows": 6442,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 5990,
+    "sourceInventoryRows": 6035,
     "structuredRows": 407
   },
   "rows": [
@@ -101338,6 +101876,50 @@
     },
     {
       "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.getdefaultresultorder.0zgb2yf",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:getDefaultResultOrder",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:getDefaultResultOrder"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:getDefaultResultOrder"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.getservers.01v0q69",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:getServers",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:getServers"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:getServers"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.builtin.export.node.dns.promises.loadiphlpapi.0r9tsfk",
         "output": "[[value]]",
         "alias": "export:node_dns_promises:LOADIPHLPAPI",
@@ -101353,6 +101935,50 @@
         ],
         "sourceRefs": [
           "src/builtins/dns-promises.js#exports:LOADIPHLPAPI"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.lookup.1a9e80f",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:lookup",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:lookup"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:lookup"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.lookupservice.0nrxs0i",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:lookupService",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:lookupService"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:lookupService"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -101506,6 +102132,805 @@
     },
     {
       "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolve.0qe3x1j",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolve",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:resolve"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolve"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolve4.1uhidzd",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolve4",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:resolve4"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolve4"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolve6.1txj6lf",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolve6",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:resolve6"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolve6"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolveany.1kwoqxj",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolveAny",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:resolveAny"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveAny"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolvecaa.1yzg4si",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolveCaa",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:resolveCaa"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveCaa"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolvecname.0inspqf",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolveCname",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:resolveCname"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveCname"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolvemx.0vswwoi",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolveMx",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:resolveMx"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveMx"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolvenaptr.1lzyqwo",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolveNaptr",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:resolveNaptr"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveNaptr"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolvens.0viu5hk",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolveNs",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:resolveNs"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveNs"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolveptr.1xc44vn",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolvePtr",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:resolvePtr"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolvePtr"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.1c0jtjj",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:Resolver:PromiseResolver"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.cancel.1vz6z1x",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.cancel",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver.cancel"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:Object.create:Resolver.prototype",
+          "src/builtins/dns.js#Resolver.prototype:cancel"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.getservers.1yzo3ff",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.getServers",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver.getServers"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:Object.create:Resolver.prototype",
+          "src/builtins/dns.js#Resolver.prototype:getServers"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.handle.cancel.1tahyby",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver._handle.cancel",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver._handle.cancel"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver:Resolver.call:this:options",
+          "src/builtins/dns.js#Resolver:instance:_handle.cancel"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.handle.getservers.1k4asmo",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver._handle.getServers",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver._handle.getServers"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver:Resolver.call:this:options",
+          "src/builtins/dns.js#Resolver:instance:_handle.getServers"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.handle.setservers.0639f0c",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver._handle.setServers",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver._handle.setServers"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver:Resolver.call:this:options",
+          "src/builtins/dns.js#Resolver:instance:_handle.setServers"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolve.1kh4ti5",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolve",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver.resolve"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolve"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolve4.1n1q6vf",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolve4",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver.resolve4"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolve4"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolve6.1nlpe9d",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolve6",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver.resolve6"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolve6"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolveany.0pbf68l",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolveAny",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver.resolveAny"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveAny"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvecaa.04jkrj4",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolveCaa",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver.resolveCaa"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveCaa"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvecname.1j33v7l",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolveCname",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver.resolveCname"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveCname"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvemx.0d8cok8",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolveMx",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver.resolveMx"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveMx"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvenaptr.18jk9r6",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolveNaptr",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver.resolveNaptr"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveNaptr"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvens.0gahrou",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolveNs",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver.resolveNs"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveNs"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolveptr.1wfdac1",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolvePtr",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver.resolvePtr"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolvePtr"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvesoa.0z3quuy",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolveSoa",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver.resolveSoa"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveSoa"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvesrv.0sruj7e",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolveSrv",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver.resolveSrv"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveSrv"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.resolvetxt.0jkf1ev",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.resolveTxt",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver.resolveTxt"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:resolveTxt"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.reverse.1hdraqf",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.reverse",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver.reverse"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:reverse"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.setlocaladdress.0p03fr8",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.setLocalAddress",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver.setLocalAddress"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:Object.create:Resolver.prototype",
+          "src/builtins/dns.js#Resolver.prototype:setLocalAddress"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolver.setservers.1bkicgv",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:Resolver.setServers",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:Resolver.setServers"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#PromiseResolver.prototype:Object.create:Resolver.prototype",
+          "src/builtins/dns.js#Resolver.prototype:setServers"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolvesoa.1d9c8uw",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolveSoa",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:resolveSoa"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveSoa"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolvesrv.1j2lxbo",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolveSrv",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:resolveSrv"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveSrv"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.resolvetxt.0ll4aqd",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:resolveTxt",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:resolveTxt"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:resolveTxt"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.reverse.1g76tz5",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:reverse",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:reverse"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:reverse"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.builtin.export.node.dns.promises.servfail.0ll95k5",
         "output": "[[value]]",
         "alias": "export:node_dns_promises:SERVFAIL",
@@ -101521,6 +102946,50 @@
         ],
         "sourceRefs": [
           "src/builtins/dns-promises.js#exports:SERVFAIL"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.setdefaultresultorder.04ul83n",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:setDefaultResultOrder",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:setDefaultResultOrder"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:setDefaultResultOrder"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.promises.setservers.1s3ahhh",
+        "output": "[[return]]",
+        "alias": "export:node_dns_promises:setServers",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns_promises:setServers"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns-promises.js#module.exports:dns.promises",
+          "src/builtins/dns.js#promises:setServers"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -101836,6 +103305,72 @@
         ],
         "sourceRefs": [
           "src/builtins/dns.js#exports:Resolver.getServers"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.resolver.handle.cancel.0zr5wc9",
+        "output": "[[return]]",
+        "alias": "export:node_dns:Resolver._handle.cancel",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns:Resolver._handle.cancel"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns.js#Resolver:instance:_handle",
+          "src/builtins/dns.js#Resolver:instance:_handle.cancel"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.resolver.handle.getservers.0czdntj",
+        "output": "[[return]]",
+        "alias": "export:node_dns:Resolver._handle.getServers",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns:Resolver._handle.getServers"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns.js#Resolver:instance:_handle",
+          "src/builtins/dns.js#Resolver:instance:_handle.getServers"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.dns.resolver.handle.setservers.1dh70kz",
+        "output": "[[return]]",
+        "alias": "export:node_dns:Resolver._handle.setServers",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "builtin:export:node_dns:Resolver._handle.setServers"
+        ],
+        "sourceRefs": [
+          "src/builtins/dns.js#Resolver:instance:_handle",
+          "src/builtins/dns.js#Resolver:instance:_handle.setServers"
         ]
       },
       "requiredValueProof": "live-value-observation"

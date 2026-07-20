@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import {
   CALLBACK_OUTPUT_CONTRACT_SCHEMA,
   deriveHostAbiOutputCatalogAccount,
+  deriveDnsPromiseExportShapeReviewId,
   discoverRepositorySurfaces,
   discoverHermesEvaluatorIdentityProfiles,
   fixedRuntimeSurfaceInventory,
@@ -18,6 +19,7 @@ import {
   PRINCIPAL_ENVIRONMENT_OVERLAY_DYNAMIC_MEMBER,
   PRINCIPAL_ENVIRONMENT_OVERLAY_SOURCE_CONTRACT_SCHEMA,
   PRINCIPAL_ENVIRONMENT_OVERLAY_SURFACE_NAME,
+  REVIEWED_DNS_PROMISE_EXPORT_SHAPE_REVIEW_ID,
   scanBuiltinSurfaces,
   scanCdpSurfaces,
   scanCppGlobalPropertySurfaces,
@@ -43,6 +45,7 @@ import {
   scanRustLoaderSurfaces,
   scanRustLoaderRoutes,
   scanRustPublicAbiDefinitions,
+  scanReviewedDnsPromisesProjection,
   scanSharedRuntimeGlobalSurfaces,
   scanStaticBuiltinExports,
   scanStaticGlobalApiSurfaces,
@@ -5184,6 +5187,344 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     });
   });
 
+  test("projects the exact reviewed dns/promises callable domain onto its public carrier", () => {
+    const rows = scanReviewedDnsPromisesProjection(
+      fs.readFileSync(
+        path.join(repoRoot, "src/builtins/dns-promises.js"),
+        "utf8",
+      ),
+      fs.readFileSync(path.join(repoRoot, "src/builtins/dns.js"), "utf8"),
+    );
+    const topOperations = [
+      "Resolver",
+      "getDefaultResultOrder",
+      "getServers",
+      "lookup",
+      "lookupService",
+      "resolve",
+      "resolve4",
+      "resolve6",
+      "resolveAny",
+      "resolveCaa",
+      "resolveCname",
+      "resolveMx",
+      "resolveNaptr",
+      "resolveNs",
+      "resolvePtr",
+      "resolveSoa",
+      "resolveSrv",
+      "resolveTxt",
+      "reverse",
+      "setDefaultResultOrder",
+      "setServers",
+    ];
+    const resolverOperations = [
+      "_handle.cancel",
+      "_handle.getServers",
+      "_handle.setServers",
+      "cancel",
+      "getServers",
+      "resolve",
+      "resolve4",
+      "resolve6",
+      "resolveAny",
+      "resolveCaa",
+      "resolveCname",
+      "resolveMx",
+      "resolveNaptr",
+      "resolveNs",
+      "resolvePtr",
+      "resolveSoa",
+      "resolveSrv",
+      "resolveTxt",
+      "reverse",
+      "setLocalAddress",
+      "setServers",
+    ];
+    expect(rows.map((row) => row.name)).toEqual(
+      [
+        ...topOperations.map(
+          (name) => `export:node_dns_promises:${name}`,
+        ),
+        ...resolverOperations.map(
+          (name) => `export:node_dns_promises:Resolver.${name}`,
+        ),
+      ].sort(),
+    );
+    expect(rows).toHaveLength(42);
+    expect(rows.some((row) => row.name.endsWith(".constructor"))).toBe(false);
+    expect(
+      rows
+        .filter((row) => row.metadata.inheritedShape === true)
+        .map((row) => row.metadata.exportName),
+    ).toEqual([
+      "Resolver.cancel",
+      "Resolver.getServers",
+      "Resolver.setLocalAddress",
+      "Resolver.setServers",
+    ]);
+    expect(
+      rows.every(
+        (row) =>
+          row.sourceRefs.length >= 2 &&
+          row.metadata.sourceKey === "node_dns_promises" &&
+          row.metadata.importReachability === "public" &&
+          row.metadata.valueShape === "callable" &&
+          JSON.stringify(row.metadata.publicModuleSpecifiers) ===
+            JSON.stringify(["dns/promises", "node:dns/promises"]) &&
+          row.metadata.crossSourceExportProjection?.providerSourceKey ===
+            "node_dns" &&
+          row.metadata.dnsPromiseExportShapeReviewId ===
+            REVIEWED_DNS_PROMISE_EXPORT_SHAPE_REVIEW_ID &&
+          row.metadata.enforcementRouteEvidence.terminals.length === 0 &&
+          row.metadata.enforcementRouteEvidence.paths.length === 0 &&
+          row.metadata.enforcementRouteEvidence.ambiguousCallees.length === 1,
+      ),
+    ).toBe(true);
+    for (const name of ["cancel", "getServers", "setServers"]) {
+      expect(
+        rows.find(
+          (row) =>
+            row.metadata.exportName === `Resolver._handle.${name}`,
+        )?.sourceRefs,
+      ).toEqual(
+        expect.arrayContaining([
+          "src/builtins/dns.js#PromiseResolver:Resolver.call:this:options",
+          `src/builtins/dns.js#Resolver:instance:_handle.${name}`,
+        ]),
+      );
+    }
+  });
+
+  test("binds the dns/promises projection to a whitespace-stable full-AST review", () => {
+    const carrier = fs.readFileSync(
+      path.join(repoRoot, "src/builtins/dns-promises.js"),
+      "utf8",
+    );
+    const provider = fs.readFileSync(
+      path.join(repoRoot, "src/builtins/dns.js"),
+      "utf8",
+    );
+    expect(deriveDnsPromiseExportShapeReviewId(carrier, provider)).toBe(
+      REVIEWED_DNS_PROMISE_EXPORT_SHAPE_REVIEW_ID,
+    );
+    expect(
+      deriveDnsPromiseExportShapeReviewId(
+        `/* review-ignored comment */\n${carrier}\n`,
+        `${provider}\n// review-ignored comment\n`,
+      ),
+    ).toBe(REVIEWED_DNS_PROMISE_EXPORT_SHAPE_REVIEW_ID);
+    for (const [label, changedCarrier, changedProvider] of [
+      [
+        "indirect carrier require",
+        carrier.replace(
+          "module.exports = promises;",
+          '(0, require)("dns").promises.lookup = function() {};\nmodule.exports = promises;',
+        ),
+        provider,
+      ],
+      [
+        "dynamic provider export",
+        carrier,
+        provider.replace(
+          "module.exports.default = module.exports;",
+          'module.exports["prom" + "ises"].lookup = function() {};\nmodule.exports.default = module.exports;',
+        ),
+      ],
+      [
+        "nested prototype mutation",
+        carrier,
+        provider.replace(
+          "PromiseResolver.prototype.constructor = PromiseResolver;",
+          "PromiseResolver.prototype.constructor = PromiseResolver;\nPromiseResolver.prototype.__proto__.extra = function() {};",
+        ),
+      ],
+    ]) {
+      expect(
+        deriveDnsPromiseExportShapeReviewId(changedCarrier, changedProvider),
+        label,
+      ).not.toBe(REVIEWED_DNS_PROMISE_EXPORT_SHAPE_REVIEW_ID);
+    }
+  });
+
+  for (const [label, carrierMutation, providerMutation, expected] of [
+    [
+      "computed carrier require",
+      ["require('dns')", "require(String('dns'))"],
+      null,
+      /exact require\("dns"\)/u,
+    ],
+    [
+      "different forwarded member",
+      ["var promises = dns.promises;", "var promises = dns.promisez;"],
+      null,
+      /exact dns\.promises/u,
+    ],
+    [
+      "different carrier export",
+      ["module.exports = promises;", "module.exports = dns;"],
+      null,
+      /module\.exports must be the promises binding/u,
+    ],
+    [
+      "local carrier overwrite",
+      [
+        "module.exports = promises;",
+        "promises.lookup = function() {};\nmodule.exports = promises;",
+      ],
+      null,
+      /one exact promises\[codes\[i\]\] copy/u,
+    ],
+    [
+      "carrier require reacquisition",
+      [
+        "module.exports = promises;",
+        'require("dns").promises.lookup = function() {};\nmodule.exports = promises;',
+      ],
+      null,
+      /exactly one require call/u,
+    ],
+    [
+      "indirect carrier require reacquisition",
+      [
+        "module.exports = promises;",
+        '(0, require)("dns").promises.lookup = function() {};\nmodule.exports = promises;',
+      ],
+      null,
+      /export-shape AST review drifted/u,
+    ],
+    [
+      "missing provider operation",
+      null,
+      ["  resolveMx: _promisify1(resolveMx),\n", ""],
+      /promises operation domain drift/u,
+    ],
+    [
+      "opaque provider factory result",
+      null,
+      ["resolveMx: _promisify1(resolveMx)", "resolveMx: resolveMx()"],
+      /promises\.resolveMx is not source-proven callable/u,
+    ],
+    [
+      "different promise Resolver",
+      null,
+      [
+        "promises.Resolver = PromiseResolver;",
+        "promises.Resolver = Resolver;",
+      ],
+      /promises\.Resolver must bind PromiseResolver/u,
+    ],
+    [
+      "public PromiseResolver instance operation",
+      null,
+      [
+        "  Resolver.call(this, options);",
+        "  Resolver.call(this, options);\n  this.extra = function() {};",
+      ],
+      /unreviewed public instance member/u,
+    ],
+    [
+      "public base Resolver instance operation",
+      null,
+      [
+        "  this._servers = _getSystemServers().slice();",
+        "  this._servers = _getSystemServers().slice();\n  this.extra = function() {};",
+      ],
+      /unreviewed public instance member/u,
+    ],
+    [
+      "reflective Resolver instance operation",
+      null,
+      [
+        "  this._servers = _getSystemServers().slice();",
+        "  this._servers = _getSystemServers().slice();\n  Object.assign(this, { extra: function() {} });",
+      ],
+      /Resolver constructor has an unreviewed this escape/u,
+    ],
+    [
+      "different Resolver inheritance",
+      null,
+      [
+        "PromiseResolver.prototype = Object.create(Resolver.prototype);",
+        "PromiseResolver.prototype = Object.create(Object.prototype);",
+      ],
+      /must inherit exact Resolver\.prototype/u,
+    ],
+    [
+      "extra PromiseResolver operation",
+      null,
+      [
+        "PromiseResolver.prototype.constructor = PromiseResolver;",
+        "PromiseResolver.prototype.constructor = PromiseResolver;\nPromiseResolver.prototype.extra = function() {};",
+      ],
+      /PromiseResolver\.prototype own domain drift/u,
+    ],
+    [
+      "different provider export object",
+      null,
+      ["  promises: promises,", "  promises: {},"],
+      /module\.exports\.promises must bind/u,
+    ],
+    [
+      "nested provider export mutation",
+      null,
+      [
+        "module.exports.default = module.exports;",
+        "module.exports.promises.lookup = function() {};\nmodule.exports.default = module.exports;",
+      ],
+      /module\.exports has an unreviewed reference/u,
+    ],
+    [
+      "dynamic provider export mutation",
+      null,
+      [
+        "module.exports.default = module.exports;",
+        'module.exports["prom" + "ises"].lookup = function() {};\nmodule.exports.default = module.exports;',
+      ],
+      /module\.exports has an unreviewed reference/u,
+    ],
+    [
+      "reflective PromiseResolver prototype mutation",
+      null,
+      [
+        "PromiseResolver.prototype = Object.create(Resolver.prototype);",
+        "PromiseResolver.prototype = Object.create(Resolver.prototype);\nObject.assign(PromiseResolver.prototype, { extra: function() {} });",
+      ],
+      /unreviewed PromiseResolver\.prototype object escape/u,
+    ],
+    [
+      "nested PromiseResolver prototype mutation",
+      null,
+      [
+        "PromiseResolver.prototype.constructor = PromiseResolver;",
+        "PromiseResolver.prototype.constructor = PromiseResolver;\nPromiseResolver.prototype.__proto__.extra = function() {};",
+      ],
+      /PromiseResolver\.prototype has an unreviewed member access or mutation/u,
+    ],
+  ]) {
+    test(`dns/promises projection fails closed on ${label}`, () => {
+      let carrier = fs.readFileSync(
+        path.join(repoRoot, "src/builtins/dns-promises.js"),
+        "utf8",
+      );
+      let provider = fs.readFileSync(
+        path.join(repoRoot, "src/builtins/dns.js"),
+        "utf8",
+      );
+      const replaceOnce = (text, mutation) => {
+        if (!mutation) return text;
+        const [from, to] = mutation;
+        expect(text.includes(from), `${label}: mutation anchor`).toBe(true);
+        return text.replace(from, to);
+      };
+      carrier = replaceOnce(carrier, carrierMutation);
+      provider = replaceOnce(provider, providerMutation);
+      expect(() =>
+        scanReviewedDnsPromisesProjection(carrier, provider),
+      ).toThrow(expected);
+    });
+  }
+
   test("live builtin manifest sources expose the full static export inventory", async () => {
     const rows = await scanBuiltinSurfaces(
       path.join(repoRoot, "modules.ts"),
@@ -5211,6 +5552,45 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
         (row) => row.name === "export:node_tty:ReadStream.setRawMode",
       ),
     ).toBe(true);
+    const dnsPromiseOperations = exports.filter(
+      (row) => row.metadata?.crossSourceExportProjection !== undefined,
+    );
+    expect(dnsPromiseOperations).toHaveLength(42);
+    expect(
+      new Set(dnsPromiseOperations.map((row) => row.metadata.sourceKey)),
+    ).toEqual(new Set(["node_dns_promises"]));
+    expect(
+      dnsPromiseOperations.every(
+        (row) =>
+          row.metadata.crossSourceExportProjection.carrierSourceKey ===
+            "node_dns_promises" &&
+          row.metadata.crossSourceExportProjection.providerSourceKey ===
+            "node_dns" &&
+          row.sourceRefs.length >= 2,
+      ),
+    ).toBe(true);
+    const reviewedDnsDerivedOperations = exports.filter(
+      (row) => row.metadata?.dnsPromiseExportShapeReviewId !== undefined,
+    );
+    expect(reviewedDnsDerivedOperations).toHaveLength(45);
+    expect(
+      new Set(
+        reviewedDnsDerivedOperations.map(
+          (row) => row.metadata.dnsPromiseExportShapeReviewId,
+        ),
+      ),
+    ).toEqual(new Set([REVIEWED_DNS_PROMISE_EXPORT_SHAPE_REVIEW_ID]));
+    expect(
+      reviewedDnsDerivedOperations
+        .filter(
+          (row) => row.metadata?.constructorInstanceProjection !== undefined,
+        )
+        .map((row) => row.name),
+    ).toEqual([
+      "export:node_dns:Resolver._handle.cancel",
+      "export:node_dns:Resolver._handle.getServers",
+      "export:node_dns:Resolver._handle.setServers",
+    ]);
     expect(exports.map((row) => row.name)).toEqual(
       expect.arrayContaining([
         "export:node_fs:ReadStream._read",
@@ -5240,9 +5620,26 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     const inheritedRows = exports.filter(
       (row) => row.metadata.inheritedShape === true,
     );
-    expect(inheritedRows).toHaveLength(454);
+    expect(inheritedRows).toHaveLength(458);
+    const dnsReviewedInheritedRows = inheritedRows.filter(
+      (row) => row.metadata.dnsPromiseExportShapeReviewId !== undefined,
+    );
+    expect(dnsReviewedInheritedRows).toHaveLength(4);
     expect(
-      new Set(inheritedRows.map((row) => row.metadata.inheritedShapeReviewId)),
+      dnsReviewedInheritedRows.every(
+        (row) => row.metadata.inheritedShapeReviewId === undefined,
+      ),
+    ).toBe(true);
+    const genericInheritedRows = inheritedRows.filter(
+      (row) => row.metadata.dnsPromiseExportShapeReviewId === undefined,
+    );
+    expect(genericInheritedRows).toHaveLength(454);
+    expect(
+      new Set(
+        genericInheritedRows.map(
+          (row) => row.metadata.inheritedShapeReviewId,
+        ),
+      ),
     ).toEqual(
       new Set([
         "sha256-a38490336f46e4dd2791e1e1fa14a1164d7c0da99f2670894ded67a33d8d1e2c",

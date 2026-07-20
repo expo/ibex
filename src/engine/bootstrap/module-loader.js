@@ -3164,22 +3164,10 @@
   }
   function loadInternal(specifier) {
     var normalized = normalizeSpecifier(specifier);
-    if (normalized === 'dns/promises') {
-      if (!cache[normalized]) {
-        var dnsModule = load('dns', '');
-        cache[normalized] = {
-          exports: dnsModule && dnsModule.promises ? dnsModule.promises : {},
-          loaded: true,
-          id: normalized,
-          filename: normalized,
-          path: '',
-          __exactId: idToModuleId(normalized),
-          parent: null,
-          children: []
-        };
-      }
-      return cache[normalized].exports;
-    }
+    // dns/promises is a generated manifest builtin. It intentionally falls
+    // through to load() so its declared node_dns_promises source, SourceId,
+    // and module identity remain the code and identity actually executed.
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
     if (normalized === 'readline/promises') {
       if (!cache[normalized]) {
         var readlineModule = load('readline', '');
@@ -5666,9 +5654,10 @@
   // module `parent`, and cannot be bypassed by a forged parent. Inert for the
   // root and runtime principals and for packages the policy does not restrict;
   // the host logs (audit) or denies (enforce). Placed at the entry points (not
-  // deep inside load()) so the loader's own internal fan-out — e.g. mapping
-  // 'dns/promises' to an internal load('dns') — is not re-gated under the
-  // requesting package's principal against a different specifier. (ENG-22618/ENG-22629)
+  // deep inside load()) so the loader's own internal fan-out — e.g. a manifest
+  // builtin loading one of its authored private builtin dependencies — is not
+  // re-gated under the requesting package's principal against a different
+  // specifier. (ENG-22618/ENG-22629)
   //
   // Deliberately NOT memoized here (and not moved after load()'s module-cache
   // hit): the true requesting principal is frame-derived on the native side and
@@ -6902,6 +6891,20 @@
       try { delete module.__exactCreateRequire; } catch (_createRequireCleanupError) {}
     }
     module.loaded = true;
+    // A conformance build may arm a one-shot native receipt for an exact
+    // public alias. Cache hits returned above never reach this point, and the
+    // tuple is emitted only after the authenticated builtin body completed.
+    // Reuse the loader-private attribution HostFunction so no new ambient
+    // authority or project-reachable observer is introduced.
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+    if (authenticatedBuiltinRecord && __privSetActiveModuleId) {
+      __privSetActiveModuleId(
+        previousModuleId || 0,
+        record.sourceId,
+        legacyId,
+        'ibex-capsec-authenticated-builtin-source-complete-v1'
+      );
+    }
     return module.exports;
   }
 

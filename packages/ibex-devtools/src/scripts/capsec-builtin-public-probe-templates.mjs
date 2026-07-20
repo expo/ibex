@@ -41,10 +41,28 @@ const BUILTIN_BATCH_COMMAND = Object.freeze([
 
 const READ_INVOCATION_SCHEMA = "ibex/capsec-builtin-export-invocation/1";
 const CALL_INVOCATION_SCHEMA = "ibex/capsec-builtin-call-invocation/1";
+const MODULE_IMPORT_NO_EFFECT_INVOCATION_SCHEMA =
+  "ibex/capsec-builtin-module-import-no-effect-invocation/1";
 const EVENT_LOOP_COMPLETION = Object.freeze({
   kind: "event-loop-quiescence",
   timeoutMilliseconds: 1_000,
 });
+
+// These are the only module-root aliases whose current source has been
+// reviewed as lazy at import time. Each spelling is observed in a fresh
+// engine; exported operations such as getServers remain separate obligations.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+const DNS_NONCAP_MODULE_ALIAS_SOURCES = new Map(
+  [
+    ["dns", "node_dns"],
+    ["node:dns", "node_dns"],
+    ["dns/promises", "node_dns_promises"],
+    ["node:dns/promises", "node_dns_promises"],
+  ].map(([moduleSpecifier, sourceKey]) => [
+    moduleSpecifier,
+    { sourceKey, bundleExternal: true, moduleBuiltin: true },
+  ]),
+);
 
 const jsonArgument = (value) => ({ kind: "json", value });
 const noopArgument = () => ({ kind: "noop-function" });
@@ -1491,6 +1509,13 @@ function sourceDescriptor(
   if (
     metadata?.surfaceType !== "export" ||
     metadata.importReachability !== "public" ||
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // a source-proven cross-source shape is still only presence evidence. A
+    // dedicated carrier/provider invocation must be authored before it can
+    // receive execution credit, even if a future descriptor accepts multiple
+    // source references.
+    metadata.crossSourceExportProjection !== undefined ||
+    metadata.constructorInstanceProjection !== undefined ||
     typeof metadata.sourceKey !== "string" ||
     metadata.sourceKey.length === 0 ||
     NONCAP_GENERIC_EXPORT_EXCLUSIONS.has(metadata.sourceKey) ||
@@ -1538,6 +1563,37 @@ function sourceDescriptor(
   };
   if (availability) descriptor.platformAvailability = [...availability];
   return descriptor;
+}
+
+function dnsModuleAliasSourceDescriptor(surface, moduleSpecifier) {
+  const expected = DNS_NONCAP_MODULE_ALIAS_SOURCES.get(moduleSpecifier);
+  const metadata = surface?.metadata;
+  if (
+    !expected ||
+    surface?.kind !== "builtin" ||
+    surface.name !== moduleSpecifier ||
+    surface.observedKey !== `builtin:${moduleSpecifier}` ||
+    !Array.isArray(surface.sourceRefs) ||
+    surface.sourceRefs.length !== 1 ||
+    surface.sourceRefs[0] !==
+      `modules.ts#specifiers:${expected.sourceKey}` ||
+    canonicalJson(metadata) !==
+      canonicalJson({
+        sourceKey: expected.sourceKey,
+        bundleExternal: expected.bundleExternal,
+        importReachability: "public",
+        moduleBuiltin: expected.moduleBuiltin,
+      })
+  ) {
+    return null;
+  }
+  return {
+    kind: "builtin-module-alias",
+    moduleSpecifier,
+    sourceKey: expected.sourceKey,
+    sourceRef: surface.sourceRefs[0],
+    sourceMetadata: structuredClone(metadata),
+  };
 }
 
 function authoredNonCapabilityBuiltinInvocationDefinition({
@@ -1640,6 +1696,45 @@ export function authoredNonCapabilityBuiltinProbe({
     return null;
   }
   const surface = liveByObservedKey.get(surfaceObservedKey);
+  if (
+    !surfaceObservedKey.startsWith("builtin:export:") &&
+    surfaceObservedKey.startsWith("builtin:") &&
+    canonicalJson(alternative.proofPaths) ===
+      canonicalJson([surfaceObservedKey]) &&
+    Array.isArray(plan.edgeIds) &&
+    plan.edgeIds.length === 1 &&
+    typeof plan.edgeIds[0] === "string" &&
+    plan.edgeIds[0].length > 0
+  ) {
+    const moduleSpecifier = surfaceObservedKey.slice("builtin:".length);
+    const descriptor = dnsModuleAliasSourceDescriptor(
+      surface,
+      moduleSpecifier,
+    );
+    if (!descriptor) return null;
+    descriptor.carrierEdgeId = plan.edgeIds[0];
+    return {
+      kind: "public-surface-invocation",
+      surfaceObservedKey,
+      command: [...BUILTIN_BATCH_COMMAND],
+      invocation: {
+        invocationSchema: MODULE_IMPORT_NO_EFFECT_INVOCATION_SCHEMA,
+        kind: "builtin-module-import",
+        moduleSpecifier,
+        sourceDescriptor: descriptor,
+        sourceDescriptorDigest: taggedDigest(descriptor),
+        arguments: [],
+        setup: { kind: "none" },
+        completion: { ...EVENT_LOOP_COMPLETION },
+        requiredAuthority: [],
+        expectedResult: "return",
+        expectedTypedDecisionCount: 0,
+        expectedTypedStages: [],
+        allowedCoverageEdgeIds: [],
+        expectedActionIds: [],
+      },
+    };
+  }
   if (!surfaceObservedKey.startsWith("builtin:export:")) {
     return null;
   }

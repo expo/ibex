@@ -5,7 +5,7 @@
 **Systems:** Runtime, Module Loader, Build
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-17 (reconciled the shipped typed resolver and advertised-target native-runner route: import/require condition sets are separate; file-backed metadata resolution does not acquire, parse, transpile, or disclose executable source, while trusted integrity hashing may read raw bytes and builtin metadata retains embedded source internally; bootstrap resolution is compatibility-only); 2026-07-15 (ENG-25066 made authenticated ordinary ESM use the native module graph by default; unsupported interop retains the bounded 0.1 legacy path); 2026-07-13 (retained native-wrapper owner isolation and retry-safe release across filesystem, network, HTTP, WebSocket, SQLite, zlib, and TLS; TLS transport identity, bounded state, honest loopback authentication, strict client-identity verification, exact-size native reads, and fail-loud host errors); 2026-07-12 (armed resolution authenticates exact requester/target locator, package root, and whole-tree integrity before import or `require.resolve` disclosure — ENG-24234, ENG-24235, ENG-24241; desktop TLS accepts password-protected PKCS#12 and encrypted PKCS#8 client identities — ENG-24272); 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23526: Windows native TLS bridge enablement; ENG-23448: documented the loopback-only tls emulation); 2026-07-11 (ENG-23505: stream lifecycle and concatenated-member boundaries; LLP 0021 generated builtin-export security inventory — ENG-24145)
+**Revised:** 2026-07-19 (bounds the `dns/promises` cross-source export projection to a canonical two-source AST review and keeps its 45 derived callable rows as residual presence evidence); 2026-07-17 (reconciled the shipped typed resolver and advertised-target native-runner route: import/require condition sets are separate; file-backed metadata resolution does not acquire, parse, transpile, or disclose executable source, while trusted integrity hashing may read raw bytes and builtin metadata retains embedded source internally; bootstrap resolution is compatibility-only); 2026-07-15 (ENG-25066 made authenticated ordinary ESM use the native module graph by default; unsupported interop retains the bounded 0.1 legacy path); 2026-07-13 (retained native-wrapper owner isolation and retry-safe release across filesystem, network, HTTP, WebSocket, SQLite, zlib, and TLS; TLS transport identity, bounded state, honest loopback authentication, strict client-identity verification, exact-size native reads, and fail-loud host errors); 2026-07-12 (armed resolution authenticates exact requester/target locator, package root, and whole-tree integrity before import or `require.resolve` disclosure — ENG-24234, ENG-24235, ENG-24241; desktop TLS accepts password-protected PKCS#12 and encrypted PKCS#8 client identities — ENG-24272); 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23526: Windows native TLS bridge enablement; ENG-23448: documented the loopback-only tls emulation); 2026-07-11 (ENG-23505: stream lifecycle and concatenated-member boundaries; LLP 0021 generated builtin-export security inventory — ENG-24145)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0005 (Build pipeline); LLP 0023 (source identity); LLP 0026 (module runner); LLP 0027 (artifact wire and interop)
 
 ## Summary
@@ -169,6 +169,22 @@ So `node:`, `bun:`, and bare specifiers are deliberate aliases onto a shared set
 of embedded sources `[observed]` (`modules.ts:693-699, 728-729`).
 `[inferred: the single-source-many-aliases design lets Ibex present a Node- and
 Bun-compatible import surface without maintaining separate implementations.]`
+
+`dns/promises` is one narrow, review-bound carrier exception to ordinary
+single-source export discovery. Its generated source exports the exact
+`dns.promises` object supplied by `node_dns`; the inventory therefore projects
+42 callable carrier rows from the provider's reviewed top-level, Resolver
+prototype, and nested Resolver `_handle` shapes. It also records the same three
+nested `_handle` callables on the provider's exported Resolver instance shape,
+for 45 derived rows total. The proof requires the exact carrier/provider source
+keys and paths, their exact forwarding and construction structure, and a pinned
+canonical AST digest over both complete source files. Location and comment
+changes do not perturb that digest, but any semantic AST change fails discovery
+until the two-source shape is deliberately reviewed again. These rows prove
+only callable presence and source ownership: their enforcement routes retain
+an explicit cross-source or constructor-instance ambiguity and no execution
+terminal, so LLP 0021 WP10 cannot promote them without dedicated bounded
+carrier/provider recipes.
 
 Not every registry entry is an advertised alias. Groups authored with both
 `moduleBuiltin: false` and `bundleExternal: false` appear in neither
