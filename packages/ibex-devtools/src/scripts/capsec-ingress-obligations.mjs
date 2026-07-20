@@ -752,7 +752,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "execution-adapters",
       "fn mint_execution_adapter_ready<'adapter>(",
       "async fn settle_authenticated_inline_evaluation(",
-      "sha256-0HPKAbyB86ITOjKXN81cCwYL-IBxPSLd7GvpKTNd8RI",
+      "sha256-6Pf31ksfh6WIBv8EA4MTUvKKaxGBNPzumBQtDV7B1PU",
     ),
     freezeReviewedRange(
       "repl-unix-adapter",
