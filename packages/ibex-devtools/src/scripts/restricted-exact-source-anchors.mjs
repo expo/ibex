@@ -1339,7 +1339,8 @@ function exportedHostAbiBinding({ branch, sourceRef, sourcePath, locator, text, 
   }
   const symbol = branch.observedKey.slice("host-abi:".length);
   if (locator !== symbol || !/\.(?:cc|mm|rs)$/u.test(sourcePath)) return null;
-  const range = declarationRange(text, symbol);
+  const range = declarationRange(text, symbol)
+    ?? robustFunctionDeclarationRange(text, symbol);
   if (!range) return null;
   const declaration = text.slice(range.startByte, Math.min(range.endByte, range.startByte + 500));
   const exported = sourcePath.endsWith(".rs")

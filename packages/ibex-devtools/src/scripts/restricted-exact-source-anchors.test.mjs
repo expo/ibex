@@ -279,6 +279,22 @@ void install(Runtime& rt) {
     ]);
   });
 
+  test("binds exported ABI functions whose signatures contain nested callback syntax", () => {
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      {
+        branchId: "surface.host.abi.ex.hermes.destroy.0m27uxn.default",
+        observedKey: "host-abi:ex_hermes_destroy",
+        targetVariant: "default",
+      },
+      "src/engine/hermes_runtime.cc#ex_hermes_destroy",
+    );
+    expect(binding.locatorKind).toBe("exported-host-abi");
+    expect(binding.sites.map((site) => site.role)).toEqual([
+      "value-producer",
+      "publication",
+    ]);
+  });
+
   test("binds a callback producer to its exact runtime-queue publication call", () => {
     const binding = resolveRestrictedExactBranchSourceBinding(
       {
