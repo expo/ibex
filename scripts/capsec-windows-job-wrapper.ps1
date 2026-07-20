@@ -134,4 +134,4 @@ try {
 finally {
   [IbexCapsecJobObject]::Close()
 }
-exit $childExitCode
+[System.Environment]::Exit([int]$childExitCode)
