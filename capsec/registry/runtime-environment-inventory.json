@@ -1111,7 +1111,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "git",
-          "sourceOffset": 3388,
+          "sourceOffset": 3430,
           "sourcePath": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -4923,7 +4923,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_exact_fixture_evidence_batch",
-          "sourceOffset": 11782,
+          "sourceOffset": 11824,
           "sourcePath": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING:read",
           "stage": "armed-bootstrap-host-read"
@@ -4951,7 +4951,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_exact_fixture_evidence_batch",
-          "sourceOffset": 11933,
+          "sourceOffset": 11975,
           "sourcePath": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_FIXTURE_EVIDENCE_OUTPUT:read",
           "stage": "armed-bootstrap-host-read"
@@ -5037,7 +5037,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_exact_fixture_evidence_batch",
-          "sourceOffset": 11588,
+          "sourceOffset": 11630,
           "sourcePath": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
           "stage": "armed-bootstrap-host-read"
