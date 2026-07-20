@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-19 (ENG-24933 refreshes the four checked example policies after physical run 29722972483 correctly refused the reviewed removal of the Windows crypto shadow before product execution)
 **Revised:** 2026-07-19 (ENG-24933 removes the Windows-only bootstrap crypto shadow after physical run 29719448744 cleared CLI runtime execution and exposed 17 missing-or-weakened crypto exports)
 **Revised:** 2026-07-19 (ENG-24933 routes raw standalone Windows entries through the in-process lowering pipeline after physical run 29717165944 passed all 19 CLI evaluation tests and exposed two script-mode static-import failures)
 **Revised:** 2026-07-19 (ENG-24933 narrows Windows Promise-result inspection to trusted awaited-entry evaluation and writes process stdio through raw Win32 handles after physical run 29714547951 advanced the CLI suite to 15 of 19 passing)
@@ -2150,6 +2151,16 @@ its BCrypt/CNG file remains the owner of available native primitives, while
 unsupported operations use the shared explicit failure semantics. This change
 does not credit a target cell: a rebuilt physical report must prove the next
 frontier, and advertisements remain empty.
+Physical rerun
+[`29722972483`](https://github.com/ccheever/ibex/actions/runs/29722972483)
+correctly refused during retained generated-policy preflight. Removing the
+Windows-only loader function changed the reviewed source inventory, vocabulary,
+registry, and policy digests, while the four committed enforce-mode example
+policies still bound their predecessor. They have been regenerated from their
+unchanged entries; only the vocabulary, registry, and policy digests changed,
+with every principal and authority row preserved. No engine or product test ran
+in this attempt, so it supplies no target evidence and advertisements remain
+empty.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked
