@@ -204,8 +204,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(23_165);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_932);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_233);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_931);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_234);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -221,13 +221,18 @@ describe("exact-target CapSec executable recipes", () => {
       windowsCryptoRecipes.filter(
         (recipe) => recipe.status === "fully-executable",
       ),
-    ).toHaveLength(59);
-    const unavailableWindowsBrotliRecipes = windowsRecipes.recipes.filter(
+    ).toHaveLength(58);
+    const unavailableWindowsNativeRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
           "builtin-export-native-prerequisite-not-installed-on-target",
         ),
     );
+    expect(unavailableWindowsNativeRecipes).toHaveLength(47);
+    const unavailableWindowsBrotliRecipes =
+      unavailableWindowsNativeRecipes.filter((recipe) =>
+        recipe.terminalObservedKey.startsWith("builtin:export:node_zlib:"),
+      );
     expect(unavailableWindowsBrotliRecipes).toHaveLength(46);
     expect(
       unavailableWindowsBrotliRecipes.every(
@@ -239,6 +244,13 @@ describe("exact-target CapSec executable recipes", () => {
           ),
       ),
     ).toBe(true);
+    const unavailableWindowsHkdf = unavailableWindowsNativeRecipes.find(
+      (recipe) =>
+        recipe.terminalObservedKey ===
+        "builtin:export:exact_crypto:hkdfSync",
+    );
+    expect(unavailableWindowsHkdf.status).toBe("unresolved");
+    expect(unavailableWindowsHkdf.publicSurfaceProbe).toBeNull();
     const unsupportedWindowsFilesystemRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.actionIds.some((actionId) => actionId.startsWith("fs:")) &&
