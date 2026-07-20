@@ -3162,10 +3162,18 @@ mod tests {
             )
         };
         let mut error = std::ptr::null_mut();
-        assert_eq!(
-            unsafe { ex_hermes_run_restricted_exact_bundle(runtime, &mut error) },
-            0
-        );
+        let run_status = unsafe { ex_hermes_run_restricted_exact_bundle(runtime, &mut error) };
+        if run_status != 0 {
+            let message = if error.is_null() {
+                "missing restricted teardown fixture error".to_owned()
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(error) }
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            unsafe { ex_hermes_free_string(error) };
+            panic!("restricted teardown fixture failed: {message}");
+        }
         assert!(error.is_null());
         assert_ne!(pending.call_id, 0);
         assert_eq!(pending.operation_id, 1000);
