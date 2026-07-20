@@ -25,6 +25,13 @@ test("the authored target budgets fit their outer job timeouts", () => {
     commandPolicyFor(
       plan,
       "x86_64-pc-windows-msvc",
+      "all-generated-drift",
+    ).deadlineMs,
+  ).toBe(300_000);
+  expect(
+    commandPolicyFor(
+      plan,
+      "x86_64-pc-windows-msvc",
       "exact-loaded-engine-attestation",
     ).deadlineMs,
   ).toBe(2_700_000);

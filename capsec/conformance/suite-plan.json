@@ -52,6 +52,7 @@
       "maxPublicFixtureBatches": 7,
       "aliasDiagnosticCommands": [],
       "deadlineOverrides": {
+        "all-generated-drift": 300000,
         "exact-loaded-engine-attestation": 2700000
       }
     }
