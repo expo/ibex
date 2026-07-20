@@ -222817,40 +222817,6 @@
       ]
     },
     {
-      "edgeId": "surface.native.op.global.performancemark.name.0f38t6b",
-      "observedKey": "native-op:global:PerformanceMark.name",
-      "branchId": "surface.native.op.global.performancemark.name.0f38t6b.all",
-      "enforcementBranchId": "surface.native.op.global.performancemark.name.0f38t6b.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:global:PerformanceMark.name"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:PerformanceMark",
-          "packages/ibex-runtime-js/src/performance/Performance.ts#PerformanceEntry.prototype.name"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:PerformanceMark",
-          "packages/ibex-runtime-js/src/performance/Performance.ts#PerformanceEntry.prototype.name"
-        ],
-        "terminalObservedKey": "native-op:global:PerformanceMark.name"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:PerformanceMark",
-        "packages/ibex-runtime-js/src/performance/Performance.ts#PerformanceEntry.prototype.name"
-      ],
-      "implementationOwner": "WP1",
-      "fixtureObligations": [
-        "surface.native.op.global.performancemark.name.0f38t6b.all.non-capability"
-      ]
-    },
-    {
       "edgeId": "surface.native.op.global.performancemark.starttime.19y6iz1",
       "observedKey": "native-op:global:PerformanceMark.startTime",
       "branchId": "surface.native.op.global.performancemark.starttime.19y6iz1.all",
@@ -223052,40 +223018,6 @@
       "implementationOwner": "WP1",
       "fixtureObligations": [
         "surface.native.op.global.performancemeasure.entrytype.0g210lf.all.non-capability"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.global.performancemeasure.name.14ve0m6",
-      "observedKey": "native-op:global:PerformanceMeasure.name",
-      "branchId": "surface.native.op.global.performancemeasure.name.14ve0m6.all",
-      "enforcementBranchId": "surface.native.op.global.performancemeasure.name.14ve0m6.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:global:PerformanceMeasure.name"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:PerformanceMeasure",
-          "packages/ibex-runtime-js/src/performance/Performance.ts#PerformanceEntry.prototype.name"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:PerformanceMeasure",
-          "packages/ibex-runtime-js/src/performance/Performance.ts#PerformanceEntry.prototype.name"
-        ],
-        "terminalObservedKey": "native-op:global:PerformanceMeasure.name"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:PerformanceMeasure",
-        "packages/ibex-runtime-js/src/performance/Performance.ts#PerformanceEntry.prototype.name"
-      ],
-      "implementationOwner": "WP1",
-      "fixtureObligations": [
-        "surface.native.op.global.performancemeasure.name.14ve0m6.all.non-capability"
       ]
     },
     {
@@ -249619,13 +249551,11 @@
         ],
         "proofSourceRefs": [
           "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:WebSocketError",
-          "packages/ibex-runtime-js/src/events/DOMException.ts#DOMException.name",
-          "packages/ibex-runtime-js/src/events/DOMException.ts#DOMException.prototype.name"
+          "packages/ibex-runtime-js/src/websocket/WebSocketError.ts#WebSocketError.name"
         ],
         "sourceRefs": [
           "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:WebSocketError",
-          "packages/ibex-runtime-js/src/events/DOMException.ts#DOMException.name",
-          "packages/ibex-runtime-js/src/events/DOMException.ts#DOMException.prototype.name"
+          "packages/ibex-runtime-js/src/websocket/WebSocketError.ts#WebSocketError.name"
         ],
         "terminalObservedKey": "native-op:global:WebSocketError.name"
       },
@@ -249636,8 +249566,7 @@
       },
       "sourceRefs": [
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:WebSocketError",
-        "packages/ibex-runtime-js/src/events/DOMException.ts#DOMException.name",
-        "packages/ibex-runtime-js/src/events/DOMException.ts#DOMException.prototype.name"
+        "packages/ibex-runtime-js/src/websocket/WebSocketError.ts#WebSocketError.name"
       ],
       "implementationOwner": "WP8",
       "fixtureObligations": [
@@ -273130,59 +273059,59 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-6C_sOb-EUdIcdwwSy0ryZ5NErOVINq9pvQZZQU-BIw8"
+      "rawContentDigest": "sha256-HBdNOeo4oxNtQY2u8SRK3L3bFklbG5-QodDjQcUfjw4"
     },
     {
       "kind": "output-disposition-dataset",
       "path": "capsec/generated/output-dispositions.json",
-      "rawContentDigest": "sha256-EJz-ReCysaTmQxv9NnpHkCBtn8SieOh5yNW3mGmbe-0"
+      "rawContentDigest": "sha256-GwgwmMrzWkZq6MZpzSW7o7NMrsTUA55CDPyHMIb4nso"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/output-dispositions.md",
-      "rawContentDigest": "sha256-xRCVp6vQ9c9kPbp4fxPpz0vCD8jCxiguM6zRFr0eoLA"
+      "rawContentDigest": "sha256-2KYlF95KUCgj3bFbetGvGf0Cm0BwVv22fnfk_kOLOtM"
     },
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-ka1W3VuMBwA1nyWidZZosx855G2-PFIKKkcpD4z6U00"
+      "rawContentDigest": "sha256-uoyFXWIvcGU4cJR48NZCjoW8UHTmzLo1TF-L8s4W6y8"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-fscV3ihFx3KQwq8qqtwFXqVGk_OBEgM_fVoc7HTMsJg"
+      "rawContentDigest": "sha256-mfAFHTorzFTX7JkN7EMAjEdeMhXuB0UMQ20IYH1ySLs"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-VU9WeqU6sbE9fIRjiYrci_CybLkvc0-HqjEzQx6ZnOM"
+      "rawContentDigest": "sha256-HAE42W6gCg2kA5x_CBPckbSLwdDRaGvHuzdrGTSVudg"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-Q7da8LnjF5U46scXXoayGqpDdnS-lT7y5G7PbpqC4hE"
+      "rawContentDigest": "sha256-RhGX0PH4yGVFn_z30D95PYWtm--hjOZRQex9MeOd1FA"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-NKKN9C7RmCHZh1_jPsOEYSv96lwM-T6vxUZofzjhAVs"
+      "rawContentDigest": "sha256-7UPYTYBObioRaV1lJVblJpTMLvs8M_Sc-oYijgAO74M"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-sknkRcW1Mcra0BVAvPs_W10adxQMGZCnAfmCwZOWXXI"
+      "rawContentDigest": "sha256-X58TEUntrX03dB0ZQzjsh6ro0nDvacXIoPI_pZeR1cc"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-ButghMAuZGr5rpZZoMT_fa6OS-xj5c7MV7afOeu1AnM"
+      "rawContentDigest": "sha256-c6p_NpreAb7CAQzI2Shq9mMQPe-xNqwm-AFLKLHsdWE"
     }
   ],
   "counts": {
-    "observedReferences": 12850,
-    "logicalSurfaces": 7349,
-    "enforcementBranches": 7568,
-    "coverageEdges": 7349,
-    "targetCells": 14698
+    "observedReferences": 12845,
+    "logicalSurfaces": 7347,
+    "enforcementBranches": 7566,
+    "coverageEdges": 7347,
+    "targetCells": 14694
   }
 }

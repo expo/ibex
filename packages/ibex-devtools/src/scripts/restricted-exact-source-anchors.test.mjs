@@ -1539,6 +1539,89 @@ void install(Runtime& rt) {
     expect(bunInspect.producerPaths).toHaveLength(2);
   });
 
+  test("binds each lockdown evaluator to its tamer and runtime dispatch", () => {
+    for (const evaluator of ["AsyncFunction", "Function", "GeneratorFunction", "eval"]) {
+      const branch = {
+        branchId: `surface.native.op.global.${evaluator}.default`,
+        observedKey: `native-op:global:${evaluator}`,
+        targetVariant: "default",
+      };
+      const sourceRef = `src/engine/hermes_runtime.cc#lockdownJS:${evaluator}`;
+      const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+      expect(binding.locatorKind).toBe("lockdown-evaluator-route");
+      expect(binding.targetGlobalPath).toBe(evaluator);
+      expect(binding.sites.map((site) => site.role)).toEqual([
+        "guard",
+        "value-producer",
+        "publication",
+        "dispatch",
+      ]);
+      expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status)
+        .toBe("executable");
+    }
+  });
+
+  test("models the raw Exact host prefix as get/has refusals", () => {
+    const branch = {
+      branchId: "surface.native.op.raw-exact.all",
+      observedKey: "native-op:__exact",
+      targetVariant: "all",
+    };
+    const sourceRef = "src/engine/hermes_runtime.cc#__exact";
+    const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+    expect(binding.locatorKind).toBe("raw-host-prefix-refusal-route");
+    expect(binding.producerPaths).toEqual([]);
+    expect(binding.refusalPaths).toHaveLength(2);
+    expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status)
+      .toBe("executable");
+  });
+
+  test("composes every principal environment proxy source into one route", () => {
+    const branch = {
+      branchId: "surface.native.op.global.process.env.principal-overlay.all",
+      observedKey: "native-op:global:process.env.[[dynamic-table:principal-environment-overlay-properties]]",
+      targetVariant: "all",
+    };
+    const refs = [
+      "packages/ibex-runtime-js/src/node/process.ts#Process.prototype.env",
+      "packages/ibex-runtime-js/src/node/process.ts#createEnvProxy",
+      "packages/ibex-runtime-js/src/node/process.ts#createEnvProxy:Proxy.deleteProperty",
+      "packages/ibex-runtime-js/src/node/process.ts#createEnvProxy:Proxy.get",
+      "packages/ibex-runtime-js/src/node/process.ts#createEnvProxy:Proxy.ownKeys",
+      "packages/ibex-runtime-js/src/node/process.ts#createEnvProxy:Proxy.set",
+    ];
+    const route = buildRestrictedExactBranchSourceRoute(branch, refs);
+    expect(route.status).toBe("executable");
+    expect(route.sites).toHaveLength(12);
+    expect(route.producerPaths).toHaveLength(1);
+    expect(route.bindingDispositions.every(({ disposition }) => disposition === "selected-route"))
+      .toBe(true);
+  });
+
+  test("binds derived compatibility constructors, markers, and refusals", () => {
+    for (const observedPath of [
+      "Date.constructor",
+      "Request.constructor",
+      "Request.formData.__exactCompatPatched",
+      "Response.constructor",
+      "Response.formData.__exactCompatPatched",
+      "SharedArrayBuffer.prototype.constructor.constructor",
+      "SharedArrayBuffer.prototype.[[dynamic-table:call-result-6409897f6685-properties]]",
+      "process.stdin.writable",
+    ]) {
+      const branch = {
+        branchId: `surface.native.op.global.${observedPath}.default`,
+        observedKey: `native-op:global:${observedPath}`,
+        targetVariant: "default",
+      };
+      const sourceRef = `src/engine/bootstrap/compat-polyfills.js#${observedPath}`;
+      const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+      expect(binding.locatorKind).toMatch(/^(?:legacy-|principal-)/u);
+      expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status)
+        .toBe("executable");
+    }
+  });
+
   test("binds module-level global assignments and exact C++ terminal symbols", () => {
     const moduleBinding = resolveRestrictedExactBranchSourceBinding({
       branchId: "surface.native.op.android.dispatch.all",

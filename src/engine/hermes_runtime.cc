@@ -12812,6 +12812,7 @@ extern "C" int ex_hermes_configure_restricted_exact_activation(
   return 0;
 }
 
+// @abi-output ex_hermes_run_restricted_exact_bundle out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
 extern "C" int ex_hermes_run_restricted_exact_bundle(
     ExactHermesRuntime* runtime,
     char** out_error) {

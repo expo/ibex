@@ -2761,6 +2761,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
           static baseVersion = '1';
           baseRun() {}
         }
+        Object.defineProperty(Base, 'name', { value: 'Base' });
       `,
       "packages/ibex-runtime-js/src/gadget.ts": `
         import { Base } from './base.js';
@@ -2791,6 +2792,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
           "global:Gadget.baseRun",
           "global:Gadget.baseVersion",
           "global:Gadget.create",
+          "global:Gadget.name",
           "global:Gadget.ready",
           "global:Gadget.run",
           "global:Gadget.value",
@@ -2805,6 +2807,12 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         first.find((row) => row.name === "global:Gadget.create").metadata
           .memberKinds,
       ).toContain("static");
+      expect(
+        first.find((row) => row.name === "global:Gadget.name").sourceRefs,
+      ).toContain("packages/ibex-runtime-js/src/gadget.ts#Gadget.name");
+      expect(
+        first.find((row) => row.name === "global:Gadget.name").sourceRefs,
+      ).not.toContain("packages/ibex-runtime-js/src/base.ts#Base.name");
       expect(
         first.find((row) => row.name === "global:Gadget.run").metadata
           .memberKinds,
@@ -6027,7 +6035,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .sort(),
       ),
     ).toEqual({
-      "output-bearing": 261,
+      "output-bearing": 267,
       "structural-only": 50,
     });
     expect(
@@ -6060,7 +6068,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .map(([role, channels]) => [role, channels.length])
           .sort(),
       ),
-    ).toEqual({ callback: 59, out: 204, return: 243 });
+    ).toEqual({ callback: 61, out: 207, return: 249 });
     expect(
       Object.fromEntries(
         [
@@ -6075,8 +6083,8 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     ).toEqual({
       "none:void": 68,
       "value:aggregate": 17,
-      "value:pointer": 48,
-      "value:scalar": 178,
+      "value:pointer": 50,
+      "value:scalar": 182,
     });
     expect(
       Object.fromEntries(
@@ -6090,10 +6098,10 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .sort(),
       ),
     ).toEqual({
-      "callback-payload": 38,
+      "callback-payload": 39,
       inout: 9,
-      input: 753,
-      output: 75,
+      input: 765,
+      output: 78,
     });
 
     const accountFor = (name) =>
@@ -6334,7 +6342,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     ).toEqual(["src/engine/hermes_runtime.cc#ex_hermes_create_armed"]);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")),
-    ).toHaveLength(147);
+    ).toHaveLength(149);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")).length,
     ).toBeGreaterThan(0);

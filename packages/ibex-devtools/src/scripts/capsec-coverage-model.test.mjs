@@ -152,14 +152,17 @@ function hermesEvaluatorGlobal(globalName, metadata = {}) {
     globalName === "eval" || globalName === "Function"
       ? "inherited-global"
       : "intrinsic-constructor";
-  const mergedEvalSources =
+  const mergedSources =
     globalName === "eval"
       ? [
+          "evaluated_native_script",
           "global_compat_polyfills",
           "global_process_compat_fix",
           "hermes_intrinsic_evaluators",
         ]
-      : null;
+      : globalName === "Function"
+        ? ["evaluated_native_script", "hermes_intrinsic_evaluators"]
+        : null;
   const lockdownRef = `src/engine/hermes_runtime.cc#lockdown-taming:${REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST}`;
   const branches = [
     {
@@ -196,10 +199,10 @@ function hermesEvaluatorGlobal(globalName, metadata = {}) {
     {
       surfaceType: "global-api",
       sourceKey:
-        globalName === "eval"
-          ? "global_compat_polyfills"
+        globalName === "eval" || globalName === "Function"
+          ? "evaluated_native_script"
           : "hermes_intrinsic_evaluators",
-      ...(mergedEvalSources ? { sourceKeys: mergedEvalSources } : {}),
+      ...(mergedSources ? { sourceKeys: mergedSources } : {}),
       globalName,
       memberName: null,
       exportName: globalName,
@@ -4733,7 +4736,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ),
     ).toEqual(
       new Set([
-        "sha256-c9c7018e05cebdc8e26bb9d46773b3c06643cfa84cec49d86a401d30a1e7e430",
+        "sha256-6e69056daf1b3f416e603f3e743ecf0a82cc4c723daef43adef5262dd3f9b04d",
       ]),
     );
     const reviewedGlobalNames = new Set([

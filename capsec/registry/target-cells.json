@@ -208447,40 +208447,6 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
-      "edgeId": "surface.native.op.global.performancemark.name.0f38t6b",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.native.op.global.performancemark.name.0f38t6b.all"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
-      "edgeId": "surface.native.op.global.performancemark.name.0f38t6b",
-      "target": {
-        "triple": "x86_64-pc-windows-msvc",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.native.op.global.performancemark.name.0f38t6b.all"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
       "edgeId": "surface.native.op.global.performancemark.starttime.19y6iz1",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -208680,40 +208646,6 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.native.op.global.performancemeasure.entrytype.0g210lf.all"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
-      "edgeId": "surface.native.op.global.performancemeasure.name.14ve0m6",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.native.op.global.performancemeasure.name.14ve0m6.all"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
-      "edgeId": "surface.native.op.global.performancemeasure.name.14ve0m6",
-      "target": {
-        "triple": "x86_64-pc-windows-msvc",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.native.op.global.performancemeasure.name.14ve0m6.all"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."

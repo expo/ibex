@@ -69590,18 +69590,6 @@
       ]
     },
     {
-      "surfaceId": "surface.native.op.global.performancemark.name.0f38t6b",
-      "status": "output-bearing",
-      "reasonCode": "source-derived-public-output",
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:PerformanceMark",
-        "packages/ibex-runtime-js/src/performance/Performance.ts#PerformanceEntry.prototype.name"
-      ],
-      "outputKinds": [
-        "public-property-read"
-      ]
-    },
-    {
       "surfaceId": "surface.native.op.global.performancemark.starttime.19y6iz1",
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
@@ -69668,18 +69656,6 @@
       "sourceRefs": [
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:PerformanceMeasure",
         "packages/ibex-runtime-js/src/performance/Performance.ts#PerformanceEntry.prototype.entryType"
-      ],
-      "outputKinds": [
-        "public-property-read"
-      ]
-    },
-    {
-      "surfaceId": "surface.native.op.global.performancemeasure.name.14ve0m6",
-      "status": "output-bearing",
-      "reasonCode": "source-derived-public-output",
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:PerformanceMeasure",
-        "packages/ibex-runtime-js/src/performance/Performance.ts#PerformanceEntry.prototype.name"
       ],
       "outputKinds": [
         "public-property-read"
@@ -78292,8 +78268,7 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:WebSocketError",
-        "packages/ibex-runtime-js/src/events/DOMException.ts#DOMException.name",
-        "packages/ibex-runtime-js/src/events/DOMException.ts#DOMException.prototype.name"
+        "packages/ibex-runtime-js/src/websocket/WebSocketError.ts#WebSocketError.name"
       ],
       "outputKinds": [
         "public-property-read"
@@ -83681,15 +83656,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-XOQWC6vYk26Cr2JLwta-g8IRk4KXXUPOXi5On1V4Ges",
+  "catalogKeyDigest": "sha256-Bk3WVTFjpwV3HpWZN8WhWMNHQdUV8tCXARuePm4Mkn0",
   "counts": {
-    "coverageSurfaces": 7349,
-    "outputBearingSurfaces": 5787,
+    "coverageSurfaces": 7347,
+    "outputBearingSurfaces": 5785,
     "structuralOnlySurfaces": 1557,
     "unresolvedSurfaces": 5,
-    "catalogRows": 6464,
+    "catalogRows": 6462,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6057,
+    "sourceInventoryRows": 6055,
     "structuredRows": 407
   },
   "rows": [
@@ -201420,28 +201395,6 @@
     },
     {
       "key": {
-        "surfaceId": "surface.native.op.global.performancemark.name.0f38t6b",
-        "output": "[[value]]",
-        "alias": "global:PerformanceMark.name",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "discovery": {
-        "kind": "source-inventory-surface",
-        "observedKeys": [
-          "native-op:global:PerformanceMark.name"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:PerformanceMark",
-          "packages/ibex-runtime-js/src/performance/Performance.ts#PerformanceEntry.prototype.name"
-        ]
-      },
-      "requiredValueProof": "live-value-observation"
-    },
-    {
-      "key": {
         "surfaceId": "surface.native.op.global.performancemark.starttime.19y6iz1",
         "output": "[[value]]",
         "alias": "global:PerformanceMark.startTime",
@@ -201568,28 +201521,6 @@
         "sourceRefs": [
           "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:PerformanceMeasure",
           "packages/ibex-runtime-js/src/performance/Performance.ts#PerformanceEntry.prototype.entryType"
-        ]
-      },
-      "requiredValueProof": "live-value-observation"
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.global.performancemeasure.name.14ve0m6",
-        "output": "[[value]]",
-        "alias": "global:PerformanceMeasure.name",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "discovery": {
-        "kind": "source-inventory-surface",
-        "observedKeys": [
-          "native-op:global:PerformanceMeasure.name"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:PerformanceMeasure",
-          "packages/ibex-runtime-js/src/performance/Performance.ts#PerformanceEntry.prototype.name"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -217327,8 +217258,7 @@
         ],
         "sourceRefs": [
           "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:WebSocketError",
-          "packages/ibex-runtime-js/src/events/DOMException.ts#DOMException.name",
-          "packages/ibex-runtime-js/src/events/DOMException.ts#DOMException.prototype.name"
+          "packages/ibex-runtime-js/src/websocket/WebSocketError.ts#WebSocketError.name"
         ]
       },
       "requiredValueProof": "live-value-observation"

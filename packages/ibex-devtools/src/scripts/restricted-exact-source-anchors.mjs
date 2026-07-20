@@ -739,6 +739,365 @@ function lockdownTamingIdentityBinding({ sourceRef, sourcePath, locator, text, b
   });
 }
 
+function lockdownEvaluatorRouteBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  const match = /^lockdownJS:(AsyncFunction|Function|GeneratorFunction|eval)$/u.exec(locator);
+  if (sourcePath !== "src/engine/hermes_runtime.cc"
+    || !match
+    || branch?.observedKey !== `native-op:global:${match[1]}`) return null;
+  const evaluator = match[1];
+  const producerRange = javascriptNamedFunctionRange(text, "makeTamed");
+  const assignmentOffset = text.indexOf("std::string lockdownJS = std::string(R\"JS(");
+  const dispatchRanges = tokenRangesWithin(
+    text,
+    'handle->runtime->evaluateJavaScript(buffer, "<lockdown>");',
+    { startByte: assignmentOffset, endByte: text.length },
+  );
+  const guardOffset = text.lastIndexOf("if (handle->structural_lockdown) {", assignmentOffset);
+  const targetText = evaluator === "Function"
+    ? "var tamedFunction = tameCtor(Function.prototype, 'Function');"
+    : evaluator === "GeneratorFunction"
+      ? "try { tameCtor(getProto(function*(){}), 'GeneratorFunction'); } catch (e) { if (failClosed) throw e; }"
+      : evaluator === "AsyncFunction"
+        ? "try { tameCtor(getProto(async function(){}), 'AsyncFunction'); } catch (e) { if (failClosed) throw e; }"
+        : "defineProp(g, 'eval', { value: tamedEval, writable: false, configurable: false });";
+  const targetRanges = tokenRangesWithin(
+    text,
+    targetText,
+    { startByte: assignmentOffset, endByte: dispatchRanges[0]?.startByte ?? text.length },
+  );
+  if (!producerRange
+    || assignmentOffset < 0
+    || guardOffset < 0
+    || dispatchRanges.length !== 1
+    || targetRanges.length !== 1) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "guard", siteKey: `${evaluator}.structural-lockdown`, range: lineRange(text, guardOffset), text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${evaluator}.tamed-evaluator-factory`, range: producerRange, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${evaluator}.taming-publication`, range: targetRanges[0], text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: `${evaluator}.lockdown-dispatch`, range: dispatchRanges[0], text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "lockdown-evaluator-route",
+    targetGlobalPath: evaluator,
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0lockdown-evaluator`),
+      conditionId: `target-branch:${branch.targetVariant}:structural-lockdown:armed`,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function rawHostPrefixRefusalBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (sourcePath !== "src/engine/hermes_runtime.cc"
+    || locator !== "__exact"
+    || branch?.observedKey !== "native-op:__exact") return null;
+  const guardRanges = tokenRangesWithin(
+    text,
+    "startsWithRawPrefix(name, '__exact')",
+    { startByte: 0, endByte: text.length },
+  );
+  const getRanges = tokenRangesWithin(
+    text,
+    "if (typeof prop === 'string' && isWithheld(pkg, prop)) return undefined;",
+    { startByte: 0, endByte: text.length },
+  );
+  const hasRanges = tokenRangesWithin(
+    text,
+    "if (typeof prop === 'string' && isWithheld(pkg, prop)) return false;",
+    { startByte: 0, endByte: text.length },
+  );
+  if (guardRanges.length !== 1 || getRanges.length !== 1 || hasRanges.length !== 1) return null;
+  const guard = sourceSite({ sourceRef, path: sourcePath, role: "guard", siteKey: "raw-host-prefix.guard", range: guardRanges[0], text, bytes });
+  const getBoundary = sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: "raw-host-prefix.get", range: getRanges[0], text, bytes });
+  const hasBoundary = sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: "raw-host-prefix.has", range: hasRanges[0], text, bytes });
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "raw-host-prefix-refusal-route",
+    resolutionPolicy: "conditioned-alternatives",
+    sites: [guard, getBoundary, hasBoundary],
+    producerPaths: [],
+    refusalPaths: [
+      {
+        pathId: stableId("refusal", `${branch.branchId}\0${sourceRef}\0get`),
+        conditionId: "compartment-operation:get",
+        requiredSiteIds: [guard.siteId, getBoundary.siteId],
+      },
+      {
+        pathId: stableId("refusal", `${branch.branchId}\0${sourceRef}\0has`),
+        conditionId: "compartment-operation:has",
+        requiredSiteIds: [guard.siteId, hasBoundary.siteId],
+      },
+    ],
+  });
+}
+
+function principalEnvironmentOverlayBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  const targetGlobalPath = "process.env.[[dynamic-table:principal-environment-overlay-properties]]";
+  if (sourcePath !== "packages/ibex-runtime-js/src/node/process.ts"
+    || branch?.observedKey !== `native-op:global:${targetGlobalPath}`) return null;
+  const allowed = new Set([
+    "Process.prototype.env",
+    "createEnvProxy",
+    "createEnvProxy:Proxy.deleteProperty",
+    "createEnvProxy:Proxy.get",
+    "createEnvProxy:Proxy.ownKeys",
+    "createEnvProxy:Proxy.set",
+  ]);
+  if (!allowed.has(locator)) return null;
+  const ast = parse(text, {
+    sourceType: "module",
+    plugins: ["typescript", "decorators-legacy"],
+  });
+  let functionNode = null;
+  let envProperty = null;
+  walkJavaScript(ast.program, (node) => {
+    if (node.type === "FunctionDeclaration" && node.id?.name === "createEnvProxy") {
+      functionNode = node;
+    }
+    if (["ClassProperty", "PropertyDefinition"].includes(node.type)
+      && propertyName(node.key) === "env"
+      && node.value?.type === "CallExpression"
+      && node.value.callee?.type === "Identifier"
+      && node.value.callee.name === "createEnvProxy") {
+      envProperty = node;
+    }
+  });
+  if (!functionNode || !envProperty) return null;
+  let producer = null;
+  let terminal = null;
+  let locatorKind = null;
+  if (locator === "Process.prototype.env") {
+    producer = envProperty.value;
+    terminal = envProperty;
+    locatorKind = "principal-environment-publication-route";
+  } else if (locator === "createEnvProxy") {
+    walkJavaScript(functionNode.body, (node) => {
+      if (node.type === "ReturnStatement"
+        && node.argument?.type === "NewExpression"
+        && node.argument.callee?.type === "Identifier"
+        && node.argument.callee.name === "Proxy") {
+        terminal = node;
+      }
+    });
+    producer = functionNode;
+    locatorKind = "principal-environment-proxy-route";
+  } else {
+    const trapName = locator.slice("createEnvProxy:Proxy.".length);
+    walkJavaScript(functionNode.body, (node) => {
+      if (["ObjectMethod", "ObjectProperty"].includes(node.type)
+        && propertyName(node.key) === trapName) {
+        producer = node;
+        terminal = node;
+      }
+    });
+    locatorKind = "principal-environment-trap-route";
+  }
+  if (!producer || !terminal) return null;
+  const producerSite = sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: locator === "Process.prototype.env" ? "value-producer" : "definition",
+    siteKey: `${locator}.producer`,
+    range: { startByte: producer.start, endByte: producer.end },
+    text,
+    bytes,
+  });
+  const terminalSite = sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: locator === "Process.prototype.env" ? "publication" : "dispatch",
+    siteKey: `${locator}.terminal`,
+    range: { startByte: terminal.start, endByte: terminal.end },
+    text,
+    bytes,
+  });
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind,
+    targetGlobalPath,
+    resolutionPolicy: "composite-path",
+    sites: [producerSite, terminalSite],
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0principal-environment`),
+      conditionId: `principal-environment:${stableId("source", sourceRef)}`,
+      requiredSiteIds: [producerSite.siteId, terminalSite.siteId],
+    }],
+  });
+}
+
+function legacyCompatibilityDerivedRouteBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (sourcePath !== "src/engine/bootstrap/compat-polyfills.js"
+    || branch?.observedKey !== `native-op:global:${locator}`) return null;
+  if (locator === "process.stdin.writable") {
+    const guardRanges = tokenRangesWithin(
+      text,
+      "if ((name === 'stdout' || name === 'stderr') && stream.writable === undefined) {",
+      { startByte: 0, endByte: text.length },
+    );
+    const dispatchRanges = tokenRangesWithin(
+      text,
+      "__exactPinStream('stdin');",
+      { startByte: 0, endByte: text.length },
+    );
+    if (guardRanges.length !== 1 || dispatchRanges.length !== 1) return null;
+    const guard = sourceSite({ sourceRef, path: sourcePath, role: "guard", siteKey: "stdin.writable.exclusion", range: guardRanges[0], text, bytes });
+    const dispatch = sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: "stdin.pin-dispatch", range: dispatchRanges[0], text, bytes });
+    return validateRestrictedExactSourceBinding({
+      sourceRef,
+      locatorKind: "legacy-stdio-refusal-route",
+      targetGlobalPath: locator,
+      resolutionPolicy: "composite-path",
+      sites: [guard, dispatch],
+      producerPaths: [],
+      refusalPaths: [{
+        pathId: stableId("refusal", `${branch.branchId}\0${sourceRef}\0stdin-writable`),
+        conditionId: "stdio-name:stdin:excluded-writable-compat",
+        requiredSiteIds: [guard.siteId, dispatch.siteId],
+      }],
+    });
+  }
+
+  const ast = parse(text, { sourceType: "script", allowReturnOutsideFunction: true });
+  const makeBinding = ({ locatorKind, producerRange, retainedRanges = [], publicationRanges }) => {
+    if (!producerRange || publicationRanges.length === 0 || publicationRanges.some((range) => !range)) return null;
+    const producer = sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${locator}.producer`, range: producerRange, text, bytes });
+    const retained = retainedRanges.map((range, indexValue) => sourceSite({ sourceRef, path: sourcePath, role: "retention", siteKey: `${locator}.retention.${indexValue}`, range, text, bytes }));
+    const publications = publicationRanges.map((range, indexValue) => sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${locator}.publication.${indexValue}`, range, text, bytes }));
+    const sites = [producer, ...retained, ...publications];
+    return validateRestrictedExactSourceBinding({
+      sourceRef,
+      locatorKind,
+      targetGlobalPath: locator,
+      resolutionPolicy: publications.length > 1 ? "conditioned-alternatives" : "composite-path",
+      sites,
+      producerPaths: publications.map((publication, indexValue) => ({
+        pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0derived\0${indexValue}`),
+        conditionId: publications.length > 1
+          ? `legacy-compat-publication:${locator}:${indexValue}`
+          : `legacy-compat-publication:${locator}`,
+        requiredSiteIds: [
+          producer.siteId,
+          ...retained.map((site) => site.siteId),
+          publication.siteId,
+        ],
+      })),
+    });
+  };
+
+  if (locator === "Date.constructor") {
+    const producerRange = javascriptNamedFunctionRange(text, "WrappedDate");
+    const retention = tokenRangesWithin(text, "WrappedDate.prototype.constructor = WrappedDate;", { startByte: 0, endByte: text.length });
+    const publication = tokenRangesWithin(text, "globalThis.Date = WrappedDate;", { startByte: 0, endByte: text.length });
+    if (retention.length !== 1 || publication.length !== 1) return null;
+    return makeBinding({
+      locatorKind: "legacy-constructor-descriptor-route",
+      producerRange,
+      retainedRanges: retention,
+      publicationRanges: publication,
+    });
+  }
+
+  const fetchMatch = /^(Request|Response)\.(constructor|formData\.__exactCompatPatched)$/u.exec(locator);
+  if (fetchMatch) {
+    const [, constructorName, member] = fetchMatch;
+    if (member === "constructor") {
+      let producer = null;
+      let genericPublication = null;
+      let fallbackPublication = null;
+      walkJavaScript(ast.program, (node) => {
+        if (node.type === "FunctionDeclaration" && node.id?.name === "Wrapped") producer = node;
+        if (node.type === "CallExpression"
+          && JSON.stringify(memberSegments(node.callee)) === JSON.stringify(["Object", "defineProperty"])
+          && JSON.stringify(memberSegments(node.arguments[0])) === JSON.stringify(["globalThis"])
+          && node.arguments[1]?.type === "Identifier" && node.arguments[1].name === "name") {
+          genericPublication = node;
+        }
+        if (node.type === "AssignmentExpression"
+          && JSON.stringify(memberSegments(node.left)) === JSON.stringify(["globalThis", "name"])
+          && node.right?.type === "Identifier" && node.right.name === "Wrapped") {
+          fallbackPublication = node;
+        }
+      });
+      const invocations = tokenRangesWithin(
+        text,
+        `__exactWrapFetchConstructor('${constructorName}');`,
+        { startByte: 0, endByte: text.length },
+      );
+      if (!producer || !genericPublication || !fallbackPublication || invocations.length !== 1) return null;
+      return makeBinding({
+        locatorKind: "legacy-fetch-constructor-route",
+        producerRange: { startByte: producer.start, endByte: producer.end },
+        retainedRanges: invocations,
+        publicationRanges: [
+          { startByte: genericPublication.start, endByte: genericPublication.end },
+          { startByte: fallbackPublication.start, endByte: fallbackPublication.end },
+        ],
+      });
+    }
+    const aliasName = constructorName === "Request" ? "requestProto" : "responseProto";
+    let alias = null;
+    let producer = null;
+    let publication = null;
+    walkJavaScript(ast.program, (node) => {
+      if (node.type === "VariableDeclarator" && node.id?.type === "Identifier" && node.id.name === aliasName) alias = node;
+      if (node.type === "AssignmentExpression"
+        && JSON.stringify(memberSegments(node.left)) === JSON.stringify([aliasName, "formData"])) producer = node;
+      if (node.type === "AssignmentExpression"
+        && JSON.stringify(memberSegments(node.left)) === JSON.stringify([aliasName, "formData", "__exactCompatPatched"])) publication = node;
+    });
+    if (!alias || !producer || !publication) return null;
+    return makeBinding({
+      locatorKind: "legacy-fetch-formdata-marker-route",
+      producerRange: { startByte: producer.start, endByte: producer.end },
+      retainedRanges: [{ startByte: alias.start, endByte: alias.end }],
+      publicationRanges: [{ startByte: publication.start, endByte: publication.end }],
+    });
+  }
+
+  if (locator === "SharedArrayBuffer.prototype.constructor.constructor"
+    || locator === "SharedArrayBuffer.prototype.[[dynamic-table:call-result-6409897f6685-properties]]") {
+    const producerRange = locator.endsWith("constructor.constructor")
+      ? javascriptNamedFunctionRange(text, "SharedArrayBuffer")
+      : tokenRangesWithin(
+        text,
+        "SharedArrayBuffer.prototype = Object.create(NativeArrayBuffer.prototype);",
+        { startByte: 0, endByte: text.length },
+      )[0];
+    const retention = tokenRangesWithin(
+      text,
+      "Object.defineProperty(SharedArrayBuffer.prototype, 'constructor', {",
+      { startByte: 0, endByte: text.length },
+    );
+    const publications = [];
+    walkJavaScript(ast.program, (node) => {
+      if (node.type === "CallExpression"
+        && JSON.stringify(memberSegments(node.callee)) === JSON.stringify(["Object", "defineProperty"])
+        && JSON.stringify(memberSegments(node.arguments[0])) === JSON.stringify(["globalThis"])
+        && propertyName(node.arguments[1]) === "SharedArrayBuffer") {
+        publications.push({ startByte: node.start, endByte: node.end });
+      }
+      if (node.type === "AssignmentExpression"
+        && JSON.stringify(memberSegments(node.left)) === JSON.stringify(["globalThis", "SharedArrayBuffer"])
+        && node.right?.type === "Identifier" && node.right.name === "SharedArrayBuffer") {
+        publications.push({ startByte: node.start, endByte: node.end });
+      }
+    });
+    if (!producerRange || retention.length !== 1 || publications.length !== 2) return null;
+    return makeBinding({
+      locatorKind: locator.endsWith("constructor.constructor")
+        ? "legacy-nested-constructor-route"
+        : "legacy-dynamic-prototype-lineage-route",
+      producerRange,
+      retainedRanges: retention,
+      publicationRanges: publications,
+    });
+  }
+  return null;
+}
+
 function legacyEvaluatorRunnerBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
   const match = /^legacy-runner:([A-Za-z_$][A-Za-z0-9_$]*):(sha256-[a-f0-9]{64})$/u.exec(locator);
   if (sourcePath !== "src/engine/hermes_bootstrap.cc" || !match) return null;
@@ -1727,15 +2086,22 @@ function typescriptClassMemberBinding({ sourceRef, sourcePath, locator, absolute
       && new Set(members.map((member) => member.kind)).size === 2
       && members.every((member) => ["get", "set"].includes(member.kind));
     if (members.length !== 1 && !accessorPair) {
+      if (!prototype && memberName === "name" && classNode.id?.name === className) {
+        producers = [classNode];
+        siteKey = `${className}.intrinsic-name`;
+      } else {
       const descriptors = index.defineProperties.filter((row) =>
         row.property === memberName
         && JSON.stringify(row.targetSegments) === JSON.stringify([className]));
       if (descriptors.length !== 1) return null;
       producers = [descriptors[0].node];
+      }
     } else {
       producers = members;
     }
-    siteKey = `${className}.${prototype ? "prototype." : ""}${memberName}`;
+    if (siteKey !== `${className}.intrinsic-name`) {
+      siteKey = `${className}.${prototype ? "prototype." : ""}${memberName}`;
+    }
   }
   const sites = producers.map((producer, indexValue) => sourceSite({
     sourceRef,
@@ -6862,7 +7228,7 @@ export function validateRestrictedExactSourceBinding(binding) {
   }
   if (
     binding.resolutionPolicy === "conditioned-alternatives"
-    && binding.producerPaths.length < 2
+    && binding.producerPaths.length + binding.refusalPaths.length < 2
   ) {
     throw new Error(`${binding.sourceRef}: conditioned alternatives require multiple paths`);
   }
@@ -6975,6 +7341,10 @@ export function resolveRestrictedExactBranchSourceBinding(
   const loaded = loadSourceRef(sourceRef, root);
   const contextual = moduleSpecifierBranchBinding({ branch, sourceRef, ...loaded })
     ?? moduleInlineExportBinding({ branch, sourceRef, ...loaded })
+    ?? lockdownEvaluatorRouteBinding({ branch, sourceRef, ...loaded })
+    ?? rawHostPrefixRefusalBinding({ branch, sourceRef, ...loaded })
+    ?? principalEnvironmentOverlayBinding({ branch, sourceRef, ...loaded })
+    ?? legacyCompatibilityDerivedRouteBinding({ branch, sourceRef, ...loaded })
     ?? signalNumberOverlayBinding({ branch, sourceRef, ...loaded })
     ?? builtinExportBranchBinding({ branch, sourceRef, ...loaded })
     ?? builtinInheritedTableFallbackBinding({ branch, sourceRef, ...loaded })
@@ -7259,6 +7629,20 @@ export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root =
         requiredSiteIds,
       });
     }
+  } else if (branch.observedKey
+    === "native-op:global:process.env.[[dynamic-table:principal-environment-overlay-properties]]") {
+    const environmentEntries = entries.filter(({ binding }) =>
+      binding.locatorKind.startsWith("principal-environment-"));
+    if (environmentEntries.length === 6) {
+      for (const entry of environmentEntries) selectedEntries.add(entry);
+      const requiredSiteIds = environmentEntries.flatMap(({ binding }) =>
+        binding.sites.map((site) => site.siteId));
+      producerPaths.push({
+        pathId: stableId("producer", `${branch.branchId}\0principal-environment-overlay`),
+        conditionId: "runtime-principal:environment-overlay",
+        requiredSiteIds,
+      });
+    }
   } else if (branch.observedKey.startsWith("native-op:global:")) {
     const observedPath = branch.observedKey.slice("native-op:global:".length);
     const producer = selectGlobalProducerEntry(observedPath, entries);
@@ -7369,16 +7753,17 @@ export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root =
         requiredSiteIds,
       });
     }
-    if (producerPaths.length === 0) {
+    if (producerPaths.length === 0 && refusalPaths.length === 0) {
       for (const entry of entries.filter(({ binding }) =>
-        binding.producerPaths.length > 0
+        (binding.producerPaths.length > 0 || binding.refusalPaths.length > 0)
         && !["legacy-bootstrap-global-route"].includes(binding.locatorKind))
         .filter((entry) => entryTargetsGlobalPath(entry, observedPath))) {
         selectedEntries.add(entry);
         producerPaths.push(...entry.binding.producerPaths);
+        refusalPaths.push(...entry.binding.refusalPaths);
       }
     }
-    if (producerPaths.length === 0) {
+    if (producerPaths.length === 0 && refusalPaths.length === 0) {
       const descendantEntries = entries.filter((entry) => {
         if (entry.binding.locatorKind !== "typescript-global-installer-route"
           || entry.binding.producerPaths.length === 0) return false;

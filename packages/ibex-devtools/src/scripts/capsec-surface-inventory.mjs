@@ -11541,6 +11541,9 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
       if (mode === "instance" && isStatic) continue;
       const name = tsMemberName(member.name, sourcePath);
       if (name === null) continue;
+      // Every named derived class has its own intrinsic constructor `name`.
+      // Do not attribute a shadowed base-class `name` descriptor to it.
+      if (inherited && mode === "constructor" && name === "name") continue;
       const memberKind = isStatic
         ? "static"
         : ts.isMethodDeclaration(member)
@@ -11571,6 +11574,10 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
     }
     for (const augmentation of classAugmentations.get(classSymbol) ?? []) {
       if (mode === "instance" && augmentation.memberKind === "static") continue;
+      if (inherited
+        && mode === "constructor"
+        && augmentation.memberKind === "static"
+        && augmentation.name === "name") continue;
       addPathFacts(
         [...baseSegments, augmentation.name],
         [
@@ -11611,6 +11618,27 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
       );
       if (bases.length > 0) {
         for (const base of bases) {
+          if (!inherited && mode === "constructor" && declaration.name) {
+            const baseSymbol = base.name ? symbolAt(base.name) : symbolAt(base);
+            const baseDeclaresStaticName = base.members.some((member) => {
+              const isStatic = Boolean(member.modifiers?.some(
+                (modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword,
+              ));
+              return isStatic
+                && !ts.isConstructorDeclaration(member)
+                && tsMemberName(member.name, relativeSourcePath(base)) === "name";
+            }) || (classAugmentations.get(baseSymbol) ?? []).some((augmentation) =>
+              augmentation.memberKind === "static" && augmentation.name === "name");
+            if (baseDeclaresStaticName) {
+              addPathFacts(
+                [...baseSegments, "name"],
+                [...installRefs, sourceSymbol(sourcePath, `${className}.name`)],
+                ["intrinsic-class-name"],
+                undefined,
+                "data",
+              );
+            }
+          }
           collectClassMembers(
             base,
             mode,

@@ -2940,8 +2940,11 @@ const REVIEWED_HERMES_EVALUATORS = Object.freeze({
   }),
   Function: Object.freeze({
     reachability: "inherited-global",
-    sourceKey: "hermes_intrinsic_evaluators",
-    sourceKeys: Object.freeze(["hermes_intrinsic_evaluators"]),
+    sourceKey: "evaluated_native_script",
+    sourceKeys: Object.freeze([
+      "evaluated_native_script",
+      "hermes_intrinsic_evaluators",
+    ]),
   }),
   GeneratorFunction: Object.freeze({
     reachability: "intrinsic-constructor",
@@ -2950,8 +2953,9 @@ const REVIEWED_HERMES_EVALUATORS = Object.freeze({
   }),
   eval: Object.freeze({
     reachability: "inherited-global",
-    sourceKey: "global_compat_polyfills",
+    sourceKey: "evaluated_native_script",
     sourceKeys: Object.freeze([
+      "evaluated_native_script",
       "global_compat_polyfills",
       "global_process_compat_fix",
       "hermes_intrinsic_evaluators",
@@ -4478,7 +4482,7 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "send",
     "url",
   ],
-  WebSocketError: ["", "[[Symbol.toStringTag]]", "closeCode", "reason"],
+  WebSocketError: ["", "[[Symbol.toStringTag]]", "closeCode", "name", "reason"],
   WebSocketStream: [
     "",
     "[[Symbol.toStringTag]]",
@@ -11075,7 +11079,7 @@ function reconcileDualRoleSpecifications(surface, globalSpec, nativeSpec) {
 }
 
 const REVIEWED_SHARED_RUNTIME_INHERITED_SHAPE_ID =
-  "sha256-c9c7018e05cebdc8e26bb9d46773b3c06643cfa84cec49d86a401d30a1e7e430";
+  "sha256-6e69056daf1b3f416e603f3e743ecf0a82cc4c723daef43adef5262dd3f9b04d";
 
 function reviewedInheritedGlobalShape(surface) {
   return Boolean(
@@ -11296,13 +11300,6 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
   }
   if (globalName === "__exactloadtimings") {
     return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
-  }
-  if (/^(?:eval|function)$/u.test(globalName) && member === "") {
-    return closedSpec(
-      "vm:evaluate",
-      "WP7",
-      "Dynamic JavaScript compilation remains closed; the restricted profile replaces these globals with throwing sentinels.",
-    );
   }
   if (/^__exact(?:allownativessyntax|compateval)$/u.test(globalName)) {
     return closedSpec(

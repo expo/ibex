@@ -455,19 +455,19 @@ describe("LLP 0023 output-disposition dataset", () => {
     );
   });
 
-  test("accounts for all 7,349 covered surfaces and emits 6,464 context-bound output rows", async () => {
+  test("accounts for all 7,347 covered surfaces and emits 6,462 context-bound output rows", async () => {
     const { catalog, coverage } = await repositoryCatalogFixture();
     expect(catalog.outputShapeCatalogSchema).toBe(
       "ibex/capsec-output-shape-catalog/2",
     );
     expect(catalog.counts).toEqual({
-      coverageSurfaces: 7_349,
-      outputBearingSurfaces: 5_787,
+      coverageSurfaces: 7_347,
+      outputBearingSurfaces: 5_785,
       structuralOnlySurfaces: 1_557,
       unresolvedSurfaces: 5,
-      catalogRows: 6_464,
+      catalogRows: 6_462,
       parameterizedBindings: 1,
-      sourceInventoryRows: 6_057,
+      sourceInventoryRows: 6_055,
       structuredRows: 407,
     });
     expect(catalog.surfaceAccounts).toHaveLength(coverage.edges.length);
@@ -482,7 +482,7 @@ describe("LLP 0023 output-disposition dataset", () => {
         parameterizedOutputBindings: catalog.parameterizedOutputBindings,
       }),
     ).toEqual({
-      "output-bearing": 5_787,
+      "output-bearing": 5_785,
       "structural-only": 1_557,
       unresolved: 5,
     });
@@ -1474,7 +1474,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-disposition-policy/2",
     );
     expect(policy.catalogKeyDigest).toBe(
-      "sha256-XOQWC6vYk26Cr2JLwta-g8IRk4KXXUPOXi5On1V4Ges",
+      "sha256-Bk3WVTFjpwV3HpWZN8WhWMNHQdUV8tCXARuePm4Mkn0",
     );
     expect(policy.catalogKeyDigest).toBe(catalog.catalogKeyDigest);
     expect(policy.overrides).toHaveLength(369);
@@ -1508,12 +1508,12 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-dispositions/2",
     );
     expect(dataset.counts).toEqual({
-      catalogRows: 6_464,
-      dispositionRows: 6_464,
+      catalogRows: 6_462,
+      dispositionRows: 6_462,
       byDisposition: {
         absent: 152,
         closed: 28,
-        "non-path": 6_136,
+        "non-path": 6_134,
         "private-native-path": 5,
         refused: 12,
         "reserved-constant": 1,
