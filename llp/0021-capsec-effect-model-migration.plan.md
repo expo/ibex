@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-19 (ENG-24933 refreshes all four checked example policies after physical run 29714351921 correctly refused the reviewed Promise-evaluator registry identity change before product execution)
 **Revised:** 2026-07-19 (ENG-24933 carries process stdio, async entry rejection/handler, and opt-in Bun identity contracts through the Windows source-bootstrap profile after physical run 29711984665 cleared child-process integration and exposed six CLI gaps)
 **Revised:** 2026-07-19 (ENG-24933 removes the POSIX-only lazy net installer from the Windows native-backend smoke test after physical run 29704246482 passed 316 library tests and isolated that final failure)
 **Revised:** 2026-07-19 (ENG-24933 makes Windows library verification use target-native filesystem fixtures and object-equivalent path assertions, while the native-backend smoke test installs its explicitly permissive diagnostic host)
@@ -2093,6 +2094,16 @@ arguments remain raw while the assertion permits target-local multiline object
 inspection. These are product-contract repairs, not conformance credit; a
 complete rebuilt physical report is still required before any target cell or
 advertisement changes.
+Physical rerun
+[`29714351921`](https://github.com/ccheever/ibex/actions/runs/29714351921)
+then refused in retained generated-policy preflight, before engine or product
+execution. Making Promise inspection part of `ex_hermes_eval` on both desktop
+targets changed the reviewed startup evaluator's registry identity and digest;
+the four committed example policies still bound the preceding registry digest.
+All four policies are regenerated from their unchanged entries, preserving
+their authority rows while updating the vocabulary/registry and policy digests.
+The refusal is therefore a successful stale-authority tripwire, not Windows
+conformance evidence.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked
