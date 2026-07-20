@@ -153,6 +153,77 @@ function typeDeclarationRange(text, name) {
   return endByte < 0 ? null : { startByte, endByte };
 }
 
+function javaTypeRanges(text) {
+  const ranges = [];
+  const pattern = /\b(?:class|interface|enum)\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/gu;
+  for (const match of text.matchAll(pattern)) {
+    const opening = text.indexOf("{", match.index + match[0].length);
+    const endByte = opening < 0 ? -1 : matchingBraceEnd(text, opening);
+    if (endByte > opening) ranges.push({ name: match[1], startByte: match.index, endByte });
+  }
+  return ranges;
+}
+
+function javaMethodDeclarationRange(text, ownerName, methodName) {
+  const candidates = [];
+  for (const call of callExpressionRangesWithin(
+    text,
+    methodName,
+    { startByte: 0, endByte: text.length },
+  )) {
+    const lineStart = text.lastIndexOf("\n", call.startByte - 1) + 1;
+    const prefix = text.slice(lineStart, call.startByte);
+    if (
+      prefix.trim().length === 0
+      || /[.=]/u.test(prefix)
+      || /^\s*(?:if|while|for|switch|return|throw|new)\b/u.test(prefix)
+    ) continue;
+    let cursor = call.endByte;
+    while (cursor < text.length && /\s/u.test(text[cursor])) cursor += 1;
+    if (text.startsWith("throws", cursor)) {
+      cursor += "throws".length;
+      while (cursor < text.length && text[cursor] !== "{" && text[cursor] !== ";") cursor += 1;
+    }
+    let endByte;
+    if (text[cursor] === "{") endByte = matchingBraceEnd(text, cursor);
+    else if (text[cursor] === ";") endByte = cursor + 1;
+    else continue;
+    if (endByte < 0) continue;
+    const prefixStart = prefix.search(/\S/u);
+    candidates.push({
+      startByte: prefixStart < 0 ? call.startByte : lineStart + prefixStart,
+      endByte,
+    });
+  }
+  const types = javaTypeRanges(text);
+  const matching = candidates.filter((candidate) => {
+    const owners = types
+      .filter((type) => type.startByte < candidate.startByte && type.endByte >= candidate.endByte)
+      .sort((left, right) => (left.endByte - left.startByte) - (right.endByte - right.startByte));
+    return owners[0]?.name === ownerName;
+  });
+  return matching.length === 1 ? matching[0] : null;
+}
+
+function enclosingCallRange(text, offset, lowerBound = 0, upperBound = text.length) {
+  let opening = text.lastIndexOf("(", offset);
+  while (opening >= lowerBound) {
+    const endByte = matchingDelimiterEnd(text, opening, "(", ")");
+    if (endByte > offset && endByte <= upperBound) {
+      let startByte = opening;
+      while (startByte > lowerBound && /[A-Za-z0-9_$:>.\-]/u.test(text[startByte - 1])) {
+        startByte -= 1;
+      }
+      const callee = text.slice(startByte, opening).trim();
+      if (callee && !["if", "while", "for", "switch"].includes(callee)) {
+        return { startByte, endByte };
+      }
+    }
+    opening = text.lastIndexOf("(", opening - 1);
+  }
+  return null;
+}
+
 function qualifiedDeclarationRange(text, name) {
   const direct = robustFunctionDeclarationRange(text, name);
   if (direct || !name.includes("::")) return direct;
@@ -1369,6 +1440,200 @@ function exportedHostAbiBinding({ branch, sourceRef, sourcePath, locator, text, 
   });
 }
 
+function javaHostMethodBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (
+    !branch?.observedKey?.match(/^host-abi:(?:java|jni):/u)
+    || sourcePath !== "platform/android/java/dev/ibex/runtime/IbexNetworking.java"
+    || !/^(?:java|jni):/u.test(locator)
+  ) return null;
+  const qualifiedMethod = locator.slice(locator.indexOf(":") + 1);
+  const parts = qualifiedMethod.split(".");
+  const methodName = parts.pop();
+  const ownerName = parts.pop();
+  if (!ownerName || !methodName) return null;
+  const declaration = javaMethodDeclarationRange(text, ownerName, methodName);
+  if (!declaration) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "definition", siteKey: `${qualifiedMethod}.declaration`, range: declaration, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${qualifiedMethod}.java-publication`, range: declaration, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: locator.startsWith("jni:") ? "android-jni-java-declaration" : "android-java-method-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0java-method`),
+      conditionId: "target-platform:android",
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function uniqueJavaMethodRegistration(text, methodName) {
+  const calls = callExpressionRangesWithin(
+    text,
+    "env->GetStaticMethodID",
+    { startByte: 0, endByte: text.length },
+  ).filter((range) => text.slice(range.startByte, range.endByte).includes(`"${methodName}"`));
+  return calls.length === 1 ? calls[0] : null;
+}
+
+function assignedGlobalBefore(text, range) {
+  const prefix = text.slice(Math.max(0, range.startByte - 300), range.startByte);
+  return /\b(g_[A-Za-z0-9_]+)\s*=\s*$/u.exec(prefix)?.[1] ?? null;
+}
+
+function retainedMethodMember(text, globalName) {
+  const escaped = escapeRegExp(globalName);
+  const matches = [...text.matchAll(new RegExp(`\\bout->([A-Za-z0-9_]+)\\s*=\\s*${escaped}\\s*;`, "gu"))];
+  if (matches.length !== 1) return null;
+  return {
+    member: matches[0][1],
+    range: lineRange(text, matches[0].index),
+  };
+}
+
+function exactInvocationsForTokens(text, tokens, excludedRanges = []) {
+  const calls = new Map();
+  for (const { token, routeKind } of tokens) {
+    let offset = text.indexOf(token);
+    while (offset >= 0) {
+      const previous = text[offset - 1];
+      const following = text[offset + token.length];
+      const exactToken = (!previous || !/[A-Za-z0-9_$]/u.test(previous))
+        && (!following || !/[A-Za-z0-9_$]/u.test(following));
+      const excluded = excludedRanges.some((range) =>
+        offset >= range.startByte && offset < range.endByte);
+      if (exactToken && !excluded) {
+        const call = enclosingCallRange(text, offset);
+        if (call) {
+          const slice = text.slice(call.startByte, call.endByte);
+          if (!slice.includes("GetStaticMethodID")) {
+            calls.set(`${call.startByte}:${call.endByte}`, { range: call, routeKind });
+          }
+        }
+      }
+      offset = text.indexOf(token, offset + token.length);
+    }
+  }
+  return [...calls.values()].sort((left, right) => left.range.startByte - right.range.startByte);
+}
+
+function androidJavaCallBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (
+    !branch?.observedKey?.startsWith("host-abi:java:")
+    || sourcePath !== "src/engine/native_android_networking.cc"
+    || !locator.startsWith("java-call:")
+  ) return null;
+  const [, methodName, locatorMethod] = locator.split(":");
+  if (!methodName || locatorMethod !== methodName) return null;
+  const registration = uniqueJavaMethodRegistration(text, methodName);
+  if (!registration) return null;
+  const globalName = assignedGlobalBefore(text, registration);
+  if (!globalName) return null;
+  const retained = retainedMethodMember(text, globalName);
+  const excluded = [registration, ...(retained ? [retained.range] : [])];
+  const dispatches = exactInvocationsForTokens(text, [
+    { token: globalName, routeKind: "direct-cache" },
+    ...(retained ? [{ token: `methods.${retained.member}`, routeKind: "retained-method" }] : []),
+  ], excluded);
+  if (dispatches.length === 0) return null;
+  const registrationSite = sourceSite({ sourceRef, path: sourcePath, role: "registration", siteKey: `${methodName}.GetStaticMethodID`, range: registration, text, bytes });
+  const retentionSite = retained
+    ? sourceSite({ sourceRef, path: sourcePath, role: "retention", siteKey: `${methodName}.method-retention`, range: retained.range, text, bytes })
+    : null;
+  const dispatchSites = dispatches.map(({ range, routeKind }, index) => ({
+    routeKind,
+    site: sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: `${methodName}.jni-dispatch.${index + 1}`, range, text, bytes }),
+  }));
+  const sites = [registrationSite, ...(retentionSite ? [retentionSite] : []), ...dispatchSites.map(({ site }) => site)];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "android-java-call-route",
+    resolutionPolicy: dispatchSites.length > 1 ? "conditioned-alternatives" : "composite-path",
+    sites,
+    producerPaths: dispatchSites.map(({ routeKind, site }) => ({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0java-call\0${routeKind}`),
+      conditionId: dispatchSites.length > 1
+        ? `android-java-call:${routeKind}`
+        : "target-platform:android",
+      requiredSiteIds: [
+        registrationSite.siteId,
+        ...(routeKind === "retained-method" && retentionSite ? [retentionSite.siteId] : []),
+        site.siteId,
+      ],
+    })),
+  });
+}
+
+function jniTableEntryRange(text, javaMethod, target) {
+  const nameToken = `"${javaMethod}"`;
+  const candidates = [];
+  let offset = text.indexOf(nameToken);
+  while (offset >= 0) {
+    let opening = text.lastIndexOf("{", offset);
+    while (opening >= 0) {
+      const endByte = matchingBraceEnd(text, opening);
+      if (endByte > offset) {
+        const slice = text.slice(opening, endByte);
+        if (slice.includes(target)) candidates.push({ startByte: opening, endByte });
+        break;
+      }
+      opening = text.lastIndexOf("{", opening - 1);
+    }
+    offset = text.indexOf(nameToken, offset + nameToken.length);
+  }
+  const unique = [...new Map(candidates.map((range) => [`${range.startByte}:${range.endByte}`, range])).values()];
+  return unique.length === 1 ? unique[0] : null;
+}
+
+function androidJniCallbackBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (
+    !branch?.observedKey?.startsWith("host-abi:jni:")
+    || sourcePath !== "src/engine/native_android_networking.cc"
+    || !locator.startsWith("jni-callback:")
+  ) return null;
+  const [, javaMethod, target] = locator.split(":");
+  if (!javaMethod || !target) return null;
+  const definition = robustFunctionDeclarationRange(text, target);
+  if (!definition) return null;
+  const tableEntry = jniTableEntryRange(text, javaMethod, target);
+  const directExport = target.startsWith("Java_");
+  if (!tableEntry && !directExport) return null;
+  const registrationFunction = directExport
+    ? null
+    : robustFunctionDeclarationRange(text, "register_native_callbacks");
+  const registerCalls = registrationFunction
+    ? callExpressionRangesWithin(text, "env->RegisterNatives", registrationFunction)
+    : [];
+  if (!directExport && registerCalls.length !== 1) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${target}.definition`, range: definition, text, bytes }),
+    sourceSite({
+      sourceRef,
+      path: sourcePath,
+      role: directExport ? "publication" : "registration",
+      siteKey: directExport ? `${javaMethod}.direct-jni-export` : `${javaMethod}.native-table-entry`,
+      range: tableEntry ?? definition,
+      text,
+      bytes,
+    }),
+    ...(!directExport ? [sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${javaMethod}.RegisterNatives`, range: registerCalls[0], text, bytes })] : []),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: directExport ? "android-jni-direct-export-route" : "android-jni-table-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0jni-callback`),
+      conditionId: "target-platform:android",
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
 function callbackProducerBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
   const marker = ":pushRuntimeCallback";
   if (
@@ -1990,6 +2255,9 @@ export function resolveRestrictedExactBranchSourceBinding(
   const contextual = moduleSpecifierBranchBinding({ branch, sourceRef, ...loaded })
     ?? builtinExportBranchBinding({ branch, sourceRef, ...loaded })
     ?? jsiGlobalBranchBinding({ branch, sourceRef, ...loaded })
+    ?? javaHostMethodBinding({ branch, sourceRef, ...loaded })
+    ?? androidJavaCallBinding({ branch, sourceRef, ...loaded })
+    ?? androidJniCallbackBinding({ branch, sourceRef, ...loaded })
     ?? exportedHostAbiBinding({ branch, sourceRef, ...loaded })
     ?? callbackProducerBinding({ branch, sourceRef, ...loaded })
     ?? callbackDeliveryBinding({ branch, sourceRef, ...loaded })
@@ -2044,7 +2312,32 @@ export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root =
   const selectedEntries = new Set();
   const producerPaths = [];
   const refusalPaths = [];
-  if (branch.observedKey === "callback:signal-delivery") {
+  if (branch.observedKey.match(/^host-abi:(?:java|jni):/u)) {
+    const javaEntry = entries.find(({ binding }) =>
+      ["android-java-method-route", "android-jni-java-declaration"].includes(binding.locatorKind));
+    const nativeEntry = entries.find(({ binding }) =>
+      ["android-java-call-route", "android-jni-direct-export-route", "android-jni-table-route"].includes(binding.locatorKind));
+    if (javaEntry) {
+      selectedEntries.add(javaEntry);
+      const javaSiteIds = javaEntry.binding.producerPaths[0].requiredSiteIds;
+      if (nativeEntry) {
+        selectedEntries.add(nativeEntry);
+        for (const nativePath of nativeEntry.binding.producerPaths) {
+          producerPaths.push({
+            pathId: stableId("producer", `${branch.branchId}\0${nativePath.conditionId}`),
+            conditionId: nativePath.conditionId,
+            requiredSiteIds: [...javaSiteIds, ...nativePath.requiredSiteIds],
+          });
+        }
+      } else {
+        producerPaths.push({
+          pathId: stableId("producer", `${branch.branchId}\0android-java-only`),
+          conditionId: "target-platform:android",
+          requiredSiteIds: javaSiteIds,
+        });
+      }
+    }
+  } else if (branch.observedKey === "callback:signal-delivery") {
     const producer = entries.find(({ binding }) => binding.locatorKind === "callback-delivery-route");
     const dispatcher = entries.find(({ binding }) => binding.locatorKind === "callback-signal-dispatch-route");
     if (producer?.binding.producerPaths.length === 1 && dispatcher) {

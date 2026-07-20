@@ -295,6 +295,140 @@ void install(Runtime& rt) {
     ]);
   });
 
+  test("binds the outer Android Java method without selecting its nested provider homonym", () => {
+    const branch = {
+      branchId: "surface.host.abi.java.camera-host-call",
+      observedKey: "host-abi:java:dev.ibex.runtime.IbexNetworking.cameraHostCall",
+      targetVariant: "main",
+    };
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      branch,
+      "platform/android/java/dev/ibex/runtime/IbexNetworking.java#java:dev.ibex.runtime.IbexNetworking.cameraHostCall",
+    );
+    expect(binding.locatorKind).toBe("android-java-method-route");
+    const source = fs.readFileSync("platform/android/java/dev/ibex/runtime/IbexNetworking.java");
+    const declaration = source.subarray(binding.sites[0].startByte, binding.sites[0].endByte).toString();
+    expect(declaration).toContain("public static String cameraHostCall");
+    expect(declaration).toContain("CameraHostProvider provider");
+  });
+
+  test("binds a nested Android Java provider interface method exactly", () => {
+    const branch = {
+      branchId: "surface.host.abi.java.camera-provider-call",
+      observedKey: "host-abi:java:dev.ibex.runtime.IbexNetworking.CameraHostProvider.cameraHostCall",
+      targetVariant: "main",
+    };
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      branch,
+      "platform/android/java/dev/ibex/runtime/IbexNetworking.java#java:dev.ibex.runtime.IbexNetworking.CameraHostProvider.cameraHostCall",
+    );
+    const source = fs.readFileSync("platform/android/java/dev/ibex/runtime/IbexNetworking.java");
+    const declaration = source.subarray(binding.sites[0].startByte, binding.sites[0].endByte).toString();
+    expect(declaration).toMatch(/^String cameraHostCall/u);
+    expect(declaration).toMatch(/throws Exception;$/u);
+    expect(declaration).not.toContain("CameraHostProvider provider");
+  });
+
+  test("composes Android Java publication, method retention, and JNI dispatch", () => {
+    const branch = {
+      branchId: "surface.host.abi.java.accessibility-flags",
+      observedKey: "host-abi:java:dev.ibex.runtime.IbexNetworking.accessibilityFlags",
+      targetVariant: "main",
+    };
+    const route = buildRestrictedExactBranchSourceRoute(branch, [
+      "platform/android/java/dev/ibex/runtime/IbexNetworking.java#java:dev.ibex.runtime.IbexNetworking.accessibilityFlags",
+      "src/engine/native_android_networking.cc#java-call:accessibilityFlags:accessibilityFlags",
+    ]);
+    expect(route.status).toBe("executable");
+    expect(route.producerPaths).toHaveLength(1);
+    expect(route.sites.map((site) => site.role)).toEqual([
+      "definition",
+      "publication",
+      "registration",
+      "retention",
+      "dispatch",
+    ]);
+  });
+
+  test("keeps Android storage-path initialization and runtime calls as exact alternatives", () => {
+    const branch = {
+      branchId: "surface.host.abi.java.storage-paths",
+      observedKey: "host-abi:java:dev.ibex.runtime.IbexNetworking.storagePaths",
+      targetVariant: "main",
+    };
+    const route = buildRestrictedExactBranchSourceRoute(branch, [
+      "platform/android/java/dev/ibex/runtime/IbexNetworking.java#java:dev.ibex.runtime.IbexNetworking.storagePaths",
+      "src/engine/native_android_networking.cc#java-call:storagePaths:storagePaths",
+    ]);
+    expect(route.status).toBe("executable");
+    expect(route.producerPaths.map((producerPath) => producerPath.conditionId)).toEqual([
+      "android-java-call:direct-cache",
+      "android-java-call:retained-method",
+    ]);
+  });
+
+  test("composes a registered JNI callback through Java declaration, table entry, and target", () => {
+    const branch = {
+      branchId: "surface.host.abi.jni.fetch-complete",
+      observedKey: "host-abi:jni:dev.ibex.runtime.IbexNetworking.nativeFetchDidComplete",
+      targetVariant: "main",
+    };
+    const route = buildRestrictedExactBranchSourceRoute(branch, [
+      "platform/android/java/dev/ibex/runtime/IbexNetworking.java#jni:dev.ibex.runtime.IbexNetworking.nativeFetchDidComplete",
+      "src/engine/native_android_networking.cc#jni-callback:nativeFetchDidComplete:android_fetch_did_complete",
+    ]);
+    expect(route.status).toBe("executable");
+    expect(route.sites.map((site) => site.role)).toEqual([
+      "definition",
+      "publication",
+      "value-producer",
+      "registration",
+      "publication",
+    ]);
+    const source = fs.readFileSync("src/engine/native_android_networking.cc");
+    expect(source.subarray(route.sites[3].startByte, route.sites[3].endByte).toString()).toContain(
+      "nativeFetchDidComplete",
+    );
+    expect(source.subarray(route.sites[4].startByte, route.sites[4].endByte).toString()).toContain(
+      "env->RegisterNatives",
+    );
+  });
+
+  test("composes a direct exported JNI callback", () => {
+    const branch = {
+      branchId: "surface.host.abi.jni.animation-frame",
+      observedKey: "host-abi:jni:dev.ibex.runtime.IbexNetworking.nativeAnimationFrame",
+      targetVariant: "main",
+    };
+    const route = buildRestrictedExactBranchSourceRoute(branch, [
+      "platform/android/java/dev/ibex/runtime/IbexNetworking.java#jni:dev.ibex.runtime.IbexNetworking.nativeAnimationFrame",
+      "src/engine/native_android_networking.cc#jni-callback:nativeAnimationFrame:Java_dev_ibex_runtime_IbexNetworking_nativeAnimationFrame",
+    ]);
+    expect(route.status).toBe("executable");
+    expect(route.bindingDispositions.every(({ disposition }) => disposition === "selected-route")).toBe(true);
+  });
+
+  test("binds every host ABI implementation branch to an executable source route", () => {
+    const implementation = JSON.parse(
+      fs.readFileSync("capsec/generated/implementation-manifest.json", "utf8"),
+    );
+    const incomplete = [];
+    for (const branch of implementation.surfaces.filter(
+      (surface) => surface.observedKey.startsWith("host-abi:"),
+    )) {
+      const refs = [...new Set([
+        ...branch.sourceRefs,
+        ...branch.enforcementRoute.sourceRefs,
+        ...branch.enforcementRoute.proofSourceRefs,
+      ])];
+      const route = buildRestrictedExactBranchSourceRoute(branch, refs);
+      if (route.status !== "executable") {
+        incomplete.push({ branchId: branch.branchId, unresolved: route.unresolved });
+      }
+    }
+    expect(incomplete).toEqual([]);
+  });
+
   test("binds a callback producer to its exact runtime-queue publication call", () => {
     const binding = resolveRestrictedExactBranchSourceBinding(
       {
