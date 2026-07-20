@@ -352,8 +352,6 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__ibexTamed",
   "__nativeFetch",
   "__nativeFetchSync",
-  "__restrictedRandom",
-  "__restrictedWallClock",
   "__svGet",
   "__svSet",
   "__workletCapture",
@@ -13282,12 +13280,6 @@ function classifyConcreteSurface(surface) {
     }
     if (surface.name === "__ibexLockedDown") {
       return nonCapabilitySpec("authority-control-plane", "WP8");
-    }
-    if (
-      surface.name === "__restrictedRandom" ||
-      surface.name === "__restrictedWallClock"
-    ) {
-      return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
     }
     if (
       new Set([

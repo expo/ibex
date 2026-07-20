@@ -2,7 +2,7 @@
   "rootGlobalDispositionManifestSchema": "ibex/root-global-disposition-manifest/1",
   "profile": "ibex/capsec/1",
   "status": "enforced-by-armed-live-sweep",
-  "sourceDigest": "sha256-L_MbB3nW0p5L9n9U72s5w2ugYfl0cLA0Y8ReZzx0RCU",
+  "sourceDigest": "sha256-HEOYnPrPW3zrkQ9gfI0-oIBf5-6NGI9lBfLTO0OCdJU",
   "sweep": {
     "roots": [
       "globalThis"
@@ -2592,8 +2592,6 @@
       "surface.native.op.ibexrefreshcompartmentbaseline.1mo463m",
       "surface.native.op.nativefetch.17pv6n3",
       "surface.native.op.nativefetchsync.17pnac8",
-      "surface.native.op.restrictedrandom.1mvjo88",
-      "surface.native.op.restrictedwallclock.0ik8lyf",
       "surface.native.op.stringbuffer.05y6skt",
       "surface.native.op.svget.1spmln9",
       "surface.native.op.svset.0snna21",
@@ -88342,68 +88340,6 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.restrictedrandom.64a55a4b5efccc90",
-      "observedKey": "native-op:__restrictedRandom",
-      "registryEdgeId": "surface.native.op.restrictedrandom.1mvjo88",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "native-jsi-global"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime.cc#jsi-global:__restrictedRandom"
-        ],
-        "targetVariant": "default",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__restrictedRandom"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "native-install",
-      "privateConsumer": null,
-      "disposition": "exposed",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": true
-    },
-    {
-      "installId": "root-global.restrictedwallclock.1ab8a6c27a62effd",
-      "observedKey": "native-op:__restrictedWallClock",
-      "registryEdgeId": "surface.native.op.restrictedwallclock.0ik8lyf",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "native-jsi-global"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime.cc#jsi-global:__restrictedWallClock"
-        ],
-        "targetVariant": "default",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__restrictedWallClock"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "native-install",
-      "privateConsumer": null,
-      "disposition": "exposed",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": true
-    },
-    {
       "installId": "root-global.scheduleonappruntime.697e636741aec523",
       "observedKey": "native-op:global:scheduleOnAppRuntime",
       "registryEdgeId": "surface.native.op.global.scheduleonappruntime.1rw05f6",
@@ -102452,10 +102388,10 @@
     }
   ],
   "counts": {
-    "installBranches": 2725,
-    "logicalGlobals": 2578,
-    "registryEdges": 2578,
+    "installBranches": 2723,
+    "logicalGlobals": 2576,
+    "registryEdges": 2576,
     "sealedOrPrivate": 346,
-    "permittedReachable": 2379
+    "permittedReachable": 2377
   }
 }

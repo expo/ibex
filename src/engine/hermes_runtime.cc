@@ -4063,7 +4063,7 @@ void installRestrictedExactGlobals(struct ExactHermesRuntime* handle) {
 
   auto wallClock = facebook::jsi::Function::createFromHostFunction(
       rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__restrictedWallClock"),
+      facebook::jsi::PropNameID::forAscii(rt, "restrictedWallClock"),
       0,
       [handle](facebook::jsi::Runtime& runtime,
                const facebook::jsi::Value&,
@@ -4076,11 +4076,9 @@ void installRestrictedExactGlobals(struct ExactHermesRuntime* handle) {
         return facebook::jsi::Value(
             static_cast<double>(handle->restricted_exact_wall_clock_ms));
       });
-  rt.global().setProperty(rt, "__restrictedWallClock", std::move(wallClock));
-
   auto random = facebook::jsi::Function::createFromHostFunction(
       rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__restrictedRandom"),
+      facebook::jsi::PropNameID::forAscii(rt, "restrictedRandom"),
       0,
       [handle](facebook::jsi::Runtime& runtime,
                const facebook::jsi::Value&,
@@ -4100,16 +4098,10 @@ void installRestrictedExactGlobals(struct ExactHermesRuntime* handle) {
         return facebook::jsi::Value(
             static_cast<double>(bits >> 11) * (1.0 / 9007199254740992.0));
       });
-  rt.global().setProperty(rt, "__restrictedRandom", std::move(random));
-
   static constexpr const char* kRestrictedLockdown = R"JS(
-    (() => {
+    ((wallClock, random) => {
       'use strict';
       const g = globalThis;
-      const wallClock = g.__restrictedWallClock;
-      const random = g.__restrictedRandom;
-      delete g.__restrictedWallClock;
-      delete g.__restrictedRandom;
       const NativeDate = Date;
       function RestrictedDate(...args) {
         const value = args.length === 0
@@ -4156,11 +4148,19 @@ void installRestrictedExactGlobals(struct ExactHermesRuntime* handle) {
       Object.defineProperty(g, '__ibexLockedDown', {
         value: true, writable: false, configurable: false
       });
-    })();
+    })
   )JS";
   auto buffer =
       std::make_shared<facebook::jsi::StringBuffer>(kRestrictedLockdown);
-  rt.evaluateJavaScript(buffer, "<restricted-exact-lockdown>");
+  auto lockdownFactory =
+      rt.evaluateJavaScript(buffer, "<restricted-exact-lockdown>");
+  if (!lockdownFactory.isObject() ||
+      !lockdownFactory.asObject(rt).isFunction(rt)) {
+    throw facebook::jsi::JSError(
+        rt, "restricted Exact lockdown did not produce a function");
+  }
+  lockdownFactory.asObject(rt).asFunction(rt).call(
+      rt, std::move(wallClock), std::move(random));
 }
 
 void installGlobals(struct ExactHermesRuntime* handle) {

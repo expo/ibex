@@ -32134,12 +32134,14 @@
     },
     {
       "surfaceId": "surface.callback.restricted.exact.checkpoint.output.1al4vku",
-      "status": "unresolved",
-      "reasonCode": "callback-payload-contract-missing",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-callback-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_ios.cc#ex_hermes_set_restricted_exact_checkpoint_callback"
       ],
-      "outputKinds": []
+      "outputKinds": [
+        "callback-payload"
+      ]
     },
     {
       "surfaceId": "surface.callback.signal.delivery.0rrtfw7",
@@ -80081,30 +80083,6 @@
       ]
     },
     {
-      "surfaceId": "surface.native.op.restrictedrandom.1mvjo88",
-      "status": "output-bearing",
-      "reasonCode": "source-derived-public-output",
-      "sourceRefs": [
-        "src/engine/hermes_runtime.cc#__restrictedRandom",
-        "src/engine/hermes_runtime.cc#jsi-global:__restrictedRandom"
-      ],
-      "outputKinds": [
-        "native-invocation"
-      ]
-    },
-    {
-      "surfaceId": "surface.native.op.restrictedwallclock.0ik8lyf",
-      "status": "output-bearing",
-      "reasonCode": "source-derived-public-output",
-      "sourceRefs": [
-        "src/engine/hermes_runtime.cc#__restrictedWallClock",
-        "src/engine/hermes_runtime.cc#jsi-global:__restrictedWallClock"
-      ],
-      "outputKinds": [
-        "native-invocation"
-      ]
-    },
-    {
       "surfaceId": "surface.native.op.stringbuffer.05y6skt",
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
@@ -83158,12 +83136,12 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-VTJW7_CXZTV6FIHAly_X-2CZxwW8yjTnBAmEyXQYWp8",
+  "catalogKeyDigest": "sha256-Bq1CHij7SDeeKJqTMsskMFOHsG7qIuvjvcnC9tafZsQ",
   "counts": {
-    "coverageSurfaces": 7302,
-    "outputBearingSurfaces": 5739,
+    "coverageSurfaces": 7300,
+    "outputBearingSurfaces": 5738,
     "structuralOnlySurfaces": 1557,
-    "unresolvedSurfaces": 6,
+    "unresolvedSurfaces": 5,
     "catalogRows": 6413,
     "parameterizedBindings": 1,
     "sourceInventoryRows": 6006,
@@ -144892,6 +144870,48 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_sync_callback"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.callback.restricted.exact.checkpoint.output.1al4vku",
+        "output": "callback:restricted-exact-checkpoint/0",
+        "alias": "restricted-exact-checkpoint-output",
+        "mode": "all",
+        "sourceKind": "callback",
+        "returnVariant": "checkpoint-bytes",
+        "contextId": "javascript.package-callback-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "callback:restricted-exact-checkpoint-output"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_set_restricted_exact_checkpoint_callback"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.callback.restricted.exact.checkpoint.output.1al4vku",
+        "output": "callback:restricted-exact-checkpoint/1",
+        "alias": "restricted-exact-checkpoint-output",
+        "mode": "all",
+        "sourceKind": "callback",
+        "returnVariant": "checkpoint-length",
+        "contextId": "javascript.package-callback-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "callback:restricted-exact-checkpoint-output"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_set_restricted_exact_checkpoint_callback"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -218849,50 +218869,6 @@
         "sourceRefs": [
           "src/engine/hermes_runtime_fetch.cc#__nativeFetchSync",
           "src/engine/hermes_runtime_fetch.cc#jsi-global:__nativeFetchSync"
-        ]
-      },
-      "requiredValueProof": "live-value-observation"
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.restrictedrandom.1mvjo88",
-        "output": "[[return]]",
-        "alias": "__restrictedRandom",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "runtime.bootstrap-native-call-loaded"
-      },
-      "discovery": {
-        "kind": "source-inventory-surface",
-        "observedKeys": [
-          "native-op:__restrictedRandom"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime.cc#__restrictedRandom",
-          "src/engine/hermes_runtime.cc#jsi-global:__restrictedRandom"
-        ]
-      },
-      "requiredValueProof": "live-value-observation"
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.restrictedwallclock.0ik8lyf",
-        "output": "[[return]]",
-        "alias": "__restrictedWallClock",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "runtime.bootstrap-native-call-loaded"
-      },
-      "discovery": {
-        "kind": "source-inventory-surface",
-        "observedKeys": [
-          "native-op:__restrictedWallClock"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime.cc#__restrictedWallClock",
-          "src/engine/hermes_runtime.cc#jsi-global:__restrictedWallClock"
         ]
       },
       "requiredValueProof": "live-value-observation"

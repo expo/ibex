@@ -3,9 +3,9 @@
   "profile": "ibex/exact-embedder-contract/1",
   "fullProfile": "ibex/capsec/1",
   "status": "phase0-candidate-evidence-pending",
-  "definitionRawContentDigest": "sha256-lu8VfPT0pcumxhIhwpDFan5UR2iArLVpZJQYjxaiOUU",
-  "coverageRawContentDigest": "sha256-7Q3LNp3-SxI45ui3LFMS20hoEHbKBItjur43xEeC1qU",
-  "implementationManifestRawContentDigest": "sha256-2P-gEBEsHxnyRYfvCg7ZAk8YXdlmVM6vXE2UrpYwlz4",
+  "definitionRawContentDigest": "sha256-ZHw9h8WcNyDvfviF_j_yEydTnX_6P9_dUN632tXzY8s",
+  "coverageRawContentDigest": "sha256-RxLDC47t7W7kLtzuZCBiC9nG06BNALnrbAYgGabuiYU",
+  "implementationManifestRawContentDigest": "sha256-0sPWphv10cbLXGnfgWURmSrnuzcT5-qkCv1V-WRjcJY",
   "schemaRawContentDigests": {
     "advertisements": "sha256-4S5Zx8dROCgs71PSwf8veVy5RsHY89KAejOL_8pAzZ4",
     "definition": "sha256-XhhtwCROf1zqhnAYRz80T2CkzRJAPkfT1xR2sL0xCOE",
@@ -15,8 +15,8 @@
     "targetReport": "sha256-9pfYln-aIXfsTb7fXDhCB6PY_8E-aV91wmyIEdgrH5w"
   },
   "sourceEdgeSet": {
-    "count": 7302,
-    "digest": "sha256-9JJthq8GhZz6oESWw9Om-Uw-8Y4y07VH55JkKMwdB8o"
+    "count": 7300,
+    "digest": "sha256-VTJNCPeJTWvS8AWnm8jG5z_gOLrzU28xsUMKe0w3SEs"
   },
   "candidateTargets": [
     {
@@ -37,9 +37,9 @@
     }
   ],
   "counts": {
-    "total": 7302,
+    "total": 7300,
     "reachable": 28,
-    "structurallyAbsent": 7252,
+    "structurallyAbsent": 7250,
     "trustedControlPlane": 22,
     "evidenced": 0
   },
@@ -7033,8 +7033,6 @@
     ["surface.native.op.native.ws.set.flow.controlled.0c9zde1","structurally-absent","pending"],
     ["surface.native.op.nativefetch.17pv6n3","structurally-absent","pending"],
     ["surface.native.op.nativefetchsync.17pnac8","structurally-absent","pending"],
-    ["surface.native.op.restrictedrandom.1mvjo88","structurally-absent","pending"],
-    ["surface.native.op.restrictedwallclock.0ik8lyf","structurally-absent","pending"],
     ["surface.native.op.stringbuffer.05y6skt","structurally-absent","pending"],
     ["surface.native.op.svget.1spmln9","structurally-absent","pending"],
     ["surface.native.op.svset.0snna21","structurally-absent","pending"],

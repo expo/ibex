@@ -20633,9 +20633,26 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       "ex_hermes_set_dispatch_callback",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "restricted-exact-checkpoint-output",
+    [
+      callbackOutput(
+        "callback:restricted-exact-checkpoint/0",
+        "checkpoint-bytes",
+        "javascript-to-native",
+        "payload",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_restricted_exact_checkpoint_callback",
+      ),
+      callbackOutput(
+        "callback:restricted-exact-checkpoint/1",
+        "checkpoint-length",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_restricted_exact_checkpoint_callback",
+      ),
+    ],
     fixedEvidence(
       "public-abi",
       "src/engine/hermes_runtime_ios.cc",

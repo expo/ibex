@@ -257294,26 +257294,6 @@
             }
           },
           {
-            "id": "surface.native.op.restrictedrandom.1mvjo88",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "native-op",
-              "name": "__restrictedRandom"
-            },
-            "rationaleId": "runtime-bootstrap-state",
-            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
-          },
-          {
-            "id": "surface.native.op.restrictedwallclock.0ik8lyf",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "native-op",
-              "name": "__restrictedWallClock"
-            },
-            "rationaleId": "runtime-bootstrap-state",
-            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
-          },
-          {
             "id": "surface.native.op.stringbuffer.05y6skt",
             "classification": "non-capability",
             "surface": {

@@ -1,7 +1,7 @@
 {
   "outputDispositionDatasetSchema": "ibex/capsec-output-dispositions/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256-VTJW7_CXZTV6FIHAly_X-2CZxwW8yjTnBAmEyXQYWp8",
+  "catalogKeyDigest": "sha256-Bq1CHij7SDeeKJqTMsskMFOHsG7qIuvjvcnC9tafZsQ",
   "evidence": {
     "status": "unpromotable",
     "reason": "The output corpus remains unpromotable: one native module-marker surface account and three inherited-intrinsic alias surface accounts are unresolved, and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes all three account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations."
@@ -50042,6 +50042,40 @@
         "mode": "all",
         "sourceKind": "callback",
         "returnVariant": "status",
+        "contextId": "javascript.package-callback-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.callback.restricted.exact.checkpoint.output.1al4vku",
+        "output": "callback:restricted-exact-checkpoint/0",
+        "alias": "restricted-exact-checkpoint-output",
+        "mode": "all",
+        "sourceKind": "callback",
+        "returnVariant": "checkpoint-bytes",
+        "contextId": "javascript.package-callback-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.callback.restricted.exact.checkpoint.output.1al4vku",
+        "output": "callback:restricted-exact-checkpoint/1",
+        "alias": "restricted-exact-checkpoint-output",
+        "mode": "all",
+        "sourceKind": "callback",
+        "returnVariant": "checkpoint-length",
         "contextId": "javascript.package-callback-loaded"
       },
       "disposition": "non-path",
@@ -108145,40 +108179,6 @@
         "surfaceId": "surface.native.op.nativefetchsync.17pnac8",
         "output": "[[return]]",
         "alias": "__nativeFetchSync",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "runtime.bootstrap-native-call-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.restrictedrandom.1mvjo88",
-        "output": "[[return]]",
-        "alias": "__restrictedRandom",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "runtime.bootstrap-native-call-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.restrictedwallclock.0ik8lyf",
-        "output": "[[return]]",
-        "alias": "__restrictedWallClock",
         "mode": "all",
         "sourceKind": "native-op",
         "returnVariant": "default",

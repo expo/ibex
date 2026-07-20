@@ -256314,74 +256314,6 @@
       ]
     },
     {
-      "edgeId": "surface.native.op.restrictedrandom.1mvjo88",
-      "observedKey": "native-op:__restrictedRandom",
-      "branchId": "surface.native.op.restrictedrandom.1mvjo88.default",
-      "enforcementBranchId": "surface.native.op.restrictedrandom.1mvjo88.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__restrictedRandom"
-        ],
-        "proofSourceRefs": [
-          "src/engine/hermes_runtime.cc#__restrictedRandom",
-          "src/engine/hermes_runtime.cc#jsi-global:__restrictedRandom"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime.cc#__restrictedRandom",
-          "src/engine/hermes_runtime.cc#jsi-global:__restrictedRandom"
-        ],
-        "terminalObservedKey": "native-op:__restrictedRandom"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime.cc#__restrictedRandom",
-        "src/engine/hermes_runtime.cc#jsi-global:__restrictedRandom"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.native.op.restrictedrandom.1mvjo88.default.non-capability"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.restrictedwallclock.0ik8lyf",
-      "observedKey": "native-op:__restrictedWallClock",
-      "branchId": "surface.native.op.restrictedwallclock.0ik8lyf.default",
-      "enforcementBranchId": "surface.native.op.restrictedwallclock.0ik8lyf.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__restrictedWallClock"
-        ],
-        "proofSourceRefs": [
-          "src/engine/hermes_runtime.cc#__restrictedWallClock",
-          "src/engine/hermes_runtime.cc#jsi-global:__restrictedWallClock"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime.cc#__restrictedWallClock",
-          "src/engine/hermes_runtime.cc#jsi-global:__restrictedWallClock"
-        ],
-        "terminalObservedKey": "native-op:__restrictedWallClock"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime.cc#__restrictedWallClock",
-        "src/engine/hermes_runtime.cc#jsi-global:__restrictedWallClock"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.native.op.restrictedwallclock.0ik8lyf.default.non-capability"
-      ]
-    },
-    {
       "edgeId": "surface.native.op.stringbuffer.05y6skt",
       "observedKey": "native-op:__StringBuffer",
       "branchId": "surface.native.op.stringbuffer.05y6skt.default",
@@ -271667,59 +271599,59 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-hiyH7oRicfWhtGUI6qNTR2JNtIo0gqHgIJQrv7sPLU4"
+      "rawContentDigest": "sha256-kyOBEAqigUJqtkXRp93Sgkhl3OmvW-J8bJ4TeCe9cto"
     },
     {
       "kind": "output-disposition-dataset",
       "path": "capsec/generated/output-dispositions.json",
-      "rawContentDigest": "sha256-Pnjy8iS8WF0or5OOsdSTejERmm2tGPA0ssX-GD_2__A"
+      "rawContentDigest": "sha256-PMLbNhI9hdAvn77ZPvnOmrpfqQhNIE1am-cIrj_3-O0"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/output-dispositions.md",
-      "rawContentDigest": "sha256-T_HezSVZ46mxLJhT5NFOueGBp0tn7hf0pGj8apzVGgE"
+      "rawContentDigest": "sha256-1tnf-BMTDpz_b5dwsbzeL8hIKDF6tTZQw_oaItmgCpE"
     },
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-G3A5Hh32GQ9_G19UBP_B_XIckldtHFQQgAAbvmnJLyg"
+      "rawContentDigest": "sha256-I9Z3-Q5TMn8IH9FqEEqmHqdlW9ttHLfAkTOJL0oeZ9c"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-AZVGxXkEwdEtfLnmUM-iDLMKzgpjS7Jb_J4YMwRPfD8"
+      "rawContentDigest": "sha256-V-e12HjJLwwNDkW2eRfuAMzW4XlHwYJmLAMK2xZZhqs"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-7Q3LNp3-SxI45ui3LFMS20hoEHbKBItjur43xEeC1qU"
+      "rawContentDigest": "sha256-RxLDC47t7W7kLtzuZCBiC9nG06BNALnrbAYgGabuiYU"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-ob3dlZnvAY22L98OBfT6t0beyjVbrry2jCE_Z2miptA"
+      "rawContentDigest": "sha256-cCPINv_eBuYH9X9f1UAFiRfnEQmMbvMa1NBaU37jzsk"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-xp3AdJqY8a63Rhc_MKWr53mx__ndUht-1Xzu7_57m30"
+      "rawContentDigest": "sha256-6P0qPns1IB9qTRrPVKwuNU2a3LzlSz-WYXsMKSAsSbc"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-F5bW10mvNfo-1jFyKVUnnXikvfI075B5woOvf1Z6FkI"
+      "rawContentDigest": "sha256-NBmd_p_9e5pgjpg6E-7f0D9OJpxY5b_6aauIH_PxKm0"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-oD9g1wJEh7bM7OXnLSpFbqiZqrjHZfTc8La3-nU8Tlk"
+      "rawContentDigest": "sha256-uzRwfpf6FYVSBvXr2EHEwZEXUnjf5tr5V9zqXuRdF2I"
     }
   ],
   "counts": {
-    "observedReferences": 12801,
-    "logicalSurfaces": 7302,
-    "enforcementBranches": 7521,
-    "coverageEdges": 7302,
-    "targetCells": 14604
+    "observedReferences": 12797,
+    "logicalSurfaces": 7300,
+    "enforcementBranches": 7519,
+    "coverageEdges": 7300,
+    "targetCells": 14600
   }
 }

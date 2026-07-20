@@ -56,10 +56,10 @@ describe("LLP 0033 restricted Exact target report", () => {
     const input = fixture();
     const report = buildRestrictedTargetReport(input);
     expect(report.status).toBe("incomplete");
-    expect(report.summary.total).toBe(7302);
+    expect(report.summary.total).toBe(7300);
     expect(report.summary.conformant).toBe(0);
-    expect(report.summary.incomplete).toBe(7302);
-    expect(report.summary.missingObservations).toBe(14554);
+    expect(report.summary.incomplete).toBe(7300);
+    expect(report.summary.missingObservations).toBe(14550);
     expect(report.rows.every((row) => row.executionIds.length === 0)).toBe(true);
   });
 
@@ -85,9 +85,9 @@ describe("LLP 0033 restricted Exact target report", () => {
     }];
     const report = buildRestrictedTargetReport(input);
     expect(report.summary.conformant).toBe(1);
-    expect(report.summary.incomplete).toBe(7301);
+    expect(report.summary.incomplete).toBe(7299);
     expect(report.summary.passedObservations).toBe(1);
-    expect(report.summary.missingObservations).toBe(14553);
+    expect(report.summary.missingObservations).toBe(14549);
   });
 
   test("requires both source-install and live-reachability for absence", () => {
