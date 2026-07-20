@@ -395,6 +395,7 @@ const REVIEWED_CALLBACK_PRODUCER_NAMES = new Set([
   "producer:src/engine/hermes_runtime_fs.cc:startFsAsync:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_fs_windows.cc:startFsAsync:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_gpu.cc:scheduleGpuMailboxDrain:pushRuntimeCallback",
+  "producer:src/engine/hermes_runtime_gpu_v2.cc:ex_hermes_complete_gpu_decoded_image_v1:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_http.cc:WaitWorkerPool::spawnWorkerIfNeededLocked:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_http.cc:WritableWorkerPool::spawnWorkerIfNeededLocked:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_websocket.cc:installWebSocketGlobals:pushRuntimeCallback",
@@ -5105,6 +5106,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_commonjs_record_link_dynamic_import",
     "ex_hermes_commonjs_record_link_require",
     "ex_hermes_commonjs_record_link_require_esm",
+    "ex_hermes_complete_gpu_decoded_image_v1",
     "ex_hermes_create",
     "ex_hermes_create_armed",
     "ex_hermes_create_diagnostic",
@@ -5140,6 +5142,8 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_gc",
     "ex_hermes_get_gc_stats",
     "ex_hermes_get_heap_info",
+    "ex_hermes_gpu_decoded_image_abi_version_v1",
+    "ex_hermes_gpu_decoded_image_descriptor_size_v1",
     "ex_hermes_gpu_provider_abi_version",
     "ex_hermes_gpu_provider_abi_version_v2",
     "ex_hermes_gpu_provider_descriptor_size_v1",
@@ -5178,6 +5182,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_set_dispatch_callback",
     "ex_hermes_set_dispatch_with_debug_context_callback",
     "ex_hermes_set_exact_host_call_async",
+    "ex_hermes_set_gpu_decoded_image_provider_v1",
     "ex_hermes_set_gpu_provider_v1",
     "ex_hermes_set_gpu_provider_v2",
     "ex_hermes_set_host_call",
@@ -9680,7 +9685,7 @@ function callbackClassification(surface) {
   }
 
   const producerMatch =
-    /^producer:src\/engine\/hermes_runtime(?:_(?:android|crypto|dns|fetch|fs|fs_windows|gpu|http|websocket))?\.cc:(.+):pushruntimecallback$/u.exec(
+    /^producer:src\/engine\/hermes_runtime(?:_(?:android|crypto|dns|fetch|fs|fs_windows|gpu|gpu_v2|http|websocket))?\.cc:(.+):pushruntimecallback$/u.exec(
       name,
     );
   if (
@@ -12703,6 +12708,7 @@ function embedderAbiClassification(name) {
         "exhermesbeginembeddercapabilitiesv1",
         "exhermesfinalizeembeddercapabilitiesv1",
         "exhermessetexacthostcallasync",
+        "exhermessetgpudecodedimageproviderv1",
         "exhermessetgpuproviderv1",
         "exhermessetgpuproviderv2",
       ]).has(name)
@@ -12711,6 +12717,8 @@ function embedderAbiClassification(name) {
     }
     if (
       new Set([
+        "exhermesgpudecodedimageabiversionv1",
+        "exhermesgpudecodedimagedescriptorsizev1",
         "exhermesgpuproviderabiversion",
         "exhermesgpuproviderabiversionv2",
         "exhermesgpuproviderdescriptorsizev1",
@@ -12720,6 +12728,9 @@ function embedderAbiClassification(name) {
       return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
     }
     if (name === "exhermesresolveexacthostcall") {
+      return nonCapabilitySpec("callback-attribution-carrier", "WP8");
+    }
+    if (name === "exhermescompletegpudecodedimagev1") {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");
     }
     if (

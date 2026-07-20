@@ -13581,7 +13581,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
   },
   "objectKindAuthority": {
     "path": "include/exact_runtime.h",
-    "sha256": "c230ac865e8ae9c67c0fb9d244a80b7305088426046658a32f669b2d484b002d"
+    "sha256": "2701897ac05463ad210421dc527c3ee5b17fb3222b56fa2486137b2943b414b8"
   },
   "objectKindTags": {
     "None": 0,

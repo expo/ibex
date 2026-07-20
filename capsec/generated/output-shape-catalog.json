@@ -32115,6 +32115,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.callback.producer.src.engine.hermes.runtime.gpu.v2.cc.ex.hermes.complete.gpu.deco.1fzvv2i",
+      "status": "structural-only",
+      "reasonCode": "callback-producer-provenance",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_complete_gpu_decoded_image_v1:pushRuntimeCallback"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.callback.producer.src.engine.hermes.runtime.http.cc.waitworkerpool.spawnworkerifn.0nu01ol",
       "status": "structural-only",
       "reasonCode": "callback-producer-provenance",
@@ -37286,6 +37295,17 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.complete.gpu.decoded.image.v1.0b51h0a",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_complete_gpu_decoded_image_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.create.04wgtwz",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -37755,6 +37775,28 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.gpu.decoded.image.abi.version.v1.0insuqi",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_decoded_image_abi_version_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.gpu.decoded.image.descriptor.size.v1.0gfsf8c",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_decoded_image_descriptor_size_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.gpu.provider.abi.version.0x7nnjz",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -38209,6 +38251,17 @@
         "callback:callback/2",
         "callback:callback/3",
         "callback:callback/5"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.set.gpu.decoded.image.provider.v1.17z20ln",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_set_gpu_decoded_image_provider_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
       ]
     },
     {
@@ -83894,15 +83947,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-l65Zt-iJvmAodrcmM_Ssfr-hI1d5pAv__qzTzPsjg0U",
+  "catalogKeyDigest": "sha256-Uyt-0DXWr7ppMAm2hoxVqr_EmT3NFLTkyL8oCKsoGhU",
   "counts": {
-    "coverageSurfaces": 7374,
-    "outputBearingSurfaces": 5746,
-    "structuralOnlySurfaces": 1555,
+    "coverageSurfaces": 7379,
+    "outputBearingSurfaces": 5750,
+    "structuralOnlySurfaces": 1556,
     "unresolvedSurfaces": 73,
-    "catalogRows": 6417,
+    "catalogRows": 6421,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6010,
+    "sourceInventoryRows": 6014,
     "structuredRows": 407
   },
   "rows": [
@@ -146369,6 +146422,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.complete.gpu.decoded.image.v1.0b51h0a",
+        "output": "[[return]]",
+        "alias": "ex_hermes_complete_gpu_decoded_image_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_complete_gpu_decoded_image_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_complete_gpu_decoded_image_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.create.04wgtwz",
         "output": "[[return]]",
         "alias": "ex_hermes_create",
@@ -148811,6 +148885,48 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.gpu.decoded.image.abi.version.v1.0insuqi",
+        "output": "[[return]]",
+        "alias": "ex_hermes_gpu_decoded_image_abi_version_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_gpu_decoded_image_abi_version_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_decoded_image_abi_version_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.gpu.decoded.image.descriptor.size.v1.0gfsf8c",
+        "output": "[[return]]",
+        "alias": "ex_hermes_gpu_decoded_image_descriptor_size_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_gpu_decoded_image_descriptor_size_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_decoded_image_descriptor_size_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.gpu.provider.abi.version.0x7nnjz",
         "output": "[[return]]",
         "alias": "ex_hermes_gpu_provider_abi_version",
@@ -150506,6 +150622,27 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime.cc#ex_hermes_set_exact_host_call_async"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.gpu.decoded.image.provider.v1.17z20ln",
+        "output": "[[return]]",
+        "alias": "ex_hermes_set_gpu_decoded_image_provider_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_set_gpu_decoded_image_provider_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_set_gpu_decoded_image_provider_v1"
         ]
       },
       "requiredValueProof": "live-value-observation"

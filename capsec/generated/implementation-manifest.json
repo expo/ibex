@@ -98315,6 +98315,41 @@
       ]
     },
     {
+      "edgeId": "surface.callback.producer.src.engine.hermes.runtime.gpu.v2.cc.ex.hermes.complete.gpu.deco.1fzvv2i",
+      "observedKey": "callback:producer:src/engine/hermes_runtime_gpu_v2.cc:ex_hermes_complete_gpu_decoded_image_v1:pushRuntimeCallback",
+      "branchId": "surface.callback.producer.src.engine.hermes.runtime.gpu.v2.cc.ex.hermes.complete.gpu.deco.1fzvv2i.main",
+      "enforcementBranchId": "surface.callback.producer.src.engine.hermes.runtime.gpu.v2.cc.ex.hermes.complete.gpu.deco.1fzvv2i.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "callback:producer:src/engine/hermes_runtime_gpu_v2.cc:ex_hermes_complete_gpu_decoded_image_v1:pushRuntimeCallback"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_complete_gpu_decoded_image_v1:pushRuntimeCallback"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_complete_gpu_decoded_image_v1:pushRuntimeCallback"
+        ],
+        "terminalObservedKey": "callback:producer:src/engine/hermes_runtime_gpu_v2.cc:ex_hermes_complete_gpu_decoded_image_v1:pushRuntimeCallback"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_complete_gpu_decoded_image_v1:pushRuntimeCallback"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.callback.producer.src.engine.hermes.runtime.gpu.v2.cc.ex.hermes.complete.gpu.deco.1fzvv2i.main.attribution-missing-deny",
+        "surface.callback.producer.src.engine.hermes.runtime.gpu.v2.cc.ex.hermes.complete.gpu.deco.1fzvv2i.main.generation-recheck",
+        "surface.callback.producer.src.engine.hermes.runtime.gpu.v2.cc.ex.hermes.complete.gpu.deco.1fzvv2i.main.non-capability",
+        "surface.callback.producer.src.engine.hermes.runtime.gpu.v2.cc.ex.hermes.complete.gpu.deco.1fzvv2i.main.principal-restore",
+        "surface.callback.producer.src.engine.hermes.runtime.gpu.v2.cc.ex.hermes.complete.gpu.deco.1fzvv2i.main.snapshot-mismatch-deny"
+      ]
+    },
+    {
       "edgeId": "surface.callback.producer.src.engine.hermes.runtime.http.cc.waitworkerpool.spawnworkerifn.0nu01ol",
       "observedKey": "callback:producer:src/engine/hermes_runtime_http.cc:WaitWorkerPool::spawnWorkerIfNeededLocked:pushRuntimeCallback",
       "branchId": "surface.callback.producer.src.engine.hermes.runtime.http.cc.waitworkerpool.spawnworkerifn.0nu01ol.main",
@@ -116108,6 +116143,42 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.complete.gpu.decoded.image.v1.0b51h0a",
+      "observedKey": "host-abi:ex_hermes_complete_gpu_decoded_image_v1",
+      "branchId": "surface.host.abi.ex.hermes.complete.gpu.decoded.image.v1.0b51h0a.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.complete.gpu.decoded.image.v1.0b51h0a.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_complete_gpu_decoded_image_v1"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_complete_gpu_decoded_image_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_complete_gpu_decoded_image_v1"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_complete_gpu_decoded_image_v1"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_complete_gpu_decoded_image_v1"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.complete.gpu.decoded.image.v1.0b51h0a.default.attribution-missing-deny",
+        "surface.host.abi.ex.hermes.complete.gpu.decoded.image.v1.0b51h0a.default.generation-recheck",
+        "surface.host.abi.ex.hermes.complete.gpu.decoded.image.v1.0b51h0a.default.non-capability",
+        "surface.host.abi.ex.hermes.complete.gpu.decoded.image.v1.0b51h0a.default.principal-restore",
+        "surface.host.abi.ex.hermes.complete.gpu.decoded.image.v1.0b51h0a.default.snapshot-mismatch-deny"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.create.04wgtwz",
       "observedKey": "host-abi:ex_hermes_create",
       "branchId": "surface.host.abi.ex.hermes.create.04wgtwz.default",
@@ -117536,6 +117607,70 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.gpu.decoded.image.abi.version.v1.0insuqi",
+      "observedKey": "host-abi:ex_hermes_gpu_decoded_image_abi_version_v1",
+      "branchId": "surface.host.abi.ex.hermes.gpu.decoded.image.abi.version.v1.0insuqi.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.gpu.decoded.image.abi.version.v1.0insuqi.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_gpu_decoded_image_abi_version_v1"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_decoded_image_abi_version_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_decoded_image_abi_version_v1"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_gpu_decoded_image_abi_version_v1"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_decoded_image_abi_version_v1"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.gpu.decoded.image.abi.version.v1.0insuqi.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.gpu.decoded.image.descriptor.size.v1.0gfsf8c",
+      "observedKey": "host-abi:ex_hermes_gpu_decoded_image_descriptor_size_v1",
+      "branchId": "surface.host.abi.ex.hermes.gpu.decoded.image.descriptor.size.v1.0gfsf8c.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.gpu.decoded.image.descriptor.size.v1.0gfsf8c.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_gpu_decoded_image_descriptor_size_v1"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_decoded_image_descriptor_size_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_decoded_image_descriptor_size_v1"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_gpu_decoded_image_descriptor_size_v1"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_decoded_image_descriptor_size_v1"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.gpu.decoded.image.descriptor.size.v1.0gfsf8c.default.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.gpu.provider.abi.version.0x7nnjz",
       "observedKey": "host-abi:ex_hermes_gpu_provider_abi_version",
       "branchId": "surface.host.abi.ex.hermes.gpu.provider.abi.version.0x7nnjz.default",
@@ -118813,6 +118948,40 @@
         "surface.host.abi.ex.hermes.set.exact.host.call.async.0cynsb2.default.cannot-widen-authority",
         "surface.host.abi.ex.hermes.set.exact.host.call.async.0cynsb2.default.non-capability",
         "surface.host.abi.ex.hermes.set.exact.host.call.async.0cynsb2.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.set.gpu.decoded.image.provider.v1.17z20ln",
+      "observedKey": "host-abi:ex_hermes_set_gpu_decoded_image_provider_v1",
+      "branchId": "surface.host.abi.ex.hermes.set.gpu.decoded.image.provider.v1.17z20ln.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.set.gpu.decoded.image.provider.v1.17z20ln.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_set_gpu_decoded_image_provider_v1"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_set_gpu_decoded_image_provider_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_set_gpu_decoded_image_provider_v1"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_set_gpu_decoded_image_provider_v1"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_set_gpu_decoded_image_provider_v1"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.set.gpu.decoded.image.provider.v1.17z20ln.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.set.gpu.decoded.image.provider.v1.17z20ln.default.non-capability",
+        "surface.host.abi.ex.hermes.set.gpu.decoded.image.provider.v1.17z20ln.default.post-lockdown-invariant"
       ]
     },
     {
@@ -274214,59 +274383,59 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-29OL3Da_WNyxUbNZqxbdzKmcrRhThkd6SYQnxbPkkd8"
+      "rawContentDigest": "sha256--XZIuKXQxPAsJ5JY-sd8XB1mz1hktqgDudYOrEbOsFI"
     },
     {
       "kind": "output-disposition-dataset",
       "path": "capsec/generated/output-dispositions.json",
-      "rawContentDigest": "sha256-6tDtZQOkczKAcJgMhwyT-p8f6CAHPfZ6RIjTz9S2OHg"
+      "rawContentDigest": "sha256-CN7EtpsuHAp1UkJ_22xCRFwBLiEGfyx0-kBSiph_c_g"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/output-dispositions.md",
-      "rawContentDigest": "sha256-PXUufI8LxlWeytY-iFTYIfBQ584leclN1ft8xJfxm3s"
+      "rawContentDigest": "sha256-Tu-61qSuf47AwEm_N_tlzX5FA3ZdWftwiG7GnHu7gZ0"
     },
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-XGuVpLoYOZBtghHB3CZIDPMRIGdguFyuuyh--ra5MC4"
+      "rawContentDigest": "sha256-mjoiOAty2oFpQrdL30Ks1TRlfrpX9DfUyAvCmK4qIaQ"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-gXEFgjpNXfC8l4yIayVnABpTQzuEn8zB6zT1d_YK5Ho"
+      "rawContentDigest": "sha256-EOtJ3_ILXkAauFG9eJZpmWw9PVn027ILrvIfl_Mc-PY"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-tPiUOuOTFSwUAq-bJMPvDK_Yeidr77MkkBhkCEyKWSY"
+      "rawContentDigest": "sha256-UMr4oNWSvwe6tp0AeuD0p3_Hr2oBOmsclwYcR6yDJLU"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-R-EPqLV7MTZgITfJIy8aMUfxoxiBhBKih5lbwZgk044"
+      "rawContentDigest": "sha256-dqbQ9DjDbC0Q8kGLPNt7VcOYrO8aACzWNRkf5LE86Hg"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-6AwJwe2iBRr2rUt6Gnjj2LjBJvTkchkrFrPATaZFP88"
+      "rawContentDigest": "sha256-4XsajkjaU-H_pduNdQHfl0vn3NyZd8-a644FJ8ugNiA"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-tHoyYW0UDtwQ6J2jMzw7yymvxP8MMWPU13L6zf7_Mc4"
+      "rawContentDigest": "sha256-rytYRonRHdS83GPAKhyc_3xc-XpwFxniuMLkUUo7utg"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-l8wZI08NZlo14v6YPmjwrZ3kWcnC7ubYckYO0j61ylY"
+      "rawContentDigest": "sha256--A73uxqeHyOhCSqsc-MIaUXZ1s6981CXeUGGyHExB_Y"
     }
   ],
   "counts": {
-    "observedReferences": 12950,
-    "logicalSurfaces": 7374,
-    "enforcementBranches": 7593,
-    "coverageEdges": 7374,
-    "targetCells": 14748
+    "observedReferences": 12955,
+    "logicalSurfaces": 7379,
+    "enforcementBranches": 7598,
+    "coverageEdges": 7379,
+    "targetCells": 14758
   }
 }

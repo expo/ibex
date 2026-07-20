@@ -455,19 +455,19 @@ describe("LLP 0023 output-disposition dataset", () => {
     );
   });
 
-  test("accounts for all 7,373 covered surfaces and emits 6,417 context-bound output rows", async () => {
+  test("accounts for all 7,378 covered surfaces and emits 6,421 context-bound output rows", async () => {
     const { catalog, coverage } = await repositoryCatalogFixture();
     expect(catalog.outputShapeCatalogSchema).toBe(
       "ibex/capsec-output-shape-catalog/2",
     );
     expect(catalog.counts).toEqual({
-      coverageSurfaces: 7_373,
-      outputBearingSurfaces: 5_746,
-      structuralOnlySurfaces: 1_555,
+      coverageSurfaces: 7_378,
+      outputBearingSurfaces: 5_750,
+      structuralOnlySurfaces: 1_556,
       unresolvedSurfaces: 72,
-      catalogRows: 6_417,
+      catalogRows: 6_421,
       parameterizedBindings: 1,
-      sourceInventoryRows: 6_010,
+      sourceInventoryRows: 6_014,
       structuredRows: 407,
     });
     expect(catalog.surfaceAccounts).toHaveLength(coverage.edges.length);
@@ -482,8 +482,8 @@ describe("LLP 0023 output-disposition dataset", () => {
         parameterizedOutputBindings: catalog.parameterizedOutputBindings,
       }),
     ).toEqual({
-      "output-bearing": 5_746,
-      "structural-only": 1_555,
+      "output-bearing": 5_750,
+      "structural-only": 1_556,
       unresolved: 72,
     });
     expect(
@@ -592,7 +592,7 @@ describe("LLP 0023 output-disposition dataset", () => {
         surface.metadata?.callbackOutputContractSchema ===
         CALLBACK_OUTPUT_CONTRACT_SCHEMA,
     );
-    expect(producerCallbacks).toHaveLength(14);
+    expect(producerCallbacks).toHaveLength(15);
     expect(controlCallbacks).toHaveLength(9);
     expect(outputCallbacks).toHaveLength(21);
     expect(
@@ -602,7 +602,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       }),
     ).toEqual({
       "output-bearing": 21,
-      "structural-only": 23,
+      "structural-only": 24,
       unresolved: 2,
     });
     for (const [surfaces, reasonCode] of [
@@ -687,8 +687,8 @@ describe("LLP 0023 output-disposition dataset", () => {
       ...fixture.catalog.counts,
       outputBearingSurfaces: fixture.catalog.counts.outputBearingSurfaces - 1,
       structuralOnlySurfaces:
-        fixture.catalog.counts.structuralOnlySurfaces - 23,
-      unresolvedSurfaces: fixture.catalog.counts.unresolvedSurfaces + 24,
+        fixture.catalog.counts.structuralOnlySurfaces - 24,
+      unresolvedSurfaces: fixture.catalog.counts.unresolvedSurfaces + 25,
       catalogRows: fixture.catalog.counts.catalogRows - 1,
       sourceInventoryRows: fixture.catalog.counts.sourceInventoryRows - 1,
     });
@@ -1287,16 +1287,16 @@ describe("LLP 0023 output-disposition dataset", () => {
       return derived;
     });
 
-    expect(hostEdges).toHaveLength(327);
+    expect(hostEdges).toHaveLength(331);
     expect(countsBy(derivedAccounts, (account) => account.status)).toEqual({
-      "output-bearing": 277,
+      "output-bearing": 281,
       "structural-only": 50,
     });
     expect(
       derivedAccounts
         .filter((account) => account.status === "output-bearing")
         .flatMap((account) => account.outputChannels),
-    ).toHaveLength(525);
+    ).toHaveLength(529);
     expect(
       derivedAccounts.some(
         (account) =>
@@ -1457,7 +1457,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-disposition-policy/2",
     );
     expect(policy.catalogKeyDigest).toBe(
-      "sha256-l65Zt-iJvmAodrcmM_Ssfr-hI1d5pAv__qzTzPsjg0U",
+      "sha256-Uyt-0DXWr7ppMAm2hoxVqr_EmT3NFLTkyL8oCKsoGhU",
     );
     expect(policy.catalogKeyDigest).toBe(catalog.catalogKeyDigest);
     expect(policy.overrides).toHaveLength(369);
@@ -1491,12 +1491,12 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-dispositions/2",
     );
     expect(dataset.counts).toEqual({
-      catalogRows: 6_417,
-      dispositionRows: 6_417,
+      catalogRows: 6_421,
+      dispositionRows: 6_421,
       byDisposition: {
         absent: 152,
         closed: 28,
-        "non-path": 6_089,
+        "non-path": 6_093,
         "private-native-path": 5,
         refused: 12,
         "reserved-constant": 1,

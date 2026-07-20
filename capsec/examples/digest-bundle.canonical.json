@@ -135253,6 +135253,16 @@
             "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
           },
           {
+            "id": "surface.callback.producer.src.engine.hermes.runtime.gpu.v2.cc.ex.hermes.complete.gpu.deco.1fzvv2i",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "callback",
+              "name": "producer:src/engine/hermes_runtime_gpu_v2.cc:ex_hermes_complete_gpu_decoded_image_v1:pushRuntimeCallback"
+            },
+            "rationaleId": "callback-attribution-carrier",
+            "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+          },
+          {
             "id": "surface.callback.producer.src.engine.hermes.runtime.http.cc.waitworkerpool.spawnworkerifn.0nu01ol",
             "classification": "non-capability",
             "surface": {
@@ -141033,6 +141043,16 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.host.abi.ex.hermes.complete.gpu.decoded.image.v1.0b51h0a",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_complete_gpu_decoded_image_v1"
+            },
+            "rationaleId": "callback-attribution-carrier",
+            "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.create.04wgtwz",
             "classification": "non-capability",
             "surface": {
@@ -141381,6 +141401,26 @@
             },
             "cap": "runtime:inspect",
             "rationale": "Runtime heap and GC inspection is closed."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.gpu.decoded.image.abi.version.v1.0insuqi",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_gpu_decoded_image_abi_version_v1"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.gpu.decoded.image.descriptor.size.v1.0gfsf8c",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_gpu_decoded_image_descriptor_size_v1"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
           },
           {
             "id": "surface.host.abi.ex.hermes.gpu.provider.abi.version.0x7nnjz",
@@ -141758,6 +141798,16 @@
             "surface": {
               "kind": "host-abi",
               "name": "ex_hermes_set_exact_host_call_async"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.set.gpu.decoded.image.provider.v1.17z20ln",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_set_gpu_decoded_image_provider_v1"
             },
             "rationaleId": "authority-control-plane",
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
