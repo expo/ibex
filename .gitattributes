@@ -14,6 +14,15 @@ examples/**/*.js text eol=lf
 examples/**/*.mjs text eol=lf
 examples/**/*.json text eol=lf
 
+# The aggregate generated-drift gate hashes generator/authority bytes and
+# compares committed outputs byte-for-byte. Keep that closed text family at LF
+# so a Windows checkout evaluates the same generation contract as Unix hosts.
+packages/ibex-devtools/src/scripts/** text eol=lf
+vendored-generated/** text eol=lf
+session/** text eol=lf
+llp/fixtures/** text eol=lf
+runtime-surface.json text eol=lf
+
 # Evaluator identity review hashes these checked-in bytes. Keep a Windows
 # checkout byte-identical to the reviewed LF source and patch authorities.
 patches/hermes/*.patch text eol=lf -whitespace

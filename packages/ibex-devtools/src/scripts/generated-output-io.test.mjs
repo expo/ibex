@@ -5,11 +5,16 @@ import { afterEach, describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   assertConfinedGeneratedFile,
   writeGeneratedFilesTransactionally,
 } from "./generated-output-io.mjs";
 
+const repoRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../..",
+);
 const temporaryRoots = [];
 
 function temporaryRoot(prefix) {
@@ -151,5 +156,36 @@ describe("confined generated output writes", () => {
       /parent directory is missing/,
     );
     expect(fs.existsSync(path.dirname(output))).toBe(false);
+  });
+});
+
+describe("canonical generated checkout bytes", () => {
+  test("pins byte-sensitive authorities and outputs to LF", () => {
+    const attributes = fs.readFileSync(
+      path.join(repoRoot, ".gitattributes"),
+      "utf8",
+    );
+    for (const rule of [
+      "packages/ibex-devtools/src/scripts/** text eol=lf",
+      "vendored-generated/** text eol=lf",
+      "session/** text eol=lf",
+      "llp/fixtures/** text eol=lf",
+      "runtime-surface.json text eol=lf",
+    ]) {
+      expect(attributes).toContain(rule);
+    }
+
+    for (const sourcePath of [
+      "packages/ibex-devtools/src/scripts/generate-runtime-environment-inventory.mjs",
+      "vendored-generated/repl_surface.generated.rs",
+      "session/session-constants.v1.json",
+      "llp/fixtures/0023-vfs-error-union.v1.json",
+      "runtime-surface.json",
+    ]) {
+      expect(
+        fs.readFileSync(path.join(repoRoot, sourcePath), "utf8").includes("\r"),
+        sourcePath,
+      ).toBe(false);
+    }
   });
 });
