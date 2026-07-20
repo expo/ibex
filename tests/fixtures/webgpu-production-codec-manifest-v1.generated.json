@@ -65,11 +65,11 @@
     "dictionary": "u8-value-tag-plus-u32-count-plus-unique-well-formed-utf8-key-and-canonical-value-pairs-sorted-by-unsigned-utf8-bytes-shorter-prefix-first"
   },
   "digests": {
-    "operationSet": "efc39ed749006917e4b09ab456dcb1a97b2b2b58503899b45ac4dfa46f5aed2f",
-    "semanticProgramSet": "0cfa7d2a96069b7a446a0341e8a4d81118aa8c22268756c27a07645b60a4d3d6",
-    "runtimeRouting": "8138875093498556fe26e0c3aa806242288ab9ccda0db2f0885de81239e39f28",
-    "webgpuCVocabulary": "b6a4ace3cf4ff8c67d099c6d947c61cc0fe6d0afab0c5cc711de6d2a06e7d7f0",
-    "projection": "be87dddac695811653fae355c88fad40a445bd28cc0e785b3b9c64457183fc6c"
+    "operationSet": "fb12107ac42d8495067e50f096b4d6c4aed9e3f2af64d6d147f9c99efcaa6687",
+    "semanticProgramSet": "a9b9703d59b3b906ba888ff33fac85313fafc2785f0dd364e6b5648a6ef46ad6",
+    "runtimeRouting": "d7cf4c201fb58a0a05cd65cd50b0eb3eb2a64cc17c4724e0079e8359b3e63bf7",
+    "webgpuCVocabulary": "2d05f921b51319f36ce13755e26087d1c3df76f4bea3387463da405bcdab983f",
+    "projection": "434b3208fe3d9bbca412324617a22e5a0098c190396d82d2c29cac57626c9d47"
   },
   "layout": {
     "requestMagic": "IBGQ",
@@ -1679,7 +1679,7 @@
             "tag": 0,
             "identityClass": "active-route",
             "recordRole": "timeline-only",
-            "argumentShape": "null"
+            "argumentShape": "closed-canvas-current-origin-record"
           },
           {
             "name": "GPUCommandEncoder.beginComputePass",
@@ -1796,7 +1796,8 @@
           "receiver-command-encoder-pass-and-target-full-references-join-one-logical-device-and-provider-generation",
           "receiver-command-encoder-pass-and-target-shapes-match-the-selected-operation-variant",
           "logical-errors-remain-device-timeline-record-data-and-do-not-become-synchronous-wrapper-throws",
-          "unknown-identity-class-operation-kind-error-tag-reserved-bit-or-trailing-record-byte-fails-closed"
+          "unknown-identity-class-operation-kind-error-tag-reserved-bit-or-trailing-record-byte-fails-closed",
+          "canvas-current-records-carry-a-complete-source-affine-origin-whose-digest-binds-the-wrapper-allocated-texture-target"
         ]
       },
       "queueSubmitRequestBodyV1": {
@@ -2752,11 +2753,19 @@
             "type": "u32le"
           },
           {
+            "name": "viewFormats",
+            "type": "canvasViewFormatSequenceV1"
+          },
+          {
             "name": "alphaMode",
             "type": "u8"
           },
           {
             "name": "colorSpace",
+            "type": "u8"
+          },
+          {
+            "name": "toneMappingMode",
             "type": "u8"
           },
           {
@@ -2776,7 +2785,8 @@
           "receiverContextRef-exactly-equals-the-carried-GPUCanvasContext-reference",
           "configuredDeviceRef-is-current-generation-and-device-provenance-equals-receiver-ingress-device",
           "attachment-context-configuration-and-surface-account-generations-are-positive-source-affine-wrapper-values",
-          "format-usage-alphaMode-and-colorSpace-exactly-equal-the-post-WebIDL-converted-configuration",
+          "format-usage-viewFormats-alphaMode-colorSpace-and-toneMappingMode-exactly-equal-the-post-WebIDL-converted-configuration",
+          "toneMappingMode-is-the-phase-1a-profile-value-standard",
           "targetAuthorityDigest-is-the-construction-private-current-target-authority-digest",
           "body-is-wrapper-derived-and-cannot-be-supplied-by-the-public-GPUCanvasConfiguration"
         ]
@@ -2907,6 +2917,16 @@
           "device-created-origin-is-distinct-and-generation-fenced-by-the-full-receiver-reference",
           "canvas-current-origin-carries-complete-mint-provenance-and-never-causes-ambient-materialization",
           "body-is-wrapper-derived-and-cannot-be-supplied-by-public-arguments"
+        ]
+      },
+      "canvasViewFormatSequenceV1": {
+        "kind": "sequence",
+        "countType": "u32le",
+        "elementType": "utf8",
+        "maxCountFrom": "codecLayout.sequenceMaxCount",
+        "constraints": [
+          "preserve-WebIDL-order-and-duplicates",
+          "each-entry-is-a-pinned-GPUTextureFormat"
         ]
       }
     },
@@ -10357,7 +10377,7 @@
       },
       {
         "operationId": "GPUCanvasContext.configure",
-        "wireId": 3865035710,
+        "wireId": 56177326,
         "request": {
           "payloadRole": "service-request-payload-decoder-plus-operation-specific-call-joins",
           "catalog": {
@@ -10375,7 +10395,7 @@
                   "magic": "IBGQ",
                   "version": 1,
                   "codecTag": 4,
-                  "operationWireId": 3865035710
+                  "operationWireId": 56177326
                 }
               },
               {
@@ -10483,7 +10503,7 @@
             {
               "carrierPath": "operation_id",
               "operator": "equal",
-              "value": 3865035710
+              "value": 56177326
             },
             {
               "carrierPath": "flags",
@@ -10612,7 +10632,7 @@
             {
               "carrierPath": "record.operation_result.operation.operation_id",
               "operator": "equal",
-              "value": 3865035710
+              "value": 56177326
             },
             {
               "carrierPath": "record.operation_result.operation.device_transition",
@@ -10677,6 +10697,17 @@
               {
                 "terminalId": "webidl-rejection",
                 "errorTiming": "synchronous-webidl",
+                "resultDisposition": "throw",
+                "providerTokenCount": 0,
+                "physicalSequenceCount": 0,
+                "event": {
+                  "kind": "no-service-call",
+                  "completionPayloadEncoderEligibility": "excluded-before-service-ingress"
+                }
+              },
+              {
+                "terminalId": "content-rejection",
+                "errorTiming": "content-timeline",
                 "resultDisposition": "throw",
                 "providerTokenCount": 0,
                 "physicalSequenceCount": 0,
@@ -12888,18 +12919,20 @@
     {
       "wireTag": 4,
       "tag": "gpu-canvas-configure-service-request-v1",
-      "wireShape": "canvas-context receiver plus converted configuration and complete current target/account authority",
+      "wireShape": "canvas-context receiver plus the complete copied WebIDL configuration (including configured device, canonical view-format sequence, and normalized tone-mapping mode) and complete current target/account authority",
       "ownership": "owned-copy",
       "requiredSemanticFields": [
         "receiverContextRef",
         "attachmentGeneration",
         "contextGeneration",
         "configurationGeneration",
-        "deviceRef",
+        "configuredDeviceRef",
         "format",
         "usage",
+        "viewFormats",
         "alphaMode",
         "colorSpace",
+        "toneMappingMode",
         "targetAuthorityDigest",
         "surfaceAccountToken",
         "surfaceAccountGeneration"
@@ -13050,7 +13083,9 @@
       "ownership": "authority-reducing",
       "requiredSemanticFields": [
         "receiverTextureRef",
+        "terminalIntent",
         "materializationState",
+        "originClass",
         "contextRef",
         "attachmentGeneration",
         "contextGeneration",
@@ -13073,6 +13108,7 @@
         "attachmentGeneration",
         "contextGeneration",
         "configurationGeneration",
+        "terminalIntent",
         "targetAuthorityDigest",
         "surfaceAccountToken",
         "surfaceAccountGeneration"

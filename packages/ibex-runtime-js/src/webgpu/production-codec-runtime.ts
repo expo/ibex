@@ -111,7 +111,7 @@ interface NativeCodecField {
       | 3314731466
       | 1760273919
       | 1228615721
-      | 3865035710
+      | 56177326
       | 935342475
       | 2933046788
       | 404589710
@@ -575,7 +575,7 @@ interface NativeCodecCanvasServiceRoute {
     | 'GPUCanvasContext.configure'
     | 'GPUCanvasContext.unconfigure'
     | 'GPUTexture.destroy';
-  readonly wireId: 3865035710 | 935342475 | 2933046788;
+  readonly wireId: 56177326 | 935342475 | 2933046788;
   readonly request: NativeCodecBufferLifecycleRoute['request'];
   readonly completion: Readonly<{
     payloadRole:
@@ -984,7 +984,7 @@ const BUFFER_UNMAP_REQUEST_CODEC = 'gpu-buffer-unmap-service-request-v1';
 const BUFFER_CLEANUP_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
 const CANVAS_CONFIGURE_OPERATION_ID = 'GPUCanvasContext.configure';
-const CANVAS_CONFIGURE_WIRE_ID = 3865035710;
+const CANVAS_CONFIGURE_WIRE_ID = 56177326;
 const CANVAS_CONFIGURE_REQUEST_CODEC =
   'gpu-canvas-configure-service-request-v1';
 const CANVAS_UNCONFIGURE_OPERATION_ID = 'GPUCanvasContext.unconfigure';
@@ -1038,7 +1038,7 @@ const EXPECTED_QUEUE_WRITE_BUFFER_NATIVE_CODEC_SHA256 =
 const EXPECTED_QUEUE_SUBMIT_NATIVE_CODEC_SHA256 =
   '27940878fd3ceebda412356eeab0fa5a58e99baaf2b2538b8f6df23cfbf54f94';
 const EXPECTED_CANVAS_NATIVE_CODEC_SHA256 =
-  '413d6367475738dc970f2d76401fb26b955b3b55d7f9ffb502f88f370d36c7cb';
+  'b23a205fa68b269ecb40b854ebda2a5a91958f1fdfc2d8dfbb6ddeedc3b53068';
 const EXPECTED_CREATE_RENDER_PIPELINE_NATIVE_ROUTE_SHA256 =
   '0f1af44238843ba1edc0ca1513c8b732cb72733a3680006be94a3322602919ee';
 const EXPECTED_CREATE_COMPUTE_PIPELINE_DESCRIPTOR_SHA256 =
@@ -3661,11 +3661,13 @@ function validateNativeCodecProgram(
       candidate.operationId === TEXTURE_DESTROY_OPERATION_ID
     ),
   };
-  if (
-    sha256HexUtf8(canonicalManifestJson(canvasProgram)) !==
-      EXPECTED_CANVAS_NATIVE_CODEC_SHA256
-  ) {
-    throw new Error('Invalid authenticated canvas service codec program');
+  const canvasProgramSha256 = sha256HexUtf8(
+    canonicalManifestJson(canvasProgram),
+  );
+  if (canvasProgramSha256 !== EXPECTED_CANVAS_NATIVE_CODEC_SHA256) {
+    throw new Error(
+      `Invalid authenticated canvas service codec program (${canvasProgramSha256})`,
+    );
   }
   const route = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecRequestAdapterRoute =>

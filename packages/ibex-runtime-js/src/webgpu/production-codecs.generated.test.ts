@@ -878,7 +878,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         { operationId: 'GPUBuffer.destroy', wireId: 3314731466 },
         { operationId: 'GPUBuffer.mapAsync', wireId: 1760273919 },
         { operationId: 'GPUBuffer.unmap', wireId: 1228615721 },
-        { operationId: 'GPUCanvasContext.configure', wireId: 3865035710 },
+        { operationId: 'GPUCanvasContext.configure', wireId: 56177326 },
         { operationId: 'GPUCanvasContext.unconfigure', wireId: 935342475 },
         { operationId: 'GPUTexture.destroy', wireId: 2933046788 },
         { operationId: 'GPUQueue.writeBuffer', wireId: 404589710 },

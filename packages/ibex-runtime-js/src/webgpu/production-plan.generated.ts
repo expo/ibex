@@ -8,11 +8,11 @@ export const WEBGPU_PRODUCTION_PLAN = {
   "maxPayloadBytes": 16777216,
   "codecReadiness": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed",
   "digests": {
-    "operationSet": "efc39ed749006917e4b09ab456dcb1a97b2b2b58503899b45ac4dfa46f5aed2f",
-    "semanticProgramSet": "0cfa7d2a96069b7a446a0341e8a4d81118aa8c22268756c27a07645b60a4d3d6",
-    "runtimeRouting": "8138875093498556fe26e0c3aa806242288ab9ccda0db2f0885de81239e39f28",
-    "webgpuCVocabulary": "b6a4ace3cf4ff8c67d099c6d947c61cc0fe6d0afab0c5cc711de6d2a06e7d7f0",
-    "projection": "be87dddac695811653fae355c88fad40a445bd28cc0e785b3b9c64457183fc6c"
+    "operationSet": "fb12107ac42d8495067e50f096b4d6c4aed9e3f2af64d6d147f9c99efcaa6687",
+    "semanticProgramSet": "a9b9703d59b3b906ba888ff33fac85313fafc2785f0dd364e6b5648a6ef46ad6",
+    "runtimeRouting": "d7cf4c201fb58a0a05cd65cd50b0eb3eb2a64cc17c4724e0079e8359b3e63bf7",
+    "webgpuCVocabulary": "2d05f921b51319f36ce13755e26087d1c3df76f4bea3387463da405bcdab983f",
+    "projection": "434b3208fe3d9bbca412324617a22e5a0098c190396d82d2c29cac57626c9d47"
   },
   "webIdlVocabulary": {
     "bindingPackage": "@webgpu/types",
@@ -731,7 +731,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     {
       "operationId": "GPUCanvasContext.configure",
-      "wireId": 3865035710,
+      "wireId": 56177326,
       "interfaceName": "GPUCanvasContext",
       "memberName": "configure",
       "memberKind": "method",

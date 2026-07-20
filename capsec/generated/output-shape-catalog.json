@@ -48358,8 +48358,8 @@
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.configure:3865035710",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.configure:3865035710"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.configure:56177326",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.configure:56177326"
       ],
       "outputKinds": []
     },

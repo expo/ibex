@@ -155359,20 +155359,20 @@
     {
       "edgeId": "surface.native.op.construction.private.webgpu.gpucanvascontext.configure.0ktf630",
       "observedKey": "native-op:construction-private:webgpu:GPUCanvasContext.configure",
-      "branchId": "surface.native.op.construction.private.webgpu.gpucanvascontext.configure.0ktf630.authenticated.production.route.0rvlyic",
-      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpucanvascontext.configure.0ktf630.authenticated.production.route.0rvlyic",
+      "branchId": "surface.native.op.construction.private.webgpu.gpucanvascontext.configure.0ktf630.authenticated.production.route.0gl8l8v",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpucanvascontext.configure.0ktf630.authenticated.production.route.0gl8l8v",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
           "native-op:construction-private:webgpu:GPUCanvasContext.configure"
         ],
         "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.configure:3865035710",
-          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.configure:3865035710"
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.configure:56177326",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.configure:56177326"
         ],
         "sourceRefs": [
-          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.configure:3865035710",
-          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.configure:3865035710"
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.configure:56177326",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.configure:56177326"
         ],
         "terminalObservedKey": "native-op:construction-private:webgpu:GPUCanvasContext.configure"
       },
@@ -155382,12 +155382,12 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.configure:3865035710",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.configure:3865035710"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.configure:56177326",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.configure:56177326"
       ],
       "implementationOwner": "WP4",
       "fixtureObligations": [
-        "surface.native.op.construction.private.webgpu.gpucanvascontext.configure.0ktf630.authenticated.production.route.0rvlyic.closed"
+        "surface.native.op.construction.private.webgpu.gpucanvascontext.configure.0ktf630.authenticated.production.route.0gl8l8v.closed"
       ]
     },
     {
@@ -273698,7 +273698,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-MRINI-q91p3sccgPiCvaIWcwJuZILb4czy7yKhIGOM0"
+      "rawContentDigest": "sha256-4kq_dcL79kZPmtVEFvTmxDEvGBSU4liHUl5guZJfCKw"
     },
     {
       "kind": "output-disposition-dataset",
@@ -273713,12 +273713,12 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-3AO95IAw4_0ZO0FZfe8-upGTRnaZYhd9DcmSY63-uCc"
+      "rawContentDigest": "sha256-eY3RELl-AU5KCsWmibfE4B8I8YzEcbfXlOzf3RsQA8w"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-iCQAGvNtem0Na-v46XKDbORrOV5wclcrlLfS2zBNJpI"
+      "rawContentDigest": "sha256-LOLcxvY2eF09p3NL4ZD_Zmrg2o5T1chXOs6E25S0E5g"
     },
     {
       "kind": "registry",
@@ -273728,22 +273728,22 @@
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-f4DZJfuypnREi8aJQsR2ocLU7IUGLhl9hNta-1JsQqc"
+      "rawContentDigest": "sha256-HSIOnl93VPeamhGNGUs9S8impv3_6aIGmswaDbePShE"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-RH5M6onQvgLmHHJDsJbEW-4GzN7328Qak-p6rUeH6Mg"
+      "rawContentDigest": "sha256-O1ho8KjFOY0AVWKLF9ARTGSr16GdU4RMZkeEjmufJKw"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-fKXqRLx3CoFBDFCGx6uAyT1ETJ7tG69lSp6X7riv4-g"
+      "rawContentDigest": "sha256-V-C9jE5qCnFSw3QUfyaj9v56rBPARyIwCYhU8dH-9uI"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-BNl2BQVKwc1j8IOZPm8QupBqW-mwKO5QmfLFUKUya2Q"
+      "rawContentDigest": "sha256-6GNtB8Zn2Y6D2NyxpPZsz8oZ9jG3_6UtT0MvltF6t_k"
     }
   ],
   "counts": {

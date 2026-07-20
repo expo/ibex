@@ -6,15 +6,15 @@
   "status": "construction-private-source-derived-no-public-install",
   "source": {
     "productionPlanPath": "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts",
-    "productionPlanRawContentSha256": "7585a6914d18095652c579844d3d952d92d7deb8d9e0f328f7d61d3f7790bf09",
+    "productionPlanRawContentSha256": "36dd6ff6e07cbc2f31c366ace518866b1013347d0f71dde1c06e5d1d3d1284b7",
     "wrapperAuthorityPath": "tests/fixtures/webgpu-test-wrapper-authority-v1.json",
-    "wrapperAuthorityRawContentSha256": "e071a17a87354de8651abc1405d2621da1c8053be4f27aad1848467ba7178222",
+    "wrapperAuthorityRawContentSha256": "ab59b8c27c43363943f09665044121684f0650427ac5adc9ebf90f488ac7d725",
     "authenticatedDigests": {
-      "operationSet": "efc39ed749006917e4b09ab456dcb1a97b2b2b58503899b45ac4dfa46f5aed2f",
-      "semanticProgramSet": "0cfa7d2a96069b7a446a0341e8a4d81118aa8c22268756c27a07645b60a4d3d6",
-      "runtimeRouting": "8138875093498556fe26e0c3aa806242288ab9ccda0db2f0885de81239e39f28",
-      "webgpuCVocabulary": "b6a4ace3cf4ff8c67d099c6d947c61cc0fe6d0afab0c5cc711de6d2a06e7d7f0",
-      "projection": "be87dddac695811653fae355c88fad40a445bd28cc0e785b3b9c64457183fc6c"
+      "operationSet": "fb12107ac42d8495067e50f096b4d6c4aed9e3f2af64d6d147f9c99efcaa6687",
+      "semanticProgramSet": "a9b9703d59b3b906ba888ff33fac85313fafc2785f0dd364e6b5648a6ef46ad6",
+      "runtimeRouting": "d7cf4c201fb58a0a05cd65cd50b0eb3eb2a64cc17c4724e0079e8359b3e63bf7",
+      "webgpuCVocabulary": "2d05f921b51319f36ce13755e26087d1c3df76f4bea3387463da405bcdab983f",
+      "projection": "434b3208fe3d9bbca412324617a22e5a0098c190396d82d2c29cac57626c9d47"
     }
   },
   "publicBoundary": {
@@ -147,7 +147,7 @@
     },
     {
       "operationId": "GPUCanvasContext.configure",
-      "wireId": 3865035710,
+      "wireId": 56177326,
       "edgeId": "surface.native.op.construction.private.webgpu.gpucanvascontext.configure.0ktf630",
       "edgeClassification": "closed",
       "dispatchClass": "wrapper-local-service-enqueue",
@@ -695,7 +695,7 @@
       "supportDisposition": "supported-construction-private-only",
       "capsecDisposition": "closed",
       "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpucanvascontext.configure.0ktf630.authenticated.production.route.0rvlyic"
+        "surface.native.op.construction.private.webgpu.gpucanvascontext.configure.0ktf630.authenticated.production.route.0gl8l8v"
       ],
       "providerBridgeEdgeId": "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99",
       "positiveAuthority": "absent-closed-provider-edge",
