@@ -7,7 +7,7 @@
  * target report may credit an edge only after the bound observers execute
  * every probe and publish its individual result.
  *
- * @ref LLP 0033#5.2-structurally-absent-v1-surface — source identity and live
+ * @ref LLP 0033#5.2 — source identity and live
  * invocation routes are both required; descriptor walking alone is incomplete.
  * @ref LLP 0033#8-generated-authority-and-conformance — broad suite success
  * cannot synthesize per-obligation passes.

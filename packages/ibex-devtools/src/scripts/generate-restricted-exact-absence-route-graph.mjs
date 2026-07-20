@@ -5,7 +5,7 @@
  * from an attacker root through exact target selection and a digest-bound
  * implementation branch to the cut-set observation that must fail it.
  *
- * @ref LLP 0033#absence-proof-repair-after-second-independent-review
+ * @ref LLP 0033#absence-proof-repair-after-the-second-independent-review
  */
 
 import crypto from "node:crypto";
