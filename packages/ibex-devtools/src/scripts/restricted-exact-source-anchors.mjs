@@ -16,6 +16,10 @@ import { pathToFileURL } from "node:url";
 import { parse } from "@babel/parser";
 
 import { capsecRoot, readJsonStrict } from "./capsec-contract.mjs";
+import {
+  discoverHermesEvaluatorIdentityProfiles,
+  scanLegacyEvaluatorBootstrapInstallations,
+} from "./capsec-surface-inventory.mjs";
 
 const repoRoot = path.dirname(capsecRoot);
 const sourceCache = new Map();
@@ -28,6 +32,7 @@ const declarationRangeCache = new Map();
 const robustFunctionRangeCache = new Map();
 const javaTypeRangeCache = new Map();
 const prototypeLinkCache = new Map();
+const hermesEvaluatorProfileCache = new Map();
 
 function digest(bytes) {
   return `sha256-${crypto.createHash("sha256").update(bytes).digest("base64url")}`;
@@ -639,6 +644,130 @@ function sourceIdentityBinding({ sourceRef, sourcePath, locator, text, bytes }) 
   });
 }
 
+function canonicalIdentityValue(value) {
+  if (Array.isArray(value)) return value.map(canonicalIdentityValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [
+      key,
+      canonicalIdentityValue(value[key]),
+    ]));
+  }
+  return value;
+}
+
+function evaluatorIdentityBinding({ sourceRef, sourcePath, locator, absolute, text, bytes }) {
+  const prefix = "evaluator-identity:sha256-";
+  if (!locator.startsWith(prefix) || !/\.(?:sh|ps1)$/u.test(sourcePath)) return null;
+  const root = absolute.slice(0, -sourcePath.length).replace(/[\\/]$/u, "");
+  let profiles = hermesEvaluatorProfileCache.get(root);
+  if (!profiles) {
+    profiles = discoverHermesEvaluatorIdentityProfiles(root);
+    hermesEvaluatorProfileCache.set(root, profiles);
+  }
+  const requestedDigest = locator.slice("evaluator-identity:".length);
+  const matches = profiles.filter((profile) => {
+    const identityDigest = crypto.createHash("sha256")
+      .update(JSON.stringify(canonicalIdentityValue(profile.identity)))
+      .digest("hex");
+    return requestedDigest === `sha256-${identityDigest}`
+      && profile.sourceRefs.some((ref) => ref.startsWith(`${sourcePath}#`));
+  });
+  if (matches.length !== 1) return null;
+  const authorityRefs = matches[0].sourceRefs.filter((ref) => ref.startsWith(`${sourcePath}#`));
+  const ranges = [];
+  for (const authorityRef of authorityRefs) {
+    const authorityLocator = authorityRef.slice(authorityRef.indexOf("#") + 1);
+    const authority = sourceIdentityBinding({
+      sourceRef,
+      sourcePath,
+      locator: authorityLocator,
+      text,
+      bytes,
+    });
+    for (const site of authority?.sites ?? []) {
+      ranges.push({ startByte: site.startByte, endByte: site.endByte });
+    }
+  }
+  const unique = [...new Map(ranges.map((range) => [
+    `${range.startByte}:${range.endByte}`,
+    range,
+  ])).values()];
+  if (unique.length === 0) return null;
+  const sites = unique.map((range, indexValue) => sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "identity-authority",
+    siteKey: `evaluator-identity.${indexValue}`,
+    range,
+    text,
+    bytes,
+  }));
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "hermes-evaluator-identity-authority",
+    resolutionPolicy: "provenance-only",
+    sites,
+    producerPaths: [],
+  });
+}
+
+function lockdownTamingIdentityBinding({ sourceRef, sourcePath, locator, text, bytes }) {
+  const prefix = "lockdown-taming:sha256-";
+  if (sourcePath !== "src/engine/hermes_runtime.cc" || !locator.startsWith(prefix)) return null;
+  const pattern = /std::string lockdownJS = std::string\(R"JS\(([\s\S]*?)\)JS"\) \+ \(handle->armed \? "true" : "false"\) \+ R"JS\(([\s\S]*?)\)JS";/gu;
+  const matches = [...text.matchAll(pattern)];
+  if (matches.length !== 1) return null;
+  const armedScript = `${matches[0][1]}true${matches[0][2]}`;
+  const actual = `lockdown-taming:sha256-${crypto.createHash("sha256").update(armedScript).digest("hex")}`;
+  if (locator !== actual) return null;
+  const range = { startByte: matches[0].index, endByte: matches[0].index + matches[0][0].length };
+  const sites = [sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "identity-authority",
+    siteKey: "lockdown-taming",
+    range,
+    text,
+    bytes,
+  })];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "lockdown-taming-identity-authority",
+    resolutionPolicy: "provenance-only",
+    sites,
+    producerPaths: [],
+  });
+}
+
+function legacyEvaluatorRunnerBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  const match = /^legacy-runner:([A-Za-z_$][A-Za-z0-9_$]*):(sha256-[a-f0-9]{64})$/u.exec(locator);
+  if (sourcePath !== "src/engine/hermes_bootstrap.cc" || !match) return null;
+  const [, functionName] = match;
+  const installations = scanLegacyEvaluatorBootstrapInstallations(text, sourcePath);
+  const installation = Object.values(installations).find((entry) =>
+    entry.sourceRefs.includes(sourceRef));
+  if (!installation || !installation.targetVariants.includes(branch?.targetVariant)) return null;
+  const definition = robustFunctionDeclarationRange(text, functionName);
+  if (!definition) return null;
+  const dispatches = callExpressionRangesWithin(text, "eval_bootstrap_script", definition);
+  if (dispatches.length !== 1) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "definition", siteKey: `${functionName}.definition`, range: definition, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: `${functionName}.dispatch`, range: dispatches[0], text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "legacy-native-evaluator-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0legacy-evaluator`),
+      conditionId: `target-branch:${branch.targetVariant}`,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
 function namedObjectEntryRange(text, containerRange, name) {
   const escaped = escapeRegExp(name);
   const pattern = new RegExp(`^  ${escaped}:`, "gmu");
@@ -1095,7 +1224,8 @@ function typescriptGlobalInstallerBinding({ branch, sourceRef, sourcePath, locat
   const markerIndex = locator.indexOf(marker);
   if (markerIndex < 1) return null;
   const installerName = locator.slice(0, markerIndex);
-  const moduleInstaller = installerName === "<module>";
+  const getterInstaller = installerName === "get";
+  const moduleInstaller = installerName === "<module>" || getterInstaller;
   if (!moduleInstaller && !/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(installerName)) return null;
   const logicalPath = locator.slice(markerIndex + marker.length).split(".");
   if (logicalPath.some((part) => !part || part.includes("[["))) return null;
@@ -1114,7 +1244,7 @@ function typescriptGlobalInstallerBinding({ branch, sourceRef, sourcePath, locat
   const installer = installers[0];
   const candidates = [];
   walkJavaScript(moduleInstaller ? installer : installer.body, (node, parent) => {
-    if (node.type === "AssignmentExpression") {
+    if (!getterInstaller && node.type === "AssignmentExpression") {
       const segments = memberSegments(node.left);
       if (globalPathMatches(segments, logicalPath)) {
         candidates.push({
@@ -1128,8 +1258,10 @@ function typescriptGlobalInstallerBinding({ branch, sourceRef, sourcePath, locat
       const target = memberSegments(node.arguments[0]);
       const property = propertyName(node.arguments[1]);
       if (property !== null && globalPathMatches([...(target ?? []), property], logicalPath)) {
+        const getter = objectProperty(node.arguments[2], "get");
+        if (getterInstaller && !getter) return;
         candidates.push({
-          producer: node.arguments[2] ?? node,
+          producer: getter ?? node.arguments[2] ?? node,
           publication: parent?.type === "ExpressionStatement" ? parent : node,
         });
       }
@@ -4991,7 +5123,9 @@ function loadSourceRef(sourceRef, root) {
 
 export function resolveRestrictedExactSourceBinding(sourceRef, root = repoRoot) {
   const { sourcePath, locator, absolute, bytes, text } = loadSourceRef(sourceRef, root);
-  const specialized = sourceIdentityBinding({ sourceRef, sourcePath, locator, text, bytes })
+  const specialized = evaluatorIdentityBinding({ sourceRef, sourcePath, locator, absolute, text, bytes })
+    ?? lockdownTamingIdentityBinding({ sourceRef, sourcePath, locator, text, bytes })
+    ?? sourceIdentityBinding({ sourceRef, sourcePath, locator, text, bytes })
     ?? errnoExportBinding({ sourceRef, sourcePath, locator, text, bytes })
     ?? processCwdBinding({ sourceRef, sourcePath, locator, text, bytes });
   if (specialized) return validateRestrictedExactSourceBinding(specialized);
@@ -5029,6 +5163,7 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? builtinExportBranchBinding({ branch, sourceRef, ...loaded })
     ?? builtinInheritedTableFallbackBinding({ branch, sourceRef, ...loaded })
     ?? builtinExportFallbackBinding({ branch, sourceRef, ...loaded })
+    ?? legacyEvaluatorRunnerBinding({ branch, sourceRef, ...loaded })
     ?? nativeDefinitionBinding({ branch, sourceRef, ...loaded })
     ?? preprocessorBranchBinding({ branch, sourceRef, ...loaded })
     ?? jsiGlobalBranchBinding({ branch, sourceRef, ...loaded })

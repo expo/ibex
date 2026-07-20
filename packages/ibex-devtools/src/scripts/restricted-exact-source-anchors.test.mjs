@@ -545,6 +545,50 @@ void install(Runtime& rt) {
     expect(patch.sites).toHaveLength(1);
   });
 
+  test("recomputes Hermes evaluator and lockdown identity authorities", () => {
+    const evaluator = resolveRestrictedExactBranchSourceBinding({
+      branchId: "surface.native.op.async-function.android",
+      observedKey: "native-op:global:AsyncFunction",
+      targetVariant: "android",
+    }, "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a");
+    expect(evaluator.locatorKind).toBe("hermes-evaluator-identity-authority");
+    expect(evaluator.sites.every((site) => site.role === "identity-authority")).toBe(true);
+    const lockdown = resolveRestrictedExactBranchSourceBinding({
+      branchId: "surface.native.op.async-function.default",
+      observedKey: "native-op:global:AsyncFunction",
+      targetVariant: "default",
+    }, "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c");
+    expect(lockdown.locatorKind).toBe("lockdown-taming-identity-authority");
+    expect(() => resolveRestrictedExactBranchSourceBinding({
+      branchId: "surface.native.op.async-function.default",
+      observedKey: "native-op:global:AsyncFunction",
+      targetVariant: "default",
+    }, "src/engine/hermes_runtime.cc#lockdown-taming:sha256-0000000000000000000000000000000000000000000000000000000000000000"))
+      .toThrow(/missing, ambiguous, or unsupported/u);
+  });
+
+  test("binds legacy evaluator runners and typed global getters", () => {
+    const legacy = resolveRestrictedExactBranchSourceBinding({
+      branchId: "surface.native.op.date-constructor.default",
+      observedKey: "native-op:global:Date.constructor",
+      targetVariant: "default",
+    }, "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyCompatPolyfills:sha256-85e5f64997c896a0b0fed5d1fdbb4903a17334b0e9a0bbe32c412ee13316e1ea");
+    expect(legacy.locatorKind).toBe("legacy-native-evaluator-route");
+    expect(legacy.sites.map((site) => site.role)).toEqual(["definition", "dispatch"]);
+    for (const [observedKey, locator] of [
+      ["native-op:global:crypto", "get:globals:crypto"],
+      ["native-op:global:Bun.inspect", "get:globals:Exact.inspect"],
+    ]) {
+      const getter = resolveRestrictedExactBranchSourceBinding({
+        branchId: `surface.${locator}`,
+        observedKey,
+        targetVariant: "all",
+      }, `packages/ibex-runtime-js/src/bootstrap.ts#${locator}`);
+      expect(getter.locatorKind).toBe("typescript-global-installer-route");
+      expect(getter.sites.map((site) => site.role)).toEqual(["value-producer", "publication"]);
+    }
+  });
+
   test("keeps legacy JavaScript symbols as exact supporting provenance", () => {
     const binding = resolveRestrictedExactBranchSourceBinding({
       branchId: "surface.native.op.dirname.default",
