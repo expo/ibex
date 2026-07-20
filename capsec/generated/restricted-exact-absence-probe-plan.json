@@ -1,14 +1,14 @@
 {
   "probePlanSchema": "ibex/restricted-profile-absence-probe-plan/1",
   "profile": "ibex/exact-embedder-contract/1",
-  "projectionRawContentDigest": "sha256-OKinwxqG_tW3shR-Oi9bfJQAhgzBfOpTCrx-yhdlcbA",
-  "coverageRawContentDigest": "sha256-RxLDC47t7W7kLtzuZCBiC9nG06BNALnrbAYgGabuiYU",
-  "implementationManifestRawContentDigest": "sha256-0sPWphv10cbLXGnfgWURmSrnuzcT5-qkCv1V-WRjcJY",
+  "projectionRawContentDigest": "sha256-mHn15f_8W945Jz_Wj7zRbhduqQDSvOfNmmsd9WAnNvg",
+  "coverageRawContentDigest": "sha256-HAE42W6gCg2kA5x_CBPckbSLwdDRaGvHuzdrGTSVudg",
+  "implementationManifestRawContentDigest": "sha256-_sqfg-MEhdABqxlp0RQKh8fhtpq3nSOK3922Nt5wVP0",
   "rootGlobalManifestRawContentDigest": "sha256-h2HfD6tz8JI4aywueYwnjPrjgf-VpBHiU5p-dNN7vR4",
   "counts": {
-    "edges": 7147,
-    "sourceInstallProbes": 7361,
-    "liveReachabilityProbes": 9749
+    "edges": 7194,
+    "sourceInstallProbes": 7408,
+    "liveReachabilityProbes": 9794
   },
   "edges": [
     {
@@ -52995,35 +52995,6 @@
       ]
     },
     {
-      "edgeId": "surface.builtin.export.node.stream.duplex.0.1w5wdfj",
-      "surfaceKind": "builtin",
-      "surfaceName": "export:node_stream:Duplex.0",
-      "observedIdentity": "builtin:export:node_stream:Duplex.0",
-      "sourceInstall": [
-        {
-          "probeId": "source.surface.builtin.export.node.stream.duplex.0.1w5wdfj.0",
-          "branchId": "surface.builtin.export.node.stream.duplex.0.1w5wdfj.main",
-          "enforcementBranchId": "surface.builtin.export.node.stream.duplex.0.1w5wdfj.main",
-          "enforcementRouteKind": "surface-branch",
-          "sourceRefs": [
-            "src/builtins/stream.js#exports:Duplex.0"
-          ],
-          "proofPaths": [
-            "builtin:export:node_stream:Duplex.0"
-          ],
-          "expected": "not-selected-or-retained"
-        }
-      ],
-      "liveReachability": [
-        {
-          "probeId": "live.surface.builtin.export.node.stream.duplex.0.1w5wdfj.route.0",
-          "routeKind": "restricted-module-resolution",
-          "target": "builtin:export:node_stream:Duplex.0",
-          "expected": "unreachable"
-        }
-      ]
-    },
-    {
       "edgeId": "surface.builtin.export.node.stream.duplex.12ltkd5",
       "surfaceKind": "builtin",
       "surfaceName": "export:node_stream:Duplex",
@@ -53193,6 +53164,35 @@
           "probeId": "live.surface.builtin.export.node.stream.duplex.constructor.0eavu9r.route.0",
           "routeKind": "restricted-module-resolution",
           "target": "builtin:export:node_stream:Duplex.constructor",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.cork.0i2jqm4",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Duplex.cork",
+      "observedIdentity": "builtin:export:node_stream:Duplex.cork",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.duplex.cork.0i2jqm4.0",
+          "branchId": "surface.builtin.export.node.stream.duplex.cork.0i2jqm4.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.duplex.cork.0i2jqm4.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Duplex.cork"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Duplex.cork"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.duplex.cork.0i2jqm4.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Duplex.cork",
           "expected": "unreachable"
         }
       ]
@@ -53401,6 +53401,35 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.duplex.end.1dh19ui",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Duplex.end",
+      "observedIdentity": "builtin:export:node_stream:Duplex.end",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.duplex.end.1dh19ui.0",
+          "branchId": "surface.builtin.export.node.stream.duplex.end.1dh19ui.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.duplex.end.1dh19ui.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Duplex.end"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Duplex.end"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.duplex.end.1dh19ui.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Duplex.end",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.duplex.every.0ea2psk",
       "surfaceKind": "builtin",
       "surfaceName": "export:node_stream:Duplex.every",
@@ -53425,6 +53454,35 @@
           "probeId": "live.surface.builtin.export.node.stream.duplex.every.0ea2psk.route.0",
           "routeKind": "restricted-module-resolution",
           "target": "builtin:export:node_stream:Duplex.every",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.exactwritableprotopatched.0f0lk97",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Duplex.__exactWritableProtoPatched",
+      "observedIdentity": "builtin:export:node_stream:Duplex.__exactWritableProtoPatched",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.duplex.exactwritableprotopatched.0f0lk97.0",
+          "branchId": "surface.builtin.export.node.stream.duplex.exactwritableprotopatched.0f0lk97.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.duplex.exactwritableprotopatched.0f0lk97.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Duplex.__exactWritableProtoPatched"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Duplex.__exactWritableProtoPatched"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.duplex.exactwritableprotopatched.0f0lk97.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Duplex.__exactWritableProtoPatched",
           "expected": "unreachable"
         }
       ]
@@ -53512,6 +53570,35 @@
           "probeId": "live.surface.builtin.export.node.stream.duplex.flatmap.07261jo.route.0",
           "routeKind": "restricted-module-resolution",
           "target": "builtin:export:node_stream:Duplex.flatMap",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.flushwritequeue.1livt4m",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Duplex._flushWriteQueue",
+      "observedIdentity": "builtin:export:node_stream:Duplex._flushWriteQueue",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.duplex.flushwritequeue.1livt4m.0",
+          "branchId": "surface.builtin.export.node.stream.duplex.flushwritequeue.1livt4m.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.duplex.flushwritequeue.1livt4m.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Duplex._flushWriteQueue"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Duplex._flushWriteQueue"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.duplex.flushwritequeue.1livt4m.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Duplex._flushWriteQueue",
           "expected": "unreachable"
         }
       ]
@@ -54155,6 +54242,35 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.duplex.setdefaultencoding.0tfoi0h",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Duplex.setDefaultEncoding",
+      "observedIdentity": "builtin:export:node_stream:Duplex.setDefaultEncoding",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.duplex.setdefaultencoding.0tfoi0h.0",
+          "branchId": "surface.builtin.export.node.stream.duplex.setdefaultencoding.0tfoi0h.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.duplex.setdefaultencoding.0tfoi0h.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Duplex.setDefaultEncoding"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Duplex.setDefaultEncoding"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.duplex.setdefaultencoding.0tfoi0h.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Duplex.setDefaultEncoding",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.duplex.setencoding.1nwi1cy",
       "surfaceKind": "builtin",
       "surfaceName": "export:node_stream:Duplex.setEncoding",
@@ -54300,6 +54416,35 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.duplex.uncork.1abjhkz",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Duplex.uncork",
+      "observedIdentity": "builtin:export:node_stream:Duplex.uncork",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.duplex.uncork.1abjhkz.0",
+          "branchId": "surface.builtin.export.node.stream.duplex.uncork.1abjhkz.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.duplex.uncork.1abjhkz.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Duplex.uncork"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Duplex.uncork"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.duplex.uncork.1abjhkz.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Duplex.uncork",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.duplex.undestroy.02sudfh",
       "surfaceKind": "builtin",
       "surfaceName": "export:node_stream:Duplex._undestroy",
@@ -54440,6 +54585,354 @@
           "probeId": "live.surface.builtin.export.node.stream.duplex.wrap.1s9000l.route.0",
           "routeKind": "restricted-module-resolution",
           "target": "builtin:export:node_stream:Duplex.wrap",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.writableaborted.1in8ckk",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Duplex.writableAborted",
+      "observedIdentity": "builtin:export:node_stream:Duplex.writableAborted",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.duplex.writableaborted.1in8ckk.0",
+          "branchId": "surface.builtin.export.node.stream.duplex.writableaborted.1in8ckk.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.duplex.writableaborted.1in8ckk.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Duplex.writableAborted"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Duplex.writableAborted"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.duplex.writableaborted.1in8ckk.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Duplex.writableAborted",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.writablebuffer.0pkmt9z",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Duplex.writableBuffer",
+      "observedIdentity": "builtin:export:node_stream:Duplex.writableBuffer",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.duplex.writablebuffer.0pkmt9z.0",
+          "branchId": "surface.builtin.export.node.stream.duplex.writablebuffer.0pkmt9z.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.duplex.writablebuffer.0pkmt9z.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Duplex.writableBuffer"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Duplex.writableBuffer"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.duplex.writablebuffer.0pkmt9z.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Duplex.writableBuffer",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.writablecorked.1uopdu9",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Duplex.writableCorked",
+      "observedIdentity": "builtin:export:node_stream:Duplex.writableCorked",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.duplex.writablecorked.1uopdu9.0",
+          "branchId": "surface.builtin.export.node.stream.duplex.writablecorked.1uopdu9.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.duplex.writablecorked.1uopdu9.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Duplex.writableCorked"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Duplex.writableCorked"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.duplex.writablecorked.1uopdu9.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Duplex.writableCorked",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.writableended.1mkl4sn",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Duplex.writableEnded",
+      "observedIdentity": "builtin:export:node_stream:Duplex.writableEnded",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.duplex.writableended.1mkl4sn.0",
+          "branchId": "surface.builtin.export.node.stream.duplex.writableended.1mkl4sn.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.duplex.writableended.1mkl4sn.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Duplex.writableEnded"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Duplex.writableEnded"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.duplex.writableended.1mkl4sn.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Duplex.writableEnded",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.writablefinished.0r3qq4v",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Duplex.writableFinished",
+      "observedIdentity": "builtin:export:node_stream:Duplex.writableFinished",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.duplex.writablefinished.0r3qq4v.0",
+          "branchId": "surface.builtin.export.node.stream.duplex.writablefinished.0r3qq4v.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.duplex.writablefinished.0r3qq4v.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Duplex.writableFinished"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Duplex.writableFinished"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.duplex.writablefinished.0r3qq4v.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Duplex.writableFinished",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.writablehighwatermark.0pgkf51",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Duplex.writableHighWaterMark",
+      "observedIdentity": "builtin:export:node_stream:Duplex.writableHighWaterMark",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.duplex.writablehighwatermark.0pgkf51.0",
+          "branchId": "surface.builtin.export.node.stream.duplex.writablehighwatermark.0pgkf51.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.duplex.writablehighwatermark.0pgkf51.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Duplex.writableHighWaterMark"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Duplex.writableHighWaterMark"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.duplex.writablehighwatermark.0pgkf51.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Duplex.writableHighWaterMark",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.writablelength.1w5j3q1",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Duplex.writableLength",
+      "observedIdentity": "builtin:export:node_stream:Duplex.writableLength",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.duplex.writablelength.1w5j3q1.0",
+          "branchId": "surface.builtin.export.node.stream.duplex.writablelength.1w5j3q1.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.duplex.writablelength.1w5j3q1.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Duplex.writableLength"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Duplex.writableLength"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.duplex.writablelength.1w5j3q1.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Duplex.writableLength",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.writableneeddrain.1u9s37p",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Duplex.writableNeedDrain",
+      "observedIdentity": "builtin:export:node_stream:Duplex.writableNeedDrain",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.duplex.writableneeddrain.1u9s37p.0",
+          "branchId": "surface.builtin.export.node.stream.duplex.writableneeddrain.1u9s37p.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.duplex.writableneeddrain.1u9s37p.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Duplex.writableNeedDrain"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Duplex.writableNeedDrain"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.duplex.writableneeddrain.1u9s37p.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Duplex.writableNeedDrain",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.writableobjectmode.03en6it",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Duplex.writableObjectMode",
+      "observedIdentity": "builtin:export:node_stream:Duplex.writableObjectMode",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.duplex.writableobjectmode.03en6it.0",
+          "branchId": "surface.builtin.export.node.stream.duplex.writableobjectmode.03en6it.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.duplex.writableobjectmode.03en6it.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Duplex.writableObjectMode"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Duplex.writableObjectMode"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.duplex.writableobjectmode.03en6it.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Duplex.writableObjectMode",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.writablestate.0zln4ya",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Duplex.writableState",
+      "observedIdentity": "builtin:export:node_stream:Duplex.writableState",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.duplex.writablestate.0zln4ya.0",
+          "branchId": "surface.builtin.export.node.stream.duplex.writablestate.0zln4ya.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.duplex.writablestate.0zln4ya.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Duplex.writableState"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Duplex.writableState"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.duplex.writablestate.0zln4ya.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Duplex.writableState",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.write.06jcrll",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Duplex._write",
+      "observedIdentity": "builtin:export:node_stream:Duplex._write",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.duplex.write.06jcrll.0",
+          "branchId": "surface.builtin.export.node.stream.duplex.write.06jcrll.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.duplex.write.06jcrll.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Duplex._write"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Duplex._write"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.duplex.write.06jcrll.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Duplex._write",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.write.0v7yv1o",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Duplex.write",
+      "observedIdentity": "builtin:export:node_stream:Duplex.write",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.duplex.write.0v7yv1o.0",
+          "branchId": "surface.builtin.export.node.stream.duplex.write.0v7yv1o.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.duplex.write.0v7yv1o.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Duplex.write"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Duplex.write"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.duplex.write.0v7yv1o.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Duplex.write",
           "expected": "unreachable"
         }
       ]
@@ -54648,35 +55141,6 @@
       ]
     },
     {
-      "edgeId": "surface.builtin.export.node.stream.passthrough.0.1xtf5bd",
-      "surfaceKind": "builtin",
-      "surfaceName": "export:node_stream:PassThrough.0",
-      "observedIdentity": "builtin:export:node_stream:PassThrough.0",
-      "sourceInstall": [
-        {
-          "probeId": "source.surface.builtin.export.node.stream.passthrough.0.1xtf5bd.0",
-          "branchId": "surface.builtin.export.node.stream.passthrough.0.1xtf5bd.main",
-          "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.0.1xtf5bd.main",
-          "enforcementRouteKind": "surface-branch",
-          "sourceRefs": [
-            "src/builtins/stream.js#exports:PassThrough.0"
-          ],
-          "proofPaths": [
-            "builtin:export:node_stream:PassThrough.0"
-          ],
-          "expected": "not-selected-or-retained"
-        }
-      ],
-      "liveReachability": [
-        {
-          "probeId": "live.surface.builtin.export.node.stream.passthrough.0.1xtf5bd.route.0",
-          "routeKind": "restricted-module-resolution",
-          "target": "builtin:export:node_stream:PassThrough.0",
-          "expected": "unreachable"
-        }
-      ]
-    },
-    {
       "edgeId": "surface.builtin.export.node.stream.passthrough.0yqlsrj",
       "surfaceKind": "builtin",
       "surfaceName": "export:node_stream:PassThrough",
@@ -54846,6 +55310,35 @@
           "probeId": "live.surface.builtin.export.node.stream.passthrough.constructor.0m2zcj5.route.0",
           "routeKind": "restricted-module-resolution",
           "target": "builtin:export:node_stream:PassThrough.constructor",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.cork.0k8p402",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:PassThrough.cork",
+      "observedIdentity": "builtin:export:node_stream:PassThrough.cork",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.passthrough.cork.0k8p402.0",
+          "branchId": "surface.builtin.export.node.stream.passthrough.cork.0k8p402.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.cork.0k8p402.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:PassThrough.cork"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:PassThrough.cork"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.passthrough.cork.0k8p402.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:PassThrough.cork",
           "expected": "unreachable"
         }
       ]
@@ -55054,6 +55547,35 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.end.1iqqcls",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:PassThrough.end",
+      "observedIdentity": "builtin:export:node_stream:PassThrough.end",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.passthrough.end.1iqqcls.0",
+          "branchId": "surface.builtin.export.node.stream.passthrough.end.1iqqcls.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.end.1iqqcls.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:PassThrough.end"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:PassThrough.end"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.passthrough.end.1iqqcls.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:PassThrough.end",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.passthrough.every.0tzhjfq",
       "surfaceKind": "builtin",
       "surfaceName": "export:node_stream:PassThrough.every",
@@ -55078,6 +55600,35 @@
           "probeId": "live.surface.builtin.export.node.stream.passthrough.every.0tzhjfq.route.0",
           "routeKind": "restricted-module-resolution",
           "target": "builtin:export:node_stream:PassThrough.every",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.exactwritableprotopatched.086wgxp",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:PassThrough.__exactWritableProtoPatched",
+      "observedIdentity": "builtin:export:node_stream:PassThrough.__exactWritableProtoPatched",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.passthrough.exactwritableprotopatched.086wgxp.0",
+          "branchId": "surface.builtin.export.node.stream.passthrough.exactwritableprotopatched.086wgxp.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.exactwritableprotopatched.086wgxp.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:PassThrough.__exactWritableProtoPatched"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:PassThrough.__exactWritableProtoPatched"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.passthrough.exactwritableprotopatched.086wgxp.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:PassThrough.__exactWritableProtoPatched",
           "expected": "unreachable"
         }
       ]
@@ -55165,6 +55716,35 @@
           "probeId": "live.surface.builtin.export.node.stream.passthrough.flatmap.01775yi.route.0",
           "routeKind": "restricted-module-resolution",
           "target": "builtin:export:node_stream:PassThrough.flatMap",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.flushwritequeue.00gsut4",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:PassThrough._flushWriteQueue",
+      "observedIdentity": "builtin:export:node_stream:PassThrough._flushWriteQueue",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.passthrough.flushwritequeue.00gsut4.0",
+          "branchId": "surface.builtin.export.node.stream.passthrough.flushwritequeue.00gsut4.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.flushwritequeue.00gsut4.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:PassThrough._flushWriteQueue"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:PassThrough._flushWriteQueue"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.passthrough.flushwritequeue.00gsut4.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:PassThrough._flushWriteQueue",
           "expected": "unreachable"
         }
       ]
@@ -55808,6 +56388,35 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.setdefaultencoding.082c71f",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:PassThrough.setDefaultEncoding",
+      "observedIdentity": "builtin:export:node_stream:PassThrough.setDefaultEncoding",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.passthrough.setdefaultencoding.082c71f.0",
+          "branchId": "surface.builtin.export.node.stream.passthrough.setdefaultencoding.082c71f.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.setdefaultencoding.082c71f.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:PassThrough.setDefaultEncoding"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:PassThrough.setDefaultEncoding"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.passthrough.setdefaultencoding.082c71f.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:PassThrough.setDefaultEncoding",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.passthrough.setencoding.0l147do",
       "surfaceKind": "builtin",
       "surfaceName": "export:node_stream:PassThrough.setEncoding",
@@ -55982,6 +56591,35 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.uncork.1f93y9p",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:PassThrough.uncork",
+      "observedIdentity": "builtin:export:node_stream:PassThrough.uncork",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.passthrough.uncork.1f93y9p.0",
+          "branchId": "surface.builtin.export.node.stream.passthrough.uncork.1f93y9p.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.uncork.1f93y9p.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:PassThrough.uncork"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:PassThrough.uncork"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.passthrough.uncork.1f93y9p.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:PassThrough.uncork",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.passthrough.undestroy.0oos347",
       "surfaceKind": "builtin",
       "surfaceName": "export:node_stream:PassThrough._undestroy",
@@ -56127,6 +56765,296 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.writableaborted.09hftji",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:PassThrough.writableAborted",
+      "observedIdentity": "builtin:export:node_stream:PassThrough.writableAborted",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.passthrough.writableaborted.09hftji.0",
+          "branchId": "surface.builtin.export.node.stream.passthrough.writableaborted.09hftji.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.writableaborted.09hftji.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:PassThrough.writableAborted"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:PassThrough.writableAborted"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.passthrough.writableaborted.09hftji.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:PassThrough.writableAborted",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.writablebuffer.0vrpsjt",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:PassThrough.writableBuffer",
+      "observedIdentity": "builtin:export:node_stream:PassThrough.writableBuffer",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.passthrough.writablebuffer.0vrpsjt.0",
+          "branchId": "surface.builtin.export.node.stream.passthrough.writablebuffer.0vrpsjt.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.writablebuffer.0vrpsjt.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:PassThrough.writableBuffer"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:PassThrough.writableBuffer"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.passthrough.writablebuffer.0vrpsjt.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:PassThrough.writableBuffer",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.writablecorked.0ao9ngj",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:PassThrough.writableCorked",
+      "observedIdentity": "builtin:export:node_stream:PassThrough.writableCorked",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.passthrough.writablecorked.0ao9ngj.0",
+          "branchId": "surface.builtin.export.node.stream.passthrough.writablecorked.0ao9ngj.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.writablecorked.0ao9ngj.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:PassThrough.writableCorked"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:PassThrough.writableCorked"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.passthrough.writablecorked.0ao9ngj.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:PassThrough.writableCorked",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.writableended.0z0zdxd",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:PassThrough.writableEnded",
+      "observedIdentity": "builtin:export:node_stream:PassThrough.writableEnded",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.passthrough.writableended.0z0zdxd.0",
+          "branchId": "surface.builtin.export.node.stream.passthrough.writableended.0z0zdxd.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.writableended.0z0zdxd.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:PassThrough.writableEnded"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:PassThrough.writableEnded"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.passthrough.writableended.0z0zdxd.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:PassThrough.writableEnded",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.writablefinished.0w4lmp9",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:PassThrough.writableFinished",
+      "observedIdentity": "builtin:export:node_stream:PassThrough.writableFinished",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.passthrough.writablefinished.0w4lmp9.0",
+          "branchId": "surface.builtin.export.node.stream.passthrough.writablefinished.0w4lmp9.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.writablefinished.0w4lmp9.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:PassThrough.writableFinished"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:PassThrough.writableFinished"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.passthrough.writablefinished.0w4lmp9.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:PassThrough.writableFinished",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.writablehighwatermark.1qeh5hb",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:PassThrough.writableHighWaterMark",
+      "observedIdentity": "builtin:export:node_stream:PassThrough.writableHighWaterMark",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.passthrough.writablehighwatermark.1qeh5hb.0",
+          "branchId": "surface.builtin.export.node.stream.passthrough.writablehighwatermark.1qeh5hb.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.writablehighwatermark.1qeh5hb.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:PassThrough.writableHighWaterMark"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:PassThrough.writableHighWaterMark"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.passthrough.writablehighwatermark.1qeh5hb.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:PassThrough.writableHighWaterMark",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.writablelength.179ropn",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:PassThrough.writableLength",
+      "observedIdentity": "builtin:export:node_stream:PassThrough.writableLength",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.passthrough.writablelength.179ropn.0",
+          "branchId": "surface.builtin.export.node.stream.passthrough.writablelength.179ropn.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.writablelength.179ropn.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:PassThrough.writableLength"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:PassThrough.writableLength"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.passthrough.writablelength.179ropn.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:PassThrough.writableLength",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.writableneeddrain.0hw3k8f",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:PassThrough.writableNeedDrain",
+      "observedIdentity": "builtin:export:node_stream:PassThrough.writableNeedDrain",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.passthrough.writableneeddrain.0hw3k8f.0",
+          "branchId": "surface.builtin.export.node.stream.passthrough.writableneeddrain.0hw3k8f.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.writableneeddrain.0hw3k8f.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:PassThrough.writableNeedDrain"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:PassThrough.writableNeedDrain"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.passthrough.writableneeddrain.0hw3k8f.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:PassThrough.writableNeedDrain",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.writableobjectmode.08ku7vf",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:PassThrough.writableObjectMode",
+      "observedIdentity": "builtin:export:node_stream:PassThrough.writableObjectMode",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.passthrough.writableobjectmode.08ku7vf.0",
+          "branchId": "surface.builtin.export.node.stream.passthrough.writableobjectmode.08ku7vf.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.writableobjectmode.08ku7vf.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:PassThrough.writableObjectMode"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:PassThrough.writableObjectMode"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.passthrough.writableobjectmode.08ku7vf.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:PassThrough.writableObjectMode",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.writablestate.0q1ypqc",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:PassThrough.writableState",
+      "observedIdentity": "builtin:export:node_stream:PassThrough.writableState",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.passthrough.writablestate.0q1ypqc.0",
+          "branchId": "surface.builtin.export.node.stream.passthrough.writablestate.0q1ypqc.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.writablestate.0q1ypqc.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:PassThrough.writableState"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:PassThrough.writableState"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.passthrough.writablestate.0q1ypqc.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:PassThrough.writableState",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.passthrough.write.06wx90j",
       "surfaceKind": "builtin",
       "surfaceName": "export:node_stream:PassThrough._write",
@@ -56151,6 +57079,35 @@
           "probeId": "live.surface.builtin.export.node.stream.passthrough.write.06wx90j.route.0",
           "routeKind": "restricted-module-resolution",
           "target": "builtin:export:node_stream:PassThrough._write",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.write.0fe4ng6",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:PassThrough.write",
+      "observedIdentity": "builtin:export:node_stream:PassThrough.write",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.passthrough.write.0fe4ng6.0",
+          "branchId": "surface.builtin.export.node.stream.passthrough.write.0fe4ng6.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.write.0fe4ng6.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:PassThrough.write"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:PassThrough.write"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.passthrough.write.0fe4ng6.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:PassThrough.write",
           "expected": "unreachable"
         }
       ]
@@ -58070,35 +59027,6 @@
       ]
     },
     {
-      "edgeId": "surface.builtin.export.node.stream.transform.0.00g8ruj",
-      "surfaceKind": "builtin",
-      "surfaceName": "export:node_stream:Transform.0",
-      "observedIdentity": "builtin:export:node_stream:Transform.0",
-      "sourceInstall": [
-        {
-          "probeId": "source.surface.builtin.export.node.stream.transform.0.00g8ruj.0",
-          "branchId": "surface.builtin.export.node.stream.transform.0.00g8ruj.main",
-          "enforcementBranchId": "surface.builtin.export.node.stream.transform.0.00g8ruj.main",
-          "enforcementRouteKind": "surface-branch",
-          "sourceRefs": [
-            "src/builtins/stream.js#exports:Transform.0"
-          ],
-          "proofPaths": [
-            "builtin:export:node_stream:Transform.0"
-          ],
-          "expected": "not-selected-or-retained"
-        }
-      ],
-      "liveReachability": [
-        {
-          "probeId": "live.surface.builtin.export.node.stream.transform.0.00g8ruj.route.0",
-          "routeKind": "restricted-module-resolution",
-          "target": "builtin:export:node_stream:Transform.0",
-          "expected": "unreachable"
-        }
-      ]
-    },
-    {
       "edgeId": "surface.builtin.export.node.stream.transform.0d1anx9",
       "surfaceKind": "builtin",
       "surfaceName": "export:node_stream:Transform",
@@ -58268,6 +59196,35 @@
           "probeId": "live.surface.builtin.export.node.stream.transform.constructor.16w5v9n.route.0",
           "routeKind": "restricted-module-resolution",
           "target": "builtin:export:node_stream:Transform.constructor",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.cork.1cuhawo",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Transform.cork",
+      "observedIdentity": "builtin:export:node_stream:Transform.cork",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.transform.cork.1cuhawo.0",
+          "branchId": "surface.builtin.export.node.stream.transform.cork.1cuhawo.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.transform.cork.1cuhawo.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Transform.cork"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Transform.cork"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.transform.cork.1cuhawo.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Transform.cork",
           "expected": "unreachable"
         }
       ]
@@ -58476,6 +59433,35 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.transform.end.10tmcum",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Transform.end",
+      "observedIdentity": "builtin:export:node_stream:Transform.end",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.transform.end.10tmcum.0",
+          "branchId": "surface.builtin.export.node.stream.transform.end.10tmcum.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.transform.end.10tmcum.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Transform.end"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Transform.end"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.transform.end.10tmcum.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Transform.end",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.transform.every.0dzktd4",
       "surfaceKind": "builtin",
       "surfaceName": "export:node_stream:Transform.every",
@@ -58500,6 +59486,35 @@
           "probeId": "live.surface.builtin.export.node.stream.transform.every.0dzktd4.route.0",
           "routeKind": "restricted-module-resolution",
           "target": "builtin:export:node_stream:Transform.every",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.exactwritableprotopatched.13dilhj",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Transform.__exactWritableProtoPatched",
+      "observedIdentity": "builtin:export:node_stream:Transform.__exactWritableProtoPatched",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.transform.exactwritableprotopatched.13dilhj.0",
+          "branchId": "surface.builtin.export.node.stream.transform.exactwritableprotopatched.13dilhj.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.transform.exactwritableprotopatched.13dilhj.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Transform.__exactWritableProtoPatched"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Transform.__exactWritableProtoPatched"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.transform.exactwritableprotopatched.13dilhj.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Transform.__exactWritableProtoPatched",
           "expected": "unreachable"
         }
       ]
@@ -58587,6 +59602,35 @@
           "probeId": "live.surface.builtin.export.node.stream.transform.flatmap.0g8kgk0.route.0",
           "routeKind": "restricted-module-resolution",
           "target": "builtin:export:node_stream:Transform.flatMap",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.flushwritequeue.16g3qqq",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Transform._flushWriteQueue",
+      "observedIdentity": "builtin:export:node_stream:Transform._flushWriteQueue",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.transform.flushwritequeue.16g3qqq.0",
+          "branchId": "surface.builtin.export.node.stream.transform.flushwritequeue.16g3qqq.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.transform.flushwritequeue.16g3qqq.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Transform._flushWriteQueue"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Transform._flushWriteQueue"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.transform.flushwritequeue.16g3qqq.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Transform._flushWriteQueue",
           "expected": "unreachable"
         }
       ]
@@ -59230,6 +60274,35 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.transform.setdefaultencoding.0isdfgl",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Transform.setDefaultEncoding",
+      "observedIdentity": "builtin:export:node_stream:Transform.setDefaultEncoding",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.transform.setdefaultencoding.0isdfgl.0",
+          "branchId": "surface.builtin.export.node.stream.transform.setdefaultencoding.0isdfgl.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.transform.setdefaultencoding.0isdfgl.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Transform.setDefaultEncoding"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Transform.setDefaultEncoding"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.transform.setdefaultencoding.0isdfgl.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Transform.setDefaultEncoding",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.transform.setencoding.13j2rny",
       "surfaceKind": "builtin",
       "surfaceName": "export:node_stream:Transform.setEncoding",
@@ -59404,6 +60477,35 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.transform.uncork.1u0rt8f",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Transform.uncork",
+      "observedIdentity": "builtin:export:node_stream:Transform.uncork",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.transform.uncork.1u0rt8f.0",
+          "branchId": "surface.builtin.export.node.stream.transform.uncork.1u0rt8f.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.transform.uncork.1u0rt8f.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Transform.uncork"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Transform.uncork"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.transform.uncork.1u0rt8f.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Transform.uncork",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.transform.undestroy.173c44p",
       "surfaceKind": "builtin",
       "surfaceName": "export:node_stream:Transform._undestroy",
@@ -59549,6 +60651,296 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.transform.writableaborted.1sdyjtc",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Transform.writableAborted",
+      "observedIdentity": "builtin:export:node_stream:Transform.writableAborted",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.transform.writableaborted.1sdyjtc.0",
+          "branchId": "surface.builtin.export.node.stream.transform.writableaborted.1sdyjtc.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.transform.writableaborted.1sdyjtc.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Transform.writableAborted"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Transform.writableAborted"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.transform.writableaborted.1sdyjtc.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Transform.writableAborted",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.writablebuffer.1su38u3",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Transform.writableBuffer",
+      "observedIdentity": "builtin:export:node_stream:Transform.writableBuffer",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.transform.writablebuffer.1su38u3.0",
+          "branchId": "surface.builtin.export.node.stream.transform.writablebuffer.1su38u3.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.transform.writablebuffer.1su38u3.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Transform.writableBuffer"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Transform.writableBuffer"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.transform.writablebuffer.1su38u3.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Transform.writableBuffer",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.writablecorked.1p68c1p",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Transform.writableCorked",
+      "observedIdentity": "builtin:export:node_stream:Transform.writableCorked",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.transform.writablecorked.1p68c1p.0",
+          "branchId": "surface.builtin.export.node.stream.transform.writablecorked.1p68c1p.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.transform.writablecorked.1p68c1p.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Transform.writableCorked"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Transform.writableCorked"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.transform.writablecorked.1p68c1p.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Transform.writableCorked",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.writableended.05xfkfv",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Transform.writableEnded",
+      "observedIdentity": "builtin:export:node_stream:Transform.writableEnded",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.transform.writableended.05xfkfv.0",
+          "branchId": "surface.builtin.export.node.stream.transform.writableended.05xfkfv.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.transform.writableended.05xfkfv.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Transform.writableEnded"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Transform.writableEnded"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.transform.writableended.05xfkfv.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Transform.writableEnded",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.writablefinished.0mmztsz",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Transform.writableFinished",
+      "observedIdentity": "builtin:export:node_stream:Transform.writableFinished",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.transform.writablefinished.0mmztsz.0",
+          "branchId": "surface.builtin.export.node.stream.transform.writablefinished.0mmztsz.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.transform.writablefinished.0mmztsz.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Transform.writableFinished"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Transform.writableFinished"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.transform.writablefinished.0mmztsz.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Transform.writableFinished",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.writablehighwatermark.04bzv21",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Transform.writableHighWaterMark",
+      "observedIdentity": "builtin:export:node_stream:Transform.writableHighWaterMark",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.transform.writablehighwatermark.04bzv21.0",
+          "branchId": "surface.builtin.export.node.stream.transform.writablehighwatermark.04bzv21.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.transform.writablehighwatermark.04bzv21.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Transform.writableHighWaterMark"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Transform.writableHighWaterMark"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.transform.writablehighwatermark.04bzv21.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Transform.writableHighWaterMark",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.writablelength.1tihatx",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Transform.writableLength",
+      "observedIdentity": "builtin:export:node_stream:Transform.writableLength",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.transform.writablelength.1tihatx.0",
+          "branchId": "surface.builtin.export.node.stream.transform.writablelength.1tihatx.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.transform.writablelength.1tihatx.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Transform.writableLength"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Transform.writableLength"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.transform.writablelength.1tihatx.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Transform.writableLength",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.writableneeddrain.0o2308h",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Transform.writableNeedDrain",
+      "observedIdentity": "builtin:export:node_stream:Transform.writableNeedDrain",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.transform.writableneeddrain.0o2308h.0",
+          "branchId": "surface.builtin.export.node.stream.transform.writableneeddrain.0o2308h.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.transform.writableneeddrain.0o2308h.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Transform.writableNeedDrain"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Transform.writableNeedDrain"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.transform.writableneeddrain.0o2308h.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Transform.writableNeedDrain",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.writableobjectmode.188e1wh",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Transform.writableObjectMode",
+      "observedIdentity": "builtin:export:node_stream:Transform.writableObjectMode",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.transform.writableobjectmode.188e1wh.0",
+          "branchId": "surface.builtin.export.node.stream.transform.writableobjectmode.188e1wh.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.transform.writableobjectmode.188e1wh.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Transform.writableObjectMode"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Transform.writableObjectMode"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.transform.writableobjectmode.188e1wh.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Transform.writableObjectMode",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.writablestate.0w0e19y",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Transform.writableState",
+      "observedIdentity": "builtin:export:node_stream:Transform.writableState",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.transform.writablestate.0w0e19y.0",
+          "branchId": "surface.builtin.export.node.stream.transform.writablestate.0w0e19y.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.transform.writablestate.0w0e19y.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Transform.writableState"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Transform.writableState"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.transform.writablestate.0w0e19y.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Transform.writableState",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.transform.write.0r7bwzx",
       "surfaceKind": "builtin",
       "surfaceName": "export:node_stream:Transform._write",
@@ -59573,6 +60965,35 @@
           "probeId": "live.surface.builtin.export.node.stream.transform.write.0r7bwzx.route.0",
           "routeKind": "restricted-module-resolution",
           "target": "builtin:export:node_stream:Transform._write",
+          "expected": "unreachable"
+        }
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.write.1ujbj4g",
+      "surfaceKind": "builtin",
+      "surfaceName": "export:node_stream:Transform.write",
+      "observedIdentity": "builtin:export:node_stream:Transform.write",
+      "sourceInstall": [
+        {
+          "probeId": "source.surface.builtin.export.node.stream.transform.write.1ujbj4g.0",
+          "branchId": "surface.builtin.export.node.stream.transform.write.1ujbj4g.main",
+          "enforcementBranchId": "surface.builtin.export.node.stream.transform.write.1ujbj4g.main",
+          "enforcementRouteKind": "surface-branch",
+          "sourceRefs": [
+            "src/builtins/stream.js#exports:Transform.write"
+          ],
+          "proofPaths": [
+            "builtin:export:node_stream:Transform.write"
+          ],
+          "expected": "not-selected-or-retained"
+        }
+      ],
+      "liveReachability": [
+        {
+          "probeId": "live.surface.builtin.export.node.stream.transform.write.1ujbj4g.route.0",
+          "routeKind": "restricted-module-resolution",
+          "target": "builtin:export:node_stream:Transform.write",
           "expected": "unreachable"
         }
       ]
@@ -130772,11 +132193,13 @@
       "sourceInstall": [
         {
           "probeId": "source.surface.native.op.exactdeepfreeze.1vcvmfo.0",
-          "branchId": "surface.native.op.exactdeepfreeze.1vcvmfo.main",
-          "enforcementBranchId": "surface.native.op.exactdeepfreeze.1vcvmfo.main",
+          "branchId": "surface.native.op.exactdeepfreeze.1vcvmfo.default",
+          "enforcementBranchId": "surface.native.op.exactdeepfreeze.1vcvmfo.default",
           "enforcementRouteKind": "surface-branch",
           "sourceRefs": [
-            "src/engine/hermes_runtime.cc#__exactDeepFreeze"
+            "src/engine/hermes_runtime.cc#__exactDeepFreeze",
+            "src/engine/hermes_runtime.cc#embedded:kFreezeSealJS:__exactDeepFreeze",
+            "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:__exactDeepFreeze"
           ],
           "proofPaths": [
             "native-op:__exactDeepFreeze"
@@ -137239,11 +138662,13 @@
       "sourceInstall": [
         {
           "probeId": "source.surface.native.op.exactnativefreeze.0145fn1.0",
-          "branchId": "surface.native.op.exactnativefreeze.0145fn1.main",
-          "enforcementBranchId": "surface.native.op.exactnativefreeze.0145fn1.main",
+          "branchId": "surface.native.op.exactnativefreeze.0145fn1.default",
+          "enforcementBranchId": "surface.native.op.exactnativefreeze.0145fn1.default",
           "enforcementRouteKind": "surface-branch",
           "sourceRefs": [
-            "src/engine/hermes_runtime.cc#__exactNativeFreeze"
+            "src/engine/hermes_runtime.cc#__exactNativeFreeze",
+            "src/engine/hermes_runtime.cc#embedded:kFreezeSealJS:__exactNativeFreeze",
+            "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:__exactNativeFreeze"
           ],
           "proofPaths": [
             "native-op:__exactNativeFreeze"
@@ -191402,43 +192827,6 @@
       ]
     },
     {
-      "edgeId": "surface.native.op.global.performancemark.name.0f38t6b",
-      "surfaceKind": "native-op",
-      "surfaceName": "global:PerformanceMark.name",
-      "observedIdentity": "native-op:global:PerformanceMark.name",
-      "sourceInstall": [
-        {
-          "probeId": "source.surface.native.op.global.performancemark.name.0f38t6b.0",
-          "branchId": "surface.native.op.global.performancemark.name.0f38t6b.all",
-          "enforcementBranchId": "surface.native.op.global.performancemark.name.0f38t6b.all",
-          "enforcementRouteKind": "surface-branch",
-          "sourceRefs": [
-            "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:PerformanceMark",
-            "packages/ibex-runtime-js/src/performance/Performance.ts#PerformanceEntry.prototype.name"
-          ],
-          "proofPaths": [
-            "native-op:global:PerformanceMark.name"
-          ],
-          "expected": "not-selected-or-retained"
-        }
-      ],
-      "liveReachability": [
-        {
-          "probeId": "live.surface.native.op.global.performancemark.name.0f38t6b.descriptor.0",
-          "routeKind": "descriptor-prefix",
-          "target": "PerformanceMark.name",
-          "unresolvedSegment": null,
-          "expected": "unreachable"
-        },
-        {
-          "probeId": "live.surface.native.op.global.performancemark.name.0f38t6b.route.0",
-          "routeKind": "restricted-native-installer-route",
-          "target": "native-op:global:PerformanceMark.name",
-          "expected": "unreachable"
-        }
-      ]
-    },
-    {
       "edgeId": "surface.native.op.global.performancemark.starttime.19y6iz1",
       "surfaceKind": "native-op",
       "surfaceName": "global:PerformanceMark.startTime",
@@ -191656,43 +193044,6 @@
           "probeId": "live.surface.native.op.global.performancemeasure.entrytype.0g210lf.route.0",
           "routeKind": "restricted-native-installer-route",
           "target": "native-op:global:PerformanceMeasure.entryType",
-          "expected": "unreachable"
-        }
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.global.performancemeasure.name.14ve0m6",
-      "surfaceKind": "native-op",
-      "surfaceName": "global:PerformanceMeasure.name",
-      "observedIdentity": "native-op:global:PerformanceMeasure.name",
-      "sourceInstall": [
-        {
-          "probeId": "source.surface.native.op.global.performancemeasure.name.14ve0m6.0",
-          "branchId": "surface.native.op.global.performancemeasure.name.14ve0m6.all",
-          "enforcementBranchId": "surface.native.op.global.performancemeasure.name.14ve0m6.all",
-          "enforcementRouteKind": "surface-branch",
-          "sourceRefs": [
-            "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:PerformanceMeasure",
-            "packages/ibex-runtime-js/src/performance/Performance.ts#PerformanceEntry.prototype.name"
-          ],
-          "proofPaths": [
-            "native-op:global:PerformanceMeasure.name"
-          ],
-          "expected": "not-selected-or-retained"
-        }
-      ],
-      "liveReachability": [
-        {
-          "probeId": "live.surface.native.op.global.performancemeasure.name.14ve0m6.descriptor.0",
-          "routeKind": "descriptor-prefix",
-          "target": "PerformanceMeasure.name",
-          "unresolvedSegment": null,
-          "expected": "unreachable"
-        },
-        {
-          "probeId": "live.surface.native.op.global.performancemeasure.name.14ve0m6.route.0",
-          "routeKind": "restricted-native-installer-route",
-          "target": "native-op:global:PerformanceMeasure.name",
           "expected": "unreachable"
         }
       ]
@@ -217429,8 +218780,7 @@
           "enforcementRouteKind": "surface-branch",
           "sourceRefs": [
             "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:WebSocketError",
-            "packages/ibex-runtime-js/src/events/DOMException.ts#DOMException.name",
-            "packages/ibex-runtime-js/src/events/DOMException.ts#DOMException.prototype.name"
+            "packages/ibex-runtime-js/src/websocket/WebSocketError.ts#WebSocketError.name"
           ],
           "proofPaths": [
             "native-op:global:WebSocketError.name"

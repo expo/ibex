@@ -13,10 +13,11 @@ import { readRestrictedReachableEvidence } from "./restricted-exact-reachable-ev
 import {
   buildRestrictedTargetReport,
   loadRestrictedReportAuthorities,
+  restrictedReportPathForTarget,
   taggedDigest,
 } from "./restricted-exact-target-report.mjs";
 
-function readFailedReview(reviewPath, evidencePaths) {
+function readFailedReview(reviewPath, evidencePaths, target) {
   const rawReview = fs.readFileSync(reviewPath);
   const review = parseJsonStrict(rawReview, reviewPath);
   if (
@@ -27,7 +28,7 @@ function readFailedReview(reviewPath, evidencePaths) {
   ) {
     throw new Error("restricted failed-review artifact is not a blocking independent review");
   }
-  const reviewedReportPath = "capsec/conformance/restricted-exact-aarch64-apple-darwin-report.json";
+  const reviewedReportPath = restrictedReportPathForTarget(target);
   const reviewedReportRaw = execFileSync(
     "git",
     ["show", `${review.reviewedCommit}:${reviewedReportPath}`],
@@ -111,6 +112,7 @@ export function buildRestrictedTargetReportAfterFailedReview(
   const failed = readFailedReview(
     reviewPath,
     [reachablePath, controlPath, absencePath, corpusPath],
+    reachable.bindings.target,
   );
   return buildRestrictedTargetReport({
     ...authorities,

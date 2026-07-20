@@ -38,15 +38,15 @@ describe("LLP 0033 restricted Exact absence dominance graph", () => {
   test("binds every absent branch, live route, source file, and target-specific cut set", () => {
     const { graph } = fixture();
     expect(graph.counts).toEqual({
-      edges: 7147,
-      routes: 7361,
+      edges: 7194,
+      routes: 7408,
       sourceFiles: 208,
-      sourceBindings: 12420,
-      liveProbeBindings: 10253,
+      sourceBindings: 12468,
+      liveProbeBindings: 10298,
     });
     expect(graph.routes.every((route) => route.sourcePath.at(-1).startsWith("terminal."))).toBe(true);
     expect(graph.routes.every((route) => route.liveCutsetObservationIds.length === 3)).toBe(true);
-    expect(graph.topology.terminals).toHaveLength(7147);
+    expect(graph.topology.terminals).toHaveLength(7194);
     expect(graph.topology.sourceSpans).toHaveLength(5);
   });
 

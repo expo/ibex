@@ -63,6 +63,19 @@ function reportDigest(report) {
   ]));
 }
 
+export function restrictedReportPathForTarget(target) {
+  if (
+    target === null
+    || typeof target !== "object"
+    || Array.isArray(target)
+    || typeof target.triple !== "string"
+    || !/^[a-z0-9_]+(?:-[a-z0-9_]+)+$/u.test(target.triple)
+  ) {
+    throw new Error("restricted report target triple is malformed");
+  }
+  return `capsec/conformance/restricted-exact-${target.triple}-report.json`;
+}
+
 function validateIndependentReviewArtifact(independentReview, reviewedState) {
   if (independentReview.status === "pending") {
     if (independentReview.artifactDigest !== null) {
@@ -148,7 +161,7 @@ function validateIndependentReviewArtifact(independentReview, reviewedState) {
   ) {
     throw new Error("restricted review summary does not match its artifact verdict");
   }
-  const reportPath = "capsec/conformance/restricted-exact-aarch64-apple-darwin-report.json";
+  const reportPath = restrictedReportPathForTarget(reviewedState.bindings.target);
   let reviewedReportRaw;
   try {
     reviewedReportRaw = execFileSync(

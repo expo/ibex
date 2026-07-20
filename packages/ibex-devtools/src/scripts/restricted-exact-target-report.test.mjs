@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildRestrictedTargetReport,
   loadRestrictedReportAuthorities,
+  restrictedReportPathForTarget,
   taggedDigest,
   validateRestrictedTargetReport,
 } from "./restricted-exact-target-report.mjs";
@@ -77,14 +78,26 @@ function observedFixture() {
 }
 
 describe("LLP 0033 restricted Exact target report", () => {
+  test("derives review report paths from the bound target", () => {
+    expect(restrictedReportPathForTarget({ triple: "aarch64-apple-darwin" })).toBe(
+      "capsec/conformance/restricted-exact-aarch64-apple-darwin-report.json",
+    );
+    expect(restrictedReportPathForTarget({ triple: "x86_64-unknown-linux-gnu" })).toBe(
+      "capsec/conformance/restricted-exact-x86_64-unknown-linux-gnu-report.json",
+    );
+    expect(() => restrictedReportPathForTarget({ triple: "../../forged" })).toThrow(
+      "restricted report target triple is malformed",
+    );
+  });
+
   test("keeps every edge incomplete when no per-edge evidence exists", () => {
     const input = fixture();
     const report = buildRestrictedTargetReport(input);
     expect(report.status).toBe("incomplete");
-    expect(report.summary.total).toBe(7300);
+    expect(report.summary.total).toBe(7347);
     expect(report.summary.conformant).toBe(0);
-    expect(report.summary.incomplete).toBe(7300);
-    expect(report.summary.missingObservations).toBe(14447);
+    expect(report.summary.incomplete).toBe(7347);
+    expect(report.summary.missingObservations).toBe(14541);
     expect(report.rows.every((row) => row.executionIds.length === 0)).toBe(true);
   }, 15_000);
 
@@ -123,9 +136,9 @@ describe("LLP 0033 restricted Exact target report", () => {
     }];
     const report = buildRestrictedTargetReport(input);
     expect(report.summary.conformant).toBe(1);
-    expect(report.summary.incomplete).toBe(7299);
+    expect(report.summary.incomplete).toBe(7346);
     expect(report.summary.passedObservations).toBe(1);
-    expect(report.summary.missingObservations).toBe(14446);
+    expect(report.summary.missingObservations).toBe(14540);
   }, 15_000);
 
   test("requires both source-install and live-reachability for absence", () => {

@@ -5,7 +5,12 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-19 (r17 — records the third failed independent review,
+**Revised:** 2026-07-20 (r18 — refreshes the source-derived authority after
+executable-route completion replaced three synthetic stream export rows with
+52 exact inherited-member rows and removed two false performance-name rows;
+the 7,347-edge projection now has 7,194 structural absences, 7,408 source
+probes, and 9,794 live probes, and all earlier target evidence remains invalid;
+r17 — records the third failed independent review,
 revokes the second attempted absence fan-out, and pins executable-route v2 as
 separate build/applicability, installer-selection, and exact-target live proof;
 r16 — specifies the source-bound dominance graph and
@@ -351,11 +356,11 @@ Exit: all generators are deterministic, the projection is total, mutation
 fixtures prove omissions/confusions are detected, and advertisements remain
 empty.
 
-Implementation status (2026-07-19): the additive definition, projection, and
+Implementation status (2026-07-20): the additive definition, projection, and
 advertisement schemas and their non-writing drift gate are implemented. The
-authored definition pins the exact 7,300-edge full-registry set and binds each
+authored definition pins the exact 7,347-edge full-registry set and binds each
 of 131 candidate reachable and 22 trusted-control-plane rows to its
-source-derived kind and name; the remaining 7,147 rows are candidate
+source-derived kind and name; the remaining 7,194 rows are candidate
 structural absences whose source-install and live-reachability evidence is
 explicitly pending. The projection also binds the raw definition, coverage,
 implementation-manifest, and three profile-schema byte digests. Six mutation
@@ -386,12 +391,21 @@ positive mechanism/hostile pilot but before any per-edge source-install,
 reachability, or invocation execution. The target-report builder requires a
 deterministic fixture ID for every exact `(edge, evidence-kind)` observation,
 requires both source-install and live-reachability evidence for each structural
-absence, re-derives all 7,300 rows and summary counts, binds exact authority and
+absence, re-derives all 7,347 rows and summary counts, binds exact authority and
 engine bytes, and refuses duplicate, wrong-engine, identity-drifted, generic,
 or synthesized credit. Content-addressed attestations reopen conformant reports
 and may derive only the separately identified restricted advertisement; an
 incomplete report, missing independent review, or unresolved critical/high
 finding cannot advertise. Every evidence row and advertisement remains empty.
+Executable-route completion now covers all 7,566 implementation branches with
+no incomplete source route. Its inventory correction replaced three synthetic
+`node_stream` export rows with 52 exact inherited writable-member rows and
+removed the false `PerformanceMark.name` and `PerformanceMeasure.name` rows.
+The regenerated authority has 7,194 absent edges, 7,408 source-install probes,
+9,794 live-reachability probes, and descriptor-prefix probes for 2,458 edges.
+Because the definition, coverage, projection, probe plan, route graph, and
+fixture-plan bindings changed, every earlier Apple evidence artifact and report
+is historical only and cannot contribute to promotion.
 A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full
