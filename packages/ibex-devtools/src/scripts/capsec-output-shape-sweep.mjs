@@ -16,6 +16,7 @@
  */
 
 import crypto from "node:crypto";
+import { validateConformanceRunnerBinding } from "./capsec-conformance-runner-binding.mjs";
 import {
   canonicalOutputDispositionKey,
   OUTPUT_DISPOSITION_EVIDENCE_EXECUTOR,
@@ -4659,6 +4660,7 @@ export function buildVerifiedOutputDispositionEvidence({
   artifact,
   sourceRevision,
   sourceTreeDigest,
+  conformanceRunner,
   target,
   engine,
 }) {
@@ -4675,6 +4677,10 @@ export function buildVerifiedOutputDispositionEvidence({
     );
   }
   validateOutputShapeSweepArtifact(artifact, plan);
+  validateConformanceRunnerBinding(conformanceRunner, {
+    sourceRevision: plan.sourceRevision,
+    sourceTreeDigest: plan.sourceTreeDigest,
+  });
   const dispositionsByKey = uniqueKeyMap(
     dispositionRows,
     "reviewed output dispositions",
@@ -4687,6 +4693,7 @@ export function buildVerifiedOutputDispositionEvidence({
     requiredExecutor: OUTPUT_SHAPE_SWEEP_EXECUTOR,
     sourceRevision: plan.sourceRevision,
     sourceTreeDigest: plan.sourceTreeDigest,
+    conformanceRunner: structuredClone(conformanceRunner),
     target: structuredClone(plan.target),
     engine: structuredClone(plan.engine),
     sweepPlan: structuredClone(plan),
@@ -4724,6 +4731,7 @@ export function validatePromotableOutputDispositionEvidence({
   catalog,
   dispositionRows,
   evidence,
+  conformanceRunner,
 }) {
   const state = validateOutputDispositionEvidence(dispositionRows, evidence);
   if (state.status !== "verified") {
@@ -4731,10 +4739,18 @@ export function validatePromotableOutputDispositionEvidence({
       "target promotion requires verified loaded-engine output-disposition evidence",
     );
   }
+  if (
+    canonicalJson(state.conformanceRunner) !== canonicalJson(conformanceRunner)
+  ) {
+    throw new Error(
+      "output-disposition evidence was produced by another conformance runner binding",
+    );
+  }
   validateOutputShapeSweepPlan(evidence.sweepPlan, {
     catalog,
     sourceRevision: state.sourceRevision,
     sourceTreeDigest: state.sourceTreeDigest,
+    conformanceRunner: state.conformanceRunner,
     target: state.target,
     engine: state.engine,
   });
@@ -4746,6 +4762,7 @@ export function validatePromotableOutputDispositionEvidence({
     artifact: evidence.sweepArtifact,
     sourceRevision: state.sourceRevision,
     sourceTreeDigest: state.sourceTreeDigest,
+    conformanceRunner: state.conformanceRunner,
     target: state.target,
     engine: state.engine,
   });

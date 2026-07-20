@@ -6,6 +6,9 @@
 // Host-ABI rows are first partitioned to their dedicated native executor and
 // target-absence author. Until every residual is closed and those artifacts
 // are composed, this command writes an unpromotable report and stops.
+// @ref LLP 0035#phase-2--split-runtime-and-publication-identity — every
+// authority-bearing probe is run by the one post-link verified test binary;
+// a fresh Cargo build cannot substitute different executable bytes.
 
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -13,6 +16,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { canonicalJson, parseJsonStrict } from "./capsec-contract.mjs";
+import { readCanonicalConformanceRunnerSelection } from "./capsec-conformance-runner-binding.mjs";
 import {
   engineLoaderEnvironment,
   validateLoadedEngineIdentity,
@@ -30,6 +34,7 @@ import {
   validateCurrentSourceOutputDispositionArtifacts,
 } from "./capsec-output-shape-sweep.mjs";
 import { ENVIRONMENT_OUTPUT_SWEEP_NAMES } from "./capsec-environment-output-templates.mjs";
+import { portablePublicSurfaceInvocation } from "./capsec-public-executors.mjs";
 import {
   buildPublicSurfaceExecutionArtifact,
   mergePublicBatchExecutions,
@@ -48,6 +53,7 @@ for (let index = 0; index < args.length; index += 2) {
     !new Set([
       "--engine-artifact",
       "--output-directory",
+      "--portable-engine-conformance-runner-selection",
       "--recipe-catalog",
       "--target",
     ]).has(name)
@@ -73,12 +79,28 @@ const outputDirectory = path.resolve(
   options.get("--output-directory") ?? "target/capsec-output-shape-sweep",
 );
 const recipeCatalogOption = options.get("--recipe-catalog");
+const conformanceRunnerSelectionOption = options.get(
+  "--portable-engine-conformance-runner-selection",
+);
 if (!recipeCatalogOption) {
   throw new Error(
     "output-shape execution requires --recipe-catalog so platform-only Host ABI rows can be bound to exact target-absence recipes",
   );
 }
+if (!conformanceRunnerSelectionOption) {
+  throw new Error(
+    "output-shape execution requires the canonical post-link conformance-runner selection",
+  );
+}
 const recipeCatalogPath = path.resolve(repoRoot, recipeCatalogOption);
+const conformanceRunnerSelectionPath = path.resolve(
+  repoRoot,
+  conformanceRunnerSelectionOption,
+);
+let portableEngineTestExecutable;
+let portableEngineTestExecutableDigest;
+let portableEngineTestExecutableSize;
+let conformanceRunner;
 if (!fs.existsSync(engineArtifactPath)) {
   throw new Error(`bound runtime engine artifact not found: ${engineArtifactPath}`);
 }
@@ -88,6 +110,113 @@ if (!fs.existsSync(recipeCatalogPath)) {
 
 const taggedDigest = (bytes) =>
   `sha256-${crypto.createHash("sha256").update(bytes).digest("base64url")}`;
+const EFFECTIVE_UID =
+  typeof process.geteuid === "function"
+    ? process.geteuid()
+    : typeof process.getuid === "function"
+      ? process.getuid()
+      : null;
+
+function assertPortableEngineTestExecutable() {
+  if (!/^sha256-[0-9a-f]{64}$/u.test(portableEngineTestExecutableDigest)) {
+    throw new Error("portable engine test executable digest is malformed");
+  }
+  const targetRoot = fs.realpathSync(path.join(repoRoot, "target"));
+  const relative = path.relative(targetRoot, portableEngineTestExecutable);
+  if (
+    relative === "" ||
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative) ||
+    fs.realpathSync(portableEngineTestExecutable) !==
+      portableEngineTestExecutable
+  ) {
+    throw new Error(
+      "portable engine test executable escaped target/ or is redirected",
+    );
+  }
+  const before = fs.lstatSync(portableEngineTestExecutable, { bigint: true });
+  if (
+    !before.isFile() ||
+    before.isSymbolicLink() ||
+    before.nlink !== 1n ||
+    (EFFECTIVE_UID !== null && before.uid !== BigInt(EFFECTIVE_UID)) ||
+    (Number(before.mode & 0o7777n) & 0o111) === 0 ||
+    before.size <= 0n ||
+    before.size !== BigInt(portableEngineTestExecutableSize) ||
+    before.size > 512n * 1024n * 1024n
+  ) {
+    throw new Error(
+      "portable engine test executable is not one bounded owned executable file",
+    );
+  }
+  const descriptor = fs.openSync(
+    portableEngineTestExecutable,
+    fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0),
+  );
+  try {
+    const opened = fs.fstatSync(descriptor, { bigint: true });
+    if (
+      opened.dev !== before.dev ||
+      opened.ino !== before.ino ||
+      opened.size !== before.size
+    ) {
+      throw new Error("portable engine test executable changed while opening");
+    }
+    const hash = crypto.createHash("sha256");
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let offset = 0;
+    while (offset < Number(opened.size)) {
+      const length = Math.min(buffer.length, Number(opened.size) - offset);
+      const count = fs.readSync(descriptor, buffer, 0, length, offset);
+      if (count <= 0) {
+        throw new Error("portable engine test executable read ended early");
+      }
+      hash.update(buffer.subarray(0, count));
+      offset += count;
+    }
+    const after = fs.fstatSync(descriptor, { bigint: true });
+    const pathAfter = fs.lstatSync(portableEngineTestExecutable, {
+      bigint: true,
+    });
+    for (const current of [after, pathAfter]) {
+      if (
+        !current.isFile() ||
+        current.isSymbolicLink() ||
+        current.nlink !== 1n ||
+        current.dev !== opened.dev ||
+        current.ino !== opened.ino ||
+        current.size !== opened.size ||
+        current.mtimeNs !== opened.mtimeNs ||
+        current.ctimeNs !== opened.ctimeNs
+      ) {
+        throw new Error("portable engine test executable changed while reading");
+      }
+    }
+    if (`sha256-${hash.digest("hex")}` !== portableEngineTestExecutableDigest) {
+      throw new Error(
+        "portable engine test executable differs from post-link verified bytes",
+      );
+    }
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+function runPortableEngineTest(testName, env) {
+  assertPortableEngineTestExecutable();
+  execFileSync(
+    portableEngineTestExecutable,
+    [testName, "--test-threads=1", "--nocapture"],
+    {
+      cwd: repoRoot,
+      env,
+      stdio: "inherit",
+    },
+  );
+  assertPortableEngineTestExecutable();
+}
+
 const git = (...gitArgs) => execFileSync("git", gitArgs, { cwd: repoRoot });
 const sourceState = () => ({
   revision: git("rev-parse", "HEAD").toString("utf8").trim(),
@@ -100,6 +229,22 @@ if (initialSource.dirty) {
     "output-shape execution requires a clean committed source tree; dirty trees cannot receive a revision binding",
   );
 }
+const initialSourceTreeDigest = taggedDigest(
+  Buffer.from(`${initialSource.tree}\n`, "utf8"),
+);
+const conformanceRunnerState = readCanonicalConformanceRunnerSelection({
+  selectionPath: conformanceRunnerSelectionPath,
+  repoRoot,
+  sourceRevision: initialSource.revision,
+  sourceTreeDigest: initialSourceTreeDigest,
+});
+portableEngineTestExecutable = conformanceRunnerState.executablePath;
+portableEngineTestExecutableDigest =
+  conformanceRunnerState.selection.executableDigest;
+portableEngineTestExecutableSize =
+  conformanceRunnerState.selection.executableSize;
+conformanceRunner = conformanceRunnerState.binding;
+assertPortableEngineTestExecutable();
 if (fs.existsSync(outputDirectory)) {
   throw new Error(
     `output-shape output directory already exists; choose a fresh path: ${outputDirectory}`,
@@ -113,7 +258,7 @@ function readOwnedJson(filePath, label) {
     before.isSymbolicLink() ||
     !before.isFile() ||
     before.nlink !== 1 ||
-    (typeof process.getuid === "function" && before.uid !== process.getuid())
+    (EFFECTIVE_UID !== null && before.uid !== EFFECTIVE_UID)
   ) {
     throw new Error(`${label}: expected an owned regular file`);
   }
@@ -129,7 +274,7 @@ function readOwnedJson(filePath, label) {
       opened.nlink !== 1 ||
       opened.dev !== before.dev ||
       opened.ino !== before.ino ||
-      (typeof process.getuid === "function" && opened.uid !== process.getuid())
+      (EFFECTIVE_UID !== null && opened.uid !== EFFECTIVE_UID)
     ) {
       throw new Error(`${label}: file identity changed while opening`);
     }
@@ -205,6 +350,10 @@ const targetAbsenceExecutionPath = path.join(
   outputDirectory,
   "target-absence-public-executions.json",
 );
+const runnerBindingPath = path.join(
+  outputDirectory,
+  "post-link-conformance-runner.json",
+);
 
 const rules = readOwnedJson(
   path.join(repoRoot, "capsec/registry/policy-rules.json"),
@@ -212,6 +361,7 @@ const rules = readOwnedJson(
 );
 const target = selectCandidateTarget(rules, options.get("--target"));
 const engineBinaryDigest = taggedDigest(fs.readFileSync(engineArtifactPath));
+writeNewJson(runnerBindingPath, conformanceRunner);
 const completeCatalog = readOwnedJson(
   path.join(repoRoot, "capsec/generated/output-shape-catalog.json"),
   "output-shape catalog",
@@ -340,28 +490,10 @@ const identityAfterPath = path.join(
   "loaded-engine-identity-after.json",
 );
 const attestEngine = (identityPath) => {
-  execFileSync(
-    "cargo",
-    [
-      "test",
-      "--bin",
-      "ibex",
-      "--features",
-      "capsec-conformance-observer",
-      "capsec_loaded_engine_identity_attestation",
-      "--",
-      "--test-threads=1",
-      "--nocapture",
-    ],
-    {
-      cwd: repoRoot,
-      env: {
-        ...exactEngineEnvironment,
-        IBEX_CAPSEC_ENGINE_IDENTITY_OUTPUT: identityPath,
-      },
-      stdio: "inherit",
-    },
-  );
+  runPortableEngineTest("capsec_loaded_engine_identity_attestation", {
+    ...exactEngineEnvironment,
+    IBEX_CAPSEC_ENGINE_IDENTITY_OUTPUT: identityPath,
+  });
 };
 
 attestEngine(identityBeforePath);
@@ -377,7 +509,8 @@ const engine = validateLoadedEngineIdentity({
 });
 const bindings = {
   sourceRevision: initialSource.revision,
-  sourceTreeDigest: taggedDigest(Buffer.from(`${initialSource.tree}\n`, "utf8")),
+  sourceTreeDigest: initialSourceTreeDigest,
+  conformanceRunner,
   target,
   engine,
 };
@@ -431,55 +564,19 @@ const childHostEnvironmentCanaries = Object.fromEntries(
   ]),
 );
 
-execFileSync(
-  "cargo",
-  [
-    "test",
-    "--bin",
-    "ibex",
-    "--features",
-    "capsec-conformance-observer",
-    "capsec_output_shape_sweep_batch",
-    "--",
-    "--test-threads=1",
-    "--nocapture",
-  ],
-  {
-    cwd: repoRoot,
-    env: {
-      ...exactEngineEnvironment,
-      ...childHostEnvironmentCanaries,
-      IBEX_CAPSEC_OUTPUT_SHAPE_PLAN: genericPlanPath,
-      IBEX_CAPSEC_OUTPUT_SHAPE_BATCH_OUTPUT: batchPath,
-    },
-    stdio: "inherit",
-  },
-);
+runPortableEngineTest("capsec_output_shape_sweep_batch", {
+  ...exactEngineEnvironment,
+  ...childHostEnvironmentCanaries,
+  IBEX_CAPSEC_OUTPUT_SHAPE_PLAN: genericPlanPath,
+  IBEX_CAPSEC_OUTPUT_SHAPE_BATCH_OUTPUT: batchPath,
+});
 const batch = readOwnedJson(batchPath, "output-shape executor batch");
 
-execFileSync(
-  "cargo",
-  [
-    "test",
-    "--bin",
-    "ibex",
-    "--features",
-    "capsec-conformance-observer,host-http-server",
-    "capsec_host_abi_output_batch",
-    "--",
-    "--test-threads=1",
-    "--nocapture",
-  ],
-  {
-    cwd: repoRoot,
-    env: {
-      ...exactEngineEnvironment,
-      IBEX_CAPSEC_HOST_ABI_OUTPUT_PLAN: hostAbiPlanPath,
-      IBEX_CAPSEC_HOST_ABI_OUTPUT_BATCH_OUTPUT: hostAbiBatchPath,
-    },
-    stdio: "inherit",
-  },
-);
+runPortableEngineTest("capsec_host_abi_output_batch", {
+  ...exactEngineEnvironment,
+  IBEX_CAPSEC_HOST_ABI_OUTPUT_PLAN: hostAbiPlanPath,
+  IBEX_CAPSEC_HOST_ABI_OUTPUT_BATCH_OUTPUT: hostAbiBatchPath,
+});
 const hostAbiBatch = readOwnedJson(
   hostAbiBatchPath,
   "Host ABI output executor batch",
@@ -508,7 +605,12 @@ if (targetAbsenceCommands.length !== 1) {
   );
 }
 const [targetAbsenceCommand] = targetAbsenceCommands;
-execFileSync(targetAbsenceCommand[0], targetAbsenceCommand.slice(1), {
+const targetAbsenceInvocation = portablePublicSurfaceInvocation(
+  targetAbsenceCommand,
+  portableEngineTestExecutable,
+);
+assertPortableEngineTestExecutable();
+execFileSync(targetAbsenceInvocation.command, targetAbsenceInvocation.args, {
   cwd: repoRoot,
   env: {
     ...exactEngineEnvironment,
@@ -517,6 +619,7 @@ execFileSync(targetAbsenceCommand[0], targetAbsenceCommand.slice(1), {
   },
   stdio: "inherit",
 });
+assertPortableEngineTestExecutable();
 const targetAbsenceBatch = readOwnedJson(
   targetAbsenceBatchPath,
   "target-absence public executor batch",
@@ -595,6 +698,7 @@ try {
     status: "unpromotable",
     sourceRevision: bindings.sourceRevision,
     sourceTreeDigest: bindings.sourceTreeDigest,
+    conformanceRunner: bindings.conformanceRunner,
     target: bindings.target,
     loadedEngineIdentity: bindings.engine,
     sweepPlanDigest: plan.sweepPlanDigest,
@@ -625,6 +729,7 @@ writeNewJson(reportPath, {
   status: "verified",
   sourceRevision: bindings.sourceRevision,
   sourceTreeDigest: bindings.sourceTreeDigest,
+  conformanceRunner: bindings.conformanceRunner,
   target: bindings.target,
   loadedEngineIdentity: bindings.engine,
   sweepPlanDigest: plan.sweepPlanDigest,

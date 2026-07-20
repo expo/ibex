@@ -25,6 +25,7 @@
       "pattern": "^[0-9a-f]{40}$"
     },
     "sourceTreeDigest": { "$ref": "#/$defs/digest" },
+    "conformanceRunner": { "$ref": "#/$defs/conformanceRunnerBinding" },
     "target": { "$ref": "#/$defs/target" },
     "engine": { "$ref": "#/$defs/engine" },
     "sweepPlan": {
@@ -50,6 +51,7 @@
           "reason": { "$ref": "#/$defs/nonEmptyString" },
           "sourceRevision": false,
           "sourceTreeDigest": false,
+          "conformanceRunner": false,
           "target": false,
           "engine": false,
           "sweepPlan": false,
@@ -67,6 +69,7 @@
         "required": [
           "sourceRevision",
           "sourceTreeDigest",
+          "conformanceRunner",
           "target",
           "engine",
           "sweepPlan",
@@ -79,6 +82,9 @@
             "pattern": "^[0-9a-f]{40}$"
           },
           "sourceTreeDigest": { "$ref": "#/$defs/digest" },
+          "conformanceRunner": {
+            "$ref": "#/$defs/conformanceRunnerBinding"
+          },
           "target": { "$ref": "#/$defs/target" },
           "engine": { "$ref": "#/$defs/engine" },
           "sweepPlan": { "type": "object" },
@@ -114,6 +120,34 @@
         "features": { "$ref": "#/$defs/stableIdSet" }
       },
       "additionalProperties": false
+    },
+    "conformanceRunnerBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceRevision",
+        "sourceTreeDigest",
+        "artifactId",
+        "buildConsumptionDigest",
+        "postLinkSetDigest",
+        "verificationDigest",
+        "testExecutableDigest"
+      ],
+      "properties": {
+        "sourceRevision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "sourceTreeDigest": { "$ref": "#/$defs/digest" },
+        "artifactId": { "$ref": "#/$defs/digest" },
+        "buildConsumptionDigest": { "$ref": "#/$defs/digest" },
+        "postLinkSetDigest": { "$ref": "#/$defs/digest" },
+        "verificationDigest": { "$ref": "#/$defs/digest" },
+        "testExecutableDigest": {
+          "type": "string",
+          "pattern": "^sha256-[0-9a-f]{64}$"
+        }
+      }
     },
     "engine": {
       "type": "object",

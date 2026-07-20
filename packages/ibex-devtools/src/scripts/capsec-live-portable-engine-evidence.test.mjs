@@ -15,6 +15,7 @@ import {
   rawContentDigest,
 } from "./capsec-portable-engine-evidence-contract.mjs";
 import { computeDomainDigest, parseJsonStrict } from "./capsec-contract.mjs";
+import { conformanceRunnerBindingDigest } from "./capsec-conformance-runner-binding.mjs";
 
 const repoRoot = path.resolve(import.meta.dir, "../../../..");
 const portableVectors = parseJsonStrict(
@@ -30,6 +31,15 @@ const roots = [];
 const digest = (character) => rawContentDigest(Buffer.from(character, "utf8"));
 const exactBytes = (value) =>
   Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
+const conformanceRunner = (sourceRevision, sourceTreeDigest, engine) => ({
+  sourceRevision,
+  sourceTreeDigest,
+  artifactId: engine.artifactId,
+  buildConsumptionDigest: digest("L"),
+  postLinkSetDigest: digest("M"),
+  verificationDigest: digest("N"),
+  testExecutableDigest: `sha256-${"e".repeat(64)}`,
+});
 
 afterEach(() => {
   for (const root of roots.splice(0)) {
@@ -59,6 +69,11 @@ test("public-batch plans bind source-selected executor and supervisor route", ()
     publicSurfaceExecutionRawContentDigest: digest("J"),
     outputDispositionEvidenceRawContentDigest: digest("K"),
   };
+  bindings.conformanceRunner = conformanceRunner(
+    bindings.sourceRevision,
+    bindings.sourceTreeDigest,
+    bindings.engine,
+  );
   const state = buildPortablePublicBatchEvidencePlan({
     bindings,
     evidenceDirectory: root,
@@ -126,6 +141,11 @@ function liveFixture() {
     publicSurfaceExecutionRawContentDigest: digest("J"),
     outputDispositionEvidenceRawContentDigest: digest("K"),
   };
+  bindings.conformanceRunner = conformanceRunner(
+    bindings.sourceRevision,
+    bindings.sourceTreeDigest,
+    bindings.engine,
+  );
   const fixtureIds = ["fixture.portable-alpha", "fixture.portable-beta"];
   const plan = buildPortableEvidencePlan({
     bindings,
@@ -193,6 +213,12 @@ function liveFixture() {
     commandIdentity: evidence.commandIdentityDigest,
     phase: evidence.phaseId,
     displayedInvocation: ["cargo", "test"],
+    declaredInputs: [
+      {
+        name: "conformanceRunner",
+        digest: conformanceRunnerBindingDigest(bindings.conformanceRunner),
+      },
+    ],
     startedAt: "2026-07-20T00:00:00.000Z",
     finishedAt: "2026-07-20T00:00:01.000Z",
     elapsedMs: 1000,

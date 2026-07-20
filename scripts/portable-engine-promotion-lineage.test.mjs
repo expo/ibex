@@ -4,6 +4,7 @@ import * as fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { deflateSync } from "node:zlib";
 import { afterEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -16,6 +17,20 @@ import {
   rawDigest,
   semanticDigest,
 } from "./portable-engine-contract.mjs";
+import {
+  commandAttemptDigest,
+  mappedEngineExecutionEvidenceDigest,
+  portableConformanceDigest,
+  portableExecutionBindingDigest,
+  portableFixtureEvidenceDigest,
+  portableOutputDispositionObservationDigest,
+  portablePublicSurfaceExecutionDigest,
+  portablePublicSurfaceExecutionEvidenceDigest,
+  portableRecipeCatalogDigest,
+  portableRecipePlanDigest,
+  rawContentDigest,
+} from "../packages/ibex-devtools/src/scripts/capsec-portable-engine-evidence-contract.mjs";
+import { conformanceRunnerBindingDigest } from "../packages/ibex-devtools/src/scripts/capsec-conformance-runner-binding.mjs";
 import { portableEnginePromotionLineagePlatformSupported } from "./portable-engine-promotion-lineage.mjs";
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -26,9 +41,40 @@ const checkedAdmissionSchemaPath = "schemas/portable-engine-checked-promotion-ad
 const targetAttestationPath = "capsec/conformance/target-attestations.json";
 const targetAdvertisementPath = "capsec/generated/target-advertisements.json";
 const targetTriple = "aarch64-apple-darwin";
-const artifactId = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const portableVectors = parseJsonStrict(
+  fs.readFileSync(
+    path.join(
+      sourceRoot,
+      "schemas/vectors/portable-engine-provenance-v1.valid.json",
+    ),
+  ),
+  "portable provenance test vectors",
+);
+const basePortableEngine = portableVectors.documents.portableIdentity;
+const baseMappedEngine = portableVectors.documents.mappedInstance;
+const artifactId = basePortableEngine.artifactId;
 const admissionDomain = "ibex.portable-engine-promotion-admission.v1";
 const checkedAdmissionDomain = "ibex.portable-engine-checked-promotion-admission.v1";
+const portableGraphAuthorityPaths = Object.freeze([
+  "packages/ibex-devtools/src/scripts/verify-capsec-portable-promotion-bundle.mjs",
+  "packages/ibex-devtools/src/scripts/capsec-portable-engine-evidence-contract.mjs",
+  "capsec/schema/common.schema.json",
+  "capsec/schema/target-cell.schema.json",
+  "schemas/portable-engine-common-v1.schema.json",
+  "schemas/portable-engine-artifact-identity-v1.schema.json",
+  "schemas/mapped-engine-instance-identity-v1.schema.json",
+  "schemas/capsec-portable-engine-evidence-common-v1.schema.json",
+  "schemas/capsec-command-attempt-v1.schema.json",
+  "schemas/capsec-executable-recipes-v2.schema.json",
+  "schemas/capsec-public-surface-executions-v2.schema.json",
+  "schemas/capsec-output-disposition-evidence-v4.schema.json",
+  "schemas/capsec-portable-fixture-evidence-v1.schema.json",
+  "schemas/capsec-mapped-engine-execution-evidence-v1.schema.json",
+  "schemas/capsec-conformance-report-v2.schema.json",
+  "schemas/capsec-target-attestations-v2.schema.json",
+  "schemas/capsec-target-advertisements-v2.schema.json",
+  "schemas/capsec-portable-promotion-authority-v1.schema.json",
+]);
 const gitEnvironment = Object.freeze({
   PATH: "/usr/bin:/bin",
   HOME: "/var/empty",
@@ -70,6 +116,28 @@ async function copyAuthority(repoRoot, relativePath) {
   await writeFile(repoRoot, relativePath, await fsp.readFile(path.join(sourceRoot, relativePath)));
 }
 
+async function copyModuleClosure(repoRoot, relativePath, seen = new Set()) {
+  const normalized = path.posix.normalize(relativePath);
+  if (seen.has(normalized)) return;
+  seen.add(normalized);
+  await copyAuthority(repoRoot, normalized);
+  const source = await fsp.readFile(path.join(sourceRoot, normalized), "utf8");
+  const imports = source.matchAll(
+    /(?:\bfrom\s*|\bimport\s*)["'](\.[^"']+)["']/gu,
+  );
+  for (const match of imports) {
+    const imported = path.posix.normalize(
+      path.posix.join(path.posix.dirname(normalized), match[1]),
+    );
+    if (!imported.endsWith(".mjs")) continue;
+    assert(
+      !imported.startsWith("../") && imported !== "..",
+      `test module import escapes the fixture checkout: ${imported}`,
+    );
+    await copyModuleClosure(repoRoot, imported, seen);
+  }
+}
+
 function indexEntry(repoRoot, relativePath) {
   const output = git(repoRoot, ["ls-files", "-s", "--", relativePath]).trim();
   const match = /^(100644|100755|120000|160000) ([0-9a-f]{40}) 0\t(.+)$/u.exec(output);
@@ -96,6 +164,429 @@ function artifactRow(repoRoot, role, relativePath, { advertisedMode = "100644" }
   };
 }
 
+const digest = (character) => `sha256-${character.repeat(43)}`;
+const clone = (value) => structuredClone(value);
+const exactBytes = (value) => Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
+
+function sourceTreeDigest(sourceTreeObjectId) {
+  return `sha256-${createHash("sha256")
+    .update(Buffer.from(`${sourceTreeObjectId}\n`, "utf8"))
+    .digest("base64url")}`;
+}
+
+function withDigest(value, field, digestFunction) {
+  value[field] = digest("A");
+  value[field] = digestFunction(value);
+  return value;
+}
+
+function validPortableBundleGraph({
+  sourceRevision,
+  sourceTreeObjectId,
+  targetOverride = null,
+}) {
+  const treeDigest = sourceTreeDigest(sourceTreeObjectId);
+  const target = targetOverride ?? {
+      triple: targetTriple,
+      features: [
+        "hermes-frame-attribution",
+        "native-compartments",
+        "native-lockdown",
+      ],
+    };
+  const engine = clone(basePortableEngine);
+  const conformanceRunner = {
+    sourceRevision,
+    sourceTreeDigest: treeDigest,
+    artifactId: engine.artifactId,
+    buildConsumptionDigest: digest("M"),
+    postLinkSetDigest: digest("Q"),
+    verificationDigest: digest("U"),
+    testExecutableDigest: `sha256-${"e".repeat(64)}`,
+  };
+  const fixtureId = "fixture.portable-lineage";
+  const executor = "ibex-exact-fixture-evidence-pilot";
+  const targetCells = {
+    targetCellSchema: "ibex/capsec-target-cells/1",
+    profile: "ibex/capsec/1",
+    cells: [
+      {
+        edgeId: "edge.portable-lineage",
+        target: clone(target),
+        disposition: "enforced",
+        implementationBranchIds: ["branch.portable-lineage"],
+        fixtures: [fixtureId],
+        rationale: "Exact checked-Git promotion-lineage fixture.",
+      },
+    ],
+  };
+  const targetCellsBytes = exactBytes(targetCells);
+  const recipe = withDigest(
+    {
+      fixtureId,
+      status: "fully-executable",
+      executor,
+      planDigest: digest("A"),
+    },
+    "planDigest",
+    portableRecipePlanDigest,
+  );
+  const recipes = withDigest(
+    {
+      recipeCatalogSchema: "ibex/capsec-executable-recipes/2",
+      profile: "ibex/capsec/1",
+      target: clone(target),
+      recipes: [recipe],
+      summary: {
+        requiredFixtures: 1,
+        fullyExecutableFixtures: 1,
+        unresolvedFixtures: 0,
+      },
+      recipeCatalogDigest: digest("A"),
+    },
+    "recipeCatalogDigest",
+    portableRecipeCatalogDigest,
+  );
+  const recipeCatalogBytes = exactBytes(recipes);
+  const publicExecution = withDigest(
+    {
+      fixtureId,
+      outcome: "passed",
+      executor,
+      evidenceDigest: digest("A"),
+    },
+    "evidenceDigest",
+    portablePublicSurfaceExecutionEvidenceDigest,
+  );
+  const publicSurface = withDigest(
+    {
+      publicSurfaceExecutionSchema: "ibex/capsec-public-surface-executions/2",
+      profile: "ibex/capsec/1",
+      sourceRevision,
+      sourceTreeDigest: treeDigest,
+      target: clone(target),
+      engine: clone(engine),
+      recipeCatalogDigest: recipes.recipeCatalogDigest,
+      recipeCatalogRawContentDigest: rawContentDigest(recipeCatalogBytes),
+      summary: {
+        requiredFixtures: 1,
+        executableFixtures: 1,
+        residualFixtures: 0,
+        executedFixtures: 1,
+        passedFixtures: 1,
+        failedFixtures: 0,
+        missingFixtures: 0,
+      },
+      executions: [publicExecution],
+      publicSurfaceExecutionDigest: digest("A"),
+    },
+    "publicSurfaceExecutionDigest",
+    portablePublicSurfaceExecutionDigest,
+  );
+  const publicSurfaceExecutionBytes = exactBytes(publicSurface);
+  const outputObservation = withDigest(
+    {
+      key: "output.portable-lineage",
+      disposition: "non-path",
+      proofKind: "compiled-runtime-return-record",
+      observationDigest: digest("A"),
+    },
+    "observationDigest",
+    portableOutputDispositionObservationDigest,
+  );
+  const outputDispositions = {
+    outputDispositionEvidenceSchema:
+      "ibex/capsec-output-disposition-evidence/4",
+    profile: "ibex/capsec/1",
+    status: "verified",
+    sourceRevision,
+    sourceTreeDigest: treeDigest,
+    target: clone(target),
+    engine: clone(engine),
+    conformanceRunner: clone(conformanceRunner),
+    summary: { observations: 1 },
+    observations: [outputObservation],
+  };
+  const outputDispositionEvidenceBytes = exactBytes(outputDispositions);
+  const bindings = {
+    sourceRevision,
+    sourceTreeDigest: treeDigest,
+    conformanceRunner: clone(conformanceRunner),
+    engine: clone(engine),
+    target: clone(target),
+    vocabularyDigest: digest("Q"),
+    registryDigest: digest("U"),
+    implementationManifestDigest: digest("Y"),
+    fixtureCatalogDigest: digest("c"),
+    targetCellsRawContentDigest: rawContentDigest(targetCellsBytes),
+    recipeCatalogDigest: recipes.recipeCatalogDigest,
+    recipeCatalogRawContentDigest: rawContentDigest(recipeCatalogBytes),
+    publicSurfaceExecutionDigest: publicSurface.publicSurfaceExecutionDigest,
+    publicSurfaceExecutionRawContentDigest: rawContentDigest(
+      publicSurfaceExecutionBytes,
+    ),
+    outputDispositionEvidenceRawContentDigest: rawContentDigest(
+      outputDispositionEvidenceBytes,
+    ),
+  };
+  const bindingDigest = portableExecutionBindingDigest(bindings);
+  const fixture = withDigest(
+    {
+      fixtureEvidenceSchema: "ibex/capsec-portable-fixture-evidence/1",
+      profile: "ibex/capsec/1",
+      sourceRevision,
+      sourceTreeDigest: treeDigest,
+      target: clone(target),
+      engine: clone(engine),
+      fixtureId,
+      outcome: "passed",
+      executor,
+      bindingDigest,
+      artifactDigest: digest("A"),
+    },
+    "artifactDigest",
+    portableFixtureEvidenceDigest,
+  );
+  const fixtureBytes = exactBytes(fixture);
+  const fixtureRawDigest = rawContentDigest(fixtureBytes);
+  const mappedEngine = clone(baseMappedEngine);
+  mappedEngine.portable = clone(engine);
+  mappedEngine.before.digest = engine.runtimeComponentDigest;
+  mappedEngine.after.digest = engine.runtimeComponentDigest;
+  mappedEngine.processArchitecture = targetTriple.split("-")[0];
+  mappedEngine.observationDigest = semanticDigest(
+    "ibex.mapped-engine-instance-identity.v1",
+    mappedEngine,
+    ["observationDigest"],
+  );
+  const mappedEvidence = withDigest(
+    {
+      mappedEngineExecutionEvidenceSchema:
+        "ibex/capsec-mapped-engine-execution-evidence/1",
+      profile: "ibex/capsec/1",
+      authorityClass: "same-runner-authoritative",
+      sourceRevision,
+      sourceTreeDigest: treeDigest,
+      target: clone(target),
+      phaseId: "fixture-evidence",
+      commandId: "exact-fixture-evidence",
+      commandIdentityDigest: digest("E"),
+      fixtureIds: [fixtureId],
+      outputDigests: [fixtureRawDigest],
+      engine: clone(engine),
+      mappedEngine,
+      evidenceDigest: digest("A"),
+    },
+    "evidenceDigest",
+    mappedEngineExecutionEvidenceDigest,
+  );
+  const mappedEvidenceBytes = exactBytes(mappedEvidence);
+  const commandAttempt = withDigest(
+    {
+      schema: "ibex/capsec-command-attempt/1",
+      attemptId: "attempt-000001",
+      commandId: mappedEvidence.commandId,
+      commandIdentity: mappedEvidence.commandIdentityDigest,
+      phase: mappedEvidence.phaseId,
+      displayedInvocation: ["ibex", "--fixture-evidence"],
+      declaredInputs: [
+        {
+          name: "conformanceRunner",
+          digest: conformanceRunnerBindingDigest(conformanceRunner),
+        },
+      ],
+      startedAt: "2026-07-20T00:00:00.000Z",
+      finishedAt: "2026-07-20T00:00:01.000Z",
+      elapsedMs: 1000,
+      deadlineMs: 30000,
+      gracePeriodMs: 5000,
+      classification: "success",
+      exitCode: 0,
+      signal: null,
+      cleanup: { actions: [], cleanupProven: true, escapedDescendants: [] },
+      stdout: { bytes: 0, digest: digest("4"), tail: "", truncated: false },
+      stderr: { bytes: 0, digest: digest("4"), tail: "", truncated: false },
+      outputs: [
+        {
+          path: "/runner/evidence/fixture.json",
+          bytes: fixtureBytes.byteLength,
+          digest: fixtureRawDigest,
+        },
+        {
+          path: "/runner/evidence/mapped.json",
+          bytes: mappedEvidenceBytes.byteLength,
+          digest: rawContentDigest(mappedEvidenceBytes),
+        },
+      ],
+      attemptDigest: digest("A"),
+    },
+    "attemptDigest",
+    commandAttemptDigest,
+  );
+  const commandAttemptBytes = exactBytes(commandAttempt);
+  const evidenceReference = {
+    evidenceDigest: mappedEvidence.evidenceDigest,
+    rawContentDigest: rawContentDigest(mappedEvidenceBytes),
+    attemptDigest: commandAttempt.attemptDigest,
+    attemptRawContentDigest: rawContentDigest(commandAttemptBytes),
+  };
+  const report = withDigest(
+    {
+      conformanceSchema: "ibex/capsec-conformance/2",
+      profile: "ibex/capsec/1",
+      status: "conformant",
+      bindings: {
+        ...clone(bindings),
+        mappedEngineExecutionEvidence: [evidenceReference],
+      },
+      summary: {
+        cells: 1,
+        conformantCells: 1,
+        incompleteCells: 0,
+        requiredFixtures: 1,
+        passedFixtures: 1,
+        missingFixtures: 0,
+        failedFixtures: 0,
+      },
+      executions: [
+        {
+          fixtureId,
+          outcome: "passed",
+          executor,
+          artifactDigest: fixture.artifactDigest,
+          rawContentDigest: fixtureRawDigest,
+          bindingDigest,
+          mappedEngineExecutionEvidenceDigest: mappedEvidence.evidenceDigest,
+        },
+      ],
+      cells: [
+        {
+          edgeId: "edge.portable-lineage",
+          implementationBranchIds: ["branch.portable-lineage"],
+          enforcementBranchIds: ["branch.portable-lineage"],
+          status: "conformant",
+          requiredFixtures: [fixtureId],
+          passedFixtures: [fixtureId],
+          missingFixtures: [],
+          failedFixtures: [],
+        },
+      ],
+      conformanceDigest: digest("A"),
+    },
+    "conformanceDigest",
+    portableConformanceDigest,
+  );
+  const reportBytes = exactBytes(report);
+  const authorityBytes = exactBytes({
+    portablePromotionAuthoritySchema:
+      "ibex/capsec-portable-promotion-authority/1",
+    profile: "ibex/capsec/1",
+    sourceRevision,
+    sourceTreeDigest: treeDigest,
+    targets: [
+      {
+        family: "macos",
+        target: clone(target),
+        engine: clone(engine),
+        conformanceRunner: clone(conformanceRunner),
+        vocabularyDigest: bindings.vocabularyDigest,
+        registryDigest: bindings.registryDigest,
+        implementationManifestDigest: bindings.implementationManifestDigest,
+        fixtureCatalogDigest: bindings.fixtureCatalogDigest,
+        targetCellsRawContentDigest: bindings.targetCellsRawContentDigest,
+        recipeCatalogDigest: bindings.recipeCatalogDigest,
+        recipeCatalogRawContentDigest: bindings.recipeCatalogRawContentDigest,
+        publicSurfaceExecutionDigest: bindings.publicSurfaceExecutionDigest,
+        publicSurfaceExecutionRawContentDigest:
+          bindings.publicSurfaceExecutionRawContentDigest,
+        outputDispositionEvidenceRawContentDigest:
+          bindings.outputDispositionEvidenceRawContentDigest,
+      },
+    ],
+  });
+  const attestationsBytes = exactBytes({
+    targetAttestationSchema: "ibex/capsec-target-attestations/2",
+    profile: "ibex/capsec/1",
+    attestations: [
+      {
+        target: clone(target),
+        conformanceDigest: report.conformanceDigest,
+        reportRawContentDigest: rawContentDigest(reportBytes),
+        sourceRevision,
+        sourceTreeDigest: treeDigest,
+        portableArtifactId: artifactId,
+        mappedEngineExecutionEvidence: [clone(evidenceReference)],
+        recipeCatalogDigest: bindings.recipeCatalogDigest,
+        recipeCatalogRawContentDigest: bindings.recipeCatalogRawContentDigest,
+        publicSurfaceExecutionDigest: bindings.publicSurfaceExecutionDigest,
+        publicSurfaceExecutionRawContentDigest:
+          bindings.publicSurfaceExecutionRawContentDigest,
+        outputDispositionEvidenceRawContentDigest:
+          bindings.outputDispositionEvidenceRawContentDigest,
+      },
+    ],
+  });
+  const advertisementsBytes = exactBytes({
+    targetAdvertisementSchema: "ibex/capsec-target-advertisements/2",
+    profile: "ibex/capsec/1",
+    targetCellsRawContentDigest: bindings.targetCellsRawContentDigest,
+    advertisements: [
+      {
+        target: clone(target),
+        conformanceDigest: report.conformanceDigest,
+        reportRawContentDigest: rawContentDigest(reportBytes),
+        sourceRevision,
+        sourceTreeDigest: treeDigest,
+        engine: clone(engine),
+        mappedEngineExecutionEvidence: [clone(evidenceReference)],
+        vocabularyDigest: bindings.vocabularyDigest,
+        registryDigest: bindings.registryDigest,
+        implementationManifestDigest: bindings.implementationManifestDigest,
+        fixtureCatalogDigest: bindings.fixtureCatalogDigest,
+        recipeCatalogDigest: bindings.recipeCatalogDigest,
+        recipeCatalogRawContentDigest: bindings.recipeCatalogRawContentDigest,
+        publicSurfaceExecutionDigest: bindings.publicSurfaceExecutionDigest,
+        publicSurfaceExecutionRawContentDigest:
+          bindings.publicSurfaceExecutionRawContentDigest,
+        outputDispositionEvidenceRawContentDigest:
+          bindings.outputDispositionEvidenceRawContentDigest,
+      },
+    ],
+  });
+  const members = [
+    ["portable-promotion-authority", authorityBytes],
+    ["portable-conformance-report", reportBytes],
+    ["target-attestations", attestationsBytes],
+    ["target-advertisements", advertisementsBytes],
+    ["target-cells", targetCellsBytes],
+    ["recipes", recipeCatalogBytes],
+    ["public-surface", publicSurfaceExecutionBytes],
+    ["output-dispositions", outputDispositionEvidenceBytes],
+    ["process-0001.mapped-evidence", mappedEvidenceBytes],
+    ["process-0001.command-attempt", commandAttemptBytes],
+    ["process-0001.fixture-000001", fixtureBytes],
+  ].map(([logicalName, bytes]) => ({ logicalName, bytes }));
+  const manifest = {
+    portablePromotionBundleSchema: "ibex/capsec-portable-promotion-bundle/1",
+    profile: "ibex/capsec/1",
+    sourceRevision,
+    sourceTreeDigest: treeDigest,
+    target: clone(target),
+    files: members.map(({ logicalName, bytes }) => ({
+      logicalName,
+      byteLength: bytes.byteLength,
+      rawContentDigest: rawContentDigest(bytes),
+    })),
+    bundleDigest: digest("A"),
+  };
+  manifest.bundleDigest = semanticDigest(
+    "ibex:capsec:portable-promotion-bundle:1",
+    manifest,
+    ["bundleDigest"],
+  );
+  return { manifestBytes: exactBytes(manifest), members };
+}
+
 async function initializeSourceRepository() {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "ibex-promotion-lineage-"));
   temporaryRoots.add(root);
@@ -115,9 +606,20 @@ async function initializeSourceRepository() {
     checkedAdmissionSchemaPath,
     catalogPath,
     "schemas/portable-engine-provenance-trust-policy-v1.json",
+    "capsec/registry/policy-rules.json",
+    ...portableGraphAuthorityPaths,
   ]) {
     await copyAuthority(repoRoot, relativePath);
   }
+  await copyModuleClosure(
+    repoRoot,
+    "packages/ibex-devtools/src/scripts/verify-capsec-portable-promotion-bundle.mjs",
+  );
+  await fsp.symlink(
+    path.join(sourceRoot, "node_modules"),
+    path.join(repoRoot, "node_modules"),
+    "dir",
+  );
   await writeFile(repoRoot, targetAttestationPath, `${JSON.stringify({
     targetAttestationSchema: "ibex/capsec-target-attestations/1",
     profile: "ibex/capsec/1",
@@ -160,9 +662,68 @@ async function createPromotionRepository(options = {}) {
 
   const evidenceRoot = `capsec/conformance/portable-promotions/${sourceRevision}/${targetTriple}/${artifactId}`;
   const evidencePath = `${evidenceRoot}/conformance-report.json`;
+  const bundleManifestPath = `${evidenceRoot}/promotion-bundle-manifest.json`;
+  const graph = validPortableBundleGraph({
+    sourceRevision,
+    sourceTreeObjectId,
+    targetOverride: options.targetMismatch
+      ? {
+          triple: targetTriple,
+          features: [
+            "hermes-frame-attribution",
+            "native-compartments",
+            "native-lockdown",
+            "wrong-self-authored-feature",
+          ],
+        }
+      : null,
+  });
+  if (options.fabricatedSubset) {
+    graph.members = graph.members.slice(0, 8);
+    const subsetManifest = parseJsonStrict(
+      graph.manifestBytes,
+      "portable subset manifest",
+    );
+    subsetManifest.files = subsetManifest.files.slice(0, 8);
+    subsetManifest.bundleDigest = semanticDigest(
+      "ibex:capsec:portable-promotion-bundle:1",
+      subsetManifest,
+      ["bundleDigest"],
+    );
+    graph.manifestBytes = exactBytes(subsetManifest);
+  }
+  if (options.sourceTreeMismatch) {
+    const reboundManifest = parseJsonStrict(
+      graph.manifestBytes,
+      "portable source-tree mismatch manifest",
+    );
+    reboundManifest.sourceTreeDigest = digest("Z");
+    reboundManifest.bundleDigest = semanticDigest(
+      "ibex:capsec:portable-promotion-bundle:1",
+      reboundManifest,
+      ["bundleDigest"],
+    );
+    graph.manifestBytes = exactBytes(reboundManifest);
+  }
+  const memberPath = (logicalName) =>
+    logicalName === "portable-conformance-report"
+      ? evidencePath
+      : `${evidenceRoot}/${logicalName}.json`;
+  const reportMember = graph.members.find(
+    (member) => member.logicalName === "portable-conformance-report",
+  );
+  const attestationMember = graph.members.find(
+    (member) => member.logicalName === "target-attestations",
+  );
+  const advertisementMember = graph.members.find(
+    (member) => member.logicalName === "target-advertisements",
+  );
+  assert(reportMember && attestationMember && advertisementMember);
   const evidenceBytes = options.copySourceBlob
     ? await fsp.readFile(path.join(repoRoot, "src/source-authority.json"))
-    : Buffer.from(canonicalJson({ conformant: true, sourceRevision }), "utf8");
+    : options.bundleCoreMismatch
+      ? Buffer.concat([reportMember.bytes, Buffer.from(" ", "utf8")])
+      : reportMember.bytes;
 
   if (options.symlinkEvidence) {
     await fsp.mkdir(path.dirname(path.join(repoRoot, evidencePath)), { recursive: true });
@@ -173,16 +734,19 @@ async function createPromotionRepository(options = {}) {
     await writeFile(repoRoot, evidencePath, evidenceBytes);
     if (options.executableEvidence) await fsp.chmod(path.join(repoRoot, evidencePath), 0o755);
   }
-  await writeFile(repoRoot, targetAttestationPath, canonicalJson({
-    targetAttestationSchema: "ibex/capsec-target-attestations/2",
-    profile: "ibex/capsec/1",
-    attestations: [{ sourceRevision, portableArtifactId: artifactId }],
-  }));
-  await writeFile(repoRoot, targetAdvertisementPath, canonicalJson({
-    targetAdvertisementSchema: "ibex/capsec-target-advertisements/2",
-    profile: "ibex/capsec/1",
-    advertisements: [{ sourceRevision, portableArtifactId: artifactId }],
-  }));
+  for (const member of graph.members) {
+    if (member.logicalName === "portable-conformance-report") continue;
+    if (
+      options.missingProcess &&
+      member.logicalName === "process-0001.command-attempt"
+    ) {
+      continue;
+    }
+    await writeFile(repoRoot, memberPath(member.logicalName), member.bytes);
+  }
+  await writeFile(repoRoot, bundleManifestPath, graph.manifestBytes);
+  await writeFile(repoRoot, targetAttestationPath, attestationMember.bytes);
+  await writeFile(repoRoot, targetAdvertisementPath, advertisementMember.bytes);
 
   let codeDriftPath = null;
   if (options.codeDrift || options.listedCodeDrift) {
@@ -207,7 +771,24 @@ async function createPromotionRepository(options = {}) {
 
   const evidenceRowPath = renamedEvidencePath ?? evidencePath;
   const artifacts = [
-    artifactRow(repoRoot, "conformance-evidence", evidenceRowPath),
+    artifactRow(repoRoot, "conformance-evidence", bundleManifestPath),
+    ...graph.members
+      .filter(
+        (member) =>
+          !(
+            options.missingProcess &&
+            member.logicalName === "process-0001.command-attempt"
+          ),
+      )
+      .map((member) =>
+        artifactRow(
+          repoRoot,
+          "conformance-evidence",
+          member.logicalName === "portable-conformance-report"
+            ? evidenceRowPath
+            : memberPath(member.logicalName),
+        ),
+      ),
     artifactRow(repoRoot, "target-attestation", targetAttestationPath),
     artifactRow(repoRoot, "target-advertisement", targetAdvertisementPath),
   ];
@@ -382,6 +963,44 @@ describe("portable engine promotion admission schema and foundation", () => {
     assert.equal(validate({ ...vectors.disabledCatalog, enabled: true }), false);
   });
 
+  test("admission artifact bounds cover the complete 14-row graph through 100,003 rows", () => {
+    const schema = JSON.parse(
+      fs.readFileSync(path.join(sourceRoot, schemaPath), "utf8"),
+    );
+    assert.equal(schema.$defs.admission.properties.artifacts.minItems, 14);
+    assert.equal(schema.$defs.admission.properties.artifacts.maxItems, 100_003);
+    const vectors = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          sourceRoot,
+          "schemas/vectors/portable-engine-promotion-admission-v1.valid.json",
+        ),
+        "utf8",
+      ),
+    );
+    const validate = new Ajv2020({ allErrors: false, strict: true }).compile(
+      schema,
+    );
+    const minimum = structuredClone(vectors.activeCatalog);
+    assert.equal(minimum.admissions[0].artifacts.length, 14);
+    assert.equal(validate(minimum), true, JSON.stringify(validate.errors));
+
+    const belowMinimum = structuredClone(minimum);
+    belowMinimum.admissions[0].artifacts.pop();
+    assert.equal(validate(belowMinimum), false);
+
+    // Validate the array cardinality boundary independently. Running the full
+    // unique-object comparison over 100,003 synthetic rows would turn this
+    // contract test into a quadratic stress test unrelated to admission.
+    const validateBounds = new Ajv2020({ strict: true }).compile({
+      type: "array",
+      minItems: schema.$defs.admission.properties.artifacts.minItems,
+      maxItems: schema.$defs.admission.properties.artifacts.maxItems,
+    });
+    assert.equal(validateBounds(new Array(100_003)), true);
+    assert.equal(validateBounds(new Array(100_004)), false);
+  });
+
   test("checked admission schema freezes one common A/C result shape", () => {
     const schema = JSON.parse(fs.readFileSync(path.join(sourceRoot, checkedAdmissionSchemaPath), "utf8"));
     const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
@@ -404,7 +1023,7 @@ describe("portable engine promotion admission schema and foundation", () => {
 });
 
 describe("portable engine checked Git promotion lineage", { skip: process.platform !== "darwin" }, () => {
-  test("source A stays disabled while its exact one-commit PR merge C verifies", async () => {
+  test("source A stays disabled while a genuinely valid complete v2 graph verifies at its exact one-commit PR merge C", async () => {
     const fixture = await createPromotionRepository();
     const result = verifiedResult(fixture.repoRoot);
     assert.equal(result.authorized, true);
@@ -566,6 +1185,52 @@ describe("portable engine checked Git promotion lineage", { skip: process.platfo
   test("copies of source blobs are refused even at an admitted evidence path", async () => {
     const fixture = await createPromotionRepository({ copySourceBlob: true });
     assertVerifierRefuses(fixture.repoRoot, /copied source blob is forbidden/u);
+  });
+
+  test("a self-authored manifest/core subset cannot impersonate the filesystem-verified graph", async () => {
+    const fixture = await createPromotionRepository({
+      fabricatedSubset: true,
+    });
+    assertVerifierRefuses(
+      fixture.repoRoot,
+      /expected 14\.\.100003 rows|manifest member count is outside the bound|no detached process/u,
+    );
+  });
+
+  test("a manifest cannot omit one required detached-process member", async () => {
+    const fixture = await createPromotionRepository({ missingProcess: true });
+    assertVerifierRefuses(
+      fixture.repoRoot,
+      /expected 14\.\.100003 rows|omits portable bundle member process-0001\.command-attempt/u,
+    );
+  });
+
+  test("promotion core bytes must be byte-exact members of the verified bundle graph", async () => {
+    const fixture = await createPromotionRepository({
+      bundleCoreMismatch: true,
+    });
+    assertVerifierRefuses(
+      fixture.repoRoot,
+      /portable-conformance-report: byte length mismatch|raw-content digest mismatch/u,
+    );
+  });
+
+  test("manifest source-tree identity must derive from the admitted Git tree object", async () => {
+    const fixture = await createPromotionRepository({
+      sourceTreeMismatch: true,
+    });
+    assertVerifierRefuses(
+      fixture.repoRoot,
+      /source-tree identity differs from checked authority/u,
+    );
+  });
+
+  test("a self-consistent target object must equal the exact source-A candidate target", async () => {
+    const fixture = await createPromotionRepository({ targetMismatch: true });
+    assertVerifierRefuses(
+      fixture.repoRoot,
+      /portable bundle target differs from checked authority/u,
+    );
   });
 
   test("duplicate catalog rows and duplicate promoted blob objects are refused", async () => {

@@ -17,9 +17,13 @@ artifact-source revision from a later evidence-only admission merge, and the
 production installer now rejoins that exact current-checkout decision to its
 separately sourced package. The portable macOS package is emitted for every
 `main` revision. A read-only same-runner macOS physical-promotion ceremony now
-fixes the exact-A transport/build/post-link/v2 sequence but remains honestly
-blocked by incomplete executor coverage. Legacy acceptance and advertisements
-remain off pending a complete physical evidence bundle.)
+fixes the exact-A transport/build/post-link/v2 sequence, selects one exact
+post-link conformance runner, and binds its locality-free identity through all
+authority-bearing evidence. Checked-Git and Host admission now independently
+reconstruct the complete bundle and source-derived cell authority, but the
+ceremony remains honestly blocked by incomplete executor coverage. Legacy
+acceptance and advertisements remain off pending a complete physical evidence
+bundle.)
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021; LLP 0032
 
 ## Summary
@@ -1117,12 +1121,31 @@ membership without copying punctuation-rich structured keys into the narrower
 CapSec stable-ID grammar; duplicate projections fail. The output artifact
 itself is bound as exact raw bytes because it has no semantic self-digest.
 
+The authority-bearing test runner begins as one canonical, path-bearing
+post-link selection record, but that record is a local selector rather than a
+publication identity. Promotion consumers accept that selector as their sole
+runner input and project exactly `sourceRevision, sourceTreeDigest,
+artifactId, buildConsumptionDigest, postLinkSetDigest, verificationDigest,
+testExecutableDigest`. The projection contains no path and has domain
+`ibex:capsec:conformance-runner-binding:1`. Rich output-disposition evidence,
+its v4 projection, the independently derived promotion-authority target, the
+conformance-report bindings, and the portable execution binding must carry the
+same projection. Each authoritative selected-runner process records exactly
+one matching `conformanceRunner` declared input in its finalized command
+attempt. The executable path remains a pinned same-runner launch detail and is
+rehash-checked before and after execution; callers cannot provide a separate
+path/digest pair or mix a selection from another source, stage chain, engine
+artifact, or executable. This runner binding is deliberately separate from the
+portable engine identity: one proves which post-link test executable ran, the
+other proves which Hermes artifact that executable loaded.
+
 Each portable fixture carries
 `SHA-256("ibex:capsec:portable-execution-binding:1\0" || JCS(projection))`,
 where the closed projection contains source revision/tree, exact CapSec target,
 complete portable engine identity, vocabulary, registry, implementation
-manifest, fixture catalog, target-cell raw bytes, recipe semantic/raw identity,
-public-execution semantic/raw identity, and output-disposition raw identity.
+manifest, fixture catalog, target-cell raw bytes, the exact conformance-runner
+binding, recipe semantic/raw identity, public-execution semantic/raw identity,
+and output-disposition raw identity.
 The projection intentionally excludes mapped-evidence and attempt digests:
 fixture bytes are supervisor outputs committed by the mapped record, so either
 back-reference would create a cycle. The later report execution joins the
@@ -1785,6 +1808,13 @@ security features separate from package structural features; reject recursive
 encoded path/address/object leakage; and prove that renaming the old
 `binaryDigest`/path identity cannot satisfy v2.
 
+The same checkpoint now carries the canonical post-link conformance-runner
+selection through a locality-free binding in rich output evidence, its v4
+projection, promotion authority, report bindings, portable fixture bindings,
+and every detached process attempt. Omission, field substitution, mixed-source
+selection, executable substitution, path injection, and borrowing output
+evidence from another runner binding all fail before promotion authority.
+
 The schema checkpoint itself is contract-only; merely validating one of its
 documents grants no authority.
 
@@ -1802,11 +1832,13 @@ substitution, malformed-metadata, mapping-object/path mismatch, file-mutation,
 and live native-region tests cover this producer without enabling it as an
 acceptance source.
 
-Host comparison, promotion loading, v2 generation, and regenerated physical
-macOS evidence remain later Phase 2 work. The live v1 runner and generators are
-not coerced or switched, the authored v1 attestation and advertisement arrays
-remain empty, and `portableArtifactAcceptanceEnabled` remains exactly false.
-Merely producing or validating these additive identities grants no authority.
+At that isolated runtime-identity checkpoint, Host comparison, promotion
+loading, and v2 generation remained later Phase 2 work. The later checkpoints
+below now implement those code paths, while regenerated physical macOS
+evidence and coverage closure remain outstanding. The authored v1 attestation
+and advertisement arrays remain empty, and
+`portableArtifactAcceptanceEnabled` remains exactly false. Merely producing or
+validating these additive identities grants no authority.
 
 The next isolated live slice brackets the Exact fixture pilot with one fresh,
 non-serializable mapped observation owned by the engine-using process and
@@ -1866,15 +1898,18 @@ or unbound evidence. The output directory includes
 one-commit promotion ceremony may track directly, so Host-at-C need not depend
 on generated Rust source changing in that promotion-only commit.
 
-The current aarch64-apple-darwin source audit derives 7,331 candidate target
-cells: 1,636 enforced, 1,125 closed, 4,458 non-capability, and 112 absent. Those
-cells expand to 24,077 required fixture-recipe rows. Exactly 2,532 rows already
-have source-authored physical public invocations, distributed across eight
-batches (builtin, callback invariant, closed, native, non-capability builtin,
-startup, startup environment, and target absence). The older nine-fixture
-Exact pilot is a separate report-crediting diagnostic; nine is not the total
-physical public coverage. The remaining 21,545 recipe rows span 5,275 public
+The current aarch64-apple-darwin source audit baseline at this checkpoint
+derives 7,418 candidate target cells: 1,639 enforced, 1,125 closed, 4,542
+non-capability, and 112 absent. Those cells expand to 24,266 required
+fixture-recipe rows. Exactly 2,538 rows in that baseline have source-authored
+physical public invocations, distributed across eight batches (builtin,
+callback invariant, closed, native, non-capability builtin, startup, startup
+environment, and target absence). The older nine-fixture Exact pilot is a
+separate report-crediting diagnostic; nine is not the total physical public
+coverage. The baseline's remaining 21,728 recipe rows span 5,362 public
 terminals, and every one carries `public-surface-invocation-not-authored`.
+These counts are a dated current-source measurement and must be regenerated,
+not treated as timeless contract constants.
 Other residual counts overlap those same rows and must not be added as more
 fixtures. Executor plumbing cannot honestly synthesize the missing public
 arguments, scenarios, or enforcement-terminal observations, so preparation
@@ -1916,35 +1951,51 @@ This is ceremony scaffolding, not a physical promotion claim. At this
 checkpoint the rich recipe catalog still has unresolved fixtures and the
 output-shape executor still has honest residual rows, so target-cell derivation
 or the following proof gate fails before a bundle can be uploaded. The live
-output-shape/conformance executors also still invoke narrower Cargo feature
-profiles internally rather than consuming only the checked post-link executable
-set; that migration remains required after coverage closure. The always-run
-diagnostic upload retains the exact release plan, Cargo stream, post-link set,
-and bounded refusal state, but no incomplete run receives a candidate artifact
-or target authority.
+output-shape and conformance executors now consume only the canonical selection
+of the checked post-link `test/ibex` executable. They rehash that executable
+around execution, publish only the locality-free runner binding, and record its
+binding digest in every authoritative detached process attempt; the former
+independent path/digest options and narrower promotion-time Cargo builds are no
+longer authority paths. The always-run diagnostic upload retains the exact
+release plan, Cargo stream, post-link set, and bounded refusal state, but no
+incomplete run receives a candidate artifact or target authority.
 
 The Host-admission implementation consumes that publication without changing
 the source-A target-cell catalog or widening the promotion changed-path roles.
-An active admission must contain exactly one `conformance-evidence` artifact
-at
-`capsec/conformance/portable-promotions/<A>/<target>/<artifactId>/conformance-report.json`.
+An active admission names the exact complete verified bundle graph: up to
+100,000 manifest members, the manifest itself, and the two byte-identical
+top-level attestation and advertisement publications. The minimum complete
+graph has 14 rows: eight core members, one mapped record, one command attempt,
+one fixture, the manifest, and the two publications. Admission therefore
+accepts exactly 14 through 100,003 artifact rows; the former 10,000-row ceiling
+could not represent the reviewed bundle bound. Exactly one
+`conformance-evidence` artifact must appear at each fixed report and manifest
+path below
+`capsec/conformance/portable-promotions/<A>/<target>/<artifactId>/`. Checked-Git
+admission reconstructs every manifest member, reruns the same complete v2 graph
+validator used by the filesystem upload gate, joins source A's exact candidate
+target and source-tree identity, and permits duplicate bytes only for the two
+scoped/top-level publication pairs.
+
 After the live promotion preflight succeeds, `build.rs` independently
-recomputes the active catalog admission digest, derives that fixed path, checks
-the report's catalog role, mode, size, Git blob object ID, and raw digest, and
-rejoins its exact v2 report bytes and conformance digest to the tracked v2
+recomputes the active catalog admission digest, derives the fixed report path,
+checks the report's catalog role, mode, size, Git blob object ID, and raw digest,
+and rejoins its exact v2 report bytes and conformance digest to the tracked v2
 advertisement before embedding those bytes in a separate marker. Diagnostic A
 and legacy builds embed exactly `null\n` for the report marker.
 
 At startup Host strictly parses the v2 advertisement, the canonical checked
 A/P/C admission, and the embedded v2 report. It requires exact
 source/target/artifact/report/portable-identity joins, validates a fresh mapped
-identity independently, and requires the report's ordered cell membership to
-equal the complete checked coverage-edge inventory. It derives `enforced`,
-`non-capability`, `closed`, and `absent` semantics only from conformant report
-membership, checked source classifications, and whether the report names an
-implementation branch; these collapse to Host's existing `Complete` and
-`Closed` gate states. It never borrows source A's `unsupported` rows and never
-publishes mapped/local identity fields.
+identity independently, parses the report's locality-free conformance-runner
+binding, and rejoins that binding to the report source/tree and portable engine
+artifact. Host independently reconstructs the complete checked coverage-edge,
+implementation-branch, enforcement-branch, fixture, implementation-manifest,
+and fixture-catalog authority and requires the report to equal it. It derives
+`enforced`, `non-capability`, `closed`, and `absent` semantics only from that
+conformant report membership and checked source classifications; these collapse
+to Host's existing `Complete` and `Closed` gate states. It never borrows source
+A's `unsupported` rows and never publishes mapped/local identity fields.
 
 Exit: reports and advertisements contain no host-local values, while every
 accepted local run still proves its exact mapped file.

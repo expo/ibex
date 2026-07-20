@@ -160,15 +160,18 @@ if (outputDispositionEvidencePath) {
       path.join(capsecRoot, "generated/output-dispositions.json"),
     ).rows,
     evidence: outputDispositionEvidence,
+    conformanceRunner: executionArtifact.conformanceRunner,
   });
   if (
     evidenceState.sourceRevision !== executionArtifact.sourceRevision ||
     evidenceState.sourceTreeDigest !== executionArtifact.sourceTreeDigest ||
     canonicalJson(evidenceState.target) !== canonicalJson(target) ||
-    canonicalJson(evidenceState.engine) !== canonicalJson(engineBinding)
+    canonicalJson(evidenceState.engine) !== canonicalJson(engineBinding) ||
+    canonicalJson(evidenceState.conformanceRunner) !==
+      canonicalJson(executionArtifact.conformanceRunner)
   ) {
     throw new Error(
-      "output-disposition evidence source, target, or loaded-engine binding differs from this execution",
+      "output-disposition evidence source, target, loaded engine, or conformance runner differs from this execution",
     );
   }
   outputDispositionEvidenceRawContentDigest = taggedDigest(evidenceBytes);

@@ -37,6 +37,30 @@
         "features": { "$ref": "#/$defs/idSet" }
       }
     },
+    "conformanceRunnerBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceRevision",
+        "sourceTreeDigest",
+        "artifactId",
+        "buildConsumptionDigest",
+        "postLinkSetDigest",
+        "verificationDigest",
+        "testExecutableDigest"
+      ],
+      "properties": {
+        "sourceRevision": { "$ref": "#/$defs/sourceRevision" },
+        "sourceTreeDigest": { "$ref": "#/$defs/digest" },
+        "artifactId": { "$ref": "#/$defs/digest" },
+        "buildConsumptionDigest": { "$ref": "#/$defs/digest" },
+        "postLinkSetDigest": { "$ref": "#/$defs/digest" },
+        "verificationDigest": { "$ref": "#/$defs/digest" },
+        "testExecutableDigest": {
+          "$ref": "portable-engine-common-v1.schema.json#/$defs/rawDigest"
+        }
+      }
+    },
     "mappedEvidenceReference": {
       "type": "object",
       "additionalProperties": false,

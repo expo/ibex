@@ -15,7 +15,10 @@ import {
   selectCandidateTarget,
 } from "./capsec-conformance.mjs";
 import { assertRecipeCatalogComplete } from "./capsec-conformance-recipes.mjs";
-import { publicSurfaceExecutorDescriptor } from "./capsec-public-executors.mjs";
+import {
+  portablePublicSurfaceInvocation,
+  publicSurfaceExecutorDescriptor,
+} from "./capsec-public-executors.mjs";
 import {
   assertPublicSurfaceExecutionComplete,
   buildPublicSurfaceExecutionArtifact,
@@ -43,13 +46,16 @@ import {
   readJsonStrict,
 } from "./capsec-contract.mjs";
 import {
+  conformanceRunnerBindingDigest,
+  readCanonicalConformanceRunnerSelection,
+} from "./capsec-conformance-runner-binding.mjs";
+import {
   engineLoaderEnvironment,
   validateLoadedEngineIdentity,
 } from "./capsec-engine-identity.mjs";
 import { validatePromotableOutputDispositionEvidence } from "./capsec-output-shape-sweep.mjs";
 import {
   buildExactFixtureEvidenceBindingArtifact,
-  EXACT_FIXTURE_EVIDENCE_COMMAND,
   validateExactFixtureEvidenceArtifact,
 } from "./capsec-fixture-evidence.mjs";
 import {
@@ -77,6 +83,7 @@ const valueOptions = new Set([
   "--public-surface-evidence",
   "--portable-promotion-output",
   "--portable-promotion-target-cells",
+  "--portable-engine-conformance-runner-selection",
   "--output",
   "--report",
   "--target",
@@ -133,6 +140,9 @@ const portablePromotionOutputInput = option("--portable-promotion-output");
 const portablePromotionTargetCellsInput = option(
   "--portable-promotion-target-cells",
 );
+const conformanceRunnerSelectionInput = option(
+  "--portable-engine-conformance-runner-selection",
+);
 if (
   portablePromotionTargetCellsInput !== undefined &&
   portablePromotionOutputInput === undefined
@@ -144,6 +154,26 @@ if (
 const portablePromotionOutputDirectory = portablePromotionOutputInput
   ? path.resolve(repoRoot, portablePromotionOutputInput)
   : null;
+const conformanceRunnerRequired =
+  portablePromotionOutputDirectory !== null ||
+  outputDispositionEvidenceInputPath !== undefined;
+if (
+  conformanceRunnerRequired
+    ? conformanceRunnerSelectionInput === undefined
+    : conformanceRunnerSelectionInput !== undefined
+) {
+  throw new Error(
+    "portable output evidence and promotion require exactly one canonical post-link conformance-runner selection",
+  );
+}
+const conformanceRunnerSelectionPath = conformanceRunnerSelectionInput
+  ? path.resolve(repoRoot, conformanceRunnerSelectionInput)
+  : null;
+let portableEngineTestExecutable = null;
+let portableEngineTestExecutableDigest = null;
+let portableEngineTestExecutableSize = null;
+let conformanceRunner = null;
+let portableRunnerBindingDigest = null;
 const jobStartedAtInput = process.env.IBEX_CAPSEC_JOB_STARTED_AT;
 const jobStartedAtMs =
   jobStartedAtInput === undefined
@@ -160,8 +190,99 @@ const taggedDigest = (bytes) =>
   `sha256-${crypto.createHash("sha256").update(bytes).digest("base64url")}`;
 const git = (...gitArgs) =>
   execFileSync("git", gitArgs, { cwd: repoRoot, timeout: 30_000 });
+const EFFECTIVE_UID =
+  typeof process.geteuid === "function"
+    ? process.geteuid()
+    : typeof process.getuid === "function"
+      ? process.getuid()
+      : null;
 const ownedByCurrentUser = (metadata) =>
-  typeof process.getuid !== "function" || metadata.uid === process.getuid();
+  EFFECTIVE_UID === null || metadata.uid === EFFECTIVE_UID;
+
+function assertPortableEngineTestExecutable() {
+  if (portableEngineTestExecutable === null) return;
+  if (!/^sha256-[0-9a-f]{64}$/u.test(portableEngineTestExecutableDigest)) {
+    throw new Error("portable engine test executable digest is malformed");
+  }
+  const targetRoot = fs.realpathSync(path.join(repoRoot, "target"));
+  const relative = path.relative(targetRoot, portableEngineTestExecutable);
+  if (
+    relative === "" ||
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative) ||
+    fs.realpathSync(portableEngineTestExecutable) !==
+      portableEngineTestExecutable
+  ) {
+    throw new Error("portable engine test executable escaped target/ or is redirected");
+  }
+  const before = fs.lstatSync(portableEngineTestExecutable, { bigint: true });
+  if (
+    !before.isFile() ||
+    before.isSymbolicLink() ||
+    before.nlink !== 1n ||
+    (EFFECTIVE_UID !== null && before.uid !== BigInt(EFFECTIVE_UID)) ||
+    (Number(before.mode & 0o7777n) & 0o111) === 0 ||
+    before.size <= 0n ||
+    before.size !== BigInt(portableEngineTestExecutableSize) ||
+    before.size > 512n * 1024n * 1024n
+  ) {
+    throw new Error(
+      "portable engine test executable is not one bounded owned executable file",
+    );
+  }
+  const descriptor = fs.openSync(
+    portableEngineTestExecutable,
+    fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0),
+  );
+  try {
+    const opened = fs.fstatSync(descriptor, { bigint: true });
+    if (
+      opened.dev !== before.dev ||
+      opened.ino !== before.ino ||
+      opened.size !== before.size
+    ) {
+      throw new Error("portable engine test executable changed while opening");
+    }
+    const hash = crypto.createHash("sha256");
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let offset = 0;
+    while (offset < Number(opened.size)) {
+      const length = Math.min(buffer.length, Number(opened.size) - offset);
+      const count = fs.readSync(descriptor, buffer, 0, length, offset);
+      if (count <= 0) {
+        throw new Error("portable engine test executable read ended early");
+      }
+      hash.update(buffer.subarray(0, count));
+      offset += count;
+    }
+    const after = fs.fstatSync(descriptor, { bigint: true });
+    const pathAfter = fs.lstatSync(portableEngineTestExecutable, {
+      bigint: true,
+    });
+    for (const current of [after, pathAfter]) {
+      if (
+        !current.isFile() ||
+        current.isSymbolicLink() ||
+        current.nlink !== 1n ||
+        current.dev !== opened.dev ||
+        current.ino !== opened.ino ||
+        current.size !== opened.size ||
+        current.mtimeNs !== opened.mtimeNs ||
+        current.ctimeNs !== opened.ctimeNs
+      ) {
+        throw new Error("portable engine test executable changed while reading");
+      }
+    }
+    if (`sha256-${hash.digest("hex")}` !== portableEngineTestExecutableDigest) {
+      throw new Error(
+        "portable engine test executable differs from post-link verified bytes",
+      );
+    }
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
 
 function readOwnedJsonWithBytes(filePath, label) {
   const pathMetadata = fs.lstatSync(filePath);
@@ -289,6 +410,24 @@ if (git("status", "--porcelain").toString("utf8").trim()) {
     "conformance execution requires a clean committed source tree",
   );
 }
+if (conformanceRunnerSelectionPath !== null) {
+  const conformanceRunnerState = readCanonicalConformanceRunnerSelection({
+    selectionPath: conformanceRunnerSelectionPath,
+    repoRoot,
+    sourceRevision: initialSourceRevision,
+    sourceTreeDigest: initialSourceTreeDigest,
+  });
+  portableEngineTestExecutable = conformanceRunnerState.executablePath;
+  portableEngineTestExecutableDigest =
+    conformanceRunnerState.selection.executableDigest;
+  portableEngineTestExecutableSize =
+    conformanceRunnerState.selection.executableSize;
+  conformanceRunner = conformanceRunnerState.binding;
+  portableRunnerBindingDigest = conformanceRunnerBindingDigest(
+    conformanceRunner,
+  );
+  assertPortableEngineTestExecutable();
+}
 const rules = readJsonStrict(
   path.join(capsecRoot, "registry/policy-rules.json"),
 );
@@ -374,22 +513,100 @@ const exactEngineEnvironmentKeys = Object.keys(exactEngineEnvironment).filter(
     !Object.hasOwn(process.env, name) ||
     process.env[name] !== exactEngineEnvironment[name],
 );
+const engineTestInvocation = ({
+  testName,
+  nocapture,
+  features = "capsec-conformance-observer",
+}) =>
+  portableEngineTestExecutable === null
+    ? {
+        command: "cargo",
+        args: [
+          "test",
+          "--bin",
+          "ibex",
+          "--features",
+          features,
+          testName,
+          "--",
+          "--test-threads=1",
+          ...(nocapture ? ["--nocapture"] : []),
+        ],
+      }
+    : {
+        command: portableEngineTestExecutable,
+        args: [
+          testName,
+          "--test-threads=1",
+          ...(nocapture ? ["--nocapture"] : []),
+        ],
+      };
+
+async function runObservedEngineTest(options) {
+  const {
+    testName,
+    nocapture = false,
+    features,
+    declaredInputs = [],
+    ...commandOptions
+  } = options;
+  const invocation = engineTestInvocation({ testName, nocapture, features });
+  assertPortableEngineTestExecutable();
+  const attempt = await runObservedCommand({
+    ...commandOptions,
+    command: invocation.command,
+    args: invocation.args,
+    declaredInputs: [
+      ...declaredInputs,
+      ...(portableRunnerBindingDigest === null
+        ? []
+        : [
+            {
+              name: "conformanceRunner",
+              digest: portableRunnerBindingDigest,
+            },
+          ]),
+    ],
+  });
+  assertPortableEngineTestExecutable();
+  return attempt;
+}
+
+async function runObservedPublicTest(recipeCommand, options) {
+  const invocation =
+    portableEngineTestExecutable === null
+      ? { command: recipeCommand[0], args: recipeCommand.slice(1) }
+      : portablePublicSurfaceInvocation(
+          recipeCommand,
+          portableEngineTestExecutable,
+        );
+  const { declaredInputs = [], ...commandOptions } = options;
+  assertPortableEngineTestExecutable();
+  const attempt = await runObservedCommand({
+    ...commandOptions,
+    command: invocation.command,
+    args: invocation.args,
+    declaredInputs: [
+      ...declaredInputs,
+      ...(portableRunnerBindingDigest === null
+        ? []
+        : [
+            {
+              name: "conformanceRunner",
+              digest: portableRunnerBindingDigest,
+            },
+          ]),
+    ],
+  });
+  assertPortableEngineTestExecutable();
+  return attempt;
+}
 const runEngineAttestation = async (id, identityPath, portableIdentityPath) => {
-  return await runObservedCommand({
+  return await runObservedEngineTest({
     supervisor,
     id,
-    command: "cargo",
-    args: [
-      "test",
-      "--bin",
-      "ibex",
-      "--features",
-      "capsec-conformance-observer",
-      "capsec_loaded_engine_identity_attestation",
-      "--",
-      "--test-threads=1",
-      "--nocapture",
-    ],
+    testName: "capsec_loaded_engine_identity_attestation",
+    nocapture: true,
     cwd: repoRoot,
     env: {
       ...exactEngineEnvironment,
@@ -513,21 +730,12 @@ const recipeCatalog = readOwnedJson(
 );
 commandEvidence.push(
   legacyCommandEvidence(
-    await runObservedCommand({
+    await runObservedEngineTest({
       supervisor,
       id: "exact-hermes-typed-adapter-recipes",
-      command: "cargo",
-      args: [
-        "test",
-        "--bin",
-        "ibex",
-        "--features",
-        "capsec-conformance-observer,openssl-crypto",
-        "capsec_executable_recipe_adapter_batch",
-        "--",
-        "--test-threads=1",
-        "--nocapture",
-      ],
+      testName: "capsec_executable_recipe_adapter_batch",
+      nocapture: true,
+      features: "capsec-conformance-observer,openssl-crypto",
       cwd: repoRoot,
       env: {
         ...exactEngineEnvironment,
@@ -607,11 +815,9 @@ for (const { command, fixtureIds } of publicRecipeCommands.values()) {
   );
   commandEvidence.push(
     legacyCommandEvidence(
-      await runObservedCommand({
+      await runObservedPublicTest(command, {
         supervisor,
         id: batchId,
-        command: command[0],
-        args: command.slice(1),
         cwd: repoRoot,
         env: {
           ...exactEngineEnvironment,
@@ -697,6 +903,7 @@ const bindings = {
   sourceRevision: initialSourceRevision,
   sourceTreeDigest: initialSourceTreeDigest,
   engine: engineBinding,
+  ...(conformanceRunner === null ? {} : { conformanceRunner }),
   vocabularyDigest,
   registryDigest,
   implementationManifestDigest,
@@ -718,6 +925,7 @@ if (outputDispositionEvidenceInputPath) {
         path.join(capsecRoot, "generated/output-dispositions.json"),
       ).rows,
       evidence: outputDispositionEvidence,
+      conformanceRunner,
     });
   if (
     validatedOutputDispositionEvidenceState.sourceRevision !==
@@ -727,10 +935,12 @@ if (outputDispositionEvidenceInputPath) {
     canonicalJson(validatedOutputDispositionEvidenceState.target) !==
       canonicalJson(target) ||
     canonicalJson(validatedOutputDispositionEvidenceState.engine) !==
-      canonicalJson(bindings.engine)
+      canonicalJson(bindings.engine) ||
+    canonicalJson(validatedOutputDispositionEvidenceState.conformanceRunner) !==
+      canonicalJson(conformanceRunner)
   ) {
     throw new Error(
-      "output-disposition evidence source, target, or loaded-engine binding differs from this execution",
+      "output-disposition evidence source, target, loaded engine, or conformance runner differs from this execution",
     );
   }
   bindings.outputDispositionEvidenceRawContentDigest = taggedDigest(bytes);
@@ -786,11 +996,12 @@ if (suppliedFixtureEvidencePath) {
 } else {
   commandEvidence.push(
     legacyCommandEvidence(
-      await runObservedCommand({
+      await runObservedEngineTest({
         supervisor,
         id: "exact-fixture-evidence-pilot",
-        command: EXACT_FIXTURE_EVIDENCE_COMMAND[0],
-        args: EXACT_FIXTURE_EVIDENCE_COMMAND.slice(1),
+        testName: "capsec_exact_fixture_evidence_batch",
+        features: "capsec-conformance-observer,openssl-crypto",
+        nocapture: true,
         cwd: repoRoot,
         env: {
           ...exactEngineEnvironment,
@@ -887,6 +1098,7 @@ if (portableEngineIdentity !== null) {
         "utf8",
       );
       const portablePromotionPreparation = preparePortablePromotionV2({
+        conformanceRunner,
         reviewedSourceBytes,
         coverageBytes: fs.readFileSync(
           path.join(capsecRoot, "registry/coverage-edges.json"),
@@ -910,6 +1122,8 @@ if (portableEngineIdentity !== null) {
       const portableBindings = {
         sourceRevision: portablePromotionPreparation.source.sourceRevision,
         sourceTreeDigest: portablePromotionPreparation.source.sourceTreeDigest,
+        conformanceRunner:
+          portablePromotionPreparation.authorityEntry.conformanceRunner,
         target: portablePromotionPreparation.source.target,
         engine: portablePromotionPreparation.source.engine,
         vocabularyDigest:
@@ -1002,11 +1216,9 @@ if (portableEngineIdentity !== null) {
           portablePlanBytes,
           `${batchId} portable evidence plan`,
         );
-        const portableAttempt = await runObservedCommand({
+        const portableAttempt = await runObservedPublicTest(command, {
           supervisor,
           id: batchId,
-          command: command[0],
-          args: command.slice(1),
           cwd: repoRoot,
           env: {
             ...exactEngineEnvironment,
@@ -1135,6 +1347,7 @@ if (portableEngineIdentity !== null) {
       const portableBindings = {
         sourceRevision: bindings.sourceRevision,
         sourceTreeDigest: bindings.sourceTreeDigest,
+        conformanceRunner,
         target,
         engine: portableEngineIdentity,
         vocabularyDigest: bindings.vocabularyDigest,
@@ -1176,11 +1389,12 @@ if (portableEngineIdentity !== null) {
         portablePlanBytes,
         "portable evidence plan",
       );
-      const portableAttempt = await runObservedCommand({
+      const portableAttempt = await runObservedEngineTest({
         supervisor,
         id: "exact-fixture-evidence-portable-pilot",
-        command: EXACT_FIXTURE_EVIDENCE_COMMAND[0],
-        args: EXACT_FIXTURE_EVIDENCE_COMMAND.slice(1),
+        testName: "capsec_exact_fixture_evidence_batch",
+        features: "capsec-conformance-observer,openssl-crypto",
+        nocapture: true,
         cwd: repoRoot,
         env: {
           ...exactEngineEnvironment,
@@ -1341,6 +1555,9 @@ fs.writeFileSync(
       sourceTreeDigest: bindings.sourceTreeDigest,
       target,
       engine: bindings.engine,
+      ...(bindings.conformanceRunner === undefined
+        ? {}
+        : { conformanceRunner: bindings.conformanceRunner }),
       loadedEngineIdentity,
       bindingDigest,
       suiteArtifactDigest,

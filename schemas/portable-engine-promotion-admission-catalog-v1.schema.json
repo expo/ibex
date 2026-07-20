@@ -150,8 +150,8 @@
         },
         "artifacts": {
           "type": "array",
-          "minItems": 3,
-          "maxItems": 10000,
+          "minItems": 14,
+          "maxItems": 100003,
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/artifact"

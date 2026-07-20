@@ -14,6 +14,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
 import {
+  conformanceRunnerBindingDigest,
+  validateConformanceRunnerBinding,
+} from "./capsec-conformance-runner-binding.mjs";
+import {
   canonicalJson,
   computeDomainDigest,
   parseJsonStrict,
@@ -212,6 +216,7 @@ export function portableExecutionBindingDigest(bindings) {
   return computeDomainDigest(PORTABLE_EXECUTION_BINDING_DOMAIN, {
     sourceRevision: bindings.sourceRevision,
     sourceTreeDigest: bindings.sourceTreeDigest,
+    conformanceRunner: bindings.conformanceRunner,
     target: bindings.target,
     engine: bindings.engine,
     vocabularyDigest: bindings.vocabularyDigest,
@@ -400,6 +405,10 @@ function validateAuthority(authority) {
   const targetKeys = [];
   for (const [index, entry] of authority.targets.entries()) {
     const label = `authority.targets[${index}]`;
+    validateConformanceRunnerBinding(entry.conformanceRunner, {
+      sourceRevision: authority.sourceRevision,
+      sourceTreeDigest: authority.sourceTreeDigest,
+    });
     assertCanonicalScalarSet(entry.target.features, `${label}.target.features`);
     assertCanonicalScalarSet(
       entry.engine.target.structuralFeatures,
@@ -412,6 +421,10 @@ function validateAuthority(authority) {
     invariant(
       entry.engine.target.triple === entry.target.triple,
       `${label} portable engine target differs from its CapSec target`,
+    );
+    invariant(
+      entry.conformanceRunner.artifactId === entry.engine.artifactId,
+      `${label} conformance runner names another portable engine artifact`,
     );
     targetKeys.push(canonicalJson(entry.target));
   }
@@ -431,6 +444,7 @@ function authorityForReport(authority, report) {
     authority.sourceRevision === bindings.sourceRevision &&
       authority.sourceTreeDigest === bindings.sourceTreeDigest &&
       same(entry.engine, bindings.engine) &&
+      same(entry.conformanceRunner, bindings.conformanceRunner) &&
       entry.vocabularyDigest === bindings.vocabularyDigest &&
       entry.registryDigest === bindings.registryDigest &&
       entry.implementationManifestDigest === bindings.implementationManifestDigest &&
@@ -543,7 +557,7 @@ function validateMappedEvidence(evidence, authorityEntry, authority) {
   );
 }
 
-function validateAttempt(attempt, evidence) {
+function validateAttempt(attempt, evidence, authorityEntry) {
   invariant(
     attempt.attemptDigest === commandAttemptDigest(attempt),
     "supervisor command-attempt digest mismatch",
@@ -559,6 +573,15 @@ function validateAttempt(attempt, evidence) {
       attempt.phase === evidence.phaseId &&
       attempt.commandIdentity === evidence.commandIdentityDigest,
     "mapped evidence command binding differs from the current supervisor attempt",
+  );
+  const runnerInputs = attempt.declaredInputs.filter(
+    (input) => input.name === "conformanceRunner",
+  );
+  invariant(
+    runnerInputs.length === 1 &&
+      runnerInputs[0].digest ===
+        conformanceRunnerBindingDigest(authorityEntry.conformanceRunner),
+    "selected-runner process lacks the exact conformance-runner declared-input identity",
   );
   const paths = attempt.outputs.map((output) => output.path);
   const digests = attempt.outputs.map((output) => output.digest);
@@ -622,7 +645,7 @@ function validateProcessRecord({ process, reference, report, authorityEntry, aut
     "attempt",
     `${evidence.commandId} supervisor attempt`,
   );
-  validateAttempt(attempt, evidence);
+  validateAttempt(attempt, evidence, authorityEntry);
   invariant(
     attempt.attemptDigest === reference.attemptDigest &&
       rawContentDigest(process.commandAttemptBytes) ===
@@ -943,6 +966,11 @@ function validateOutputDispositionEvidence(bytes, report, authorityEntry) {
       artifact.status === "verified" &&
       artifact.sourceRevision === report.bindings.sourceRevision &&
       artifact.sourceTreeDigest === report.bindings.sourceTreeDigest &&
+      same(artifact.conformanceRunner, authorityEntry.conformanceRunner) &&
+      same(
+        artifact.conformanceRunner,
+        report.bindings.conformanceRunner,
+      ) &&
       same(artifact.target, authorityEntry.target) &&
       targetFamily(artifact.target.triple) === authorityEntry.family &&
       same(artifact.engine, authorityEntry.engine),

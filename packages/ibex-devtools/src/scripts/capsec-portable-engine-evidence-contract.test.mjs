@@ -22,6 +22,7 @@ import {
   validatePortablePromotionV2,
 } from "./capsec-portable-engine-evidence-contract.mjs";
 import { computeDomainDigest, parseJsonStrict } from "./capsec-contract.mjs";
+import { conformanceRunnerBindingDigest } from "./capsec-conformance-runner-binding.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../../../..");
@@ -88,6 +89,19 @@ function buildFixture({
   }
   const sourceRevision = "a".repeat(40);
   const sourceTreeDigest = digest("A");
+  const conformanceRunner = {
+    sourceRevision,
+    sourceTreeDigest,
+    artifactId: engine.artifactId,
+    buildConsumptionDigest: digest("M"),
+    postLinkSetDigest: digest("Q"),
+    verificationDigest: digest("U"),
+    testExecutableDigest: `sha256-${"e".repeat(64)}`,
+  };
+  const authorityConformanceRunner = {
+    ...clone(conformanceRunner),
+    artifactId: authorityEngine.artifactId,
+  };
   const executor = "ibex-exact-fixture-evidence-pilot";
 
   const targetCells = {
@@ -192,6 +206,7 @@ function buildFixture({
     status: "verified",
     sourceRevision,
     sourceTreeDigest,
+    conformanceRunner: clone(conformanceRunner),
     target: clone(target),
     engine: clone(engine),
     summary: { observations: 1 },
@@ -205,6 +220,7 @@ function buildFixture({
   const portableBindings = {
     sourceRevision,
     sourceTreeDigest,
+    conformanceRunner: clone(conformanceRunner),
     engine: clone(engine),
     target: clone(target),
     vocabularyDigest: digest("Q"),
@@ -293,6 +309,12 @@ function buildFixture({
       commandIdentity: evidence.commandIdentityDigest,
       phase: evidence.phaseId,
       displayedInvocation: ["ibex", "--fixture-evidence"],
+      declaredInputs: [
+        {
+          name: "conformanceRunner",
+          digest: conformanceRunnerBindingDigest(conformanceRunner),
+        },
+      ],
       startedAt: "2026-07-20T00:00:00.000Z",
       finishedAt: "2026-07-20T00:00:01.000Z",
       elapsedMs: 1000,
@@ -399,6 +421,7 @@ function buildFixture({
         family: authorityFamily,
         target: clone(authorityTarget),
         engine: clone(authorityEngine),
+        conformanceRunner: authorityConformanceRunner,
         vocabularyDigest: report.bindings.vocabularyDigest,
         registryDigest: report.bindings.registryDigest,
         implementationManifestDigest:
@@ -488,6 +511,7 @@ function buildFixture({
     attempt,
     authority,
     bindingDigest,
+    conformanceRunner,
     evidence,
     fixtureArtifact,
     fixtureArtifacts,
@@ -504,6 +528,53 @@ function mutateJsonBytes(bytes, mutation) {
   const value = parseBytes(bytes);
   mutation(value);
   return exactBytes(value);
+}
+
+function rewriteAttemptReferenceChain(input, mutateAttempt) {
+  const rewritten = clone(input);
+  const attempt = parseBytes(
+    rewritten.processes[0].commandAttemptBytes,
+    "supervisor attempt",
+  );
+  mutateAttempt(attempt);
+  attempt.attemptDigest = commandAttemptDigest(attempt);
+  const attemptBytes = exactBytes(attempt);
+
+  const report = parseBytes(rewritten.reportBytes, "report");
+  const reference = report.bindings.mappedEngineExecutionEvidence[0];
+  reference.attemptDigest = attempt.attemptDigest;
+  reference.attemptRawContentDigest = rawContentDigest(attemptBytes);
+  report.conformanceDigest = portableConformanceDigest(report);
+  const reportBytes = exactBytes(report);
+  const reportRawContentDigest = rawContentDigest(reportBytes);
+
+  const attestations = parseBytes(
+    rewritten.attestationCatalogBytes,
+    "attestations",
+  );
+  attestations.attestations[0].conformanceDigest = report.conformanceDigest;
+  attestations.attestations[0].reportRawContentDigest =
+    reportRawContentDigest;
+  attestations.attestations[0].mappedEngineExecutionEvidence = [
+    clone(reference),
+  ];
+  const advertisements = parseBytes(
+    rewritten.advertisementCatalogBytes,
+    "advertisements",
+  );
+  advertisements.advertisements[0].conformanceDigest =
+    report.conformanceDigest;
+  advertisements.advertisements[0].reportRawContentDigest =
+    reportRawContentDigest;
+  advertisements.advertisements[0].mappedEngineExecutionEvidence = [
+    clone(reference),
+  ];
+
+  rewritten.processes[0].commandAttemptBytes = attemptBytes;
+  rewritten.reportBytes = reportBytes;
+  rewritten.attestationCatalogBytes = exactBytes(attestations);
+  rewritten.advertisementCatalogBytes = exactBytes(advertisements);
+  return rewritten;
 }
 
 function rewriteFixtureProcessChain(input, mutateFixture) {
@@ -698,19 +769,19 @@ describe("additive Phase-2 portable-engine promotion contract", () => {
       fixture.outputDispositionEvidence.observations[0].observationDigest,
     ).toBe("sha256-BnNTBOX_xO0eTu79WUDCocXEKeZOHJYpsGkxcGaIhH4");
     expect(fixture.bindingDigest).toBe(
-      "sha256-YRBVCE6H6u5yTEnh8f4r4YneABEr_A3ZsLv0yLMkGXI",
+      "sha256-6D-I0B_DbuFhQ_I09cV3HGuSBnwEbG5lnDW6cX0Gwqw",
     );
     expect(fixture.fixtureArtifact.artifactDigest).toBe(
-      "sha256-swK95uvOY_8ch8RLuQDEVKtG2PPRIpsay-nUU6dUAEw",
+      "sha256-ZQKNUCrH8FrKnPx3oLuoNpMNI1FCflycXJlfrKT71AI",
     );
     expect(fixture.evidence.evidenceDigest).toBe(
-      "sha256-ORZknurNf_lot7nUVOWw9rpOAVe9cH5QvaBCMwJr7-c",
+      "sha256-56xJxLAN68R70Wjx5ChJwtsRskMhhFq-WwNe-C_bTec",
     );
     expect(fixture.attempt.attemptDigest).toBe(
-      "sha256-D_muYb0T8a0qqYlWOEe9w_4tHM1xHv7GXT-dyfUbeRI",
+      "sha256-pZWLxGhydDKU2DcVM2FJAbZhh_xRiSQFA_48K1kVgw8",
     );
     expect(fixture.report.conformanceDigest).toBe(
-      "sha256-Ljmgxjw5z5rk19NFhxJ6cYBX17BW3G_AqCePf2jdUCE",
+      "sha256-65piFYyHRlKALchW-JE_y_IvxhQJagMxL-Y7Xl3RiyE",
     );
     expect(fixture.evidence.outputDigests).toEqual([
       fixture.report.executions[0].rawContentDigest,
@@ -794,6 +865,29 @@ describe("additive Phase-2 portable-engine promotion contract", () => {
     const absent = clone(fixture.input);
     absent.processes = [];
     expectRefused(absent, /requires detached mapped evidence/u);
+
+    const missingRunnerInput = rewriteAttemptReferenceChain(
+      fixture.input,
+      (attempt) => {
+        attempt.declaredInputs = attempt.declaredInputs.filter(
+          (input) => input.name !== "conformanceRunner",
+        );
+      },
+    );
+    expectRefused(missingRunnerInput, /lacks the exact conformance-runner/u);
+
+    const substitutedRunnerInput = rewriteAttemptReferenceChain(
+      fixture.input,
+      (attempt) => {
+        attempt.declaredInputs.find(
+          (input) => input.name === "conformanceRunner",
+        ).digest = digest("I");
+      },
+    );
+    expectRefused(
+      substitutedRunnerInput,
+      /lacks the exact conformance-runner/u,
+    );
 
     const commandMismatch = clone(fixture.input);
     commandMismatch.processes[0].commandAttemptBytes = mutateJsonBytes(
@@ -1004,6 +1098,31 @@ describe("additive Phase-2 portable-engine promotion contract", () => {
       },
     );
     expectRefused(invalidObservationDigest, /invalid semantic digests/u);
+
+    const missingRunnerBinding = clone(buildFixture().input);
+    missingRunnerBinding.outputDispositionEvidenceBytes = mutateJsonBytes(
+      missingRunnerBinding.outputDispositionEvidenceBytes,
+      (artifact) => {
+        delete artifact.conformanceRunner;
+      },
+    );
+    expectRefused(
+      missingRunnerBinding,
+      /output-disposition evidence schema invalid/u,
+    );
+
+    const pathBearingRunner = clone(buildFixture().input);
+    pathBearingRunner.outputDispositionEvidenceBytes = mutateJsonBytes(
+      pathBearingRunner.outputDispositionEvidenceBytes,
+      (artifact) => {
+        artifact.conformanceRunner.testExecutablePath =
+          "/runner/target/debug/deps/ibex";
+      },
+    );
+    expectRefused(
+      pathBearingRunner,
+      /output-disposition evidence schema invalid/u,
+    );
   });
 
   test("rejects coherent target and portable-identity substitutions against independent authority", () => {

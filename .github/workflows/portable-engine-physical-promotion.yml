@@ -297,7 +297,7 @@ jobs:
             --expected-source-revision "$GITHUB_SHA" \
             -- \
             test --locked --no-run --all-targets \
-            --features capsec-conformance-observer,cli-notify,default,host-http-server,module-runner \
+            --features capsec-conformance-observer,cli-notify,default,host-http-server,module-runner,openssl-crypto \
             --message-format=json \
             | tee "$cargo_messages"
           test -s "$cargo_messages"
@@ -344,6 +344,24 @@ jobs:
             --repo-root "$PWD"
           test -f "$PWD/target/portable-engine-post-link/${{ steps.build.outputs.build_consumption_digest }}/COMPLETE.json"
 
+      - name: Select the exact post-link verified conformance runner
+        timeout-minutes: 5
+        env:
+          BUILD_CONSUMPTION_DIGEST: ${{ steps.build.outputs.build_consumption_digest }}
+        run: |
+          set -euo pipefail
+          cargo_messages="$PWD/target/portable-engine-physical-promotion/cargo-messages.jsonl"
+          build_selection="$PWD/target/portable-engine-physical-promotion/build-selection.json"
+          complete="$PWD/target/portable-engine-post-link/$BUILD_CONSUMPTION_DIGEST/COMPLETE.json"
+          selection="$PWD/target/portable-engine-physical-promotion/conformance-runner.json"
+          node scripts/portable-engine-physical-promotion.mjs select-conformance-runner \
+            --build-selection "$build_selection" \
+            --cargo-messages "$cargo_messages" \
+            --post-link-complete "$complete" \
+            --repo-root "$PWD" \
+            --output "$selection"
+          test -s "$selection"
+
       - name: Generate the independently source-derived rich recipe catalog
         timeout-minutes: 10
         run: |
@@ -373,23 +391,27 @@ jobs:
         run: |
           set -euo pipefail
           runtime="$PWD/target/hermes-artifacts/$ARTIFACT_ID/payload/lib/hermesvm.framework/Versions/1/hermesvm"
+          selection="$PWD/target/portable-engine-physical-promotion/conformance-runner.json"
           test -f "$runtime"
           bun packages/ibex-devtools/src/scripts/run-capsec-output-shape-sweep.mjs \
             --target aarch64-apple-darwin \
             --engine-artifact "$runtime" \
+            --portable-engine-conformance-runner-selection "$selection" \
             --recipe-catalog target/portable-engine-physical-promotion/executable-recipes.json \
             --output-directory target/portable-engine-physical-promotion/output-shape-sweep
 
       - name: Run complete v2 conformance and promotion-bundle generation
-        timeout-minutes: 90
+        timeout-minutes: 300
         env:
           ARTIFACT_ID: ${{ steps.install.outputs.artifact_id }}
         run: |
           set -euo pipefail
           runtime="$PWD/target/hermes-artifacts/$ARTIFACT_ID/payload/lib/hermesvm.framework/Versions/1/hermesvm"
+          selection="$PWD/target/portable-engine-physical-promotion/conformance-runner.json"
           bun run verify:capsec-conformance -- \
             --target aarch64-apple-darwin \
             --engine-artifact "$runtime" \
+            --portable-engine-conformance-runner-selection "$selection" \
             --output-disposition-evidence target/portable-engine-physical-promotion/output-shape-sweep/output-disposition-evidence.json \
             --portable-promotion-target-cells target/portable-engine-physical-promotion/promotion-target-cells.json \
             --portable-promotion-output target/portable-engine-physical-promotion/promotion-bundle
@@ -442,6 +464,7 @@ jobs:
             target/portable-engine-physical-promotion/installation.json
             target/portable-engine-physical-promotion/cargo-messages.jsonl
             target/portable-engine-physical-promotion/build-selection.json
+            target/portable-engine-physical-promotion/conformance-runner.json
             target/portable-engine-physical-promotion/executable-recipes.json
             target/portable-engine-physical-promotion/promotion-target-cells.json
             target/portable-engine-physical-promotion/output-shape-sweep/**

@@ -92,7 +92,13 @@ test(
     const { root, evidenceDirectory, supervisor } = fixture({
       deadlineMs: process.platform === "win32" ? 60_000 : 5000,
     });
-    const evidence = await runObservedCommand({
+    const declaredInputs = [
+      {
+        name: "conformanceRunner",
+        digest: `sha256-${"A".repeat(43)}`,
+      },
+    ];
+    const evidencePromise = runObservedCommand({
       supervisor,
       id: "capsec-registry-drift",
       command: process.execPath,
@@ -101,7 +107,10 @@ test(
         "process.stdout.write('x'.repeat(3 * 1024 * 1024) + 'MARKER\\n')",
       ],
       cwd: root,
+      declaredInputs,
     });
+    declaredInputs[0].digest = `sha256-${"B".repeat(43)}`;
+    const evidence = await evidencePromise;
     supervisor.finish();
     expect(evidence.classification).toBe("success");
     expect(evidence.commandIdentity).toMatch(/^sha256-[A-Za-z0-9_-]{43}$/u);
@@ -109,6 +118,12 @@ test(
     expect(evidence.stdout.bytes).toBeGreaterThan(3 * 1024 * 1024);
     expect(evidence.stdout.truncated).toBe(true);
     expect(evidence.stdout.tail).toEndWith("MARKER\n");
+    expect(evidence.declaredInputs).toEqual([
+      {
+        name: "conformanceRunner",
+        digest: `sha256-${"A".repeat(43)}`,
+      },
+    ]);
     const outcome = JSON.parse(
       fs.readFileSync(path.join(evidenceDirectory, "execution-outcome.json")),
     );

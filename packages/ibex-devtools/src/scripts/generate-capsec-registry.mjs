@@ -926,6 +926,7 @@ export function loadTargetPromotions({
         catalog: outputShapeCatalog,
         dispositionRows: outputDispositionRows,
         evidence: outputDispositionEvidence,
+        conformanceRunner: report.bindings.conformanceRunner,
       });
     assertOutputDispositionEvidenceMatchesReport(
       outputDispositionEvidenceState,
@@ -1041,11 +1042,13 @@ export function assertOutputDispositionEvidenceMatchesReport(
     bindings?.outputDispositionEvidenceRawContentDigest !== rawContentDigest ||
     evidenceState?.sourceRevision !== bindings?.sourceRevision ||
     evidenceState?.sourceTreeDigest !== bindings?.sourceTreeDigest ||
+    canonicalJson(evidenceState?.conformanceRunner) !==
+      canonicalJson(bindings?.conformanceRunner) ||
     canonicalJson(evidenceState?.target) !== canonicalJson(bindings?.target) ||
     canonicalJson(evidenceState?.engine) !== canonicalJson(bindings?.engine)
   ) {
     throw new Error(
-      "target promotion is closed because the output-disposition evidence raw digest or exact source, target, and loaded-engine binding differs from the report",
+      "target promotion is closed because the output-disposition evidence raw digest or exact source, runner, target, and loaded-engine binding differs from the report",
     );
   }
 }

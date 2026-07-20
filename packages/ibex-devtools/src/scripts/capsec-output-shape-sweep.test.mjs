@@ -310,7 +310,16 @@ function fixture() {
   ];
   const bindings = {
     sourceRevision: "a".repeat(40),
-    sourceTreeDigest: digest("D"),
+    sourceTreeDigest: digest("A"),
+    conformanceRunner: {
+      sourceRevision: "a".repeat(40),
+      sourceTreeDigest: digest("A"),
+      artifactId: digest("Y"),
+      buildConsumptionDigest: digest("M"),
+      postLinkSetDigest: digest("Q"),
+      verificationDigest: digest("U"),
+      testExecutableDigest: `sha256-${"e".repeat(64)}`,
+    },
     target,
     engine,
   };
@@ -2316,11 +2325,13 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         catalog: value.catalog,
         dispositionRows: value.dispositionRows,
         evidence,
+        conformanceRunner: value.bindings.conformanceRunner,
       }),
     ).toEqual({
       status: "verified",
       sourceRevision: value.bindings.sourceRevision,
       sourceTreeDigest: value.bindings.sourceTreeDigest,
+      conformanceRunner: value.bindings.conformanceRunner,
       target: value.bindings.target,
       engine: value.bindings.engine,
     });
@@ -2333,6 +2344,7 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         catalog: value.catalog,
         dispositionRows: value.dispositionRows,
         evidence: projectionOnly,
+        conformanceRunner: value.bindings.conformanceRunner,
       }),
     ).toThrow(/expected exact keys/);
 
@@ -2344,8 +2356,43 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         catalog: value.catalog,
         dispositionRows: value.dispositionRows,
         evidence: detachedProof,
+        conformanceRunner: value.bindings.conformanceRunner,
       }),
     ).toThrow(/stale or mismatched bindings/);
+
+    const foreignRunner = structuredClone(value.bindings.conformanceRunner);
+    foreignRunner.testExecutableDigest = `sha256-${"f".repeat(64)}`;
+    expect(() =>
+      validatePromotableOutputDispositionEvidence({
+        catalog: value.catalog,
+        dispositionRows: value.dispositionRows,
+        evidence,
+        conformanceRunner: foreignRunner,
+      }),
+    ).toThrow(/another conformance runner binding/u);
+
+    const omittedRunner = structuredClone(evidence);
+    delete omittedRunner.conformanceRunner;
+    expect(() =>
+      validatePromotableOutputDispositionEvidence({
+        catalog: value.catalog,
+        dispositionRows: value.dispositionRows,
+        evidence: omittedRunner,
+        conformanceRunner: value.bindings.conformanceRunner,
+      }),
+    ).toThrow(/expected exact keys/u);
+
+    const pathBearingRunner = structuredClone(evidence);
+    pathBearingRunner.conformanceRunner.testExecutablePath =
+      "/runner/target/debug/deps/ibex";
+    expect(() =>
+      validatePromotableOutputDispositionEvidence({
+        catalog: value.catalog,
+        dispositionRows: value.dispositionRows,
+        evidence: pathBearingRunner,
+        conformanceRunner: value.bindings.conformanceRunner,
+      }),
+    ).toThrow(/unknown or missing fields/u);
   });
 
   test("requires one independently-authored probe for every catalog row", () => {

@@ -14,7 +14,7 @@
 //! portable identity and detached mapped-evidence references, never locality.
 
 use crate::engine::portable_identity::{
-    MappedEngineInstanceIdentity, PortableEngineArtifactIdentity,
+    MappedEngineInstanceIdentity, PortableEngineArtifactIdentity, RawSha256Digest,
 };
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
@@ -34,6 +34,10 @@ const PROMOTION_ADMISSION_DOMAIN: &str = "ibex.portable-engine-checked-promotion
 const REPORT_SCHEMA_V2: &str = "ibex/capsec-conformance/2";
 const REPORT_DOMAIN_V2: &str = "ibex:capsec:conformance:2";
 const MAX_IJSON_INTEGER: u64 = 9_007_199_254_740_991;
+const CHECKED_IMPLEMENTATION_MANIFEST_JSON: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/capsec/generated/implementation-manifest.json"
+));
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -112,9 +116,22 @@ struct CheckedPromotionAdmission {
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ConformanceRunnerBinding {
+    source_revision: String,
+    source_tree_digest: Digest,
+    artifact_id: Digest,
+    build_consumption_digest: Digest,
+    post_link_set_digest: Digest,
+    verification_digest: Digest,
+    test_executable_digest: RawSha256Digest,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ReportBindings {
     source_revision: String,
     source_tree_digest: Digest,
+    conformance_runner: ConformanceRunnerBinding,
     engine: PortableEngineArtifactIdentity,
     target: AdvertisementTarget,
     vocabulary_digest: Digest,
@@ -312,6 +329,40 @@ fn validate_evidence_references(references: &[MappedEvidenceReference]) -> Resul
     {
         return Err(invalid(
             "mapped-engine evidence references repeat one identity column",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_conformance_runner_binding(
+    binding: &ConformanceRunnerBinding,
+    source_revision: &str,
+    source_tree_digest: &Digest,
+    engine: &PortableEngineArtifactIdentity,
+) -> Result<()> {
+    if !valid_sha1_object_id(&binding.source_revision)
+        || binding.source_revision != source_revision
+        || &binding.source_tree_digest != source_tree_digest
+        || binding.artifact_id != engine.artifact_id
+    {
+        return Err(refused(
+            "promoted report conformance runner differs from its source or portable engine binding",
+        ));
+    }
+    for digest in [
+        &binding.build_consumption_digest,
+        &binding.post_link_set_digest,
+        &binding.verification_digest,
+    ] {
+        if digest.as_str().len() != "sha256-".len() + 43 {
+            return Err(invalid(
+                "promoted report conformance runner has a malformed stage digest",
+            ));
+        }
+    }
+    if binding.test_executable_digest.as_str().len() != "sha256-".len() + 64 {
+        return Err(invalid(
+            "promoted report conformance runner has a malformed executable digest",
         ));
     }
     Ok(())
@@ -713,6 +764,80 @@ fn validate_report_cell(cell: &ReportCell, index: usize) -> Result<()> {
 struct CheckedCoverageSemantics {
     classification: String,
     effect_mode: Option<String>,
+    surface_observed_key: String,
+    action_ids: Vec<String>,
+    logical_branch_action_ids: Vec<(String, Vec<String>)>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct CheckedTargetCellAuthority {
+    implementation_branch_ids: Vec<String>,
+    enforcement_branch_ids: Vec<String>,
+    required_fixtures: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+struct CheckedReportAuthority {
+    implementation_manifest_digest: Digest,
+    fixture_catalog_digest: Digest,
+    cells: BTreeMap<String, CheckedTargetCellAuthority>,
+}
+
+#[derive(Clone, Debug)]
+struct CheckedImplementationRow {
+    edge_id: String,
+    branch_id: String,
+    enforcement_branch_id: String,
+    terminal_observed_key: String,
+    fixture_obligations: Vec<String>,
+}
+
+fn required_string<'a>(value: &'a Value, field: &str, label: &str) -> Result<&'a str> {
+    value
+        .get(field)
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| invalid(format!("{label}.{field} is missing or malformed")))
+}
+
+fn required_canonical_ids(value: &Value, field: &str, label: &str) -> Result<Vec<String>> {
+    let values = value
+        .get(field)
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid(format!("{label}.{field} is missing or malformed")))?
+        .iter()
+        .map(|entry| {
+            entry
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| invalid(format!("{label}.{field} contains a non-string ID")))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    validate_canonical_ids(&values, &format!("{label}.{field}"))?;
+    Ok(values)
+}
+
+fn canonical_value_digest(value: &Value, label: &str) -> Result<Digest> {
+    let canonical = capsec_semantics::canonical::to_jcs(value)
+        .map_err(|error| invalid(format!("cannot canonicalize {label}: {error}")))?;
+    Digest::new(&raw_content_digest(canonical.as_bytes()))
+        .map_err(|error| invalid(format!("cannot digest {label}: {error}")))
+}
+
+fn effect_action_ids(value: Option<&Value>, label: &str) -> Result<Vec<String>> {
+    let Some(effects) = value else {
+        return Ok(Vec::new());
+    };
+    let effects = effects
+        .as_array()
+        .ok_or_else(|| invalid(format!("{label} is not an array")))?;
+    let mut action_ids = effects
+        .iter()
+        .map(|effect| required_string(effect, "cap", label).map(str::to_owned))
+        .collect::<Result<Vec<_>>>()?;
+    action_ids.sort_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
+    action_ids.dedup();
+    Ok(action_ids)
 }
 
 fn checked_coverage_semantics() -> Result<BTreeMap<String, CheckedCoverageSemantics>> {
@@ -761,12 +886,74 @@ fn checked_coverage_semantics() -> Result<BTreeMap<String, CheckedCoverageSemant
                     })
             })
             .transpose()?;
+        let surface = row
+            .get("surface")
+            .and_then(Value::as_object)
+            .ok_or_else(|| invalid(format!("checked coverage edge {id} has no surface")))?;
+        let surface_kind = surface
+            .get("kind")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| invalid(format!("checked coverage edge {id} has no surface kind")))?;
+        let surface_name = surface
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| invalid(format!("checked coverage edge {id} has no surface name")))?;
+        let action_ids =
+            effect_action_ids(row.get("effects"), &format!("checked edge {id}.effects"))?;
+        let logical_branch_action_ids = row
+            .get("logicalBranches")
+            .map(|value| {
+                value
+                    .as_array()
+                    .ok_or_else(|| {
+                        invalid(format!(
+                            "checked coverage edge {id}.logicalBranches is not an array"
+                        ))
+                    })?
+                    .iter()
+                    .map(|branch| {
+                        let branch_id = required_string(
+                            branch,
+                            "id",
+                            &format!("checked coverage edge {id}.logicalBranches"),
+                        )?
+                        .to_owned();
+                        if !valid_capsec_stable_id(&branch_id) {
+                            return Err(invalid(format!(
+                                "checked coverage edge {id} has an invalid logical branch ID"
+                            )));
+                        }
+                        let actions = effect_action_ids(
+                            branch.get("effects"),
+                            &format!(
+                                "checked coverage edge {id}.logicalBranches[{branch_id}].effects"
+                            ),
+                        )?;
+                        Ok((branch_id, actions))
+                    })
+                    .collect::<Result<Vec<_>>>()
+            })
+            .transpose()?
+            .unwrap_or_default();
+        if logical_branch_action_ids
+            .windows(2)
+            .any(|pair| pair[0].0.as_bytes() >= pair[1].0.as_bytes())
+        {
+            return Err(invalid(format!(
+                "checked coverage edge {id} logical branches are not canonically ordered"
+            )));
+        }
         if semantics
             .insert(
                 id.to_owned(),
                 CheckedCoverageSemantics {
                     classification: classification.to_owned(),
                     effect_mode,
+                    surface_observed_key: format!("{surface_kind}:{surface_name}"),
+                    action_ids,
+                    logical_branch_action_ids,
                 },
             )
             .is_some()
@@ -786,12 +973,352 @@ fn checked_coverage_semantics() -> Result<BTreeMap<String, CheckedCoverageSemant
     Ok(semantics)
 }
 
+fn checked_target_implementation_branches(
+    target: &AdvertisementTarget,
+    coverage: &BTreeMap<String, CheckedCoverageSemantics>,
+) -> Result<BTreeMap<String, Vec<String>>> {
+    let cells = capsec_semantics::strict_json::parse_strict(
+        crate::capsec_registry_generated::CAPSEC_TARGET_CELLS_JSON,
+    )
+    .map_err(|error| invalid(format!("invalid checked target cells: {error}")))?;
+    if cells.get("targetCellSchema").and_then(Value::as_str) != Some("ibex/capsec-target-cells/1")
+        || cells.get("profile").and_then(Value::as_str) != Some(CAPSEC_PROFILE)
+    {
+        return Err(invalid(
+            "checked target cells have the wrong schema or profile",
+        ));
+    }
+    let rows = cells
+        .get("cells")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid("checked target cells have no rows"))?;
+    let mut selected = BTreeMap::new();
+    for (index, row) in rows.iter().enumerate() {
+        let row_target: AdvertisementTarget = serde_json::from_value(
+            row.get("target")
+                .cloned()
+                .ok_or_else(|| invalid(format!("checked target cell {index} has no target")))?,
+        )
+        .map_err(|error| {
+            invalid(format!(
+                "checked target cell {index} target is invalid: {error}"
+            ))
+        })?;
+        validate_target(
+            &row_target,
+            &format!("checked target cells[{index}].target"),
+        )?;
+        if row_target != *target {
+            continue;
+        }
+        let edge_id = required_string(row, "edgeId", &format!("checked target cells[{index}]"))?;
+        if !valid_capsec_stable_id(edge_id) || !coverage.contains_key(edge_id) {
+            return Err(invalid(format!(
+                "checked target cell {index} names an unknown edge"
+            )));
+        }
+        let branch_ids = required_canonical_ids(
+            row,
+            "implementationBranchIds",
+            &format!("checked target cells[{index}]"),
+        )?;
+        let prefix = format!("{edge_id}.");
+        if branch_ids.iter().any(|branch| {
+            !branch.starts_with(&prefix)
+                || crate::capsec_registry_generated::CAPSEC_IMPLEMENTATION_BRANCH_IDS
+                    .binary_search(&branch.as_str())
+                    .is_err()
+        }) {
+            return Err(invalid(format!(
+                "checked target cell {edge_id} has an implementation branch outside the checked inventory"
+            )));
+        }
+        if selected.insert(edge_id.to_owned(), branch_ids).is_some() {
+            return Err(invalid(format!(
+                "checked target cells repeat exact target edge {edge_id}"
+            )));
+        }
+    }
+    if selected.len() != coverage.len() || coverage.keys().any(|edge| !selected.contains_key(edge))
+    {
+        return Err(invalid(
+            "checked target cells do not contain the complete exact-target coverage inventory",
+        ));
+    }
+    Ok(selected)
+}
+
+fn target_absence_fixture(edge_id: &str, target: &AdvertisementTarget) -> Result<String> {
+    let target_key = serde_json::to_string(&serde_json::json!([target.triple, target.features]))
+        .map_err(|error| invalid(format!("cannot serialize target absence key: {error}")))?;
+    let hash = Sha256::digest(target_key.as_bytes());
+    let mut hexadecimal = String::with_capacity(hash.len() * 2);
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for byte in hash {
+        hexadecimal.push(HEX[usize::from(byte >> 4)] as char);
+        hexadecimal.push(HEX[usize::from(byte & 0x0f)] as char);
+    }
+    Ok(format!(
+        "{edge_id}.target.{}.{hexadecimal}.absent",
+        target.triple
+    ))
+}
+
+fn checked_implementation_rows(
+    value: &Value,
+) -> Result<BTreeMap<String, CheckedImplementationRow>> {
+    if value
+        .get("implementationManifestSchema")
+        .and_then(Value::as_str)
+        != Some("ibex/capsec-implementation/1")
+        || value.get("profile").and_then(Value::as_str) != Some(CAPSEC_PROFILE)
+        || value.get("status").and_then(Value::as_str) != Some("inventory-only-until-conformance")
+    {
+        return Err(invalid(
+            "checked implementation manifest has the wrong schema, profile, or status",
+        ));
+    }
+    let surfaces = value
+        .get("surfaces")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid("checked implementation manifest has no surfaces"))?;
+    let mut rows = BTreeMap::new();
+    for (index, surface) in surfaces.iter().enumerate() {
+        let label = format!("checked implementation surfaces[{index}]");
+        let edge_id = required_string(surface, "edgeId", &label)?.to_owned();
+        let branch_id = required_string(surface, "branchId", &label)?.to_owned();
+        let enforcement_branch_id =
+            required_string(surface, "enforcementBranchId", &label)?.to_owned();
+        if !valid_capsec_stable_id(&edge_id)
+            || !valid_capsec_stable_id(&branch_id)
+            || !valid_capsec_stable_id(&enforcement_branch_id)
+            || !branch_id.starts_with(&format!("{edge_id}."))
+            || crate::capsec_registry_generated::CAPSEC_IMPLEMENTATION_BRANCH_IDS
+                .binary_search(&branch_id.as_str())
+                .is_err()
+            || crate::capsec_registry_generated::CAPSEC_ENFORCEMENT_BRANCH_IDS
+                .binary_search(&enforcement_branch_id.as_str())
+                .is_err()
+        {
+            return Err(invalid(format!(
+                "{label} names a branch outside the checked inventory"
+            )));
+        }
+        let observed_key = required_string(surface, "observedKey", &label)?.to_owned();
+        let terminal_observed_key = surface
+            .get("enforcementRoute")
+            .and_then(|route| route.get("terminalObservedKey"))
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty())
+            .unwrap_or(&observed_key)
+            .to_owned();
+        let fixture_obligations = required_canonical_ids(surface, "fixtureObligations", &label)?;
+        if fixture_obligations.is_empty() {
+            return Err(invalid(format!("{label} has no fixture obligations")));
+        }
+        let row = CheckedImplementationRow {
+            edge_id,
+            branch_id: branch_id.clone(),
+            enforcement_branch_id,
+            terminal_observed_key,
+            fixture_obligations,
+        };
+        if rows.insert(branch_id.clone(), row).is_some() {
+            return Err(invalid(format!(
+                "checked implementation manifest repeats branch {branch_id}"
+            )));
+        }
+    }
+    if rows.len() != crate::capsec_registry_generated::CAPSEC_IMPLEMENTATION_BRANCH_IDS.len()
+        || crate::capsec_registry_generated::CAPSEC_IMPLEMENTATION_BRANCH_IDS
+            .iter()
+            .any(|branch| !rows.contains_key(*branch))
+    {
+        return Err(invalid(
+            "checked implementation manifest differs from the generated exact branch inventory",
+        ));
+    }
+    Ok(rows)
+}
+
+/// Rebuild the report-facing branch, enforcement, and fixture authority from
+/// checked source artifacts. A promotion report can prove these obligations;
+/// it cannot choose a smaller set or mutually rebind its own digest fields.
+///
+/// @ref LLP 0035#phase-2--split-runtime-and-publication-identity — candidate
+/// cells are independently source-derived, and supplied report cells are only
+/// exact-byte evidence for that complete authority.
+fn checked_report_authority(target: &AdvertisementTarget) -> Result<CheckedReportAuthority> {
+    let coverage = checked_coverage_semantics()?;
+    let target_branches = checked_target_implementation_branches(target, &coverage)?;
+    let implementation = capsec_semantics::strict_json::parse_strict(
+        CHECKED_IMPLEMENTATION_MANIFEST_JSON,
+    )
+    .map_err(|error| invalid(format!("invalid checked implementation manifest: {error}")))?;
+    let implementation_manifest_digest =
+        canonical_value_digest(&implementation, "checked implementation manifest")?;
+    let candidates = implementation
+        .get("candidateTargets")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid("checked implementation manifest has no candidate targets"))?;
+    let matching_targets = candidates
+        .iter()
+        .map(|candidate| {
+            serde_json::from_value::<AdvertisementTarget>(candidate.clone()).map_err(|error| {
+                invalid(format!(
+                    "checked implementation manifest has an invalid candidate target: {error}"
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .filter(|candidate| candidate == target)
+        .count();
+    if matching_targets != 1 {
+        return Err(invalid(
+            "checked implementation manifest does not name one exact candidate target",
+        ));
+    }
+    let implementation_rows = checked_implementation_rows(&implementation)?;
+    let mut cells = BTreeMap::new();
+    let mut fixture_catalog = Vec::with_capacity(coverage.len());
+    for edge_id in crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS {
+        let semantics = coverage
+            .get(*edge_id)
+            .ok_or_else(|| invalid(format!("checked edge {edge_id} has no semantics")))?;
+        let implementation_branch_ids = target_branches
+            .get(*edge_id)
+            .ok_or_else(|| invalid(format!("checked target has no branch row for {edge_id}")))?
+            .clone();
+        let selected_rows = implementation_branch_ids
+            .iter()
+            .map(|branch| {
+                implementation_rows.get(branch).ok_or_else(|| {
+                    invalid(format!("checked target selects unknown branch {branch}"))
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if selected_rows.iter().any(|row| row.edge_id != *edge_id) {
+            return Err(invalid(format!(
+                "checked target branch selection crosses edge {edge_id}"
+            )));
+        }
+        let enforcement_branch_ids = selected_rows
+            .iter()
+            .map(|row| row.enforcement_branch_id.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let required_fixtures = if selected_rows.is_empty() {
+            vec![target_absence_fixture(edge_id, target)?]
+        } else {
+            selected_rows
+                .iter()
+                .flat_map(|row| row.fixture_obligations.iter().cloned())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>()
+        };
+        let fixture_bindings = required_fixtures
+            .iter()
+            .map(|fixture_id| {
+                let matching_rows = selected_rows
+                    .iter()
+                    .copied()
+                    .filter(|row| row.fixture_obligations.binary_search(fixture_id).is_ok())
+                    .collect::<Vec<_>>();
+                if !selected_rows.is_empty() && matching_rows.is_empty() {
+                    return Err(invalid(format!(
+                        "checked fixture {fixture_id} has no selected implementation branch"
+                    )));
+                }
+                let fixture_implementation_ids = matching_rows
+                    .iter()
+                    .map(|row| row.branch_id.clone())
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                let fixture_enforcement_ids = matching_rows
+                    .iter()
+                    .map(|row| row.enforcement_branch_id.clone())
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                let terminal_observed_keys = if matching_rows.is_empty() {
+                    vec![semantics.surface_observed_key.clone()]
+                } else {
+                    matching_rows
+                        .iter()
+                        .map(|row| row.terminal_observed_key.clone())
+                        .collect::<BTreeSet<_>>()
+                        .into_iter()
+                        .collect::<Vec<_>>()
+                };
+                let action_ids = semantics
+                    .logical_branch_action_ids
+                    .iter()
+                    .find_map(|(logical_branch_id, actions)| {
+                        matching_rows
+                            .iter()
+                            .any(|row| {
+                                fixture_id.starts_with(&format!(
+                                    "{}.logical.{logical_branch_id}.",
+                                    row.enforcement_branch_id
+                                ))
+                            })
+                            .then(|| actions.clone())
+                    })
+                    .unwrap_or_else(|| semantics.action_ids.clone());
+                Ok(serde_json::json!({
+                    "fixtureId": fixture_id,
+                    "implementationBranchIds": fixture_implementation_ids,
+                    "enforcementBranchIds": fixture_enforcement_ids,
+                    "terminalObservedKeys": terminal_observed_keys,
+                    "classifications": [semantics.classification],
+                    "actionIds": action_ids,
+                }))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        fixture_catalog.push(serde_json::json!({
+            "edgeId": edge_id,
+            "implementationBranchIds": implementation_branch_ids,
+            "enforcementBranchIds": enforcement_branch_ids,
+            "requiredFixtures": required_fixtures,
+            "fixtureBindings": fixture_bindings,
+        }));
+        cells.insert(
+            (*edge_id).to_owned(),
+            CheckedTargetCellAuthority {
+                implementation_branch_ids,
+                enforcement_branch_ids,
+                required_fixtures,
+            },
+        );
+    }
+    let fixture_catalog_digest =
+        canonical_value_digest(&Value::Array(fixture_catalog), "checked fixture catalog")?;
+    Ok(CheckedReportAuthority {
+        implementation_manifest_digest,
+        fixture_catalog_digest,
+        cells,
+    })
+}
+
 /// Validate the exact embedded report selected by build.rs and derive Host's
 /// complete/closed map from its complete conformant cell membership plus the
 /// checked source classification. No source-A `unsupported` row is borrowed.
 pub(super) fn authenticated_report_target_cells(
     advertisement: &SelectedTargetAdvertisement,
     report_text: &str,
+) -> Result<BTreeMap<String, TargetCellDisposition>> {
+    let authority = checked_report_authority(&advertisement.target)?;
+    authenticated_report_target_cells_with_authority(advertisement, report_text, &authority)
+}
+
+fn authenticated_report_target_cells_with_authority(
+    advertisement: &SelectedTargetAdvertisement,
+    report_text: &str,
+    authority: &CheckedReportAuthority,
 ) -> Result<BTreeMap<String, TargetCellDisposition>> {
     if report_text == "null\n" {
         return Err(refused(
@@ -827,6 +1354,12 @@ pub(super) fn authenticated_report_target_cells(
         ));
     }
     let bindings = &report.bindings;
+    validate_conformance_runner_binding(
+        &bindings.conformance_runner,
+        &bindings.source_revision,
+        &bindings.source_tree_digest,
+        &bindings.engine,
+    )?;
     if bindings.target != advertisement.target
         || bindings.source_revision != advertisement.source_revision
         || bindings.source_tree_digest != advertisement.source_tree_digest
@@ -849,6 +1382,13 @@ pub(super) fn authenticated_report_target_cells(
     {
         return Err(refused(
             "promoted report bindings differ from the target advertisement",
+        ));
+    }
+    if bindings.implementation_manifest_digest != authority.implementation_manifest_digest
+        || bindings.fixture_catalog_digest != authority.fixture_catalog_digest
+    {
+        return Err(refused(
+            "promoted report does not bind the checked source-derived implementation and fixture authority",
         ));
     }
     validate_target(&bindings.target, "promotedReport.bindings.target")?;
@@ -902,6 +1442,7 @@ pub(super) fn authenticated_report_target_cells(
 
     let coverage_semantics = checked_coverage_semantics()?;
     if report.cells.len() != coverage_semantics.len()
+        || authority.cells.len() != coverage_semantics.len()
         || report
             .cells
             .windows(2)
@@ -932,6 +1473,19 @@ pub(super) fn authenticated_report_target_cells(
         let semantics = coverage_semantics
             .get(*expected_edge)
             .ok_or_else(|| invalid(format!("checked edge {expected_edge} has no semantics")))?;
+        let expected_authority = authority.cells.get(*expected_edge).ok_or_else(|| {
+            invalid(format!(
+                "checked edge {expected_edge} has no source-derived report authority"
+            ))
+        })?;
+        if cell.implementation_branch_ids != expected_authority.implementation_branch_ids
+            || cell.enforcement_branch_ids != expected_authority.enforcement_branch_ids
+            || cell.required_fixtures != expected_authority.required_fixtures
+        {
+            return Err(refused(format!(
+                "promoted report cell {expected_edge} does not equal its complete checked source-derived branch and fixture authority"
+            )));
+        }
         let disposition = if cell.implementation_branch_ids.is_empty() {
             TargetCellDisposition::Closed
         } else if semantics.effect_mode.as_deref() == Some("conditional-unrefined") {
@@ -1016,6 +1570,7 @@ mod tests {
     struct Fixture {
         advertisements: Value,
         report: String,
+        authority: CheckedReportAuthority,
         admission: Value,
         portable: PortableEngineArtifactIdentity,
         mapped: MappedEngineInstanceIdentity,
@@ -1077,7 +1632,7 @@ mod tests {
                     .copied()
                     .collect::<Vec<_>>();
                 let fixtures = if index == 0 {
-                    serde_json::json!(["fixture.host-admission"])
+                    serde_json::json!(["fixture.host-admission.a", "fixture.host-admission.b"])
                 } else {
                     serde_json::json!([])
                 };
@@ -1100,6 +1655,15 @@ mod tests {
             "bindings": {
                 "sourceRevision": advertisement["sourceRevision"],
                 "sourceTreeDigest": advertisement["sourceTreeDigest"],
+                "conformanceRunner": {
+                    "sourceRevision": advertisement["sourceRevision"],
+                    "sourceTreeDigest": advertisement["sourceTreeDigest"],
+                    "artifactId": advertisement["engine"]["artifactId"],
+                    "buildConsumptionDigest": digest("runner-build-consumption"),
+                    "postLinkSetDigest": digest("runner-post-link-set"),
+                    "verificationDigest": digest("runner-verification"),
+                    "testExecutableDigest": format!("sha256-{}", "e".repeat(64)),
+                },
                 "engine": advertisement["engine"],
                 "target": advertisement["target"],
                 "vocabularyDigest": advertisement["vocabularyDigest"],
@@ -1118,20 +1682,31 @@ mod tests {
                 "cells": cells.len(),
                 "conformantCells": cells.len(),
                 "incompleteCells": 0,
-                "requiredFixtures": 1,
-                "passedFixtures": 1,
+                "requiredFixtures": 2,
+                "passedFixtures": 2,
                 "missingFixtures": 0,
                 "failedFixtures": 0,
             },
-            "executions": [{
-                "fixtureId": "fixture.host-admission",
-                "outcome": "passed",
-                "executor": "ibex-test",
-                "artifactDigest": digest("execution-artifact"),
-                "rawContentDigest": digest("execution-raw"),
-                "bindingDigest": digest("execution-binding"),
-                "mappedEngineExecutionEvidenceDigest": evidence_digest,
-            }],
+            "executions": [
+                {
+                    "fixtureId": "fixture.host-admission.a",
+                    "outcome": "passed",
+                    "executor": "ibex-test",
+                    "artifactDigest": digest("execution-artifact-a"),
+                    "rawContentDigest": digest("execution-raw-a"),
+                    "bindingDigest": digest("execution-binding-a"),
+                    "mappedEngineExecutionEvidenceDigest": evidence_digest,
+                },
+                {
+                    "fixtureId": "fixture.host-admission.b",
+                    "outcome": "passed",
+                    "executor": "ibex-test",
+                    "artifactDigest": digest("execution-artifact-b"),
+                    "rawContentDigest": digest("execution-raw-b"),
+                    "bindingDigest": digest("execution-binding-b"),
+                    "mappedEngineExecutionEvidenceDigest": evidence_digest,
+                }
+            ],
             "cells": cells,
             "conformanceDigest": digest("placeholder-report"),
         });
@@ -1144,6 +1719,35 @@ mod tests {
             .unwrap(),
         );
         format!("{}\n", serde_json::to_string_pretty(&report).unwrap())
+    }
+
+    fn test_authority(advertisement: &Value, report_text: &str) -> CheckedReportAuthority {
+        let report: PortableConformanceReport = serde_json::from_str(report_text).unwrap();
+        let cells = report
+            .cells
+            .into_iter()
+            .map(|cell| {
+                (
+                    cell.edge_id,
+                    CheckedTargetCellAuthority {
+                        implementation_branch_ids: cell.implementation_branch_ids,
+                        enforcement_branch_ids: cell.enforcement_branch_ids,
+                        required_fixtures: cell.required_fixtures,
+                    },
+                )
+            })
+            .collect();
+        CheckedReportAuthority {
+            implementation_manifest_digest: serde_json::from_value(
+                advertisement["implementationManifestDigest"].clone(),
+            )
+            .unwrap(),
+            fixture_catalog_digest: serde_json::from_value(
+                advertisement["fixtureCatalogDigest"].clone(),
+            )
+            .unwrap(),
+            cells,
+        }
     }
 
     fn fixture() -> Fixture {
@@ -1183,6 +1787,7 @@ mod tests {
         });
         let target_cells_digest = raw_content_digest(&cells);
         let report = report_for(&advertisement, &target_cells_digest);
+        let authority = test_authority(&advertisement, &report);
         let report_value: Value = serde_json::from_str(&report).unwrap();
         advertisement["conformanceDigest"] = report_value["conformanceDigest"].clone();
         advertisement["reportRawContentDigest"] =
@@ -1208,6 +1813,7 @@ mod tests {
         Fixture {
             advertisements,
             report,
+            authority,
             admission,
             portable,
             mapped,
@@ -1222,6 +1828,39 @@ mod tests {
             &fixture.target,
             &fixture.features,
         )
+    }
+
+    fn authenticate_fixture_report(
+        fixture: &Fixture,
+        advertisement: &SelectedTargetAdvertisement,
+        report_text: &str,
+    ) -> Result<BTreeMap<String, TargetCellDisposition>> {
+        authenticated_report_target_cells_with_authority(
+            advertisement,
+            report_text,
+            &fixture.authority,
+        )
+    }
+
+    fn rebind_report(
+        advertisement: &SelectedTargetAdvertisement,
+        mut report: Value,
+    ) -> (SelectedTargetAdvertisement, String) {
+        report["conformanceDigest"] = Value::String(
+            capsec_semantics::digest::compute_domain_digest(
+                REPORT_DOMAIN_V2,
+                &report,
+                &["conformanceDigest".to_owned()],
+            )
+            .unwrap(),
+        );
+        let report_text = format!("{}\n", serde_json::to_string_pretty(&report).unwrap());
+        let mut rebound = advertisement.clone();
+        rebound.advertisement.conformance_digest =
+            serde_json::from_value(report["conformanceDigest"].clone()).unwrap();
+        rebound.advertisement.report_raw_content_digest =
+            Digest::new(&raw_content_digest(report_text.as_bytes())).unwrap();
+        (rebound, report_text)
     }
 
     #[test]
@@ -1261,7 +1900,7 @@ mod tests {
         require_checked_promotion(&advertisement, &checked_marker(fixture.admission.clone()))
             .unwrap();
         let target_cells =
-            authenticated_report_target_cells(&advertisement, &fixture.report).unwrap();
+            authenticate_fixture_report(&fixture, &advertisement, &fixture.report).unwrap();
         assert_eq!(
             target_cells.len(),
             crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS.len()
@@ -1300,12 +1939,12 @@ mod tests {
     fn missing_mutated_or_incomplete_promoted_report_is_refused() {
         let fixture = fixture();
         let advertisement = select(&fixture).unwrap();
-        assert!(authenticated_report_target_cells(&advertisement, "null\n").is_err());
+        assert!(authenticate_fixture_report(&fixture, &advertisement, "null\n").is_err());
 
         let mut mutated = fixture.report.clone();
         let at = mutated.find(SOURCE_A).unwrap();
         mutated.replace_range(at..at + SOURCE_A.len(), DESCENDANT_D);
-        assert!(authenticated_report_target_cells(&advertisement, &mutated).is_err());
+        assert!(authenticate_fixture_report(&fixture, &advertisement, &mutated).is_err());
 
         let mut report: Value = serde_json::from_str(&fixture.report).unwrap();
         report["cells"].as_array_mut().unwrap().pop();
@@ -1326,8 +1965,174 @@ mod tests {
             Digest::new(report["conformanceDigest"].as_str().unwrap()).unwrap();
         rebound.advertisement.report_raw_content_digest =
             Digest::new(raw_content_digest(report_text.as_bytes())).unwrap();
-        let error = authenticated_report_target_cells(&rebound, &report_text).unwrap_err();
+        let error = authenticate_fixture_report(&fixture, &rebound, &report_text).unwrap_err();
         assert!(error.to_string().contains("cell membership"), "{error}");
+    }
+
+    #[test]
+    fn report_cannot_omit_a_source_branch_to_reclassify_an_effect_as_closed() {
+        let fixture = fixture();
+        let advertisement = select(&fixture).unwrap();
+        let semantics = checked_coverage_semantics().unwrap();
+        let mut report: Value = serde_json::from_str(&fixture.report).unwrap();
+        let victim = report["cells"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|cell| {
+                !cell["implementationBranchIds"]
+                    .as_array()
+                    .unwrap()
+                    .is_empty()
+                    && matches!(
+                        semantics
+                            .get(cell["edgeId"].as_str().unwrap())
+                            .unwrap()
+                            .classification
+                            .as_str(),
+                        "effects" | "non-capability"
+                    )
+            })
+            .unwrap();
+        victim["implementationBranchIds"] = Value::Array(Vec::new());
+        let (rebound, report_text) = rebind_report(&advertisement, report);
+        let error = authenticate_fixture_report(&fixture, &rebound, &report_text).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("source-derived branch and fixture authority"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn report_cannot_omit_enforcement_or_fixture_authority() {
+        let fixture = fixture();
+        let advertisement = select(&fixture).unwrap();
+
+        let mut missing_enforcement: Value = serde_json::from_str(&fixture.report).unwrap();
+        let victim = missing_enforcement["cells"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|cell| !cell["enforcementBranchIds"].as_array().unwrap().is_empty())
+            .unwrap();
+        victim["enforcementBranchIds"].as_array_mut().unwrap().pop();
+        let (rebound, report_text) = rebind_report(&advertisement, missing_enforcement);
+        let error = authenticate_fixture_report(&fixture, &rebound, &report_text).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("source-derived branch and fixture authority"),
+            "{error}"
+        );
+
+        let mut missing_fixture: Value = serde_json::from_str(&fixture.report).unwrap();
+        missing_fixture["cells"][0]["requiredFixtures"]
+            .as_array_mut()
+            .unwrap()
+            .pop();
+        missing_fixture["cells"][0]["passedFixtures"]
+            .as_array_mut()
+            .unwrap()
+            .pop();
+        missing_fixture["executions"].as_array_mut().unwrap().pop();
+        missing_fixture["summary"]["requiredFixtures"] = Value::from(1);
+        missing_fixture["summary"]["passedFixtures"] = Value::from(1);
+        let (rebound, report_text) = rebind_report(&advertisement, missing_fixture);
+        let error = authenticate_fixture_report(&fixture, &rebound, &report_text).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("source-derived branch and fixture authority"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn report_and_advertisement_cannot_mutually_rebind_checked_source_authority() {
+        let fixture = fixture();
+        for field in ["implementationManifestDigest", "fixtureCatalogDigest"] {
+            let mut advertisement = select(&fixture).unwrap();
+            let substituted = Digest::new(&digest(&format!("substituted-{field}"))).unwrap();
+            match field {
+                "implementationManifestDigest" => {
+                    advertisement.advertisement.implementation_manifest_digest =
+                        substituted.clone();
+                }
+                "fixtureCatalogDigest" => {
+                    advertisement.advertisement.fixture_catalog_digest = substituted.clone();
+                }
+                _ => unreachable!(),
+            }
+            let mut report: Value = serde_json::from_str(&fixture.report).unwrap();
+            report["bindings"][field] = Value::String(substituted.as_str().to_owned());
+            let (rebound, report_text) = rebind_report(&advertisement, report);
+            let error = authenticate_fixture_report(&fixture, &rebound, &report_text).unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("checked source-derived implementation and fixture authority"),
+                "{field}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn report_conformance_runner_must_be_complete_locality_free_and_rejoin_source() {
+        let fixture = fixture();
+        let advertisement = select(&fixture).unwrap();
+
+        let mut substituted: Value = serde_json::from_str(&fixture.report).unwrap();
+        substituted["bindings"]["conformanceRunner"]["sourceRevision"] =
+            Value::String(DESCENDANT_D.into());
+        let (rebound, report_text) = rebind_report(&advertisement, substituted);
+        let error = authenticate_fixture_report(&fixture, &rebound, &report_text).unwrap_err();
+        assert!(
+            error.to_string().contains("conformance runner differs"),
+            "{error}"
+        );
+
+        let mut path_bearing: Value = serde_json::from_str(&fixture.report).unwrap();
+        path_bearing["bindings"]["conformanceRunner"]["testExecutablePath"] =
+            Value::String("/runner/target/debug/deps/ibex".into());
+        let (rebound, report_text) = rebind_report(&advertisement, path_bearing);
+        let error = authenticate_fixture_report(&fixture, &rebound, &report_text).unwrap_err();
+        assert!(error.to_string().contains("host-local path"), "{error}");
+
+        let mut omitted: Value = serde_json::from_str(&fixture.report).unwrap();
+        omitted["bindings"]
+            .as_object_mut()
+            .unwrap()
+            .remove("conformanceRunner");
+        let (rebound, report_text) = rebind_report(&advertisement, omitted);
+        let error = authenticate_fixture_report(&fixture, &rebound, &report_text).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("invalid embedded promoted report model"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn checked_report_authority_covers_the_complete_source_target() {
+        let fixture = fixture();
+        let advertisement = select(&fixture).unwrap();
+        let authority = checked_report_authority(&advertisement.target).unwrap();
+        assert_eq!(
+            authority.cells.len(),
+            crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS.len()
+        );
+        assert!(authority
+            .cells
+            .values()
+            .all(|cell| !cell.required_fixtures.is_empty()));
+        assert!(authority.cells.values().any(|cell| {
+            cell.implementation_branch_ids.len() > 1
+                && cell.enforcement_branch_ids.len() > 1
+                && cell.required_fixtures.len() > 1
+        }));
     }
 
     #[test]

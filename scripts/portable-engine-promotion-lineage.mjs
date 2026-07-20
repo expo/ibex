@@ -16,6 +16,7 @@
 import * as fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -27,6 +28,9 @@ import {
   rawDigest,
   semanticDigest,
 } from "./portable-engine-contract.mjs";
+import {
+  validatePortablePromotionBundleGraph,
+} from "../packages/ibex-devtools/src/scripts/verify-capsec-portable-promotion-bundle.mjs";
 
 const CATALOG_SCHEMA = "ibex/portable-engine-promotion-admission-catalog/1";
 const ADMISSION_SCHEMA = "ibex/portable-engine-promotion-admission/1";
@@ -39,16 +43,42 @@ const CATALOG_PATH = "schemas/portable-engine-promotion-admission-catalog-v1.jso
 const CATALOG_SCHEMA_PATH = "schemas/portable-engine-promotion-admission-catalog-v1.schema.json";
 const CHECKED_ADMISSION_SCHEMA_PATH = "schemas/portable-engine-checked-promotion-admission-v1.schema.json";
 const TRUST_POLICY_PATH = "schemas/portable-engine-provenance-trust-policy-v1.json";
+const CAPSEC_POLICY_RULES_PATH = "capsec/registry/policy-rules.json";
 const TARGET_ATTESTATION_PATH = "capsec/conformance/target-attestations.json";
 const TARGET_ADVERTISEMENT_PATH = "capsec/generated/target-advertisements.json";
 const MODULE_PATH = "scripts/portable-engine-promotion-lineage.mjs";
 const CONTRACT_PATH = "scripts/portable-engine-contract.mjs";
+const BUNDLE_VERIFIER_PATH =
+  "packages/ibex-devtools/src/scripts/verify-capsec-portable-promotion-bundle.mjs";
+const PORTABLE_EVIDENCE_CONTRACT_PATH =
+  "packages/ibex-devtools/src/scripts/capsec-portable-engine-evidence-contract.mjs";
+const PORTABLE_EVIDENCE_SCHEMA_PATHS = Object.freeze([
+  "capsec/schema/common.schema.json",
+  "capsec/schema/target-cell.schema.json",
+  "schemas/portable-engine-common-v1.schema.json",
+  "schemas/portable-engine-artifact-identity-v1.schema.json",
+  "schemas/mapped-engine-instance-identity-v1.schema.json",
+  "schemas/capsec-portable-engine-evidence-common-v1.schema.json",
+  "schemas/capsec-command-attempt-v1.schema.json",
+  "schemas/capsec-executable-recipes-v2.schema.json",
+  "schemas/capsec-public-surface-executions-v2.schema.json",
+  "schemas/capsec-output-disposition-evidence-v4.schema.json",
+  "schemas/capsec-portable-fixture-evidence-v1.schema.json",
+  "schemas/capsec-mapped-engine-execution-evidence-v1.schema.json",
+  "schemas/capsec-conformance-report-v2.schema.json",
+  "schemas/capsec-target-attestations-v2.schema.json",
+  "schemas/capsec-target-advertisements-v2.schema.json",
+  "schemas/capsec-portable-promotion-authority-v1.schema.json",
+]);
 const SYSTEM_GIT = "/usr/bin/git";
 const MAX_GIT_OBJECT_BYTES = 72 * 1024 * 1024;
 const MAX_CHANGED_ARTIFACT_BYTES = 64 * 1024 * 1024;
 const MAX_TREE_ENTRIES = 250_000;
 const MAX_TREE_DEPTH = 64;
-const MAX_CHANGED_ARTIFACTS = 10_000;
+// One verified bundle admits at most MAX_MEMBERS bundle members, its manifest,
+// and the two byte-identical top-level target publications.
+const MIN_CHANGED_ARTIFACTS = 14;
+const MAX_CHANGED_ARTIFACTS = 100_003;
 const fatalUtf8 = new TextDecoder("utf-8", { fatal: true });
 const moduleFilePath = fileURLToPath(import.meta.url);
 const CHECKED_GIT_ENV = Object.freeze({
@@ -135,12 +165,16 @@ function runCheckedGit(
   return result.stdout;
 }
 
-function sameObject(left, right, { includeSize = false, includeTimes = false } = {}) {
+function sameObject(left, right, {
+  includeLinks = true,
+  includeSize = false,
+  includeTimes = false,
+} = {}) {
   return left.dev === right.dev
     && left.ino === right.ino
     && left.mode === right.mode
     && left.uid === right.uid
-    && left.nlink === right.nlink
+    && (!includeLinks || left.nlink === right.nlink)
     && (!includeSize || left.size === right.size)
     && (!includeTimes || (left.mtimeNs === right.mtimeNs && left.ctimeNs === right.ctimeNs));
 }
@@ -224,7 +258,14 @@ function createAuthorityPlane(repoRoot) {
       fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_DIRECTORY ?? 0),
     );
     const pinned = fs.fstatSync(descriptor, { bigint: true });
-    assert(sameObject(lexical, pinned), `trusted ancestor ${absolute}: path changed while pinning`);
+    // Directory link counts change when an unrelated sibling directory is
+    // created or removed. The pinned descriptor plus dev/inode/mode/owner
+    // comparison detects ancestry replacement without treating that ambient
+    // namespace churn as mutation of the selected authority path.
+    assert(
+      sameObject(lexical, pinned, { includeLinks: false }),
+      `trusted ancestor ${absolute}: path changed while pinning`,
+    );
     const record = { absolute, descriptor, status: pinned, strictMetadata };
     directories.set(absolute, record);
     return record;
@@ -393,8 +434,14 @@ function createAuthorityPlane(repoRoot) {
         const descriptorStatus = fs.fstatSync(record.descriptor, { bigint: true });
         const pathStatus = fs.lstatSync(record.absolute, { bigint: true });
         assert(
-          sameObject(record.status, descriptorStatus, { includeTimes: record.strictMetadata })
-            && sameObject(record.status, pathStatus, { includeTimes: record.strictMetadata }),
+          sameObject(record.status, descriptorStatus, {
+            includeLinks: false,
+            includeTimes: record.strictMetadata,
+          })
+            && sameObject(record.status, pathStatus, {
+              includeLinks: false,
+              includeTimes: record.strictMetadata,
+            }),
           `trusted directory ${record.absolute} changed during promotion verification`,
         );
       }
@@ -663,7 +710,11 @@ function validateAdmissionShape(admission, label) {
   assert(typeof admission.targetTriple === "string" && /^[a-z0-9_]+(?:-[a-z0-9_]+)+$/u.test(admission.targetTriple) && admission.targetTriple.length <= 128, `${label}.targetTriple: invalid target triple`);
   assertSemanticDigest(admission.portableArtifactId, `${label}.portableArtifactId`);
   assert(Array.isArray(admission.artifacts), `${label}.artifacts: expected an array`);
-  assert(admission.artifacts.length >= 3 && admission.artifacts.length <= MAX_CHANGED_ARTIFACTS, `${label}.artifacts: expected 3..${MAX_CHANGED_ARTIFACTS} rows`);
+  assert(
+    admission.artifacts.length >= MIN_CHANGED_ARTIFACTS &&
+      admission.artifacts.length <= MAX_CHANGED_ARTIFACTS,
+    `${label}.artifacts: expected ${MIN_CHANGED_ARTIFACTS}..${MAX_CHANGED_ARTIFACTS} rows`,
+  );
   const paths = new Set();
   let previousPath = null;
   const roleCounts = new Map();
@@ -686,6 +737,7 @@ function validateAdmissionShape(admission, label) {
   assert(roleCounts.get("target-attestation") === 1, `${label}: exactly one target-attestation blob is required`);
   assert(roleCounts.get("target-advertisement") === 1, `${label}: exactly one target-advertisement blob is required`);
   const reportPath = `capsec/conformance/portable-promotions/${admission.sourceRevision}/${admission.targetTriple}/${admission.portableArtifactId}/conformance-report.json`;
+  const bundleManifestPath = `capsec/conformance/portable-promotions/${admission.sourceRevision}/${admission.targetTriple}/${admission.portableArtifactId}/promotion-bundle-manifest.json`;
   assert(
     admission.artifacts.filter(
       (artifact) =>
@@ -694,12 +746,39 @@ function validateAdmissionShape(admission, label) {
     ).length === 1,
     `${label}: exactly one conformance report must use the fixed source/target/artifact-scoped path`,
   );
+  assert(
+    admission.artifacts.filter(
+      (artifact) =>
+        artifact.role === "conformance-evidence" &&
+        artifact.path === bundleManifestPath,
+    ).length === 1,
+    `${label}: exactly one verified promotion bundle manifest must use the fixed source/target/artifact-scoped path`,
+  );
   assertSemanticDigest(admission.admissionDigest, `${label}.admissionDigest`);
   assert(semanticDigest(ADMISSION_DOMAIN, admission, ["admissionDigest"]) === admission.admissionDigest, `${label}: admissionDigest mismatch`);
 }
 
 function evidencePrefix(admission) {
   return `capsec/conformance/portable-promotions/${admission.sourceRevision}/${admission.targetTriple}/${admission.portableArtifactId}/`;
+}
+
+function promotionBundleMemberPath(admission, logicalName) {
+  assert(
+    typeof logicalName === "string" &&
+      /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u.test(logicalName),
+    "portable bundle logical member name is malformed",
+  );
+  return `${evidencePrefix(admission)}${
+    logicalName === "portable-conformance-report"
+      ? "conformance-report"
+      : logicalName
+  }.json`;
+}
+
+function promotionSourceTreeDigest(sourceTreeObjectId) {
+  return `sha256-${createHash("sha256")
+    .update(Buffer.from(`${sourceTreeObjectId}\n`, "utf8"))
+    .digest("base64url")}`;
 }
 
 function assertArtifactRolePath(admission, artifact, label) {
@@ -745,6 +824,35 @@ function assertSourceAuthorityClosed(repoRoot, sourceLeaves, admission) {
   assertExactKeys(advertisements, ["targetAdvertisementSchema", "profile", "targetCellsRawContentDigest", "advertisements"], "source target advertisements");
   assert(advertisements.targetAdvertisementSchema === "ibex/capsec-target-advertisements/1", "artifact-source target advertisements must remain on the closed v1 schema");
   assert(Array.isArray(advertisements.advertisements) && advertisements.advertisements.length === 0, "artifact-source target advertisements must be empty");
+
+  const rulesRecord = readTrackedBlob(
+    repoRoot,
+    sourceLeaves,
+    CAPSEC_POLICY_RULES_PATH,
+    "source CapSec policy rules",
+  );
+  const rules = parseJsonStrict(rulesRecord.bytes, "source CapSec policy rules");
+  const targetMatches = rules?.initialProfile?.candidateTargets?.filter(
+    (target) => target?.triple === admission.targetTriple,
+  );
+  assert(
+    Array.isArray(targetMatches) && targetMatches.length === 1,
+    `source CapSec policy rules must name exactly one candidate target for ${admission.targetTriple}`,
+  );
+  const target = targetMatches[0];
+  assertExactKeys(target, ["triple", "features"], "source CapSec candidate target");
+  assert(
+    Array.isArray(target.features) &&
+      target.features.length > 0 &&
+      target.features.every(
+        (feature, index) =>
+          typeof feature === "string" &&
+          /^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(feature) &&
+          (index === 0 || compareUtf8(target.features[index - 1], feature) < 0),
+      ),
+    "source CapSec candidate target features are malformed or noncanonical",
+  );
+  return target;
 }
 
 function changedLeaves(sourceLeaves, currentLeaves) {
@@ -756,7 +864,76 @@ function changedLeaves(sourceLeaves, currentLeaves) {
   });
 }
 
-function verifyChangedArtifacts(repoRoot, sourceLeaves, currentLeaves, admission) {
+function verifyPromotionBundleGraph(admission, promotedBytes, expectedTarget) {
+  const prefix = evidencePrefix(admission);
+  const manifestPath = `${prefix}promotion-bundle-manifest.json`;
+  const manifestBytes = promotedBytes.get(manifestPath);
+  assert(manifestBytes, "promotion omits the verified portable bundle manifest");
+  const manifest = parseJsonStrict(
+    manifestBytes,
+    "promoted portable bundle manifest",
+  );
+  assert(
+    Array.isArray(manifest?.files),
+    "promoted portable bundle manifest has malformed membership",
+  );
+  const members = manifest.files.map((file) => {
+    const pathname = promotionBundleMemberPath(admission, file?.logicalName);
+    const bytes = promotedBytes.get(pathname);
+    assert(
+      bytes,
+      `promotion omits portable bundle member ${String(file?.logicalName)}`,
+    );
+    return { logicalName: file.logicalName, bytes };
+  });
+  const expectedArtifactPaths = [
+    manifestPath,
+    ...members.map((member) =>
+      promotionBundleMemberPath(admission, member.logicalName),
+    ),
+    TARGET_ATTESTATION_PATH,
+    TARGET_ADVERTISEMENT_PATH,
+  ].sort(compareUtf8);
+  const actualArtifactPaths = admission.artifacts
+    .map((artifact) => artifact.path)
+    .sort(compareUtf8);
+  assert(
+    canonicalJson(actualArtifactPaths) === canonicalJson(expectedArtifactPaths),
+    "promotion admission does not name the exact complete portable bundle graph",
+  );
+  validatePortablePromotionBundleGraph({
+    manifestBytes,
+    members,
+    expectedSourceRevision: admission.sourceRevision,
+    expectedSourceTreeDigest: promotionSourceTreeDigest(
+      admission.sourceTreeObjectId,
+    ),
+    expectedTarget,
+    expectedPortableArtifactId: admission.portableArtifactId,
+  });
+  const scopedAttestations = promotedBytes.get(
+    promotionBundleMemberPath(admission, "target-attestations"),
+  );
+  const scopedAdvertisements = promotedBytes.get(
+    promotionBundleMemberPath(admission, "target-advertisements"),
+  );
+  assert(
+    scopedAttestations?.equals(promotedBytes.get(TARGET_ATTESTATION_PATH)),
+    "published target attestations differ from the verified portable bundle graph",
+  );
+  assert(
+    scopedAdvertisements?.equals(promotedBytes.get(TARGET_ADVERTISEMENT_PATH)),
+    "published target advertisements differ from the verified portable bundle graph",
+  );
+}
+
+function verifyChangedArtifacts(
+  repoRoot,
+  sourceLeaves,
+  currentLeaves,
+  admission,
+  expectedTarget,
+) {
   const rows = new Map(admission.artifacts.map((artifact) => [artifact.path, artifact]));
   const expectedPaths = [CATALOG_PATH, ...rows.keys()].sort(compareUtf8);
   const observedPaths = changedLeaves(sourceLeaves, currentLeaves);
@@ -772,18 +949,21 @@ function verifyChangedArtifacts(repoRoot, sourceLeaves, currentLeaves, admission
     paths.push(pathname);
     sourceBlobPaths.set(entry.objectId, paths);
   }
-  const promotedBlobIds = new Set();
+  const promotedBlobPaths = new Map();
+  const promotedBytes = new Map();
   for (const [index, artifact] of admission.artifacts.entries()) {
     const label = `promotion artifact ${index} (${artifact.path})`;
     assertArtifactRolePath(admission, artifact, label);
     const current = currentLeaves.get(artifact.path);
     assert(current?.kind === "blob" && current.mode === "100644", `${label}: symlinks, submodules, executables, and non-regular entries are forbidden`);
     assert(current.objectId === artifact.blobObjectId, `${label}: checked blob object ID mismatch`);
-    assert(!promotedBlobIds.has(current.objectId), `${label}: copied promotion blobs are forbidden`);
-    promotedBlobIds.add(current.objectId);
+    const duplicatePaths = promotedBlobPaths.get(current.objectId) ?? [];
+    duplicatePaths.push(artifact.path);
+    promotedBlobPaths.set(current.objectId, duplicatePaths);
     const priorPaths = sourceBlobPaths.get(current.objectId) ?? [];
     assert(priorPaths.length === 0, `${label}: copied source blob is forbidden (matches ${priorPaths.join(", ")})`);
     const bytes = readGitObject(repoRoot, "blob", current.objectId);
+    promotedBytes.set(artifact.path, bytes);
     assert(bytes.length === artifact.size, `${label}: checked blob size mismatch`);
     assert(rawDigest(bytes) === artifact.digest, `${label}: checked blob raw digest mismatch`);
 
@@ -794,6 +974,25 @@ function verifyChangedArtifacts(repoRoot, sourceLeaves, currentLeaves, admission
       assert(source?.kind === "blob" && source.mode === "100644", `${label}: target publication path must replace the closed source blob in place`);
     }
   }
+  const permittedCopies = [
+    [
+      promotionBundleMemberPath(admission, "target-attestations"),
+      TARGET_ATTESTATION_PATH,
+    ].sort(compareUtf8),
+    [
+      promotionBundleMemberPath(admission, "target-advertisements"),
+      TARGET_ADVERTISEMENT_PATH,
+    ].sort(compareUtf8),
+  ].map((paths) => canonicalJson(paths));
+  for (const paths of promotedBlobPaths.values()) {
+    if (paths.length === 1) continue;
+    assert(
+      paths.length === 2 &&
+        permittedCopies.includes(canonicalJson([...paths].sort(compareUtf8))),
+      `copied promotion blobs are forbidden outside exact bundle publication joins: ${paths.join(", ")}`,
+    );
+  }
+  verifyPromotionBundleGraph(admission, promotedBytes, expectedTarget);
   const sourceCatalog = sourceLeaves.get(CATALOG_PATH);
   const currentCatalog = currentLeaves.get(CATALOG_PATH);
   assert(sourceCatalog?.kind === "blob" && sourceCatalog.mode === "100644", "source admission catalog must be a regular non-executable blob");
@@ -811,7 +1010,16 @@ function pinWorkingAuthorityFile(repoRoot, currentLeaves, relativePath, authorit
 function pinRunningAuthority(repoRoot, currentLeaves, authorityPlane) {
   const expectedModule = path.join(repoRoot, MODULE_PATH);
   assert(fs.realpathSync(moduleFilePath) === fs.realpathSync(expectedModule), "promotion verifier is not running from the selected checkout's exact checked path");
-  for (const relativePath of [MODULE_PATH, CONTRACT_PATH, CATALOG_SCHEMA_PATH, CHECKED_ADMISSION_SCHEMA_PATH, CATALOG_PATH]) {
+  for (const relativePath of [
+    MODULE_PATH,
+    CONTRACT_PATH,
+    BUNDLE_VERIFIER_PATH,
+    PORTABLE_EVIDENCE_CONTRACT_PATH,
+    ...PORTABLE_EVIDENCE_SCHEMA_PATHS,
+    CATALOG_SCHEMA_PATH,
+    CHECKED_ADMISSION_SCHEMA_PATH,
+    CATALOG_PATH,
+  ]) {
     pinWorkingAuthorityFile(repoRoot, currentLeaves, relativePath, authorityPlane);
   }
 }
@@ -865,8 +1073,18 @@ export function verifyPortableEnginePromotionAdmission(options = {}) {
     assert(sourceCommit.tree !== currentCommit.tree, "promotion merge must change the disabled source tree");
 
     const sourceLeaves = collectTreeLeaves(repoRoot, sourceCommit.tree);
-    assertSourceAuthorityClosed(repoRoot, sourceLeaves, admission);
-    verifyChangedArtifacts(repoRoot, sourceLeaves, currentLeaves, admission);
+    const expectedTarget = assertSourceAuthorityClosed(
+      repoRoot,
+      sourceLeaves,
+      admission,
+    );
+    verifyChangedArtifacts(
+      repoRoot,
+      sourceLeaves,
+      currentLeaves,
+      admission,
+      expectedTarget,
+    );
 
     assert(resolveHead(repoRoot) === currentRevision, "checkout HEAD changed during promotion verification");
     authorityPlane.assertResolvedHead(currentRevision);

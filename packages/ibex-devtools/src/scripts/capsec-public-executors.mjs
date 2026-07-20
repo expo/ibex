@@ -67,6 +67,11 @@ export const PUBLIC_SURFACE_EXECUTOR_DESCRIPTORS = Object.freeze(
     Object.freeze({
       testName,
       executor,
+      testArguments: Object.freeze([
+        testName,
+        "--test-threads=1",
+        ...(nocapture ? ["--nocapture"] : []),
+      ]),
       command: Object.freeze(command(testName, nocapture)),
     }),
   ),
@@ -114,4 +119,23 @@ export function publicSurfaceExecutorForRecipe(recipe) {
   }
   return publicSurfaceExecutorDescriptor(recipe.publicSurfaceProbe.command)
     .executor;
+}
+
+export function portablePublicSurfaceInvocation(
+  publicCommand,
+  testExecutable,
+) {
+  if (
+    typeof testExecutable !== "string" ||
+    testExecutable.length === 0 ||
+    !testExecutable.startsWith("/")
+  ) {
+    throw new Error("portable public fixture executable must be absolute");
+  }
+  const descriptor = publicSurfaceExecutorDescriptor(publicCommand);
+  return {
+    command: testExecutable,
+    args: [...descriptor.testArguments],
+    executor: descriptor.executor,
+  };
 }

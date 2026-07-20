@@ -83,6 +83,15 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
       status: "verified",
       sourceRevision: "a".repeat(40),
       sourceTreeDigest: `sha256-${"B".repeat(43)}`,
+      conformanceRunner: {
+        sourceRevision: "a".repeat(40),
+        sourceTreeDigest: `sha256-${"B".repeat(43)}`,
+        artifactId: `sha256-${"A".repeat(43)}`,
+        buildConsumptionDigest: `sha256-${"M".repeat(43)}`,
+        postLinkSetDigest: `sha256-${"Q".repeat(43)}`,
+        verificationDigest: `sha256-${"U".repeat(43)}`,
+        testExecutableDigest: `sha256-${"e".repeat(64)}`,
+      },
       target,
       engine,
     };
@@ -91,6 +100,7 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
       bindings: {
         sourceRevision: evidence.sourceRevision,
         sourceTreeDigest: evidence.sourceTreeDigest,
+        conformanceRunner: structuredClone(evidence.conformanceRunner),
         target: structuredClone(target),
         engine: structuredClone(engine),
         outputDispositionEvidenceRawContentDigest: rawContentDigest,
@@ -109,7 +119,7 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
         report,
         rawContentDigest,
       ),
-    ).toThrow(/raw digest or exact source, target, and loaded-engine binding/);
+    ).toThrow(/raw digest or exact source, runner, target, and loaded-engine binding/);
 
     const substitutions = [
       (value) => {
@@ -117,6 +127,10 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
       },
       (value) => {
         value.sourceTreeDigest = `sha256-${"C".repeat(43)}`;
+      },
+      (value) => {
+        value.conformanceRunner.testExecutableDigest =
+          `sha256-${"f".repeat(64)}`;
       },
       (value) => {
         value.target.triple = "x86_64-apple-darwin";
@@ -146,7 +160,7 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
           report,
           rawContentDigest,
         ),
-      ).toThrow(/raw digest or exact source, target, and loaded-engine binding/);
+      ).toThrow(/raw digest or exact source, runner, target, and loaded-engine binding/);
     }
     expect(() =>
       assertOutputDispositionEvidenceMatchesReport(
@@ -169,6 +183,7 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
       bindings: {
         sourceRevision: otherEvidence.sourceRevision,
         sourceTreeDigest: otherEvidence.sourceTreeDigest,
+        conformanceRunner: structuredClone(otherEvidence.conformanceRunner),
         target: structuredClone(otherTarget),
         engine: structuredClone(otherEvidence.engine),
         outputDispositionEvidenceRawContentDigest: otherDigest,
@@ -187,14 +202,14 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
         otherReport,
         rawContentDigest,
       ),
-    ).toThrow(/raw digest or exact source, target, and loaded-engine binding/);
+    ).toThrow(/raw digest or exact source, runner, target, and loaded-engine binding/);
     expect(() =>
       assertOutputDispositionEvidenceMatchesReport(
         otherEvidence,
         report,
         rawContentDigest,
       ),
-    ).toThrow(/raw digest or exact source, target, and loaded-engine binding/);
+    ).toThrow(/raw digest or exact source, runner, target, and loaded-engine binding/);
   });
 
   test("reopens promotion evidence only as digest-addressed regular files", () => {

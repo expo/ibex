@@ -10,6 +10,7 @@
     "status",
     "sourceRevision",
     "sourceTreeDigest",
+    "conformanceRunner",
     "target",
     "engine",
     "summary",
@@ -26,6 +27,9 @@
     },
     "sourceTreeDigest": {
       "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+    },
+    "conformanceRunner": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/conformanceRunnerBinding"
     },
     "target": {
       "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/target"

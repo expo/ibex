@@ -37,6 +37,7 @@
         "family",
         "target",
         "engine",
+        "conformanceRunner",
         "vocabularyDigest",
         "registryDigest",
         "implementationManifestDigest",
@@ -54,6 +55,9 @@
           "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/target"
         },
         "engine": { "$ref": "portable-engine-artifact-identity-v1.schema.json" },
+        "conformanceRunner": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/conformanceRunnerBinding"
+        },
         "vocabularyDigest": {
           "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
         },

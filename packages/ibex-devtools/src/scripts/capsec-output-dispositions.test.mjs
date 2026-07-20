@@ -220,7 +220,16 @@ function verifiedEvidence(dataset) {
     status: "verified",
     requiredExecutor: OUTPUT_DISPOSITION_EVIDENCE_EXECUTOR,
     sourceRevision: "a".repeat(40),
-    sourceTreeDigest: `sha256-${"B".repeat(43)}`,
+    sourceTreeDigest: `sha256-${"A".repeat(43)}`,
+    conformanceRunner: {
+      sourceRevision: "a".repeat(40),
+      sourceTreeDigest: `sha256-${"A".repeat(43)}`,
+      artifactId: `sha256-${"Y".repeat(43)}`,
+      buildConsumptionDigest: `sha256-${"M".repeat(43)}`,
+      postLinkSetDigest: `sha256-${"Q".repeat(43)}`,
+      verificationDigest: `sha256-${"U".repeat(43)}`,
+      testExecutableDigest: `sha256-${"e".repeat(64)}`,
+    },
     target,
     engine: {
       engineArtifactPath: "/exact/hermes",
@@ -1921,6 +1930,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       status: "verified",
       sourceRevision: verified.sourceRevision,
       sourceTreeDigest: verified.sourceTreeDigest,
+      conformanceRunner: verified.conformanceRunner,
       target: verified.target,
       engine: verified.engine,
     });
@@ -2020,6 +2030,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       sourceTreeDigest: verified.sourceTreeDigest,
       target: verified.target,
       engine: verified.engine,
+      conformanceRunner: verified.conformanceRunner,
     });
 
     const wrongExecutor = structuredClone(verified);

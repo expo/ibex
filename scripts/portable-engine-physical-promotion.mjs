@@ -27,6 +27,9 @@ import {
   semanticDigest,
 } from "./portable-engine-contract.mjs";
 import { installPortableEngine } from "./portable-engine-installer.mjs";
+import {
+  validatePortableEngineCargoExecutableSet,
+} from "./portable-engine-post-link-core.mjs";
 
 const RELEASE_PLAN_SCHEMA =
   "ibex/portable-engine-physical-promotion-release-plan/1";
@@ -34,6 +37,8 @@ const INSTALLATION_SCHEMA =
   "ibex/portable-engine-physical-promotion-installation/1";
 const BUILD_SELECTION_SCHEMA =
   "ibex/portable-engine-physical-promotion-build-selection/1";
+const CONFORMANCE_RUNNER_SELECTION_SCHEMA =
+  "ibex/portable-engine-physical-promotion-conformance-runner/1";
 const RELEASE_PLAN_DOMAIN =
   "ibex.portable-engine-physical-promotion-release-plan.v1\0";
 const SOURCE_REVISION_PATTERN = /^[0-9a-f]{40}$/u;
@@ -47,8 +52,18 @@ const MAX_PLAN_BYTES = 1024 * 1024;
 const MAX_INSTALLATION_BYTES = 1024 * 1024;
 const MAX_CARGO_MESSAGES_BYTES = 64 * 1024 * 1024;
 const MAX_CARGO_MESSAGE_BYTES = 4 * 1024 * 1024;
+const MAX_POST_LINK_BYTES = 16 * 1024 * 1024;
+const MAX_EXECUTABLE_BYTES = 512 * 1024 * 1024;
 const MAX_SIDECAR_BYTES = 4096;
 const NOFOLLOW = fs.constants.O_NOFOLLOW ?? 0;
+const EFFECTIVE_UID =
+  typeof process.geteuid === "function"
+    ? BigInt(process.geteuid())
+    : typeof process.getuid === "function"
+      ? BigInt(process.getuid())
+      : null;
+const CARGO_EXECUTABLE_SET_PATH =
+  "config/portable-engine-cargo-executables-authenticated-v1.json";
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -124,9 +139,9 @@ function readPinned(filePath, maximumBytes, label) {
     lexical.isFile() && !lexical.isSymbolicLink() && lexical.nlink === 1n,
     `${label}: expected one no-follow, single-link regular file`,
   );
-  if (typeof process.getuid === "function") {
+  if (EFFECTIVE_UID !== null) {
     invariant(
-      lexical.uid === BigInt(process.getuid()),
+      lexical.uid === EFFECTIVE_UID,
       `${label}: file is not owned by the effective UID`,
     );
   }
@@ -371,9 +386,9 @@ export function verifyPortableReleaseDownload({ plan, metadata, directory }) {
     directoryStatus.isDirectory() && !directoryStatus.isSymbolicLink(),
     "portable download root is not one directory",
   );
-  if (typeof process.getuid === "function") {
+  if (EFFECTIVE_UID !== null) {
     invariant(
-      directoryStatus.uid === BigInt(process.getuid()),
+      directoryStatus.uid === EFFECTIVE_UID,
       "portable download root is not owned by the effective UID",
     );
   }
@@ -698,6 +713,376 @@ export function selectBuildConsumption({
   };
 }
 
+function digestPinnedExecutable(filePath, root) {
+  const absolute = path.resolve(filePath);
+  const targetRoot = fs.realpathSync(path.join(root, "target"));
+  invariant(isWithin(targetRoot, absolute), "conformance runner escaped target/");
+  const lexical = fs.lstatSync(absolute, { bigint: true });
+  invariant(
+    lexical.isFile() && !lexical.isSymbolicLink() && lexical.nlink === 1n,
+    "conformance runner is not one no-follow, single-link regular file",
+  );
+  invariant(
+    EFFECTIVE_UID === null || lexical.uid === EFFECTIVE_UID,
+    "conformance runner is not owned by the effective UID",
+  );
+  invariant(
+    (Number(lexical.mode & 0o7777n) & 0o111) !== 0,
+    "conformance runner is not executable",
+  );
+  invariant(
+    lexical.size > 0n && lexical.size <= BigInt(MAX_EXECUTABLE_BYTES),
+    "conformance runner size is outside the bound",
+  );
+  invariant(
+    fs.realpathSync(absolute) === absolute,
+    "conformance runner path is redirected",
+  );
+  const descriptor = fs.openSync(absolute, fs.constants.O_RDONLY | NOFOLLOW);
+  try {
+    const opened = fs.fstatSync(descriptor, { bigint: true });
+    invariant(
+      opened.dev === lexical.dev &&
+        opened.ino === lexical.ino &&
+        opened.size === lexical.size,
+      "conformance runner changed while opening",
+    );
+    const hash = crypto.createHash("sha256");
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let offset = 0;
+    while (offset < Number(opened.size)) {
+      const length = Math.min(buffer.byteLength, Number(opened.size) - offset);
+      const count = fs.readSync(descriptor, buffer, 0, length, offset);
+      invariant(count > 0, "conformance runner read ended early");
+      hash.update(buffer.subarray(0, count));
+      offset += count;
+    }
+    const after = fs.fstatSync(descriptor, { bigint: true });
+    const pathAfter = fs.lstatSync(absolute, { bigint: true });
+    for (const observed of [after, pathAfter]) {
+      invariant(
+        observed.isFile() &&
+          !observed.isSymbolicLink() &&
+          observed.nlink === 1n &&
+          observed.dev === opened.dev &&
+          observed.ino === opened.ino &&
+          observed.size === opened.size &&
+          observed.mtimeNs === opened.mtimeNs &&
+          observed.ctimeNs === opened.ctimeNs,
+        "conformance runner changed while reading",
+      );
+    }
+    return {
+      digest: `sha256-${hash.digest("hex")}`,
+      size: Number(opened.size),
+    };
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+function assertPostLinkNodeMode(filePath, expectedMode, label) {
+  const metadata = fs.lstatSync(filePath, { bigint: true });
+  invariant(
+    (expectedMode === 0o555 ? metadata.isDirectory() : metadata.isFile()) &&
+      !metadata.isSymbolicLink() &&
+      (expectedMode === 0o555 || metadata.nlink === 1n) &&
+      (EFFECTIVE_UID === null || metadata.uid === EFFECTIVE_UID) &&
+      Number(metadata.mode & 0o7777n) === expectedMode,
+    `${label} is not one exact read-only, effective-UID-owned node`,
+  );
+}
+
+function validateCompletePostLinkSet({
+  complete,
+  postLinkDirectory,
+  enumeration,
+  selection,
+}) {
+  const enumerationDigest = semanticDigest(
+    "ibex.portable-engine-cargo-executable-set.v1",
+    enumeration,
+  );
+  invariant(
+    complete.schema === "ibex/portable-engine-post-link-verification-set/1" &&
+      complete.outcome === "verified" &&
+      complete.portable &&
+      typeof complete.portable === "object" &&
+      !Array.isArray(complete.portable) &&
+      complete.portable.artifactId === selection.artifactId &&
+      complete.buildConsumptionDigest === selection.buildConsumptionDigest &&
+      complete.enumerationDigest === enumerationDigest &&
+      Array.isArray(complete.results) &&
+      complete.results.length === enumeration.targets.length &&
+      complete.setDigest ===
+        semanticDigest(
+          "ibex.portable-engine-post-link-verification-set.v1",
+          complete,
+          ["setDigest"],
+        ),
+    "post-link completion does not join the selected build and complete checked enumeration",
+  );
+
+  const expectedEvidenceNames = enumeration.targets.map(
+    (_row, index) => `${String(index).padStart(4, "0")}.json`,
+  );
+  const expectedDirectoryNames = [
+    "COMPLETE.json",
+    ...expectedEvidenceNames,
+  ].sort();
+  const observedDirectoryNames = fs.readdirSync(postLinkDirectory).sort();
+  invariant(
+    observedDirectoryNames.length === expectedDirectoryNames.length &&
+      observedDirectoryNames.every(
+        (name, index) => name === expectedDirectoryNames[index],
+      ),
+    "post-link evidence directory membership differs from the checked enumeration",
+  );
+
+  const evidenceByLogicalName = new Map();
+  for (let index = 0; index < enumeration.targets.length; index += 1) {
+    const expected = enumeration.targets[index];
+    const row = complete.results[index];
+    exactKeys(
+      row,
+      [
+        "logicalName",
+        "targetKind",
+        "evidenceFile",
+        "evidenceDigest",
+        "verificationDigest",
+      ],
+      `post-link completion result ${index}`,
+    );
+    invariant(
+      row.logicalName === expected.logicalName &&
+        row.targetKind === expected.targetKind &&
+        row.evidenceFile === expectedEvidenceNames[index] &&
+        RAW_DIGEST_PATTERN.test(row.evidenceDigest) &&
+        SEMANTIC_DIGEST_PATTERN.test(row.verificationDigest),
+      `post-link completion result ${index} differs from the checked enumeration order or identity`,
+    );
+    const evidencePath = path.join(postLinkDirectory, row.evidenceFile);
+    assertPostLinkNodeMode(
+      evidencePath,
+      0o444,
+      `${expected.logicalName} post-link evidence`,
+    );
+    const { bytes, value: evidence } = readStrictJson(
+      evidencePath,
+      MAX_POST_LINK_BYTES,
+      `${expected.logicalName} post-link evidence`,
+      true,
+    );
+    exactKeys(
+      evidence,
+      [
+        "schema",
+        "portable",
+        "buildConsumptionDigest",
+        "manifestDigest",
+        "installationReceiptDigest",
+        "verificationPolicyDigest",
+        "target",
+        "ibexFeatures",
+        "executable",
+        "payloadRevalidation",
+        "audit",
+        "outcome",
+        "verificationDigest",
+      ],
+      `${expected.logicalName} post-link evidence`,
+    );
+    exactKeys(
+      evidence.executable,
+      ["logicalName", "targetKind", "digest", "size"],
+      `${expected.logicalName} post-link executable`,
+    );
+    invariant(
+      rawDigest(bytes) === row.evidenceDigest &&
+        evidence.schema === "ibex/portable-engine-post-link-verification/1" &&
+        evidence.outcome === "verified" &&
+        canonicalJson(evidence.portable) === canonicalJson(complete.portable) &&
+        evidence.portable?.artifactId === selection.artifactId &&
+        evidence.buildConsumptionDigest === selection.buildConsumptionDigest &&
+        SEMANTIC_DIGEST_PATTERN.test(evidence.manifestDigest) &&
+        SEMANTIC_DIGEST_PATTERN.test(evidence.installationReceiptDigest) &&
+        SEMANTIC_DIGEST_PATTERN.test(evidence.verificationPolicyDigest) &&
+        evidence.target?.triple === enumeration.targetTriple &&
+        canonicalJson(evidence.ibexFeatures) ===
+          canonicalJson(enumeration.ibexFeatures) &&
+        evidence.executable.logicalName === expected.logicalName &&
+        evidence.executable.targetKind === expected.targetKind &&
+        RAW_DIGEST_PATTERN.test(evidence.executable.digest) &&
+        Number.isSafeInteger(evidence.executable.size) &&
+        evidence.executable.size > 0 &&
+        evidence.verificationDigest === row.verificationDigest &&
+        evidence.verificationDigest ===
+          semanticDigest(
+            "ibex.portable-engine-post-link-verification.v1",
+            evidence,
+            ["verificationDigest"],
+          ),
+      `${expected.logicalName} post-link evidence is incomplete or mismatched`,
+    );
+    evidenceByLogicalName.set(expected.logicalName, evidence);
+  }
+  return evidenceByLogicalName;
+}
+
+export function selectConformanceRunner({
+  buildSelectionPath,
+  cargoMessagesPath,
+  postLinkCompletePath,
+  selectedRepoRoot = repoRoot,
+}) {
+  const root = fs.realpathSync(path.resolve(selectedRepoRoot));
+  const { value: selection } = readStrictJson(
+    buildSelectionPath,
+    MAX_INSTALLATION_BYTES,
+    "portable build selection",
+    true,
+  );
+  exactKeys(
+    selection,
+    [
+      "schema",
+      "sourceRevision",
+      "artifactId",
+      "archiveDigest",
+      "cargoMessagesDigest",
+      "buildConsumptionPath",
+      "buildConsumptionDigest",
+    ],
+    "portable build selection",
+  );
+  invariant(
+    selection.schema === BUILD_SELECTION_SCHEMA &&
+      SOURCE_REVISION_PATTERN.test(selection.sourceRevision) &&
+      SEMANTIC_DIGEST_PATTERN.test(selection.artifactId) &&
+      RAW_DIGEST_PATTERN.test(selection.cargoMessagesDigest) &&
+      SEMANTIC_DIGEST_PATTERN.test(selection.buildConsumptionDigest),
+    "portable build selection identity is malformed",
+  );
+  const cargoBytes = readPinned(
+    cargoMessagesPath,
+    MAX_CARGO_MESSAGES_BYTES,
+    "retained Cargo JSON stream",
+  );
+  invariant(
+    rawDigest(cargoBytes) === selection.cargoMessagesDigest,
+    "retained Cargo stream differs from the selected build",
+  );
+  const lines = cargoBytes.toString("utf8").split("\n");
+  invariant(lines.at(-1) === "", "Cargo JSON stream must end with exactly one LF");
+  lines.pop();
+  const candidates = [];
+  for (const [index, line] of lines.entries()) {
+    invariant(
+      Buffer.byteLength(line) <= MAX_CARGO_MESSAGE_BYTES,
+      `Cargo JSON message ${index + 1} exceeds its byte bound`,
+    );
+    const message = parseJsonStrict(
+      Buffer.from(line, "utf8"),
+      `Cargo JSON message ${index + 1}`,
+    );
+    if (
+      message?.reason === "compiler-artifact" &&
+      message.target?.name === "ibex" &&
+      Array.isArray(message.target?.kind) &&
+      message.target.kind.length === 1 &&
+      message.target.kind[0] === "bin" &&
+      message.profile?.test === true &&
+      typeof message.executable === "string"
+    ) {
+      candidates.push(path.resolve(message.executable));
+    }
+  }
+  invariant(
+    candidates.length === 1,
+    `Cargo JSON stream selected ${candidates.length} test/ibex runners`,
+  );
+  const { value: enumeration } = readStrictJson(
+    path.join(root, CARGO_EXECUTABLE_SET_PATH),
+    MAX_POST_LINK_BYTES,
+    "checked Cargo executable enumeration",
+    true,
+  );
+  validatePortableEngineCargoExecutableSet(enumeration);
+  const completeAbsolute = path.resolve(postLinkCompletePath);
+  const postLinkDirectory = path.dirname(completeAbsolute);
+  const expectedPostLinkDirectory = path.join(
+    root,
+    "target/portable-engine-post-link",
+    selection.buildConsumptionDigest,
+  );
+  invariant(
+    postLinkDirectory === expectedPostLinkDirectory &&
+      fs.realpathSync(postLinkDirectory) === postLinkDirectory &&
+      path.basename(completeAbsolute) === "COMPLETE.json",
+    "post-link completion path is not the exact derived checked-set destination",
+  );
+  assertPostLinkNodeMode(
+    postLinkDirectory,
+    0o555,
+    "post-link evidence directory",
+  );
+  assertPostLinkNodeMode(completeAbsolute, 0o444, "post-link completion");
+  const { bytes: completeBytes, value: complete } = readStrictJson(
+    completeAbsolute,
+    MAX_POST_LINK_BYTES,
+    "post-link completion",
+    true,
+  );
+  exactKeys(
+    complete,
+    [
+      "schema",
+      "portable",
+      "buildConsumptionDigest",
+      "enumerationDigest",
+      "results",
+      "outcome",
+      "setDigest",
+    ],
+    "post-link completion",
+  );
+  const evidenceByLogicalName = validateCompletePostLinkSet({
+    complete,
+    postLinkDirectory,
+    enumeration,
+    selection,
+  });
+  const evidence = evidenceByLogicalName.get("test/ibex");
+  invariant(evidence, "complete checked post-link set has no test/ibex row");
+  const executable = digestPinnedExecutable(candidates[0], root);
+  invariant(
+    executable.digest === evidence.executable.digest &&
+      executable.size === evidence.executable.size,
+    "test/ibex runner differs from post-link verified bytes",
+  );
+  const relativePath = path.relative(root, candidates[0]);
+  invariant(
+    relativePath.split(path.sep)[0] === "target" &&
+      !relativePath.includes("\n") &&
+      !relativePath.includes("\r"),
+    "selected test/ibex runner path is unsafe",
+  );
+  return {
+    schema: CONFORMANCE_RUNNER_SELECTION_SCHEMA,
+    sourceRevision: selection.sourceRevision,
+    artifactId: selection.artifactId,
+    cargoMessagesDigest: selection.cargoMessagesDigest,
+    buildConsumptionDigest: selection.buildConsumptionDigest,
+    postLinkSetDigest: complete.setDigest,
+    postLinkCompletionRawDigest: rawDigest(completeBytes),
+    executablePath: relativePath.split(path.sep).join("/"),
+    executableDigest: executable.digest,
+    executableSize: executable.size,
+    verificationDigest: evidence.verificationDigest,
+  };
+}
+
 function parseOptions(argv, allowed, required) {
   const values = new Map();
   for (let index = 0; index < argv.length; index += 2) {
@@ -817,8 +1202,39 @@ async function main(argv) {
     writeCanonicalExclusive(options.get("--output"), selection, "portable build selection");
     return;
   }
+  if (command === "select-conformance-runner") {
+    const options = parseOptions(
+      rest,
+      new Set([
+        "--build-selection",
+        "--cargo-messages",
+        "--post-link-complete",
+        "--repo-root",
+        "--output",
+      ]),
+      [
+        "--build-selection",
+        "--cargo-messages",
+        "--post-link-complete",
+        "--repo-root",
+        "--output",
+      ],
+    );
+    const selection = selectConformanceRunner({
+      buildSelectionPath: options.get("--build-selection"),
+      cargoMessagesPath: options.get("--cargo-messages"),
+      postLinkCompletePath: options.get("--post-link-complete"),
+      selectedRepoRoot: options.get("--repo-root"),
+    });
+    writeCanonicalExclusive(
+      options.get("--output"),
+      selection,
+      "portable conformance-runner selection",
+    );
+    return;
+  }
   refuse(
-    "usage: node scripts/portable-engine-physical-promotion.mjs <plan-release|verify-release-download|install-source-a|verify-producer-run|select-build-consumption> ...",
+    "usage: node scripts/portable-engine-physical-promotion.mjs <plan-release|verify-release-download|install-source-a|verify-producer-run|select-build-consumption|select-conformance-runner> ...",
   );
 }
 

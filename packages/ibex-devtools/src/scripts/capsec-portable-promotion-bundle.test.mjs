@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { fixtureCatalogForTarget } from "./capsec-conformance.mjs";
 import { computeRecipeCatalogDigest } from "./capsec-conformance-recipes.mjs";
 import { computeDomainDigest, parseJsonStrict } from "./capsec-contract.mjs";
+import { conformanceRunnerBindingDigest } from "./capsec-conformance-runner-binding.mjs";
 import { PUBLIC_SURFACE_EXECUTOR_DESCRIPTORS } from "./capsec-public-executors.mjs";
 import {
   commandAttemptDigest,
@@ -80,6 +81,18 @@ function source(engine = baseEngine) {
     vocabularyDigest: digest("Q"),
     registryDigest: digest("U"),
     executorPolicy: "recipe-public-command",
+  };
+}
+
+function conformanceRunner(reviewedSource = source()) {
+  return {
+    sourceRevision: reviewedSource.sourceRevision,
+    sourceTreeDigest: reviewedSource.sourceTreeDigest,
+    artifactId: reviewedSource.engine.artifactId,
+    buildConsumptionDigest: digest("M"),
+    postLinkSetDigest: digest("Q"),
+    verificationDigest: digest("U"),
+    testExecutableDigest: `sha256-${"e".repeat(64)}`,
   };
 }
 
@@ -216,6 +229,7 @@ function derivedPreparation() {
     status: "verified",
     sourceRevision: reviewedSource.sourceRevision,
     sourceTreeDigest: reviewedSource.sourceTreeDigest,
+    conformanceRunner: conformanceRunner(reviewedSource),
     target: target(),
     engine: clone(reviewedSource.engine),
     summary: { observations: 1 },
@@ -240,6 +254,7 @@ function portableBindings(preparation) {
   return {
     sourceRevision: preparation.source.sourceRevision,
     sourceTreeDigest: preparation.source.sourceTreeDigest,
+    conformanceRunner: clone(preparation.authorityEntry.conformanceRunner),
     target: clone(preparation.source.target),
     engine: clone(preparation.source.engine),
     vocabularyDigest: preparation.authorityEntry.vocabularyDigest,
@@ -318,6 +333,14 @@ function detachedProcess(preparation) {
     commandIdentity: evidence.commandIdentityDigest,
     phase: evidence.phaseId,
     displayedInvocation: ["ibex", "--fixture-evidence"],
+    declaredInputs: [
+      {
+        name: "conformanceRunner",
+        digest: conformanceRunnerBindingDigest(
+          preparation.authorityEntry.conformanceRunner,
+        ),
+      },
+    ],
     startedAt: "2026-07-20T00:00:00.000Z",
     finishedAt: "2026-07-20T00:00:01.000Z",
     elapsedMs: 1000,
@@ -791,6 +814,7 @@ describe("rich-to-portable projections", () => {
       status: "verified",
       sourceRevision: reviewedSource.sourceRevision,
       sourceTreeDigest: reviewedSource.sourceTreeDigest,
+      conformanceRunner: conformanceRunner(reviewedSource),
       target: target(),
       engine: {
         binaryDigest: reviewedSource.engine.runtimeComponentDigest,

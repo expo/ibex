@@ -15,9 +15,9 @@ import { fileURLToPath } from "node:url";
 
 import {
   canonicalJson,
-  computeDomainDigest,
   parseJsonStrict,
-} from "./capsec-contract.mjs";
+  semanticDigest as computeDomainDigest,
+} from "../../../../scripts/portable-engine-contract.mjs";
 import {
   rawContentDigest,
   validatePortablePromotionV2,
@@ -34,11 +34,17 @@ const MAX_MEMBER_BYTES = 64 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 1024 * 1024 * 1024;
 const MAX_MEMBERS = 100_000;
 const NOFOLLOW = fs.constants.O_NOFOLLOW ?? 0;
+const EFFECTIVE_UID =
+  typeof process.geteuid === "function"
+    ? BigInt(process.geteuid())
+    : typeof process.getuid === "function"
+      ? BigInt(process.getuid())
+      : null;
 const CORE_NAMES = Object.freeze([
   "portable-promotion-authority",
   "portable-conformance-report",
-  "portable-target-attestations",
-  "portable-target-advertisements",
+  "target-attestations",
+  "target-advertisements",
   "target-cells",
   "recipes",
   "public-surface",
@@ -73,9 +79,9 @@ function readPinned(filePath, maximumBytes, label) {
     before.isFile() && !before.isSymbolicLink() && before.nlink === 1n,
     `${label}: expected one no-follow, single-link regular file`,
   );
-  if (typeof process.getuid === "function") {
+  if (EFFECTIVE_UID !== null) {
     invariant(
-      before.uid === BigInt(process.getuid()),
+      before.uid === EFFECTIVE_UID,
       `${label}: file is not owned by the effective UID`,
     );
   }
@@ -175,36 +181,16 @@ function processGroups(files) {
   });
 }
 
-export function verifyPortablePromotionBundleDirectory({
-  directory,
-  expectedSourceRevision,
-}) {
+function parseManifest(manifestBytes, expectedSourceRevision) {
+  invariant(
+    Buffer.isBuffer(manifestBytes) &&
+      manifestBytes.byteLength > 0 &&
+      manifestBytes.byteLength <= MAX_MANIFEST_BYTES,
+    "portable bundle manifest byte size is outside the bound",
+  );
   invariant(
     SOURCE_REVISION_PATTERN.test(expectedSourceRevision),
     "expected source revision must be one lowercase SHA-1 commit ID",
-  );
-  const absolute = path.resolve(directory);
-  invariant(fs.realpathSync(absolute) === absolute, "portable bundle directory is redirected");
-  const directoryStatus = fs.lstatSync(absolute, { bigint: true });
-  invariant(
-    directoryStatus.isDirectory() && !directoryStatus.isSymbolicLink(),
-    "portable bundle path is not one directory",
-  );
-  if (typeof process.getuid === "function") {
-    invariant(
-      directoryStatus.uid === BigInt(process.getuid()),
-      "portable bundle directory is not owned by the effective UID",
-    );
-  }
-  invariant(
-    (Number(directoryStatus.mode & 0o7777n) & 0o7022) === 0,
-    "portable bundle directory has unsafe mode bits",
-  );
-  const manifestPath = path.join(absolute, "bundle-manifest.json");
-  const manifestBytes = readPinned(
-    manifestPath,
-    MAX_MANIFEST_BYTES,
-    "portable bundle manifest",
   );
   const manifest = parseJsonStrict(manifestBytes, "portable bundle manifest");
   exactKeys(
@@ -239,24 +225,184 @@ export function verifyPortablePromotionBundleDirectory({
       manifest.files.length <= MAX_MEMBERS,
     "portable bundle manifest member count is outside the bound",
   );
-  const logicalNames = manifest.files.map((file) => file?.logicalName);
-  invariant(
-    logicalNames.every(
-      (logicalName) =>
-        typeof logicalName === "string" &&
-        LOGICAL_NAME_PATTERN.test(logicalName),
-    ) && new Set(logicalNames).size === logicalNames.length,
-    "portable bundle logical names are malformed or duplicate",
-  );
-  for (const coreName of CORE_NAMES) {
-    invariant(logicalNames.includes(coreName), `portable bundle is missing ${coreName}`);
+  const logicalNames = [];
+  const seenNames = new Set();
+  for (const [index, file] of manifest.files.entries()) {
+    exactKeys(
+      file,
+      ["logicalName", "byteLength", "rawContentDigest"],
+      `portable bundle file row ${index}`,
+    );
+    invariant(
+      typeof file.logicalName === "string" &&
+        LOGICAL_NAME_PATTERN.test(file.logicalName) &&
+        !seenNames.has(file.logicalName) &&
+        Number.isSafeInteger(file.byteLength) &&
+        file.byteLength > 0 &&
+        file.byteLength <= MAX_MEMBER_BYTES &&
+        DIGEST_PATTERN.test(file.rawContentDigest),
+      `portable bundle file row ${index} is malformed or duplicate`,
+    );
+    seenNames.add(file.logicalName);
+    logicalNames.push(file.logicalName);
   }
+  invariant(
+    CORE_NAMES.every((logicalName, index) => logicalNames[index] === logicalName),
+    "portable bundle does not carry the exact ordered core logical members",
+  );
   invariant(
     logicalNames.every(
       (logicalName) =>
         CORE_NAMES.includes(logicalName) || logicalName.startsWith("process-"),
     ),
     "portable bundle has an unexpected logical member",
+  );
+  return { logicalNames, manifest };
+}
+
+/**
+ * Validate one complete exact-byte bundle graph independently of its storage
+ * medium. Filesystem verification and checked-Git promotion lineage both use
+ * this entry point, so neither can replace the detached graph with a
+ * self-authored manifest/core subset.
+ */
+export function validatePortablePromotionBundleGraph({
+  manifestBytes,
+  members,
+  expectedSourceRevision,
+  expectedSourceTreeDigest = null,
+  expectedTarget = null,
+  expectedPortableArtifactId = null,
+}) {
+  const { logicalNames, manifest } = parseManifest(
+    manifestBytes,
+    expectedSourceRevision,
+  );
+  if (expectedSourceTreeDigest !== null) {
+    invariant(
+      DIGEST_PATTERN.test(expectedSourceTreeDigest) &&
+        manifest.sourceTreeDigest === expectedSourceTreeDigest,
+      "portable bundle source-tree identity differs from checked authority",
+    );
+  }
+  if (expectedTarget !== null) {
+    invariant(
+      canonicalJson(manifest.target) === canonicalJson(expectedTarget),
+      "portable bundle target differs from checked authority",
+    );
+  }
+  if (expectedPortableArtifactId !== null) {
+    invariant(
+      DIGEST_PATTERN.test(expectedPortableArtifactId),
+      "expected portable artifact ID is malformed",
+    );
+  }
+  invariant(
+    Array.isArray(members) && members.length === manifest.files.length,
+    "portable bundle exact member set differs from its manifest",
+  );
+  const supplied = new Map();
+  for (const [index, member] of members.entries()) {
+    exactKeys(member, ["logicalName", "bytes"], `portable bundle member ${index}`);
+    invariant(
+      typeof member.logicalName === "string" &&
+        LOGICAL_NAME_PATTERN.test(member.logicalName) &&
+        !supplied.has(member.logicalName) &&
+        Buffer.isBuffer(member.bytes),
+      `portable bundle member ${index} is malformed or duplicate`,
+    );
+    supplied.set(member.logicalName, member.bytes);
+  }
+  invariant(
+    supplied.size === logicalNames.length &&
+      logicalNames.every((logicalName) => supplied.has(logicalName)),
+    "portable bundle exact member set differs from its manifest",
+  );
+  let totalBytes = manifestBytes.byteLength;
+  const files = manifest.files.map((file) => {
+    const bytes = supplied.get(file.logicalName);
+    totalBytes += bytes.byteLength;
+    invariant(totalBytes <= MAX_TOTAL_BYTES, "portable bundle exceeds its total byte bound");
+    invariant(bytes.byteLength === file.byteLength, `${file.logicalName}: byte length mismatch`);
+    invariant(
+      rawContentDigest(bytes) === file.rawContentDigest,
+      `${file.logicalName}: raw-content digest mismatch`,
+    );
+    return { ...file, bytes };
+  });
+  const processes = processGroups(files);
+  const expectedOrder = [...CORE_NAMES];
+  processes.forEach((process, processIndex) => {
+    const prefix = `process-${String(processIndex + 1).padStart(4, "0")}`;
+    expectedOrder.push(`${prefix}.mapped-evidence`, `${prefix}.command-attempt`);
+    process.outputArtifactBytes.forEach((_bytes, fixtureIndex) => {
+      expectedOrder.push(
+        `${prefix}.fixture-${String(fixtureIndex + 1).padStart(6, "0")}`,
+      );
+    });
+  });
+  invariant(
+    logicalNames.length === expectedOrder.length &&
+      logicalNames.every((logicalName, index) => logicalName === expectedOrder[index]),
+    "portable bundle member order or detached process groups are incomplete",
+  );
+  const byName = new Map(files.map((file) => [file.logicalName, file.bytes]));
+  const validated = validatePortablePromotionV2({
+    authorityBytes: byName.get("portable-promotion-authority"),
+    reportBytes: byName.get("portable-conformance-report"),
+    attestationCatalogBytes: byName.get("target-attestations"),
+    advertisementCatalogBytes: byName.get("target-advertisements"),
+    targetCellsBytes: byName.get("target-cells"),
+    recipeCatalogBytes: byName.get("recipes"),
+    publicSurfaceExecutionBytes: byName.get("public-surface"),
+    outputDispositionEvidenceBytes: byName.get("output-dispositions"),
+    processes,
+  });
+  invariant(
+    validated.report.bindings?.sourceRevision === expectedSourceRevision &&
+      validated.report.bindings?.sourceTreeDigest === manifest.sourceTreeDigest &&
+      canonicalJson(validated.report.bindings?.target) === canonicalJson(manifest.target) &&
+      (expectedPortableArtifactId === null ||
+        validated.report.bindings?.engine?.artifactId === expectedPortableArtifactId),
+    "portable bundle validator, manifest, and checked identities differ",
+  );
+  return { bundleDigest: manifest.bundleDigest, manifest, validated };
+}
+
+export function verifyPortablePromotionBundleDirectory({
+  directory,
+  expectedSourceRevision,
+}) {
+  invariant(
+    SOURCE_REVISION_PATTERN.test(expectedSourceRevision),
+    "expected source revision must be one lowercase SHA-1 commit ID",
+  );
+  const absolute = path.resolve(directory);
+  invariant(fs.realpathSync(absolute) === absolute, "portable bundle directory is redirected");
+  const directoryStatus = fs.lstatSync(absolute, { bigint: true });
+  invariant(
+    directoryStatus.isDirectory() && !directoryStatus.isSymbolicLink(),
+    "portable bundle path is not one directory",
+  );
+  if (EFFECTIVE_UID !== null) {
+    invariant(
+      directoryStatus.uid === EFFECTIVE_UID,
+      "portable bundle directory is not owned by the effective UID",
+    );
+  }
+  invariant(
+    (Number(directoryStatus.mode & 0o7777n) & 0o7022) === 0,
+    "portable bundle directory has unsafe mode bits",
+  );
+  const manifestPath = path.join(absolute, "bundle-manifest.json");
+  const manifestBytes = readPinned(
+    manifestPath,
+    MAX_MANIFEST_BYTES,
+    "portable bundle manifest",
+  );
+  const { logicalNames, manifest } = parseManifest(
+    manifestBytes,
+    expectedSourceRevision,
   );
   const expectedNames = [
     "bundle-manifest.json",
@@ -269,54 +415,19 @@ export function verifyPortablePromotionBundleDirectory({
     "portable bundle directory has missing or unexpected files",
   );
 
-  let totalBytes = manifestBytes.byteLength;
-  const files = manifest.files.map((file, index) => {
-    exactKeys(
-      file,
-      ["logicalName", "byteLength", "rawContentDigest"],
-      `portable bundle file row ${index}`,
-    );
-    invariant(
-      Number.isSafeInteger(file.byteLength) &&
-        file.byteLength > 0 &&
-        file.byteLength <= MAX_MEMBER_BYTES &&
-        DIGEST_PATTERN.test(file.rawContentDigest),
-      `${file.logicalName}: manifest size or digest is malformed`,
-    );
+  const members = manifest.files.map((file) => {
     const bytes = readPinned(
       path.join(absolute, `${file.logicalName}.json`),
       MAX_MEMBER_BYTES,
       `portable bundle ${file.logicalName}`,
     );
-    totalBytes += bytes.byteLength;
-    invariant(totalBytes <= MAX_TOTAL_BYTES, "portable bundle exceeds its total byte bound");
-    invariant(bytes.byteLength === file.byteLength, `${file.logicalName}: byte length mismatch`);
-    invariant(
-      rawContentDigest(bytes) === file.rawContentDigest,
-      `${file.logicalName}: raw-content digest mismatch`,
-    );
-    return { ...file, bytes };
+    return { logicalName: file.logicalName, bytes };
   });
-  const byName = new Map(files.map((file) => [file.logicalName, file.bytes]));
-  const input = {
-    authorityBytes: byName.get("portable-promotion-authority"),
-    reportBytes: byName.get("portable-conformance-report"),
-    attestationCatalogBytes: byName.get("portable-target-attestations"),
-    advertisementCatalogBytes: byName.get("portable-target-advertisements"),
-    targetCellsBytes: byName.get("target-cells"),
-    recipeCatalogBytes: byName.get("recipes"),
-    publicSurfaceExecutionBytes: byName.get("public-surface"),
-    outputDispositionEvidenceBytes: byName.get("output-dispositions"),
-    processes: processGroups(files),
-  };
-  const validated = validatePortablePromotionV2(input);
-  invariant(
-    validated.report.bindings?.sourceRevision === expectedSourceRevision &&
-      canonicalJson(validated.report.bindings?.target) ===
-        canonicalJson(manifest.target),
-    "portable bundle validator and manifest identities differ",
-  );
-  return { bundleDigest: manifest.bundleDigest, manifest, validated };
+  return validatePortablePromotionBundleGraph({
+    manifestBytes,
+    members,
+    expectedSourceRevision,
+  });
 }
 
 function main(argv) {

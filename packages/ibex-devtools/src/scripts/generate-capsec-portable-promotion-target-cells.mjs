@@ -26,6 +26,7 @@ import {
   validateCurrentSourceRecipeCatalog,
 } from "./capsec-conformance-recipes.mjs";
 import { canonicalJson, readJsonStrict } from "./capsec-contract.mjs";
+import { portablePromotionJsonBytes } from "./capsec-portable-promotion-bundle.mjs";
 import { discoverRepositorySurfaces } from "./capsec-surface-inventory.mjs";
 
 const PROFILE = "ibex/capsec/1";
@@ -207,7 +208,7 @@ function writeExclusive(filePath, value) {
     0o600,
   );
   try {
-    fs.writeFileSync(descriptor, Buffer.from(canonicalJson(value), "utf8"));
+    fs.writeFileSync(descriptor, portablePromotionJsonBytes(value));
     fs.fsyncSync(descriptor);
   } finally {
     fs.closeSync(descriptor);

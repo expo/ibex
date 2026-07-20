@@ -17,10 +17,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { canonicalJson } from "./portable-engine-contract.mjs";
+import {
+  canonicalJson,
+  rawDigest,
+  semanticDigest,
+} from "./portable-engine-contract.mjs";
 import {
   buildPortableReleasePlan,
   selectBuildConsumption,
+  selectConformanceRunner,
   verifyPortableReleaseDownload,
   verifyProducerRun,
 } from "./portable-engine-physical-promotion.mjs";
@@ -356,6 +361,285 @@ test("Cargo stream selects exactly one matching canonical build-consumption reco
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function conformanceRunnerFixture() {
+  const root = realpathSync(
+    mkdtempSync(join(tmpdir(), "ibex-portable-conformance-runner-")),
+  );
+  const target = join(root, "target");
+  const executablePath = join(target, "debug/deps/ibex-authenticated");
+  mkdirSync(join(target, "debug/deps"), { recursive: true, mode: 0o700 });
+  const executableBytes = Buffer.from("checked ibex test executable\n", "utf8");
+  writeFileSync(executablePath, executableBytes, { mode: 0o700 });
+  const cargoMessagesPath = join(target, "cargo.jsonl");
+  const cargoBytes = Buffer.from(
+    `${JSON.stringify({
+      reason: "compiler-artifact",
+      target: { name: "ibex", kind: ["bin"] },
+      profile: { test: true },
+      executable: executablePath,
+    })}\n`,
+    "utf8",
+  );
+  writeFileSync(cargoMessagesPath, cargoBytes, { mode: 0o600 });
+  const buildConsumptionDigest = `sha256-${"C".repeat(43)}`;
+  const buildSelectionPath = join(target, "build-selection.json");
+  writeFileSync(
+    buildSelectionPath,
+    canonicalJson({
+      schema: "ibex/portable-engine-physical-promotion-build-selection/1",
+      sourceRevision: REVISION,
+      artifactId: ARTIFACT_ID,
+      archiveDigest: ARCHIVE_DIGEST,
+      cargoMessagesDigest: rawDigest(cargoBytes),
+      buildConsumptionPath:
+        "target/debug/build/ibex-runtime/out/portable_engine_build_consumption.json",
+      buildConsumptionDigest,
+    }),
+    { mode: 0o600 },
+  );
+  const enumeration = {
+    schema: "ibex/portable-engine-cargo-executable-set/1",
+    mode: "cargo-test-no-run-all-targets",
+    package: {
+      manifestPath: "Cargo.toml",
+      name: "ibex-runtime",
+      version: "0.1.0",
+    },
+    targetTriple: TARGET,
+    ibexFeatures: ["capsec-conformance-observer", "default"],
+    cargoArguments: [
+      "test",
+      "--locked",
+      "--no-run",
+      "--all-targets",
+      "--features",
+      "capsec-conformance-observer,default",
+      "--message-format=json",
+    ],
+    targets: [
+      {
+        cargoTargetKind: "bin",
+        cargoTargetKinds: ["bin"],
+        cargoTargetName: "ibex",
+        logicalName: "bin/ibex",
+        profileTest: false,
+        targetKind: "bin",
+      },
+      {
+        cargoTargetKind: "bin",
+        cargoTargetKinds: ["bin"],
+        cargoTargetName: "ibex",
+        logicalName: "test/ibex",
+        profileTest: true,
+        targetKind: "test",
+      },
+    ],
+  };
+  const enumerationPath = join(
+    root,
+    "config/portable-engine-cargo-executables-authenticated-v1.json",
+  );
+  mkdirSync(join(root, "config"), { recursive: true, mode: 0o700 });
+  writeFileSync(enumerationPath, canonicalJson(enumeration), { mode: 0o600 });
+  const postLinkDirectory = join(
+    target,
+    "portable-engine-post-link",
+    buildConsumptionDigest,
+  );
+  mkdirSync(postLinkDirectory, { recursive: true, mode: 0o700 });
+  const evidenceRecords = enumeration.targets.map((enumerationRow) => {
+    const isRunner = enumerationRow.logicalName === "test/ibex";
+    const bytes = isRunner
+      ? executableBytes
+      : Buffer.from("checked ibex product executable\n", "utf8");
+    const evidence = {
+      schema: "ibex/portable-engine-post-link-verification/1",
+      portable: { artifactId: ARTIFACT_ID },
+      buildConsumptionDigest,
+      manifestDigest: `sha256-${"M".repeat(43)}`,
+      installationReceiptDigest: `sha256-${"I".repeat(43)}`,
+      verificationPolicyDigest: `sha256-${"V".repeat(43)}`,
+      target: { triple: TARGET },
+      ibexFeatures: [...enumeration.ibexFeatures],
+      executable: {
+        logicalName: enumerationRow.logicalName,
+        targetKind: enumerationRow.targetKind,
+        digest: rawDigest(bytes),
+        size: bytes.byteLength,
+      },
+      payloadRevalidation: {},
+      audit: {},
+      outcome: "verified",
+      verificationDigest: "",
+    };
+    evidence.verificationDigest = semanticDigest(
+      "ibex.portable-engine-post-link-verification.v1",
+      evidence,
+      ["verificationDigest"],
+    );
+    return evidence;
+  });
+  const results = evidenceRecords.map((evidence, index) => {
+    const evidenceFile = `${String(index).padStart(4, "0")}.json`;
+    const evidenceBytes = Buffer.from(canonicalJson(evidence), "utf8");
+    writeFileSync(join(postLinkDirectory, evidenceFile), evidenceBytes, {
+      mode: 0o600,
+    });
+    return {
+      logicalName: evidence.executable.logicalName,
+      targetKind: evidence.executable.targetKind,
+      evidenceFile,
+      evidenceDigest: rawDigest(evidenceBytes),
+      verificationDigest: evidence.verificationDigest,
+    };
+  });
+  const completion = {
+    schema: "ibex/portable-engine-post-link-verification-set/1",
+    portable: { artifactId: ARTIFACT_ID },
+    buildConsumptionDigest,
+    enumerationDigest: semanticDigest(
+      "ibex.portable-engine-cargo-executable-set.v1",
+      enumeration,
+    ),
+    results,
+    outcome: "verified",
+    setDigest: "",
+  };
+  completion.setDigest = semanticDigest(
+    "ibex.portable-engine-post-link-verification-set.v1",
+    completion,
+    ["setDigest"],
+  );
+  const completePath = join(postLinkDirectory, "COMPLETE.json");
+  writeFileSync(completePath, canonicalJson(completion), { mode: 0o600 });
+  for (const result of results) {
+    chmodSync(join(postLinkDirectory, result.evidenceFile), 0o444);
+  }
+  chmodSync(completePath, 0o444);
+  chmodSync(postLinkDirectory, 0o555);
+  return {
+    root,
+    executablePath,
+    executableBytes,
+    cargoMessagesPath,
+    buildSelectionPath,
+    postLinkDirectory,
+    completePath,
+    completion,
+  };
+}
+
+function rewriteCompletion(fixture, mutate) {
+  chmodSync(fixture.postLinkDirectory, 0o700);
+  chmodSync(fixture.completePath, 0o600);
+  const completion = JSON.parse(readFileSync(fixture.completePath, "utf8"));
+  mutate(completion);
+  completion.setDigest = semanticDigest(
+    "ibex.portable-engine-post-link-verification-set.v1",
+    completion,
+    ["setDigest"],
+  );
+  writeFileSync(fixture.completePath, canonicalJson(completion), { mode: 0o600 });
+  chmodSync(fixture.completePath, 0o444);
+  chmodSync(fixture.postLinkDirectory, 0o555);
+}
+
+function removeConformanceRunnerFixture(fixture) {
+  chmodSync(fixture.postLinkDirectory, 0o700);
+  rmSync(fixture.root, { recursive: true, force: true });
+}
+
+function selectFixtureRunner(fixture) {
+  return selectConformanceRunner({
+    buildSelectionPath: fixture.buildSelectionPath,
+    cargoMessagesPath: fixture.cargoMessagesPath,
+    postLinkCompletePath: fixture.completePath,
+    selectedRepoRoot: fixture.root,
+  });
+}
+
+test("conformance runner is the exact Cargo path admitted by the complete post-link set", () => {
+  const fixture = conformanceRunnerFixture();
+  try {
+    const selected = selectFixtureRunner(fixture);
+
+    assert.equal(selected.executablePath, "target/debug/deps/ibex-authenticated");
+    assert.equal(selected.executableDigest, rawDigest(fixture.executableBytes));
+    assert.equal(selected.postLinkSetDigest, fixture.completion.setDigest);
+
+    writeFileSync(fixture.executablePath, "substituted\n", { mode: 0o700 });
+    assert.throws(
+      () => selectFixtureRunner(fixture),
+      /differs from post-link verified bytes/u,
+    );
+  } finally {
+    removeConformanceRunnerFixture(fixture);
+  }
+});
+
+test("conformance runner rejects a self-consistent subset post-link completion", () => {
+  const fixture = conformanceRunnerFixture();
+  try {
+    rewriteCompletion(fixture, (completion) => {
+      completion.results = completion.results.slice(1);
+    });
+    assert.throws(
+      () => selectFixtureRunner(fixture),
+      /complete checked enumeration/u,
+    );
+  } finally {
+    removeConformanceRunnerFixture(fixture);
+  }
+});
+
+test("conformance runner rejects a self-consistent wrong enumeration digest", () => {
+  const fixture = conformanceRunnerFixture();
+  try {
+    rewriteCompletion(fixture, (completion) => {
+      completion.enumerationDigest = `sha256-${"E".repeat(43)}`;
+    });
+    assert.throws(
+      () => selectFixtureRunner(fixture),
+      /complete checked enumeration/u,
+    );
+  } finally {
+    removeConformanceRunnerFixture(fixture);
+  }
+});
+
+test("conformance runner rejects reordered post-link results after digest recomputation", () => {
+  const fixture = conformanceRunnerFixture();
+  try {
+    rewriteCompletion(fixture, (completion) => {
+      completion.results.reverse();
+    });
+    assert.throws(
+      () => selectFixtureRunner(fixture),
+      /checked enumeration order/u,
+    );
+  } finally {
+    removeConformanceRunnerFixture(fixture);
+  }
+});
+
+test("conformance runner rejects an extra post-link directory member", () => {
+  const fixture = conformanceRunnerFixture();
+  try {
+    chmodSync(fixture.postLinkDirectory, 0o700);
+    const extraPath = join(fixture.postLinkDirectory, "9999.json");
+    writeFileSync(extraPath, canonicalJson({ substituted: true }), {
+      mode: 0o444,
+    });
+    chmodSync(fixture.postLinkDirectory, 0o555);
+    assert.throws(
+      () => selectFixtureRunner(fixture),
+      /directory membership differs/u,
+    );
+  } finally {
+    removeConformanceRunnerFixture(fixture);
   }
 });
 

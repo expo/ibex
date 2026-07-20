@@ -17,6 +17,7 @@ import { assertPublicSurfaceExecutionComplete } from "./capsec-public-surface-ev
 import { publicSurfaceExecutorForRecipe } from "./capsec-public-executors.mjs";
 import { canonicalOutputDispositionKey } from "./capsec-output-dispositions.mjs";
 import { validatePromotableOutputDispositionEvidence } from "./capsec-output-shape-sweep.mjs";
+import { validateConformanceRunnerBinding } from "./capsec-conformance-runner-binding.mjs";
 import {
   canonicalJson,
   computeDomainDigest,
@@ -76,9 +77,11 @@ function bytes(value, label) {
   return Buffer.from(value);
 }
 
-function exactJsonBytes(value) {
+export function portablePromotionJsonBytes(value) {
   return Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
+
+const exactJsonBytes = portablePromotionJsonBytes;
 
 function parseBytes(value, label) {
   return parseJsonStrict(bytes(value, label), label);
@@ -455,6 +458,13 @@ export function derivePortableOutputDispositionEvidenceV4({
   richOutputDispositionEvidence,
   source,
 }) {
+  validateConformanceRunnerBinding(
+    richOutputDispositionEvidence?.conformanceRunner,
+    {
+      sourceRevision: source.sourceRevision,
+      sourceTreeDigest: source.sourceTreeDigest,
+    },
+  );
   invariant(
     richOutputDispositionEvidence?.outputDispositionEvidenceSchema ===
       "ibex/capsec-output-disposition-evidence/3" &&
@@ -466,6 +476,8 @@ export function derivePortableOutputDispositionEvidenceV4({
       same(richOutputDispositionEvidence.target, source.target) &&
       richOutputDispositionEvidence.engine?.binaryDigest ===
         source.engine.runtimeComponentDigest &&
+      richOutputDispositionEvidence.conformanceRunner.artifactId ===
+        source.engine.artifactId &&
       Array.isArray(richOutputDispositionEvidence.observations) &&
       richOutputDispositionEvidence.observations.length > 0,
     "rich output-disposition proof differs from the reviewed portable source",
@@ -494,6 +506,7 @@ export function derivePortableOutputDispositionEvidenceV4({
     status: "verified",
     sourceRevision: source.sourceRevision,
     sourceTreeDigest: source.sourceTreeDigest,
+    conformanceRunner: clone(richOutputDispositionEvidence.conformanceRunner),
     target: clone(source.target),
     engine: clone(source.engine),
     summary: { observations: observations.length },
@@ -601,6 +614,13 @@ export function preparePortablePromotionFromDerivedArtifactsV2({
     "portable public-surface bytes differ from reviewed source or recipes",
   );
   invariant(
+    validateConformanceRunnerBinding(
+      outputDispositionEvidence.conformanceRunner,
+      {
+        sourceRevision: source.sourceRevision,
+        sourceTreeDigest: source.sourceTreeDigest,
+      },
+    ) &&
     outputDispositionEvidence.outputDispositionEvidenceSchema ===
       "ibex/capsec-output-disposition-evidence/4" &&
       outputDispositionEvidence.status === "verified" &&
@@ -608,6 +628,8 @@ export function preparePortablePromotionFromDerivedArtifactsV2({
       outputDispositionEvidence.sourceTreeDigest === source.sourceTreeDigest &&
       same(outputDispositionEvidence.target, source.target) &&
       same(outputDispositionEvidence.engine, source.engine) &&
+      outputDispositionEvidence.conformanceRunner.artifactId ===
+        source.engine.artifactId &&
       outputDispositionEvidence.summary?.observations ===
         outputDispositionEvidence.observations?.length &&
       outputDispositionEvidence.observations?.every(
@@ -622,6 +644,7 @@ export function preparePortablePromotionFromDerivedArtifactsV2({
     family: source.family,
     target: clone(source.target),
     engine: clone(source.engine),
+    conformanceRunner: clone(outputDispositionEvidence.conformanceRunner),
     vocabularyDigest: source.vocabularyDigest,
     registryDigest: source.registryDigest,
     implementationManifestDigest: canonicalDigest(implementation),
@@ -679,6 +702,7 @@ export function preparePortablePromotionFromDerivedArtifactsV2({
  * proof is replayed before its small, locality-free v4 projection is emitted.
  */
 export function preparePortablePromotionV2({
+  conformanceRunner,
   reviewedSourceBytes,
   coverageBytes,
   implementationManifestBytes,
@@ -768,6 +792,7 @@ export function preparePortablePromotionV2({
     catalog: outputShapeCatalog,
     dispositionRows: outputDispositionRowsDocument.rows,
     evidence: richOutputDispositionEvidence,
+    conformanceRunner,
   });
 
   const recipeCatalog = derivePortableRecipeCatalogV2({
@@ -980,6 +1005,7 @@ export function buildPortablePromotionBundleV2({ preparation, processes }) {
   const bindings = {
     sourceRevision: preparation.source.sourceRevision,
     sourceTreeDigest: preparation.source.sourceTreeDigest,
+    conformanceRunner: clone(preparation.authorityEntry.conformanceRunner),
     engine: clone(preparation.source.engine),
     target: clone(preparation.source.target),
     vocabularyDigest: preparation.authorityEntry.vocabularyDigest,

@@ -32,6 +32,7 @@ const requestedFeatures = Object.freeze([
   "cli-notify",
   "default",
   "host-http-server",
+  "openssl-crypto",
 ]);
 
 function fail(message) {

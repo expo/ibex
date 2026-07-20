@@ -24,6 +24,7 @@
       "required": [
         "sourceRevision",
         "sourceTreeDigest",
+        "conformanceRunner",
         "engine",
         "target",
         "vocabularyDigest",
@@ -44,6 +45,9 @@
         },
         "sourceTreeDigest": {
           "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
+        "conformanceRunner": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/conformanceRunnerBinding"
         },
         "engine": { "$ref": "portable-engine-artifact-identity-v1.schema.json" },
         "target": {

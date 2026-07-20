@@ -312,7 +312,7 @@ function expectedEvidenceKind(cargoTargetKind, profileTest) {
   return cargoTargetKind;
 }
 
-function validateEnumerationManifest(value) {
+export function validatePortableEngineCargoExecutableSet(value) {
   assertExactKeys(
     value,
     [
@@ -1624,7 +1624,7 @@ async function verifyPortableEnginePostLinkCore(options, dependencies) {
     enumeration,
     "checked Cargo executable enumeration manifest",
   );
-  validateEnumerationManifest(enumeration);
+  validatePortableEngineCargoExecutableSet(enumeration);
   assertSame(
     enumeration.ibexFeatures,
     build.ibexFeatures,

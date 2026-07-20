@@ -86,7 +86,7 @@ test("ceremony is one bounded GitHub-hosted runner with no repository write auth
   for (const step of stepBlocks(job)) {
     assert.match(
       step.text,
-      /^        timeout-minutes: (?:5|10|15|20|30|90)$/m,
+      /^        timeout-minutes: (?:5|10|15|20|30|90|300)$/m,
       `${step.name} must have one explicit timeout`,
     );
   }
@@ -189,6 +189,10 @@ test("the only Cargo build is the exact checked set and its JSON stream gates po
       "utf8",
     ),
   );
+  assert.ok(
+    checked.ibexFeatures.includes("openssl-crypto"),
+    "checked executable profile must cover every promotion-facing engine test",
+  );
   const exactInvocation = checked.cargoArguments
     .map((argument) =>
       argument === "--features"
@@ -210,10 +214,80 @@ test("the only Cargo build is the exact checked set and its JSON stream gates po
   );
   assert.match(postLink, /scripts\/portable-engine-post-link\.mjs/u);
   assert.match(postLink, /\/COMPLETE\.json/u);
+  const runner = namedStep(
+    "Select the exact post-link verified conformance runner",
+  );
+  assert.match(runner, /select-conformance-runner/u);
+  assert.match(runner, /--post-link-complete/u);
+  assert.match(runner, /--cargo-messages/u);
   assert.ok(
     workflow.indexOf("Verify the complete production post-link executable set") <
       workflow.indexOf("Run complete v2 conformance and promotion-bundle generation"),
     "post-link complete-set verification must precede conformance",
+  );
+});
+
+test("transitive promotion executors use only the selected post-link test binary", () => {
+  const runner = fs.readFileSync(
+    path.join(
+      repoRoot,
+      "packages/ibex-devtools/src/scripts/run-capsec-conformance.mjs",
+    ),
+    "utf8",
+  );
+  const publicExecutors = fs.readFileSync(
+    path.join(
+      repoRoot,
+      "packages/ibex-devtools/src/scripts/capsec-public-executors.mjs",
+    ),
+    "utf8",
+  );
+  const outputSweep = fs.readFileSync(
+    path.join(
+      repoRoot,
+      "packages/ibex-devtools/src/scripts/run-capsec-output-shape-sweep.mjs",
+    ),
+    "utf8",
+  );
+  for (const required of [
+    "--portable-engine-conformance-runner-selection",
+    "readCanonicalConformanceRunnerSelection({",
+    "assertPortableEngineTestExecutable();",
+    "portablePublicSurfaceInvocation(",
+    "runObservedEngineTest({",
+    "runObservedPublicTest(command, {",
+  ]) {
+    assert.ok(runner.includes(required), `portable runner gate omits ${required}`);
+  }
+  assert.match(
+    publicExecutors,
+    /portablePublicSurfaceInvocation[\s\S]*command: testExecutable/u,
+  );
+  assert.match(
+    runner,
+    /portableEngineTestExecutable === null[\s\S]*command: "cargo"[\s\S]*command: portableEngineTestExecutable/u,
+  );
+  assert.doesNotMatch(
+    runner,
+    /portablePromotionOutputDirectory[\s\S]{0,400}command: "cargo"/u,
+  );
+  for (const required of [
+    "--portable-engine-conformance-runner-selection",
+    "readCanonicalConformanceRunnerSelection({",
+    "assertPortableEngineTestExecutable();",
+    "runPortableEngineTest(\"capsec_output_shape_sweep_batch\"",
+    "runPortableEngineTest(\"capsec_host_abi_output_batch\"",
+    "portablePublicSurfaceInvocation(",
+  ]) {
+    assert.ok(
+      outputSweep.includes(required),
+      `output-shape runner gate omits ${required}`,
+    );
+  }
+  assert.doesNotMatch(
+    outputSweep,
+    /\bcargo\b/u,
+    "authority-bearing output evidence must not trigger a fresh Cargo build",
   );
 });
 
@@ -231,17 +305,27 @@ test("only independently derived complete inputs can reach the v2 bundle generat
     "Produce complete output-disposition evidence or refuse",
   );
   assert.match(outputEvidence, /run-capsec-output-shape-sweep\.mjs/u);
+  assert.match(
+    outputEvidence,
+    /--portable-engine-conformance-runner-selection/u,
+  );
   const conformance = namedStep(
     "Run complete v2 conformance and promotion-bundle generation",
   );
+  assert.match(conformance, /^        timeout-minutes: 300$/m);
   for (const required of [
     "verify:capsec-conformance",
+    "--portable-engine-conformance-runner-selection",
     "--portable-promotion-target-cells",
     "--portable-promotion-output",
     "--output-disposition-evidence",
   ]) {
     assert.ok(conformance.includes(required), `v2 generator omits ${required}`);
   }
+  assert.doesNotMatch(
+    `${outputEvidence}\n${conformance}`,
+    /--portable-engine-test-executable(?:-digest)?/u,
+  );
   assert.doesNotMatch(conformance, /--expect-incomplete|\|\| true|continue-on-error/u);
   assert.match(
     workflow,

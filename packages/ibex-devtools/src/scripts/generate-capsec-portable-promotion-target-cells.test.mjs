@@ -4,6 +4,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { derivePortablePromotionTargetCells } from "./generate-capsec-portable-promotion-target-cells.mjs";
+import { portablePromotionJsonBytes } from "./capsec-portable-promotion-bundle.mjs";
 
 const target = {
   triple: "aarch64-apple-darwin",
@@ -84,6 +85,10 @@ describe("portable promotion target-cell derivation", () => {
     ]);
     expect(result.cells[0].fixtures).toEqual(["fixture.a", "fixture.z"]);
     expect(result.cells[3].implementationBranchIds).toEqual([]);
+    const bytes = portablePromotionJsonBytes(result);
+    expect(bytes.toString("utf8")).toBe(
+      `${JSON.stringify(result, null, 2)}\n`,
+    );
   });
 
   test("refuses unresolved conditional source closure", () => {

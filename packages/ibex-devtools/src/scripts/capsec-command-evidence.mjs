@@ -486,6 +486,7 @@ export class CapsecCommandSupervisor {
     const policy = commandPolicyFor(this.plan, this.target, id);
     const attemptId = `attempt-${String(this.nextAttempt).padStart(6, "0")}`;
     this.nextAttempt += 1;
+    const declaredInputProjection = structuredClone(declaredInputs);
     const descriptor = {
       schema: "ibex/capsec-command-descriptor/1",
       suitePlanDigest: this.suitePlanBinding.suitePlanDigest,
@@ -496,7 +497,7 @@ export class CapsecCommandSupervisor {
       arguments: args,
       workingDirectory: cwd,
       environment: environmentProjection(env, environmentKeys),
-      declaredInputs,
+      declaredInputs: declaredInputProjection,
       deadlineMs: policy.deadlineMs,
       gracePeriodMs: policy.gracePeriodMs,
       expectedOutputs,
@@ -530,6 +531,7 @@ export class CapsecCommandSupervisor {
         commandIdentity,
         phase: policy.phase,
         displayedInvocation,
+        declaredInputs: structuredClone(declaredInputProjection),
         startedAt: null,
         finishedAt: new Date().toISOString(),
         elapsedMs: 0,
@@ -555,6 +557,7 @@ export class CapsecCommandSupervisor {
         commandIdentity,
         phase: policy.phase,
         displayedInvocation,
+        declaredInputs: structuredClone(declaredInputProjection),
         startedAt: null,
         finishedAt: new Date().toISOString(),
         elapsedMs: 0,
@@ -756,6 +759,7 @@ export class CapsecCommandSupervisor {
         commandIdentity,
         phase: policy.phase,
         displayedInvocation,
+        declaredInputs: structuredClone(declaredInputProjection),
         startedAt,
         finishedAt: new Date().toISOString(),
         elapsedMs: Math.round(performance.now() - startMonotonic),

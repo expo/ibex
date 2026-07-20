@@ -17,6 +17,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { validateConformanceRunnerBinding } from "./capsec-conformance-runner-binding.mjs";
 import {
   CALLBACK_OUTPUT_CONTRACT_SCHEMA,
   deriveHostAbiOutputCatalogAccount,
@@ -3393,6 +3394,7 @@ export function validateOutputDispositionEvidence(dispositionRows, evidence) {
       "requiredExecutor",
       "sourceRevision",
       "sourceTreeDigest",
+      "conformanceRunner",
       "target",
       "engine",
       "sweepPlan",
@@ -3422,6 +3424,10 @@ export function validateOutputDispositionEvidence(dispositionRows, evidence) {
     evidence.target,
     "verified output evidence.engine",
   );
+  validateConformanceRunnerBinding(evidence.conformanceRunner, {
+    sourceRevision: evidence.sourceRevision,
+    sourceTreeDigest: evidence.sourceTreeDigest,
+  });
   const expectedByKey = new Map(
     dispositionRows.map((row) => [canonicalOutputDispositionKey(row.key), row]),
   );
@@ -3459,6 +3465,7 @@ export function validateOutputDispositionEvidence(dispositionRows, evidence) {
     status: "verified",
     sourceRevision: evidence.sourceRevision,
     sourceTreeDigest: evidence.sourceTreeDigest,
+    conformanceRunner: structuredClone(evidence.conformanceRunner),
     target: structuredClone(evidence.target),
     engine: structuredClone(evidence.engine),
   };
