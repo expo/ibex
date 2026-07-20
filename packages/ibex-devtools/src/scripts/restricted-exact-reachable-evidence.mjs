@@ -42,7 +42,7 @@ const authorityPaths = Object.freeze({
     "capsec/schema/restricted-profile-target-report.schema.json",
 });
 
-function assertExactKeys(value, keys, label) {
+export function assertExactKeys(value, keys, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${label} must be an object`);
   }
@@ -53,7 +53,7 @@ function assertExactKeys(value, keys, label) {
   }
 }
 
-function assertSortedUnique(values, label) {
+export function assertSortedUnique(values, label) {
   const sorted = [...values].sort();
   if (new Set(values).size !== values.length) {
     throw new Error(`${label} contains duplicates`);
@@ -73,7 +73,7 @@ function hexDigestToTagged(value, label) {
   return `sha256-${Buffer.from(match[1], "hex").toString("base64url")}`;
 }
 
-function validateRevisionAndAuthorities(artifact, authorities) {
+export function validateRevisionAndAuthorities(artifact, authorities) {
   if (!/^[0-9a-f]{40}$/u.test(artifact.sourceRevision)) {
     throw new Error("reachable evidence source revision is invalid");
   }
@@ -118,7 +118,7 @@ function validateRevisionAndAuthorities(artifact, authorities) {
   }
 }
 
-function validateEngine(artifact) {
+export function validateEngine(artifact) {
   assertExactKeys(
     artifact.engine,
     [

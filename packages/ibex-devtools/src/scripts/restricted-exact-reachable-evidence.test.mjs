@@ -3,12 +3,17 @@ import path from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { capsecRoot } from "./capsec-contract.mjs";
-import { buildRestrictedTargetReportFromReachableEvidence } from "./generate-restricted-exact-target-report.mjs";
+import { buildRestrictedTargetReportFromEvidence } from "./generate-restricted-exact-target-report.mjs";
+import { ingestRestrictedControlEvidence } from "./restricted-exact-control-evidence.mjs";
 import { ingestRestrictedReachableEvidence } from "./restricted-exact-reachable-evidence.mjs";
 
 const evidencePath = path.join(
   capsecRoot,
-  "conformance/evidence/restricted-exact/reachable-aarch64-apple-darwin-74666468.json",
+  "conformance/evidence/restricted-exact/reachable-aarch64-apple-darwin-49ed212a.json",
+);
+const controlEvidencePath = path.join(
+  capsecRoot,
+  "conformance/evidence/restricted-exact/control-aarch64-apple-darwin-49ed212a.json",
 );
 
 function rawArtifact() {
@@ -17,6 +22,12 @@ function rawArtifact() {
 
 function mutate(edit) {
   const artifact = JSON.parse(rawArtifact());
+  edit(artifact);
+  return Buffer.from(`${JSON.stringify(artifact, null, 2)}\n`, "utf8");
+}
+
+function mutateControl(edit) {
+  const artifact = JSON.parse(fs.readFileSync(controlEvidencePath));
   edit(artifact);
   return Buffer.from(`${JSON.stringify(artifact, null, 2)}\n`, "utf8");
 }
@@ -32,14 +43,37 @@ describe("LLP 0033 restricted reachable evidence", () => {
   });
 
   test("credits 126 reachable rows without advertising target conformance", () => {
-    const report = buildRestrictedTargetReportFromReachableEvidence(evidencePath);
+    const report = buildRestrictedTargetReportFromEvidence(evidencePath, controlEvidencePath);
     expect(report.status).toBe("incomplete");
-    expect(report.summary.conformant).toBe(126);
-    expect(report.summary.incomplete).toBe(7174);
-    expect(report.summary.passedObservations).toBe(126);
+    expect(report.summary.conformant).toBe(148);
+    expect(report.summary.incomplete).toBe(7152);
+    expect(report.summary.passedObservations).toBe(148);
     expect(report.summary.failedObservations).toBe(0);
-    expect(report.summary.missingObservations).toBe(14326);
-    expect(report.executions).toHaveLength(126);
+    expect(report.summary.missingObservations).toBe(14304);
+    expect(report.executions).toHaveLength(148);
+  });
+
+  test("ingests all 22 exact control-plane lifecycle observations", () => {
+    const result = ingestRestrictedControlEvidence(fs.readFileSync(controlEvidencePath));
+    expect(result.executions).toHaveLength(22);
+    expect(new Set(result.executions.map((row) => row.fixtureId)).size).toBe(22);
+    expect(result.bindings.sourceRevision).toBe(
+      "49ed212a66e025c7cc93463fb32029bf9e91f2eb",
+    );
+  });
+
+  test("rejects missing, identity-drifted, and proofless control observations", () => {
+    expect(() => ingestRestrictedControlEvidence(mutateControl((artifact) => {
+      artifact.observations.pop();
+    }))).toThrow("do not equal the projection");
+
+    expect(() => ingestRestrictedControlEvidence(mutateControl((artifact) => {
+      artifact.observations[0].observedIdentity = "host-abi:wrong";
+    }))).toThrow("identity/outcome drift");
+
+    expect(() => ingestRestrictedControlEvidence(mutateControl((artifact) => {
+      artifact.observations[0].proof.refusal = "";
+    }))).toThrow("lacks lifecycle proof");
   });
 
   test("rejects source, authority, engine, observation, and proof drift", () => {

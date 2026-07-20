@@ -1462,6 +1462,8 @@ mod tests {
             callbacks_delivered: *mut u64,
         ) -> i32;
         fn ibex_test_restricted_exact_conformance_trace(runtime: *mut HermesRuntimeOpaque) -> u64;
+        fn ibex_test_runtime_registered(runtime: *mut HermesRuntimeOpaque) -> i32;
+        fn ibex_test_keep_alive_on_async_error(runtime: *mut HermesRuntimeOpaque) -> i32;
         fn ex_hermes_resolve_exact_host_call(
             runtime: *mut HermesRuntimeOpaque,
             call_id: u64,
@@ -2770,11 +2772,20 @@ mod tests {
             "replacement returned -5",
         );
 
+        assert_eq!(unsafe { ibex_test_keep_alive_on_async_error(runtime) }, 0);
+        let runtime_address = runtime as usize;
+        std::thread::spawn(move || unsafe {
+            ex_hermes_set_keep_alive_on_async_error(runtime_address as *mut HermesRuntimeOpaque, 1)
+        })
+        .join()
+        .unwrap();
+        assert_eq!(unsafe { ibex_test_keep_alive_on_async_error(runtime) }, 0);
         unsafe { ex_hermes_set_keep_alive_on_async_error(runtime, 1) };
+        assert_eq!(unsafe { ibex_test_keep_alive_on_async_error(runtime) }, 1);
         record(
             "surface.host.abi.ex.hermes.set.keep.alive.on.async.error.0pw9oqp",
             "restricted runtime policy set before execution",
-            "non-owner and stale handles are refused by the drive gate",
+            "non-owner call returned without changing policy",
         );
         let now_0 = unsafe { ex_hermes_now_ms() };
         let now_1 = unsafe { ex_hermes_now_ms() };
@@ -2785,12 +2796,17 @@ mod tests {
             "no caller-controlled clock input exists",
         );
         assert_eq!(unsafe { ex_hermes_next_timer(runtime) }, -1);
+        assert_eq!(unsafe { ex_hermes_next_timer(std::ptr::null_mut()) }, -1);
         record(
             "surface.host.abi.ex.hermes.next.timer.0ae38c4",
             "live idle runtime returned -1",
             "null or stale drive gates also return -1",
         );
         assert_eq!(unsafe { ex_hermes_has_pending_tasks(runtime) }, 0);
+        assert_eq!(
+            unsafe { ex_hermes_has_pending_tasks(std::ptr::null_mut()) },
+            0
+        );
         record(
             "surface.host.abi.ex.hermes.has.pending.tasks.18qm35c",
             "live idle runtime returned zero",
@@ -2866,7 +2882,9 @@ mod tests {
         );
         assert!(!replay_error.is_null());
         unsafe { ex_hermes_free_string(replay_error) };
+        assert_eq!(unsafe { ibex_test_runtime_registered(runtime) }, 1);
         unsafe { ex_hermes_destroy(runtime) };
+        assert_eq!(unsafe { ibex_test_runtime_registered(runtime) }, 0);
         record(
             "surface.host.abi.ex.hermes.destroy.0m27uxn",
             "runtime destroyed after poisoned lifecycle",

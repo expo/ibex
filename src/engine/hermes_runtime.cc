@@ -2515,6 +2515,24 @@ struct RuntimeRegistryEntry {
 };
 
 std::unordered_map<ExactHermesRuntime*, RuntimeRegistryEntry> g_activeRuntimes;
+
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+extern "C" int ibex_test_runtime_registered(ExactHermesRuntime* runtime) {
+  std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
+  return g_activeRuntimes.find(runtime) != g_activeRuntimes.end() ? 1 : 0;
+}
+
+extern "C" int ibex_test_keep_alive_on_async_error(
+    ExactHermesRuntime* runtime) {
+  std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
+  auto iterator = g_activeRuntimes.find(runtime);
+  if (iterator == g_activeRuntimes.end() ||
+      iterator->second.state != RuntimeLifecycleState::Running) {
+    return -1;
+  }
+  return runtime->keep_alive_on_async_error ? 1 : 0;
+}
+#endif
 std::mutex g_hostCallTargetMutex;
 std::unordered_map<uint64_t, RuntimeCallbackTarget> g_hostCallTargets;
 std::atomic<uint64_t> g_nextHostCallId{1};
