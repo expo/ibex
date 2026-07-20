@@ -6,7 +6,10 @@ import { capsecRoot } from "./capsec-contract.mjs";
 import { ingestRestrictedAbsenceEvidence } from "./restricted-exact-absence-evidence.mjs";
 import { ingestRestrictedControlEvidence } from "./restricted-exact-control-evidence.mjs";
 import { ingestRestrictedGlobalCorporaEvidence } from "./restricted-exact-global-corpora-evidence.mjs";
-import { ingestRestrictedReachableEvidence } from "./restricted-exact-reachable-evidence.mjs";
+import {
+  ingestRestrictedReachableEvidence,
+  validateEngine,
+} from "./restricted-exact-reachable-evidence.mjs";
 
 const evidenceRoot = path.join(capsecRoot, "conformance/evidence/restricted-exact");
 const evidencePath = path.join(evidenceRoot, "reachable-aarch64-apple-darwin-04a08eeb.json");
@@ -26,6 +29,21 @@ function currentArtifact() {
 }
 
 describe("LLP 0033 restricted evidence invalidation", () => {
+  test("binds the engine architecture to either preregistered target", () => {
+    const apple = JSON.parse(fs.readFileSync(evidencePath, "utf8"));
+    expect(() => validateEngine(apple)).not.toThrow();
+
+    const linux = structuredClone(apple);
+    linux.target.triple = "x86_64-unknown-linux-gnu";
+    linux.engine.targetArchitecture = "x86_64";
+    expect(() => validateEngine(linux)).not.toThrow();
+
+    linux.engine.targetArchitecture = "aarch64";
+    expect(() => validateEngine(linux)).toThrow(
+      "reachable evidence engine architecture differs from its target",
+    );
+  });
+
   test("invalidates every evidence family predating the per-edge probe plan", () => {
     expect(() => ingestRestrictedReachableEvidence(
       fs.readFileSync(evidencePath),

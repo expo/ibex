@@ -19,6 +19,108 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  restricted-exact-linux:
+    name: Restricted Exact profile evidence (Linux x64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      HERMES_ENABLE_DEBUGGER: "false"
+      IBEX_REQUIRE_HERMES_PROFILE_PROVENANCE: "true"
+      IBEX_RESTRICTED_TARGET_TRIPLE: x86_64-unknown-linux-gnu
+      LD_LIBRARY_PATH: ${{ github.workspace }}/linux/lib
+      HERMES_PROFILE_PROVENANCE_RECEIPT: ${{ github.workspace }}/linux/lib/hermes-profile-provenance.json
+    steps:
+      - name: Check out Ibex
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install 1.93.1 --profile minimal
+          rustup default 1.93.1
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Cache patched Linux Hermes artifacts
+        id: hermes-cache-linux
+        uses: actions/cache@v4
+        with:
+          path: |
+            linux/include
+            linux/lib
+            tools/hermes
+            ~/.cache/exact/hermes-linux
+          key: hermes-patched-no-debugger-v2-Linux-${{ hashFiles('scripts/hermes-version.sh', 'scripts/download-hermes.sh', 'scripts/build-hermes-linux.sh', 'scripts/apply-hermes-patches.sh', 'patches/hermes/**') }}
+
+      - name: Install patched no-debugger Release Hermes
+        run: ./scripts/download-hermes.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Verify Linux Hermes profile
+        run: |
+          set -euo pipefail
+          test -f linux/lib/libhermesvm.so
+          test -f linux/lib/hermes-profile-provenance.json
+          symbols="$(nm -D linux/lib/libhermesvm.so)"
+          [[ "$symbols" == *ex_hermes_vm_current_package_id* ]] \
+            || { echo "::error::Hermes library lacks the patched attribution export"; exit 1; }
+          if [[ "$symbols" == *AsyncDebuggerAPI* ]]; then
+            echo "::error::Hermes library exports debugger symbols"
+            exit 1
+          fi
+
+      - name: Execute restricted Exact target evidence
+        id: restricted-evidence
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA:0:8}"
+          evidence_dir="capsec/conformance/evidence/restricted-exact"
+          reachable="$evidence_dir/reachable-x86_64-unknown-linux-gnu-$short_sha.json"
+          control="$evidence_dir/control-x86_64-unknown-linux-gnu-$short_sha.json"
+          absence="$evidence_dir/absence-x86_64-unknown-linux-gnu-$short_sha.json"
+          corpora="$evidence_dir/global-corpora-x86_64-unknown-linux-gnu-$short_sha.json"
+          report="capsec/conformance/restricted-exact-x86_64-unknown-linux-gnu-report.json"
+
+          IBEX_RESTRICTED_REACHABLE_EVIDENCE_OUTPUT="$reachable" \
+            cargo test -p ibex-runtime --lib --release \
+              --features capsec-conformance-observer \
+              host::embedder_artifacts::tests::restricted_exact_reachable_edges_execute_on_the_bound_engine \
+              -- --exact --nocapture --test-threads=1
+          IBEX_RESTRICTED_CONTROL_EVIDENCE_OUTPUT="$control" \
+            cargo test -p ibex-runtime --lib --release \
+              --features capsec-conformance-observer \
+              host::embedder_artifacts::tests::restricted_exact_control_plane_edges_enforce_lifecycle_refusals \
+              -- --exact --nocapture --test-threads=1
+          IBEX_RESTRICTED_ABSENCE_EVIDENCE_OUTPUT="$absence" \
+            cargo test -p ibex-runtime --lib --release \
+              --features capsec-conformance-observer \
+              host::embedder_artifacts::tests::restricted_exact_absence_edges_close_source_and_live_routes \
+              -- --exact --nocapture --test-threads=1
+          bun packages/ibex-devtools/src/scripts/run-restricted-exact-global-corpora.mjs \
+            --binding-evidence "$reachable" \
+            --output "$corpora"
+          bun packages/ibex-devtools/src/scripts/generate-restricted-exact-target-report.mjs \
+            "$reachable" "$control" "$absence" "$corpora" "$report" --write
+
+          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Retain restricted Exact Linux evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: restricted-exact-linux-x64-${{ github.sha }}
+          path: |
+            capsec/conformance/evidence/restricted-exact/*x86_64-unknown-linux-gnu-${{ steps.restricted-evidence.outputs.short_sha }}.json
+            capsec/conformance/restricted-exact-x86_64-unknown-linux-gnu-report.json
+          if-no-files-found: error
+          retention-days: 30
+
   conformance:
     name: Complete matrix + unadvertised evidence (macOS arm64)
     runs-on: macos-14

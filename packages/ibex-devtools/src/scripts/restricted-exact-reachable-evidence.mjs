@@ -140,8 +140,12 @@ export function validateEngine(artifact) {
   ) {
     throw new Error("reachable evidence target and engine features differ");
   }
-  if (artifact.engine.targetArchitecture !== "aarch64") {
-    throw new Error("reachable evidence engine architecture is not aarch64");
+  const targetArchitecture = artifact.target.triple.split("-")[0];
+  if (
+    !targetArchitecture
+    || artifact.engine.targetArchitecture !== targetArchitecture
+  ) {
+    throw new Error("reachable evidence engine architecture differs from its target");
   }
 
   const provenance = artifact.hermesProfileProvenance;
