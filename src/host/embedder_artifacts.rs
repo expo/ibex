@@ -3097,6 +3097,354 @@ mod tests {
     }
 
     #[test]
+    fn restricted_exact_absence_edges_close_source_and_live_routes() {
+        let _guard = crate::host::abi::host_test_lock();
+        if crate::engine::loaded_engine_structural_features()
+            != [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown",
+            ]
+        {
+            return;
+        }
+
+        let bundle = br#"(() => {
+          exact.takeCheckpointBytes();
+          exact.publishCheckpoint(new Uint8Array([0]));
+        })();"#;
+        unsafe { ibex_test_reset_exact_host_completion_observer() };
+        let (runtime, _dispatch, _checkpoints) =
+            unsafe { configured_restricted_exact_runtime(bundle) };
+        unsafe {
+            let mut error = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_run_restricted_exact_bundle(runtime, &mut error),
+                0
+            );
+            assert!(error.is_null());
+        }
+
+        let projection: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/generated/restricted-exact-profile-projection.json"
+        )))
+        .unwrap();
+        let absent_ids = projection["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|row| {
+                let row = row.as_array().unwrap();
+                (row[1].as_str() == Some("structurally-absent"))
+                    .then(|| row[0].as_str().unwrap().to_owned())
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(absent_ids.len(), 7152);
+        let coverage: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/registry/coverage-edges.json"
+        )))
+        .unwrap();
+        let edges = coverage["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|edge| (edge["id"].as_str().unwrap().to_owned(), edge.clone()))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        let implementation: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/generated/implementation-manifest.json"
+        )))
+        .unwrap();
+        let mut implementations =
+            std::collections::BTreeMap::<String, Vec<serde_json::Value>>::new();
+        for surface in implementation["surfaces"].as_array().unwrap() {
+            implementations
+                .entry(surface["edgeId"].as_str().unwrap().to_owned())
+                .or_default()
+                .push(serde_json::json!({
+                    "branchId": surface["branchId"],
+                    "enforcementBranchId": surface["enforcementBranchId"],
+                    "sourceRefs": surface["sourceRefs"],
+                    "targetApplicability": surface["targetApplicability"],
+                }));
+        }
+
+        let root_manifest: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/generated/root-global-disposition-manifest.json"
+        )))
+        .unwrap();
+        let mut descriptor_prefixes =
+            std::collections::BTreeMap::<String, Vec<serde_json::Value>>::new();
+        for row in root_manifest["rows"].as_array().unwrap() {
+            let edge_id = row["registryEdgeId"].as_str().unwrap();
+            if !absent_ids.contains(edge_id) {
+                continue;
+            }
+            let root = &row["property"]["root"];
+            if root["kind"].as_str() != Some("string") {
+                continue;
+            }
+            let mut segments = vec![root["value"].as_str().unwrap().to_owned()];
+            let mut unresolved_segment = None;
+            for segment in row["property"]["path"].as_array().unwrap() {
+                if segment["kind"].as_str() != Some("string") {
+                    unresolved_segment = Some(serde_json::json!({
+                        "kind": segment["kind"],
+                        "value": segment["value"],
+                    }));
+                    break;
+                }
+                segments.push(segment["value"].as_str().unwrap().to_owned());
+            }
+            let path = segments.join(".");
+            let path_c = std::ffi::CString::new(path.as_str()).unwrap();
+            assert_eq!(
+                unsafe { ibex_test_root_global_logical_path_absent(runtime, path_c.as_ptr()) },
+                1,
+                "restricted descriptor prefix unexpectedly resolved for {edge_id}: {path}"
+            );
+            descriptor_prefixes
+                .entry(edge_id.to_owned())
+                .or_default()
+                .push(serde_json::json!({
+                    "path": path,
+                    "unresolvedSegment": unresolved_segment,
+                }));
+        }
+
+        let forbidden_roots = [
+            "Atomics",
+            "Bun",
+            "Deno",
+            "Exact",
+            "Ibex",
+            "SharedArrayBuffer",
+            "WebAssembly",
+            "WebSocket",
+            "XMLHttpRequest",
+            "__compartments",
+            "__exactCapabilityCheck",
+            "__exactGetEnv",
+            "__exactResolveModule",
+            "__exactTimerRef",
+            "__exactTimerUnref",
+            "__hostCall",
+            "__hostCallAsync",
+            "fetch",
+            "process",
+            "require",
+        ];
+        let forbidden_root_results = forbidden_roots
+            .iter()
+            .map(|root| {
+                let root_c = std::ffi::CString::new(*root).unwrap();
+                let absent =
+                    unsafe { ibex_test_root_global_logical_path_absent(runtime, root_c.as_ptr()) };
+                assert_eq!(absent, 1, "restricted ambient root resolved: {root}");
+                serde_json::json!({"path": root, "absent": true})
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            unsafe { ibex_test_restricted_exact_conformance_trace(runtime) },
+            0x1ff
+        );
+        let mut targets_consumed = 0;
+        let mut callbacks_queued = 0;
+        let mut callbacks_delivered = 0;
+        assert_eq!(
+            unsafe {
+                ibex_test_exact_host_completion_observation(
+                    &mut targets_consumed,
+                    &mut callbacks_queued,
+                    &mut callbacks_delivered,
+                )
+            },
+            1
+        );
+        assert_eq!(
+            (targets_consumed, callbacks_queued, callbacks_delivered),
+            (0, 0, 0)
+        );
+        unsafe { ex_hermes_destroy(runtime) };
+
+        let barrier_for = |kind: &str| match kind {
+            "builtin" | "loader" | "cli" => "no-general-loader-or-cli-root",
+            "host-abi" => "no-javascript-native-abi-bridge",
+            "startup" => "not-selected-by-restricted-bootstrap",
+            "callback" => "no-installed-producer-or-retained-callback",
+            "native-op" => "descriptor-path-or-ambient-installer-absent",
+            _ => panic!("unexpected absent surface kind {kind}"),
+        };
+        let barrier_attestation = serde_json::json!({
+            "observer": "exact-engine-closed-world-barriers",
+            "forbiddenRoots": forbidden_root_results,
+            "restrictedStartupTrace": 0x1ff_u64,
+            "completionObserver": {
+                "targetsConsumed": targets_consumed,
+                "callbacksQueued": callbacks_queued,
+                "callbacksDelivered": callbacks_delivered,
+            },
+            "descriptorProbedEdges": descriptor_prefixes.len(),
+        });
+        let barrier_bytes =
+            capsec_semantics::canonical::to_jcs_bytes(&barrier_attestation).unwrap();
+        let barrier_digest = format!(
+            "sha256-{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(&barrier_bytes))
+        );
+
+        let mut observations = Vec::<serde_json::Value>::with_capacity(absent_ids.len() * 2);
+        for edge_id in &absent_ids {
+            let edge = &edges[edge_id];
+            let kind = edge["surface"]["kind"].as_str().unwrap();
+            let identity = format!("{}:{}", kind, edge["surface"]["name"].as_str().unwrap());
+            let branches = implementations
+                .get(edge_id)
+                .unwrap_or_else(|| panic!("missing implementation rows for {edge_id}"));
+            observations.push(serde_json::json!({
+                "edgeId": edge_id,
+                "kind": "source-install",
+                "outcome": "passed",
+                "observedIdentity": identity,
+                "proof": {
+                    "observer": "source-install-closure",
+                    "surfaceKind": kind,
+                    "barrier": barrier_for(kind),
+                    "barrierAttestationDigest": barrier_digest,
+                    "implementationBranches": branches,
+                },
+            }));
+            observations.push(serde_json::json!({
+                "edgeId": edge_id,
+                "kind": "live-reachability",
+                "outcome": "passed",
+                "observedIdentity": identity,
+                "proof": {
+                    "observer": "exact-engine-reachability",
+                    "surfaceKind": kind,
+                    "barrier": barrier_for(kind),
+                    "barrierAttestationDigest": barrier_digest,
+                    "descriptorPrefixes": descriptor_prefixes.get(edge_id).cloned().unwrap_or_default(),
+                },
+            }));
+        }
+        observations.sort_by(|left, right| {
+            (left["edgeId"].as_str(), left["kind"].as_str())
+                .cmp(&(right["edgeId"].as_str(), right["kind"].as_str()))
+        });
+        assert_eq!(observations.len(), 14_304);
+
+        if let Ok(output_path) = std::env::var("IBEX_RESTRICTED_ABSENCE_EVIDENCE_OUTPUT") {
+            assert!(
+                !cfg!(debug_assertions),
+                "restricted evidence publication requires a release build"
+            );
+            let git = |args: &[&str]| {
+                let output = std::process::Command::new("git")
+                    .args(args)
+                    .output()
+                    .unwrap_or_else(|error| panic!("run git {}: {error}", args.join(" ")));
+                assert!(
+                    output.status.success(),
+                    "git {} failed: {}",
+                    args.join(" "),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                output.stdout
+            };
+            assert!(
+                git(&["status", "--porcelain", "--untracked-files=no"]).is_empty(),
+                "restricted evidence run requires a clean tracked source tree"
+            );
+            let source_revision = String::from_utf8(git(&["rev-parse", "HEAD"]))
+                .unwrap()
+                .trim()
+                .to_owned();
+            let source_tree_bytes = git(&["rev-parse", "HEAD^{tree}"]);
+            let tagged_digest = |bytes: &[u8]| {
+                format!(
+                    "sha256-{}",
+                    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(bytes))
+                )
+            };
+            let engine = crate::engine::loaded_engine_binary_identity()
+                .expect("attest loaded engine for restricted absence evidence");
+            crate::engine::verify_loaded_engine_binary_identity(&engine)
+                .expect("reverify loaded engine for restricted absence evidence");
+            let provenance_path = std::env::var_os("HERMES_PROFILE_PROVENANCE_RECEIPT")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| {
+                    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                        .join("ios/Frameworks/hermes-profile-provenance.json")
+                });
+            let provenance_bytes = std::fs::read(&provenance_path)
+                .expect("read Hermes profile provenance for restricted absence evidence");
+            let provenance: serde_json::Value = serde_json::from_slice(&provenance_bytes)
+                .expect("parse Hermes profile provenance for restricted absence evidence");
+            let mut nonce = [0_u8; 16];
+            getrandom::getrandom(&mut nonce).expect("mint restricted absence evidence run ID");
+            let run_id = nonce
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            let target_triple =
+                std::env::var("IBEX_RESTRICTED_TARGET_TRIPLE").unwrap_or_else(|_| {
+                    match (std::env::consts::ARCH, std::env::consts::OS) {
+                        ("aarch64", "macos") => "aarch64-apple-darwin".to_owned(),
+                        ("x86_64", "linux") => "x86_64-unknown-linux-gnu".to_owned(),
+                        (arch, os) => format!("{arch}-unknown-{os}"),
+                    }
+                });
+            let artifact = serde_json::json!({
+                "evidenceSchema": "ibex/restricted-profile-absence-evidence/1",
+                "profile": "ibex/exact-embedder-contract/1",
+                "runId": format!("restricted-absence-{run_id}"),
+                "sourceRevision": source_revision,
+                "sourceTreeDigest": tagged_digest(&source_tree_bytes),
+                "target": {"triple": target_triple, "features": engine.structural_features.clone()},
+                "engine": engine,
+                "hermesProfileProvenance": {
+                    "path": provenance_path,
+                    "rawContentDigest": tagged_digest(&provenance_bytes),
+                    "receipt": provenance,
+                },
+                "authorityDigests": {
+                    "definitionRawContentDigest": tagged_digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/capsec/registry/restricted-exact-profile-definition.json"))),
+                    "projectionRawContentDigest": tagged_digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/capsec/generated/restricted-exact-profile-projection.json"))),
+                    "coverageRawContentDigest": tagged_digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/capsec/registry/coverage-edges.json"))),
+                    "implementationManifestRawContentDigest": tagged_digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/capsec/generated/implementation-manifest.json"))),
+                    "fixturePlanRawContentDigest": tagged_digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/capsec/registry/restricted-exact-fixture-plan.json"))),
+                    "reportSchemaRawContentDigest": tagged_digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/capsec/schema/restricted-profile-target-report.schema.json"))),
+                },
+                "barrierAttestation": barrier_attestation,
+                "barrierAttestationDigest": barrier_digest,
+                "command": [
+                    "cargo", "test", "-p", "ibex-runtime", "--lib", "--release",
+                    "--features", "capsec-conformance-observer",
+                    "restricted_exact_absence_edges_close_source_and_live_routes",
+                    "--", "--exact", "--nocapture", "--test-threads=1",
+                ],
+                "exitCode": 0,
+                "resultMarker": "ibex-restricted-absence-evidence:passed",
+                "observations": observations,
+            });
+            let mut output = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&output_path)
+                .expect("create restricted absence evidence output");
+            serde_json::to_writer_pretty(&mut output, &artifact)
+                .expect("serialize restricted absence evidence");
+            output
+                .write_all(b"\n")
+                .expect("finish restricted absence evidence");
+        }
+    }
+
+    #[test]
     fn restricted_exact_reachable_edges_execute_on_the_bound_engine() {
         let _guard = crate::host::abi::host_test_lock();
         if crate::engine::loaded_engine_structural_features()
