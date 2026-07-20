@@ -5730,7 +5730,7 @@ fn workspace_relative_path_bytes(relative: &Path) -> Option<Vec<u8>> {
         Some(result)
     }
 
-    #[cfg(not(any(unix, windows)))]
+    #[cfg(not(unix))]
     {
         // Workspace declarations are UTF-8 documents. A non-Unicode path
         // cannot safely match a literal declaration on these platforms.
