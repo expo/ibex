@@ -926,6 +926,72 @@ void install(Runtime& rt) {
     expect(incomplete).toEqual([]);
   });
 
+  test("binds startup environment access to an exact executable source range", () => {
+    const branch = {
+      branchId: "surface.startup.env.path.test",
+      observedKey: "startup:env:PATH:rust:env::var_os",
+      targetVariant: "main",
+    };
+    const sourceRef = "src/bin/ibex/runtime.rs#env::var_os:PATH:read";
+    const route = buildRestrictedExactBranchSourceRoute(branch, [sourceRef]);
+    expect(route.status).toBe("executable");
+    expect(route.producerPaths).toHaveLength(1);
+    expect(route.sites.map((site) => site.role)).toEqual(["value-producer", "dispatch"]);
+    const source = fs.readFileSync("src/bin/ibex/runtime.rs");
+    const selected = source.subarray(route.sites[0].startByte, route.sites[0].endByte).toString();
+    expect(selected).toContain("PATH");
+    expect(selected.length).toBeLessThan(source.length);
+  });
+
+  test("binds startup install calls and evaluated scripts to exact executable ranges", () => {
+    const install = buildRestrictedExactBranchSourceRoute(
+      {
+        branchId: "surface.startup.install.test",
+        observedKey: "startup:install-route:installGlobals:installFetchGlobals",
+        targetVariant: "main",
+      },
+      ["src/engine/hermes_runtime.cc#installGlobals:installFetchGlobals"],
+    );
+    const evaluation = buildRestrictedExactBranchSourceRoute(
+      {
+        branchId: "surface.startup.evaluation.test",
+        observedKey: "startup:evaluation:installGlobals:capability-hardening",
+        targetVariant: "main",
+      },
+      ["src/engine/hermes_runtime.cc#installGlobals:evaluateJavaScript:<capability-hardening>"],
+    );
+    expect(install.status).toBe("executable");
+    expect(evaluation.status).toBe("executable");
+    const source = fs.readFileSync("src/engine/hermes_runtime.cc");
+    expect(source.subarray(install.sites[0].startByte, install.sites[0].endByte).toString())
+      .toContain("installFetchGlobals");
+    expect(source.subarray(evaluation.sites[0].startByte, evaluation.sites[0].endByte).toString())
+      .toContain("capability-hardening");
+    expect(install.sites[0].endByte - install.sites[0].startByte).toBeLessThan(1_000);
+    expect(evaluation.sites[0].endByte - evaluation.sites[0].startByte).toBeLessThan(1_000);
+  });
+
+  test("binds every startup implementation branch to an executable source route", () => {
+    const implementation = JSON.parse(
+      fs.readFileSync("capsec/generated/implementation-manifest.json", "utf8"),
+    );
+    const incomplete = [];
+    for (const branch of implementation.surfaces.filter(
+      (surface) => surface.observedKey.startsWith("startup:"),
+    )) {
+      const refs = [...new Set([
+        ...branch.sourceRefs,
+        ...branch.enforcementRoute.sourceRefs,
+        ...branch.enforcementRoute.proofSourceRefs,
+      ])];
+      const route = buildRestrictedExactBranchSourceRoute(branch, refs);
+      if (route.status !== "executable") {
+        incomplete.push({ branchId: branch.branchId, unresolved: route.unresolved });
+      }
+    }
+    expect(incomplete).toEqual([]);
+  });
+
   test("uses UTF-8 byte offsets and isolates alternate-root caches", () => {
     const firstRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-anchor-a-"));
     const secondRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-anchor-b-"));

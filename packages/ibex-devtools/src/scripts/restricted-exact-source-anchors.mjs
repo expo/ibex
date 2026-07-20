@@ -22,6 +22,7 @@ const sourceCache = new Map();
 const rangeCache = new Map();
 const containerRangeCache = new Map();
 const javascriptIndexCache = new Map();
+const rustTestModuleRangeCache = new Map();
 
 function digest(bytes) {
   return `sha256-${crypto.createHash("sha256").update(bytes).digest("base64url")}`;
@@ -185,6 +186,21 @@ function rustFunctionRanges(text, name) {
 function rustFunctionRange(text, name) {
   const ranges = rustFunctionRanges(text, name);
   return ranges.length === 1 ? ranges[0] : null;
+}
+
+function declarationRanges(text, name) {
+  const ranges = [];
+  for (const startByte of [...new Set(declarationCandidateGroups(text, name).flat())]) {
+    const opening = text.indexOf("{", startByte);
+    const semicolon = text.indexOf(";", startByte);
+    if (opening < 0 || (semicolon >= 0 && semicolon < opening)) continue;
+    const endByte = matchingBraceEnd(text, opening);
+    if (endByte > opening) ranges.push({ startByte, endByte });
+  }
+  return [...new Map(ranges.map((range) => [
+    `${range.startByte}:${range.endByte}`,
+    range,
+  ])).values()];
 }
 
 function javaTypeRanges(text) {
@@ -2852,6 +2868,225 @@ function loaderKindBinding({ branch, sourceRef, sourcePath, locator, text, bytes
   return null;
 }
 
+function dedupeRanges(ranges) {
+  return [...new Map(ranges.filter(Boolean).map((range) => [
+    `${range.startByte}:${range.endByte}`,
+    range,
+  ])).values()];
+}
+
+function excludeRustTestModuleRanges(text, ranges, cacheKey = text) {
+  let testModules = rustTestModuleRangeCache.get(cacheKey);
+  if (!testModules) {
+    testModules = [];
+    const pattern = /#\[cfg\(test\)\]\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+[A-Za-z_][A-Za-z0-9_]*\s*\{/gu;
+    for (const match of text.matchAll(pattern)) {
+      // CapSec inventories production routes only. Rust test modules in this
+      // corpus are terminal sections; treating the remaining suffix as test
+      // code also avoids parsing braces embedded in fixture raw strings.
+      testModules.push({ startByte: match.index, endByte: text.length });
+    }
+    rustTestModuleRangeCache.set(cacheKey, testModules);
+  }
+  return ranges.filter((range) => !testModules.some((testModule) =>
+    range.startByte >= testModule.startByte && range.endByte <= testModule.endByte));
+}
+
+function startupEnvironmentRanges(text, locator) {
+  const parts = locator.split(":");
+  const mode = parts.pop();
+  const key = parts.pop();
+  const operation = parts.join(":");
+  if (!["read", "write", "unset"].includes(mode) || !operation) return [];
+  const whole = { startByte: 0, endByte: text.length };
+  if (key !== "dynamic") {
+    const tokens = [
+      `"${key}"`,
+      `'${key}'`,
+      `.${key}`,
+      key === "COMSPEC" && ".comspec",
+      `process.env.${key}`,
+      `globalThis.process.env.${key}`,
+    ];
+    return dedupeRanges(tokens.filter(Boolean)
+      .flatMap((token) => tokenRangesWithin(text, token, whole)));
+  }
+
+  if (operation === "process-binding-flow") {
+    const ranges = [];
+    const pattern = /(?:export\s+\{\s*process\s*\}|(?:globalThis\.)?process\b|from\s+["'][^"']*process["'])/gu;
+    for (const match of text.matchAll(pattern)) ranges.push(lineRange(text, match.index));
+    return dedupeRanges(ranges);
+  }
+  if (operation === "Command::default_env") {
+    return dedupeRanges([
+      ...callExpressionRangesWithin(text, "Command::new", whole),
+      ...callExpressionRangesWithin(text, "new", whole).filter((range) =>
+        /\bCommand::new/u.test(text.slice(Math.max(0, range.startByte - 40), range.endByte))),
+      ...tokenRangesWithin(text, "Command::new", whole),
+    ]);
+  }
+  if (operation.endsWith("process.env[]")) {
+    const ranges = [];
+    for (const match of text.matchAll(/(?:globalThis\.)?process\.env\s*\[/gu)) {
+      ranges.push(lineRange(text, match.index));
+    }
+    if (ranges.length === 0) {
+      for (const match of text.matchAll(/(?:globalThis\.)?process\s*\??\.\s*env\b/gu)) {
+        ranges.push(lineRange(text, match.index));
+      }
+    }
+    return dedupeRanges(ranges);
+  }
+  if (operation.endsWith("process.env")) {
+    const ranges = tokenRangesWithin(text, "process.env", whole);
+    for (const match of text.matchAll(/(?:globalThis\.|\bg\.)?process\s*\??\.\s*env\b/gu)) {
+      ranges.push(lineRange(text, match.index));
+    }
+    return dedupeRanges(ranges);
+  }
+  if (operation.endsWith("process[]")) {
+    const ranges = [];
+    for (const match of text.matchAll(/(?:globalThis\.)?process\s*\[/gu)) {
+      ranges.push(lineRange(text, match.index));
+    }
+    if (ranges.length === 0) {
+      for (const match of text.matchAll(/globalThis\.process\b/gu)) {
+        ranges.push(lineRange(text, match.index));
+      }
+    }
+    return dedupeRanges(ranges);
+  }
+  const callee = operation.split("::").at(-1);
+  return dedupeRanges([
+    ...callExpressionRangesWithin(text, callee, whole),
+    ...tokenRangesWithin(text, operation, whole),
+    ...tokenRangesWithin(text, `.${callee}(`, whole),
+  ]);
+}
+
+function startupLocatorRanges({ branch, sourcePath, locator, absolute, text }) {
+  if (branch.observedKey.startsWith("startup:env:")) {
+    return excludeRustTestModuleRanges(
+      text,
+      startupEnvironmentRanges(text, locator),
+      absolute,
+    );
+  }
+  const whole = { startByte: 0, endByte: text.length };
+  const labelMatch = /(?:^|:)evaluateJavaScript:(<[^>]+>)$/u.exec(locator)
+    ?? /^script:(<[^>]+>)$/u.exec(locator);
+  if (labelMatch) {
+    return dedupeRanges([
+      ...tokenRangesWithin(text, `"${labelMatch[1]}"`, whole),
+      ...tokenRangesWithin(text, `'${labelMatch[1]}'`, whole),
+    ]);
+  }
+  if (branch.observedKey.startsWith("startup:install-route:")) {
+    const callee = locator.split(":").at(-1);
+    return dedupeRanges([
+      ...callExpressionRangesWithin(text, callee, whole),
+      ...tokenRangesWithin(text, `${callee}(`, whole),
+    ]);
+  }
+  const resolved = resolveRange(sourcePath, locator, text, absolute);
+  if (resolved) return [resolved];
+  if (!locator.includes(":")) {
+    const ranges = dedupeRanges([
+      ...declarationRanges(text, locator),
+      ...rustFunctionRanges(text, locator),
+    ]);
+    if (ranges.length > 0) return ranges;
+    const assignments = [];
+    const assignmentPattern = new RegExp(
+      `(?:^|\\n)[^\\n;{}]*\\b${escapeRegExp(locator)}\\b[^\\n;]*=`,
+      "gu",
+    );
+    for (const match of text.matchAll(assignmentPattern)) {
+      assignments.push(lineRange(text, match.index + match[0].search(/\S/u)));
+    }
+    if (assignments.length > 0) return dedupeRanges(assignments);
+    const rawScript = new RegExp(
+      `(?:^|\\n)[^\\n;]*\\b${escapeRegExp(locator)}\\b[^=]*=\\s*R["'][^(]*\\(`,
+      "gu",
+    );
+    const scriptRanges = [];
+    for (const match of text.matchAll(rawScript)) {
+      const startByte = match.index + match[0].search(/\S/u);
+      const terminator = text.indexOf(")JS\";", startByte);
+      scriptRanges.push(terminator < 0
+        ? lineRange(text, startByte)
+        : { startByte, endByte: terminator + 5 });
+    }
+    return dedupeRanges(scriptRanges);
+  }
+  return [];
+}
+
+function startupExecutableBinding({
+  branch,
+  sourceRef,
+  sourcePath,
+  locator,
+  absolute,
+  text,
+  bytes,
+}) {
+  if (!branch?.observedKey?.startsWith("startup:")) return null;
+  const ranges = startupLocatorRanges({ branch, sourcePath, locator, absolute, text })
+    .filter((range) =>
+      range.endByte > range.startByte
+      && !(range.startByte === 0 && range.endByte === bytes.length));
+  if (ranges.length === 0) return null;
+
+  const family = branch.observedKey.startsWith("startup:env:")
+    ? "environment"
+    : branch.observedKey.startsWith("startup:install-route:")
+      ? "install-route"
+      : branch.observedKey.startsWith("startup:evaluation:")
+        ? "evaluation"
+        : branch.observedKey.startsWith("startup:script:")
+          ? "script"
+          : branch.observedKey.startsWith("startup:installer:")
+            ? "installer"
+            : branch.observedKey.startsWith("startup:supervisor-history.")
+              ? "supervisor-history"
+              : "control";
+  const terminalRole = ["environment", "install-route", "evaluation"].includes(family)
+    ? "dispatch"
+    : "publication";
+  const producerSites = ranges.map((range, index) => sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "value-producer",
+    siteKey: `${family}.producer.${index + 1}`,
+    range,
+    text,
+    bytes,
+  }));
+  const terminalSites = ranges.map((range, index) => sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: terminalRole,
+    siteKey: `${family}.terminal.${index + 1}`,
+    range,
+    text,
+    bytes,
+  }));
+  const sites = [...producerSites, ...terminalSites];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: `startup-${family}-route`,
+    resolutionPolicy: ranges.length > 1 ? "conditioned-alternatives" : "composite-path",
+    sites,
+    producerPaths: ranges.map((_, index) => ({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0startup-route\0${index}`),
+      conditionId: `startup-route:${branch.targetVariant}:${stableId("source", sourceRef)}:${index + 1}`,
+      requiredSiteIds: [producerSites[index].siteId, terminalSites[index].siteId],
+    })),
+  });
+}
+
 export function validateRestrictedExactSourceBinding(binding) {
   binding.refusalPaths ??= [];
   const siteIds = binding.sites.map((site) => site.siteId);
@@ -3007,6 +3242,7 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? loaderRustOperationBinding({ branch, sourceRef, ...loaded })
     ?? loaderRustExternalCallBinding({ branch, sourceRef, ...loaded })
     ?? loaderKindBinding({ branch, sourceRef, ...loaded })
+    ?? startupExecutableBinding({ branch, sourceRef, ...loaded })
     ?? cliGeneratedSurfaceBinding({ branch, sourceRef, ...loaded })
     ?? cliVisibleCommandBinding({ branch, sourceRef, ...loaded })
     ?? cliNamespaceRefusalBinding({ branch, sourceRef, ...loaded })
