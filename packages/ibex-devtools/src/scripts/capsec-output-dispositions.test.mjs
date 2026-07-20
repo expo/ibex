@@ -455,19 +455,19 @@ describe("LLP 0023 output-disposition dataset", () => {
     );
   });
 
-  test("accounts for all 7,300 covered surfaces and emits 6,413 context-bound output rows", async () => {
+  test("accounts for all 7,349 covered surfaces and emits 6,464 context-bound output rows", async () => {
     const { catalog, coverage } = await repositoryCatalogFixture();
     expect(catalog.outputShapeCatalogSchema).toBe(
       "ibex/capsec-output-shape-catalog/2",
     );
     expect(catalog.counts).toEqual({
-      coverageSurfaces: 7_300,
-      outputBearingSurfaces: 5_738,
+      coverageSurfaces: 7_349,
+      outputBearingSurfaces: 5_787,
       structuralOnlySurfaces: 1_557,
       unresolvedSurfaces: 5,
-      catalogRows: 6_413,
+      catalogRows: 6_464,
       parameterizedBindings: 1,
-      sourceInventoryRows: 6_006,
+      sourceInventoryRows: 6_057,
       structuredRows: 407,
     });
     expect(catalog.surfaceAccounts).toHaveLength(coverage.edges.length);
@@ -482,7 +482,7 @@ describe("LLP 0023 output-disposition dataset", () => {
         parameterizedOutputBindings: catalog.parameterizedOutputBindings,
       }),
     ).toEqual({
-      "output-bearing": 5_738,
+      "output-bearing": 5_787,
       "structural-only": 1_557,
       unresolved: 5,
     });
@@ -963,17 +963,26 @@ describe("LLP 0023 output-disposition dataset", () => {
     ]) {
       expect(accountFor(surfaceName), surfaceName).toMatchObject({
         status: "output-bearing",
-        reasonCode: "source-asserted-structured-output",
-        outputKinds: ["structured-output"],
+        reasonCode: "source-derived-public-output",
+        outputKinds: ["public-property-read", "structured-output"],
       });
       const rows = rowsFor(surfaceName);
-      expect(rows, surfaceName).toHaveLength(2);
+      expect(rows, surfaceName).toHaveLength(3);
       expect(
         rows.map((row) => row.key),
         surfaceName,
       ).toEqual(
-        expect.arrayContaining(
-          ["primitive-sentinel", "object-sentinel"].map((mode) => ({
+        expect.arrayContaining([
+          {
+            surfaceId: edgeByName.get(surfaceName).id,
+            output: "[[value]]",
+            alias: surfaceName,
+            mode: "all",
+            sourceKind: "native-op",
+            returnVariant: "default",
+            contextId: "javascript.package-property-read-loaded",
+          },
+          ...["primitive-sentinel", "object-sentinel"].map((mode) => ({
             surfaceId: edgeByName.get(surfaceName).id,
             output: "[[return]]",
             alias: surfaceName,
@@ -982,9 +991,11 @@ describe("LLP 0023 output-disposition dataset", () => {
             returnVariant: "same-as-argument-0",
             contextId: "runtime.bootstrap-native-call-loaded",
           })),
-        ),
+        ]),
       );
-      for (const row of rows) {
+      for (const row of rows.filter(
+        (candidate) => candidate.key.output === "[[return]]",
+      )) {
         expect(row.discovery.kind).toBe("source-asserted-structured-output");
         expect(row.discovery.sourceRefs).toHaveLength(2);
         expect(
@@ -1463,7 +1474,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-disposition-policy/2",
     );
     expect(policy.catalogKeyDigest).toBe(
-      "sha256-Bq1CHij7SDeeKJqTMsskMFOHsG7qIuvjvcnC9tafZsQ",
+      "sha256-XOQWC6vYk26Cr2JLwta-g8IRk4KXXUPOXi5On1V4Ges",
     );
     expect(policy.catalogKeyDigest).toBe(catalog.catalogKeyDigest);
     expect(policy.overrides).toHaveLength(369);
@@ -1497,12 +1508,12 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-dispositions/2",
     );
     expect(dataset.counts).toEqual({
-      catalogRows: 6_413,
-      dispositionRows: 6_413,
+      catalogRows: 6_464,
+      dispositionRows: 6_464,
       byDisposition: {
         absent: 152,
         closed: 28,
-        "non-path": 6_085,
+        "non-path": 6_136,
         "private-native-path": 5,
         refused: 12,
         "reserved-constant": 1,

@@ -103493,16 +103493,6 @@
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
           },
           {
-            "id": "surface.builtin.export.node.stream.duplex.0.1w5wdfj",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "builtin",
-              "name": "export:node_stream:Duplex.0"
-            },
-            "rationaleId": "retained-object-wrapper",
-            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
-          },
-          {
             "id": "surface.builtin.export.node.stream.duplex.12ltkd5",
             "classification": "non-capability",
             "surface": {
@@ -103558,6 +103548,16 @@
             "surface": {
               "kind": "builtin",
               "name": "export:node_stream:Duplex.constructor"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.duplex.cork.0i2jqm4",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Duplex.cork"
             },
             "rationaleId": "retained-object-wrapper",
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
@@ -103633,11 +103633,31 @@
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
           },
           {
+            "id": "surface.builtin.export.node.stream.duplex.end.1dh19ui",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Duplex.end"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
             "id": "surface.builtin.export.node.stream.duplex.every.0ea2psk",
             "classification": "non-capability",
             "surface": {
               "kind": "builtin",
               "name": "export:node_stream:Duplex.every"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.duplex.exactwritableprotopatched.0f0lk97",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Duplex.__exactWritableProtoPatched"
             },
             "rationaleId": "retained-object-wrapper",
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
@@ -103668,6 +103688,16 @@
             "surface": {
               "kind": "builtin",
               "name": "export:node_stream:Duplex.flatMap"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.duplex.flushwritequeue.1livt4m",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Duplex._flushWriteQueue"
             },
             "rationaleId": "retained-object-wrapper",
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
@@ -103893,6 +103923,16 @@
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
           },
           {
+            "id": "surface.builtin.export.node.stream.duplex.setdefaultencoding.0tfoi0h",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Duplex.setDefaultEncoding"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
             "id": "surface.builtin.export.node.stream.duplex.setencoding.1nwi1cy",
             "classification": "non-capability",
             "surface": {
@@ -103943,6 +103983,16 @@
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
           },
           {
+            "id": "surface.builtin.export.node.stream.duplex.uncork.1abjhkz",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Duplex.uncork"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
             "id": "surface.builtin.export.node.stream.duplex.undestroy.02sudfh",
             "classification": "non-capability",
             "surface": {
@@ -103988,6 +104038,126 @@
             "surface": {
               "kind": "builtin",
               "name": "export:node_stream:Duplex.wrap"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.duplex.writableaborted.1in8ckk",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Duplex.writableAborted"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.duplex.writablebuffer.0pkmt9z",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Duplex.writableBuffer"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.duplex.writablecorked.1uopdu9",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Duplex.writableCorked"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.duplex.writableended.1mkl4sn",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Duplex.writableEnded"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.duplex.writablefinished.0r3qq4v",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Duplex.writableFinished"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.duplex.writablehighwatermark.0pgkf51",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Duplex.writableHighWaterMark"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.duplex.writablelength.1w5j3q1",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Duplex.writableLength"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.duplex.writableneeddrain.1u9s37p",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Duplex.writableNeedDrain"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.duplex.writableobjectmode.03en6it",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Duplex.writableObjectMode"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.duplex.writablestate.0zln4ya",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Duplex.writableState"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.duplex.write.06jcrll",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Duplex._write"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.duplex.write.0v7yv1o",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Duplex.write"
             },
             "rationaleId": "retained-object-wrapper",
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
@@ -104063,16 +104233,6 @@
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
           },
           {
-            "id": "surface.builtin.export.node.stream.passthrough.0.1xtf5bd",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "builtin",
-              "name": "export:node_stream:PassThrough.0"
-            },
-            "rationaleId": "retained-object-wrapper",
-            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
-          },
-          {
             "id": "surface.builtin.export.node.stream.passthrough.0yqlsrj",
             "classification": "non-capability",
             "surface": {
@@ -104128,6 +104288,16 @@
             "surface": {
               "kind": "builtin",
               "name": "export:node_stream:PassThrough.constructor"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.passthrough.cork.0k8p402",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:PassThrough.cork"
             },
             "rationaleId": "retained-object-wrapper",
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
@@ -104203,11 +104373,31 @@
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
           },
           {
+            "id": "surface.builtin.export.node.stream.passthrough.end.1iqqcls",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:PassThrough.end"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
             "id": "surface.builtin.export.node.stream.passthrough.every.0tzhjfq",
             "classification": "non-capability",
             "surface": {
               "kind": "builtin",
               "name": "export:node_stream:PassThrough.every"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.passthrough.exactwritableprotopatched.086wgxp",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:PassThrough.__exactWritableProtoPatched"
             },
             "rationaleId": "retained-object-wrapper",
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
@@ -104238,6 +104428,16 @@
             "surface": {
               "kind": "builtin",
               "name": "export:node_stream:PassThrough.flatMap"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.passthrough.flushwritequeue.00gsut4",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:PassThrough._flushWriteQueue"
             },
             "rationaleId": "retained-object-wrapper",
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
@@ -104463,6 +104663,16 @@
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
           },
           {
+            "id": "surface.builtin.export.node.stream.passthrough.setdefaultencoding.082c71f",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:PassThrough.setDefaultEncoding"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
             "id": "surface.builtin.export.node.stream.passthrough.setencoding.0l147do",
             "classification": "non-capability",
             "surface": {
@@ -104523,6 +104733,16 @@
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
           },
           {
+            "id": "surface.builtin.export.node.stream.passthrough.uncork.1f93y9p",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:PassThrough.uncork"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
             "id": "surface.builtin.export.node.stream.passthrough.undestroy.0oos347",
             "classification": "non-capability",
             "surface": {
@@ -104573,11 +104793,121 @@
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
           },
           {
+            "id": "surface.builtin.export.node.stream.passthrough.writableaborted.09hftji",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:PassThrough.writableAborted"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.passthrough.writablebuffer.0vrpsjt",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:PassThrough.writableBuffer"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.passthrough.writablecorked.0ao9ngj",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:PassThrough.writableCorked"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.passthrough.writableended.0z0zdxd",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:PassThrough.writableEnded"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.passthrough.writablefinished.0w4lmp9",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:PassThrough.writableFinished"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.passthrough.writablehighwatermark.1qeh5hb",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:PassThrough.writableHighWaterMark"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.passthrough.writablelength.179ropn",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:PassThrough.writableLength"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.passthrough.writableneeddrain.0hw3k8f",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:PassThrough.writableNeedDrain"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.passthrough.writableobjectmode.08ku7vf",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:PassThrough.writableObjectMode"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.passthrough.writablestate.0q1ypqc",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:PassThrough.writableState"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
             "id": "surface.builtin.export.node.stream.passthrough.write.06wx90j",
             "classification": "non-capability",
             "surface": {
               "kind": "builtin",
               "name": "export:node_stream:PassThrough._write"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.passthrough.write.0fe4ng6",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:PassThrough.write"
             },
             "rationaleId": "retained-object-wrapper",
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
@@ -105243,16 +105573,6 @@
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
           },
           {
-            "id": "surface.builtin.export.node.stream.transform.0.00g8ruj",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "builtin",
-              "name": "export:node_stream:Transform.0"
-            },
-            "rationaleId": "retained-object-wrapper",
-            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
-          },
-          {
             "id": "surface.builtin.export.node.stream.transform.0d1anx9",
             "classification": "non-capability",
             "surface": {
@@ -105308,6 +105628,16 @@
             "surface": {
               "kind": "builtin",
               "name": "export:node_stream:Transform.constructor"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.transform.cork.1cuhawo",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Transform.cork"
             },
             "rationaleId": "retained-object-wrapper",
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
@@ -105383,11 +105713,31 @@
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
           },
           {
+            "id": "surface.builtin.export.node.stream.transform.end.10tmcum",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Transform.end"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
             "id": "surface.builtin.export.node.stream.transform.every.0dzktd4",
             "classification": "non-capability",
             "surface": {
               "kind": "builtin",
               "name": "export:node_stream:Transform.every"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.transform.exactwritableprotopatched.13dilhj",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Transform.__exactWritableProtoPatched"
             },
             "rationaleId": "retained-object-wrapper",
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
@@ -105418,6 +105768,16 @@
             "surface": {
               "kind": "builtin",
               "name": "export:node_stream:Transform.flatMap"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.transform.flushwritequeue.16g3qqq",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Transform._flushWriteQueue"
             },
             "rationaleId": "retained-object-wrapper",
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
@@ -105643,6 +106003,16 @@
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
           },
           {
+            "id": "surface.builtin.export.node.stream.transform.setdefaultencoding.0isdfgl",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Transform.setDefaultEncoding"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
             "id": "surface.builtin.export.node.stream.transform.setencoding.13j2rny",
             "classification": "non-capability",
             "surface": {
@@ -105703,6 +106073,16 @@
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
           },
           {
+            "id": "surface.builtin.export.node.stream.transform.uncork.1u0rt8f",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Transform.uncork"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
             "id": "surface.builtin.export.node.stream.transform.undestroy.173c44p",
             "classification": "non-capability",
             "surface": {
@@ -105753,11 +106133,121 @@
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
           },
           {
+            "id": "surface.builtin.export.node.stream.transform.writableaborted.1sdyjtc",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Transform.writableAborted"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.transform.writablebuffer.1su38u3",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Transform.writableBuffer"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.transform.writablecorked.1p68c1p",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Transform.writableCorked"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.transform.writableended.05xfkfv",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Transform.writableEnded"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.transform.writablefinished.0mmztsz",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Transform.writableFinished"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.transform.writablehighwatermark.04bzv21",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Transform.writableHighWaterMark"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.transform.writablelength.1tihatx",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Transform.writableLength"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.transform.writableneeddrain.0o2308h",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Transform.writableNeedDrain"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.transform.writableobjectmode.188e1wh",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Transform.writableObjectMode"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.transform.writablestate.0w0e19y",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Transform.writableState"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
             "id": "surface.builtin.export.node.stream.transform.write.0r7bwzx",
             "classification": "non-capability",
             "surface": {
               "kind": "builtin",
               "name": "export:node_stream:Transform._write"
+            },
+            "rationaleId": "retained-object-wrapper",
+            "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+          },
+          {
+            "id": "surface.builtin.export.node.stream.transform.write.1ujbj4g",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "builtin",
+              "name": "export:node_stream:Transform.write"
             },
             "rationaleId": "retained-object-wrapper",
             "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."

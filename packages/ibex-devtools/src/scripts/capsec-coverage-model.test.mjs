@@ -4658,13 +4658,11 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     const inheritedBuiltinExports = liveBuiltinExportRows.filter(
       (row) => row.metadata?.inheritedShape === true,
     );
-    // The 22 additional rows are the reviewed zlib Transform `end`/`destroy`
-    // overrides. They authenticate retained native streams before inherited
-    // Transform state can commit a terminal transition. ServerResponse's
-    // owner-gated appendHeader override and Duplex's materialized `_undestroy`
-    // copy move two former inherited rows into the explicit export review, for
-    // a net +20 inherited rows.
-    expect(inheritedBuiltinExports).toHaveLength(454);
+    // The reviewed Writable-to-Duplex descriptor copy contributes 34 real
+    // inherited PassThrough/Transform members and removes their two fabricated
+    // `.0` members, taking the inherited set from 454 to 486. Duplex's 18
+    // copied members are own-prototype facts and are reviewed separately.
+    expect(inheritedBuiltinExports).toHaveLength(486);
     expect(
       new Set(
         inheritedBuiltinExports.map(
@@ -4673,7 +4671,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ),
     ).toEqual(
       new Set([
-        "sha256-a38490336f46e4dd2791e1e1fa14a1164d7c0da99f2670894ded67a33d8d1e2c",
+        "sha256-5f913de344649d8ed6080408a6573681b940b0cbb17e4ec8b60a1d356c51b081",
       ]),
     );
     const reviewedBuiltinNames = new Set([

@@ -2220,10 +2220,27 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:node_readline:moveCursor",
   "export:node_readline:promises",
   "export:node_stream:Duplex",
-  "export:node_stream:Duplex.0",
+  "export:node_stream:Duplex.__exactWritableProtoPatched",
+  "export:node_stream:Duplex._flushWriteQueue",
   "export:node_stream:Duplex._undestroy",
+  "export:node_stream:Duplex._write",
+  "export:node_stream:Duplex.cork",
   "export:node_stream:Duplex.constructor",
+  "export:node_stream:Duplex.end",
   "export:node_stream:Duplex.pipe",
+  "export:node_stream:Duplex.setDefaultEncoding",
+  "export:node_stream:Duplex.uncork",
+  "export:node_stream:Duplex.writableAborted",
+  "export:node_stream:Duplex.writableBuffer",
+  "export:node_stream:Duplex.writableCorked",
+  "export:node_stream:Duplex.writableEnded",
+  "export:node_stream:Duplex.writableFinished",
+  "export:node_stream:Duplex.writableHighWaterMark",
+  "export:node_stream:Duplex.writableLength",
+  "export:node_stream:Duplex.writableNeedDrain",
+  "export:node_stream:Duplex.writableObjectMode",
+  "export:node_stream:Duplex.writableState",
+  "export:node_stream:Duplex.write",
   "export:node_stream:PassThrough",
   "export:node_stream:PassThrough._transform",
   "export:node_stream:PassThrough.constructor",
@@ -4600,6 +4617,7 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   __exactCompatEval: [""],
   __exactDebugModuleSource: [""],
   __exactDebugModuleSources: ["", "length"],
+  __exactDeepFreeze: [""],
   __exactEnsureFilesystemModule: [""],
   __exactGeneratedImportGrantKeys: [""],
   __exactInstallAsyncIpcListenerPatch: [""],
@@ -4620,6 +4638,7 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "stop",
     "summary",
   ],
+  __exactNativeFreeze: [""],
   __exactNativeWrapState: [
     "",
     "Pipe",
@@ -9411,7 +9430,7 @@ function builtinExportClassification(surface) {
 }
 
 const REVIEWED_BUILTIN_INHERITED_SHAPE_ID =
-  "sha256-a38490336f46e4dd2791e1e1fa14a1164d7c0da99f2670894ded67a33d8d1e2c";
+  "sha256-5f913de344649d8ed6080408a6573681b940b0cbb17e4ec8b60a1d356c51b081";
 
 function builtinClassification(surface) {
   const isExport = surface.metadata?.surfaceType === "export";

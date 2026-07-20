@@ -162,6 +162,295 @@ describe("restricted Exact source anchors", () => {
     expect(publications.some((value) => value.includes("module.exports = {"))).toBe(true);
   });
 
+  test("binds computed prototype copies and their public publication", () => {
+    const route = buildRestrictedExactBranchSourceRoute(
+      {
+        branchId: "surface.builtin.buffer.ascii-slice",
+        observedKey: "builtin:export:node_buffer:Buffer.asciiSlice",
+        targetVariant: "all",
+      },
+      ["src/builtins/buffer.js#exports:Buffer.asciiSlice"],
+    );
+    expect(route.status).toBe("executable");
+    const source = fs.readFileSync("src/builtins/buffer.js");
+    expect(route.sites.some((site) =>
+      source.subarray(site.startByte, site.endByte).toString().includes("BufferProto.asciiSlice"),
+    )).toBe(true);
+    expect(route.sites.map((site) => site.role)).toContain("alias");
+  });
+
+  test("binds constructor-installed instance methods through their initializer", () => {
+    const route = buildRestrictedExactBranchSourceRoute(
+      {
+        branchId: "surface.builtin.readline.interface-on-data",
+        observedKey: "builtin:export:node_readline:Interface._onData",
+        targetVariant: "all",
+      },
+      ["src/builtins/readline.js#exports:Interface._onData"],
+    );
+    expect(route.status).toBe("executable");
+    expect(route.sites.map((site) => site.role)).toEqual(
+      expect.arrayContaining(["value-producer", "registration", "publication"]),
+    );
+    const source = fs.readFileSync("src/builtins/readline.js");
+    expect(source.subarray(route.sites[0].startByte, route.sites[0].endByte).toString())
+      .toContain("this._onData");
+  });
+
+  test("uses a legacy getter, not its setter, for a public property-read route", () => {
+    const route = buildRestrictedExactBranchSourceRoute(
+      {
+        branchId: "surface.builtin.net.socket-bytes-written",
+        observedKey: "builtin:export:node_net:Socket.bytesWritten",
+        targetVariant: "all",
+      },
+      ["src/builtins/net.js#exports:Socket.bytesWritten"],
+    );
+    expect(route.status).toBe("executable");
+    expect(route.producerPaths).toHaveLength(1);
+    const source = fs.readFileSync("src/builtins/net.js");
+    const producer = route.sites.find((site) => site.role === "value-producer");
+    expect(source.subarray(producer.startByte, producer.endByte).toString())
+      .toContain("__defineGetter__");
+  });
+
+  test("binds inherited dynamic tables through their exact prototype chain", () => {
+    const sourceRef = "src/builtins/zlib.js#exports:BrotliCompress.[[dynamic-table:inherited-4a42ce205a0e-properties]]";
+    const route = buildRestrictedExactBranchSourceRoute(
+      {
+        branchId: "surface.builtin.zlib.brotli-inherited",
+        observedKey: "builtin:export:node_zlib:BrotliCompress.[[dynamic-table:inherited-4a42ce205a0e-properties]]",
+        targetVariant: "all",
+      },
+      [sourceRef],
+    );
+    expect(route.status).toBe("executable");
+    expect(route.sites.map((site) => site.role)).toContain("alias");
+  });
+
+  test("binds inline module exports to embedded code and both registrations", () => {
+    const route = buildRestrictedExactBranchSourceRoute(
+      {
+        branchId: "surface.builtin.internal-fs-utils.bigint-stats",
+        observedKey: "builtin:export:internal_fs_utils:BigIntStats.isBlockDevice",
+        targetVariant: "all",
+      },
+      ["modules.ts#sources:internal_fs_utils:exports:BigIntStats.isBlockDevice"],
+    );
+    expect(route.status).toBe("executable");
+    expect(route.sites.map((site) => site.role)).toEqual(
+      expect.arrayContaining(["value-producer", "registration", "publication"]),
+    );
+  });
+
+  test("binds getOwnPropertyNames prototype copies without inventing member literals", () => {
+    const route = buildRestrictedExactBranchSourceRoute(
+      {
+        branchId: "surface.builtin.stream.duplex-write.corrected",
+        observedKey: "builtin:export:node_stream:Duplex.write",
+        targetVariant: "all",
+      },
+      ["src/builtins/stream.js#exports:Duplex.write"],
+    );
+    expect(route.status).toBe("executable");
+    const source = fs.readFileSync("src/builtins/stream.js");
+    expect(route.sites.some((site) =>
+      source.subarray(site.startByte, site.endByte).toString()
+        .includes("Object.getOwnPropertyNames(Writable.prototype)"),
+    )).toBe(true);
+  });
+
+  test("rejects a prototype copy that discards the source descriptor", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-prototype-copy-"));
+    try {
+      fs.writeFileSync(path.join(root, "fixture.js"), `
+function Base() {}
+Base.prototype.write = function() {};
+function Public() {}
+Object.getOwnPropertyNames(Base.prototype).forEach(function(key) {
+  var descriptor = Object.getOwnPropertyDescriptor(Base.prototype, key);
+  Object.defineProperty(Public.prototype, key, { value: function unrelated() {} });
+});
+module.exports = { Public: Public };
+`);
+      const route = buildRestrictedExactBranchSourceRoute(
+        {
+          branchId: "surface.builtin.fixture.public-write",
+          observedKey: "builtin:export:fixture:Public.write",
+          targetVariant: "all",
+        },
+        ["fixture.js#exports:Public.write"],
+        root,
+      );
+      expect(route.status).toBe("incomplete");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test.each([
+    [
+      "reassigned",
+      "descriptor = { value: function unrelated() {} };",
+    ],
+    [
+      "shadowed",
+      "{ let descriptor = { value: function unrelated() {} }; Object.defineProperty(Public.prototype, key, descriptor); }",
+    ],
+  ])("rejects a prototype descriptor binding that is %s", (_label, mutation) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-prototype-binding-"));
+    try {
+      const define = mutation.startsWith("{")
+        ? mutation
+        : `${mutation}\n  Object.defineProperty(Public.prototype, key, descriptor);`;
+      fs.writeFileSync(path.join(root, "fixture.js"), `
+function Base() {}
+Base.prototype.write = function() {};
+function Public() {}
+Object.getOwnPropertyNames(Base.prototype).forEach(function(key) {
+  var descriptor = Object.getOwnPropertyDescriptor(Base.prototype, key);
+  ${define}
+});
+module.exports = { Public: Public };
+`);
+      const route = buildRestrictedExactBranchSourceRoute(
+        {
+          branchId: `surface.builtin.fixture.public-write.${_label}`,
+          observedKey: "builtin:export:fixture:Public.write",
+          targetVariant: "all",
+        },
+        ["fixture.js#exports:Public.write"],
+        root,
+      );
+      expect(route.status).toBe("incomplete");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test.each([
+    ["reassigned", "key = 'unrelated';"],
+    [
+      "shadowed",
+      "{ let key = 'unrelated'; Object.defineProperty(Public.prototype, key, Object.getOwnPropertyDescriptor(Base.prototype, key)); }",
+    ],
+  ])("rejects a prototype-copy key parameter that is %s", (_label, mutation) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-prototype-key-"));
+    try {
+      const define = mutation.startsWith("{")
+        ? mutation
+        : `${mutation}\n  Object.defineProperty(Public.prototype, key, Object.getOwnPropertyDescriptor(Base.prototype, key));`;
+      fs.writeFileSync(path.join(root, "fixture.js"), `
+function Base() {}
+Base.prototype.write = function() {};
+function Public() {}
+Object.getOwnPropertyNames(Base.prototype).forEach(function(key) {
+  ${define}
+});
+module.exports = { Public: Public };
+`);
+      const route = buildRestrictedExactBranchSourceRoute(
+        {
+          branchId: `surface.builtin.fixture.public-write.key-${_label}`,
+          observedKey: "builtin:export:fixture:Public.write",
+          targetVariant: "all",
+        },
+        ["fixture.js#exports:Public.write"],
+        root,
+      );
+      expect(route.status).toBe("incomplete");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a constructor helper that does not install its named property", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-constructor-helper-"));
+    try {
+      fs.writeFileSync(path.join(root, "fixture.js"), `
+function observe(target, name) { return target && name; }
+function Public() { observe(this, 'secret'); }
+module.exports = { Public: Public };
+`);
+      const route = buildRestrictedExactBranchSourceRoute(
+        {
+          branchId: "surface.builtin.fixture.public-secret",
+          observedKey: "builtin:export:fixture:Public.secret",
+          targetVariant: "all",
+        },
+        ["fixture.js#exports:Public.secret"],
+        root,
+      );
+      expect(route.status).toBe("incomplete");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test.each([
+    ["reassigned", "target = {}; Object.defineProperty(target, name, { value: true });"],
+    ["shadowed", "{ let target = {}; Object.defineProperty(target, name, { value: true }); }"],
+  ])("rejects a constructor helper whose target parameter is %s", (_label, body) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-helper-binding-"));
+    try {
+      fs.writeFileSync(path.join(root, "fixture.js"), `
+function install(target, name) { ${body} }
+function Public() { install(this, 'secret'); }
+module.exports = { Public: Public };
+`);
+      const route = buildRestrictedExactBranchSourceRoute(
+        {
+          branchId: `surface.builtin.fixture.public-secret.${_label}`,
+          observedKey: "builtin:export:fixture:Public.secret",
+          targetVariant: "all",
+        },
+        ["fixture.js#exports:Public.secret"],
+        root,
+      );
+      expect(route.status).toBe("incomplete");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("binds the signal-number overlay through producer, assignment, and publication", () => {
+    const route = buildRestrictedExactBranchSourceRoute(
+      {
+        branchId: "surface.builtin.constants.signal-number-overlay",
+        observedKey: "builtin:export:node_constants:[[dynamic-table:signal-number-overlay]]",
+        targetVariant: "all",
+      },
+      ["src/builtins/constants.js#exports:[[dynamic-table:signal-number-overlay]]"],
+    );
+    expect(route.status).toBe("executable");
+    expect(route.sites.map((site) => site.role)).toEqual([
+      "value-producer",
+      "dispatch",
+      "publication",
+    ]);
+  });
+
+  test("binds every builtin implementation branch to an executable source route", () => {
+    const implementation = JSON.parse(
+      fs.readFileSync("capsec/generated/implementation-manifest.json", "utf8"),
+    );
+    const incomplete = [];
+    for (const branch of implementation.surfaces.filter(
+      (surface) => surface.observedKey.startsWith("builtin:"),
+    )) {
+      const refs = [...new Set([
+        ...branch.sourceRefs,
+        ...branch.enforcementRoute.sourceRefs,
+        ...branch.enforcementRoute.proofSourceRefs,
+      ])];
+      const route = buildRestrictedExactBranchSourceRoute(branch, refs);
+      if (route.status !== "executable") {
+        incomplete.push({ branchId: branch.branchId, unresolved: route.unresolved });
+      }
+    }
+    expect(incomplete).toEqual([]);
+  });
+
   test("binds JSI globals through HostFunction construction and exact publication", () => {
     const branch = {
       branchId: "surface.native.op.exactaccess.default",

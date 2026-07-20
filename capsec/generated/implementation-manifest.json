@@ -62788,37 +62788,6 @@
       ]
     },
     {
-      "edgeId": "surface.builtin.export.node.stream.duplex.0.1w5wdfj",
-      "observedKey": "builtin:export:node_stream:Duplex.0",
-      "branchId": "surface.builtin.export.node.stream.duplex.0.1w5wdfj.main",
-      "enforcementBranchId": "surface.builtin.export.node.stream.duplex.0.1w5wdfj.main",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "builtin:export:node_stream:Duplex.0"
-        ],
-        "proofSourceRefs": [
-          "src/builtins/stream.js#exports:Duplex.0"
-        ],
-        "sourceRefs": [
-          "src/builtins/stream.js#exports:Duplex.0"
-        ],
-        "terminalObservedKey": "builtin:export:node_stream:Duplex.0"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/builtins/stream.js#exports:Duplex.0"
-      ],
-      "implementationOwner": "WP8",
-      "fixtureObligations": [
-        "surface.builtin.export.node.stream.duplex.0.1w5wdfj.main.non-capability"
-      ]
-    },
-    {
       "edgeId": "surface.builtin.export.node.stream.duplex.12ltkd5",
       "observedKey": "builtin:export:node_stream:Duplex",
       "branchId": "surface.builtin.export.node.stream.duplex.12ltkd5.main",
@@ -63002,6 +62971,37 @@
       "implementationOwner": "WP8",
       "fixtureObligations": [
         "surface.builtin.export.node.stream.duplex.constructor.0eavu9r.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.cork.0i2jqm4",
+      "observedKey": "builtin:export:node_stream:Duplex.cork",
+      "branchId": "surface.builtin.export.node.stream.duplex.cork.0i2jqm4.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.duplex.cork.0i2jqm4.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Duplex.cork"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.cork"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.cork"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Duplex.cork"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Duplex.cork"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.duplex.cork.0i2jqm4.main.non-capability"
       ]
     },
     {
@@ -63222,6 +63222,37 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.duplex.end.1dh19ui",
+      "observedKey": "builtin:export:node_stream:Duplex.end",
+      "branchId": "surface.builtin.export.node.stream.duplex.end.1dh19ui.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.duplex.end.1dh19ui.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Duplex.end"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.end"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.end"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Duplex.end"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Duplex.end"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.duplex.end.1dh19ui.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.duplex.every.0ea2psk",
       "observedKey": "builtin:export:node_stream:Duplex.every",
       "branchId": "surface.builtin.export.node.stream.duplex.every.0ea2psk.main",
@@ -63250,6 +63281,37 @@
       "implementationOwner": "WP8",
       "fixtureObligations": [
         "surface.builtin.export.node.stream.duplex.every.0ea2psk.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.exactwritableprotopatched.0f0lk97",
+      "observedKey": "builtin:export:node_stream:Duplex.__exactWritableProtoPatched",
+      "branchId": "surface.builtin.export.node.stream.duplex.exactwritableprotopatched.0f0lk97.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.duplex.exactwritableprotopatched.0f0lk97.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Duplex.__exactWritableProtoPatched"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.__exactWritableProtoPatched"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.__exactWritableProtoPatched"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Duplex.__exactWritableProtoPatched"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Duplex.__exactWritableProtoPatched"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.duplex.exactwritableprotopatched.0f0lk97.main.non-capability"
       ]
     },
     {
@@ -63343,6 +63405,37 @@
       "implementationOwner": "WP8",
       "fixtureObligations": [
         "surface.builtin.export.node.stream.duplex.flatmap.07261jo.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.flushwritequeue.1livt4m",
+      "observedKey": "builtin:export:node_stream:Duplex._flushWriteQueue",
+      "branchId": "surface.builtin.export.node.stream.duplex.flushwritequeue.1livt4m.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.duplex.flushwritequeue.1livt4m.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Duplex._flushWriteQueue"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Duplex._flushWriteQueue"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Duplex._flushWriteQueue"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Duplex._flushWriteQueue"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Duplex._flushWriteQueue"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.duplex.flushwritequeue.1livt4m.main.non-capability"
       ]
     },
     {
@@ -64028,6 +64121,37 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.duplex.setdefaultencoding.0tfoi0h",
+      "observedKey": "builtin:export:node_stream:Duplex.setDefaultEncoding",
+      "branchId": "surface.builtin.export.node.stream.duplex.setdefaultencoding.0tfoi0h.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.duplex.setdefaultencoding.0tfoi0h.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Duplex.setDefaultEncoding"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.setDefaultEncoding"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.setDefaultEncoding"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Duplex.setDefaultEncoding"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Duplex.setDefaultEncoding"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.duplex.setdefaultencoding.0tfoi0h.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.duplex.setencoding.1nwi1cy",
       "observedKey": "builtin:export:node_stream:Duplex.setEncoding",
       "branchId": "surface.builtin.export.node.stream.duplex.setencoding.1nwi1cy.main",
@@ -64183,6 +64307,37 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.duplex.uncork.1abjhkz",
+      "observedKey": "builtin:export:node_stream:Duplex.uncork",
+      "branchId": "surface.builtin.export.node.stream.duplex.uncork.1abjhkz.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.duplex.uncork.1abjhkz.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Duplex.uncork"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.uncork"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.uncork"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Duplex.uncork"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Duplex.uncork"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.duplex.uncork.1abjhkz.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.duplex.undestroy.02sudfh",
       "observedKey": "builtin:export:node_stream:Duplex._undestroy",
       "branchId": "surface.builtin.export.node.stream.duplex.undestroy.02sudfh.main",
@@ -64335,6 +64490,378 @@
       "implementationOwner": "WP8",
       "fixtureObligations": [
         "surface.builtin.export.node.stream.duplex.wrap.1s9000l.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.writableaborted.1in8ckk",
+      "observedKey": "builtin:export:node_stream:Duplex.writableAborted",
+      "branchId": "surface.builtin.export.node.stream.duplex.writableaborted.1in8ckk.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.duplex.writableaborted.1in8ckk.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Duplex.writableAborted"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.writableAborted"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.writableAborted"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Duplex.writableAborted"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Duplex.writableAborted"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.duplex.writableaborted.1in8ckk.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.writablebuffer.0pkmt9z",
+      "observedKey": "builtin:export:node_stream:Duplex.writableBuffer",
+      "branchId": "surface.builtin.export.node.stream.duplex.writablebuffer.0pkmt9z.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.duplex.writablebuffer.0pkmt9z.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Duplex.writableBuffer"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.writableBuffer"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.writableBuffer"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Duplex.writableBuffer"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Duplex.writableBuffer"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.duplex.writablebuffer.0pkmt9z.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.writablecorked.1uopdu9",
+      "observedKey": "builtin:export:node_stream:Duplex.writableCorked",
+      "branchId": "surface.builtin.export.node.stream.duplex.writablecorked.1uopdu9.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.duplex.writablecorked.1uopdu9.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Duplex.writableCorked"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.writableCorked"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.writableCorked"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Duplex.writableCorked"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Duplex.writableCorked"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.duplex.writablecorked.1uopdu9.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.writableended.1mkl4sn",
+      "observedKey": "builtin:export:node_stream:Duplex.writableEnded",
+      "branchId": "surface.builtin.export.node.stream.duplex.writableended.1mkl4sn.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.duplex.writableended.1mkl4sn.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Duplex.writableEnded"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.writableEnded"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.writableEnded"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Duplex.writableEnded"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Duplex.writableEnded"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.duplex.writableended.1mkl4sn.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.writablefinished.0r3qq4v",
+      "observedKey": "builtin:export:node_stream:Duplex.writableFinished",
+      "branchId": "surface.builtin.export.node.stream.duplex.writablefinished.0r3qq4v.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.duplex.writablefinished.0r3qq4v.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Duplex.writableFinished"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.writableFinished"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.writableFinished"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Duplex.writableFinished"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Duplex.writableFinished"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.duplex.writablefinished.0r3qq4v.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.writablehighwatermark.0pgkf51",
+      "observedKey": "builtin:export:node_stream:Duplex.writableHighWaterMark",
+      "branchId": "surface.builtin.export.node.stream.duplex.writablehighwatermark.0pgkf51.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.duplex.writablehighwatermark.0pgkf51.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Duplex.writableHighWaterMark"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.writableHighWaterMark"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.writableHighWaterMark"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Duplex.writableHighWaterMark"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Duplex.writableHighWaterMark"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.duplex.writablehighwatermark.0pgkf51.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.writablelength.1w5j3q1",
+      "observedKey": "builtin:export:node_stream:Duplex.writableLength",
+      "branchId": "surface.builtin.export.node.stream.duplex.writablelength.1w5j3q1.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.duplex.writablelength.1w5j3q1.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Duplex.writableLength"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.writableLength"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.writableLength"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Duplex.writableLength"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Duplex.writableLength"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.duplex.writablelength.1w5j3q1.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.writableneeddrain.1u9s37p",
+      "observedKey": "builtin:export:node_stream:Duplex.writableNeedDrain",
+      "branchId": "surface.builtin.export.node.stream.duplex.writableneeddrain.1u9s37p.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.duplex.writableneeddrain.1u9s37p.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Duplex.writableNeedDrain"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.writableNeedDrain"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.writableNeedDrain"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Duplex.writableNeedDrain"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Duplex.writableNeedDrain"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.duplex.writableneeddrain.1u9s37p.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.writableobjectmode.03en6it",
+      "observedKey": "builtin:export:node_stream:Duplex.writableObjectMode",
+      "branchId": "surface.builtin.export.node.stream.duplex.writableobjectmode.03en6it.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.duplex.writableobjectmode.03en6it.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Duplex.writableObjectMode"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.writableObjectMode"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.writableObjectMode"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Duplex.writableObjectMode"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Duplex.writableObjectMode"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.duplex.writableobjectmode.03en6it.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.writablestate.0zln4ya",
+      "observedKey": "builtin:export:node_stream:Duplex.writableState",
+      "branchId": "surface.builtin.export.node.stream.duplex.writablestate.0zln4ya.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.duplex.writablestate.0zln4ya.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Duplex.writableState"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.writableState"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.writableState"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Duplex.writableState"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Duplex.writableState"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.duplex.writablestate.0zln4ya.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.write.06jcrll",
+      "observedKey": "builtin:export:node_stream:Duplex._write",
+      "branchId": "surface.builtin.export.node.stream.duplex.write.06jcrll.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.duplex.write.06jcrll.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Duplex._write"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Duplex._write"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Duplex._write"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Duplex._write"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Duplex._write"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.duplex.write.06jcrll.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.duplex.write.0v7yv1o",
+      "observedKey": "builtin:export:node_stream:Duplex.write",
+      "branchId": "surface.builtin.export.node.stream.duplex.write.0v7yv1o.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.duplex.write.0v7yv1o.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Duplex.write"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.write"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Duplex.write"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Duplex.write"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Duplex.write"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.duplex.write.0v7yv1o.main.non-capability"
       ]
     },
     {
@@ -64555,37 +65082,6 @@
       ]
     },
     {
-      "edgeId": "surface.builtin.export.node.stream.passthrough.0.1xtf5bd",
-      "observedKey": "builtin:export:node_stream:PassThrough.0",
-      "branchId": "surface.builtin.export.node.stream.passthrough.0.1xtf5bd.main",
-      "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.0.1xtf5bd.main",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "builtin:export:node_stream:PassThrough.0"
-        ],
-        "proofSourceRefs": [
-          "src/builtins/stream.js#exports:PassThrough.0"
-        ],
-        "sourceRefs": [
-          "src/builtins/stream.js#exports:PassThrough.0"
-        ],
-        "terminalObservedKey": "builtin:export:node_stream:PassThrough.0"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/builtins/stream.js#exports:PassThrough.0"
-      ],
-      "implementationOwner": "WP8",
-      "fixtureObligations": [
-        "surface.builtin.export.node.stream.passthrough.0.1xtf5bd.main.non-capability"
-      ]
-    },
-    {
       "edgeId": "surface.builtin.export.node.stream.passthrough.0yqlsrj",
       "observedKey": "builtin:export:node_stream:PassThrough",
       "branchId": "surface.builtin.export.node.stream.passthrough.0yqlsrj.main",
@@ -64769,6 +65265,37 @@
       "implementationOwner": "WP8",
       "fixtureObligations": [
         "surface.builtin.export.node.stream.passthrough.constructor.0m2zcj5.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.cork.0k8p402",
+      "observedKey": "builtin:export:node_stream:PassThrough.cork",
+      "branchId": "surface.builtin.export.node.stream.passthrough.cork.0k8p402.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.cork.0k8p402.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:PassThrough.cork"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.cork"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.cork"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:PassThrough.cork"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:PassThrough.cork"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.passthrough.cork.0k8p402.main.non-capability"
       ]
     },
     {
@@ -64989,6 +65516,37 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.end.1iqqcls",
+      "observedKey": "builtin:export:node_stream:PassThrough.end",
+      "branchId": "surface.builtin.export.node.stream.passthrough.end.1iqqcls.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.end.1iqqcls.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:PassThrough.end"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.end"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.end"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:PassThrough.end"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:PassThrough.end"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.passthrough.end.1iqqcls.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.passthrough.every.0tzhjfq",
       "observedKey": "builtin:export:node_stream:PassThrough.every",
       "branchId": "surface.builtin.export.node.stream.passthrough.every.0tzhjfq.main",
@@ -65017,6 +65575,37 @@
       "implementationOwner": "WP8",
       "fixtureObligations": [
         "surface.builtin.export.node.stream.passthrough.every.0tzhjfq.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.exactwritableprotopatched.086wgxp",
+      "observedKey": "builtin:export:node_stream:PassThrough.__exactWritableProtoPatched",
+      "branchId": "surface.builtin.export.node.stream.passthrough.exactwritableprotopatched.086wgxp.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.exactwritableprotopatched.086wgxp.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:PassThrough.__exactWritableProtoPatched"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.__exactWritableProtoPatched"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.__exactWritableProtoPatched"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:PassThrough.__exactWritableProtoPatched"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:PassThrough.__exactWritableProtoPatched"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.passthrough.exactwritableprotopatched.086wgxp.main.non-capability"
       ]
     },
     {
@@ -65110,6 +65699,37 @@
       "implementationOwner": "WP8",
       "fixtureObligations": [
         "surface.builtin.export.node.stream.passthrough.flatmap.01775yi.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.flushwritequeue.00gsut4",
+      "observedKey": "builtin:export:node_stream:PassThrough._flushWriteQueue",
+      "branchId": "surface.builtin.export.node.stream.passthrough.flushwritequeue.00gsut4.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.flushwritequeue.00gsut4.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:PassThrough._flushWriteQueue"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough._flushWriteQueue"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough._flushWriteQueue"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:PassThrough._flushWriteQueue"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:PassThrough._flushWriteQueue"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.passthrough.flushwritequeue.00gsut4.main.non-capability"
       ]
     },
     {
@@ -65795,6 +66415,37 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.setdefaultencoding.082c71f",
+      "observedKey": "builtin:export:node_stream:PassThrough.setDefaultEncoding",
+      "branchId": "surface.builtin.export.node.stream.passthrough.setdefaultencoding.082c71f.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.setdefaultencoding.082c71f.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:PassThrough.setDefaultEncoding"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.setDefaultEncoding"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.setDefaultEncoding"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:PassThrough.setDefaultEncoding"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:PassThrough.setDefaultEncoding"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.passthrough.setdefaultencoding.082c71f.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.passthrough.setencoding.0l147do",
       "observedKey": "builtin:export:node_stream:PassThrough.setEncoding",
       "branchId": "surface.builtin.export.node.stream.passthrough.setencoding.0l147do.main",
@@ -65981,6 +66632,37 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.uncork.1f93y9p",
+      "observedKey": "builtin:export:node_stream:PassThrough.uncork",
+      "branchId": "surface.builtin.export.node.stream.passthrough.uncork.1f93y9p.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.uncork.1f93y9p.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:PassThrough.uncork"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.uncork"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.uncork"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:PassThrough.uncork"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:PassThrough.uncork"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.passthrough.uncork.1f93y9p.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.passthrough.undestroy.0oos347",
       "observedKey": "builtin:export:node_stream:PassThrough._undestroy",
       "branchId": "surface.builtin.export.node.stream.passthrough.undestroy.0oos347.main",
@@ -66136,6 +66818,316 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.writableaborted.09hftji",
+      "observedKey": "builtin:export:node_stream:PassThrough.writableAborted",
+      "branchId": "surface.builtin.export.node.stream.passthrough.writableaborted.09hftji.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.writableaborted.09hftji.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:PassThrough.writableAborted"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.writableAborted"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.writableAborted"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:PassThrough.writableAborted"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:PassThrough.writableAborted"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.passthrough.writableaborted.09hftji.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.writablebuffer.0vrpsjt",
+      "observedKey": "builtin:export:node_stream:PassThrough.writableBuffer",
+      "branchId": "surface.builtin.export.node.stream.passthrough.writablebuffer.0vrpsjt.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.writablebuffer.0vrpsjt.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:PassThrough.writableBuffer"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.writableBuffer"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.writableBuffer"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:PassThrough.writableBuffer"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:PassThrough.writableBuffer"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.passthrough.writablebuffer.0vrpsjt.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.writablecorked.0ao9ngj",
+      "observedKey": "builtin:export:node_stream:PassThrough.writableCorked",
+      "branchId": "surface.builtin.export.node.stream.passthrough.writablecorked.0ao9ngj.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.writablecorked.0ao9ngj.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:PassThrough.writableCorked"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.writableCorked"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.writableCorked"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:PassThrough.writableCorked"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:PassThrough.writableCorked"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.passthrough.writablecorked.0ao9ngj.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.writableended.0z0zdxd",
+      "observedKey": "builtin:export:node_stream:PassThrough.writableEnded",
+      "branchId": "surface.builtin.export.node.stream.passthrough.writableended.0z0zdxd.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.writableended.0z0zdxd.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:PassThrough.writableEnded"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.writableEnded"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.writableEnded"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:PassThrough.writableEnded"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:PassThrough.writableEnded"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.passthrough.writableended.0z0zdxd.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.writablefinished.0w4lmp9",
+      "observedKey": "builtin:export:node_stream:PassThrough.writableFinished",
+      "branchId": "surface.builtin.export.node.stream.passthrough.writablefinished.0w4lmp9.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.writablefinished.0w4lmp9.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:PassThrough.writableFinished"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.writableFinished"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.writableFinished"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:PassThrough.writableFinished"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:PassThrough.writableFinished"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.passthrough.writablefinished.0w4lmp9.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.writablehighwatermark.1qeh5hb",
+      "observedKey": "builtin:export:node_stream:PassThrough.writableHighWaterMark",
+      "branchId": "surface.builtin.export.node.stream.passthrough.writablehighwatermark.1qeh5hb.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.writablehighwatermark.1qeh5hb.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:PassThrough.writableHighWaterMark"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.writableHighWaterMark"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.writableHighWaterMark"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:PassThrough.writableHighWaterMark"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:PassThrough.writableHighWaterMark"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.passthrough.writablehighwatermark.1qeh5hb.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.writablelength.179ropn",
+      "observedKey": "builtin:export:node_stream:PassThrough.writableLength",
+      "branchId": "surface.builtin.export.node.stream.passthrough.writablelength.179ropn.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.writablelength.179ropn.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:PassThrough.writableLength"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.writableLength"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.writableLength"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:PassThrough.writableLength"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:PassThrough.writableLength"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.passthrough.writablelength.179ropn.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.writableneeddrain.0hw3k8f",
+      "observedKey": "builtin:export:node_stream:PassThrough.writableNeedDrain",
+      "branchId": "surface.builtin.export.node.stream.passthrough.writableneeddrain.0hw3k8f.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.writableneeddrain.0hw3k8f.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:PassThrough.writableNeedDrain"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.writableNeedDrain"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.writableNeedDrain"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:PassThrough.writableNeedDrain"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:PassThrough.writableNeedDrain"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.passthrough.writableneeddrain.0hw3k8f.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.writableobjectmode.08ku7vf",
+      "observedKey": "builtin:export:node_stream:PassThrough.writableObjectMode",
+      "branchId": "surface.builtin.export.node.stream.passthrough.writableobjectmode.08ku7vf.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.writableobjectmode.08ku7vf.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:PassThrough.writableObjectMode"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.writableObjectMode"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.writableObjectMode"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:PassThrough.writableObjectMode"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:PassThrough.writableObjectMode"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.passthrough.writableobjectmode.08ku7vf.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.writablestate.0q1ypqc",
+      "observedKey": "builtin:export:node_stream:PassThrough.writableState",
+      "branchId": "surface.builtin.export.node.stream.passthrough.writablestate.0q1ypqc.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.writablestate.0q1ypqc.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:PassThrough.writableState"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.writableState"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.writableState"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:PassThrough.writableState"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:PassThrough.writableState"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.passthrough.writablestate.0q1ypqc.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.passthrough.write.06wx90j",
       "observedKey": "builtin:export:node_stream:PassThrough._write",
       "branchId": "surface.builtin.export.node.stream.passthrough.write.06wx90j.main",
@@ -66164,6 +67156,37 @@
       "implementationOwner": "WP8",
       "fixtureObligations": [
         "surface.builtin.export.node.stream.passthrough.write.06wx90j.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.passthrough.write.0fe4ng6",
+      "observedKey": "builtin:export:node_stream:PassThrough.write",
+      "branchId": "surface.builtin.export.node.stream.passthrough.write.0fe4ng6.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.passthrough.write.0fe4ng6.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:PassThrough.write"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.write"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:PassThrough.write"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:PassThrough.write"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:PassThrough.write"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.passthrough.write.0fe4ng6.main.non-capability"
       ]
     },
     {
@@ -68213,37 +69236,6 @@
       ]
     },
     {
-      "edgeId": "surface.builtin.export.node.stream.transform.0.00g8ruj",
-      "observedKey": "builtin:export:node_stream:Transform.0",
-      "branchId": "surface.builtin.export.node.stream.transform.0.00g8ruj.main",
-      "enforcementBranchId": "surface.builtin.export.node.stream.transform.0.00g8ruj.main",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "builtin:export:node_stream:Transform.0"
-        ],
-        "proofSourceRefs": [
-          "src/builtins/stream.js#exports:Transform.0"
-        ],
-        "sourceRefs": [
-          "src/builtins/stream.js#exports:Transform.0"
-        ],
-        "terminalObservedKey": "builtin:export:node_stream:Transform.0"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/builtins/stream.js#exports:Transform.0"
-      ],
-      "implementationOwner": "WP8",
-      "fixtureObligations": [
-        "surface.builtin.export.node.stream.transform.0.00g8ruj.main.non-capability"
-      ]
-    },
-    {
       "edgeId": "surface.builtin.export.node.stream.transform.0d1anx9",
       "observedKey": "builtin:export:node_stream:Transform",
       "branchId": "surface.builtin.export.node.stream.transform.0d1anx9.main",
@@ -68427,6 +69419,37 @@
       "implementationOwner": "WP8",
       "fixtureObligations": [
         "surface.builtin.export.node.stream.transform.constructor.16w5v9n.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.cork.1cuhawo",
+      "observedKey": "builtin:export:node_stream:Transform.cork",
+      "branchId": "surface.builtin.export.node.stream.transform.cork.1cuhawo.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.transform.cork.1cuhawo.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Transform.cork"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Transform.cork"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Transform.cork"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Transform.cork"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Transform.cork"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.transform.cork.1cuhawo.main.non-capability"
       ]
     },
     {
@@ -68647,6 +69670,37 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.transform.end.10tmcum",
+      "observedKey": "builtin:export:node_stream:Transform.end",
+      "branchId": "surface.builtin.export.node.stream.transform.end.10tmcum.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.transform.end.10tmcum.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Transform.end"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Transform.end"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Transform.end"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Transform.end"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Transform.end"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.transform.end.10tmcum.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.transform.every.0dzktd4",
       "observedKey": "builtin:export:node_stream:Transform.every",
       "branchId": "surface.builtin.export.node.stream.transform.every.0dzktd4.main",
@@ -68675,6 +69729,37 @@
       "implementationOwner": "WP8",
       "fixtureObligations": [
         "surface.builtin.export.node.stream.transform.every.0dzktd4.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.exactwritableprotopatched.13dilhj",
+      "observedKey": "builtin:export:node_stream:Transform.__exactWritableProtoPatched",
+      "branchId": "surface.builtin.export.node.stream.transform.exactwritableprotopatched.13dilhj.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.transform.exactwritableprotopatched.13dilhj.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Transform.__exactWritableProtoPatched"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Transform.__exactWritableProtoPatched"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Transform.__exactWritableProtoPatched"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Transform.__exactWritableProtoPatched"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Transform.__exactWritableProtoPatched"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.transform.exactwritableprotopatched.13dilhj.main.non-capability"
       ]
     },
     {
@@ -68768,6 +69853,37 @@
       "implementationOwner": "WP8",
       "fixtureObligations": [
         "surface.builtin.export.node.stream.transform.flatmap.0g8kgk0.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.flushwritequeue.16g3qqq",
+      "observedKey": "builtin:export:node_stream:Transform._flushWriteQueue",
+      "branchId": "surface.builtin.export.node.stream.transform.flushwritequeue.16g3qqq.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.transform.flushwritequeue.16g3qqq.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Transform._flushWriteQueue"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Transform._flushWriteQueue"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Transform._flushWriteQueue"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Transform._flushWriteQueue"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Transform._flushWriteQueue"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.transform.flushwritequeue.16g3qqq.main.non-capability"
       ]
     },
     {
@@ -69453,6 +70569,37 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.transform.setdefaultencoding.0isdfgl",
+      "observedKey": "builtin:export:node_stream:Transform.setDefaultEncoding",
+      "branchId": "surface.builtin.export.node.stream.transform.setdefaultencoding.0isdfgl.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.transform.setdefaultencoding.0isdfgl.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Transform.setDefaultEncoding"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Transform.setDefaultEncoding"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Transform.setDefaultEncoding"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Transform.setDefaultEncoding"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Transform.setDefaultEncoding"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.transform.setdefaultencoding.0isdfgl.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.transform.setencoding.13j2rny",
       "observedKey": "builtin:export:node_stream:Transform.setEncoding",
       "branchId": "surface.builtin.export.node.stream.transform.setencoding.13j2rny.main",
@@ -69639,6 +70786,37 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.transform.uncork.1u0rt8f",
+      "observedKey": "builtin:export:node_stream:Transform.uncork",
+      "branchId": "surface.builtin.export.node.stream.transform.uncork.1u0rt8f.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.transform.uncork.1u0rt8f.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Transform.uncork"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Transform.uncork"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Transform.uncork"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Transform.uncork"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Transform.uncork"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.transform.uncork.1u0rt8f.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.transform.undestroy.173c44p",
       "observedKey": "builtin:export:node_stream:Transform._undestroy",
       "branchId": "surface.builtin.export.node.stream.transform.undestroy.173c44p.main",
@@ -69794,6 +70972,316 @@
       ]
     },
     {
+      "edgeId": "surface.builtin.export.node.stream.transform.writableaborted.1sdyjtc",
+      "observedKey": "builtin:export:node_stream:Transform.writableAborted",
+      "branchId": "surface.builtin.export.node.stream.transform.writableaborted.1sdyjtc.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.transform.writableaborted.1sdyjtc.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Transform.writableAborted"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Transform.writableAborted"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Transform.writableAborted"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Transform.writableAborted"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Transform.writableAborted"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.transform.writableaborted.1sdyjtc.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.writablebuffer.1su38u3",
+      "observedKey": "builtin:export:node_stream:Transform.writableBuffer",
+      "branchId": "surface.builtin.export.node.stream.transform.writablebuffer.1su38u3.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.transform.writablebuffer.1su38u3.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Transform.writableBuffer"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Transform.writableBuffer"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Transform.writableBuffer"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Transform.writableBuffer"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Transform.writableBuffer"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.transform.writablebuffer.1su38u3.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.writablecorked.1p68c1p",
+      "observedKey": "builtin:export:node_stream:Transform.writableCorked",
+      "branchId": "surface.builtin.export.node.stream.transform.writablecorked.1p68c1p.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.transform.writablecorked.1p68c1p.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Transform.writableCorked"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Transform.writableCorked"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Transform.writableCorked"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Transform.writableCorked"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Transform.writableCorked"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.transform.writablecorked.1p68c1p.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.writableended.05xfkfv",
+      "observedKey": "builtin:export:node_stream:Transform.writableEnded",
+      "branchId": "surface.builtin.export.node.stream.transform.writableended.05xfkfv.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.transform.writableended.05xfkfv.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Transform.writableEnded"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Transform.writableEnded"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Transform.writableEnded"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Transform.writableEnded"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Transform.writableEnded"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.transform.writableended.05xfkfv.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.writablefinished.0mmztsz",
+      "observedKey": "builtin:export:node_stream:Transform.writableFinished",
+      "branchId": "surface.builtin.export.node.stream.transform.writablefinished.0mmztsz.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.transform.writablefinished.0mmztsz.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Transform.writableFinished"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Transform.writableFinished"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Transform.writableFinished"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Transform.writableFinished"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Transform.writableFinished"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.transform.writablefinished.0mmztsz.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.writablehighwatermark.04bzv21",
+      "observedKey": "builtin:export:node_stream:Transform.writableHighWaterMark",
+      "branchId": "surface.builtin.export.node.stream.transform.writablehighwatermark.04bzv21.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.transform.writablehighwatermark.04bzv21.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Transform.writableHighWaterMark"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Transform.writableHighWaterMark"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Transform.writableHighWaterMark"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Transform.writableHighWaterMark"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Transform.writableHighWaterMark"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.transform.writablehighwatermark.04bzv21.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.writablelength.1tihatx",
+      "observedKey": "builtin:export:node_stream:Transform.writableLength",
+      "branchId": "surface.builtin.export.node.stream.transform.writablelength.1tihatx.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.transform.writablelength.1tihatx.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Transform.writableLength"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Transform.writableLength"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Transform.writableLength"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Transform.writableLength"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Transform.writableLength"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.transform.writablelength.1tihatx.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.writableneeddrain.0o2308h",
+      "observedKey": "builtin:export:node_stream:Transform.writableNeedDrain",
+      "branchId": "surface.builtin.export.node.stream.transform.writableneeddrain.0o2308h.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.transform.writableneeddrain.0o2308h.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Transform.writableNeedDrain"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Transform.writableNeedDrain"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Transform.writableNeedDrain"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Transform.writableNeedDrain"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Transform.writableNeedDrain"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.transform.writableneeddrain.0o2308h.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.writableobjectmode.188e1wh",
+      "observedKey": "builtin:export:node_stream:Transform.writableObjectMode",
+      "branchId": "surface.builtin.export.node.stream.transform.writableobjectmode.188e1wh.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.transform.writableobjectmode.188e1wh.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Transform.writableObjectMode"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Transform.writableObjectMode"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Transform.writableObjectMode"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Transform.writableObjectMode"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Transform.writableObjectMode"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.transform.writableobjectmode.188e1wh.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.writablestate.0w0e19y",
+      "observedKey": "builtin:export:node_stream:Transform.writableState",
+      "branchId": "surface.builtin.export.node.stream.transform.writablestate.0w0e19y.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.transform.writablestate.0w0e19y.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Transform.writableState"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Transform.writableState"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Transform.writableState"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Transform.writableState"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Transform.writableState"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.transform.writablestate.0w0e19y.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.builtin.export.node.stream.transform.write.0r7bwzx",
       "observedKey": "builtin:export:node_stream:Transform._write",
       "branchId": "surface.builtin.export.node.stream.transform.write.0r7bwzx.main",
@@ -69822,6 +71310,37 @@
       "implementationOwner": "WP8",
       "fixtureObligations": [
         "surface.builtin.export.node.stream.transform.write.0r7bwzx.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.builtin.export.node.stream.transform.write.1ujbj4g",
+      "observedKey": "builtin:export:node_stream:Transform.write",
+      "branchId": "surface.builtin.export.node.stream.transform.write.1ujbj4g.main",
+      "enforcementBranchId": "surface.builtin.export.node.stream.transform.write.1ujbj4g.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "builtin:export:node_stream:Transform.write"
+        ],
+        "proofSourceRefs": [
+          "src/builtins/stream.js#exports:Transform.write"
+        ],
+        "sourceRefs": [
+          "src/builtins/stream.js#exports:Transform.write"
+        ],
+        "terminalObservedKey": "builtin:export:node_stream:Transform.write"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/builtins/stream.js#exports:Transform.write"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.builtin.export.node.stream.transform.write.1ujbj4g.main.non-capability"
       ]
     },
     {
@@ -156947,34 +158466,40 @@
     {
       "edgeId": "surface.native.op.exactdeepfreeze.1vcvmfo",
       "observedKey": "native-op:__exactDeepFreeze",
-      "branchId": "surface.native.op.exactdeepfreeze.1vcvmfo.main",
-      "enforcementBranchId": "surface.native.op.exactdeepfreeze.1vcvmfo.main",
+      "branchId": "surface.native.op.exactdeepfreeze.1vcvmfo.default",
+      "enforcementBranchId": "surface.native.op.exactdeepfreeze.1vcvmfo.default",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactDeepFreeze"
         ],
         "proofSourceRefs": [
-          "src/engine/hermes_runtime.cc#__exactDeepFreeze"
+          "src/engine/hermes_runtime.cc#__exactDeepFreeze",
+          "src/engine/hermes_runtime.cc#embedded:kFreezeSealJS:__exactDeepFreeze",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:__exactDeepFreeze"
         ],
         "sourceRefs": [
-          "src/engine/hermes_runtime.cc#__exactDeepFreeze"
+          "src/engine/hermes_runtime.cc#__exactDeepFreeze",
+          "src/engine/hermes_runtime.cc#embedded:kFreezeSealJS:__exactDeepFreeze",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:__exactDeepFreeze"
         ],
         "terminalObservedKey": "native-op:__exactDeepFreeze"
       },
       "branchKind": "single",
-      "targetVariant": "all",
+      "targetVariant": "default",
       "targetApplicability": {
-        "kind": "all"
+        "kind": "fallback"
       },
       "sourceRefs": [
-        "src/engine/hermes_runtime.cc#__exactDeepFreeze"
+        "src/engine/hermes_runtime.cc#__exactDeepFreeze",
+        "src/engine/hermes_runtime.cc#embedded:kFreezeSealJS:__exactDeepFreeze",
+        "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:__exactDeepFreeze"
       ],
       "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.native.op.exactdeepfreeze.1vcvmfo.main.cannot-widen-authority",
-        "surface.native.op.exactdeepfreeze.1vcvmfo.main.non-capability",
-        "surface.native.op.exactdeepfreeze.1vcvmfo.main.post-lockdown-invariant"
+        "surface.native.op.exactdeepfreeze.1vcvmfo.default.cannot-widen-authority",
+        "surface.native.op.exactdeepfreeze.1vcvmfo.default.non-capability",
+        "surface.native.op.exactdeepfreeze.1vcvmfo.default.post-lockdown-invariant"
       ]
     },
     {
@@ -164407,34 +165932,40 @@
     {
       "edgeId": "surface.native.op.exactnativefreeze.0145fn1",
       "observedKey": "native-op:__exactNativeFreeze",
-      "branchId": "surface.native.op.exactnativefreeze.0145fn1.main",
-      "enforcementBranchId": "surface.native.op.exactnativefreeze.0145fn1.main",
+      "branchId": "surface.native.op.exactnativefreeze.0145fn1.default",
+      "enforcementBranchId": "surface.native.op.exactnativefreeze.0145fn1.default",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactNativeFreeze"
         ],
         "proofSourceRefs": [
-          "src/engine/hermes_runtime.cc#__exactNativeFreeze"
+          "src/engine/hermes_runtime.cc#__exactNativeFreeze",
+          "src/engine/hermes_runtime.cc#embedded:kFreezeSealJS:__exactNativeFreeze",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:__exactNativeFreeze"
         ],
         "sourceRefs": [
-          "src/engine/hermes_runtime.cc#__exactNativeFreeze"
+          "src/engine/hermes_runtime.cc#__exactNativeFreeze",
+          "src/engine/hermes_runtime.cc#embedded:kFreezeSealJS:__exactNativeFreeze",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:__exactNativeFreeze"
         ],
         "terminalObservedKey": "native-op:__exactNativeFreeze"
       },
       "branchKind": "single",
-      "targetVariant": "all",
+      "targetVariant": "default",
       "targetApplicability": {
-        "kind": "all"
+        "kind": "fallback"
       },
       "sourceRefs": [
-        "src/engine/hermes_runtime.cc#__exactNativeFreeze"
+        "src/engine/hermes_runtime.cc#__exactNativeFreeze",
+        "src/engine/hermes_runtime.cc#embedded:kFreezeSealJS:__exactNativeFreeze",
+        "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:__exactNativeFreeze"
       ],
       "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.native.op.exactnativefreeze.0145fn1.main.cannot-widen-authority",
-        "surface.native.op.exactnativefreeze.0145fn1.main.non-capability",
-        "surface.native.op.exactnativefreeze.0145fn1.main.post-lockdown-invariant"
+        "surface.native.op.exactnativefreeze.0145fn1.default.cannot-widen-authority",
+        "surface.native.op.exactnativefreeze.0145fn1.default.non-capability",
+        "surface.native.op.exactnativefreeze.0145fn1.default.post-lockdown-invariant"
       ]
     },
     {
@@ -271599,59 +273130,59 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-kyOBEAqigUJqtkXRp93Sgkhl3OmvW-J8bJ4TeCe9cto"
+      "rawContentDigest": "sha256-6C_sOb-EUdIcdwwSy0ryZ5NErOVINq9pvQZZQU-BIw8"
     },
     {
       "kind": "output-disposition-dataset",
       "path": "capsec/generated/output-dispositions.json",
-      "rawContentDigest": "sha256-PMLbNhI9hdAvn77ZPvnOmrpfqQhNIE1am-cIrj_3-O0"
+      "rawContentDigest": "sha256-EJz-ReCysaTmQxv9NnpHkCBtn8SieOh5yNW3mGmbe-0"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/output-dispositions.md",
-      "rawContentDigest": "sha256-1tnf-BMTDpz_b5dwsbzeL8hIKDF6tTZQw_oaItmgCpE"
+      "rawContentDigest": "sha256-xRCVp6vQ9c9kPbp4fxPpz0vCD8jCxiguM6zRFr0eoLA"
     },
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-I9Z3-Q5TMn8IH9FqEEqmHqdlW9ttHLfAkTOJL0oeZ9c"
+      "rawContentDigest": "sha256-ka1W3VuMBwA1nyWidZZosx855G2-PFIKKkcpD4z6U00"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-V-e12HjJLwwNDkW2eRfuAMzW4XlHwYJmLAMK2xZZhqs"
+      "rawContentDigest": "sha256-fscV3ihFx3KQwq8qqtwFXqVGk_OBEgM_fVoc7HTMsJg"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-RxLDC47t7W7kLtzuZCBiC9nG06BNALnrbAYgGabuiYU"
+      "rawContentDigest": "sha256-VU9WeqU6sbE9fIRjiYrci_CybLkvc0-HqjEzQx6ZnOM"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-cCPINv_eBuYH9X9f1UAFiRfnEQmMbvMa1NBaU37jzsk"
+      "rawContentDigest": "sha256-Q7da8LnjF5U46scXXoayGqpDdnS-lT7y5G7PbpqC4hE"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-6P0qPns1IB9qTRrPVKwuNU2a3LzlSz-WYXsMKSAsSbc"
+      "rawContentDigest": "sha256-NKKN9C7RmCHZh1_jPsOEYSv96lwM-T6vxUZofzjhAVs"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-NBmd_p_9e5pgjpg6E-7f0D9OJpxY5b_6aauIH_PxKm0"
+      "rawContentDigest": "sha256-sknkRcW1Mcra0BVAvPs_W10adxQMGZCnAfmCwZOWXXI"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-uzRwfpf6FYVSBvXr2EHEwZEXUnjf5tr5V9zqXuRdF2I"
+      "rawContentDigest": "sha256-ButghMAuZGr5rpZZoMT_fa6OS-xj5c7MV7afOeu1AnM"
     }
   ],
   "counts": {
-    "observedReferences": 12797,
-    "logicalSurfaces": 7300,
-    "enforcementBranches": 7519,
-    "coverageEdges": 7300,
-    "targetCells": 14600
+    "observedReferences": 12850,
+    "logicalSurfaces": 7349,
+    "enforcementBranches": 7568,
+    "coverageEdges": 7349,
+    "targetCells": 14698
   }
 }

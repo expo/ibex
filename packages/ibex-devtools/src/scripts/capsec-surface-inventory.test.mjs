@@ -1228,6 +1228,91 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ]);
   });
 
+  test("resolves getOwnPropertyNames prototype copies without leaking a shadowed loop index", () => {
+    const rows = scanStaticBuiltinExports(
+      String.raw`
+        var key = 0;
+        function Writable() {}
+        Writable.prototype.write = function() {};
+        function Duplex() {}
+        Object.getOwnPropertyNames(Writable.prototype).forEach(function(key) {
+          if (key === 'constructor') return;
+          var descriptor = Object.getOwnPropertyDescriptor(Writable.prototype, key);
+          Object.defineProperty(Duplex.prototype, key, descriptor);
+        });
+        module.exports = { Duplex: Duplex };
+      `,
+      {
+        sourceKey: "node_prototype_copy",
+        sourcePath: "src/builtins/prototype-copy.js",
+      },
+    );
+    expect(rows.map((row) => row.name)).toContain(
+      "export:node_prototype_copy:Duplex.write",
+    );
+    expect(
+      rows.find(
+        (row) => row.name === "export:node_prototype_copy:Duplex.write",
+      )?.metadata.valueShape,
+    ).toBe("callable");
+    expect(rows.map((row) => row.name)).not.toContain(
+      "export:node_prototype_copy:Duplex.0",
+    );
+    expect(() => scanStaticBuiltinExports(
+      String.raw`
+        function Writable() {}
+        Writable.prototype.write = function() {};
+        function Duplex() {}
+        Object.getOwnPropertyNames(Writable.prototype).forEach(function(key) {
+          Object.defineProperty(
+            Duplex.prototype,
+            key,
+            Object.getOwnPropertyDescriptor(Writable.prototype, key),
+          );
+        });
+        Writable.prototype.late = function() {};
+        module.exports = { Duplex: Duplex };
+      `,
+      {
+        sourceKey: "node_late_prototype_copy",
+        sourcePath: "src/builtins/late-prototype-copy.js",
+      },
+    )).toThrow(/unresolved computed exported prototype\/class member/u);
+  });
+
+  test.each([
+    ["reassigned", "key = 'unrelated';"],
+    [
+      "shadowed",
+      "{ let key = 'unrelated'; Object.defineProperty(Duplex.prototype, key, Object.getOwnPropertyDescriptor(Writable.prototype, key)); }",
+    ],
+  ])("does not transfer prototype value shapes through a %s copy key", (_label, mutation) => {
+    const define = mutation.startsWith("{")
+      ? mutation
+      : `${mutation}\nObject.defineProperty(Duplex.prototype, key, Object.getOwnPropertyDescriptor(Writable.prototype, key));`;
+    const rows = scanStaticBuiltinExports(
+      String.raw`
+        function Writable() {}
+        Writable.prototype.write = function() {};
+        function Duplex() {}
+        Object.getOwnPropertyNames(Writable.prototype).forEach(function(key) {
+          ${define}
+        });
+        module.exports = { Duplex: Duplex };
+      `,
+      {
+        sourceKey: "node_unstable_prototype_copy",
+        sourcePath: "src/builtins/unstable-prototype-copy.js",
+      },
+    );
+    expect(
+      rows.find(
+        (row) =>
+          row.name === "export:node_unstable_prototype_copy:Duplex.write",
+      )?.metadata.valueShape,
+    ).toBe("unknown");
+  });
+
   test("own prototype overrides take precedence over inherited facts", () => {
     const rows = scanStaticBuiltinExports(
       String.raw`
@@ -4963,6 +5048,28 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     ]);
   });
 
+  test("startup discovery retains calls immediately after preprocessor directives", () => {
+    const rows = scanNativeLifecycleSurfaces(
+      String.raw`
+        void installChild(Runtime* runtime) {}
+        void installParent(Runtime* runtime) {
+        #ifdef ENABLE_CHILD
+          marker();
+        #endif
+          installChild(runtime);
+        }
+        #define INSTALL_MACRO() installIgnored(runtime)
+      `,
+      "preprocessor.cc",
+    );
+    expect(rows.map((row) => row.name)).toContain(
+      "install-route:installParent:installChild",
+    );
+    expect(rows.map((row) => row.name)).not.toContain(
+      "install-route:translation-unit-fallback:installIgnored",
+    );
+  });
+
   test("unscoped native lifecycle calls use a stable explicit fallback", () => {
     const rows = scanNativeLifecycleSurfaces(
       'runtime->evaluateJavaScript(source, "<boot>"); installStorage(runtime);',
@@ -5045,6 +5152,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       "ios-dispatch-debug-context",
       "ios-module-dispatch",
       "ios-module-sync",
+      "restricted-exact-checkpoint-output",
       "signal-delivery",
       "websocket-binary-delivery",
       "websocket-bytes-sent-delivery",
@@ -5234,18 +5342,21 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
         "export:node_net:Socket.writableLength",
         "export:node_net:Socket.writableNeedDrain",
         "export:node_stream:Duplex.emit",
+        "export:node_stream:Duplex.write",
         "export:node_zlib:Gzip.write",
       ]),
     );
+    expect(exports.some((row) => row.name === "export:node_stream:Duplex.0"))
+      .toBe(false);
     const inheritedRows = exports.filter(
       (row) => row.metadata.inheritedShape === true,
     );
-    expect(inheritedRows).toHaveLength(454);
+    expect(inheritedRows).toHaveLength(486);
     expect(
       new Set(inheritedRows.map((row) => row.metadata.inheritedShapeReviewId)),
     ).toEqual(
       new Set([
-        "sha256-a38490336f46e4dd2791e1e1fa14a1164d7c0da99f2670894ded67a33d8d1e2c",
+        "sha256-5f913de344649d8ed6080408a6573681b940b0cbb17e4ec8b60a1d356c51b081",
       ]),
     );
     expect(
@@ -5838,7 +5949,10 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     expect(first.hostAbi.some((row) => row.name === "ex_host_fs_open")).toBe(
       true,
     );
-    expect(first.hostAbi).toHaveLength(311);
+    // The checked-in generated authority contains 317 exact host ABI rows.
+    // Keep this assertion joined to that live inventory rather than the stale
+    // pre-LLP-0033 count of 311.
+    expect(first.hostAbi).toHaveLength(317);
     for (const [name, sourceRef] of [
       [
         "evaluation:installGlobals:native-freeze-conformance-observation",

@@ -27,6 +27,7 @@ const lineStartCache = new Map();
 const declarationRangeCache = new Map();
 const robustFunctionRangeCache = new Map();
 const javaTypeRangeCache = new Map();
+const prototypeLinkCache = new Map();
 
 function digest(bytes) {
   return `sha256-${crypto.createHash("sha256").update(bytes).digest("base64url")}`;
@@ -738,6 +739,34 @@ function errnoExportBinding({ sourceRef, sourcePath, locator, text, bytes }) {
   };
 }
 
+function signalNumberOverlayBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (
+    branch?.observedKey !== "builtin:export:node_constants:[[dynamic-table:signal-number-overlay]]"
+    || sourcePath !== "src/builtins/constants.js"
+    || locator !== "exports:[[dynamic-table:signal-number-overlay]]"
+  ) return null;
+  const producer = declarationRange(text, "_signalNumbers");
+  const dispatch = uniqueTokenRange(text, ["_assign(_signalNumbers());"]);
+  const publication = uniqueTokenRange(text, ["module.exports = constants;"]);
+  if (!producer || !dispatch || !publication) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: "signal-number-overlay.producer", range: producer, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: "signal-number-overlay.assignment", range: dispatch, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: "signal-number-overlay.publication", range: publication, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "commonjs-signal-number-overlay-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0signal-number-overlay`),
+      conditionId: `target-branch:${branch.targetVariant}`,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
 function processCwdBinding({ sourceRef, sourcePath, locator, text, bytes }) {
   if (
     sourcePath !== "src/engine/hermes_runtime_process_setup.cc"
@@ -822,6 +851,128 @@ function moduleSpecifierBranchBinding({ branch, sourceRef, sourcePath, locator, 
   });
 }
 
+function moduleInlineExportBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (
+    sourcePath !== "modules.ts"
+    || !locator.startsWith("sources:")
+    || !branch?.observedKey?.startsWith("builtin:export:")
+  ) return null;
+  const match = /^sources:([^:]+):exports:(.+)$/u.exec(locator);
+  if (!match) return null;
+  const [, sourceKey, exportPath] = match;
+  const sourceEntryPattern = new RegExp(
+    `(?:^|\\n)\\s*${escapeRegExp(sourceKey)}:\\s*\\{[^\\n]+\\}`,
+    "gu",
+  );
+  const sourceEntries = [...text.matchAll(sourceEntryPattern)];
+  if (sourceEntries.length !== 1) return null;
+  const sourceEntry = lineRange(text, sourceEntries[0].index + sourceEntries[0][0].search(/\S/u));
+  const sourceEntryText = text.slice(sourceEntry.startByte, sourceEntry.endByte);
+  const codeIdentifier = /\bcode:\s*([A-Za-z_$][A-Za-z0-9_$]*)\b/u.exec(sourceEntryText)?.[1];
+  let codeRange = sourceEntry;
+  if (codeIdentifier) {
+    const declarationPattern = new RegExp(
+      `(?:^|\\n)\\s*const\\s+${escapeRegExp(codeIdentifier)}\\s*=\\s*String\\.raw\\x60`,
+      "gu",
+    );
+    const declarations = [...text.matchAll(declarationPattern)];
+    if (declarations.length !== 1) return null;
+    const templateStart = text.indexOf("`", declarations[0].index) + 1;
+    const templateEnd = text.indexOf("`;", templateStart);
+    if (templateStart <= 0 || templateEnd < templateStart) return null;
+    codeRange = { startByte: templateStart, endByte: templateEnd };
+  }
+
+  const moduleAssignments = tokenRangesWithin(text, "module.exports =", codeRange);
+  if (moduleAssignments.length !== 1) return null;
+  const assignmentLine = moduleAssignments[0];
+  const equals = text.indexOf("=", assignmentLine.startByte);
+  const opening = text.indexOf("{", equals);
+  const moduleObjectEnd = opening >= 0 && opening < codeRange.endByte
+    ? matchingBraceEnd(text, opening)
+    : -1;
+  const modulePublication = moduleObjectEnd > opening && moduleObjectEnd <= codeRange.endByte
+    ? { startByte: assignmentLine.startByte, endByte: moduleObjectEnd + 1 }
+    : assignmentLine;
+  const parts = exportPath.split(".");
+  const root = parts[0];
+  let producer = null;
+  let rootRegistration = null;
+  if (root === "default") {
+    producer = modulePublication;
+  } else if (moduleObjectEnd > opening && moduleObjectEnd <= codeRange.endByte) {
+    const properties = tokenRangesWithin(
+      text,
+      `${root}:`,
+      { startByte: opening, endByte: moduleObjectEnd },
+    );
+    if (properties.length === 1) rootRegistration = properties[0];
+  }
+  if (!producer && parts.length > 1) {
+    const member = parts.at(-1);
+    const patterns = [
+      `${root}.prototype.${member} =`,
+      `${member}: function`,
+      `${member}(`,
+    ];
+    const candidates = patterns.flatMap((token) => tokenRangesWithin(text, token, codeRange));
+    const unique = dedupeRanges(candidates);
+    if (unique.length === 1) producer = unique[0];
+  }
+  if (!producer) {
+    const functionPattern = new RegExp(
+      `(?:^|\\n)\\s*function\\s+${escapeRegExp(root)}\\s*\\(`,
+      "gu",
+    );
+    const functions = [...text.slice(codeRange.startByte, codeRange.endByte).matchAll(functionPattern)];
+    if (functions.length === 1) {
+      const startByte = codeRange.startByte + functions[0].index + functions[0][0].search(/\S/u);
+      const openingBrace = text.indexOf("{", startByte);
+      const endByte = openingBrace < 0 ? -1 : matchingBraceEnd(text, openingBrace);
+      if (endByte > openingBrace && endByte <= codeRange.endByte) producer = { startByte, endByte };
+    }
+  }
+  if (!producer && rootRegistration) producer = rootRegistration;
+  if (!producer || !rootRegistration && root !== "default") return null;
+
+  const specifierCandidates = tokenRangesWithin(
+    text,
+    `source: '${sourceKey}'`,
+    { startByte: 0, endByte: text.length },
+  ).map((line) => enclosingObjectRange(text, line.startByte, 0, text.length)).filter(Boolean);
+  const uniqueSpecifiers = dedupeRanges(specifierCandidates);
+  if (uniqueSpecifiers.length !== 1) return null;
+  const ranges = [
+    { role: "value-producer", key: `${exportPath}.inline-producer`, range: producer },
+    { role: "registration", key: `${sourceKey}.source-registration`, range: sourceEntry },
+    { role: "registration", key: `${sourceKey}.specifier-registration`, range: uniqueSpecifiers[0] },
+    ...(rootRegistration && rootRegistration !== producer
+      ? [{ role: "registration", key: `${exportPath}.root-registration`, range: rootRegistration }]
+      : []),
+    { role: "publication", key: `${exportPath}.inline-publication`, range: modulePublication },
+  ];
+  const sites = ranges.map(({ role, key, range }) => sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role,
+    siteKey: key,
+    range,
+    text,
+    bytes,
+  }));
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "inline-module-export-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0inline-module-export`),
+      conditionId: `target-branch:${branch.targetVariant}`,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
 function walkJavaScript(node, visitor, parent = null) {
   if (!node || typeof node !== "object") return;
   if (typeof node.type === "string") visitor(node, parent);
@@ -845,6 +996,7 @@ function propertyName(node) {
 function memberSegments(node) {
   if (!node) return null;
   if (node.type === "Identifier") return [node.name];
+  if (node.type === "ThisExpression") return ["this"];
   if (node.type !== "MemberExpression" && node.type !== "OptionalMemberExpression") return null;
   const base = memberSegments(node.object);
   const property = node.computed ? propertyName(node.property) : propertyName(node.property);
@@ -892,15 +1044,45 @@ function javascriptIndex(absolute, text) {
       ) {
         modulePublications.push({ node: parent ?? node, value: node.right });
       }
-    } else if (node.type === "CallExpression"
-      && JSON.stringify(memberSegments(node.callee)) === JSON.stringify(["Object", "defineProperty"])
-      && propertyName(node.arguments[1]) !== null) {
-      defineProperties.push({
-        node: parent?.type === "ExpressionStatement" ? parent : node,
-        targetSegments: memberSegments(node.arguments[0]),
-        property: propertyName(node.arguments[1]),
-        descriptor: node.arguments[2],
-      });
+    } else if (node.type === "CallExpression") {
+      const calleeSegments = memberSegments(node.callee);
+      if (
+        JSON.stringify(calleeSegments) === JSON.stringify(["Object", "defineProperty"])
+        && propertyName(node.arguments[1]) !== null
+      ) {
+        defineProperties.push({
+          node: parent?.type === "ExpressionStatement" ? parent : node,
+          targetSegments: memberSegments(node.arguments[0]),
+          property: propertyName(node.arguments[1]),
+          descriptor: node.arguments[2],
+        });
+      } else if (
+        JSON.stringify(calleeSegments) === JSON.stringify(["Object", "defineProperties"])
+        && node.arguments[1]?.type === "ObjectExpression"
+      ) {
+        for (const property of node.arguments[1].properties) {
+          if (!["ObjectProperty", "ObjectMethod"].includes(property.type)) continue;
+          const name = propertyName(property.key);
+          if (name === null) continue;
+          defineProperties.push({
+            node: property,
+            targetSegments: memberSegments(node.arguments[0]),
+            property: name,
+            descriptor: property.type === "ObjectProperty" ? property.value : property,
+          });
+        }
+      } else if (
+        ["__defineGetter__", "__defineSetter__"].includes(calleeSegments?.at(-1))
+        && propertyName(node.arguments[0]) !== null
+      ) {
+        defineProperties.push({
+          node: parent?.type === "ExpressionStatement" ? parent : node,
+          targetSegments: calleeSegments.slice(0, -1),
+          property: propertyName(node.arguments[0]),
+          descriptor: node.arguments[1],
+          accessorKind: calleeSegments.at(-1) === "__defineGetter__" ? "getter" : "setter",
+        });
+      }
     } else if (node.type === "ExportNamedDeclaration") {
       if (node.declaration) {
         const name = node.declaration.id?.name;
@@ -961,7 +1143,7 @@ function resolveIdentifierValue(index, node, seen = new Set()) {
   return { node: declaration.value ?? declaration.node, declaration };
 }
 
-function memberProducer(index, ownerName, memberName, preference = "prefer-static") {
+function memberProducers(index, ownerName, memberName, preference = "prefer-static") {
   const owner = declarationFor(index, ownerName);
   const ownerValue = owner?.value;
   const selectClassMember = (classNode) => {
@@ -971,18 +1153,18 @@ function memberProducer(index, ownerName, memberName, preference = "prefer-stati
     );
     const staticMembers = matching.filter((method) => Boolean(method.static));
     const prototypeMembers = matching.filter((method) => !method.static);
-    if (preference === "static") return staticMembers.length === 1 ? staticMembers[0] : null;
-    if (preference === "prototype") return prototypeMembers.length === 1 ? prototypeMembers[0] : null;
-    if (staticMembers.length === 1) return staticMembers[0];
-    return prototypeMembers.length === 1 ? prototypeMembers[0] : null;
+    if (preference === "static") return staticMembers;
+    if (preference === "prototype") return prototypeMembers;
+    if (staticMembers.length > 0) return staticMembers;
+    return prototypeMembers;
   };
   if (ownerValue?.type === "ClassDeclaration" || ownerValue?.type === "ClassExpression") {
     const selected = selectClassMember(ownerValue);
-    if (selected) return selected;
+    if (selected.length > 0) return selected;
   }
   if (owner?.node?.type === "ClassDeclaration") {
     const selected = selectClassMember(owner.node);
-    if (selected) return selected;
+    if (selected.length > 0) return selected;
   }
   const staticAssignments = index.assignments.filter(({ segments }) =>
     JSON.stringify(segments) === JSON.stringify([ownerName, memberName]));
@@ -994,23 +1176,31 @@ function memberProducer(index, ownerName, memberName, preference = "prefer-stati
   const prototypeDescriptors = index.defineProperties.filter((row) =>
     row.property === memberName
     && JSON.stringify(row.targetSegments) === JSON.stringify([ownerName, "prototype"]));
+  const readDescriptors = (rows) => {
+    const getters = rows.filter((row) => row.accessorKind === "getter");
+    return getters.length > 0 ? getters : rows;
+  };
   if (preference === "prototype") {
-    if (prototypeAssignments.length === 1) return prototypeAssignments[0].node;
-    return prototypeDescriptors.length === 1 ? prototypeDescriptors[0].node : null;
+    if (prototypeAssignments.length > 0) return prototypeAssignments.map((row) => row.node);
+    return readDescriptors(prototypeDescriptors).map((row) => row.node);
   }
   if (preference === "static") {
-    if (staticAssignments.length === 1) return staticAssignments[0].node;
-    return staticDescriptors.length === 1 ? staticDescriptors[0].node : null;
+    if (staticAssignments.length > 0) return staticAssignments.map((row) => row.node);
+    return readDescriptors(staticDescriptors).map((row) => row.node);
   }
-  if (staticAssignments.length === 1) return staticAssignments[0].node;
-  if (staticDescriptors.length === 1) return staticDescriptors[0].node;
-  if (prototypeAssignments.length === 1) return prototypeAssignments[0].node;
-  if (prototypeDescriptors.length === 1) return prototypeDescriptors[0].node;
-  return null;
+  if (staticAssignments.length > 0) return staticAssignments.map((row) => row.node);
+  if (staticDescriptors.length > 0) return readDescriptors(staticDescriptors).map((row) => row.node);
+  if (prototypeAssignments.length > 0) return prototypeAssignments.map((row) => row.node);
+  return readDescriptors(prototypeDescriptors).map((row) => row.node);
+}
+
+function memberProducer(index, ownerName, memberName, preference = "prefer-static") {
+  const producers = memberProducers(index, ownerName, memberName, preference);
+  return producers.length === 1 ? producers[0] : null;
 }
 
 function commonjsInheritedExportBinding({ branch, sourceRef, sourcePath, exportPath, absolute, text, bytes }) {
-  const match = /^([^.]*)\.\[\[dynamic-table:inherited-[^\]]+-properties\]\]$/u.exec(exportPath);
+  const match = /^(?:([^.]*)\.)?\[\[dynamic-table:inherited-[^\]]+-properties\]\]$/u.exec(exportPath);
   if (!match) return null;
   const exportedRoot = match[1];
   const index = javascriptIndex(absolute, text);
@@ -1427,6 +1617,522 @@ function builtinExportBranchBinding({ branch, sourceRef, sourcePath, locator, ab
   });
 }
 
+function prototypeOwners(node) {
+  if (!node) return [];
+  if (node.type === "Identifier") return [node.name];
+  if (node.type === "LogicalExpression" || node.type === "ConditionalExpression") {
+    return [...new Set([
+      ...prototypeOwners(node.left ?? node.consequent),
+      ...prototypeOwners(node.right ?? node.alternate),
+    ])];
+  }
+  if (node.type === "MemberExpression" && propertyName(node.property) === "prototype") {
+    const segments = memberSegments(node.object);
+    return segments ? [segments.join(".")] : prototypeOwners(node.object);
+  }
+  return [];
+}
+
+function prototypeLinks(absolute, text, index) {
+  const cached = prototypeLinkCache.get(absolute);
+  if (cached) return cached;
+  const links = new Map();
+  const add = (owner, base, node, kind) => {
+    if (!owner || !base || owner === base || node?.start === undefined || node?.end === undefined) return;
+    const rows = links.get(owner) ?? [];
+    rows.push({ base, node, kind });
+    links.set(owner, rows);
+  };
+  walkJavaScript(parse(text, { sourceType: "script", allowReturnOutsideFunction: true }).program, (node, parent) => {
+    if (node.type === "ClassDeclaration" && node.id?.name && node.superClass) {
+      for (const base of prototypeOwners(node.superClass)) add(node.id.name, base, node, "class-extends");
+    }
+    if (node.type === "AssignmentExpression") {
+      const left = memberSegments(node.left);
+      const create = node.right?.type === "CallExpression"
+        && JSON.stringify(memberSegments(node.right.callee)) === JSON.stringify(["Object", "create"]);
+      if (left?.length === 2 && left[1] === "prototype" && create) {
+        for (const base of prototypeOwners(node.right.arguments[0])) {
+          add(left[0], base, parent?.type === "ExpressionStatement" ? parent : node, "object-create");
+        }
+      }
+      if (
+        node.left?.type === "MemberExpression"
+        && node.left.computed
+        && node.right?.type === "MemberExpression"
+        && node.right.computed
+        && propertyName(node.left.property) === propertyName(node.right.property)
+      ) {
+        const target = memberSegments(node.left.object);
+        const source = memberSegments(node.right.object);
+        if (target?.length === 2 && target[1] === "prototype" && source?.length === 1) {
+          add(target[0], source[0], parent?.type === "ExpressionStatement" ? parent : node, "computed-copy");
+        }
+      }
+    }
+    if (node.type === "CallExpression") {
+      const callee = memberSegments(node.callee);
+      if (JSON.stringify(callee) === JSON.stringify(["Object", "setPrototypeOf"])) {
+        const target = memberSegments(node.arguments[0]);
+        if (target?.length === 2 && target[1] === "prototype") {
+          for (const base of prototypeOwners(node.arguments[1])) {
+            add(target[0], base, parent?.type === "ExpressionStatement" ? parent : node, "set-prototype");
+          }
+        }
+      } else if (callee?.at(-1) === "inherits") {
+        const owner = memberSegments(node.arguments[0]);
+        const base = memberSegments(node.arguments[1]);
+        if (owner?.length === 1 && base?.length === 1) {
+          add(owner[0], base[0], parent?.type === "ExpressionStatement" ? parent : node, "inherits-call");
+        }
+      } else if (propertyName(node.callee?.property) === "forEach") {
+        const namesCall = node.callee.object;
+        const namesCallee = namesCall?.type === "CallExpression"
+          ? memberSegments(namesCall.callee)
+          : null;
+        const baseSegments = namesCall?.type === "CallExpression"
+          ? memberSegments(namesCall.arguments[0])
+          : null;
+        const callback = node.arguments[0];
+        const keyName = callback?.params?.[0]?.type === "Identifier"
+          ? callback.params[0].name
+          : null;
+        if (
+          JSON.stringify(namesCallee) === JSON.stringify(["Object", "getOwnPropertyNames"])
+          && baseSegments?.length === 2
+          && baseSegments[1] === "prototype"
+          && keyName
+          && ["FunctionExpression", "ArrowFunctionExpression"].includes(callback?.type)
+          && hasStableFunctionParameters(callback, [keyName])
+        ) {
+          const isDescriptorRead = (candidate) =>
+            candidate?.type === "CallExpression"
+            && JSON.stringify(memberSegments(candidate.callee))
+              === JSON.stringify(["Object", "getOwnPropertyDescriptor"])
+            && JSON.stringify(memberSegments(candidate.arguments[0]))
+              === JSON.stringify(baseSegments)
+            && candidate.arguments[1]?.type === "Identifier"
+            && candidate.arguments[1].name === keyName;
+          const descriptorDeclarations = new Map();
+          const descriptorWrites = new Set();
+          walkOwnedFunction(callback, (candidate) => {
+            let declaredNames = [];
+            if (candidate.type === "VariableDeclarator") {
+              declaredNames = bindingPatternNames(candidate.id);
+            } else if (candidate.type === "CatchClause") {
+              declaredNames = bindingPatternNames(candidate.param);
+            } else if (["FunctionDeclaration", "ClassDeclaration"].includes(candidate.type)) {
+              declaredNames = bindingPatternNames(candidate.id);
+            }
+            for (const name of declaredNames) {
+              const rows = descriptorDeclarations.get(name) ?? [];
+              rows.push(candidate);
+              descriptorDeclarations.set(name, rows);
+            }
+            if (candidate.type === "AssignmentExpression") {
+              for (const name of bindingPatternNames(candidate.left)) descriptorWrites.add(name);
+            }
+            if (candidate.type === "UpdateExpression") {
+              for (const name of bindingPatternNames(candidate.argument)) descriptorWrites.add(name);
+            }
+            if (
+              ["ForInStatement", "ForOfStatement"].includes(candidate.type)
+              && candidate.left?.type !== "VariableDeclaration"
+            ) {
+              for (const name of bindingPatternNames(candidate.left)) descriptorWrites.add(name);
+            }
+          });
+          const isStableDescriptorBinding = (name) => {
+            const declarations = descriptorDeclarations.get(name) ?? [];
+            return declarations.length === 1
+              && declarations[0].type === "VariableDeclarator"
+              && isDescriptorRead(declarations[0].init)
+              && !descriptorWrites.has(name);
+          };
+          const copiedOwners = new Set();
+          walkOwnedFunction(callback, (candidate) => {
+            if (candidate.type !== "CallExpression") return;
+            const candidateCallee = memberSegments(candidate.callee);
+            if (
+              JSON.stringify(candidateCallee) === JSON.stringify(["Object", "defineProperty"])
+              && candidate.arguments[1]?.type === "Identifier"
+              && candidate.arguments[1].name === keyName
+              && (
+                isDescriptorRead(candidate.arguments[2])
+                || (candidate.arguments[2]?.type === "Identifier"
+                  && isStableDescriptorBinding(candidate.arguments[2].name))
+              )
+            ) {
+              const target = memberSegments(candidate.arguments[0]);
+              if (target?.length === 2 && target[1] === "prototype") copiedOwners.add(target[0]);
+            }
+          });
+          for (const owner of copiedOwners) {
+            add(owner, baseSegments[0], parent?.type === "ExpressionStatement" ? parent : node, "prototype-property-copy");
+          }
+        }
+      }
+    }
+  });
+  for (const [owner, rows] of links) {
+    links.set(owner, [...new Map(rows.map((row) => [
+      `${row.base}:${row.node.start}:${row.node.end}`,
+      row,
+    ])).values()]);
+  }
+  prototypeLinkCache.set(absolute, links);
+  return links;
+}
+
+function walkOwnedFunction(node, visitor, root = node) {
+  if (!node || typeof node !== "object") return;
+  if (typeof node.type === "string") visitor(node);
+  if (
+    node !== root
+    && ["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression", "ObjectMethod", "ClassMethod"]
+      .includes(node.type)
+  ) return;
+  for (const [key, value] of Object.entries(node)) {
+    if (["loc", "tokens", "comments", "errors"].includes(key)) continue;
+    if (Array.isArray(value)) {
+      for (const child of value) walkOwnedFunction(child, visitor, root);
+    } else if (value && typeof value === "object" && typeof value.type === "string") {
+      walkOwnedFunction(value, visitor, root);
+    }
+  }
+}
+
+function bindingPatternNames(pattern) {
+  if (!pattern) return [];
+  if (pattern.type === "Identifier") return [pattern.name];
+  if (pattern.type === "AssignmentPattern") return bindingPatternNames(pattern.left);
+  if (pattern.type === "RestElement") return bindingPatternNames(pattern.argument);
+  if (pattern.type === "ArrayPattern") {
+    return pattern.elements.flatMap((element) => bindingPatternNames(element));
+  }
+  if (pattern.type === "ObjectPattern") {
+    return pattern.properties.flatMap((property) => bindingPatternNames(
+      property.type === "RestElement" ? property.argument : property.value,
+    ));
+  }
+  return [];
+}
+
+function hasStableFunctionParameters(helper, parameterNames) {
+  const protectedNames = new Set(parameterNames);
+  if (protectedNames.size !== parameterNames.length) return false;
+  let stable = true;
+  walkOwnedFunction(helper, (node) => {
+    if (!stable) return;
+    let declared = [];
+    if (node.type === "VariableDeclarator") declared = bindingPatternNames(node.id);
+    if (node.type === "CatchClause") declared = bindingPatternNames(node.param);
+    if (node !== helper && ["FunctionDeclaration", "ClassDeclaration"].includes(node.type)) {
+      declared = bindingPatternNames(node.id);
+    }
+    if (declared.some((name) => protectedNames.has(name))) {
+      stable = false;
+      return;
+    }
+    if (
+      node.type === "AssignmentExpression"
+      && bindingPatternNames(node.left).some((name) => protectedNames.has(name))
+    ) stable = false;
+    if (
+      node.type === "UpdateExpression"
+      && bindingPatternNames(node.argument).some((name) => protectedNames.has(name))
+    ) stable = false;
+    if (
+      ["ForInStatement", "ForOfStatement"].includes(node.type)
+      && node.left?.type !== "VariableDeclaration"
+      && bindingPatternNames(node.left).some((name) => protectedNames.has(name))
+    ) stable = false;
+  });
+  return stable;
+}
+
+function helperInstallsComputedProperty(helper, targetParameter, propertyParameter) {
+  if (!helper || !targetParameter || !propertyParameter) return false;
+  if (!hasStableFunctionParameters(helper, [targetParameter, propertyParameter])) return false;
+  let installs = false;
+  walkOwnedFunction(helper, (node) => {
+    if (installs) return;
+    if (node.type === "AssignmentExpression") {
+      const left = node.left;
+      installs = left?.type === "MemberExpression"
+        && left.computed
+        && left.object?.type === "Identifier"
+        && left.object.name === targetParameter
+        && left.property?.type === "Identifier"
+        && left.property.name === propertyParameter;
+      return;
+    }
+    if (node.type !== "CallExpression") return;
+    const callee = memberSegments(node.callee);
+    const recognizedMutation = [
+      ["Object", "defineProperty"],
+      ["Reflect", "defineProperty"],
+      ["Reflect", "set"],
+    ].some((expected) => JSON.stringify(callee) === JSON.stringify(expected));
+    installs = recognizedMutation
+      && node.arguments[0]?.type === "Identifier"
+      && node.arguments[0].name === targetParameter
+      && node.arguments[1]?.type === "Identifier"
+      && node.arguments[1].name === propertyParameter;
+  });
+  return installs;
+}
+
+function functionTargetInstallations(index, functionNode, targetName, member) {
+  if (!functionNode || !targetName) return [];
+  const routes = [];
+  const add = (producer, aliases = []) => {
+    if (producer?.start === undefined || producer?.end === undefined) return;
+    routes.push({ producer, aliases });
+  };
+  walkOwnedFunction(functionNode, (node) => {
+    if (node.type === "AssignmentExpression") {
+      const segments = memberSegments(node.left);
+      if (JSON.stringify(segments) === JSON.stringify([targetName, member])) add(node);
+      return;
+    }
+    if (node.type !== "CallExpression") return;
+    const callee = memberSegments(node.callee);
+    const target = memberSegments(node.arguments[0]);
+    if (
+      JSON.stringify(callee) === JSON.stringify(["Object", "defineProperty"])
+      && JSON.stringify(target) === JSON.stringify([targetName])
+      && propertyName(node.arguments[1]) === member
+    ) {
+      add(node);
+      return;
+    }
+    if (
+      JSON.stringify(callee) === JSON.stringify(["Object", "defineProperties"])
+      && JSON.stringify(target) === JSON.stringify([targetName])
+      && node.arguments[1]?.type === "ObjectExpression"
+    ) {
+      for (const property of node.arguments[1].properties) {
+        if (propertyName(property.key) === member) add(property);
+      }
+      return;
+    }
+    const targetArgument = node.arguments.findIndex((argument) =>
+      JSON.stringify(memberSegments(argument)) === JSON.stringify([targetName]));
+    if (targetArgument < 0) return;
+    const memberArgument = node.arguments.findIndex((argument, argumentIndex) =>
+      argumentIndex !== targetArgument && propertyName(argument) === member);
+    if (memberArgument < 0) return;
+    const helperName = callee?.length === 1 ? callee[0] : null;
+    const helper = helperName ? declarationFor(index, helperName)?.node : null;
+    const targetParameter = helper?.params?.[targetArgument]?.type === "Identifier"
+      ? helper.params[targetArgument].name
+      : null;
+    const propertyParameter = helper?.params?.[memberArgument]?.type === "Identifier"
+      ? helper.params[memberArgument].name
+      : null;
+    if (helperInstallsComputedProperty(helper, targetParameter, propertyParameter)) {
+      add(node, [helper]);
+    }
+  });
+  return routes;
+}
+
+function constructorInstallationRoutes(index, owner, member) {
+  const ownerFunction = declarationFor(index, owner)?.node;
+  if (!ownerFunction || ownerFunction.type !== "FunctionDeclaration") return [];
+  const routes = functionTargetInstallations(index, ownerFunction, "this", member);
+  walkOwnedFunction(ownerFunction, (node) => {
+    if (node.type !== "CallExpression") return;
+    const thisArgument = node.arguments.findIndex((argument) => argument.type === "ThisExpression");
+    if (thisArgument < 0) return;
+    const callee = memberSegments(node.callee);
+    const helperName = callee?.length === 1 ? callee[0] : null;
+    const helper = helperName ? declarationFor(index, helperName)?.node : null;
+    const targetName = helper?.params?.[thisArgument]?.type === "Identifier"
+      ? helper.params[thisArgument].name
+      : null;
+    for (const route of functionTargetInstallations(index, helper, targetName, member)) {
+      routes.push({ producer: route.producer, aliases: [node, ...route.aliases] });
+    }
+    if (
+      helperName
+      && /mixinEventEmitter/iu.test(helperName)
+      && helper?.start !== undefined
+      && helper?.end !== undefined
+    ) {
+      routes.push({ producer: helper, aliases: [node] });
+    }
+  });
+  return routes;
+}
+
+function inheritedMemberRoutes(index, links, owner, member, seen = new Set()) {
+  if (!owner || seen.has(owner)) return [];
+  const direct = memberProducers(index, owner, member, "either");
+  if (direct.length > 0) return direct.map((producer) => ({ producer, aliases: [] }));
+  const ownerDeclaration = declarationFor(index, owner)?.node;
+  if (ownerDeclaration) {
+    const instanceAssignments = index.assignments.filter(({ segments, node }) =>
+      JSON.stringify(segments) === JSON.stringify(["this", member])
+      && node.start >= ownerDeclaration.start
+      && node.end <= ownerDeclaration.end);
+    const instanceDescriptors = index.defineProperties.filter((row) =>
+      row.property === member
+      && JSON.stringify(row.targetSegments) === JSON.stringify(["this"])
+      && row.node.start >= ownerDeclaration.start
+      && row.node.end <= ownerDeclaration.end);
+    const instanceProducers = [
+      ...instanceAssignments.map((row) => row.node),
+      ...instanceDescriptors.map((row) => row.node),
+    ];
+    if (instanceProducers.length > 0) {
+      return dedupeRanges(instanceProducers.map((node) => ({
+        startByte: node.start,
+        endByte: node.end,
+      }))).map((range) => ({
+        producer: { start: range.startByte, end: range.endByte },
+        aliases: [],
+      }));
+    }
+  }
+  const installed = constructorInstallationRoutes(index, owner, member);
+  if (installed.length > 0) return installed;
+  const nextSeen = new Set(seen).add(owner);
+  const routes = [];
+  for (const link of links.get(owner) ?? []) {
+    for (const route of inheritedMemberRoutes(index, links, link.base, member, nextSeen)) {
+      routes.push({ producer: route.producer, aliases: [link.node, ...route.aliases] });
+    }
+  }
+  return routes;
+}
+
+function reachablePrototypeAliases(links, owner, seen = new Set()) {
+  if (!owner || seen.has(owner)) return [];
+  const nextSeen = new Set(seen).add(owner);
+  const aliases = [];
+  for (const link of links.get(owner) ?? []) {
+    aliases.push(link.node, ...reachablePrototypeAliases(links, link.base, nextSeen));
+  }
+  return [...new Map(aliases.map((node) => [`${node.start}:${node.end}`, node])).values()];
+}
+
+function builtinInheritedTableFallbackBinding({
+  branch,
+  sourceRef,
+  sourcePath,
+  locator,
+  absolute,
+  text,
+  bytes,
+}) {
+  if (
+    !sourcePath.endsWith(".js")
+    || !locator.startsWith("exports:")
+    || !branch?.observedKey?.startsWith("builtin:export:")
+  ) return null;
+  const exportPath = locator.slice("exports:".length);
+  const match = /^(?:([^.]*)\.)?\[\[dynamic-table:inherited-[^\]]+-properties\]\]$/u.exec(exportPath);
+  if (!match) return null;
+  const root = match[1] || "default";
+  const index = javascriptIndex(absolute, text);
+  const links = prototypeLinks(absolute, text, index);
+  const direct = index.assignments.filter(({ segments }) =>
+    JSON.stringify(segments) === JSON.stringify(["module", "exports", root])
+    || JSON.stringify(segments) === JSON.stringify(["exports", root]));
+  const publications = direct.length > 0
+    ? direct.map((row) => ({ node: row.parent ?? row.node, value: row.value, rootNode: row.node }))
+    : index.modulePublications.map((row) => ({ node: row.node, value: row.value, rootNode: null }));
+  const candidates = [];
+  for (const publication of publications) {
+    let rootNode = publication.rootNode;
+    let rootValue = publication.value;
+    if (!rootNode && root === "default") {
+      rootNode = publication.node;
+    } else if (!rootNode) {
+      const moduleValue = resolveIdentifierValue(index, publication.value).node;
+      const property = objectProperty(moduleValue, root);
+      if (property) {
+        rootNode = property;
+        rootValue = property.type === "ObjectMethod" ? property : property.value;
+      } else if (publication.value?.type === "Identifier") {
+        const row = index.assignments.find(({ segments }) =>
+          JSON.stringify(segments) === JSON.stringify([publication.value.name, root]));
+        if (row) {
+          rootNode = row.node;
+          rootValue = row.value;
+        }
+      }
+    }
+    const resolved = resolveIdentifierValue(index, rootValue);
+    const owner = rootValue?.type === "Identifier"
+      ? (resolved.declaration?.node?.id?.name ?? rootValue.name)
+      : resolved.declaration?.node?.id?.name;
+    const definition = owner
+      ? declarationFor(index, owner)?.node
+      : resolved.declaration?.node ?? resolved.node;
+    const aliases = reachablePrototypeAliases(links, owner);
+    if (!definition || !rootNode) continue;
+    candidates.push({ publication, rootNode, definition, aliases });
+  }
+  if (candidates.length === 0) return null;
+  const sites = [];
+  const producerPaths = [];
+  for (const [candidateIndex, candidate] of candidates.entries()) {
+    const definitionSite = sourceSite({
+      sourceRef,
+      path: sourcePath,
+      role: "value-producer",
+      siteKey: `${root}.inherited-definition.${candidateIndex + 1}`,
+      range: { startByte: candidate.definition.start, endByte: candidate.definition.end },
+      text,
+      bytes,
+    });
+    const aliasSites = candidate.aliases.map((alias, aliasIndex) => sourceSite({
+      sourceRef,
+      path: sourcePath,
+      role: "alias",
+      siteKey: `${root}.inherited-alias.${candidateIndex + 1}.${aliasIndex + 1}`,
+      range: { startByte: alias.start, endByte: alias.end },
+      text,
+      bytes,
+    }));
+    const registrationSite = sourceSite({
+      sourceRef,
+      path: sourcePath,
+      role: "registration",
+      siteKey: `${root}.inherited-registration.${candidateIndex + 1}`,
+      range: { startByte: candidate.rootNode.start, endByte: candidate.rootNode.end },
+      text,
+      bytes,
+    });
+    const publicationSite = sourceSite({
+      sourceRef,
+      path: sourcePath,
+      role: "publication",
+      siteKey: `${root}.inherited-publication.${candidateIndex + 1}`,
+      range: { startByte: candidate.publication.node.start, endByte: candidate.publication.node.end },
+      text,
+      bytes,
+    });
+    const pathSites = [definitionSite, ...aliasSites, registrationSite, publicationSite];
+    sites.push(...pathSites);
+    producerPaths.push({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0inherited-table\0${candidateIndex}`),
+      conditionId: `builtin-inherited-publication:${branch.targetVariant}:${candidateIndex + 1}`,
+      requiredSiteIds: pathSites.map((site) => site.siteId),
+    });
+  }
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "commonjs-inherited-table-fallback-route",
+    resolutionPolicy: producerPaths.length > 1 ? "conditioned-alternatives" : "composite-path",
+    sites,
+    producerPaths,
+  });
+}
+
 function builtinExportFallbackBinding({ branch, sourceRef, sourcePath, locator, absolute, text, bytes }) {
   if (
     !sourcePath.endsWith(".js")
@@ -1438,6 +2144,7 @@ function builtinExportFallbackBinding({ branch, sourceRef, sourcePath, locator, 
   const parts = exportPath.split(".");
   const root = parts[0];
   const index = javascriptIndex(absolute, text);
+  const links = prototypeLinks(absolute, text, index);
   const directPublications = index.assignments.filter(({ segments }) =>
     JSON.stringify(segments) === JSON.stringify(["module", "exports", root])
     || JSON.stringify(segments) === JSON.stringify(["exports", root]));
@@ -1468,26 +2175,32 @@ function builtinExportFallbackBinding({ branch, sourceRef, sourcePath, locator, 
       }
     }
     if (!rootValue) continue;
-    let producer;
+    let producerRoutes;
     if (parts.length === 1 || (parts.length === 2 && parts[1] === "constructor")) {
       const resolved = resolveIdentifierValue(index, rootValue);
-      producer = resolved.declaration?.node ?? resolved.node;
+      const producer = resolved.declaration?.node ?? resolved.node;
+      producerRoutes = producer ? [{ producer, aliases: [] }] : [];
     } else {
       const resolved = resolveIdentifierValue(index, rootValue);
       const owner = rootValue.type === "Identifier"
         ? (resolved.declaration?.node?.id?.name ?? rootValue.name)
         : resolved.declaration?.node?.id?.name;
-      producer = owner
+      const direct = owner
         ? memberProducer(index, owner, parts.at(-1), parts.includes("prototype") ? "prototype" : "either")
         : null;
+      producerRoutes = direct
+        ? [{ producer: direct, aliases: [] }]
+        : inheritedMemberRoutes(index, links, owner, parts.at(-1));
     }
-    if (
-      producer?.start === undefined
-      || producer?.end === undefined
-      || publication.node?.start === undefined
-      || publication.node?.end === undefined
-    ) continue;
-    candidates.push({ publication, rootNode, producer });
+    for (const producerRoute of producerRoutes) {
+      if (
+        producerRoute.producer?.start === undefined
+        || producerRoute.producer?.end === undefined
+        || publication.node?.start === undefined
+        || publication.node?.end === undefined
+      ) continue;
+      candidates.push({ publication, rootNode, ...producerRoute });
+    }
   }
   if (candidates.length === 0) return null;
 
@@ -1505,6 +2218,19 @@ function builtinExportFallbackBinding({ branch, sourceRef, sourcePath, locator, 
     });
     const requiredSiteIds = [producerSite.siteId];
     sites.push(producerSite);
+    for (const [aliasIndex, alias] of candidate.aliases.entries()) {
+      const aliasSite = sourceSite({
+        sourceRef,
+        path: sourcePath,
+        role: "alias",
+        siteKey: `${exportPath}.fallback-alias.${indexValue + 1}.${aliasIndex + 1}`,
+        range: { startByte: alias.start, endByte: alias.end },
+        text,
+        bytes,
+      });
+      sites.push(aliasSite);
+      requiredSiteIds.push(aliasSite.siteId);
+    }
     if (
       candidate.rootNode
       && candidate.rootNode !== candidate.producer
@@ -3416,7 +4142,10 @@ export function resolveRestrictedExactBranchSourceBinding(
 ) {
   const loaded = loadSourceRef(sourceRef, root);
   const contextual = moduleSpecifierBranchBinding({ branch, sourceRef, ...loaded })
+    ?? moduleInlineExportBinding({ branch, sourceRef, ...loaded })
+    ?? signalNumberOverlayBinding({ branch, sourceRef, ...loaded })
     ?? builtinExportBranchBinding({ branch, sourceRef, ...loaded })
+    ?? builtinInheritedTableFallbackBinding({ branch, sourceRef, ...loaded })
     ?? builtinExportFallbackBinding({ branch, sourceRef, ...loaded })
     ?? jsiGlobalBranchBinding({ branch, sourceRef, ...loaded })
     ?? javaHostMethodBinding({ branch, sourceRef, ...loaded })

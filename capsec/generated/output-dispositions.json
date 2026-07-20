@@ -1,7 +1,7 @@
 {
   "outputDispositionDatasetSchema": "ibex/capsec-output-dispositions/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256-Bq1CHij7SDeeKJqTMsskMFOHsG7qIuvjvcnC9tafZsQ",
+  "catalogKeyDigest": "sha256-XOQWC6vYk26Cr2JLwta-g8IRk4KXXUPOXi5On1V4Ges",
   "evidence": {
     "status": "unpromotable",
     "reason": "The output corpus remains unpromotable: one native module-marker surface account and three inherited-intrinsic alias surface accounts are unresolved, and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes all three account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations."
@@ -31013,23 +31013,6 @@
     },
     {
       "key": {
-        "surfaceId": "surface.builtin.export.node.stream.duplex.0.1w5wdfj",
-        "output": "[[value]]",
-        "alias": "export:node_stream:Duplex.0",
-        "mode": "all",
-        "sourceKind": "builtin",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
         "surfaceId": "surface.builtin.export.node.stream.duplex.12ltkd5",
         "output": "[[return]]",
         "alias": "export:node_stream:Duplex",
@@ -31118,6 +31101,23 @@
         "surfaceId": "surface.builtin.export.node.stream.duplex.constructor.0eavu9r",
         "output": "[[return]]",
         "alias": "export:node_stream:Duplex.constructor",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.duplex.cork.0i2jqm4",
+        "output": "[[return]]",
+        "alias": "export:node_stream:Duplex.cork",
         "mode": "all",
         "sourceKind": "builtin",
         "returnVariant": "default",
@@ -31251,6 +31251,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.builtin.export.node.stream.duplex.end.1dh19ui",
+        "output": "[[return]]",
+        "alias": "export:node_stream:Duplex.end",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.builtin.export.node.stream.duplex.every.0ea2psk",
         "output": "[[return]]",
         "alias": "export:node_stream:Duplex.every",
@@ -31258,6 +31275,23 @@
         "sourceKind": "builtin",
         "returnVariant": "default",
         "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.duplex.exactwritableprotopatched.0f0lk97",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Duplex.__exactWritableProtoPatched",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
       },
       "disposition": "non-path",
       "expectation": {
@@ -31305,6 +31339,23 @@
         "surfaceId": "surface.builtin.export.node.stream.duplex.flatmap.07261jo",
         "output": "[[return]]",
         "alias": "export:node_stream:Duplex.flatMap",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.duplex.flushwritequeue.1livt4m",
+        "output": "[[return]]",
+        "alias": "export:node_stream:Duplex._flushWriteQueue",
         "mode": "all",
         "sourceKind": "builtin",
         "returnVariant": "default",
@@ -31693,6 +31744,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.builtin.export.node.stream.duplex.setdefaultencoding.0tfoi0h",
+        "output": "[[return]]",
+        "alias": "export:node_stream:Duplex.setDefaultEncoding",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.builtin.export.node.stream.duplex.setencoding.1nwi1cy",
         "output": "[[return]]",
         "alias": "export:node_stream:Duplex.setEncoding",
@@ -31778,6 +31846,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.builtin.export.node.stream.duplex.uncork.1abjhkz",
+        "output": "[[return]]",
+        "alias": "export:node_stream:Duplex.uncork",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.builtin.export.node.stream.duplex.undestroy.02sudfh",
         "output": "[[return]]",
         "alias": "export:node_stream:Duplex._undestroy",
@@ -31849,6 +31934,210 @@
         "surfaceId": "surface.builtin.export.node.stream.duplex.wrap.1s9000l",
         "output": "[[return]]",
         "alias": "export:node_stream:Duplex.wrap",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.duplex.writableaborted.1in8ckk",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Duplex.writableAborted",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.duplex.writablebuffer.0pkmt9z",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Duplex.writableBuffer",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.duplex.writablecorked.1uopdu9",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Duplex.writableCorked",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.duplex.writableended.1mkl4sn",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Duplex.writableEnded",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.duplex.writablefinished.0r3qq4v",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Duplex.writableFinished",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.duplex.writablehighwatermark.0pgkf51",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Duplex.writableHighWaterMark",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.duplex.writablelength.1w5j3q1",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Duplex.writableLength",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.duplex.writableneeddrain.1u9s37p",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Duplex.writableNeedDrain",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.duplex.writableobjectmode.03en6it",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Duplex.writableObjectMode",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.duplex.writablestate.0zln4ya",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Duplex.writableState",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.duplex.write.06jcrll",
+        "output": "[[return]]",
+        "alias": "export:node_stream:Duplex._write",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.duplex.write.0v7yv1o",
+        "output": "[[return]]",
+        "alias": "export:node_stream:Duplex.write",
         "mode": "all",
         "sourceKind": "builtin",
         "returnVariant": "default",
@@ -31982,23 +32271,6 @@
     },
     {
       "key": {
-        "surfaceId": "surface.builtin.export.node.stream.passthrough.0.1xtf5bd",
-        "output": "[[value]]",
-        "alias": "export:node_stream:PassThrough.0",
-        "mode": "all",
-        "sourceKind": "builtin",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
         "surfaceId": "surface.builtin.export.node.stream.passthrough.0yqlsrj",
         "output": "[[return]]",
         "alias": "export:node_stream:PassThrough",
@@ -32087,6 +32359,23 @@
         "surfaceId": "surface.builtin.export.node.stream.passthrough.constructor.0m2zcj5",
         "output": "[[return]]",
         "alias": "export:node_stream:PassThrough.constructor",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.passthrough.cork.0k8p402",
+        "output": "[[return]]",
+        "alias": "export:node_stream:PassThrough.cork",
         "mode": "all",
         "sourceKind": "builtin",
         "returnVariant": "default",
@@ -32220,6 +32509,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.builtin.export.node.stream.passthrough.end.1iqqcls",
+        "output": "[[return]]",
+        "alias": "export:node_stream:PassThrough.end",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.builtin.export.node.stream.passthrough.every.0tzhjfq",
         "output": "[[return]]",
         "alias": "export:node_stream:PassThrough.every",
@@ -32227,6 +32533,23 @@
         "sourceKind": "builtin",
         "returnVariant": "default",
         "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.passthrough.exactwritableprotopatched.086wgxp",
+        "output": "[[value]]",
+        "alias": "export:node_stream:PassThrough.__exactWritableProtoPatched",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
       },
       "disposition": "non-path",
       "expectation": {
@@ -32274,6 +32597,23 @@
         "surfaceId": "surface.builtin.export.node.stream.passthrough.flatmap.01775yi",
         "output": "[[return]]",
         "alias": "export:node_stream:PassThrough.flatMap",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.passthrough.flushwritequeue.00gsut4",
+        "output": "[[return]]",
+        "alias": "export:node_stream:PassThrough._flushWriteQueue",
         "mode": "all",
         "sourceKind": "builtin",
         "returnVariant": "default",
@@ -32662,6 +33002,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.builtin.export.node.stream.passthrough.setdefaultencoding.082c71f",
+        "output": "[[return]]",
+        "alias": "export:node_stream:PassThrough.setDefaultEncoding",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.builtin.export.node.stream.passthrough.setencoding.0l147do",
         "output": "[[return]]",
         "alias": "export:node_stream:PassThrough.setEncoding",
@@ -32764,6 +33121,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.builtin.export.node.stream.passthrough.uncork.1f93y9p",
+        "output": "[[return]]",
+        "alias": "export:node_stream:PassThrough.uncork",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.builtin.export.node.stream.passthrough.undestroy.0oos347",
         "output": "[[return]]",
         "alias": "export:node_stream:PassThrough._undestroy",
@@ -32849,9 +33223,196 @@
     },
     {
       "key": {
+        "surfaceId": "surface.builtin.export.node.stream.passthrough.writableaborted.09hftji",
+        "output": "[[value]]",
+        "alias": "export:node_stream:PassThrough.writableAborted",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.passthrough.writablebuffer.0vrpsjt",
+        "output": "[[value]]",
+        "alias": "export:node_stream:PassThrough.writableBuffer",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.passthrough.writablecorked.0ao9ngj",
+        "output": "[[value]]",
+        "alias": "export:node_stream:PassThrough.writableCorked",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.passthrough.writableended.0z0zdxd",
+        "output": "[[value]]",
+        "alias": "export:node_stream:PassThrough.writableEnded",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.passthrough.writablefinished.0w4lmp9",
+        "output": "[[value]]",
+        "alias": "export:node_stream:PassThrough.writableFinished",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.passthrough.writablehighwatermark.1qeh5hb",
+        "output": "[[value]]",
+        "alias": "export:node_stream:PassThrough.writableHighWaterMark",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.passthrough.writablelength.179ropn",
+        "output": "[[value]]",
+        "alias": "export:node_stream:PassThrough.writableLength",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.passthrough.writableneeddrain.0hw3k8f",
+        "output": "[[value]]",
+        "alias": "export:node_stream:PassThrough.writableNeedDrain",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.passthrough.writableobjectmode.08ku7vf",
+        "output": "[[value]]",
+        "alias": "export:node_stream:PassThrough.writableObjectMode",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.passthrough.writablestate.0q1ypqc",
+        "output": "[[value]]",
+        "alias": "export:node_stream:PassThrough.writableState",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.builtin.export.node.stream.passthrough.write.06wx90j",
         "output": "[[return]]",
         "alias": "export:node_stream:PassThrough._write",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.passthrough.write.0fe4ng6",
+        "output": "[[return]]",
+        "alias": "export:node_stream:PassThrough.write",
         "mode": "all",
         "sourceKind": "builtin",
         "returnVariant": "default",
@@ -33988,23 +34549,6 @@
     },
     {
       "key": {
-        "surfaceId": "surface.builtin.export.node.stream.transform.0.00g8ruj",
-        "output": "[[value]]",
-        "alias": "export:node_stream:Transform.0",
-        "mode": "all",
-        "sourceKind": "builtin",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
         "surfaceId": "surface.builtin.export.node.stream.transform.0d1anx9",
         "output": "[[return]]",
         "alias": "export:node_stream:Transform",
@@ -34093,6 +34637,23 @@
         "surfaceId": "surface.builtin.export.node.stream.transform.constructor.16w5v9n",
         "output": "[[return]]",
         "alias": "export:node_stream:Transform.constructor",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.transform.cork.1cuhawo",
+        "output": "[[return]]",
+        "alias": "export:node_stream:Transform.cork",
         "mode": "all",
         "sourceKind": "builtin",
         "returnVariant": "default",
@@ -34226,6 +34787,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.builtin.export.node.stream.transform.end.10tmcum",
+        "output": "[[return]]",
+        "alias": "export:node_stream:Transform.end",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.builtin.export.node.stream.transform.every.0dzktd4",
         "output": "[[return]]",
         "alias": "export:node_stream:Transform.every",
@@ -34233,6 +34811,23 @@
         "sourceKind": "builtin",
         "returnVariant": "default",
         "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.transform.exactwritableprotopatched.13dilhj",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Transform.__exactWritableProtoPatched",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
       },
       "disposition": "non-path",
       "expectation": {
@@ -34280,6 +34875,23 @@
         "surfaceId": "surface.builtin.export.node.stream.transform.flatmap.0g8kgk0",
         "output": "[[return]]",
         "alias": "export:node_stream:Transform.flatMap",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.transform.flushwritequeue.16g3qqq",
+        "output": "[[return]]",
+        "alias": "export:node_stream:Transform._flushWriteQueue",
         "mode": "all",
         "sourceKind": "builtin",
         "returnVariant": "default",
@@ -34668,6 +35280,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.builtin.export.node.stream.transform.setdefaultencoding.0isdfgl",
+        "output": "[[return]]",
+        "alias": "export:node_stream:Transform.setDefaultEncoding",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.builtin.export.node.stream.transform.setencoding.13j2rny",
         "output": "[[return]]",
         "alias": "export:node_stream:Transform.setEncoding",
@@ -34770,6 +35399,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.builtin.export.node.stream.transform.uncork.1u0rt8f",
+        "output": "[[return]]",
+        "alias": "export:node_stream:Transform.uncork",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.builtin.export.node.stream.transform.undestroy.173c44p",
         "output": "[[return]]",
         "alias": "export:node_stream:Transform._undestroy",
@@ -34855,9 +35501,196 @@
     },
     {
       "key": {
+        "surfaceId": "surface.builtin.export.node.stream.transform.writableaborted.1sdyjtc",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Transform.writableAborted",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.transform.writablebuffer.1su38u3",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Transform.writableBuffer",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.transform.writablecorked.1p68c1p",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Transform.writableCorked",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.transform.writableended.05xfkfv",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Transform.writableEnded",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.transform.writablefinished.0mmztsz",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Transform.writableFinished",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.transform.writablehighwatermark.04bzv21",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Transform.writableHighWaterMark",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.transform.writablelength.1tihatx",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Transform.writableLength",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.transform.writableneeddrain.0o2308h",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Transform.writableNeedDrain",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.transform.writableobjectmode.188e1wh",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Transform.writableObjectMode",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.transform.writablestate.0w0e19y",
+        "output": "[[value]]",
+        "alias": "export:node_stream:Transform.writableState",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.builtin.export.node.stream.transform.write.0r7bwzx",
         "output": "[[return]]",
         "alias": "export:node_stream:Transform._write",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.stream.transform.write.1ujbj4g",
+        "output": "[[return]]",
+        "alias": "export:node_stream:Transform.write",
         "mode": "all",
         "sourceKind": "builtin",
         "returnVariant": "default",
@@ -60610,6 +61443,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.native.op.exactdeepfreeze.1vcvmfo",
+        "output": "[[value]]",
+        "alias": "__exactDeepFreeze",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.native.op.exactdeflatesync.1ub149z",
         "output": "[[return]]",
         "alias": "__exactDeflateSync",
@@ -65401,6 +66251,23 @@
         "normalizedValue": "same-as-argument-0"
       },
       "rationale": "The loaded-Hermes identity probe supplies a deterministic primitive and proves the native shallow-freeze primitive returns argument zero exactly."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactnativefreeze.0145fn1",
+        "output": "[[value]]",
+        "alias": "__exactNativeFreeze",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
     },
     {
       "key": {
@@ -109043,12 +109910,12 @@
     }
   ],
   "counts": {
-    "catalogRows": 6413,
-    "dispositionRows": 6413,
+    "catalogRows": 6464,
+    "dispositionRows": 6464,
     "byDisposition": {
       "absent": 152,
       "closed": 28,
-      "non-path": 6085,
+      "non-path": 6136,
       "private-native-path": 5,
       "refused": 12,
       "reserved-constant": 1,

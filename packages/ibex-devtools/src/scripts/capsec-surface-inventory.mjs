@@ -3090,7 +3090,7 @@ function cppDataDefinitions(tokens) {
   return definitions;
 }
 
-function cppCallExpressions(tokens) {
+function cppCallExpressions(tokens, sourceText = null) {
   const definitionNameIndexes = new Set(
     cppFunctionDefinitions(tokens).map((definition) => definition.nameIndex),
   );
@@ -3112,8 +3112,17 @@ function cppCallExpressions(tokens) {
       boundary -= 1;
     }
     const prefix = tokens.slice(boundary + 1, index);
+    const preprocessorToken = prefix.findLast((token) => token.value === "#");
+    const inPreprocessorDirective = sourceText !== null
+      && preprocessorToken
+      && !sourceText.slice(preprocessorToken.offset, tokens[index].offset).includes("\n");
+    if (inPreprocessorDirective) continue;
+    const afterPreprocessorDirective = sourceText !== null
+      && preprocessorToken
+      && sourceText.slice(tokens[index - 1]?.offset ?? 0, tokens[index].offset).includes("\n");
     const callContext =
       prefix.length === 0 ||
+      afterPreprocessorDirective ||
       prefix.some((token) =>
         new Set(["=", "(", "[", ",", "?", ":"]).has(token.value),
       ) ||
@@ -3825,6 +3834,28 @@ function walkDirectFunctionBody(functionNode, visitor) {
   }
 }
 
+function javascriptBindingPatternNames(pattern) {
+  if (!pattern) return [];
+  if (pattern.type === "Identifier") return [pattern.name];
+  if (pattern.type === "AssignmentPattern")
+    return javascriptBindingPatternNames(pattern.left);
+  if (pattern.type === "RestElement")
+    return javascriptBindingPatternNames(pattern.argument);
+  if (pattern.type === "ArrayPattern") {
+    return pattern.elements.flatMap((element) =>
+      javascriptBindingPatternNames(element),
+    );
+  }
+  if (pattern.type === "ObjectPattern") {
+    return pattern.properties.flatMap((property) =>
+      javascriptBindingPatternNames(
+        property.type === "RestElement" ? property.argument : property.value,
+      ),
+    );
+  }
+  return [];
+}
+
 function javascriptFunctionDefinitions(program) {
   const definitions = [];
   walkAst(program, (node) => {
@@ -3905,6 +3936,37 @@ export function scanStaticBuiltinExports(
     bindings: staticBindings,
     nonPublicBindings,
   } = collectStaticPropertyTables(program);
+  const parameterReferences = new WeakSet();
+  walkAst(program, (node) => {
+    if (!isJavaScriptFunctionNode(node)) return;
+    const names = new Set(node.params
+      .filter((parameter) => parameter?.type === "Identifier")
+      .map((parameter) => parameter.name));
+    if (names.size === 0) return;
+    walkAst(node.body, (candidate) => {
+      if (candidate.type === "Identifier" && names.has(candidate.name)) {
+        parameterReferences.add(candidate);
+      }
+    });
+  });
+  walkAst(program, (node) => {
+    if (node.type !== "ForOfStatement" || node.left?.type !== "VariableDeclaration") return;
+    const names = new Set(node.left.declarations
+      .filter((declaration) => declaration.id?.type === "Identifier")
+      .map((declaration) => declaration.id.name));
+    if (names.size === 0) return;
+    walkAst(node.body, (candidate) => {
+      if (candidate.type === "Identifier" && names.has(candidate.name)) {
+        parameterReferences.add(candidate);
+      }
+    });
+  });
+  const scopedStaticPropertyName = (node, substitutions = staticBindings) =>
+    node?.type === "Identifier"
+      && parameterReferences.has(node)
+      && substitutions === staticBindings
+      ? []
+      : staticPropertyName(node, substitutions);
   const facts = new Map();
   const aliases = new Map();
   const bindings = new Map();
@@ -3918,6 +3980,7 @@ export function scanStaticBuiltinExports(
   const prototypeSources = new Map();
   const objectPrototypeOwners = new Map();
   const forEachCalls = [];
+  const forOfLoops = [];
   const immediateCalls = [];
   const tableCopyRegistrations = new Map();
   const functionDefinitions = new Map();
@@ -5293,7 +5356,7 @@ export function scanStaticBuiltinExports(
       const names =
         !method.computed && method.key?.type === "Identifier"
           ? [method.key.name]
-          : staticPropertyName(method.key, substitutions);
+          : scopedStaticPropertyName(method.key, substitutions);
       observePrototypeRegistration(
         method,
         owner,
@@ -5641,7 +5704,7 @@ export function scanStaticBuiltinExports(
     const names =
       !computed && property?.type === "Identifier"
         ? [property.name]
-        : staticPropertyName(property, staticBindings);
+        : scopedStaticPropertyName(property, staticBindings);
     if (names.length > 0) {
       addReceiverNames(receiver, names);
       resolvedRegistrations.add(node);
@@ -5811,7 +5874,7 @@ export function scanStaticBuiltinExports(
       const names =
         !property.computed && property.key?.type === "Identifier"
           ? [property.key.name]
-          : staticPropertyName(property.key, substitutions);
+          : scopedStaticPropertyName(property.key, substitutions);
       observePrototypeRegistration(property, owner, property.key, names, idiom);
       for (const name of names) {
         addPrototypeFact(owner, name);
@@ -5877,7 +5940,7 @@ export function scanStaticBuiltinExports(
         const names =
           !property.computed && property.key?.type === "Identifier"
             ? [property.key.name]
-            : staticPropertyName(property.key, substitutions);
+            : scopedStaticPropertyName(property.key, substitutions);
         if (property.type !== "SpreadElement") {
           observeComputedRegistration(
             property,
@@ -6018,6 +6081,7 @@ export function scanStaticBuiltinExports(
   };
 
   const recordNode = (node, substitutions = new Map()) => {
+    if (node.type === "ForOfStatement" && substitutions === staticBindings) forOfLoops.push(node);
     if (node.type === "FunctionDeclaration" && node.id?.name) {
       knownPrototypeOwners.add(node.id.name);
     }
@@ -6171,7 +6235,7 @@ export function scanStaticBuiltinExports(
         const names =
           !node.left.computed && node.left.property?.type === "Identifier"
             ? [node.left.property.name]
-            : staticPropertyName(node.left.property, substitutions);
+            : scopedStaticPropertyName(node.left.property, substitutions);
         observePrototypeRegistration(
           node.left,
           prototype,
@@ -6309,7 +6373,7 @@ export function scanStaticBuiltinExports(
             ? "define-property"
             : "reflect-define-property";
         const target = exportTargetId(node.arguments[0]);
-        const names = staticPropertyName(node.arguments[1], substitutions);
+        const names = scopedStaticPropertyName(node.arguments[1], substitutions);
         if (target && names.length === 0) {
           if (
             isStaticallyNonPublicPropertyKey(
@@ -6360,7 +6424,7 @@ export function scanStaticBuiltinExports(
           );
         }
         const prototype = prototypeOwner(node.arguments[0]);
-        const prototypeNames = staticPropertyName(
+        const prototypeNames = scopedStaticPropertyName(
           node.arguments[1],
           substitutions,
         );
@@ -6381,7 +6445,7 @@ export function scanStaticBuiltinExports(
         }
       } else if (mutation === "Reflect.set") {
         const target = exportTargetId(node.arguments[0]);
-        const names = staticPropertyName(node.arguments[1], substitutions);
+        const names = scopedStaticPropertyName(node.arguments[1], substitutions);
         if (target && names.length === 0) {
           if (
             isStaticallyNonPublicPropertyKey(
@@ -6454,7 +6518,7 @@ export function scanStaticBuiltinExports(
             const names =
               !property.computed && property.key?.type === "Identifier"
                 ? [property.key.name]
-                : staticPropertyName(property.key, substitutions);
+                : scopedStaticPropertyName(property.key, substitutions);
             observeComputedRegistration(
               property,
               target,
@@ -6520,7 +6584,7 @@ export function scanStaticBuiltinExports(
         legacyAccessor === "__defineSetter__"
       ) {
         const prototype = prototypeOwner(node.callee.object);
-        const names = staticPropertyName(node.arguments[0], substitutions);
+        const names = scopedStaticPropertyName(node.arguments[0], substitutions);
         observePrototypeRegistration(
           node,
           prototype,
@@ -6619,11 +6683,32 @@ export function scanStaticBuiltinExports(
 
   walkAst(program, (node) => recordNode(node, staticBindings));
 
+  for (const loop of forOfLoops) {
+    const declaration = loop.left?.type === "VariableDeclaration"
+      && loop.left.declarations.length === 1
+      ? loop.left.declarations[0]
+      : null;
+    if (declaration?.id?.type !== "Identifier") continue;
+    let values = [];
+    if (loop.right?.type === "ArrayExpression") {
+      values = loop.right.elements.flatMap((element) => staticPropertyName(element));
+    } else if (loop.right?.type === "Identifier") {
+      values = [...(staticArrays.get(loop.right.name) ?? [])];
+    }
+    if (values.length === 0) continue;
+    const substitutions = mergeSubstitutions(
+      staticBindings,
+      new Map([[declaration.id.name, new Set(values)]]),
+    );
+    walkAst(loop.body, (node) => recordNode(node, substitutions));
+  }
+
   // Resolve the common `['A', 'B'].forEach(name => exports[name] = ...)`
   // family without executing source. This covers fs constants and similar
   // authored export tables while still rejecting comment/string lookalikes.
   for (const call of forEachCalls) {
     let values = [];
+    let prototypeCopySourceOwner = null;
     const receiver = call.callee.object;
     if (receiver?.type === "ArrayExpression") {
       values = receiver.elements.flatMap((element) =>
@@ -6637,6 +6722,29 @@ export function scanStaticBuiltinExports(
       receiver.arguments[0]?.type === "Identifier"
     ) {
       values = [...(facts.get(receiver.arguments[0].name)?.keys() ?? [])];
+    } else if (
+      receiver?.type === "CallExpression"
+      && callName(receiver) === "getOwnPropertyNames"
+    ) {
+      const sourceOwner = prototypeOwner(receiver.arguments[0]);
+      let laterSourceMutation = false;
+      walkAst(program, (candidate) => {
+        if (laterSourceMutation || (candidate.start ?? 0) <= (call.start ?? 0)) return;
+        if (
+          candidate.type === "AssignmentExpression"
+          && prototypeOwner(candidate.left?.object) === sourceOwner
+        ) laterSourceMutation = true;
+        if (
+          candidate.type === "CallExpression"
+          && ["Object.defineProperty", "Object.defineProperties"]
+            .includes(mutationCallName(candidate))
+          && prototypeOwner(candidate.arguments[0]) === sourceOwner
+        ) laterSourceMutation = true;
+      });
+      if (!laterSourceMutation) {
+        values = [...(prototypeFacts.get(sourceOwner) ?? [])];
+        prototypeCopySourceOwner = sourceOwner;
+      }
     }
     const callback = callbackFunction(call.arguments[0]);
     const parameter = callback?.params[0];
@@ -6646,6 +6754,104 @@ export function scanStaticBuiltinExports(
       new Map([[parameter.name, new Set(values)]]),
     );
     walkAst(callback.body, (node) => recordNode(node, substitutions));
+
+    // A descriptor-preserving prototype copy transfers value shape as well as
+    // member names. Keep this proof closed over the callback's own body: the
+    // key parameter and any descriptor alias must remain unshadowed and
+    // unwritten, and the installed descriptor must come from the exact source
+    // prototype/key pair. This prevents a copied callable from degrading to an
+    // `unknown` property read in the output catalog.
+    if (prototypeCopySourceOwner) {
+      const declarations = new Map();
+      const writes = new Set();
+      walkDirectFunctionBody(callback, (node) => {
+        let declaredNames = [];
+        if (node.type === "VariableDeclarator") {
+          declaredNames = javascriptBindingPatternNames(node.id);
+        } else if (node.type === "CatchClause") {
+          declaredNames = javascriptBindingPatternNames(node.param);
+        } else if (
+          node !== callback &&
+          (node.type === "FunctionDeclaration" ||
+            node.type === "ClassDeclaration")
+        ) {
+          declaredNames = javascriptBindingPatternNames(node.id);
+        }
+        for (const name of declaredNames) {
+          const nodes = declarations.get(name) ?? [];
+          nodes.push(node);
+          declarations.set(name, nodes);
+        }
+        if (node.type === "AssignmentExpression") {
+          for (const name of javascriptBindingPatternNames(node.left))
+            writes.add(name);
+        } else if (node.type === "UpdateExpression") {
+          for (const name of javascriptBindingPatternNames(node.argument))
+            writes.add(name);
+        } else if (
+          (node.type === "ForInStatement" || node.type === "ForOfStatement") &&
+          node.left?.type !== "VariableDeclaration"
+        ) {
+          for (const name of javascriptBindingPatternNames(node.left))
+            writes.add(name);
+        }
+      });
+      const keyIsStable =
+        !writes.has(parameter.name) &&
+        !(declarations.get(parameter.name) ?? []).length;
+      const isDescriptorRead = (node) =>
+        node?.type === "CallExpression" &&
+        callName(node) === "getOwnPropertyDescriptor" &&
+        node.callee?.type === "MemberExpression" &&
+        node.callee.object?.type === "Identifier" &&
+        node.callee.object.name === "Object" &&
+        prototypeOwner(node.arguments[0]) === prototypeCopySourceOwner &&
+        node.arguments[1]?.type === "Identifier" &&
+        node.arguments[1].name === parameter.name;
+      const isStableDescriptor = (name) => {
+        const nodes = declarations.get(name) ?? [];
+        return (
+          nodes.length === 1 &&
+          nodes[0].type === "VariableDeclarator" &&
+          isDescriptorRead(nodes[0].init) &&
+          !writes.has(name)
+        );
+      };
+      if (keyIsStable) {
+        walkDirectFunctionBody(callback, (node) => {
+          if (
+            node.type !== "CallExpression" ||
+            mutationCallName(node) !== "Object.defineProperty" ||
+            node.arguments[1]?.type !== "Identifier" ||
+            node.arguments[1].name !== parameter.name ||
+            !(
+              isDescriptorRead(node.arguments[2]) ||
+              (node.arguments[2]?.type === "Identifier" &&
+                isStableDescriptor(node.arguments[2].name))
+            )
+          ) {
+            return;
+          }
+          const targetOwner = prototypeOwner(node.arguments[0]);
+          if (!targetOwner) return;
+          for (const name of values) {
+            const targetShapes = prototypeValueShapeFacts
+              .get(targetOwner)
+              ?.get(name);
+            const hadKnownTargetShape = [...(targetShapes ?? [])].some(
+              (shape) => shape !== "unknown",
+            );
+            targetShapes?.delete("unknown");
+            if (hadKnownTargetShape) continue;
+            for (const shape of prototypeValueShapeFacts
+              .get(prototypeCopySourceOwner)
+              ?.get(name) ?? []) {
+              addPrototypeValueShapeFact(targetOwner, name, shape);
+            }
+          }
+        });
+      }
+    }
   }
 
   for (const call of immediateCalls) {
@@ -6863,7 +7069,7 @@ export function scanStaticBuiltinExports(
         node.left?.type === "MemberExpression" &&
         node.left.object?.type === "Identifier" &&
         node.left.object.name === "g" &&
-        staticPropertyName(node.left.property, staticBindings).includes(
+        scopedStaticPropertyName(node.left.property, staticBindings).includes(
           "__exactNodeStreamWebModuleCache__",
         ) &&
         node.right?.type === "Identifier" &&
@@ -6886,7 +7092,7 @@ export function scanStaticBuiltinExports(
         if (
           registration.target === "cachedModule" &&
           node.type === "MemberExpression" &&
-          staticPropertyName(node.property, staticBindings).includes(
+          scopedStaticPropertyName(node.property, staticBindings).includes(
             "__exactNodeStreamWebModuleCache__",
           )
         ) {
@@ -7686,6 +7892,8 @@ export function scanStaticGlobalApiSurfaces(
   const functionDefinitions = new Map();
   const functionCalls = new Map();
   const forEachCalls = [];
+  const forOfLoops = [];
+  const indexedForLoops = [];
   const unresolvedRegistrations = new Map();
   const resolvedRegistrations = new Set();
   const unresolvedPrototypeRegistrations = new Map();
@@ -8622,6 +8830,8 @@ export function scanStaticGlobalApiSurfaces(
   });
 
   const recordNode = (node, substitutions = staticBindings) => {
+    if (node.type === "ForOfStatement" && substitutions === staticBindings) forOfLoops.push(node);
+    if (node.type === "ForStatement" && substitutions === staticBindings) indexedForLoops.push(node);
     if (node.type === "FunctionDeclaration" && node.id?.name)
       functionNames.add(node.id.name);
     if (node.type === "ClassDeclaration" && node.id?.name) {
@@ -8963,6 +9173,45 @@ export function scanStaticGlobalApiSurfaces(
   };
 
   walkAst(program, (node) => recordNode(node, staticBindings));
+
+  for (const loop of forOfLoops) {
+    const declaration = loop.left?.type === "VariableDeclaration"
+      && loop.left.declarations.length === 1
+      ? loop.left.declarations[0]
+      : null;
+    if (declaration?.id?.type !== "Identifier") continue;
+    let values = [];
+    if (loop.right?.type === "ArrayExpression") {
+      values = loop.right.elements.flatMap((element) =>
+        staticPropertyName(element, staticBindings));
+    } else if (loop.right?.type === "Identifier") {
+      values = [...(staticArrays.get(loop.right.name) ?? [])];
+    }
+    if (values.length === 0) continue;
+    const substitutions = mergeSubstitutions(
+      staticBindings,
+      new Map([[declaration.id.name, new Set(values)]]),
+    );
+    walkAst(loop.body, (node) => recordNode(node, substitutions));
+  }
+
+  for (const loop of indexedForLoops) {
+    const additions = new Map();
+    walkDirectFunctionBody({ body: loop.body }, (node) => {
+      if (
+        node.type !== "VariableDeclarator"
+        || node.id?.type !== "Identifier"
+        || node.init?.type !== "MemberExpression"
+        || !node.init.computed
+        || node.init.object?.type !== "Identifier"
+        || !staticArrays.has(node.init.object.name)
+      ) return;
+      additions.set(node.id.name, new Set(staticArrays.get(node.init.object.name)));
+    });
+    if (additions.size === 0) continue;
+    const substitutions = mergeSubstitutions(staticBindings, additions);
+    walkAst(loop.body, (node) => recordNode(node, substitutions));
+  }
 
   for (const call of forEachCalls) {
     let values = [];
@@ -15442,7 +15691,7 @@ export function scanNativeLifecycleSurfaces(
     definitions.map((definition) => definition.nameIndex),
   );
   const directCallNameIndexes = new Set(
-    cppCallExpressions(tokens).map((call) => call.nameIndex),
+    cppCallExpressions(tokens, text).map((call) => call.nameIndex),
   );
   const callbackProducers = new Map();
   for (let index = 0; index < tokens.length; index += 1) {
@@ -19686,7 +19935,7 @@ export function scanFixedRuntimeEvidenceCandidates(text, sourcePath) {
       ...definitionEvidenceRows(
         "cpp-call",
         sourcePath,
-        cppCallExpressions(tokens),
+        cppCallExpressions(tokens, text),
       ),
       ...definitionEvidenceRows(
         "cpp-function",
