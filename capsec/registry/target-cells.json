@@ -237017,40 +237017,6 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
-      "edgeId": "surface.startup.evaluation.defined.13e9rgh.promise.unwrap.0x213h5",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.evaluation.defined.13e9rgh.promise.unwrap.0x213h5.main"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
-      "edgeId": "surface.startup.evaluation.defined.13e9rgh.promise.unwrap.0x213h5",
-      "target": {
-        "triple": "x86_64-pc-windows-msvc",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.evaluation.defined.13e9rgh.promise.unwrap.0x213h5.main"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
       "edgeId": "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -237080,6 +237046,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.startup.evaluation.ex.hermes.eval.promise.unwrap.0rbkv50",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.startup.evaluation.ex.hermes.eval.promise.unwrap.0rbkv50.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.startup.evaluation.ex.hermes.eval.promise.unwrap.0rbkv50",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.startup.evaluation.ex.hermes.eval.promise.unwrap.0rbkv50.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."

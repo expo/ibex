@@ -260663,16 +260663,6 @@
       }
     },
     {
-      "id": "surface.startup.evaluation.defined.13e9rgh.promise.unwrap.0x213h5",
-      "classification": "non-capability",
-      "surface": {
-        "kind": "startup",
-        "name": "evaluation:defined:13e9rgh:promise-unwrap"
-      },
-      "rationaleId": "runtime-bootstrap-state",
-      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
-    },
-    {
       "id": "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2",
       "classification": "closed",
       "surface": {
@@ -260681,6 +260671,16 @@
       },
       "cap": "runtime:inspect",
       "rationale": "The CDP evaluation route executes debugger-controlled source in the inspected runtime."
+    },
+    {
+      "id": "surface.startup.evaluation.ex.hermes.eval.promise.unwrap.0rbkv50",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "evaluation:ex_hermes_eval:promise-unwrap"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
       "id": "surface.startup.evaluation.has.include.18ool1z.process.exit.marker.1awxz3m",

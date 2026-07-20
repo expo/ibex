@@ -7,6 +7,9 @@
 const WINDOWS_FS: &str = include_str!("../src/engine/hermes_runtime_fs_windows.cc");
 const POSIX_FS: &str = include_str!("../src/engine/hermes_runtime_fs.cc");
 const HOST_ABI: &str = include_str!("../src/host/abi.rs");
+const HERMES_RUNTIME: &str = include_str!("../src/engine/hermes_runtime.cc");
+const PROCESS_RUNTIME: &str = include_str!("../packages/ibex-runtime-js/src/node/process.ts");
+const RUNTIME_BOOTSTRAP: &str = include_str!("../packages/ibex-runtime-js/src/bootstrap.ts");
 
 #[test]
 fn windows_async_fs_surface_is_registered() {
@@ -25,6 +28,36 @@ fn windows_async_fs_surface_is_registered() {
             "missing Windows async hook {hook}"
         );
     }
+}
+
+#[test]
+fn windows_sync_write_preserves_process_owned_stdout_and_stderr() {
+    let write = WINDOWS_FS
+        .split("auto fsWriteFn")
+        .nth(1)
+        .expect("Windows sync write registration")
+        .split("rt.global().setProperty(rt, \"__exactFsWrite\"")
+        .next()
+        .unwrap();
+    assert!(write.contains("if (fd == 1 || fd == 2)"));
+    assert!(write.contains("principalMayUseProcessStdio(principal)"));
+    assert!(write.contains("_write(fd, bytes.data(), count)"));
+    assert!(
+        write.find("if (fd == 1 || fd == 2)") < write.find("getFileEntry(runtime, fd)"),
+        "process stdio must not be rejected by the filesystem-handle registry"
+    );
+}
+
+#[test]
+fn windows_cli_runtime_reconciles_async_and_compatibility_state() {
+    assert!(PROCESS_RUNTIME.contains("g.__exactUncaughtExceptionHandler = function(error: any)"));
+    assert!(PROCESS_RUNTIME.contains("self.emit('uncaughtException', error)"));
+    assert!(RUNTIME_BOOTSTRAP.contains("enableBunCompatibilityIdentity();"));
+    assert!(PROCESS_RUNTIME.contains("value: BUN_COMPAT_VERSION"));
+    assert!(
+        !HERMES_RUNTIME.contains("#if !defined(_WIN32)\n    if (result.isObject())"),
+        "Windows eval must inspect the async entry Promise instead of silently accepting rejection"
+    );
 }
 
 #[test]

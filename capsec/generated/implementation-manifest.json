@@ -257895,37 +257895,6 @@
       ]
     },
     {
-      "edgeId": "surface.startup.evaluation.defined.13e9rgh.promise.unwrap.0x213h5",
-      "observedKey": "startup:evaluation:defined:13e9rgh:promise-unwrap",
-      "branchId": "surface.startup.evaluation.defined.13e9rgh.promise.unwrap.0x213h5.main",
-      "enforcementBranchId": "surface.startup.evaluation.defined.13e9rgh.promise.unwrap.0x213h5.main",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "startup:evaluation:defined:13e9rgh:promise-unwrap"
-        ],
-        "proofSourceRefs": [
-          "src/engine/hermes_runtime.cc#defined:13e9rgh:evaluateJavaScript:<promise-unwrap>"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime.cc#defined:13e9rgh:evaluateJavaScript:<promise-unwrap>"
-        ],
-        "terminalObservedKey": "startup:evaluation:defined:13e9rgh:promise-unwrap"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime.cc#defined:13e9rgh:evaluateJavaScript:<promise-unwrap>"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.startup.evaluation.defined.13e9rgh.promise.unwrap.0x213h5.main.non-capability"
-      ]
-    },
-    {
       "edgeId": "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2",
       "observedKey": "startup:evaluation:ex_hermes_debugger_eval:cdp",
       "branchId": "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2.main",
@@ -257954,6 +257923,37 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2.main.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.evaluation.ex.hermes.eval.promise.unwrap.0rbkv50",
+      "observedKey": "startup:evaluation:ex_hermes_eval:promise-unwrap",
+      "branchId": "surface.startup.evaluation.ex.hermes.eval.promise.unwrap.0rbkv50.main",
+      "enforcementBranchId": "surface.startup.evaluation.ex.hermes.eval.promise.unwrap.0rbkv50.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:evaluation:ex_hermes_eval:promise-unwrap"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_eval:evaluateJavaScript:<promise-unwrap>"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_eval:evaluateJavaScript:<promise-unwrap>"
+        ],
+        "terminalObservedKey": "startup:evaluation:ex_hermes_eval:promise-unwrap"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_eval:evaluateJavaScript:<promise-unwrap>"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.evaluation.ex.hermes.eval.promise.unwrap.0rbkv50.main.non-capability"
       ]
     },
     {
@@ -265859,37 +265859,37 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-mEiTk5veibtPhHiN1vUd3GLgCdN3FlxwTLMCnKo82IQ"
+      "rawContentDigest": "sha256-YuAneQx1DmRdhSxc7kr8qj7GsagS4qbE2DDCwInZkfk"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-729Kf2hT2ufwHkwJQ9Dywz6KQ9Pu82r10KGmK9I5Oas"
+      "rawContentDigest": "sha256-cRl3SfK_8llkO9vRioJEsIQjLdAJ0xdcLf0cNpUMNug"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-1f2rki5yfl19Pea8GJYee590Kx7koH9HLVOpHf9zce4"
+      "rawContentDigest": "sha256-8Nz83hEdf5XRWbvnUOXUkLYS8Aj72gjE2igmWJIVCog"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-N8WoGH7aYHLtIm8N9qvu6YvDj2jfj-0S-LldtTJCo84"
+      "rawContentDigest": "sha256-N78u1xyImNQOh73veRH3rRpWJczHKM6CMbIHzgkMUiU"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-tNszqXHZo_eGwudTtPd88elfrqVgEgEob9MHO77zkdE"
+      "rawContentDigest": "sha256-uH74TX8YDEgPG3Wi5gZToKKouF10lLfDKb_k_JKEFNA"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-V94wuVhht1FaiQcxtxgdxrRsKxdnl8luavdew4qqgH4"
+      "rawContentDigest": "sha256-9S5U5wRk4o9RAnKNaETMbAVJR3o1fPJw2afPlQuTs3Y"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-n-Yn_M2yM7d3KGGr5-8EKUT-U17pXNrwJ0T9wy-Qp98"
+      "rawContentDigest": "sha256-4ugidgc3KhmEog5VVC8OAoMkydzu0HjJzlJNVVGztxI"
     }
   ],
   "counts": {

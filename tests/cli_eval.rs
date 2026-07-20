@@ -325,8 +325,14 @@ async fn cli_console_log_prints_strings_raw() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let last_line = stdout.trim_end().lines().last().unwrap_or("");
-    assert_eq!(last_line, "a b 1 { x: 'y' }");
+    assert!(
+        stdout.contains("a b 1") && stdout.contains("x: 'y'"),
+        "string arguments must remain raw even when object inspection wraps: stdout={stdout:?}"
+    );
+    assert!(
+        !stdout.contains("a 'b'"),
+        "the second string argument must not be inspect-quoted: stdout={stdout:?}"
+    );
 }
 
 #[tokio::test]

@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-19 (ENG-24933 carries process stdio, async entry rejection/handler, and opt-in Bun identity contracts through the Windows source-bootstrap profile after physical run 29711984665 cleared child-process integration and exposed six CLI gaps)
 **Revised:** 2026-07-19 (ENG-24933 removes the POSIX-only lazy net installer from the Windows native-backend smoke test after physical run 29704246482 passed 316 library tests and isolated that final failure)
 **Revised:** 2026-07-19 (ENG-24933 makes Windows library verification use target-native filesystem fixtures and object-equivalent path assertions, while the native-backend smoke test installs its explicitly permissive diagnostic host)
 **Revised:** 2026-07-19 (ENG-24933 reconstructs armed Windows drive/UNC roots as absolute paths and makes host-boundary tree matching separator-neutral after retained run 29694430491 exposed a malformed-root deadlock and Windows-only fence failures)
@@ -2073,6 +2074,25 @@ The same evidence exposed a real disposal delay: ignore/inherit stdin created no
 writer but left its state pending, so teardown waited for a nonexistent thread.
 No-writer children now enter the stopped state at construction; pipe-backed
 children retain the cancellation and initialization-race checks.
+Physical run
+[`29711984665`](https://github.com/ccheever/ibex/actions/runs/29711984665)
+confirmed that repair with all six Windows child-process integration tests
+passing after the 317 library and 169 binary unit tests. The matrix then reached
+the CLI evaluation suite for the first time and passed 13 of 19 tests. Its six
+failures isolated four Windows source-bootstrap gaps: filesystem-owned handle
+lookup rejected inherited CRT stdout/stderr descriptors; the shared process
+object did not replace the native async-error handler retained from bootstrap;
+Promise-result inspection was compiled out and therefore accepted a rejected
+async entry; and Bun became visible after `process.versions` had already been
+constructed without its opt-in identity key. Windows now gives only trusted
+runtime/root frames the same process-owned stdio exception as POSIX, rebinds
+the native uncaught hook when a handler is registered, applies the ordinary-
+function Promise inspector on every desktop target, and adds the pinned Bun
+version at the exact point the facade becomes observable. Console string
+arguments remain raw while the assertion permits target-local multiline object
+inspection. These are product-contract repairs, not conformance credit; a
+complete rebuilt physical report is still required before any target cell or
+advertisement changes.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked

@@ -7,6 +7,8 @@
 #include <deque>
 #include <exception>
 #include <functional>
+#include <io.h>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -28,6 +30,18 @@ constexpr int NODE_O_RDWR = 2;
 constexpr int NODE_O_APPEND = 8;
 constexpr int NODE_O_CREAT = 512;
 constexpr int NODE_O_TRUNC = 1024;
+
+bool principalMayUseProcessStdio(uint64_t principal) {
+  if (principal == 0) {
+    return true;
+  }
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  if (principal == static_cast<uint64_t>(kRuntimePrincipalId)) {
+    return true;
+  }
+#endif
+  return false;
+}
 
 extern "C" void ex_host_fs_close(void* file);
 extern "C" int32_t ex_host_fs_last_error();
@@ -1308,12 +1322,30 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsWrite: fd and data required");
         }
         auto fd = fdFromValue(runtime, args[0]);
-        auto entry = getFileEntry(runtime, fd);
-        requireFileEntryWrite(runtime, entry);
         auto bytes = extractBytes(runtime, args[1]);
         if (bytes.empty()) {
           return facebook::jsi::Value(0.0);
         }
+        // The Win32 filesystem bridge owns only handles opened through its
+        // capability registry, while the CRT owns the inherited process stdio
+        // descriptors. Match the POSIX bridge's process-owned stdio exception:
+        // only trusted runtime/root frames may use 1/2, and no forgeable number
+        // gains access to an arbitrary filesystem handle. (ENG-24933)
+        if (fd == 1 || fd == 2) {
+          auto principal = currentPrincipalId();
+          if (!isAllowAll() && !principalMayUseProcessStdio(principal)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+          auto count = static_cast<unsigned int>(std::min<size_t>(
+              bytes.size(), std::numeric_limits<unsigned int>::max()));
+          int written = _write(fd, bytes.data(), count);
+          if (written < 0) {
+            throw facebook::jsi::JSError(runtime, "write: bad file descriptor");
+          }
+          return facebook::jsi::Value(static_cast<double>(written));
+        }
+        auto entry = getFileEntry(runtime, fd);
+        requireFileEntryWrite(runtime, entry);
         // A numeric position is a *positional* write: Node's writeSync leaves the
         // handle's current offset unchanged when `position` is a number. The old
         // ex_host_fs_seek + ex_host_fs_write permanently moved the cursor, so use

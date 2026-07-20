@@ -4218,11 +4218,9 @@ extern "C" int ex_hermes_eval(
 #endif
 
     // If the result is a thenable/Promise, resolve it before returning.
-    // This makes top-level await work in the REPL and eval contexts.
-    // Windows Hermes currently does not support async function syntax in this
-    // eval path, and the CLI already drives the event loop after file/eval
-    // execution, so skip the JS unwrap shim there.
-#if !defined(_WIN32)
+    // This makes top-level await work in the REPL and eval contexts. The
+    // unwrap helper itself uses only ordinary functions, so it is portable to
+    // the Windows source-bootstrap profile as well. (ENG-24933)
     if (result.isObject()) {
       auto& rt = *runtime->runtime;
       // Stash the result as a temp global so JS can inspect it
@@ -4343,8 +4341,6 @@ extern "C" int ex_hermes_eval(
         }
       }
     }
-#endif
-
     if (out_value) {
       if (result.isUndefined()) {
         *out_value = nullptr;

@@ -785,6 +785,17 @@ const PROCESS_RELEASE = createProcessRelease(
   PROCESS_VERSIONS.node ?? RUNTIME_VERSIONS.find(([key]) => key === 'node')?.[1] ?? '0.0.0'
 );
 
+/** Reconcile late-discovered Bun opt-in state with the canonical identity. */
+export function enableBunCompatibilityIdentity(): void {
+  if (PROCESS_VERSIONS.bun) return;
+  Object.defineProperty(PROCESS_VERSIONS, 'bun', {
+    value: BUN_COMPAT_VERSION,
+    writable: false,
+    enumerable: true,
+    configurable: true,
+  });
+}
+
 function createProcessVersions(): ProcessVersions {
   const versions: ProcessVersions = {};
   // Node-primary identity (LLP 0012#decision): only truthful keys ship ambient —
@@ -2551,6 +2562,21 @@ class Process {
     const g = globalThis as any;
     const self = this;
     const prev = g.onerror;
+    // Native timer/nextTick drains consult this hook directly. Reinstall it
+    // when the shared runtime replaces the bootstrap process object so the
+    // handler cannot remain bound to a stale bootstrap emitter on Windows.
+    // (ENG-24933)
+    g.__exactUncaughtExceptionHandler = function(error: any) {
+      if (self._uncaughtCaptureCb !== null) {
+        self._uncaughtCaptureCb(error);
+        return true;
+      }
+      if (self.listenerCount('uncaughtException') > 0) {
+        self.emit('uncaughtException', error);
+        return true;
+      }
+      return false;
+    };
     g.onerror = function(msg: any, _src: any, _line: any, _col: any, err: any) {
       const error = err instanceof Error ? err : new Error(String(msg));
       if (self.listenerCount('uncaughtException') > 0) {

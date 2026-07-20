@@ -82,7 +82,10 @@ import {
 } from "./timers";
 import { Buffer as ExactBuffer } from "./node/Buffer";
 import { window as exactWindow, MediaQueryList, MediaQueryListEvent } from "./window";
-import { process as exactProcess } from "./node/process";
+import {
+  enableBunCompatibilityIdentity,
+  process as exactProcess,
+} from "./node/process";
 
 // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces —
 // diagnostic implementation state stays inside the runtime module; only the
@@ -1522,7 +1525,15 @@ export function installGlobals(): void {
   const bunCompatEnabled =
     (Array.isArray(compatModes) && compatModes.indexOf('bun') !== -1) ||
     g.process?.env?.EXACT_COMPAT_BUN === '1';
-  if (bunCompatEnabled && !g.Bun) g.Bun = g.Exact;
+  if (bunCompatEnabled) {
+    if (!g.Bun) g.Bun = g.Exact;
+    // process.ts is evaluated before the Windows source bootstrap can expose
+    // the native environment through the replacement process Proxy. Reconcile
+    // the opt-in identity here, at the same point Bun becomes observable, so
+    // feature detection cannot see Bun without process.versions.bun.
+    // (ENG-24933; LLP 0012#decision)
+    enableBunCompatibilityIdentity();
+  }
   // Wire Bun.env to process.env so packages can use either
   if (g.Exact && !g.Exact.env) {
     Object.defineProperty(g.Exact, 'env', {
