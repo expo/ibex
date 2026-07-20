@@ -569,6 +569,35 @@ void install(Runtime& rt) {
     expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status).toBe("executable");
   });
 
+  test("binds an object-literal global member without crediting its installer", () => {
+    const branch = {
+      branchId: "surface.native.op.global.atomics.add.all",
+      observedKey: "native-op:global:Atomics.add",
+      targetVariant: "all",
+    };
+    const binding = resolveRestrictedExactBranchSourceBinding(
+      branch,
+      "packages/ibex-runtime-js/src/bootstrap.ts#add.add",
+    );
+    expect(binding.locatorKind).toBe("typescript-object-member");
+    expect(binding.sites).toHaveLength(1);
+  });
+
+  test("traces Exact and Bun members through factory and root alias publication", () => {
+    for (const key of ["Exact.CryptoHasher.prototype.copy", "Bun.MD5.update", "Bun.password.hash"]) {
+      const branch = {
+        branchId: `surface.native.op.global.${key}.default`,
+        observedKey: `native-op:global:${key}`,
+        targetVariant: "default",
+      };
+      const sourceRef = `src/engine/bootstrap/exact-global.js#${key}`;
+      const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+      expect(binding.locatorKind).toBe("exact-global-alias-route");
+      expect(binding.sites.at(-1).role).toBe("publication");
+      expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status).toBe("executable");
+    }
+  });
+
   test("binds a TypeScript member without crediting the entire class", () => {
     const sourceRef = "packages/ibex-runtime-js/src/node/Buffer.ts#Buffer.prototype.copy";
     const binding = resolveRestrictedExactBranchSourceBinding(

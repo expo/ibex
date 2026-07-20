@@ -1505,6 +1505,43 @@ function typescriptClassMemberBinding({ sourceRef, sourcePath, locator, absolute
   });
 }
 
+function typescriptObjectMemberBinding({ sourceRef, sourcePath, locator, text, bytes }) {
+  if (!sourcePath.startsWith("packages/ibex-runtime-js/src/")
+    || !/\.tsx?$/u.test(sourcePath)
+    || locator.includes(":")
+    || locator.includes("[[")
+    || locator.startsWith("<")) return null;
+  const parts = locator.split(".");
+  if (parts.length < 2) return null;
+  const member = parts.at(-1);
+  const candidates = [];
+  const ast = parse(text, {
+    sourceType: "module",
+    plugins: ["typescript", "decorators-legacy"],
+  });
+  walkJavaScript(ast.program, (node) => {
+    if (["ObjectMethod", "ObjectProperty"].includes(node.type)
+      && propertyName(node.key) === member) candidates.push(node);
+  });
+  if (candidates.length !== 1) return null;
+  const site = sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "value-producer",
+    siteKey: `${locator}.object-member`,
+    range: { startByte: candidates[0].start, endByte: candidates[0].end },
+    text,
+    bytes,
+  });
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "typescript-object-member",
+    resolutionPolicy: "provenance-only",
+    sites: [site],
+    producerPaths: [],
+  });
+}
+
 function javascriptSymbolProvenanceBinding({ sourceRef, sourcePath, locator, text, bytes }) {
   if (!sourcePath.endsWith(".js")
     || locator.includes(":")
@@ -1635,6 +1672,130 @@ function legacyJavascriptGlobalRouteBinding({ branch, sourceRef, sourcePath, loc
     resolutionPolicy: producerPaths.length > 1 ? "conditioned-alternatives" : "composite-path",
     sites,
     producerPaths,
+  });
+}
+
+function exactGlobalAliasBinding({ branch, sourceRef, sourcePath, locator, absolute, text, bytes }) {
+  if (sourcePath !== "src/engine/bootstrap/exact-global.js"
+    || !/^native-op:global:(?:Bun|Exact)(?:\.|$)/u.test(branch?.observedKey ?? "")
+    || branch.observedKey.slice("native-op:global:".length) !== locator
+    || !/^(?:Bun|Exact)(?:\.|$)/u.test(locator)) return null;
+  const publishedRoot = locator.split(".")[0];
+  const ast = parse(text, { sourceType: "script", allowReturnOutsideFunction: true });
+  const index = javascriptIndex(absolute, text);
+  const assignments = [];
+  walkJavaScript(ast.program, (node, parent) => {
+    if (node.type === "AssignmentExpression") {
+      assignments.push({
+        node,
+        parent: parent?.type === "ExpressionStatement" ? parent : node,
+        segments: memberSegments(node.left),
+        value: node.right,
+      });
+    }
+  });
+  const aliasPublications = assignments.filter(({ segments, value }) =>
+    JSON.stringify(segments) === JSON.stringify(["g", publishedRoot])
+    && value?.type === "Identifier"
+    && value.name === "E");
+  if (aliasPublications.length !== 1) return null;
+  const tail = locator === publishedRoot ? [] : locator.slice(publishedRoot.length + 1).split(".");
+  let producer;
+  let rootAssignment;
+  if (tail.length === 0) {
+    producer = aliasPublications[0];
+  } else {
+    const exact = assignments.filter(({ segments }) =>
+      JSON.stringify(segments) === JSON.stringify(["E", ...tail]));
+    if (exact.length === 1) {
+      producer = exact[0];
+      rootAssignment = exact[0];
+    } else {
+      const roots = assignments.filter(({ segments }) =>
+        JSON.stringify(segments) === JSON.stringify(["E", tail[0]]));
+      if (roots.length !== 1) return null;
+      rootAssignment = roots[0];
+      if (rootAssignment.value?.type === "ObjectExpression") {
+        let current = rootAssignment.value;
+        let property;
+        for (const part of tail.slice(1)) {
+          property = objectProperty(current, part);
+          if (!property) return null;
+          current = property.type === "ObjectProperty" ? property.value : property;
+        }
+        if (!property) return null;
+        producer = {
+          node: property,
+          parent: property,
+          segments: ["E", ...tail],
+          value: current,
+        };
+      }
+      if (producer) {
+        // The object-literal member is already tied to its Exact root below.
+      } else {
+        let factory;
+        if (rootAssignment.value?.type === "CallExpression") {
+          if (["FunctionExpression", "ArrowFunctionExpression"].includes(rootAssignment.value.callee?.type)) {
+            factory = rootAssignment.value.callee;
+          } else if (rootAssignment.value.callee?.type === "Identifier") {
+            const declaration = declarationFor(index, rootAssignment.value.callee.name);
+            factory = declaration?.value ?? declaration?.node;
+          }
+        }
+        if (!factory || !["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(factory.type)) {
+          return null;
+        }
+        const returned = factory.body?.type === "BlockStatement"
+          ? factory.body.body
+            .filter((node) => node.type === "ReturnStatement" && node.argument?.type === "Identifier")
+            .map((node) => node.argument.name)
+          : factory.body?.type === "Identifier"
+            ? [factory.body.name]
+            : [];
+        if (new Set(returned).size !== 1) return null;
+        const alias = returned[0];
+        if (tail.length === 2 && tail[1] === "prototype") {
+          producer = rootAssignment;
+        }
+        const members = assignments.filter(({ segments }) =>
+          JSON.stringify(segments) === JSON.stringify([alias, ...tail.slice(1)])
+          || JSON.stringify(segments) === JSON.stringify([alias, "prototype", ...tail.slice(1)]));
+        if (!producer) {
+          if (members.length !== 1) return null;
+          producer = members[0];
+        }
+      }
+    }
+  }
+  const ranges = [
+    { role: "value-producer", key: `${locator}.producer`, row: producer },
+    ...(rootAssignment && rootAssignment !== producer
+      ? [{ role: "alias", key: `${locator}.constructor-alias`, row: rootAssignment }]
+      : []),
+    { role: "publication", key: `${publishedRoot}.Exact.alias`, row: aliasPublications[0] },
+  ];
+  const sites = ranges.map(({ role, key, row }) => sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role,
+    siteKey: key,
+    range: { startByte: row.parent.start, endByte: row.parent.end },
+    text,
+    bytes,
+  }));
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "exact-global-alias-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0exact-bun-alias`),
+      conditionId: publishedRoot === "Bun"
+        ? "runtime-compat:bun"
+        : `target-branch:${branch.targetVariant}`,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
   });
 }
 
@@ -4506,6 +4667,8 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? bootstrapGlobalBinding({ branch, sourceRef, ...loaded })
     ?? legacyBootstrapGlobalBinding({ branch, sourceRef, ...loaded })
     ?? typescriptClassMemberBinding({ branch, sourceRef, ...loaded })
+    ?? typescriptObjectMemberBinding({ branch, sourceRef, ...loaded })
+    ?? exactGlobalAliasBinding({ branch, sourceRef, ...loaded })
     ?? legacyJavascriptGlobalRouteBinding({ branch, sourceRef, ...loaded })
     ?? javascriptSymbolProvenanceBinding({ branch, sourceRef, ...loaded });
   return contextual ?? resolveRestrictedExactSourceBinding(sourceRef, root);
@@ -4521,7 +4684,11 @@ function selectGlobalProducerEntry(observedPath, entries) {
   const exactLocator = member ? `${root}.${member}` : root;
   const prototypeLocator = member ? `${root}.prototype.${member}` : null;
   const producers = entries.filter(({ binding }) =>
-    ["typescript-class-member", "typescript-class-inheritance"].includes(binding.locatorKind),
+    [
+      "typescript-class-member",
+      "typescript-class-inheritance",
+      "typescript-object-member",
+    ].includes(binding.locatorKind),
   );
   const exact = producers.filter(({ sourceRef }) => locatorOf(sourceRef) === exactLocator);
   if (exact.length === 1) return exact[0];
@@ -4542,6 +4709,7 @@ function entryTargetsGlobalPath(entry, observedPath) {
   if (locator.startsWith("jsi-global:")) return locator.slice("jsi-global:".length) === observedPath;
   if (entry.binding.locatorKind === "jsi-root-global-route") return locator === observedPath;
   if (entry.binding.locatorKind === "javascript-global-assignment-route") return locator === observedPath;
+  if (entry.binding.locatorKind === "exact-global-alias-route") return locator === observedPath;
   const marker = ":globals:";
   const markerIndex = locator.indexOf(marker);
   return markerIndex >= 0 && locator.slice(markerIndex + marker.length) === observedPath;
@@ -4656,6 +4824,15 @@ export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root =
       ].includes(entry.binding.locatorKind)
       && entryTargetsGlobalPath(entry, observedPath.split(".")[0]),
     );
+    const observedParts = observedPath.split(".");
+    const exactAliasPath = observedParts[0] === "Bun" && observedParts.length > 1
+      ? `Exact.${observedParts.slice(1).join(".")}`
+      : null;
+    const exactAliasEntries = exactAliasPath
+      ? entries.filter((entry) =>
+        entry.binding.locatorKind === "typescript-global-installer-route"
+        && entryTargetsGlobalPath(entry, exactAliasPath))
+      : [];
     if (producer && publications.length === 1) {
       selectedEntries.add(producer);
       selectedEntries.add(publications[0]);
@@ -4668,6 +4845,16 @@ export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root =
         conditionId: publications[0].binding.locatorKind === "typescript-lazy-global-publication"
           ? "runtime-bundle:global-missing"
           : `target-branch:${branch.targetVariant}`,
+        requiredSiteIds,
+      });
+    } else if (publications.length === 1 && exactAliasEntries.length === 1) {
+      selectedEntries.add(publications[0]);
+      selectedEntries.add(exactAliasEntries[0]);
+      const requiredSiteIds = [publications[0], exactAliasEntries[0]]
+        .flatMap((entry) => entry.binding.sites.map((site) => site.siteId));
+      producerPaths.push({
+        pathId: stableId("producer", `${branch.branchId}\0bun-exact-alias`),
+        conditionId: `runtime-compat:bun+target-branch:${branch.targetVariant}`,
         requiredSiteIds,
       });
     } else if (!observedPath.includes(".") && publications.length === 1) {
