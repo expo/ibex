@@ -44,6 +44,40 @@ const taggedDigest = (value) =>
     .update(typeof value === "string" ? value : canonicalJson(value), "utf8")
     .digest("base64url")}`;
 
+// @ref LLP 0001#current-buildrs-support-honest-status — Windows replaces these default backend translation units with target-specialized implementations, so a default-only registration is not installed on that target.
+const WINDOWS_EXCLUDED_NATIVE_IMPLEMENTATION_SOURCES = new Set([
+  "src/engine/hermes_runtime_crypto.cc",
+  "src/engine/hermes_runtime_debugger.cc",
+  "src/engine/hermes_runtime_dns.cc",
+  "src/engine/hermes_runtime_fs.cc",
+  "src/engine/hermes_runtime_net.cc",
+  "src/engine/hermes_runtime_osinfo.cc",
+  "src/engine/hermes_runtime_process.cc",
+  "src/engine/hermes_runtime_process_setup.cc",
+]);
+
+function nativePublicOperationIsExcludedOnWindows({ live, target }) {
+  if (target.triple !== "x86_64-pc-windows-msvc") return false;
+  if (live?.metadata?.publicInvocation?.kind !== "native-global-function") {
+    return false;
+  }
+  const installationBranches = live?.metadata?.installationBranches;
+  return (
+    Array.isArray(installationBranches) &&
+    installationBranches.length > 0 &&
+    installationBranches.every(
+      (branch) =>
+        Array.isArray(branch.sourceRefs) &&
+        branch.sourceRefs.length > 0 &&
+        branch.sourceRefs.every((sourceRef) =>
+          WINDOWS_EXCLUDED_NATIVE_IMPLEMENTATION_SOURCES.has(
+            sourceRef.split("#", 1)[0],
+          ),
+        ),
+    )
+  );
+}
+
 const FIXTURE_SCENARIOS = [
   "attribution-missing-deny",
   "malformed-branch-facts",
@@ -731,6 +765,7 @@ const nativeNoEffectTemplate = (
   argumentsList = [],
   setup = [],
   expectedCleanup = null,
+  { unsupportedTargetReason = null, unsupportedTargetTriples = [] } = {},
 ) =>
   Object.freeze({
     actionIds: [],
@@ -741,6 +776,10 @@ const nativeNoEffectTemplate = (
     expectedStages: { "non-capability": [] },
     requiredSourceArity,
     setup,
+    ...(unsupportedTargetReason ? { unsupportedTargetReason } : {}),
+    ...(unsupportedTargetTriples.length > 0
+      ? { unsupportedTargetTriples }
+      : {}),
   });
 const nativeConditionalNoEffectTemplate = (
   requiredSourceArity,
@@ -1764,6 +1803,9 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
           resource: projectPathExactResource("Cargo.toml"),
         },
       ],
+      unsupportedTargetReason:
+        "native-public-prerequisite-not-typed-on-target",
+      unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
     }),
   ],
   [
@@ -1848,6 +1890,12 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       1,
       [harnessLoopbackClientHandleArgument()],
       tcpLoopbackClientSetup(),
+      null,
+      {
+        unsupportedTargetReason:
+          "native-public-prerequisite-not-typed-on-target",
+        unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+      },
     ),
   ],
   [
@@ -1856,6 +1904,12 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       1,
       [harnessLoopbackClientHandleArgument()],
       tcpLoopbackClientSetup(),
+      null,
+      {
+        unsupportedTargetReason:
+          "native-public-prerequisite-not-typed-on-target",
+        unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+      },
     ),
   ],
   [
@@ -1864,6 +1918,12 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       2,
       [harnessLoopbackClientHandleArgument(), literalArgument(1)],
       tcpLoopbackClientSetup(),
+      null,
+      {
+        unsupportedTargetReason:
+          "native-public-prerequisite-not-typed-on-target",
+        unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+      },
     ),
   ],
   ["__exactPerformanceNow", nativeNoEffectTemplate(0)],
@@ -2429,11 +2489,30 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ],
   [
     "__exactUdpClose",
-    nativeNoEffectTemplate(1, [
-      nativeResultArgument("__exactUdpSocket", 1, [literalArgument("udp4")]),
-    ]),
+    nativeNoEffectTemplate(
+      1,
+      [
+        nativeResultArgument("__exactUdpSocket", 1, [
+          literalArgument("udp4"),
+        ]),
+      ],
+      [],
+      null,
+      {
+        unsupportedTargetReason:
+          "native-public-operation-not-installed-on-target",
+        unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+      },
+    ),
   ],
-  ["__exactUdpSocket", nativeNoEffectTemplate(1, [literalArgument("udp4")])],
+  [
+    "__exactUdpSocket",
+    nativeNoEffectTemplate(1, [literalArgument("udp4")], [], null, {
+      unsupportedTargetReason:
+        "native-public-operation-not-installed-on-target",
+      unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+    }),
+  ],
   [
     "__exactVerifySync",
     nativeNoEffectTemplate(6, [
@@ -3169,6 +3248,15 @@ function nativePublicProbeForPlan({
     return { probe: null, unavailableReason: null };
   }
   const live = liveByObservedKey.get(surfaceObservedKey);
+  if (
+    !targetAbsence &&
+    nativePublicOperationIsExcludedOnWindows({ live, target })
+  ) {
+    return {
+      probe: null,
+      unavailableReason: "native-public-operation-not-installed-on-target",
+    };
+  }
   const invocation = live?.metadata?.publicInvocation;
   const readDescriptor = targetAbsence
     ? null
@@ -3602,6 +3690,10 @@ const MODULE_RUNNER_SOURCE_GRAPH_HOST_ABIS = new Set([
   "ex_hermes_commonjs_record_create_esm_adapter",
   "ex_hermes_commonjs_record_declare_export",
   "ex_hermes_commonjs_record_evaluate",
+  "ex_hermes_commonjs_record_link_computed_dynamic_import",
+  "ex_hermes_commonjs_record_link_dynamic_import",
+  "ex_hermes_commonjs_record_link_require",
+  "ex_hermes_commonjs_record_link_require_esm",
   "ex_hermes_graph_context_create",
   "ex_hermes_graph_context_retain",
   "ex_hermes_module_compile_factory",
@@ -3611,6 +3703,8 @@ const MODULE_RUNNER_SOURCE_GRAPH_HOST_ABIS = new Set([
   "ex_hermes_module_record_declare_export",
   "ex_hermes_module_record_instantiate",
   "ex_hermes_module_record_link_dependency",
+  "ex_hermes_module_record_link_computed_dynamic_import",
+  "ex_hermes_module_record_link_dynamic_import",
   "ex_hermes_module_record_link_export",
   "ex_hermes_module_record_link_import",
   "ex_hermes_module_record_poll_evaluation",
@@ -3897,6 +3991,29 @@ function summarize(recipes) {
   };
 }
 
+function unsupportedWindowsTypedPublicEffectReason({
+  plan,
+  publicSurfaceProbe,
+  target,
+}) {
+  if (
+    target.triple !== "x86_64-pc-windows-msvc" ||
+    plan.classification !== "effects" ||
+    (publicSurfaceProbe?.invocation?.expectedTypedDecisionCount ?? 0) === 0
+  ) {
+    return null;
+  }
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces still use the legacy path oracle, so they cannot furnish typed public execution evidence.
+  if (plan.actionIds.some((actionId) => actionId.startsWith("fs:"))) {
+    return "public-surface-filesystem-not-typed-on-target";
+  }
+  // @ref LLP 0021#wp6--convert-network-effects-and-protected-peers — Windows TCP surfaces still use the legacy string oracle, so candidate/commit recipes remain residual until the typed adapter is installed there.
+  if (plan.actionIds.some((actionId) => actionId.startsWith("network:"))) {
+    return "public-surface-network-not-typed-on-target";
+  }
+  return null;
+}
+
 export function buildConformanceRecipeCatalog({
   catalog,
   coverage,
@@ -4064,14 +4181,25 @@ export function buildConformanceRecipeCatalog({
         `${plan.fixtureId}: multiple public probe authors claimed one fixture`,
       );
     }
-    const publicSurfaceProbe = authoredPublicSurfaceProbes[0] ?? null;
+    let publicSurfaceProbe = authoredPublicSurfaceProbes[0] ?? null;
+    const unsupportedWindowsTypedEffectReason =
+      unsupportedWindowsTypedPublicEffectReason({
+        plan,
+        publicSurfaceProbe,
+        target,
+      });
+    if (unsupportedWindowsTypedEffectReason) {
+      publicSurfaceProbe = null;
+    }
     const publicSurfaceUnavailableReason = publicSurfaceProbe
       ? null
-      : (nonCapabilityBuiltinProbeResidualReason({
-          route,
-          liveByObservedKey,
-          target,
-        }) ?? nativePublicSurface.unavailableReason);
+      : unsupportedWindowsTypedEffectReason
+        ? unsupportedWindowsTypedEffectReason
+        : (nonCapabilityBuiltinProbeResidualReason({
+            route,
+            liveByObservedKey,
+            target,
+          }) ?? nativePublicSurface.unavailableReason);
     const residual = residualReasons({
       plan,
       scenario,

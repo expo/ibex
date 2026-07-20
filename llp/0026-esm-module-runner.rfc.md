@@ -5,12 +5,15 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-17 (reconciled resolver shipped state: the typed import/require condition split and module-type-backed file metadata route are landed; package-facing `require.resolve` aliases preflight `checkImportGate` outside trusted synchronous manifest-builtin initialization; public metadata omits executable source while trusted integrity witnesses may hash raw bytes; Node-style ambiguous-`.js` syntax detection remains unlanded; LLP 0023 records `OBL-RESOLVE-GATE` complete, with its runtime scope made explicit here); 2026-07-17 (ENG-25062 was reopened after merge-prep review distinguished the implemented exact Host authentication and link-time graph receipts from the still-unwired receipt-revalidated source/cache/prepared-carrier access closures; this RFC no longer claims the stronger access boundary is complete)
-**Revised:** 2026-07-16 (an adversarial ingress review found that the native runner eagerly resolved and preauthorized authored literal `require()` and dynamic-import edges; those shapes now select the bounded 0.1 compatibility loader before the deferred target can be resolved, the authenticated native linker independently refuses them, manifest-builtin private fan-out is restricted to synchronous initialization, and ENG-25206 owns the permanent in-drive call-time activation coordinator); 2026-07-16 (the self-authenticating writable prepared cache was replaced by exact rendering from the current Host-authenticated source graph and is classified as a source-mode acceleration, not parse-free production startup); 2026-07-16 (native `import.meta.resolve` now fails with one stable explicit refusal until its typed resolution-only capability is connected); 2026-07-15 (ENG-25060 made frame-attribution feature detection inspect the exact linked macOS framework or Linux library, keeping every advertised engine build fail-closed); 2026-07-15 (ENG-25060 added non-root frame-attribution fixtures for cold and repeated source factories plus prepared source and HBC carriers); 2026-07-15 (ENG-25066 set measured checked-cell and cold `require(ESM)` envelopes and added exact-host micro-performance evidence); 2026-07-15 (ENG-25061 added a fail-loud, no-execution graph/effect-trace shadow between checked authenticated producer artifacts and the exact legacy scanner, including all three historical scanner-repair families); 2026-07-15 (ENG-25066 made the native target advertisement exact and non-empty for macOS arm64 and Linux x64, with Windows explicitly compatibility-only pending a patched Hermes artifact); 2026-07-15 (ENG-25066 narrowed legacy admission to typed unsupported producer shapes and retained fatal behavior for authorization, syntax, integrity, and linkage failures); 2026-07-15 (ENG-25065 limited trusted bootstrap evaluation to the unpublished owner-thread construction window while retaining the generation drive gate after publication); 2026-07-15 (ENG-25066 made the authenticated runner the default for ordinary ESM and bounded the legacy loader to the 0.1 compatibility window); 2026-07-15 (ENG-25064 connected the Rolldown cache to canonical per-principal prepared graphs and their full native linker); 2026-07-15 (ENG-25065 amended LLP 0023/0024 with generation-scoped development module incarnations); 2026-07-15 (ENG-25064 implemented canonical per-principal source/HBC carriers, atomic admission, and real-Hermes execution equivalence); 2026-07-15 (ENG-25063 implemented dependency-first async SCCs,
+**Revised:** 2026-07-18 (the Phase-0 compatibility baseline now records the
+post-native-switch namespace/CommonJS observations and successful dynamic-import
+source-map line recovery instead of retaining the superseded shim failure)
+**Revised:** 2026-07-18 (Snapback's 0.2 requirement activates native computed dynamic imports through generation-bound, site-specific candidate tables; the author resolved computed CommonJS `require` as a guarded reached-site invocation failure for 0.2, preserving dead branches and argument evaluation without runtime resolution)
+**Revised:** 2026-07-17 (LLP 0029 supersedes the carrier wire with v2 tagged engine bindings and inspected HBC metadata without changing module semantics); 2026-07-15 (ENG-25060 made frame-attribution feature detection inspect the exact linked macOS framework or Linux library, keeping every advertised engine build fail-closed); 2026-07-15 (ENG-25060 added non-root frame-attribution fixtures for cold and repeated source factories plus prepared source and HBC carriers); 2026-07-15 (ENG-25066 set measured checked-cell and cold `require(ESM)` envelopes and added exact-host micro-performance evidence); 2026-07-15 (ENG-25061 added a fail-loud, no-execution graph/effect-trace shadow between checked authenticated producer artifacts and the exact legacy scanner, including all three historical scanner-repair families); 2026-07-15 (ENG-25066 made the native target advertisement exact and non-empty for macOS arm64 and Linux x64, with Windows explicitly compatibility-only pending a patched Hermes artifact); 2026-07-15 (ENG-25066 narrowed legacy admission to typed unsupported producer shapes and retained fatal behavior for authorization, syntax, integrity, and linkage failures); 2026-07-15 (ENG-25065 limited trusted bootstrap evaluation to the unpublished owner-thread construction window while retaining the generation drive gate after publication); 2026-07-15 (ENG-25066 made the authenticated runner the default for ordinary ESM and bounded the legacy loader to the 0.1 compatibility window); 2026-07-15 (ENG-25064 connected the Rolldown cache to canonical per-principal prepared graphs and their full native linker); 2026-07-15 (ENG-25065 amended LLP 0023/0024 with generation-scoped development module incarnations); 2026-07-15 (ENG-25064 implemented canonical per-principal source/HBC carriers, atomic admission, and real-Hermes execution equivalence); 2026-07-15 (ENG-25063 implemented dependency-first async SCCs,
 handled internal record promises, fresh ESM/CommonJS dynamic-import promises,
 sticky rejection, event-loop keepalive, and mixed re-entry refusal); 2026-07-15
-(ENG-25062 introduced immutable-snapshot graph authorization receipts and the autonomous initialization context; receipt-revalidated trusted-loader access remains incomplete as recorded by the 2026-07-17 revision); 2026-07-15 (accepted by the author after the bounded producer spike passed 12/12 canonical artifacts and 20/20 frozen test262 cases; wire and interop details split to LLP 0027); 2026-07-15 (moved to Review and created the ENG-25054 Linear execution program); 2026-07-15 (rounds 1–8: dual-model review revisions; see `llp/reviews/0026-esm-module-runner.{fable,codex}.md`)
-**Related:** LLP 0002 (host embedding ABI); LLP 0003 (Hermes engine bridge); LLP 0004 (module loading); LLP 0005 (hermetic build); LLP 0006 (native-first diagnostics); LLP 0007 (transform convergence); LLP 0009 (runtime transform scope); LLP 0012 (runtime identity / Node compatibility target); LLP 0013 (package compartments); LLP 0014 (import policy); LLP 0018 (fail-loud agent tooling); LLP 0019 (Hermes-compat transform authority); LLP 0021 (CapSec effect model); LLP 0022 (REPL behavior); LLP 0023 (source identity); LLP 0024 (structured evaluation); LLP 0025 (terminal session ownership); LLP 0027 (artifact wire and ESM/CommonJS interop contract)
+(ENG-25062 implemented immutable-snapshot graph authorization receipts, the autonomous initialization context, and the no-probe trusted-loader access boundary); 2026-07-15 (accepted by the author after the bounded producer spike passed 12/12 canonical artifacts and 20/20 frozen test262 cases; wire and interop details split to LLP 0027); 2026-07-15 (moved to Review and created the ENG-25054 Linear execution program); 2026-07-15 (rounds 1–8: dual-model review revisions; see `llp/reviews/0026-esm-module-runner.{fable,codex}.md`)
+**Related:** LLP 0002 (host embedding ABI); LLP 0003 (Hermes engine bridge); LLP 0004 (module loading); LLP 0005 (hermetic build); LLP 0006 (native-first diagnostics); LLP 0007 (transform convergence); LLP 0009 (runtime transform scope); LLP 0012 (runtime identity / Node compatibility target); LLP 0013 (package compartments); LLP 0014 (import policy); LLP 0018 (fail-loud agent tooling); LLP 0019 (Hermes-compat transform authority); LLP 0021 (CapSec effect model); LLP 0022 (REPL behavior); LLP 0023 (source identity); LLP 0024 (structured evaluation); LLP 0025 (terminal session ownership); LLP 0027 (artifact wire and ESM/CommonJS interop contract); LLP 0031 (0.2 native platform matrix)
 
 ## Summary
 
@@ -792,40 +795,24 @@ same evaluation promise and is attributed to the owning/scheduling principal.
 4. evaluates it; and
 5. resolves to the stable namespace object.
 
-**Implementation safety boundary (2026-07-16).** The accepted design above is
-not yet fully realized for call-time edges. Review found that the first native
-implementation resolved, source-read, authorized, compiled, and linked literal
-dynamic-import and `require()` candidates before execution, then let the live
-callback consume only a prelinked table. That mechanism cannot prove either the
-dead-branch no-probe rule or the live requester/effect/schedule/constrained
-context. Production therefore selects the bounded 0.1 compatibility loader as
-soon as an admitted artifact contains any dynamic import or any authored
-CommonJS `require()`, before resolving that deferred target; the authenticated
-native linker repeats the refusal for alternate internal callers. The only
-native `require` fan-out retained is the already-specified exact
-manifest-builtin private dependency exception, and its callback is usable only
-while that exact builtin record is the active synchronous initializer; a
-retained closure cannot escape or re-enter from another record. ENG-25206 owns the
-generation-pinned private in-drive activation coordinator required to remove
-this safety boundary. The compatibility transformer relocalizes compiler-lowered
-`globalThis["import"](...)` calls, and structured-session lowering protocol v2
-routes entry imports through a private native hook carrying the admitted logical
-referrer, so delayed edges retain their identity without requesting cwd authority.
-Disabling the compatibility window makes these shapes fail loudly; it does not
-restore the eager native mechanism.
-
-The initial native ABI contains dormant/private-test machinery for one
-retained, immediately handled internal evaluation promise per record and a
-fresh derived public promise for every invocation. It does not realize the
-call-time admission contract while the safety boundary above is active.
-Literal dynamic edges remain semantic artifact fields, and computed sites
-carry stable producer-order ids, so ENG-25206 can reuse the authenticated plan
-algebra. Dependency closures are collapsed into deterministic SCC metadata,
-async taint propagates to importers, and Rust advances native static graphs
-only by non-blocking polls between host event-loop drives. Both fulfillment
-handlers and the internal rejection handler are attached before execution
-returns to the host; public rejection remains observable without manufacturing
-a second unhandled rejection from the runner's bookkeeping chain.
+The initial native ABI realizes that contract with one retained, immediately
+handled internal evaluation promise per record and a fresh derived public
+promise for every invocation. Literal dynamic edges are semantic artifact
+fields. Computed sites carry stable producer-order ids and may select only from
+the exact authenticated candidate map supplied with the graph; a spelling not
+in that map becomes a rejected promise without a resolution or filesystem
+probe. The v2 factory ABI also carries the original-source byte span and a
+producer option-shape guard. A reached candidate-less/malformed site rejects
+with the authenticated requester and original span after argument/options
+evaluation; dead branches remain loadable. Candidate rows key on execution
+generation and are linked independently by `(site, spelling)`, so one site
+cannot borrow another's candidate even when both targets are already admitted.
+Dependency closures are collapsed into deterministic SCC metadata,
+async taint propagates to importers, and Rust advances the native graph only by
+non-blocking polls between host event-loop drives. Both fulfillment handlers
+and the internal rejection handler are attached before execution returns to
+the host; public rejection remains observable without manufacturing a second
+unhandled rejection from the runner's bookkeeping chain.
 
 Event-loop keepalive, cancellation, work-unit identity, and exactly-once
 rejection reporting for suspended graphs are LLP 0024/0025 contracts, and
@@ -1078,8 +1065,12 @@ for a pre-execution bytecode load failure, never after program effects.
 Dynamic boundaries may remain as separately authenticated chunks. Loading one
 uses the same record/link/evaluate path as a source-created artifact.
 
-The v1 wire realization is `ibex/module-carrier/1`
-(`schemas/module-carrier-v1.schema.json`, `commit:c6d2aefe`). Its manifest binds
+The original wire realization was `ibex/module-carrier/1`
+(`schemas/module-carrier-v1.schema.json`, `commit:c6d2aefe`). LLP 0029 now
+supersedes it with `ibex/module-carrier/2`
+(`schemas/module-carrier-v2.schema.json`), preserving the same semantic-entry
+contract while separating loaded-file from static-compatibility engine
+identity and inspecting HBC metadata from the payload. Its manifest binds
 one defining principal, prepared producer binary, deployment graph, carrier
 digest, encoding, and a strictly ordered table of entries. Each entry embeds
 the complete original `ModuleSemanticsV1` and recomputed semantic digest. Rust
@@ -1263,6 +1254,14 @@ pipeline.
 
 ### Phase 0: Baseline the current contract
 
+**Implementation state (2026-07-18).** The exact Node/current-Ibex baseline is
+regenerated from the real native-default binary. It deliberately records the
+current namespace and CommonJS-adapter shapes as compatibility observations,
+not normative target behavior. The dynamic-import source-map fixture now
+settles and reports original line 5 on both Node and Ibex, replacing the prior
+legacy-shim parse failure; keeping that stale expected failure would make an
+actual semantic improvement fail the authoritative macOS gate.
+
 - Promote existing loader regressions and representative ecosystem packages
   into an implementation-neutral module-semantics corpus.
 - Add live-binding, cycle, namespace, TLA, and ESM/CommonJS fixtures that expose
@@ -1371,12 +1370,14 @@ than creating path-keyed debt.
 
 ### Phase 4: Prepared production graph
 
-**Implementation state (revised 2026-07-16).** The existing writable Rolldown
-cache publishes a canonical `ibex/prepared-module-graph/1` index beneath the
-cached deployment graph. It emits one principal-bound JavaScript factory
-carrier per original module, binds every original `SourceId` and resolved edge,
-and admits the index, artifacts, and carriers before the native linker can
-execute them. The same carrier contract also admits matching-engine HBC;
+**Implementation state (2026-07-18).** The existing Rolldown cache now
+publishes a canonical `ibex/prepared-module-graph/2` index beneath the cached
+deployment graph. It groups verified artifacts into one JavaScript factory
+carrier per defining principal, binds every original `SourceId` and resolved
+edge, references generation-bound computed-candidate sidecars by canonical
+digest, and admits the index, artifacts, carriers, and sidecars before the
+native linker can execute them. v1 caches rebuild on schema mismatch. The same
+carrier contract also admits matching-engine HBC;
 source and HBC carrier equivalence is covered on real Hermes. The default
 publisher currently chooses JavaScript factory carriers, so producing HBC is
 an optional preparation optimization rather than a runtime dependency.
@@ -1405,23 +1406,23 @@ advertise this cache path as prepared production startup.
 
 ### Phase 5: Default switch and retirement
 
-**Implementation state (2026-07-16).** The `module-runner` Cargo feature is
+**Implementation state (2026-07-18).** The `module-runner` Cargo feature is
 enabled by default. Ordinary authenticated ESM graphs use AST-derived edges,
 TLA metadata, and the native graph linker; authorization, parsing, linking, or
 evaluation failures fail closed and never retry through the legacy loader.
 Only explicitly unsupported interop shapes may enter the compatibility path,
 which is bounded to Ibex 0.1 and can be closed early with
-`IBEX_LEGACY_MODULE_LOADER=0`. Static-only ESM, JSON, and CommonJS records use
-the native runner, as does exact manifest-owned builtin fan-out confined to
-synchronous builtin initialization. Any dynamic import and any authored
-literal or computed `require()` select the compatibility window before their
-deferred targets are resolved; computed dynamic import and dynamic-import
-options remain there as well. This is a deliberate security rollback from the
-earlier implementation claim, pending ENG-25206, so the compatibility scanners
-and SWC dependencies cannot yet be deleted. Hosted platform and performance
-evidence remains a release gate; the CI workflow records both default and
-no-default build coverage plus the prepared-cache end-to-end test, but those
-results must not be described as native call-time-edge conformance.
+`IBEX_LEGACY_MODULE_LOADER=0`. CommonJS, JSON, builtin, and literal dynamic
+imports now use native records. Computed dynamic imports with reviewed
+candidate rows and valid runtime options now remain native; unlabeled/missing
+rows and unsupported non-reserved options are guarded invocation failures
+rather than legacy fallback. Computed CommonJS `require()` now also remains
+native until reached, then throws the stable fail-closed diagnostic after
+argument evaluation with authenticated requester and original-source span; it
+does not enter the compatibility evaluator. Hosted platform and
+performance evidence remains the final release gate; the CI workflow records
+both default and no-default build coverage plus the prepared-cache end-to-end
+test.
 
 - Make the module runner default after semantic, security, platform, and
   performance gates pass.

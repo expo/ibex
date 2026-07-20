@@ -21,6 +21,7 @@ mod session_semantics_conformance;
 mod session_worker;
 #[cfg(unix)]
 mod session_worker_runtime;
+mod sfe;
 mod subprocess;
 mod terminal_session;
 
@@ -1235,6 +1236,21 @@ async fn run(cli: Cli) -> Result<()> {
         Some(Commands::Build { file, outdir }) => {
             build_bytecode(&cli, file, outdir.as_deref()).await
         }
+        Some(Commands::Compile {
+            entry,
+            output,
+            carrier,
+            compile_policy,
+            deny_unsupported,
+        }) => sfe::compile(
+            entry,
+            output,
+            *carrier,
+            cli.policy.as_deref(),
+            compile_policy.as_deref(),
+            *deny_unsupported,
+        ),
+        Some(Commands::InspectExecutable { file }) => sfe::inspect(file),
         Some(Commands::Version) => {
             print_version(&cli);
             Ok(())

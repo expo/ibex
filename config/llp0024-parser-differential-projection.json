@@ -1,0 +1,50 @@
+{
+  "parserDifferentialProjectionSchema": "ibex/llp0024-parser-differential-projection/1",
+  "purpose": "Predeclared SWC-to-Oxc cutover projection for ordinary parser goals shared by both parsers",
+  "parserPins": {
+    "swcEcmaParser": "41.0.1",
+    "oxcParser": "0.140.0"
+  },
+  "goals": ["script", "module"],
+  "dialects": ["js", "jsx", "ts", "tsx"],
+  "fields": [
+    "outcome",
+    "astAvailable",
+    "directiveCount",
+    "topLevelCategorySequence",
+    "topLevelSpanValidity"
+  ],
+  "topLevelCategories": [
+    "directive",
+    "import",
+    "export",
+    "declaration",
+    "statement"
+  ],
+  "outcomePolicy": {
+    "accepted": "The parser returned an AST and no parser diagnostics",
+    "diagnostic": "The parser returned an error or any recovered parser diagnostic",
+    "diagnosticMessagesCompared": false
+  },
+  "spanPolicy": {
+    "comparedAcrossParsers": false,
+    "validation": "Every projected top-level half-open byte span is ordered, within source bounds, and non-overlapping with the next top-level item",
+    "rationale": "The parsers use different source-position bases and recovery spans; cutover equivalence requires valid ordering, not byte-identical internal spans"
+  },
+  "equivalencePolicy": {
+    "alwaysCompare": ["outcome", "astAvailable"],
+    "compareWhenBothAccepted": [
+      "directiveCount",
+      "topLevelCategorySequence",
+      "topLevelSpanValidity"
+    ],
+    "recoveryRule": "Any diagnostic is non-equivalent to acceptance; two diagnostic outcomes are equivalent without fitting message text"
+  },
+  "excluded": [
+    "node-specific AST variants below top level",
+    "identifier symbol tables",
+    "comments and trivia attachment",
+    "diagnostic wording",
+    "the LLP 0024 hybrid Script-plus-import-plus-TLA adapter, which has a separate oracle"
+  ]
+}

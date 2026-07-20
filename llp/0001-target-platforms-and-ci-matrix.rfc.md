@@ -7,6 +7,15 @@
 **Date:** 2026-06-13
 **Revised:** 2026-07-17 (ENG-24933 adds a pinned patched no-debugger Windows Hermes source build/release bundle pipeline; Windows remains compatibility-only with pathname-reopen identity explicitly insufficient for mapped-image attestation)
 **Revised:** 2026-07-17 (ENG-24933 adds Windows x64 as an explicit unadvertised CapSec candidate and runs the complete exact-target report against the pinned patched no-debugger DLL; Windows remains compatibility-only while that report is incomplete)
+**Revised:** 2026-07-18 (LLP 0031 narrows Ibex 0.2 native source/module
+execution to evidence-gated macOS arm64 and Linux x64; this RFC's broader
+matrix remains the product ambition and build-visibility plan, not a 0.2
+execution advertisement)
+**Revised:** 2026-07-18 (exact-target recipe generation now intersects source-discovered native registrations with the Windows translation units selected by `build.rs`)
+**Revised:** 2026-07-18 (the Windows replacement crypto translation unit
+preserves the cross-target hash-normalizer test ABI and reports that profile as
+unsupported, so the complete Cargo matrix can link before deciding applicability)
+**Revised:** 2026-07-17 (ENG-24933 adds a pinned patched no-debugger Windows Hermes source build/release bundle pipeline and independent loaded-DLL volume/file identity; Windows remains compatibility-only pending remote artifact and conformance evidence)
 **Revised:** 2026-07-15 (ENG-25066 advertises the native module runner on exact macOS arm64 and Linux x64 targets while retaining Windows as an explicit compatibility-only row until a matching patched Hermes artifact exists); 2026-07-15 (ENG-25061: matching-artifact native module-runner corpus on macOS arm64 and Linux x64); 2026-07-12 (ENG-24263/ENG-24264: full exact-engine CapSec matrix/evidence is a gating macOS job; Windows runs behavioral locked-DLL staging coverage; Android queue behavior runs on a host JVM)
 **Related:** LLP 0000; LLP 0002
 
@@ -22,6 +31,12 @@ This RFC records the target set, the build axes that matter beyond OS name
 (architecture and crypto profile), and the CI matrix needed to make platform
 support observable. Where a row is not wired in code yet, this document marks it
 as proposed/known-red rather than claiming it builds.
+
+For Ibex 0.2, LLP 0031 governs executable source/module support: only
+`aarch64-apple-darwin` and `x86_64-unknown-linux-gnu` may be promoted after
+their exact native-runner and CapSec evidence gates pass. Other rows in this
+RFC remain visible build or future-product targets and do not inherit runtime
+TypeScript, source audit, or compatibility-evaluator support.
 
 ## 1. Target platforms
 
@@ -71,6 +86,20 @@ and platform-version globals for the JS runtime `[observed]` (`build.rs`;
 `src/engine/native_android_networking.cc`;
 `src/engine/hermes_runtime_android.cc`;
 `platform/android/java/dev/ibex/runtime/IbexNetworking.java`).
+
+The Windows build substitutes its filesystem, crypto, DNS, process, network,
+OS-info, debugger, and process-setup translation units for the corresponding
+default backend files `[observed]` (`build.rs`). Source discovery intentionally
+retains registrations from every implementation, but exact-target recipe
+generation must intersect those registrations with this build selection. A
+global found only in an excluded default translation unit is not callable
+Windows evidence; the current intersection keeps 37 recipes spanning 33 such
+globals residual under `native-public-operation-not-installed-on-target`.
+Globals with an actual Windows installation branch remain eligible.
+Replacement translation units must also preserve cross-target integration-test
+C ABI shape when the test contract reports unsupported applicability at
+runtime; otherwise Windows cannot link the complete matrix far enough to make
+that honest decision.
 
 ## 2. The axes that matter beyond OS
 

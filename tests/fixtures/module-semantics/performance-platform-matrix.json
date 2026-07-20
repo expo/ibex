@@ -8,8 +8,8 @@
       "nativeRunnerAdvertised": true,
       "runtimeEvidence": "tests/fixtures/module-semantics/performance-macos-arm64.json",
       "collectionWorkflow": ".github/workflows/module-loader-baselines.yml",
-      "status": "provisional",
-      "note": "Checked runtime samples exist, but the current report is explicitly host-contended and unusable for an accepted budget."
+      "status": "complete",
+      "note": "Checked Rust 1.97/Oxc 0.140 runtime samples are uncontended and pass the predeclared LLP 0026 performance envelope against the archived pre-rotation baseline."
     },
     {
       "id": "linux-x64",

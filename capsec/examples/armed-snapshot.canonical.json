@@ -2,10 +2,10 @@
   "snapshotSchema": "ibex/capsec-armed/1",
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
-  "vocabDigest": "sha256-HSZcepYqP89WNTbi-eDe-CR8hfsOgfjKZxj6NHnNpLQ",
-  "registryDigest": "sha256-IMVc_8X6JfulMld8z6pJNbUlCmo3ZixpA6R7ngcxr60",
-  "policyDigest": "sha256-FVYDlRwOVuR7gPpze6A-dVk_9SCk7EavAkkU3FDK4Jc",
-  "armedSnapshotDigest": "sha256-Pl3_9r031LvYhY-Rtdpx_VRgUR59hLu3UPAgbJ98DGU",
+  "vocabDigest": "sha256-tMjEjSYk_pzBqmakbJdIr5Q4_8xelMMnp6DkEDNi-Uw",
+  "registryDigest": "sha256-I2Qcbd3XQz6KKyIG55fdfZWH9A6ZMDWQVDbH_EA_E-A",
+  "policyDigest": "sha256-3C-KgOaTFsxHN73pSUA3oe2uKLnPY0d6hJ_5eKKSHaE",
+  "armedSnapshotDigest": "sha256-AiV_-cO4tz9Y08lty8QQNO-Xr-0cJ-RDlM_dIRNHMWI",
   "workflow": "contract-fixture",
   "effectiveMode": "enforce",
   "engine": {
@@ -334,6 +334,10 @@
   "processAuthorityCeiling": {
     "kind": "unbounded"
   },
+  "rootAuthorityCeiling": {
+    "kind": "unbounded"
+  },
+  "bootstrapAuthorityFloor": [],
   "generations": {
     "policy": 1,
     "negative": 0,

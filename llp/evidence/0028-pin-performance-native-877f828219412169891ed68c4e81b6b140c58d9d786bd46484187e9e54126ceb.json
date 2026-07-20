@@ -1,0 +1,49 @@
+{
+  "schema": "ibex/module-runner-performance-baseline/1",
+  "platform": {
+    "os": "macos",
+    "arch": "aarch64"
+  },
+  "dependencyModules": 40,
+  "runtimeStartup": {
+    "samples": 11,
+    "minMs": 5.919958,
+    "medianMs": 6.846375,
+    "meanMs": 10.115162818181817,
+    "maxMs": 43.3345
+  },
+  "profiles": {
+    "authenticatedSource": {
+      "cold": {
+        "samples": 5,
+        "minMs": 43.598625,
+        "medianMs": 45.876458,
+        "meanMs": 54.173791400000006,
+        "maxMs": 84.24225
+      },
+      "warm": {
+        "samples": 5,
+        "minMs": 33.780792,
+        "medianMs": 40.075291,
+        "meanMs": 42.37875,
+        "maxMs": 53.313833
+      }
+    },
+    "authenticatedPrepared": {
+      "cold": {
+        "samples": 5,
+        "minMs": 46.091499999999996,
+        "medianMs": 47.985999,
+        "meanMs": 58.9610248,
+        "maxMs": 103.89966700000001
+      },
+      "warm": {
+        "samples": 5,
+        "minMs": 37.341792,
+        "medianMs": 38.255542,
+        "meanMs": 38.3020502,
+        "maxMs": 39.327082999999995
+      }
+    }
+  }
+}

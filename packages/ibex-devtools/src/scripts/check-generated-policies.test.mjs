@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { GENERATED_POLICY_CHECKS } from "./check-generated-policies.mjs";
@@ -48,5 +49,31 @@ test("generated policy inputs use canonical LF checkout bytes", () => {
       fs.readFileSync(path.join(repoRoot, sourcePath), "utf8").includes("\r"),
       sourcePath,
     ).toBe(false);
+  }
+});
+
+test("checked portable policy trees retain canonical source bytes", () => {
+  for (const [entry] of GENERATED_POLICY_CHECKS) {
+    const projectRoot = path.dirname(entry);
+    const trackedFiles = execFileSync(
+      "git",
+      ["ls-files", "-z", "--", projectRoot],
+      {
+        cwd: repoRoot,
+      },
+    )
+      .toString("utf8")
+      .split("\0")
+      .filter(Boolean);
+    expect(trackedFiles.length).toBeGreaterThan(0);
+
+    const attributes = execFileSync(
+      "git",
+      ["check-attr", "eol", "--", ...trackedFiles],
+      { cwd: repoRoot, encoding: "utf8" },
+    );
+    for (const file of trackedFiles) {
+      expect(attributes).toContain(`${file}: eol: lf`);
+    }
   }
 });

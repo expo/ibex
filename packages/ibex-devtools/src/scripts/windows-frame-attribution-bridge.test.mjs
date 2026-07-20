@@ -49,7 +49,9 @@ test("Windows engine identity names the Hermes DLL instead of an import thunk", 
     path.join(repoRoot, "src/engine/hermes_runtime.cc"),
     "utf8",
   );
-  const helperCalls = source.match(/exactHermesRuntimeImageModule\(\)/gu) ?? [];
+  const selectorCalls =
+    source.match(/exactHermesRuntimeImageModule\(\)/gu) ?? [];
+  const verifiedCalls = source.match(/loadedHermesModule\(\)/gu) ?? [];
 
   expect(source).toContain("CreateToolhelp32Snapshot(");
   expect(source).toContain("GetLastError() != ERROR_BAD_LENGTH");
@@ -59,6 +61,11 @@ test("Windows engine identity names the Hermes DLL instead of an import thunk", 
   expect(source).toContain("if (selected != nullptr)");
   expect(source).toContain("GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |");
   expect(source).toContain("GET_MODULE_HANDLE_EX_FLAG_PIN");
+  expect(source).toContain(
+    'GetProcAddress(candidate, "ex_hermes_vm_current_package_id")',
+  );
+  expect(source).toContain("containing != candidate");
   expect(source).not.toContain('GetModuleHandleA("hermesvm.dll")');
-  expect(helperCalls).toHaveLength(3);
+  expect(selectorCalls).toHaveLength(2);
+  expect(verifiedCalls).toHaveLength(3);
 });

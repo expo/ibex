@@ -43,6 +43,15 @@ fn native_module_runner_target_is_advertised(os: &str, arch: &str) -> bool {
     matches!((os, arch), ("macos", "aarch64") | ("linux", "x86_64"))
 }
 
+/// Test-only selector for preserving the bounded compatibility loader instead
+/// of preparing an entry through the ordinary producer/bundler path. Fixture
+/// fidelity remains independently selected by `EXACT_COMPAT_TEST` inside the
+/// compat harness and runtime shims.
+/// @ref LLP 0028#4-reachability-inventory-and-retirement-matrix
+fn compat_loader_fixture_mode() -> bool {
+    std::env::var_os("IBEX_COMPAT_LOADER_TEST").is_some()
+}
+
 #[cfg(feature = "module-runner")]
 fn current_native_module_runner_target_is_advertised() -> bool {
     native_module_runner_target_is_advertised(std::env::consts::OS, std::env::consts::ARCH)
@@ -3094,6 +3103,7 @@ fn expected_identity_from_snapshot(
         project_root_discovery: snapshot.project_root_discovery().clone(),
         path_canonicalizers: snapshot.path_canonicalizers().rows().to_vec(),
         protected_artifacts: snapshot.protected_artifacts().to_vec(),
+        embedded_protected_artifacts: snapshot.embedded_protected_artifacts().to_vec(),
     })
 }
 
@@ -4877,6 +4887,7 @@ fn build_default_armed_host(
                 content_digest: registry_object.content_digest,
             },
         ],
+        embedded_protected_artifacts: vec![],
     };
     let snapshot = Arc::new(ArmedSnapshot::load(
         &serde_json::to_vec(&value)?,
@@ -6621,8 +6632,7 @@ async fn prepare_entry_with_format_and_bytecode_in_cache(
         return Ok(path);
     }
 
-    let is_compat_js_fixture =
-        std::env::var_os("EXACT_COMPAT_TEST").is_some() && matches!(ext, "js" | "cjs" | "mjs");
+    let is_compat_js_fixture = compat_loader_fixture_mode() && matches!(ext, "js" | "cjs" | "mjs");
     if is_compat_js_fixture {
         // Compatibility fixtures depend on the raw loader behavior and can
         // break when the entry file is pre-bundled before execution.
@@ -10006,7 +10016,14 @@ pub async fn run_policy_command(command: &crate::cli::PolicyCommands) -> Result<
     }
     cmd.arg(&script);
     match command {
-        PolicyCommands::Generate { entry, out, mode } => {
+        PolicyCommands::Generate {
+            entry,
+            out,
+            mode,
+            target_profile,
+            target_triple,
+            mount_profile,
+        } => {
             cmd.arg("--entry").arg(entry);
             if let Some(out) = out {
                 cmd.arg("--out").arg(out);
@@ -10014,8 +10031,24 @@ pub async fn run_policy_command(command: &crate::cli::PolicyCommands) -> Result<
             if let Some(mode) = mode {
                 cmd.arg("--mode").arg(mode);
             }
+            if let Some(profile) = target_profile {
+                cmd.arg("--target-profile").arg(profile);
+            }
+            if let Some(target) = target_triple {
+                cmd.arg("--target-triple").arg(target);
+            }
+            if let Some(mount) = mount_profile {
+                cmd.arg("--mount-profile").arg(mount);
+            }
         }
-        PolicyCommands::Check { entry, out, mode } => {
+        PolicyCommands::Check {
+            entry,
+            out,
+            mode,
+            target_profile,
+            target_triple,
+            mount_profile,
+        } => {
             cmd.arg("--entry").arg(entry).arg("--check");
             if let Some(out) = out {
                 cmd.arg("--out").arg(out);
@@ -10025,6 +10058,15 @@ pub async fn run_policy_command(command: &crate::cli::PolicyCommands) -> Result<
             // false-drifts against an enforce-default regeneration. (ENG-22642)
             if let Some(mode) = mode {
                 cmd.arg("--mode").arg(mode);
+            }
+            if let Some(profile) = target_profile {
+                cmd.arg("--target-profile").arg(profile);
+            }
+            if let Some(target) = target_triple {
+                cmd.arg("--target-triple").arg(target);
+            }
+            if let Some(mount) = mount_profile {
+                cmd.arg("--mount-profile").arg(mount);
             }
         }
     }
@@ -11759,6 +11801,7 @@ pub(crate) mod tests {
             path_canonicalizers: serde_json::from_value(value["pathCanonicalizers"].clone())
                 .unwrap(),
             protected_artifacts,
+            embedded_protected_artifacts: Vec::new(),
         };
         let snapshot =
             ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();
@@ -14141,6 +14184,7 @@ pub(crate) mod tests {
                     content_digest: registry_artifact.content_digest,
                 },
             ],
+            embedded_protected_artifacts: vec![],
         };
         let snapshot_path = directory.join("armed.json");
         let identity_path = directory.join("identity.json");

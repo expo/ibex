@@ -357,6 +357,10 @@ fs.close(fd, function(err) { if (err) console.log('close-error:' + err.code); })
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+// This failure-injection path exercises the POSIX backend's duplicated-fd
+// ownership and counts descriptors through /dev/fd. Windows uses shared
+// opaque handles and has separate live/source ownership coverage.
+#[cfg(not(windows))]
 #[test]
 fn queue_rejection_releases_owned_fds_and_rolls_back_close() {
     let dir = unique_dir("fs-queue-reject");

@@ -46,6 +46,8 @@ pub struct DynamicAuthorizationPlan {
     pub allowed_specifiers: BTreeMap<SourceId, BTreeSet<String>>,
 }
 
+pub type ComputedCandidateSiteMap = BTreeMap<SourceId, BTreeMap<(u32, String), SourceId>>;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GraphErrorCode {
     ModuleLink,
@@ -110,6 +112,7 @@ impl GraphEdgeKey {
 /// Immutable link plan for one synchronous graph generation.
 pub struct SynchronousGraphPlan<'artifact> {
     records: BTreeMap<SourceId, PlannedRecord<'artifact>>,
+    computed_candidate_sites: ComputedCandidateSiteMap,
 }
 
 /// One strongly connected component in dependency-first order. Records inside
@@ -187,6 +190,18 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             ),
         >,
     ) -> Result<Self, GraphError> {
+        Self::new_typed_with_computed_candidates(records, BTreeMap::new())
+    }
+
+    pub fn new_typed_with_computed_candidates(
+        records: impl IntoIterator<
+            Item = (
+                VerifiedModuleArtifactV1<'artifact>,
+                BTreeMap<GraphEdgeKey, SourceId>,
+            ),
+        >,
+        computed_candidate_sites: ComputedCandidateSiteMap,
+    ) -> Result<Self, GraphError> {
         let mut planned = BTreeMap::new();
         for (artifact, edges) in records {
             let semantics = &artifact.artifact().semantics;
@@ -228,7 +243,44 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                 }
             }
         }
-        Ok(Self { records: planned })
+        for (requester, rows) in &computed_candidate_sites {
+            let record = planned.get(requester).ok_or_else(|| {
+                GraphError::link(format!(
+                    "computed-candidate requester is absent from graph: {requester:?}"
+                ))
+            })?;
+            let admitted_sites = record
+                .artifact
+                .artifact()
+                .semantics
+                .dynamic_edges
+                .iter()
+                .filter_map(|edge| match edge {
+                    super::artifact::DynamicEdgeV1::Computed { site } => Some(*site),
+                    super::artifact::DynamicEdgeV1::Literal { .. } => None,
+                })
+                .collect::<BTreeSet<_>>();
+            for ((site, specifier), target) in rows {
+                if !admitted_sites.contains(site)
+                    || record
+                        .edges
+                        .get(&GraphEdgeKey::new(specifier, ResolutionKind::DynamicImport))
+                        != Some(target)
+                {
+                    return Err(GraphError::link(format!(
+                        "computed-candidate site {site} spelling {specifier:?} disagrees with the authenticated artifact graph"
+                    )));
+                }
+            }
+        }
+        Ok(Self {
+            records: planned,
+            computed_candidate_sites,
+        })
+    }
+
+    pub fn computed_candidate_sites(&self) -> &ComputedCandidateSiteMap {
+        &self.computed_candidate_sites
     }
 
     pub fn artifact(

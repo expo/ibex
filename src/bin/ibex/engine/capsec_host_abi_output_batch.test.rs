@@ -355,6 +355,7 @@ fn is_module_runner_function(function_name: &str) -> bool {
             | "ex_hermes_commonjs_record_create_esm_adapter"
             | "ex_hermes_commonjs_record_declare_export"
             | "ex_hermes_commonjs_record_evaluate"
+            | "ex_hermes_commonjs_record_link_computed_dynamic_import"
             | "ex_hermes_commonjs_record_link_dynamic_import"
             | "ex_hermes_commonjs_record_link_require"
             | "ex_hermes_commonjs_record_link_require_esm"
@@ -366,6 +367,7 @@ fn is_module_runner_function(function_name: &str) -> bool {
             | "ex_hermes_module_pin_generation"
             | "ex_hermes_module_record_declare_export"
             | "ex_hermes_module_record_instantiate"
+            | "ex_hermes_module_record_link_computed_dynamic_import"
             | "ex_hermes_module_record_link_dependency"
             | "ex_hermes_module_record_link_dynamic_import"
             | "ex_hermes_module_record_link_export"
@@ -384,7 +386,8 @@ fn is_bounded_family_output_selector(function_name: &str, selector: &str) -> boo
         || (is_module_runner_function(function_name) && selector != "[[return]]")
         || matches!(
             (function_name, selector),
-            ("ex_host_fs_pread", "out:buf")
+            ("ex_host_env_compiled_key_at", "out:buf")
+                | ("ex_host_fs_pread", "out:buf")
                 | ("ex_host_fs_read", "out:buf")
                 | ("ex_host_fs_read_file", "out:errno" | "out:len")
                 | (
@@ -397,6 +400,7 @@ fn is_bounded_family_output_selector(function_name: &str, selector: &str) -> boo
                     "out:errno"
                 )
                 | ("ex_hermes_eval", "out:value")
+                | ("ex_hermes_module_preflight_bytecode", "out:error")
                 | (
                     "ex_hermes_take_async_failure_event",
                     "out:event.associated_evaluation"
@@ -910,6 +914,12 @@ extern "C" {
         out_error: *mut *mut std::os::raw::c_char,
         out_error_token: *mut u64,
     ) -> i32;
+    #[link_name = "ex_hermes_module_preflight_bytecode"]
+    fn ex_output_hermes_module_preflight_bytecode(
+        bytes: *const u8,
+        length: usize,
+        out_error: *mut *mut std::os::raw::c_char,
+    ) -> i32;
     #[link_name = "ex_hermes_module_load_carrier_factory"]
     fn ex_output_hermes_module_load_carrier_factory(
         runtime: *mut HermesRuntimeOpaque,
@@ -1031,6 +1041,16 @@ extern "C" {
         specifier_len: usize,
         target_record: NativeModuleHandle,
     ) -> i32;
+    #[link_name = "ex_hermes_module_record_link_computed_dynamic_import"]
+    fn ex_output_hermes_module_record_link_computed_dynamic_import(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        site: u32,
+        specifier: *const u8,
+        specifier_len: usize,
+        target_record: NativeModuleHandle,
+    ) -> i32;
     #[link_name = "ex_hermes_module_record_instantiate"]
     fn ex_output_hermes_module_record_instantiate(
         runtime: *mut HermesRuntimeOpaque,
@@ -1124,6 +1144,16 @@ extern "C" {
         runtime: *mut HermesRuntimeOpaque,
         runtime_nonce: u64,
         record: NativeModuleHandle,
+        specifier: *const u8,
+        specifier_len: usize,
+        target_record: NativeModuleHandle,
+    ) -> i32;
+    #[link_name = "ex_hermes_commonjs_record_link_computed_dynamic_import"]
+    fn ex_output_hermes_commonjs_record_link_computed_dynamic_import(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        site: u32,
         specifier: *const u8,
         specifier_len: usize,
         target_record: NativeModuleHandle,
@@ -2062,11 +2092,48 @@ fn execute_typed_authority(
     Ok(observation)
 }
 
+const BOUNDED_COMPILED_ENVIRONMENT_KEY: &str = "IBEX_CAPSEC_OUTPUT_PROFILE";
+const BOUNDED_COMPILED_ENVIRONMENT_VALUE: &[u8] = b"bounded-compiled-value";
+const BOUNDED_COMPILED_ENVIRONMENT_PATH_KEY: &str = "PATH";
+const BOUNDED_COMPILED_ENVIRONMENT_PATH_VALUE: &[u8] = b"/ibex-capsec/bin";
+
+// The compiled broker base is process-wide and one-shot, just like the
+// compiled image that owns it. The executor installs one exact profile and
+// then observes the real enumeration ABI instead of inventing key bytes.
+// @ref LLP 0029#4-compiled-mode-authority
+fn install_bounded_compiled_environment_profile() -> Result<(), String> {
+    static INSTALL: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new();
+    INSTALL
+        .get_or_init(|| {
+            let fixture_key =
+                capsec_semantics::model::EnvironmentName::new(BOUNDED_COMPILED_ENVIRONMENT_KEY)
+                    .map_err(|error| {
+                        format!("construct bounded compiled environment key: {error}")
+                    })?;
+            let path_key = capsec_semantics::model::EnvironmentName::new(
+                BOUNDED_COMPILED_ENVIRONMENT_PATH_KEY,
+            )
+            .map_err(|error| format!("construct bounded compiled PATH key: {error}"))?;
+            let profile = crate::host::process::CompiledEnvironmentBase::new(vec![
+                (fixture_key, BOUNDED_COMPILED_ENVIRONMENT_VALUE.to_vec()),
+                (
+                    path_key,
+                    BOUNDED_COMPILED_ENVIRONMENT_PATH_VALUE.to_vec(),
+                ),
+            ])
+            .map_err(|error| format!("construct bounded compiled environment profile: {error}"))?;
+            crate::host::process::install_compiled_environment_base(profile)
+                .map_err(|error| format!("install bounded compiled environment profile: {error}"))
+        })
+        .clone()
+}
+
 fn execute_authenticated_stateful_host(
     function_name: &str,
     selector: &str,
     sandbox: &FsSandbox,
 ) -> Result<Value, String> {
+    install_bounded_compiled_environment_profile()?;
     let context = if function_name == "ex_host_authorize_exact_endowment" {
         OwnedAuthenticatedTypedContext::new_exact()?
     } else {
@@ -2093,6 +2160,40 @@ fn execute_authenticated_stateful_host(
             }
             returned_number(status)
         }
+        "ex_host_env_compiled_key_at" => {
+            let mut buffer = [0_i8; 256];
+            let length = crate::host::abi::ex_host_env_compiled_key_at(
+                0,
+                buffer.as_mut_ptr(),
+                buffer.len() as u32,
+            );
+            if length != BOUNDED_COMPILED_ENVIRONMENT_KEY.len() as i64 {
+                return Err(format!(
+                    "compiled environment key lookup returned length {length}"
+                ));
+            }
+            let actual = buffer[..length as usize]
+                .iter()
+                .map(|byte| *byte as u8)
+                .collect::<Vec<_>>();
+            if actual != BOUNDED_COMPILED_ENVIRONMENT_KEY.as_bytes() {
+                return Err("compiled environment key lookup returned another profile key".into());
+            }
+            if selector == "out:buf" {
+                raw("return", "array", json!(actual))
+            } else {
+                returned_number(length)
+            }
+        }
+        "ex_host_env_compiled_key_count" => {
+            let count = crate::host::abi::ex_host_env_compiled_key_count();
+            if count != 2 {
+                return Err(format!(
+                    "owned compiled environment profile returned key count {count}"
+                ));
+            }
+            returned_number(count)
+        }
         "ex_host_env_get" => {
             let key = CString::new("PATH").unwrap();
             let mut buffer = [0_i8; 8192];
@@ -2110,6 +2211,9 @@ fn execute_authenticated_stateful_host(
                 .iter()
                 .map(|byte| *byte as u8)
                 .collect::<Vec<_>>();
+            if bytes != BOUNDED_COMPILED_ENVIRONMENT_PATH_VALUE {
+                return Err("compiled environment read returned another PATH value".into());
+            }
             if selector == "out:buf" {
                 raw("return", "array", json!(bytes))
             } else {
@@ -2189,6 +2293,15 @@ fn execute_authenticated_stateful_host(
                 returned_number(status)
             }
         }
+        "ex_host_seal_bootstrap_phase" => {
+            let status = crate::host::abi::ex_host_seal_bootstrap_phase();
+            if status != 1 {
+                return Err(format!(
+                    "fresh authenticated Host did not consume its bootstrap token (status {status})"
+                ));
+            }
+            returned_number(status)
+        }
         "ex_host_session_static_import_resolve" | "ex_host_session_static_import_resolve_meta" => {
             let referrer = serde_json::to_vec(&json!({
                 "root": "project",
@@ -2218,7 +2331,10 @@ fn execute_authenticated_stateful_host(
         other => return Err(format!("unsupported authenticated Host ABI {other}")),
     };
     if selector != "[[return]]"
-        && !matches!(function_name, "ex_host_env_get" | "ex_host_random_fill")
+        && !matches!(
+            function_name,
+            "ex_host_env_compiled_key_at" | "ex_host_env_get" | "ex_host_random_fill"
+        )
     {
         return Err(format!(
             "unsupported authenticated Host output {function_name}:{selector}"
@@ -4223,6 +4339,20 @@ fn execute_module_runner_output(function_name: &str, selector: &str) -> Result<V
                         )
                     }
                 }
+                "ex_hermes_commonjs_record_link_computed_dynamic_import" => {
+                    let target = fixture.module_record()?;
+                    unsafe {
+                        ex_output_hermes_commonjs_record_link_computed_dynamic_import(
+                            raw,
+                            nonce,
+                            record,
+                            7,
+                            specifier.as_ptr(),
+                            specifier.len(),
+                            target,
+                        )
+                    }
+                }
                 "ex_hermes_commonjs_record_evaluate" => unsafe {
                     ex_output_hermes_commonjs_record_evaluate(
                         raw,
@@ -4298,6 +4428,17 @@ fn execute_module_runner_output(function_name: &str, selector: &str) -> Result<V
                         raw,
                         nonce,
                         record,
+                        specifier.as_ptr(),
+                        specifier.len(),
+                        record,
+                    )
+                },
+                "ex_hermes_module_record_link_computed_dynamic_import" => unsafe {
+                    ex_output_hermes_module_record_link_computed_dynamic_import(
+                        raw,
+                        nonce,
+                        record,
+                        7,
                         specifier.as_ptr(),
                         specifier.len(),
                         record,
@@ -5025,6 +5166,28 @@ fn execute_hermes_stateless(function_name: &str, selector: &str) -> Result<Value
         "ex_hermes_free_string" => {
             unsafe { ex_hermes_free_string(std::ptr::null_mut()) };
             returned_undefined()
+        }
+        "ex_hermes_module_preflight_bytecode" => {
+            let bytes = b"bounded-invalid-hermes-bytecode";
+            let mut error = std::ptr::null_mut();
+            let status = unsafe {
+                ex_output_hermes_module_preflight_bytecode(bytes.as_ptr(), bytes.len(), &mut error)
+            };
+            let detail = take_hermes_string(error);
+            if status == 0 || detail.is_none() {
+                return Err(format!(
+                    "invalid bytecode preflight did not return its bounded refusal (status {status})"
+                ));
+            }
+            match selector {
+                "out:error" => returned_string(detail.expect("checked preflight detail")),
+                "[[return]]" => returned_number(status),
+                other => {
+                    return Err(format!(
+                        "unsupported bytecode preflight output selector {other}"
+                    ))
+                }
+            }
         }
         "ex_hermes_now_ms" => returned_number(unsafe { ex_hermes_now_ms() }),
         other => return Err(format!("unsupported stateless Hermes ABI {other}")),
@@ -7227,6 +7390,68 @@ fn structured_projection_releases_and_disposes_before_reporting_a_contradiction(
         0,
         "value handle was not released before the contradiction propagated"
     );
+}
+
+#[test]
+fn merged_host_abi_output_routes_execute_bounded_calls() {
+    match std::env::var("IBEX_CAPSEC_HOST_ABI_OUTPUT_PHYSICAL_PROOF") {
+        Ok(value) => assert_eq!(
+            value, "1",
+            "IBEX_CAPSEC_HOST_ABI_OUTPUT_PHYSICAL_PROOF must equal 1"
+        ),
+        Err(std::env::VarError::NotPresent) => {
+            eprintln!(
+                "IBEX_CAPSEC_HOST_ABI_OUTPUT_PHYSICAL_PROOF is unset; skipping one-shot physical proof"
+            );
+            return;
+        }
+        Err(std::env::VarError::NotUnicode(_)) => {
+            panic!("IBEX_CAPSEC_HOST_ABI_OUTPUT_PHYSICAL_PROOF must be UTF-8")
+        }
+    }
+
+    for function_name in [
+        "ex_hermes_commonjs_record_link_computed_dynamic_import",
+        "ex_hermes_module_record_link_computed_dynamic_import",
+    ] {
+        let observation = execute_module_runner_output(function_name, "[[return]]")
+            .unwrap_or_else(|error| panic!("{function_name}: {error}"));
+        assert_eq!(observation, returned_number(0));
+    }
+
+    let preflight_status =
+        execute_hermes_stateless("ex_hermes_module_preflight_bytecode", "[[return]]")
+            .expect("execute bounded bytecode preflight status");
+    assert_eq!(preflight_status["kind"], "return");
+    assert_eq!(preflight_status["rawValueShape"], "number");
+    assert_ne!(preflight_status["value"], 0);
+    let preflight_error =
+        execute_hermes_stateless("ex_hermes_module_preflight_bytecode", "out:error")
+            .expect("execute bounded bytecode preflight error output");
+    assert_eq!(preflight_error["kind"], "return");
+    assert_eq!(preflight_error["rawValueShape"], "string");
+    assert!(preflight_error["value"]
+        .as_str()
+        .is_some_and(|value| !value.is_empty()));
+
+    let sandbox = FsSandbox::new();
+    for (function_name, selector, shape) in [
+        ("ex_host_env_compiled_key_at", "[[return]]", "number"),
+        ("ex_host_env_compiled_key_at", "out:buf", "array"),
+        ("ex_host_env_compiled_key_count", "[[return]]", "number"),
+        ("ex_host_env_get", "[[return]]", "number"),
+        ("ex_host_env_get", "out:buf", "array"),
+    ] {
+        let observation = execute_authenticated_stateful_host(function_name, selector, &sandbox)
+            .unwrap_or_else(|error| panic!("{function_name}:{selector}: {error}"));
+        assert_eq!(observation["kind"], "return");
+        assert_eq!(observation["rawValueShape"], shape);
+    }
+
+    let sealed =
+        execute_authenticated_stateful_host("ex_host_seal_bootstrap_phase", "[[return]]", &sandbox)
+            .expect("execute authenticated bootstrap sealing");
+    assert_eq!(sealed, returned_number(1));
 }
 
 #[test]

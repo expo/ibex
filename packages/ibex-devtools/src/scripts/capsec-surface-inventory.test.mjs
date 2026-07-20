@@ -1886,6 +1886,21 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         },
       ),
     ).not.toThrow();
+
+    const cyclicFactory = scanStaticBuiltinExports(
+      "function first() { return second(); } function second() { return first(); } module.exports.Public = first();",
+      {
+        sourceKey: "node_cyclic_factory",
+        sourcePath: "src/builtins/cyclic-factory.js",
+      },
+    );
+    expect(
+      cyclicFactory.some((row) =>
+        /^Public\.\[\[dynamic-table:inherited-[a-f0-9]{12}-properties\]\]$/u.test(
+          row.metadata.exportName,
+        ),
+      ),
+    ).toBe(true);
   });
 
   test("legacy accessors and reflective prototype mutations are exact and fail closed", () => {
@@ -2500,10 +2515,17 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         ),
       ),
     ).toBe(true);
+    const cyclicFactoryRows = scanStaticGlobalApiSurfaces(
+      "function first() { return second(); } function second() { return first(); } globalThis.Public = first();",
+      "src/engine/bootstrap/cyclic-factory.js",
+    );
     expect(
-      opaqueFactoryRows.find((row) => row.name.includes("[[dynamic-table:"))
-        ?.metadata.publicReadAccessSourceProven,
-    ).toBeUndefined();
+      cyclicFactoryRows.some((row) =>
+        /^global:Public\.\[\[dynamic-table:call-result-[a-f0-9]{12}-properties\]\]$/u.test(
+          row.name,
+        ),
+      ),
+    ).toBe(true);
     const duplicateRows = scanStaticGlobalApiSurfaces(
       "globalThis.Dynamic = unknownFactory(); globalThis.Dynamic = function Dynamic() {};",
       "src/engine/bootstrap/duplicate-dynamic.js",
@@ -3232,6 +3254,19 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       "windows",
     ]);
     expect(discoverHermesEvaluatorIdentityProfiles(repoRoot)).toEqual(profiles);
+
+    const windowsCrlfProfiles = scanHermesEvaluatorIdentityProfiles({
+      ...inputs,
+      windowsInstallerText: inputs.windowsInstallerText.replaceAll(
+        "\n",
+        "\r\n",
+      ),
+      windowsSourceBuildText: inputs.windowsSourceBuildText.replaceAll(
+        "\n",
+        "\r\n",
+      ),
+    });
+    expect(windowsCrlfProfiles).toEqual(profiles);
 
     for (const mutated of [
       {
@@ -6154,6 +6189,12 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       streamSource,
       "src/engine/bootstrap/web-streams-polyfill.js",
     );
+    expect(
+      scanStaticGlobalApiSurfaces(
+        streamSource.replaceAll("\n", "\r\n"),
+        "src/engine/bootstrap/web-streams-polyfill.js",
+      ),
+    ).toEqual(streamRows);
     expect(streamRows.map((row) => row.name)).toEqual(
       expect.arrayContaining([
         "__exactWebStreamsPolyfillLoaded",
@@ -6332,7 +6373,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     expect(first.hostAbi.some((row) => row.name === "ex_host_fs_open")).toBe(
       true,
     );
-    expect(first.hostAbi).toHaveLength(311);
+    expect(first.hostAbi).toHaveLength(317);
     for (const [name, sourceRef] of [
       [
         "evaluation:installGlobals:native-freeze-conformance-observation",
@@ -6407,7 +6448,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .sort(),
       ),
     ).toEqual({
-      "output-bearing": 261,
+      "output-bearing": 267,
       "structural-only": 50,
     });
     expect(
@@ -6440,7 +6481,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .map(([role, channels]) => [role, channels.length])
           .sort(),
       ),
-    ).toEqual({ callback: 59, out: 204, return: 243 });
+    ).toEqual({ callback: 59, out: 206, return: 249 });
     expect(
       Object.fromEntries(
         [
@@ -6456,7 +6497,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       "none:void": 68,
       "value:aggregate": 17,
       "value:pointer": 48,
-      "value:scalar": 178,
+      "value:scalar": 184,
     });
     expect(
       Object.fromEntries(
@@ -6472,8 +6513,8 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     ).toEqual({
       "callback-payload": 38,
       inout: 9,
-      input: 753,
-      output: 75,
+      input: 771,
+      output: 77,
     });
 
     const accountFor = (name) =>
@@ -6714,7 +6755,10 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     ).toEqual(["src/engine/hermes_runtime.cc#ex_hermes_create_armed"]);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")),
-    ).toHaveLength(147);
+    ).toHaveLength(150);
+    expect(
+      first.hostAbi.some((row) => row.name === "ex_host_seal_bootstrap_phase"),
+    ).toBe(true);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")).length,
     ).toBeGreaterThan(0);

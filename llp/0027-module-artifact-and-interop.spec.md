@@ -5,7 +5,8 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-17 (ENG-24578 records the single-generation production lifecycle: generation 1 stays pinned through keep-alive and is released by owner-thread runtime teardown, so the direct unpin ABI remains non-production evidence); 2026-07-16 (prepared-cache admission now derives its complete expected publication and virtual diagnostic envelope from the current authenticated source graph rather than cache-asserted metadata); 2026-07-15 (accepted by the author after the bounded CommonJS/JSON/builtin interop migration passed authenticated source/prepared real-Hermes coverage); 2026-07-15 (ENG-25063 retained graph generations through the complete embedder event-loop drive so delayed and fire-and-forget dynamic imports cannot observe released records); 2026-07-15 (ENG-25061 added host-owned builtin records and strict shared-identity JSON records across source/prepared ESM and CommonJS paths); 2026-07-15 (ENG-25061 linked production mixed ESM/CommonJS graphs in both directions, including pre-evaluation adapters and async ESM importers); 2026-07-15 (ENG-25064 canonical prepared-graph index, cache publication, strict reload, and full native linking); 2026-07-15 (ENG-25064 canonical prepared-carrier schema, admission, and source/HBC native loading); 2026-07-15 (ENG-25063 authenticated dynamic-edge metadata and
+**Revised:** 2026-07-18 (computed-import candidate tables use strict `ibex/computed-candidates/1` sidecars, prepared graph v2 digest references, original-source correspondence, and the site-bearing module-runner ABI; the ABI also guards computed CommonJS `require` until invocation and reports the producer-owned original span; ModuleArtifact v1 remains unchanged)
+**Revised:** 2026-07-17 (LLP 0029 carrier v2 separates loaded-file and static-compatibility engine identities and derives HBC version/length from emitted bytes); 2026-07-15 (accepted by the author after the bounded CommonJS/JSON/builtin interop migration passed authenticated source/prepared real-Hermes coverage); 2026-07-15 (ENG-25063 retained graph generations through the complete embedder event-loop drive so delayed and fire-and-forget dynamic imports cannot observe released records); 2026-07-15 (ENG-25061 added host-owned builtin records and strict shared-identity JSON records across source/prepared ESM and CommonJS paths); 2026-07-15 (ENG-25061 linked production mixed ESM/CommonJS graphs in both directions, including pre-evaluation adapters and async ESM importers); 2026-07-15 (ENG-25064 canonical prepared-graph index, cache publication, strict reload, and full native linking); 2026-07-15 (ENG-25064 canonical prepared-carrier schema, admission, and source/HBC native loading); 2026-07-15 (ENG-25063 authenticated dynamic-edge metadata and
 promise-returning CommonJS-to-ESM import ABI); 2026-07-15 (ENG-25061 native CommonJS cache records and ESM
 snapshot adapters); 2026-07-15 (ENG-25059 v1 schema, codecs, admission gate,
 producer adapter, and tamper fixtures)
@@ -23,7 +24,8 @@ schema is `schemas/module-artifact-v1.schema.json`; the Rust codec and verifier
 are `src/module_loader/artifact.rs`; the checked-in tamper matrix is under
 `tests/fixtures/module-artifact-v1/`. Prepared graph publication is implemented
 by `src/module_loader/runner_pipeline.rs` and described by
-`schemas/prepared-module-graph-v1.schema.json`. The bounded
+`schemas/prepared-module-graph-v2.schema.json` (v1 caches rebuild rather than
+being loosened in place). The bounded
 CommonJS/JSON/builtin interop migration is complete and covered through
 authenticated source and prepared execution on real Hermes. No producer
 output becomes trusted merely because it resembles this shape.
@@ -115,38 +117,48 @@ the `SourceId` or semantic identity of any contained module. Cross-project
 portable reuse remains prohibited until LLP 0023 defines a stable authenticated
 project identity collision domain.
 
-The canonical prepared manifest is `ibex/module-carrier/1`, specified by
-`schemas/module-carrier-v1.schema.json` and enforced by
+The current canonical prepared manifest is `ibex/module-carrier/2`, specified
+by `schemas/module-carrier-v2.schema.json` and enforced by
 `src/module_loader/carrier.rs` (`commit:c6d2aefe`). It binds exactly one
 defining principal, prepared-producer binary, deployment-graph digest, carrier
 digest, and either `javascript-factory-table` or `hermes-bytecode` encoding.
-HBC encoding additionally binds the loaded engine binary digest and bytecode
-version. Its strictly ordered entries contain an entry id, the complete
+HBC encoding additionally carries a closed engine binding: `loaded-file`
+binds the mapped engine binary digest for ordinary runtime caches, while
+`static-compatibility` binds the engine compatibility identity from the target
+`StubContractV1` for compiled executables. These identities are not
+interchangeable. The HBC version and declared file length are inspected from
+the authenticated bytecode header; producers cannot supply either as trusted
+metadata. Its strictly ordered entries contain an entry id, the complete
 original semantic core, and its recomputed semantic digest. Admission rejects
 cross-principal entries, bytes/metadata tamper, entry substitution, graph or
-producer drift, and stale engine/HBC identity before native evaluation.
+producer drift, malformed HBC headers, and stale engine/HBC identity before
+native evaluation. The v1 schema remains a historical review artifact, but
+the current decoder intentionally refuses it after this compatibility-domain
+change.
 
-The graph-level cache index is `ibex/prepared-module-graph/1`, specified by
-`schemas/prepared-module-graph-v1.schema.json`. It binds the authenticated
-entry, producer and deployment digests, every original module's canonical
-`SourceId`, typed resolved-specifier map, prepared artifact, carrier/entry
-location, and the complete carrier inventory. It is strict canonical JCS and
-contains no backing host path or source label.
+The compiled identity is `ibex/engine-compatibility/1`, digested in the
+`ibex:engine-compatibility:1` domain over the static archive-bundle digest,
+static Hermes build profile, and nonzero inspected HBC version. The identity
+stored in `StubContractV1` is recomputed during contract admission; a packager
+cannot relabel one of those facts while retaining the identity. The paired
+compiler uses the separate `ibex/hermesc-compatibility/1` /
+`ibex:hermesc-compatibility:1` domain over catalog binary digest, deterministic
+recipe digest, and the same HBC version. Diagnostic source-carrier variants
+are tagged separately and cannot validate as release-eligible contracts.
 
-The writable cache is never its own trust root. Before a warm reload, Host
-reconstructs the complete authenticated inline source graph under the current
-armed snapshot. The runtime deterministically renders the publication expected
-from that graph and requires the index, every principal-bound carrier manifest,
-and every carrier byte to match it exactly before ordinary carrier and artifact
-admission runs. Values asserted by the cache — including semantic digests,
-producer identity, principal, bindings, transform fingerprint, and carrier
-digest — therefore cannot authorize that same cache. One carrier is emitted per
-original module so evaluating prepared JavaScript retains that record's exact
-authenticated virtual `SourceLabel`; physical carrier paths never become stack,
-CommonJS filename, or `import.meta` observables. The in-memory graph retains the
-Host-authenticated virtual label and path separately from its native-only
-resolver path, and prepared reload reuses that envelope only from the trusted
-source graph. Mixed inline/prepared graphs are rejected before linking.
+The graph-level cache index is `ibex/prepared-module-graph/2`, specified by
+`schemas/prepared-module-graph-v2.schema.json`. It binds the authenticated
+entry, producer and deployment digests, every original module's absolute
+source label, resolved-specifier map, prepared artifact, carrier/entry
+location, the complete carrier inventory, and digest references to each
+canonical `ibex/computed-candidates/1` sidecar. A sidecar binds requester and
+target integrity, transform-fingerprint domain, stable label, producer site
+ordinal, original-source span, runtime attributes, and graph generation. It is
+strict canonical JCS.
+Reload independently admits every carrier and artifact, re-authenticates each
+source identity and integrity, re-resolves each authored edge against the
+current armed snapshot, and rejects mixed inline/prepared graphs before
+linking.
 
 `transform_fingerprint` includes parser/transform versions, Hermes target,
 TypeScript/JSX options, module-runner ABI, Hermes-compat pass version, CommonJS
@@ -194,12 +206,15 @@ snapshots, while a throw marks the adapter errored.
 The artifact represents each statically detected literal `require` as a
 `common-js-require` static edge. It is resolved with CommonJS conditions and
 authorized as `LiteralRequire`; it is never collapsed with an ESM static or
-dynamic-import edge having the same authored specifier. Computed `require`
-sites require a finite authenticated candidate table or remain outside the
-native path.
+dynamic-import edge having the same authored specifier. Computed `require` is
+deliberately not carried natively at the 0.2 window close: it remains a guarded
+invocation error unless LLP 0028 register item 3 reopens it through the
+specified JSON-channel candidate design.
 
 The CommonJS factory ABI is `(require, module, exports, __filename, __dirname,
-dynamicImport)`. `dynamicImport(specifier)` (also exposed as `require.import`
+dynamicImport)`. Producer calls to `dynamicImport` include hidden site/span/
+option-guard fields before the authored arguments; the public authored shape
+remains `import(specifier, options?)`. The callback (also exposed as `require.import`
 for lowering adapters) returns a fresh promise for an authenticated linked ESM
 namespace and supports asynchronous target graphs. A missing, denied, stale,
 or malformed target returns a rejected promise rather than throwing from the

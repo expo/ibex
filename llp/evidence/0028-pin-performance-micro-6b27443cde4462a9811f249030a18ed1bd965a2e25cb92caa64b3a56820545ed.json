@@ -1,0 +1,37 @@
+{
+  "schema": "ibex/module-runner-micro-performance-baseline/1",
+  "platform": {
+    "os": "macos",
+    "arch": "aarch64"
+  },
+  "measurementConditions": {
+    "iterations": 20000,
+    "requireDependencyModules": 40,
+    "warmupSamplesExcluded": 2,
+    "cellWorkload": "one checked function import read, one export update observed through a checked value import and namespace getter, per iteration",
+    "plainWorkload": "one ordinary function call and two ordinary object property reads per iteration"
+  },
+  "profiles": {
+    "checkedCellSetterNamespace": {
+      "samples": 5,
+      "minMs": 6.759417,
+      "medianMs": 7.1569579999999995,
+      "meanMs": 7.0573250000000005,
+      "maxMs": 7.302667
+    },
+    "plainProperty": {
+      "samples": 5,
+      "minMs": 0.499958,
+      "medianMs": 0.504208,
+      "meanMs": 0.5109414,
+      "maxMs": 0.530166
+    },
+    "coldRequireEsm": {
+      "samples": 5,
+      "minMs": 8.734250000000001,
+      "medianMs": 10.035917,
+      "meanMs": 9.6836918,
+      "maxMs": 10.225709
+    }
+  }
+}

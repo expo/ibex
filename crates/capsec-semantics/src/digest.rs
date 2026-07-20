@@ -10,7 +10,7 @@ use std::sync::OnceLock;
 
 pub const VOCABULARY_DOMAIN: &str = "ibex:capsec:vocab:1";
 pub const REGISTRY_DOMAIN: &str = "ibex:capsec:registry:1";
-pub const POLICY_DOMAIN: &str = "ibex:capsec:policy:1";
+pub const POLICY_DOMAIN: &str = "ibex:capsec:policy:2";
 pub const ARMED_SNAPSHOT_DOMAIN: &str = "ibex:capsec:armed:1";
 pub const CONFORMANCE_DOMAIN: &str = "ibex:capsec:conformance:1";
 
@@ -155,7 +155,7 @@ fn validate_frozen_projection(
     let (expected_domain, expected_schema, expected_omissions): (&str, &str, &[&str]) = match kind {
         DigestKind::Vocabulary => (VOCABULARY_DOMAIN, "ibex/capsec-digest-bundle/1", &[]),
         DigestKind::Registry => (REGISTRY_DOMAIN, "ibex/capsec-digest-bundle/1", &[]),
-        DigestKind::Policy => (POLICY_DOMAIN, "ibex/capsec-policy/1", &["policyDigest"]),
+        DigestKind::Policy => (POLICY_DOMAIN, "ibex/capsec-policy/2", &["policyDigest"]),
         DigestKind::ArmedSnapshot => (
             ARMED_SNAPSHOT_DOMAIN,
             "ibex/capsec-armed/1",

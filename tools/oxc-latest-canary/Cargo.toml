@@ -1,0 +1,17 @@
+[package]
+name = "ibex-oxc-latest-canary"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+oxc_allocator = "*"
+oxc_ast = "*"
+oxc_ast_visit = "*"
+oxc_codegen = "*"
+oxc_parser = "*"
+oxc_resolver = "*"
+oxc_semantic = "*"
+oxc_sourcemap = "*"
+oxc_span = "*"
+oxc_transformer = "*"

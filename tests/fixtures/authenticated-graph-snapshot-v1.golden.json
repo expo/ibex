@@ -1,0 +1,51 @@
+{
+  "schema": "ibex/authenticated-graph-snapshot-golden/1",
+  "expectedIdentity": "sha256-PbZuXZz8z51yS2mwFCQr9LkAUlko8VfgPP0JHnDAHdk",
+  "snapshot": {
+    "schema": "ibex/authenticated-graph-snapshot/1",
+    "entry": {
+      "name": "main",
+      "sourceId": "ibex-source-id-v1:eyJraW5kIjoiZmlsZSIsInBhdGgiOlt7ImVuY29kaW5nIjoidXRmOCIsInZhbHVlIjoiZW50cnkubWpzIn1dLCJwcmluY2lwYWwiOnsiaWRlbnRpdHkiOiJwb3J0YWJsZS1wcm9qZWN0Iiwia2luZCI6InJvb3QifX0"
+    },
+    "nodes": [
+      {
+        "sourceId": "ibex-source-id-v1:eyJkb21haW4iOiJpYmV4LXJ1bnRpbWUiLCJraW5kIjoiYnVpbHRpbiIsInNvdXJjZV9rZXkiOiJleGFjdDpmcyJ9",
+        "sourceIntegrity": "sha256-HmGgjeTTsuixWmj0ykyLvalGjXqnBIpDCiUE1rO522Q"
+      },
+      {
+        "sourceId": "ibex-source-id-v1:eyJraW5kIjoiZmlsZSIsInBhdGgiOlt7ImVuY29kaW5nIjoidXRmOCIsInZhbHVlIjoiZW50cnkubWpzIn1dLCJwcmluY2lwYWwiOnsiaWRlbnRpdHkiOiJwb3J0YWJsZS1wcm9qZWN0Iiwia2luZCI6InJvb3QifX0",
+        "sourceIntegrity": "sha256-PJIIXaAWBUYjvWaKXmIqt7cADjUA9eDdKRnpzxBaYec"
+      },
+      {
+        "sourceId": "ibex-source-id-v1:eyJraW5kIjoiZmlsZSIsInBhdGgiOlt7ImVuY29kaW5nIjoidXRmOCIsInZhbHVlIjoiaW5kZXguanMifV0sInByaW5jaXBhbCI6eyJpbnRlZ3JpdHkiOiJzaGEyNTYtN1k4Z1doTkJuOEFhZmJpckZIZ1R0LVBFVjFOM2RTZy04eDkyYzBaZXdlQSIsImtpbmQiOiJwYWNrYWdlIiwibG9jYXRvciI6ImRlcEAxLjAuMCIsIm5hbWUiOiJkZXAifX0",
+        "sourceIntegrity": "sha256-ltj6saAdyBIMX-OUs3gd86i5SSTG_GLM01XkteJXq8Q"
+      }
+    ],
+    "packages": [
+      {
+        "kind": "package",
+        "name": "dep",
+        "locator": "dep@1.0.0",
+        "integrity": "sha256-7Y8gWhNBn8AafbirFHgTt-PEV1N3dSg-8x92c0ZeweA"
+      }
+    ],
+    "edges": [
+      {
+        "requester": "ibex-source-id-v1:eyJraW5kIjoiZmlsZSIsInBhdGgiOlt7ImVuY29kaW5nIjoidXRmOCIsInZhbHVlIjoiZW50cnkubWpzIn1dLCJwcmluY2lwYWwiOnsiaWRlbnRpdHkiOiJwb3J0YWJsZS1wcm9qZWN0Iiwia2luZCI6InJvb3QifX0",
+        "specifier": "dep",
+        "resolutionKind": "esm-static",
+        "conditions": ["import", "node"],
+        "attributes": {},
+        "target": "ibex-source-id-v1:eyJraW5kIjoiZmlsZSIsInBhdGgiOlt7ImVuY29kaW5nIjoidXRmOCIsInZhbHVlIjoiaW5kZXguanMifV0sInByaW5jaXBhbCI6eyJpbnRlZ3JpdHkiOiJzaGEyNTYtN1k4Z1doTkJuOEFhZmJpckZIZ1R0LVBFVjFOM2RTZy04eDkyYzBaZXdlQSIsImtpbmQiOiJwYWNrYWdlIiwibG9jYXRvciI6ImRlcEAxLjAuMCIsIm5hbWUiOiJkZXAifX0"
+      }
+    ],
+    "candidateSets": [
+      {
+        "id": "computed-0000",
+        "requester": "ibex-source-id-v1:eyJraW5kIjoiZmlsZSIsInBhdGgiOlt7ImVuY29kaW5nIjoidXRmOCIsInZhbHVlIjoiZW50cnkubWpzIn1dLCJwcmluY2lwYWwiOnsiaWRlbnRpdHkiOiJwb3J0YWJsZS1wcm9qZWN0Iiwia2luZCI6InJvb3QifX0",
+        "label": "plugin",
+        "candidates": ["dep", "node:path"]
+      }
+    ]
+  }
+}

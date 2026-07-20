@@ -153,19 +153,31 @@ cmake -S . -B "$BUILD_DIR" "${GENERATOR[@]}" \
     -DHERMES_BUILD_SHARED_JSI=OFF \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 
-cmake --build "$BUILD_DIR" --target hermesvm hermesc -j"$NUM_CORES"
+cmake --build "$BUILD_DIR" --target hermesvm hermesvm_a hermesc -j"$NUM_CORES"
 
 mkdir -p "$INSTALL_DIR/lib" "$INSTALL_DIR/bin" "$INSTALL_DIR/include"
 
-# Library can be emitted as .so or .a depending on Hermes/CMake configuration.
-if [[ -f "$BUILD_DIR/lib/libhermesvm.so" ]]; then
+# The source runtime uses the shared object; LLP 0029 compiled stubs consume
+# the full static archive. Publish them together so one authenticated Hermes
+# bundle supports both profiles without relabeling either artifact.
+if [[ -f "$BUILD_DIR/lib/libhermesvm.so" && -f "$BUILD_DIR/lib/libhermesvm_a.a" ]]; then
     cp "$BUILD_DIR/lib/libhermesvm.so" "$INSTALL_DIR/lib/"
-elif [[ -f "$BUILD_DIR/lib/libhermesvm.a" ]]; then
-    cp "$BUILD_DIR/lib/libhermesvm.a" "$INSTALL_DIR/lib/"
+    cp "$BUILD_DIR/lib/libhermesvm_a.a" "$INSTALL_DIR/lib/"
 else
-    echo "Could not find libhermesvm.so or libhermesvm.a in $BUILD_DIR/lib"
+    echo "Could not find both libhermesvm.so and libhermesvm_a.a in $BUILD_DIR/lib"
     exit 1
 fi
+BOOST_CONTEXT_ARCHIVE="$(find "$BUILD_DIR/external/boost" -type f -name libboost_context.a -print -quit)"
+if [[ -z "$BOOST_CONTEXT_ARCHIVE" ]]; then
+    echo "Could not find Hermes Boost.Context archive under $BUILD_DIR/external/boost"
+    exit 1
+fi
+cp "$BOOST_CONTEXT_ARCHIVE" "$INSTALL_DIR/lib/libboost_context.a"
+if [[ ! -f "$BUILD_DIR/jsi/libjsi.a" ]]; then
+    echo "Could not find Hermes JSI archive at $BUILD_DIR/jsi/libjsi.a"
+    exit 1
+fi
+cp "$BUILD_DIR/jsi/libjsi.a" "$INSTALL_DIR/lib/libjsi.a"
 
 if [[ -f "$BUILD_DIR/bin/hermesc" ]]; then
     cp "$BUILD_DIR/bin/hermesc" "$INSTALL_DIR/bin/"
@@ -187,24 +199,10 @@ mkdir -p "$LINUX_LIB_DIR" "$LINUX_HEADERS_DIR" "$TOOLS_DIR"
 rm -rf "$LINUX_HEADERS_DIR"
 mkdir -p "$LINUX_HEADERS_DIR"
 cp -R "$INSTALL_DIR/include/"* "$LINUX_HEADERS_DIR/"
-rm -f "$LINUX_LIB_DIR/libhermesvm.so" "$LINUX_LIB_DIR/libhermesvm.a"
-cp -f "$INSTALL_DIR/lib/"libhermesvm.* "$LINUX_LIB_DIR/" 2>/dev/null || true
-rm -f "$INSTALL_DIR/lib/hermes-profile-provenance.json" \
-    "$LINUX_LIB_DIR/hermes-profile-provenance.json"
-if [[ -f "$INSTALL_DIR/lib/libhermesvm.so" ]]; then
-    LINUX_CACHE_KEY="$(ibex_hermes_linux_source_cache_key "${IBEX_HERMES_SOURCE_COMMIT:0:12}")"
-    echo "Source cache key: $LINUX_CACHE_KEY"
-    ibex_write_source_patched_profile_receipt \
-        "$INSTALL_DIR/lib/libhermesvm.so" \
-        "$INSTALL_DIR/lib/hermes-profile-provenance.json" \
-        "$HERMES_VERSION" \
-        "$LINUX_CACHE_KEY"
-    if [[ -f "$INSTALL_DIR/lib/hermes-profile-provenance.json" ]]; then
-        cp -f "$INSTALL_DIR/lib/hermes-profile-provenance.json" "$LINUX_LIB_DIR/"
-    fi
-else
-    echo "[provenance] static libhermesvm.a has no standalone mapped-object receipt; authenticated loaded-profile execution remains unavailable." >&2
-fi
+cp -f "$INSTALL_DIR/lib/libhermesvm.so" "$LINUX_LIB_DIR/"
+cp -f "$INSTALL_DIR/lib/libhermesvm_a.a" "$LINUX_LIB_DIR/"
+cp -f "$INSTALL_DIR/lib/libjsi.a" "$LINUX_LIB_DIR/"
+cp -f "$INSTALL_DIR/lib/libboost_context.a" "$LINUX_LIB_DIR/"
 ARCH="$(uname -m)"
 case "$ARCH" in
     x86_64|amd64) HERMESC_ARCH="x64" ;;

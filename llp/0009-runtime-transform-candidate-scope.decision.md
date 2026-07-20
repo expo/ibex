@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Runtime
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-06-14
-**Revised:** 2026-07-15 (subprocess override trust boundary and self-contained dependency requirement clarified); 2026-07-15 (ENG-25066 completed the LLP 0026 ordinary-ESM default switch and retained this Decision only for the bounded legacy window); 2026-07-15 (LLP 0026 adoption admits the ModuleRunner architecture as the selected replacement path); 2026-07-07 (ENG-22991: first-class TypeScript runtime direction clarified without reopening the transform-engine choice)
+**Revised:** 2026-07-17 (LLP 0028 pin rotation adopts Rust 1.97.0, the Oxc 0.140.0 lockstep set, oxc_resolver 11.24.2, and oxc_sourcemap 8.1.1 under the generated transform manifest); 2026-07-15 (ENG-25066 completed the LLP 0026 ordinary-ESM default switch and retained this Decision only for the bounded legacy window); 2026-07-15 (LLP 0026 adoption admits the ModuleRunner architecture as the selected replacement path); 2026-07-07 (ENG-22991: first-class TypeScript runtime direction clarified without reopening the transform-engine choice)
 **Related:** LLP 0007; LLP 0026 (accepted ModuleRunner architecture); LLP 0027 (artifact and interop contract)
 
 ## Decision
@@ -21,7 +21,11 @@ The implementation of LLP 0007 adds an explicit in-process Oxc candidate behind
 and separates its cache entries from SWC output, but it does **not** switch the
 default runtime transform engine.
 
-The candidate is pinned to Oxc `0.121.0`. It is allowed to prove parser,
+The producer is pinned to the Oxc `0.140.0` lockstep set, with
+`oxc_resolver 11.24.2` and `oxc_sourcemap 8.1.1`, on Rust `1.97.0`. The exact
+direct set and complete lock-resolved source/version/checksum closure are
+authoritative in `config/module-transform.json` and its generated receipt. It
+is allowed to prove parser,
 TypeScript stripping, JSX, diagnostics, and target behavior in the embedded
 runtime, but it must fail clearly when general ESM import/export lowering or
 top-level await handling is required. SWC remains the compatibility path for
@@ -62,9 +66,14 @@ confirmed three constraints:
   transforms we need to test, but it does not provide the general ESM-to-CJS
   lowering that SWC currently supplies for the synchronous `require()` path.
 
-Because of that, the first implementation can safely add an Oxc candidate and
-parity fixtures, but it cannot honestly claim to replace SWC for runtime-loaded
-`.ts`, `.tsx`, `.mts`, `.cts`, and `.jsx` modules.
+That was the first implementation's constraint. Re-measurement on 2026-07-17
+showed the current coherent set requires Rust 1.95 or newer; the repository
+therefore rotated atomically to Rust 1.97.0 and Oxc 0.140.0. The native module
+producer, its deterministic artifact corpora, source-map composition, and the
+full module-loader unit suite compile and pass on those pins. This does not by
+itself make Oxc a general ESM-to-CJS lowering engine: the retained synchronous
+compatibility path remains governed by the bounded window until LLP 0028
+deletes it.
 
 ## Consequences
 

@@ -1234,6 +1234,30 @@ fn normalize_network_resource(resource: &str) -> String {
     resource.trim().to_lowercase()
 }
 
+#[cfg(any(windows, test))]
+// @ref LLP 0002#host-boundary-constraints — namespace and separator spellings
+// of one resolved Windows object must share one authorization identity.
+fn normalize_windows_authorization_path_text(value: &str) -> String {
+    let ordinary = if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = value.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        value.to_string()
+    };
+    ordinary.replace('\\', "/")
+}
+
+fn normalized_fs_path_text(path: &Path) -> String {
+    let value = path.to_string_lossy();
+    #[cfg(windows)]
+    {
+        return normalize_windows_authorization_path_text(&value);
+    }
+    #[cfg(not(windows))]
+    value.into_owned()
+}
+
 fn normalize_fs_resource(
     resource: &str,
     fs_mode: FsNormalizationMode,
@@ -1265,7 +1289,7 @@ fn normalize_fs_resource(
             FsNormalizationMode::FollowFinal => resolve_symlinks_partial(&path),
             FsNormalizationMode::NoFollowFinal => resolve_symlinks_partial_no_follow_final(&path),
         };
-        return resolved.to_string_lossy().to_string();
+        return normalized_fs_path_text(&resolved);
     }
 
     // Wildcard pattern: resolve the fixed literal prefix (components before the
@@ -1297,7 +1321,7 @@ fn normalize_fs_resource(
             other => resolved.push(other.as_os_str()),
         }
     }
-    resolved.to_string_lossy().to_string()
+    normalized_fs_path_text(&resolved)
 }
 
 /// Resolve `path` the way the kernel will when the operation executes: follow
@@ -1581,12 +1605,18 @@ mod tests {
                 && row.module_id == "7"
                 && row.fence.is_none()
         }));
-        assert!(observations[0].capability.ends_with("/allowed"));
+        assert!(observations[0]
+            .capability
+            .replace('\\', "/")
+            .ends_with("/allowed"));
         assert_eq!(
             (observations[0].decision, observations[0].allowed),
             (true, true)
         );
-        assert!(observations[1].capability.ends_with("/denied"));
+        assert!(observations[1]
+            .capability
+            .replace('\\', "/")
+            .ends_with("/denied"));
         assert_eq!(
             (observations[1].decision, observations[1].allowed),
             (false, false)
@@ -1764,6 +1794,22 @@ mod tests {
         assert_eq!(
             normalize_capability("network:fetch:Api.Example.Com"),
             "network:fetch:api.example.com"
+        );
+    }
+
+    #[test]
+    fn windows_paths_have_one_authorization_identity() {
+        assert_eq!(
+            normalize_windows_authorization_path_text(r"\\?\C:\workspace\data.txt"),
+            "C:/workspace/data.txt"
+        );
+        assert_eq!(
+            normalize_windows_authorization_path_text(r"\\?\UNC\server\share\data.txt"),
+            "//server/share/data.txt"
+        );
+        assert_eq!(
+            normalize_windows_authorization_path_text(r"C:\workspace\data.txt"),
+            "C:/workspace/data.txt"
         );
     }
 

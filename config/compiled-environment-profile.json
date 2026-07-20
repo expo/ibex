@@ -1,0 +1,39 @@
+{
+  "$comment": "Reviewed classification authority for the compiled-runtime environment profile (LLP 0029). Exact-name consumers not listed as intentional application behavior default to privileged-control. The process-environment restore allowlist remains an explicit author decision.",
+  "schema": "ibex/compiled-environment-profile-config/1",
+  "allowlistDecision": {
+    "status": "blocked-on-author-decision-2",
+    "names": []
+  },
+  "intentionalApplicationBehaviorNames": [
+    "COLORTERM",
+    "COLUMNS",
+    "EXACT_DEBUG_EMIT_LISTENER",
+    "EXACT_PIPELINE_DEBUG",
+    "EXACT_PIPELINE_STATE_DEBUG",
+    "FORCE_COLOR",
+    "LINES",
+    "NODE_DEBUG",
+    "NODE_PENDING_DEPRECATION",
+    "NO_COLOR",
+    "TERM",
+    "TZ"
+  ],
+  "dynamicConsumerDispositions": {
+    "startup:env:<dynamic>:cpp:::environ": "capture-primitive",
+    "startup:env:<dynamic>:cpp:GetEnvironmentStringsW": "capture-primitive",
+    "startup:env:<dynamic>:cpp:GetEnvironmentVariableA": "typed-internal-dispatch",
+    "startup:env:<dynamic>:cpp:_NSGetEnviron": "capture-primitive",
+    "startup:env:<dynamic>:cpp:_dupenv_s": "typed-internal-dispatch",
+    "startup:env:<dynamic>:cpp:environ": "capture-primitive",
+    "startup:env:<dynamic>:cpp:getenv": "typed-internal-dispatch",
+    "startup:env:<dynamic>:javascript:process-binding-flow": "application-broker",
+    "startup:env:<dynamic>:javascript:process.env": "application-broker",
+    "startup:env:<dynamic>:javascript:process.env[]": "application-broker",
+    "startup:env:<dynamic>:javascript:process[]": "application-broker",
+    "startup:env:<dynamic>:rust:Command::default_env": "typed-internal-dispatch",
+    "startup:env:<dynamic>:rust:Command::env_clear": "typed-internal-dispatch",
+    "startup:env:<dynamic>:rust:env::var": "typed-internal-dispatch",
+    "startup:env:<dynamic>:rust:env::var_os": "typed-internal-dispatch"
+  }
+}

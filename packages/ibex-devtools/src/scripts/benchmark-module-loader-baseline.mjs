@@ -126,8 +126,9 @@ function runIbex(ibex, project, home, { bypassPreparation }) {
     IBEX_REPO_ROOT: repoRoot,
     IBEX_SKIP_AGENT_SKILLS_SYNC: '1',
   };
-  if (bypassPreparation) env.EXACT_COMPAT_TEST = '1';
-  else delete env.EXACT_COMPAT_TEST;
+  delete env.EXACT_COMPAT_TEST;
+  if (bypassPreparation) env.IBEX_COMPAT_LOADER_TEST = '1';
+  else delete env.IBEX_COMPAT_LOADER_TEST;
   const started = performance.now();
   const result = spawnSync(ibex, ['capsec', 'audit', 'entry.js'], {
     cwd: project,

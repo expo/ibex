@@ -381,6 +381,17 @@ void installZlibHostFunctions(ExactHermesRuntime* handle) {
 
 } // namespace
 
+// The cross-target integration test links this ABI before it can ask whether
+// the selected crypto profile has a node-crypto normalizer. Windows replaces
+// the default crypto translation unit, so preserve the ABI and report the
+// documented unsupported result instead of failing the test binary's link.
+// @ref LLP 0001#current-buildrs-support-honest-status — target replacement
+// translation units preserve cross-platform test ABI shape.
+extern "C" int ex_crypto_test_node_hash_name(
+    const char*, char*, size_t) {
+  return -1;
+}
+
 void installCryptoHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
 
@@ -459,6 +470,43 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         return facebook::jsi::Value::null();
       });
   rt.global().setProperty(rt, "__exactStdinRead", std::move(stdinReadFn));
+
+  // @ref LLP 0003#crypto-is-platform-dependent-the-fragile-axis — byte-view
+  // validation is a platform-neutral runtime boundary even though the crypto
+  // implementation translation unit is selected per target.
+  auto bytesToUtf8StringFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactBytesToUtf8String"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactBytesToUtf8String: bytes required");
+        }
+        if (args[0].isString()) {
+          return facebook::jsi::Value(args[0].getString(runtime));
+        }
+        if (!args[0].isObject()) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactBytesToUtf8String: expected ArrayBuffer or TypedArray");
+        }
+
+        const uint8_t* data = nullptr;
+        size_t length = 0;
+        auto object = args[0].asObject(runtime);
+        if (!extractArrayBufferView(runtime, object, data, length)) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactBytesToUtf8String: expected ArrayBuffer-backed view");
+        }
+        return facebook::jsi::String::createFromUtf8(runtime, data, length);
+      });
+  rt.global().setProperty(
+      rt, "__exactBytesToUtf8String", std::move(bytesToUtf8StringFn));
 
   auto noopSignalFn = facebook::jsi::Function::createFromHostFunction(
       rt,

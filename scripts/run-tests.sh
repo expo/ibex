@@ -31,6 +31,96 @@
 #     scripts/run-tests.sh -- --nocapture       # forward harness args
 set -uo pipefail
 
+# Git Bash prepends its Unix tools directory when it starts, which shadows the
+# MSVC linker with Git's unrelated Coreutils `link.exe`. Bind Cargo to the
+# configured Visual Studio linker by absolute path while retaining this
+# wrapper's fail-on-zero contract.
+# @ref LLP 0018#2-give-agents-a-test-entry-point-that-cannot-silently-run-zero-tests
+bind_windows_msvc_linker() {
+  if [ "${OS:-}" != "Windows_NT" ] || [ -z "${VCToolsInstallDir:-}" ]; then
+    return 0
+  fi
+
+  local host_arch="${VSCMD_ARG_HOST_ARCH:-x64}"
+  local target_arch="${VSCMD_ARG_TGT_ARCH:-x64}"
+  local cargo_linker_variable
+  case "$target_arch" in
+    x64)
+      cargo_linker_variable="CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER"
+      [ -n "${CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER:-}" ] && return 0
+      ;;
+    x86)
+      cargo_linker_variable="CARGO_TARGET_I686_PC_WINDOWS_MSVC_LINKER"
+      [ -n "${CARGO_TARGET_I686_PC_WINDOWS_MSVC_LINKER:-}" ] && return 0
+      ;;
+    arm64)
+      cargo_linker_variable="CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_LINKER"
+      [ -n "${CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_LINKER:-}" ] && return 0
+      ;;
+    *)
+      echo "error: unsupported MSVC target architecture '$target_arch'" >&2
+      return 1
+      ;;
+  esac
+
+  local tools_dir="${VCToolsInstallDir//\\//}"
+  local linker="${tools_dir%/}/bin/Host${host_arch}/${target_arch}/link.exe"
+  if [ ! -f "$linker" ]; then
+    echo "error: configured MSVC linker does not exist: $linker" >&2
+    return 1
+  fi
+  printf -v "$cargo_linker_variable" '%s' "$linker"
+  export "$cargo_linker_variable"
+}
+
+bind_windows_openssl_perl() {
+  if [ "${OS:-}" != "Windows_NT" ] || [ -n "${OPENSSL_SRC_PERL:-}" ] || [ -n "${PERL:-}" ]; then
+    return 0
+  fi
+
+  # openssl-src honors OPENSSL_SRC_PERL. Search the original Windows developer
+  # PATH because Git Bash prepends its own incomplete Perl before that PATH.
+  local -a windows_path_entries=()
+  IFS=';' read -r -a windows_path_entries <<< "${__VSCMD_PREINIT_PATH:-}"
+  local path_entry
+  local candidate
+  for path_entry in "${windows_path_entries[@]}"; do
+    [ -z "$path_entry" ] && continue
+    path_entry="${path_entry//\\//}"
+    candidate="${path_entry%/}/perl.exe"
+    if [ -f "$candidate" ] && "$candidate" -MLocale::Maketext::Simple -e 1 >/dev/null 2>&1; then
+      OPENSSL_SRC_PERL="$candidate"
+      export OPENSSL_SRC_PERL
+      return 0
+    fi
+  done
+
+  # MSYS converts PATH back for native children, so Windows `where.exe` can
+  # still enumerate native Perl installations if the saved developer path was
+  # unavailable or converted before this shell started.
+  if command -v where.exe >/dev/null 2>&1; then
+    while IFS= read -r candidate; do
+      candidate="${candidate%$'\r'}"
+      candidate="${candidate//\\//}"
+      if [ -f "$candidate" ] && "$candidate" -MLocale::Maketext::Simple -e 1 >/dev/null 2>&1; then
+        OPENSSL_SRC_PERL="$candidate"
+        export OPENSSL_SRC_PERL
+        return 0
+      fi
+    done < <(where.exe perl.exe 2>/dev/null)
+  fi
+
+  if command -v perl >/dev/null 2>&1 && perl -MLocale::Maketext::Simple -e 1 >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "error: no Perl with Locale::Maketext::Simple found for vendored OpenSSL; set OPENSSL_SRC_PERL" >&2
+  return 1
+}
+
+bind_windows_msvc_linker || exit $?
+bind_windows_openssl_perl || exit $?
+
 scope="all"
 allow_zero=0
 filter=""

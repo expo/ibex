@@ -139,14 +139,41 @@ test("workflow isolates unprivileged builders from the credentialed publisher", 
     assert.doesNotMatch(builder, /actions\/attest-build-provenance|actions\/download-artifact|gh release/);
     assert.doesNotMatch(builder, /^\s+GH_TOKEN:/m);
     assert.doesNotMatch(builder, /^\s+(?:attestations|actions|contents|id-token): write$/m);
-    const uploads = stepBlocks(builder).filter((step) => step.text.includes("actions/upload-artifact@"));
-    assert.equal(uploads.length, count, `${name} emits the expected direct handoffs`);
-    for (const upload of uploads) {
+    const uploadSteps = stepBlocks(builder).filter((step) =>
+      step.text.includes("actions/upload-artifact@"),
+    );
+    const directHandoffs = uploadSteps.filter((step) =>
+      step.text.includes("\n          archive: false\n"),
+    );
+    assert.equal(
+      directHandoffs.length,
+      count,
+      `${name} emits the expected direct handoffs`,
+    );
+    for (const upload of directHandoffs) {
       assert.match(upload.text, /\n          archive: false\n/);
       assert.match(upload.text, /\n          if-no-files-found: error\n/);
       assert.match(upload.text, /\n          overwrite: false\n/);
       assert.match(upload.text, /\n          path: \$\{\{ steps\.[a-z_]+\.outputs\.asset_path \}\}\n/);
       assert.doesNotMatch(upload.text, /\n          name:/);
+    }
+    const auxiliaryUploads = uploadSteps.filter(
+      (step) => !directHandoffs.includes(step),
+    );
+    if (name === "linux") {
+      assert.equal(auxiliaryUploads.length, 1);
+      assert.equal(auxiliaryUploads[0].name, "Upload Linux dependency audit");
+      assert.match(
+        auxiliaryUploads[0].text,
+        /\n          name: sfe-linux-static-dependency-audit\n/,
+      );
+      assert.match(
+        auxiliaryUploads[0].text,
+        /\n          path: target\/sfe-linux-static-audit\/dependency-audit\.json\n/,
+      );
+      assert.match(auxiliaryUploads[0].text, /\n          if-no-files-found: error\n/);
+    } else {
+      assert.equal(auxiliaryUploads.length, 0);
     }
     assert.match(builder, /artifact_id: \$\{\{ steps\.[a-z_]+\.outputs\.artifact-id \}\}/);
     assert.match(builder, /artifact_digest: \$\{\{ steps\.[a-z_]+\.outputs\.artifact-digest \}\}/);

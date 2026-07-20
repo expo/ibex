@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schema/entry-designation-v1.schema.json",
+  "title": "Ibex compiled entry designation v1",
+  "type": "object",
+  "required": ["schema", "entries"],
+  "properties": {
+    "schema": { "const": "ibex/entry-designation/1" },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "sourceId"],
+        "properties": {
+          "name": { "const": "main" },
+          "sourceId": {
+            "type": "string",
+            "pattern": "^ibex-source-id-v1:[A-Za-z0-9_-]+$"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -10,8 +10,9 @@
  *
  * Drives the shared for-of scoping corpus (hermes-compat-corpus.mjs) through
  * the actual built `ibex` binary. Each fixture is written as a module file and
- * loaded via `require()` from a generated entry, with `EXACT_COMPAT_TEST=1` so
- * the binary skips the rolldown pre-bundle (which would apply the AST
+ * loaded via `require()` from a generated entry. `EXACT_COMPAT_TEST=1` selects
+ * fixture fidelity; `IBEX_COMPAT_LOADER_TEST=1` makes the binary skip the
+ * rolldown pre-bundle (which would apply the AST
  * transform) and takes the in-process pipeline instead: SWC transpile, then
  * the embedded bootstrap loader's string-scanner `fixForOfScoping`
  * (src/engine/bootstrap/module-loader.js). That is the exact production path
@@ -174,7 +175,11 @@ function runIbexFixture(ibexBin, id, source) {
         encoding: 'utf8',
         timeout: 120000,
         cwd: dir,
-        env: { ...process.env, EXACT_COMPAT_TEST: '1' },
+        env: {
+          ...process.env,
+          EXACT_COMPAT_TEST: '1',
+          IBEX_COMPAT_LOADER_TEST: '1',
+        },
       },
     );
     return {

@@ -154,6 +154,7 @@ const HERMES_STATELESS_FUNCTIONS = new Set([
   "ex_hermes_evaluation_result_dispose",
   "ex_hermes_evaluation_result_init",
   "ex_hermes_free_string",
+  "ex_hermes_module_preflight_bytecode",
   "ex_hermes_now_ms",
 ]);
 
@@ -267,12 +268,15 @@ const HOST_TYPED_AUTHORITY_FUNCTIONS = new Set([
 const HOST_AUTHENTICATED_STATEFUL_FUNCTIONS = new Set([
   "ex_host_authorize_exact_endowment",
   "ex_host_build_exact_armed_embedder_artifacts",
+  "ex_host_env_compiled_key_at",
+  "ex_host_env_compiled_key_count",
   "ex_host_env_get",
   "ex_host_install_armed",
   "ex_host_matches_armed_snapshot_digest",
   "ex_host_prepare_armed_embedder_artifacts",
   "ex_host_prepare_exact_armed_embedder_artifacts",
   "ex_host_random_fill",
+  "ex_host_seal_bootstrap_phase",
   "ex_host_session_static_import_resolve",
   "ex_host_session_static_import_resolve_meta",
 ]);
@@ -326,6 +330,7 @@ const HERMES_MODULE_RUNNER_FUNCTIONS = new Set([
   "ex_hermes_commonjs_record_create_esm_adapter",
   "ex_hermes_commonjs_record_declare_export",
   "ex_hermes_commonjs_record_evaluate",
+  "ex_hermes_commonjs_record_link_computed_dynamic_import",
   "ex_hermes_commonjs_record_link_dynamic_import",
   "ex_hermes_commonjs_record_link_require",
   "ex_hermes_commonjs_record_link_require_esm",
@@ -338,6 +343,7 @@ const HERMES_MODULE_RUNNER_FUNCTIONS = new Set([
   "ex_hermes_module_record_declare_export",
   "ex_hermes_module_record_instantiate",
   "ex_hermes_module_record_link_dependency",
+  "ex_hermes_module_record_link_computed_dynamic_import",
   "ex_hermes_module_record_link_dynamic_import",
   "ex_hermes_module_record_link_export",
   "ex_hermes_module_record_link_import",
@@ -398,6 +404,7 @@ const STRUCTURED_VFS_OUTPUT_OPERATIONS = new Map([
 // list independent from catalog policy: source contracts decide membership;
 // this list only states which selectors have a bounded executor.
 const BOUNDED_FAMILY_OUTPUT_SELECTORS = new Set([
+  "ex_host_env_compiled_key_at\0out:buf",
   "ex_host_fs_pread\0out:buf",
   "ex_host_fs_read\0out:buf",
   "ex_host_fs_read_file\0out:errno",
@@ -408,6 +415,7 @@ const BOUNDED_FAMILY_OUTPUT_SELECTORS = new Set([
   "ex_hermes_engine_mapped_object\0out:device",
   "ex_hermes_engine_mapped_object\0out:inode",
   "ex_hermes_eval\0out:value",
+  "ex_hermes_module_preflight_bytecode\0out:error",
   ...["ex_hermes_evaluation_result_dispose", "ex_hermes_evaluation_result_init"]
     .flatMap((functionName) =>
       EVALUATION_RESULT_OUTPUT_SELECTORS

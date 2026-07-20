@@ -686,7 +686,7 @@ impl PortableHostToolRunner {
             (None, Some(Ok(_)), Some(Err(error)), _) | (None, Some(Ok(_)), _, Some(Err(error))) => {
                 Err(error)
             }
-            (None, Some(Ok(status)), Some(Ok(stdout)), Some(Ok(stderr))) if !status.success() => {
+            (None, Some(Ok(status)), Some(Ok(_stdout)), Some(Ok(stderr))) if !status.success() => {
                 Err(format!(
                     "portable host tool exited with {status}: {}",
                     String::from_utf8_lossy(&stderr)

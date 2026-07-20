@@ -17,7 +17,8 @@ use oxc_parser::Parser;
 use oxc_span::SourceType;
 use wasmi::{Engine, Instance, Linker, Memory, Module, Store, TypedFunc};
 
-pub const CJS_MODULE_LEXER_VERSION: &str = "2.1.0";
+pub const CJS_MODULE_LEXER_VERSION: &str =
+    super::transform_config_generated::COMMONJS_DETECTOR_VERSION;
 const CJS_MODULE_LEXER_WASM_BASE64: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/third_party/cjs-module-lexer/lexer.wasm.base64"

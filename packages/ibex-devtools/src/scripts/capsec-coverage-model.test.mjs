@@ -2586,6 +2586,18 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         edgeActions(classifyObservedSurface(surface("loader", name), context)),
         name,
       ).toEqual(["fs:list", "fs:write"]);
+      for (const operation of [
+        "from_raw_fd",
+        "from_raw_handle",
+        "last_os_error",
+      ]) {
+        expect(() =>
+          classifyObservedSurface(
+            surface("loader", `operation:${category}:${operation}`),
+            context,
+          ),
+        ).toThrow(/unclassified observed surface/u);
+      }
       expect(
         edgeActions(
           classifyObservedSurface(
@@ -2604,10 +2616,20 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         ),
       ),
     ).toEqual(["fs:list", "fs:read"]);
+    for (const category of ["cache", "load", "resolution", "transform"]) {
+      for (const helper of ["directory_entries", "open_relative"]) {
+        const name = `route:${category}:rust:${helper}`;
+        expect(() =>
+          classifyObservedSurface(surface("loader", name), context),
+        ).toThrow(/unclassified observed surface/u);
+      }
+    }
     expect(() =>
-      classifyObservedSurface(
-        surface("loader", "route:load:rust:drop"),
-        context,
+      edgeActions(
+        classifyObservedSurface(
+          surface("loader", "route:load:rust:drop"),
+          context,
+        ),
       ),
     ).toThrow(/unclassified observed surface/u);
 

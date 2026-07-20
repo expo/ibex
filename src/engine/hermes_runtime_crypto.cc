@@ -940,6 +940,7 @@ static const EVP_MD* openSslDigestForAlgorithm(const std::string& algorithm) {
   return nullptr;
 }
 
+#if !defined(__APPLE__)
 static const EVP_CIPHER* openSslAesCbcCipher(size_t keyLength) {
   if (keyLength == 16) return EVP_aes_128_cbc();
   if (keyLength == 24) return EVP_aes_192_cbc();
@@ -960,6 +961,7 @@ static const EVP_CIPHER* openSslAesGcmCipher(size_t keyLength) {
   if (keyLength == 32) return EVP_aes_256_gcm();
   return nullptr;
 }
+#endif
 
 // @ref LLP 0006#platform-native-crypto-with-honest-reduced-profiles
 // Shared OpenSSL sign/verify core operating on RAW message bytes (ENG-23002).

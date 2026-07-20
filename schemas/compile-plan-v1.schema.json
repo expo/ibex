@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/compile-plan-v1.schema.json",
+  "title": "Ibex immutable single-file executable compile plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "graphSnapshotDigest",
+    "policyDigest",
+    "stubContractDigest",
+    "catalogDigest",
+    "compilerIdentity",
+    "carrierEncoding",
+    "target",
+    "environmentProfileDigest"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/compile-plan/1" },
+    "graphSnapshotDigest": { "$ref": "#/$defs/digest" },
+    "policyDigest": { "$ref": "#/$defs/digest" },
+    "stubContractDigest": { "$ref": "#/$defs/digest" },
+    "catalogDigest": { "$ref": "#/$defs/digest" },
+    "compilerIdentity": { "$ref": "#/$defs/digest" },
+    "carrierEncoding": {
+      "enum": ["hermes-bytecode", "factory-table"]
+    },
+    "target": { "type": "string", "minLength": 1 },
+    "environmentProfileDigest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]{43}$"
+    }
+  }
+}

@@ -1840,19 +1840,19 @@
         "reviewedProfileIdentityDigest": "sha256-u5dQA6qdaF5TB9N52neD2EJyN2HPt3KGNbSI1HUkb-Q",
         "interfaceContractDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
       },
-      "buildConsumptionDigest": "sha256-_EkNABw23FsL9P3YI0pICzQ33HGVK7fdMO8XJnBzcM4",
+      "buildConsumptionDigest": "sha256-BNu3P1-QZI3gOv4E1kcYlNibQKdD1RQG_hovYAakGbg",
       "enumerationDigest": "sha256-ulywbonM1f7sbfeGg5RcaPyazTAFLW3dQL3JDW_nbl8",
       "results": [
         {
           "logicalName": "bin/ibex",
           "targetKind": "bin",
           "evidenceFile": "0000.json",
-          "evidenceDigest": "sha256-b00917195a7aeb4afe591342b20590d32267811d9295ee8936a02d3b4d2e092c",
-          "verificationDigest": "sha256-DLga7wc0v4nYIPeF-C4Uq2gJBV7PL1C3VKzChe8Eqeg"
+          "evidenceDigest": "sha256-c0a8b5fece933d5079031bc97edbc705627fb7f826c26323fb976ce1fd2492a3",
+          "verificationDigest": "sha256-bFoEhNVazTSKmITVV6I8gvlpxOWsm_lBEPIv3OGz18M"
         }
       ],
       "outcome": "verified",
-      "setDigest": "sha256-lm8UVInMad9Ebz_IRpUa_ZuU11RM9zGqv6m_PBC5reM"
+      "setDigest": "sha256-Fe89_6-VJeyRhBCoGEuuITlvFqvxVb248v8IggUKxVc"
     }
   },
   "projections": [
@@ -1974,7 +1974,7 @@
       "omitFields": [
         "setDigest"
       ],
-      "expectedDigest": "sha256-lm8UVInMad9Ebz_IRpUa_ZuU11RM9zGqv6m_PBC5reM"
+      "expectedDigest": "sha256-Fe89_6-VJeyRhBCoGEuuITlvFqvxVb248v8IggUKxVc"
     },
     {
       "id": "mapped-observation-digest",

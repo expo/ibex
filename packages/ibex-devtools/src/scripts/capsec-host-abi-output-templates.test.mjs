@@ -144,10 +144,10 @@ describe("source-bound Host ABI output templates", () => {
     const legacyScalarAuthored = scalarAuthored.filter(({ edge }) =>
       legacyNames.has(edge.surface.name),
     );
-    expect(ordinaryScalarAuthored).toHaveLength(221);
+    expect(ordinaryScalarAuthored).toHaveLength(227);
     expect(
       new Set(ordinaryScalarAuthored.map(({ edge }) => edge.surface.name)).size,
-    ).toBe(216);
+    ).toBe(222);
     expect(legacyScalarAuthored.length).toBe(
       catalog.rows.filter(
         (row) =>
@@ -174,7 +174,7 @@ describe("source-bound Host ABI output templates", () => {
       "native-hermes-authenticated-session-runtime": 10,
       "rust-host-bounded-basic": 26,
       "rust-host-authenticated-typed-authority": 17,
-      "rust-host-authenticated-stateful-output": 10,
+      "rust-host-authenticated-stateful-output": 13,
       "rust-host-fs-sandbox": 25,
       "rust-host-authenticated-vfs-output": 5,
       "rust-host-authenticated-javascript-absence": 5,
@@ -183,10 +183,10 @@ describe("source-bound Host ABI output templates", () => {
       "rust-host-terminal-inert": 8,
       "native-hermes-diagnostic-runtime": 24,
       "native-hermes-bounded-dispatch-runtime": 3,
-      "native-hermes-module-runner-runtime": 25,
+      "native-hermes-module-runner-runtime": 27,
       "native-hermes-owned-runtime-teardown": 1,
       "native-hermes-owned-value-runtime": 5,
-      "native-hermes-stateless-current-target": 7,
+      "native-hermes-stateless-current-target": 8,
       "native-hermes-worklet-runtime": 12,
     });
     if (legacyScalarAuthored.length > 0) {
@@ -206,6 +206,72 @@ describe("source-bound Host ABI output templates", () => {
         ),
       ),
     ).toBe(true);
+  });
+
+  test("authors the exact merged module, compiled-environment, and sealing routes", () => {
+    const names = new Set([
+      "ex_hermes_commonjs_record_link_computed_dynamic_import",
+      "ex_hermes_module_preflight_bytecode",
+      "ex_hermes_module_record_link_computed_dynamic_import",
+      "ex_host_env_compiled_key_at",
+      "ex_host_env_compiled_key_count",
+      "ex_host_seal_bootstrap_phase",
+    ]);
+    expect(
+      authored
+        .filter(({ edge }) => names.has(edge.surface.name))
+        .map(({ catalogRow, edge, probe }) => [
+          edge.surface.name,
+          catalogRow.key.output,
+          probe.sourceDescriptor.operation.kind,
+        ])
+        .sort(([leftName, leftOutput], [rightName, rightOutput]) =>
+          `${leftName}\0${leftOutput}`.localeCompare(
+            `${rightName}\0${rightOutput}`,
+          ),
+        ),
+    ).toEqual([
+      [
+        "ex_hermes_commonjs_record_link_computed_dynamic_import",
+        "[[return]]",
+        "native-hermes-module-runner-runtime",
+      ],
+      [
+        "ex_hermes_module_preflight_bytecode",
+        "[[return]]",
+        "native-hermes-stateless-current-target",
+      ],
+      [
+        "ex_hermes_module_preflight_bytecode",
+        "out:error",
+        "native-hermes-stateless-current-target",
+      ],
+      [
+        "ex_hermes_module_record_link_computed_dynamic_import",
+        "[[return]]",
+        "native-hermes-module-runner-runtime",
+      ],
+      [
+        "ex_host_env_compiled_key_at",
+        "[[return]]",
+        "rust-host-authenticated-stateful-output",
+      ],
+      [
+        "ex_host_env_compiled_key_at",
+        "out:buf",
+        "rust-host-authenticated-stateful-output",
+      ],
+      [
+        "ex_host_env_compiled_key_count",
+        "[[return]]",
+        "rust-host-authenticated-stateful-output",
+      ],
+      [
+        "ex_host_seal_bootstrap_phase",
+        "[[return]]",
+        "rust-host-authenticated-stateful-output",
+      ],
+    ]);
   });
 
   test("authors only the five exact source-bound path buffer selectors", () => {

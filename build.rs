@@ -688,6 +688,17 @@ fn main() {
         );
         None
     };
+    let hermes_link_static = env_truthy("HERMES_LINK_STATIC");
+    let static_hermes_lib = match std::env::var("HERMES_STATIC_LIB_NAME")
+        .unwrap_or_else(|_| "hermesvm_a".into())
+        .as_str()
+    {
+        "hermesvm_a" => "hermesvm_a",
+        "hermesvmlean_a" => "hermesvmlean_a",
+        other => panic!(
+            "unsupported HERMES_STATIC_LIB_NAME={other:?}; expected hermesvm_a or hermesvmlean_a"
+        ),
+    };
     let default_ios_headers = repo_root
         .join("ios")
         .join("Frameworks")
@@ -753,6 +764,7 @@ fn main() {
             .then_some(candidate)
     });
     let default_ios_lib = repo_root.join("ios").join("Frameworks");
+    let default_macos_static_lib = default_ios_lib.join("macos-static");
     let default_linux_lib = repo_root.join("linux").join("lib");
     let default_windows_lib = default_windows_root.join("lib");
     let default_windows_bin = default_windows_root.join("bin");
@@ -766,6 +778,7 @@ fn main() {
                     "linux" => default_linux_lib.clone(),
                     "android" => default_android_hermes_lib.clone(),
                     "windows" => default_windows_lib.clone(),
+                    "macos" if hermes_link_static => default_macos_static_lib.clone(),
                     _ => default_ios_lib.clone(),
                 })
         });
@@ -795,7 +808,7 @@ fn main() {
             framework_name: selection.framework_name.clone(),
             binary_path: selection.runtime_path.clone(),
         })
-    } else if target_os == "macos" {
+    } else if target_os == "macos" && !hermes_link_static {
         resolve_macos_hermes_framework(&hermes_lib_dir)
     } else {
         None
@@ -869,7 +882,39 @@ fn main() {
             );
         }
     }
-    if target_os == "macos" && macos_hermes_framework.is_none() {
+    if target_os == "macos"
+        && hermes_link_static
+        && [
+            format!("lib{static_hermes_lib}.a"),
+            "libjsi.a".into(),
+            "libboost_context.a".into(),
+        ]
+        .iter()
+        .any(|name| !hermes_lib_dir.join(name).is_file())
+    {
+        panic!(
+            "static macOS Hermes bundle is incomplete under {} (expected lib{}.a, libjsi.a, and libboost_context.a). Run ./scripts/build-hermes.sh --release or set HERMES_LIB_DIR.",
+            hermes_lib_dir.display(),
+            static_hermes_lib
+        );
+    }
+    if target_os == "linux"
+        && hermes_link_static
+        && [
+            format!("lib{static_hermes_lib}.a"),
+            "libjsi.a".into(),
+            "libboost_context.a".into(),
+        ]
+        .iter()
+        .any(|name| !hermes_lib_dir.join(name).is_file())
+    {
+        panic!(
+            "static Linux Hermes bundle is incomplete under {} (expected lib{}.a, libjsi.a, and libboost_context.a). Run ./scripts/build-hermes-linux.sh or set HERMES_LIB_DIR.",
+            hermes_lib_dir.display(),
+            static_hermes_lib
+        );
+    }
+    if target_os == "macos" && !hermes_link_static && macos_hermes_framework.is_none() {
         panic!(
             "macOS Hermes framework not found under {}. The release xcframework only contains iOS/Catalyst slices; build or install a macOS hermes.framework under ios/Frameworks/macosx or set HERMES_LIB_DIR to its parent directory.",
             hermes_lib_dir.display()
@@ -976,8 +1021,9 @@ fn main() {
     };
 
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime.cc");
-    println!("cargo:rerun-if-changed=src/engine/hermes_session_conformance.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_internal.h");
     println!("cargo:rerun-if-changed=src/engine/hermes_module_runner.cc");
+    println!("cargo:rerun-if-changed=src/engine/self_image.cc");
     // @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory —
     // native registry IDs are committed generated input to the C++ archive.
     println!("cargo:rerun-if-changed=src/engine/capsec_registry_generated.h");
@@ -1068,6 +1114,8 @@ fn main() {
     println!("cargo:rerun-if-env-changed=HERMES_LIB_DIR");
     println!("cargo:rerun-if-env-changed=HERMES_BIN_DIR");
     println!("cargo:rerun-if-env-changed=HERMES_LINK_STATIC");
+    println!("cargo:rerun-if-env-changed=HERMES_STATIC_LIB_NAME");
+    println!("cargo:rerun-if-env-changed=IBEX_SFE_LINUX_RELEASE_STUB");
     println!("cargo:rerun-if-env-changed=REACT_ANDROID_DIR");
     println!("cargo:rerun-if-env-changed=REACT_ANDROID_ROOT");
     println!("cargo:rerun-if-env-changed=JSI_INCLUDE_DIR");
@@ -1079,10 +1127,22 @@ fn main() {
     let host_http_server_enabled = std::env::var_os("CARGO_FEATURE_HOST_HTTP_SERVER").is_some();
     let app_host_enabled = std::env::var_os("CARGO_FEATURE_APP_HOST").is_some();
     let openssl_crypto_enabled = std::env::var_os("CARGO_FEATURE_OPENSSL_CRYPTO").is_some();
+    // @ref LLP 0029#2-executable-layout-stub-envelope-footer —
+    // the compiled Linux release profile cannot inherit the source runtime's
+    // dynamic libcurl backend while compiled CapSec advertises no network
+    // authority; a later advertisement must bring a vendored/static backend.
+    let linux_release_stub = target_os == "linux" && env_truthy("IBEX_SFE_LINUX_RELEASE_STUB");
+    if linux_release_stub && !hermes_link_static {
+        panic!("IBEX_SFE_LINUX_RELEASE_STUB requires HERMES_LINK_STATIC=1");
+    }
     let hermes_macos_binary = if target_os == "macos" {
-        let binary = macos_hermes_framework
-            .as_ref()
-            .map(|framework| framework.binary_path.clone());
+        let binary = if hermes_link_static {
+            Some(hermes_lib_dir.join(format!("lib{static_hermes_lib}.a")))
+        } else {
+            macos_hermes_framework
+                .as_ref()
+                .map(|framework| framework.binary_path.clone())
+        };
         if let Some(path) = binary.as_ref() {
             println!("cargo:rerun-if-changed={}", path.display());
         }
@@ -1092,12 +1152,21 @@ fn main() {
     };
     let hermes_frame_attribution_binary = match target_os.as_str() {
         "macos" => hermes_macos_binary.clone(),
-        "linux" => [
-            hermes_lib_dir.join("libhermesvm.so"),
-            hermes_lib_dir.join("libhermesvm.a"),
-        ]
-        .into_iter()
-        .find(|path| path.is_file()),
+        "linux" => {
+            if hermes_link_static {
+                [
+                    hermes_lib_dir.join(format!("lib{static_hermes_lib}.a")),
+                    hermes_lib_dir.join("libhermesvm.a"),
+                ]
+                .into_iter()
+                .find(|path| path.is_file())
+            } else {
+                hermes_lib_dir
+                    .join("libhermesvm.so")
+                    .is_file()
+                    .then(|| hermes_lib_dir.join("libhermesvm.so"))
+            }
+        }
         "windows" => [
             hermes_bin_dir.join("hermesvm.dll"),
             hermes_bin_dir.join("hermes.dll"),
@@ -1667,6 +1736,7 @@ fn main() {
         .cpp(true)
         .file("src/engine/hermes_runtime.cc")
         .file("src/engine/hermes_module_runner.cc")
+        .file("src/engine/self_image.cc")
         .file("src/engine/hermes_bootstrap.cc")
         .file("src/engine/hermes_runtime_utils.cc")
         .file("src/engine/hermes_runtime_sqlite.cc")
@@ -1999,21 +2069,31 @@ fn main() {
 
         // Link frameworks
         if target_os == "macos" {
-            println!(
-                "cargo:rustc-link-search=framework={}",
-                hermes_framework_dir.display()
-            );
-            // Portable selection has already revalidated the complete
-            // framework compatibility-symlink chain and proved that its linker
-            // resolution reaches the exact runtime record. Preserve Cargo's
-            // framework metadata so downstream embedders receive the link.
-            // @ref LLP 0035#build-consumption-and-post-link-contracts
-            println!("cargo:rustc-link-lib=framework={}", hermes_framework_name);
-            if portable_engine.is_none() {
+            if hermes_link_static {
                 println!(
-                    "cargo:rustc-link-arg=-Wl,-rpath,{}",
+                    "cargo:rustc-link-search=native={}",
+                    hermes_lib_dir.display()
+                );
+                println!("cargo:rustc-link-lib=static={static_hermes_lib}");
+                println!("cargo:rustc-link-lib=static=boost_context");
+                println!("cargo:rustc-link-lib=static=jsi");
+            } else {
+                println!(
+                    "cargo:rustc-link-search=framework={}",
                     hermes_framework_dir.display()
                 );
+                // Portable selection has already revalidated the complete
+                // framework compatibility-symlink chain and proved that its
+                // linker resolution reaches the exact runtime record. Preserve
+                // Cargo's framework metadata for downstream embedders.
+                // @ref LLP 0035#build-consumption-and-post-link-contracts
+                println!("cargo:rustc-link-lib=framework={}", hermes_framework_name);
+                if portable_engine.is_none() {
+                    println!(
+                        "cargo:rustc-link-arg=-Wl,-rpath,{}",
+                        hermes_framework_dir.display()
+                    );
+                }
             }
         }
         // On iOS, Hermes is linked by Xcode (via hermes.xcframework dependency)
@@ -2176,25 +2256,31 @@ fn main() {
     if target_os == "linux" {
         const MIN_LIBCURL_VERSION: &str = "7.86.0";
         // @ref LLP 0008#linux-networking — libcurl is the supported Linux Fetch/WebSocket backend; the CLI fallback is explicit and degraded.
-        let allow_curl_cli_fallback = std::env::var("IBEX_ALLOW_CURL_CLI_FALLBACK")
-            .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-            .unwrap_or(false);
-        let detected_libcurl_version = std::process::Command::new("pkg-config")
-            .args(["--modversion", "libcurl"])
-            .output()
-            .ok()
-            .and_then(|out| {
-                if out.status.success() {
-                    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
-                } else {
-                    None
-                }
-            });
-        let has_minimum_libcurl = std::process::Command::new("pkg-config")
-            .args(["--atleast-version", MIN_LIBCURL_VERSION, "libcurl"])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
+        let allow_curl_cli_fallback = !linux_release_stub
+            && std::env::var("IBEX_ALLOW_CURL_CLI_FALLBACK")
+                .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+                .unwrap_or(false);
+        let detected_libcurl_version = if linux_release_stub {
+            None
+        } else {
+            std::process::Command::new("pkg-config")
+                .args(["--modversion", "libcurl"])
+                .output()
+                .ok()
+                .and_then(|out| {
+                    if out.status.success() {
+                        Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+                    } else {
+                        None
+                    }
+                })
+        };
+        let has_minimum_libcurl = !linux_release_stub
+            && std::process::Command::new("pkg-config")
+                .args(["--atleast-version", MIN_LIBCURL_VERSION, "libcurl"])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
 
         let mut fetch_build = cc::Build::new();
         fetch_build
@@ -2202,9 +2288,12 @@ fn main() {
             .file("src/engine/native_fetch_linux.cc")
             .flag_if_supported("-std=c++17")
             .flag_if_supported("-fPIC");
-        if has_minimum_libcurl {
+        if linux_release_stub {
+            fetch_build.define("EXACT_DISABLE_LINUX_NETWORK", Some("1"));
+        } else if has_minimum_libcurl {
             fetch_build.define("EXACT_HAS_CURL", Some("1"));
         } else if allow_curl_cli_fallback {
+            fetch_build.define("EXACT_ALLOW_CURL_CLI_FALLBACK", Some("1"));
             match detected_libcurl_version.as_deref() {
                 Some(version) => println!(
                     "cargo:warning=libcurl {version} detected, but >= {MIN_LIBCURL_VERSION} is required for native Linux networking; using degraded curl CLI fetch fallback and disabling native websocket support because IBEX_ALLOW_CURL_CLI_FALLBACK=1"
@@ -2231,7 +2320,9 @@ fn main() {
             .file("src/engine/native_websocket_linux.cc")
             .flag_if_supported("-std=c++17")
             .flag_if_supported("-fPIC");
-        if has_minimum_libcurl {
+        if linux_release_stub {
+            ws_build.define("EXACT_DISABLE_LINUX_NETWORK", Some("1"));
+        } else if has_minimum_libcurl {
             ws_build.define("EXACT_HAS_CURL", Some("1"));
         }
         ws_build.compile("exact_native_websocket");
@@ -2240,11 +2331,30 @@ fn main() {
             "cargo:rustc-link-search=native={}",
             hermes_lib_dir.display()
         );
-        let static_link = std::env::var("HERMES_LINK_STATIC")
-            .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-            .unwrap_or(false);
-        if static_link {
-            println!("cargo:rustc-link-lib=static=hermesvm");
+        if hermes_link_static {
+            println!("cargo:rustc-link-lib=static={static_hermes_lib}");
+            // libhermesvm_a deliberately remains a CMake archive bundle, not
+            // a flattened opaque .a. Keep its private Boost.Context member in
+            // the authenticated Hermes artifact and close ICU statically so
+            // the SFE has no versioned ICU DT_NEEDED entries.
+            println!("cargo:rustc-link-lib=static=jsi");
+            println!("cargo:rustc-link-lib=static=boost_context");
+            let icu_lib_dir = std::process::Command::new("pkg-config")
+                .args(["--variable=libdir", "icu-i18n"])
+                .output()
+                .ok()
+                .filter(|output| output.status.success())
+                .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+                .filter(|path| !path.is_empty())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "static Linux Hermes requires pkg-config metadata and static archives for icu-i18n"
+                    )
+                });
+            println!("cargo:rustc-link-search=native={icu_lib_dir}");
+            println!("cargo:rustc-link-lib=static=icui18n");
+            println!("cargo:rustc-link-lib=static=icuuc");
+            println!("cargo:rustc-link-lib=static=icudata");
         } else {
             println!("cargo:rustc-link-lib=dylib=hermesvm");
             println!(
@@ -2953,9 +3063,9 @@ fn generate_runtime_bundle_bytecode_header(
     safe_remove_file(&bundled_runtime_hbc);
     safe_remove_file(&header_path);
 
-    // @ref LLP 0005#bytecode-precompilation-hermesc — Windows startup does not
-    // install the shared runtime bundle, and the Windows Hermes compiler rejects
-    // modern bundle syntax, so HBC generation is intentionally skipped.
+    // @ref LLP 0005#bytecode-precompilation-hermesc — Windows installs the shared
+    // runtime source during native bootstrap, but its Hermes compiler has not yet
+    // proven the modern bundle syntax needed to make HBC generation trustworthy.
     if target_os == "windows" {
         println!("cargo:warning=Skipping shared runtime bundle HBC generation on Windows");
         return;

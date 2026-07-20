@@ -16,9 +16,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        run: |
-          rustup toolchain install 1.93.1 --profile minimal --component rustfmt --component clippy --component rust-src
-          rustup default 1.93.1
+        run: scripts/install-rust-toolchain.sh
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -44,6 +42,12 @@ jobs:
       # tracks the full matrix; this job stays on hermetic preflight checks.
       - name: Validate Cargo metadata
         run: cargo metadata --no-deps --format-version 1 > /tmp/ibex-cargo-metadata.json
+
+      # The exact current inventory is an inverse gate while SWC remains. At
+      # retirement its checked-in mode flips to a name-prefix prohibition for
+      # every retained Cargo profile. @ref LLP 0028#4-reachability-inventory-and-retirement-matrix
+      - name: Check Oxc retirement inventory and SWC dependency prefix
+        run: bun run check:oxc-retirement
 
       - name: Install cargo-audit
         uses: taiki-e/install-action@cargo-audit
@@ -76,19 +80,17 @@ jobs:
           # test file a fresh global plus module cache so mocks cannot leak or
           # bind a product module before another file installs its own hooks.
           bun test packages/ibex-devtools/src/scripts
-          if command -v rg >/dev/null 2>&1; then
-            mapfile -t runtime_tests < <(
-              rg --files packages/ibex-runtime-js/src |
-                rg '\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$' |
+          mapfile -t runtime_tests < <(
+            find packages/ibex-runtime-js/src -type f \( \
+              -name '*.test.ts' -o -name '*.test.tsx' -o \
+              -name '*.test.js' -o -name '*.test.jsx' -o \
+              -name '*.test.mjs' -o -name '*.test.cjs' -o \
+              -name '*.spec.ts' -o -name '*.spec.tsx' -o \
+              -name '*.spec.js' -o -name '*.spec.jsx' -o \
+              -name '*.spec.mjs' -o -name '*.spec.cjs' \
+            \) -print |
                 sort
-            )
-          else
-            mapfile -t runtime_tests < <(
-              find packages/ibex-runtime-js/src -type f -print |
-                awk '/\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$/' |
-                sort
-            )
-          fi
+          )
           test "${#runtime_tests[@]}" -gt 0
           for test_file in "${runtime_tests[@]}"; do
             bun test "$test_file"
@@ -118,13 +120,29 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        shell: pwsh
-        run: |
-          rustup toolchain install 1.93.1 --profile minimal
-          rustup default 1.93.1
+        shell: bash
+        run: scripts/install-rust-toolchain.sh
 
       # This package has no Hermes dependency. On Windows it additionally
       # exercises an exclusive destination handle, proving a stale loaded DLL
       # makes publication fail rather than falling through to old code.
       - name: Test locked, tampered, clock-skewed, and concurrent staging
         run: cargo test -p ibex-windows-dll-staging -- --test-threads=1
+
+  oxc-latest-canary:
+    name: Latest Oxc compatibility canary
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install current stable Rust
+        run: rustup toolchain install stable --profile minimal
+
+      # This deliberately has an independent lockfile and wildcard pins. It is
+      # advisory: a new Oxc release turns the job red without destabilizing the
+      # exact production transform identity. @ref LLP 0028#1-toolchain-and-pin-rotation--atomic-with-identity-rotation
+      - name: Compile the production API smoke against latest Oxc
+        run: cargo +stable check --manifest-path tools/oxc-latest-canary/Cargo.toml
