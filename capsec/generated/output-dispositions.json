@@ -1,7 +1,7 @@
 {
   "outputDispositionDatasetSchema": "ibex/capsec-output-dispositions/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256-pfKwYtRvBNs7G4wx_GOS9cQvQ0rYDmcxdWne7tiG4nM",
+  "catalogKeyDigest": "sha256-VTJW7_CXZTV6FIHAly_X-2CZxwW8yjTnBAmEyXQYWp8",
   "evidence": {
     "status": "unpromotable",
     "reason": "The output corpus remains unpromotable: one native module-marker surface account and three inherited-intrinsic alias surface accounts are unresolved, and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes all three account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations."
@@ -50631,6 +50631,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.configure.restricted.exact.activation.12kr2mk",
+        "output": "[[return]]",
+        "alias": "ex_hermes_configure_restricted_exact_activation",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.create.04wgtwz",
         "output": "[[return]]",
         "alias": "ex_hermes_create",
@@ -50668,6 +50685,23 @@
         "surfaceId": "surface.host.abi.ex.hermes.create.diagnostic.1t314ff",
         "output": "[[return]]",
         "alias": "ex_hermes_create_diagnostic",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.create.restricted.exact.0ef6yrt",
+        "output": "[[return]]",
+        "alias": "ex_hermes_create_restricted_exact",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -53657,6 +53691,40 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.run.restricted.exact.bundle.1y309kh",
+        "output": "[[return]]",
+        "alias": "ex_hermes_run_restricted_exact_bundle",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.run.restricted.exact.bundle.1y309kh",
+        "output": "out:error",
+        "alias": "ex_hermes_run_restricted_exact_bundle",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.runtime.nonce.0sqhs3l",
         "output": "[[return]]",
         "alias": "ex_hermes_runtime_nonce",
@@ -54079,6 +54147,57 @@
         "normalizedValue": "absent"
       },
       "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.set.module.sync.callback.0c126e2.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-KowjGOHArws_Jat_1nd4CiucC_Pp05sjwv2Tv0xaY_w, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw",
+        "output": "[[return]]",
+        "alias": "ex_hermes_set_restricted_exact_checkpoint_callback",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw",
+        "output": "callback:callback/0",
+        "alias": "ex_hermes_set_restricted_exact_checkpoint_callback",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw",
+        "output": "callback:callback/2",
+        "alias": "ex_hermes_set_restricted_exact_checkpoint_callback",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
     },
     {
       "key": {
@@ -55394,6 +55513,74 @@
         "surfaceId": "surface.host.abi.ex.host.claim.diagnostic.context.0dooych",
         "output": "[[return]]",
         "alias": "ex_host_claim_diagnostic_context",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.claim.restricted.exact.context.13osz2b",
+        "output": "[[return]]",
+        "alias": "ex_host_claim_restricted_exact_context",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.copy.restricted.exact.bundle.09bbsk3",
+        "output": "[[return]]",
+        "alias": "ex_host_copy_restricted_exact_bundle",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.copy.restricted.exact.bundle.09bbsk3",
+        "output": "out:format",
+        "alias": "ex_host_copy_restricted_exact_bundle",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.copy.restricted.exact.bundle.09bbsk3",
+        "output": "out:len",
+        "alias": "ex_host_copy_restricted_exact_bundle",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -81503,6 +81690,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.native.op.global.exact.publishcheckpoint.1sxxctt",
+        "output": "[[return]]",
+        "alias": "global:exact.publishCheckpoint",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.native.op.global.exact.readablestreamtoarray.02ii6au",
         "output": "[[return]]",
         "alias": "global:Exact.readableStreamToArray",
@@ -82292,6 +82496,23 @@
         "sourceKind": "native-op",
         "returnVariant": "default",
         "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.exact.takecheckpointbytes.1hbxdow",
+        "output": "[[return]]",
+        "alias": "global:exact.takeCheckpointBytes",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
       },
       "disposition": "non-path",
       "expectation": {
@@ -107685,6 +107906,23 @@
       "key": {
         "surfaceId": "surface.native.op.ibexlockeddown.1l9g3ta",
         "output": "[[value]]",
+        "alias": "__ibexLockedDown",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.ibexlockeddown.1l9g3ta",
+        "output": "[[value]]",
         "alias": "globalThis.__ibexLockedDown",
         "mode": "lockdown",
         "sourceKind": "native-op",
@@ -107907,6 +108145,40 @@
         "surfaceId": "surface.native.op.nativefetchsync.17pnac8",
         "output": "[[return]]",
         "alias": "__nativeFetchSync",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.restrictedrandom.1mvjo88",
+        "output": "[[return]]",
+        "alias": "__restrictedRandom",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.restrictedwallclock.0ik8lyf",
+        "output": "[[return]]",
+        "alias": "__restrictedWallClock",
         "mode": "all",
         "sourceKind": "native-op",
         "returnVariant": "default",
@@ -108771,12 +109043,12 @@
     }
   ],
   "counts": {
-    "catalogRows": 6397,
-    "dispositionRows": 6397,
+    "catalogRows": 6413,
+    "dispositionRows": 6413,
     "byDisposition": {
       "absent": 152,
       "closed": 28,
-      "non-path": 6069,
+      "non-path": 6085,
       "private-native-path": 5,
       "refused": 12,
       "reserved-constant": 1,

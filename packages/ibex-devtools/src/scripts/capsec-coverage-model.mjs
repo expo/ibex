@@ -234,6 +234,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactRequestAnimationFrame",
   "__exactResetSignal",
   "__exactResolveManifestBuiltinInternal",
+  "__exactResolveModule",
   "__exactRevokeHandle",
   "__exactRmdir",
   "__exactRsaOaepDecrypt",
@@ -351,6 +352,8 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__ibexTamed",
   "__nativeFetch",
   "__nativeFetchSync",
+  "__restrictedRandom",
+  "__restrictedWallClock",
   "__svGet",
   "__svSet",
   "__workletCapture",
@@ -2849,12 +2852,14 @@ const REVIEWED_NON_GLOBAL_NATIVE_OPERATION_NAMES = new Set([
   "__exactModuleEvent",
   "__exactMotionRatedPublish",
   "__exactNativeFreeze",
+  "__exactOSRelease",
+  "__exactOSVersion",
+  "__exactResolveModule",
   "__exactRunOnJS",
   "__exactScheduleOnAppRuntime",
   "__exactSetCompartmentFor",
   "__ibex",
   "__ibexCapsecContextObserver_",
-  "__ibexLockedDown",
   "__ibexTamed",
   "native_fetch_cancel",
   "native_fetch_perform",
@@ -4708,6 +4713,7 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "hitTest",
     "invokeHostAsync",
     "nodeExists",
+    "publishCheckpoint",
     "runtime",
     "runtime.detectEngine",
     "runtime.detectPlatform",
@@ -4717,6 +4723,7 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "runtime.info.version",
     "runtime.isInstalled",
     "runtime.version",
+    "takeCheckpointBytes",
   ],
   externalizeString: [""],
   failed: [""],
@@ -5076,9 +5083,11 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_commonjs_record_link_dynamic_import",
     "ex_hermes_commonjs_record_link_require",
     "ex_hermes_commonjs_record_link_require_esm",
+    "ex_hermes_configure_restricted_exact_activation",
     "ex_hermes_create",
     "ex_hermes_create_armed",
     "ex_hermes_create_diagnostic",
+    "ex_hermes_create_restricted_exact",
     "ex_hermes_current_principal_id",
     "ex_hermes_current_runtime_nonce",
     "ex_hermes_debugger_enable",
@@ -5137,6 +5146,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_resolve_exact_host_call",
     "ex_hermes_resolve_host_call",
     "ex_hermes_resume_structured_session",
+    "ex_hermes_run_restricted_exact_bundle",
     "ex_hermes_runtime_nonce",
     "ex_hermes_schedule_watchdog_heartbeat",
     "ex_hermes_schedule_watchdog_heartbeat_for_generation",
@@ -5151,6 +5161,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_set_kernel_handle",
     "ex_hermes_set_module_dispatch_callback",
     "ex_hermes_set_module_sync_callback",
+    "ex_hermes_set_restricted_exact_checkpoint_callback",
     "ex_hermes_structured_active_work_target",
     "ex_hermes_structured_module_graph_begin",
     "ex_hermes_structured_module_graph_finish",
@@ -5188,9 +5199,11 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_check_import",
     "ex_host_claim_armed_context",
     "ex_host_claim_diagnostic_context",
+    "ex_host_claim_restricted_exact_context",
     "ex_host_console_flush",
     "ex_host_console_log",
     "ex_host_console_log_bytes",
+    "ex_host_copy_restricted_exact_bundle",
     "ex_host_enter_context",
     "ex_host_env_get",
     "ex_host_evaluate_typed_decision",
@@ -6679,6 +6692,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "evaluation:__has_include:18ool1z:stream-stability-patch",
     "evaluation:defined:13e9rgh:promise-unwrap",
     "evaluation:ex_hermes_debugger_eval:cdp",
+    "evaluation:ex_hermes_run_restricted_exact_bundle:authenticated-restricted-exact-bundle",
     "evaluation:installCompartmentRegistry:compartment-registry",
     "evaluation:installFetchGlobals:windows-fetch-shim",
     "evaluation:installGlobals:capability-hardening",
@@ -6690,6 +6704,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "evaluation:installGlobals:native-freeze-conformance-observation",
     "evaluation:installGlobals:web-crypto",
     "evaluation:installGlobals:web-storage",
+    "evaluation:installRestrictedExactGlobals:restricted-exact-lockdown",
     "evaluation:installWebSocketGlobals:windows-websocket-shim",
     "freeze-seal",
     "globals-install",
@@ -6698,6 +6713,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "install-route:env_flag_enabled:0jb9qqi:installWebStreamsPolyfill",
     "install-route:ex_hermes_create_impl:installCompartmentRegistry",
     "install-route:ex_hermes_create_impl:installGlobals",
+    "install-route:ex_hermes_create_impl:installRestrictedExactGlobals",
     "install-route:ex_worklet_create:installWorkletGlobals",
     "install-route:installAndroidHostFunctions:installAndroidCameraBridge",
     "install-route:installAndroidHostFunctions:installAndroidEnvironmentGlobals",
@@ -6726,6 +6742,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "install-route:installGlobals:installWebSocketGlobals",
     "install-route:installModuleLoader:installSharedRuntimeBundle",
     "install-route:installNetHostFunctions:installTlsHostFunctions",
+    "install-route:installRestrictedExactGlobals:installTimerGlobals",
     "install-route:prepareAndroidStoragePathsProjection:0qv3qsf:installStoragePathsGlobal",
     "installer:installAndroidCameraBridge",
     "installer:installAndroidEnvironmentGlobals",
@@ -6749,6 +6766,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "installer:installNetOwnerHostFunction",
     "installer:installOsInfoGlobals",
     "installer:installProcessSetup",
+    "installer:installRestrictedExactGlobals",
     "installer:installSharedRuntimeBundle",
     "installer:installSqliteHostFunctions",
     "installer:installStoragePathsGlobal",
@@ -6768,6 +6786,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "private:ibex:session-worker-bootstrap:v1",
     "runtime-create",
     "scheduler-principal-capture",
+    "script:authenticated-restricted-exact-bundle",
     "script:bootstrap",
     "script:bytecode",
     "script:capability-hardening",
@@ -6789,6 +6808,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "script:native-freeze-conformance-observation",
     "script:process-compat-fix",
     "script:promise-unwrap",
+    "script:restricted-exact-lockdown",
     "script:shared-runtime-bundle",
     "script:stream-enhance",
     "script:stream-stability-patch",
@@ -9484,6 +9504,7 @@ function callbackClassification(surface) {
       "ios-dispatch-debug-context",
       "ios-module-dispatch",
       "ios-module-sync",
+      "restricted-exact-checkpoint-output",
       "worklet-measure",
       "worklet-scheduled-drain",
     ]).has(name)
@@ -10911,6 +10932,7 @@ function startupClassification(surface) {
         "installer:installnetownerhostfunction",
         "installer:installosinfoglobals",
         "installer:installprocesssetup",
+        "installer:installrestrictedexactglobals",
         "installer:installsharedruntimebundle",
         "installer:installsqlitehostfunctions",
         "installer:installstoragepathsglobal",
@@ -10937,6 +10959,7 @@ function startupClassification(surface) {
     }
     if (
       new Set([
+        "script:authenticated-restricted-exact-bundle",
         "script:capability-hardening",
         "script:compartment-registry",
         "script:eager-install-seal",
@@ -10946,6 +10969,7 @@ function startupClassification(surface) {
         "script:lazy-getters",
         "script:lockdown",
         "script:module-loader",
+        "script:restricted-exact-lockdown",
         "script:web-crypto",
         "script:web-storage",
       ]).has(name)
@@ -11256,6 +11280,13 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
   if (globalName === "__exactloadtimings") {
     return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
   }
+  if (/^(?:eval|function)$/u.test(globalName) && member === "") {
+    return closedSpec(
+      "vm:evaluate",
+      "WP7",
+      "Dynamic JavaScript compilation remains closed; the restricted profile replaces these globals with throwing sentinels.",
+    );
+  }
   if (/^__exact(?:allownativessyntax|compateval)$/u.test(globalName)) {
     return closedSpec(
       "vm:evaluate",
@@ -11531,6 +11562,9 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
         "WP8",
         "The typed Exact embedder route remains closed until its app/agent operation manifest and context are authenticated by the armed artifact.",
       );
+    }
+    if (member === "takecheckpointbytes") {
+      return nonCapabilitySpec("authority-control-plane", "WP4");
     }
     return closedSpec(
       "ipc:channel",
@@ -12546,7 +12580,10 @@ function abiEscapeClassification(name) {
 
 function embedderAbiClassification(name) {
   if (/^exhermes/u.test(name)) {
-    if (name === "exhermessetexacthostcallasync") {
+    if (
+      name === "exhermesconfigurerestrictedexactactivation" ||
+      name === "exhermessetexacthostcallasync"
+    ) {
       return nonCapabilitySpec("authority-control-plane", "WP4");
     }
     if (name === "exhermesresolveexacthostcall") {
@@ -12593,8 +12630,10 @@ function embedderAbiClassification(name) {
       new Set([
         "exhermescreate",
         "exhermescreatearmed",
+        "exhermescreaterestrictedexact",
         "exhermesenginebinarypath",
         "exhermesenginemappedobject",
+        "exhermesrunrestrictedexactbundle",
       ]).has(name)
     ) {
       return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
@@ -12620,6 +12659,7 @@ function embedderAbiClassification(name) {
         "exhermessethostwakehook",
         "exhermessetmoduledispatchcallback",
         "exhermessetmodulesynccallback",
+        "exhermessetrestrictedexactcheckpointcallback",
       ]).has(name)
     ) {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");
@@ -12700,7 +12740,7 @@ function hostAbiClassification(name) {
   }
 
   if (
-    /^(?:exhostauthorizetypedenvironment(?:read|write)stack|exhostauthorizetypedfsstack|exhostauthorizetypedlistenstack|exhostauthorizetypednetworkstack|exhostauthorizetypedprintstack|exhostauthorizetypedsysteminfostack|exhostauthorizetypedudpdatagramstack|exhostclaimarmedcontext|exhostclaimdiagnosticcontext|exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostentercontext|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostisarmed|exhostlegacyauthorizationcacheable|exhostlegacyauthorizationgeneration|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhostreleasecontext|exhostrestorecontext|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedgenerations|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
+    /^(?:exhostauthorizetypedenvironment(?:read|write)stack|exhostauthorizetypedfsstack|exhostauthorizetypedlistenstack|exhostauthorizetypednetworkstack|exhostauthorizetypedprintstack|exhostauthorizetypedsysteminfostack|exhostauthorizetypedudpdatagramstack|exhostclaimarmedcontext|exhostclaimdiagnosticcontext|exhostclaimrestrictedexactcontext|exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostentercontext|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostisarmed|exhostlegacyauthorizationcacheable|exhostlegacyauthorizationgeneration|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhostreleasecontext|exhostrestorecontext|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedgenerations|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
       name,
     )
   ) {
@@ -12712,6 +12752,7 @@ function hostAbiClassification(name) {
       "exhostarmedendowments",
       "exhostauthorizeexactendowment",
       "exhostbuildexactarmedembedderartifacts",
+      "exhostcopyrestrictedexactbundle",
       "exhostinstallarmed",
       "exhostmatchesarmedsnapshotdigest",
       "exhostpreparearmedembedderartifacts",
@@ -13239,6 +13280,15 @@ function classifyConcreteSurface(surface) {
         "The inherited diagnostic child-process socket, serialization mode, and identity-bound close hook are private, one-shot bootstrap inputs; armed and project-visible IPC remain closed.",
       );
     }
+    if (surface.name === "__ibexLockedDown") {
+      return nonCapabilitySpec("authority-control-plane", "WP8");
+    }
+    if (
+      surface.name === "__restrictedRandom" ||
+      surface.name === "__restrictedWallClock"
+    ) {
+      return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
+    }
     if (
       new Set([
         "__exactMotionRatedPublish",
@@ -13288,7 +13338,7 @@ function classifyConcreteSurface(surface) {
   if (/ensure/u.test(name)) {
     return nonCapabilitySpec("authority-control-plane", "WP4");
   }
-  if (/resolvemanifestbuiltininternal/u.test(name)) {
+  if (/resolvemanifestbuiltininternal|resolvemodule/u.test(name)) {
     return nonCapabilitySpec("authority-control-plane", "WP4");
   }
   if (/capturesessionstaticimport/u.test(name)) {

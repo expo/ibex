@@ -661,6 +661,24 @@ struct ExactHermesRuntime {
   // and their synchronous verdicts.
   bool restricted = false;
 
+  // Profile-distinct Exact Contract runtime. This is armed, but it is neither
+  // a full Ibex runtime nor a UI worklet. It never installs the general
+  // bootstrap/module/compatibility surface and cannot use ex_hermes_eval.
+  // @ref LLP 0033#4-profile-identity-and-anti-confusion-rules
+  bool restricted_exact = false;
+  bool restricted_exact_bundle_consumed = false;
+  bool restricted_exact_poisoned = false;
+  bool restricted_exact_activation_configured = false;
+  bool restricted_exact_checkpoint_consumed = false;
+  uint64_t restricted_exact_checkpoint_publication_count = 0;
+  uint64_t restricted_exact_wall_clock_ms = 0;
+  uint64_t restricted_exact_rng_state_0 = 0;
+  uint64_t restricted_exact_rng_state_1 = 0;
+  std::vector<uint8_t> restricted_exact_checkpoint;
+  void (*restricted_exact_checkpoint_callback)(
+      const uint8_t* data, size_t length, void* context) = nullptr;
+  void* restricted_exact_checkpoint_context = nullptr;
+
   bool stream_enhance_loaded = false;
   bool web_crypto_loaded = false;
   bool web_storage_loaded = false;
@@ -1796,7 +1814,9 @@ void installTlsHostFunctions(ExactHermesRuntime* handle);
 void installHttpHostFunctions(ExactHermesRuntime* handle);
 void installSqliteHostFunctions(ExactHermesRuntime* handle);
 void installConsoleGlobals(ExactHermesRuntime* handle);
-void installTimerGlobals(ExactHermesRuntime* handle);
+void installTimerGlobals(
+    ExactHermesRuntime* handle,
+    bool install_ref_controls);
 void installOsInfoGlobals(ExactHermesRuntime* handle);
 void installProcessSetup(ExactHermesRuntime* handle);
 void installWebSocketGlobals(ExactHermesRuntime* handle);

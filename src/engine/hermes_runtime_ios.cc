@@ -26,6 +26,10 @@
 
 #include "hermes_runtime_internal.h"
 
+namespace {
+constexpr size_t kMaxRestrictedExactCheckpointOutputBytes = 16 * 1024 * 1024;
+}
+
 // Kernel FFI functions (implemented in Rust kernel crate)
 extern "C" int32_t exact_get_state_mirror_buffer(
     void* handle, uint8_t** out_ptr, size_t* out_size);
@@ -61,6 +65,13 @@ extern "C" void ex_hermes_set_dispatch_callback(
     void* context) {
   if (!runtime) return;
   if (runtime->restricted) return;  // no exact.dispatch on worklet runtimes (LLP 0297 §4.3)
+  if (runtime->runtime_thread != std::this_thread::get_id()) return;
+  if (runtime->restricted_exact &&
+      (runtime->restricted_exact_bundle_consumed ||
+       runtime->restricted_exact_poisoned ||
+       runtime->ios_dispatch_callback != nullptr)) {
+    return;
+  }
   runtime->ios_dispatch_callback = callback;
   runtime->ios_dispatch_context = context;
 
@@ -81,7 +92,10 @@ extern "C" void ex_hermes_set_dispatch_callback(
                 const facebook::jsi::Value&,
                 const facebook::jsi::Value* args,
                 size_t count) -> facebook::jsi::Value {
-        if (count == 0 || !args[0].isObject() || !runtime->ios_dispatch_callback) {
+        if (count == 0 || !args[0].isObject() || !runtime->ios_dispatch_callback ||
+            (runtime->restricted_exact &&
+             (!runtime->restricted_exact_bundle_consumed ||
+              runtime->restricted_exact_poisoned))) {
           return facebook::jsi::Value::undefined();
         }
 
@@ -109,8 +123,122 @@ extern "C" void ex_hermes_set_dispatch_callback(
         return facebook::jsi::Value::undefined();
       });
 
-  exactObj.setProperty(rt, "dispatch", std::move(dispatchFn));
+  if (runtime->restricted_exact) {
+    auto descriptor = facebook::jsi::Object(rt);
+    descriptor.setProperty(rt, "value", std::move(dispatchFn));
+    descriptor.setProperty(rt, "writable", false);
+    descriptor.setProperty(rt, "enumerable", false);
+    descriptor.setProperty(rt, "configurable", false);
+    rt.global()
+        .getPropertyAsObject(rt, "Object")
+        .getPropertyAsFunction(rt, "defineProperty")
+        .call(
+            rt,
+            exactObj,
+            facebook::jsi::String::createFromAscii(rt, "dispatch"),
+            descriptor);
+  } else {
+    exactObj.setProperty(rt, "dispatch", std::move(dispatchFn));
+  }
   rt.global().setProperty(rt, "exact", std::move(exactObj));
+}
+
+extern "C" int ex_hermes_set_restricted_exact_checkpoint_callback(
+    ExactHermesRuntime* runtime,
+    void (*callback)(const uint8_t* data, size_t length, void* context),
+    void* context) {
+  if (!runtime || !runtime->runtime || !runtime->restricted_exact || !callback) {
+    return -1;
+  }
+  if (runtime->runtime_thread != std::this_thread::get_id()) return -7;
+  if (runtime->restricted_exact_bundle_consumed ||
+      runtime->restricted_exact_poisoned) {
+    return -9;
+  }
+  if (runtime->restricted_exact_checkpoint_callback != nullptr) return -5;
+
+  runtime->restricted_exact_checkpoint_callback = callback;
+  runtime->restricted_exact_checkpoint_context = context;
+  auto& rt = *runtime->runtime;
+  auto exactVal = rt.global().getProperty(rt, "exact");
+  auto exactObj = exactVal.isObject()
+      ? exactVal.getObject(rt)
+      : facebook::jsi::Object(rt);
+  auto publishFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "publishCheckpoint"),
+      1,
+      [runtime](facebook::jsi::Runtime& rt,
+                const facebook::jsi::Value&,
+                const facebook::jsi::Value* args,
+                size_t count) -> facebook::jsi::Value {
+        if (!runtime->restricted_exact_bundle_consumed ||
+            runtime->restricted_exact_poisoned ||
+            runtime->restricted_exact_checkpoint_callback == nullptr ||
+            count != 1 || !args[0].isObject()) {
+          throw facebook::jsi::JSError(
+              rt, "restricted Exact checkpoint publication refused");
+        }
+        auto value = args[0].getObject(rt);
+        const uint8_t* data = nullptr;
+        size_t length = 0;
+        if (value.isArrayBuffer(rt)) {
+          auto buffer = value.getArrayBuffer(rt);
+          data = buffer.data(rt);
+          length = buffer.size(rt);
+        } else if (value.hasProperty(rt, "buffer")) {
+          auto bufferValue = value.getProperty(rt, "buffer");
+          if (bufferValue.isObject() &&
+              bufferValue.getObject(rt).isArrayBuffer(rt)) {
+            auto buffer = bufferValue.getObject(rt).getArrayBuffer(rt);
+            size_t offset = 0;
+            length = buffer.size(rt);
+            auto offsetValue = value.getProperty(rt, "byteOffset");
+            auto lengthValue = value.getProperty(rt, "byteLength");
+            if (offsetValue.isNumber()) {
+              offset = static_cast<size_t>(offsetValue.getNumber());
+            }
+            if (lengthValue.isNumber()) {
+              length = static_cast<size_t>(lengthValue.getNumber());
+            }
+            if (offset > buffer.size(rt) || length > buffer.size(rt) - offset) {
+              throw facebook::jsi::JSError(
+                  rt, "restricted Exact checkpoint view is out of bounds");
+            }
+            data = buffer.data(rt) + offset;
+          }
+        }
+        if (data == nullptr || length == 0 ||
+            length > kMaxRestrictedExactCheckpointOutputBytes) {
+          throw facebook::jsi::JSError(
+              rt, "restricted Exact checkpoint bytes are invalid");
+        }
+        runtime->restricted_exact_checkpoint_callback(
+            data, length, runtime->restricted_exact_checkpoint_context);
+        ++runtime->restricted_exact_checkpoint_publication_count;
+        return facebook::jsi::Value::undefined();
+      });
+
+  // The explicit setProperty keeps the installed surface visible to the
+  // generated CapSec inventory; it is immediately redefined as immutable
+  // before any candidate bundle can execute.
+  exactObj.setProperty(rt, "publishCheckpoint", std::move(publishFn));
+  facebook::jsi::Object descriptor(rt);
+  descriptor.setProperty(
+      rt, "value", exactObj.getProperty(rt, "publishCheckpoint"));
+  descriptor.setProperty(rt, "writable", false);
+  descriptor.setProperty(rt, "enumerable", false);
+  descriptor.setProperty(rt, "configurable", false);
+  rt.global()
+      .getPropertyAsObject(rt, "Object")
+      .getPropertyAsFunction(rt, "defineProperty")
+      .call(
+          rt,
+          exactObj,
+          facebook::jsi::String::createFromAscii(rt, "publishCheckpoint"),
+          descriptor);
+  rt.global().setProperty(rt, "exact", std::move(exactObj));
+  return 0;
 }
 
 extern "C" void ex_hermes_set_dispatch_with_debug_context_callback(
@@ -122,7 +250,7 @@ extern "C" void ex_hermes_set_dispatch_with_debug_context_callback(
         void* context),
     void* context) {
   if (!runtime) return;
-  if (runtime->restricted) return;  // LLP 0297 §4.3
+  if (runtime->restricted || runtime->restricted_exact) return;  // LLP 0297 §4.3 / LLP 0033 §5
   runtime->ios_dispatch_with_debug_context_callback = callback;
   runtime->ios_dispatch_context = context;
 
@@ -179,7 +307,7 @@ extern "C" void ex_hermes_set_module_dispatch_callback(
     void (*callback)(const uint8_t* data, size_t length, void* context),
     void* context) {
   if (!runtime) return;
-  if (runtime->restricted) return;  // LLP 0297 §4.3
+  if (runtime->restricted || runtime->restricted_exact) return;  // LLP 0297 §4.3 / LLP 0033 §5
   runtime->ios_module_dispatch_callback = callback;
   runtime->ios_module_dispatch_context = context;
 
@@ -238,7 +366,7 @@ extern "C" void ex_hermes_set_module_sync_callback(
                     void* context),
     void* context) {
   if (!runtime) return;
-  if (runtime->restricted) return;  // LLP 0297 §4.3
+  if (runtime->restricted || runtime->restricted_exact) return;  // LLP 0297 §4.3 / LLP 0033 §5
   runtime->ios_module_sync_callback = callback;
   runtime->ios_module_sync_context = context;
 
@@ -324,7 +452,7 @@ extern "C" void ex_hermes_set_kernel_handle(
   // Restricted worklet runtimes get no direct kernel access (LLP 0297
   // §4.3); geometry reads go through the measure() host callback against
   // the presenter snapshot instead.
-  if (runtime->restricted) return;
+  if (runtime->restricted || runtime->restricted_exact) return;
   runtime->kernel_handle = kernel_handle;
 
   auto& rt = *runtime->runtime;
@@ -727,12 +855,21 @@ extern "C" int ex_hermes_dispatch_event(
     uint32_t handler_id,
     const char* payload_json) {
   if (!runtime || !runtime->runtime) return -1;
+  if (runtime->runtime_thread != std::this_thread::get_id()) return -1;
+  if (runtime->restricted_exact &&
+      (!runtime->restricted_exact_bundle_consumed ||
+       runtime->restricted_exact_poisoned)) {
+    return -1;
+  }
 
   auto& rt = *runtime->runtime;
 
+  const uint64_t checkpointCountBefore =
+      runtime->restricted_exact_checkpoint_publication_count;
   try {
     auto handlerVal = rt.global().getProperty(rt, "__exactDispatchEvent");
     if (!handlerVal.isObject() || !handlerVal.getObject(rt).isFunction(rt)) {
+      if (runtime->restricted_exact) runtime->restricted_exact_poisoned = true;
       return -1;
     }
 
@@ -744,11 +881,22 @@ extern "C" int ex_hermes_dispatch_event(
         rt,
         facebook::jsi::Value(static_cast<double>(handler_id)),
         std::move(payload));
+    if (runtime->restricted_exact &&
+        runtime->restricted_exact_checkpoint_publication_count !=
+            checkpointCountBefore + 1) {
+      runtime->restricted_exact_poisoned = true;
+      ex_host_console_log(
+          1,
+          "restricted Exact event did not publish exactly one successor checkpoint");
+      return -1;
+    }
     return 0;
   } catch (const facebook::jsi::JSError& err) {
+    if (runtime->restricted_exact) runtime->restricted_exact_poisoned = true;
     ex_host_console_log(1, err.getMessage().c_str());
     return -1;
   } catch (...) {
+    if (runtime->restricted_exact) runtime->restricted_exact_poisoned = true;
     return -1;
   }
 }

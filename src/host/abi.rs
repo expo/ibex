@@ -1327,6 +1327,53 @@ pub fn install_armed_host(snapshot: &[u8], expected_json: &[u8]) -> Result<(), S
     Ok(())
 }
 
+/// Authenticate a restricted Exact artifact and install it only when the
+/// generated report-derived advertisement family names this exact target and
+/// feature set. Phase 0's empty family therefore refuses before Host
+/// publication and before Hermes allocation.
+pub fn install_restricted_exact_host(artifact_bytes: &[u8]) -> Result<(), String> {
+    let artifact =
+        super::embedder_artifacts::authenticate_restricted_exact_embedder_artifact(artifact_bytes)
+            .map_err(|error| error.to_string())?;
+    let advertisements: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/generated/restricted-exact-target-advertisements.json"
+    )))
+    .map_err(|error| format!("invalid restricted target advertisement authority: {error}"))?;
+    let rows = advertisements["advertisements"]
+        .as_array()
+        .ok_or_else(|| "restricted target advertisement authority is malformed".to_owned())?;
+    if !rows.is_empty() {
+        return Err(
+            "restricted advertisement rows exist before the report-derived advertisement schema and verifier are implemented"
+                .into(),
+        );
+    }
+    Err(format!(
+        "restricted Exact target/profile is not advertised: {} {:?}",
+        artifact.target(),
+        artifact.features(),
+    ))
+}
+
+/// Conformance-only candidate installation. Ordinary builds contain no path
+/// around the empty report-derived advertisement authority.
+#[cfg(any(test, feature = "capsec-conformance-observer"))]
+#[doc(hidden)]
+pub unsafe fn install_restricted_exact_host_for_conformance(
+    artifact_bytes: &[u8],
+) -> Result<String, String> {
+    let artifact =
+        super::embedder_artifacts::authenticate_restricted_exact_embedder_artifact(artifact_bytes)
+            .map_err(|error| error.to_string())?;
+    let digest = artifact.digest().as_str().to_owned();
+    let host = Host::new_restricted_exact(Arc::new(artifact)).map_err(|error| error.to_string())?;
+    if install_host(host) == 0 {
+        return Err("failed to allocate a restricted Exact conformance Host context token".into());
+    }
+    Ok(digest)
+}
+
 /// Prepare one construction-fresh authenticated artifact pair for a native
 /// embedder. The returned strict JSON envelope is owned by Rust and must be
 /// released with `ex_host_free_string`.
@@ -1592,13 +1639,19 @@ pub(crate) fn module_runner_principal_id(
     )
 }
 
-fn claim_pending_host_context(require_armed_digest: Option<&str>) -> u64 {
+enum RequiredHostContext<'a> {
+    Diagnostic,
+    FullArmed(&'a str),
+    RestrictedExact(&'a str),
+}
+
+fn claim_pending_host_context(required: RequiredHostContext<'_>) -> u64 {
     let context_id = PENDING_HOST_CONTEXT.with(|pending| pending.0.get());
     if context_id == 0 {
         // Diagnostic construction is explicit and may be used without an
         // embedder-installed Host. Its fallback is a fresh audit context;
         // armed construction never has a fallback.
-        return if require_armed_digest.is_none() {
+        return if matches!(required, RequiredHostContext::Diagnostic) {
             insert_host_context(
                 Arc::new(Host::new(super::HostConfig {
                     mode: super::SecurityMode::Audit,
@@ -1623,12 +1676,19 @@ fn claim_pending_host_context(require_armed_digest: Option<&str>) -> u64 {
     if context.claimed {
         return 0;
     }
-    let kind_matches = match require_armed_digest {
-        Some(digest) => context
+    let kind_matches = match required {
+        RequiredHostContext::FullArmed(digest) => context
             .host
             .armed_snapshot()
             .is_some_and(|snapshot| snapshot.digest().as_str() == digest),
-        None => context.host.armed_snapshot().is_none(),
+        RequiredHostContext::RestrictedExact(digest) => context
+            .host
+            .restricted_exact_artifact()
+            .is_some_and(|artifact| artifact.digest().as_str() == digest),
+        RequiredHostContext::Diagnostic => {
+            context.host.armed_snapshot().is_none()
+                && context.host.restricted_exact_artifact().is_none()
+        }
     };
     if !kind_matches {
         return 0;
@@ -1792,12 +1852,29 @@ pub unsafe extern "C" fn ex_host_claim_armed_context(digest: *const c_char) -> u
         return 0;
     }
     let digest = unsafe { CStr::from_ptr(digest) }.to_string_lossy();
-    claim_pending_host_context(Some(&digest))
+    claim_pending_host_context(RequiredHostContext::FullArmed(&digest))
 }
 
 #[no_mangle]
 pub extern "C" fn ex_host_claim_diagnostic_context() -> u64 {
-    claim_pending_host_context(None)
+    claim_pending_host_context(RequiredHostContext::Diagnostic)
+}
+
+/// Claim the exact thread-bound Host installed for one restricted activation
+/// artifact. Full-profile and diagnostic constructors cannot consume it.
+///
+/// # Safety
+///
+/// `digest` must point to a valid NUL-terminated UTF-8 string.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_claim_restricted_exact_context(digest: *const c_char) -> u64 {
+    if digest.is_null() {
+        return 0;
+    }
+    let Ok(digest) = unsafe { CStr::from_ptr(digest) }.to_str() else {
+        return 0;
+    };
+    claim_pending_host_context(RequiredHostContext::RestrictedExact(digest))
 }
 
 #[no_mangle]
@@ -2261,6 +2338,61 @@ pub unsafe extern "C" fn ex_host_authorize_exact_endowment(
     host.is_some_and(|host| {
         host.authorizes_exact_endowment(context_kind, manifest_digest, operations)
     }) as i32
+}
+
+/// Copy the authenticated single-use Contract bundle bound to a claimed
+/// restricted Exact Host context. The returned allocation is owned by the
+/// caller and must be released with `ex_host_free_buffer` using the exact
+/// returned length. Format `1` is UTF-8 source and format `2` is HBC v1.
+///
+/// This is a fixed native control-plane seam, not a path or caller-byte
+/// ingress: the bytes come only from the artifact already re-opened and
+/// authenticated before Host installation.
+///
+/// # Safety
+///
+/// `out_len` and `out_format` must point to writable values for this call.
+///
+/// @ref LLP 0033#6-authenticated-contract-code-ingress
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_copy_restricted_exact_bundle(
+    context_id: u64,
+    out_len: *mut u64,
+    out_format: *mut u32,
+) -> *mut u8 {
+    if context_id == 0 || out_len.is_null() || out_format.is_null() {
+        return ptr::null_mut();
+    }
+    unsafe {
+        *out_len = 0;
+        *out_format = 0;
+    }
+    let artifact = HOST_CONTEXTS.get().and_then(|contexts| {
+        contexts.read().ok().and_then(|contexts| {
+            contexts
+                .get(&context_id)
+                .filter(|record| record.claimed)
+                .and_then(|record| record.host.restricted_exact_artifact().cloned())
+        })
+    });
+    let Some(artifact) = artifact else {
+        return ptr::null_mut();
+    };
+    let format = match artifact.bundle_format() {
+        "source-utf8" => 1,
+        "hbc-v1" => 2,
+        _ => return ptr::null_mut(),
+    };
+    let bytes = artifact.bundle().to_vec().into_boxed_slice();
+    if bytes.is_empty() {
+        return ptr::null_mut();
+    }
+    let len = bytes.len();
+    unsafe {
+        *out_len = len as u64;
+        *out_format = format;
+    }
+    Box::into_raw(bytes) as *mut u8
 }
 
 #[doc(hidden)]
@@ -5014,7 +5146,7 @@ pub extern "C" fn ex_host_is_allow_all() -> i32 {
 
 #[no_mangle]
 pub extern "C" fn ex_host_is_armed() -> i32 {
-    with_host(|host| i32::from(host.armed_snapshot().is_some()), 0)
+    with_host(|host| i32::from(host.is_production_armed()), 0)
 }
 
 /// Return the immutable, digest-bound compatibility controls for the active

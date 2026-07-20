@@ -1,0 +1,264 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/restricted-profile-target-report.schema.json",
+  "title": "Restricted Exact exact-target conformance report",
+  "type": "object",
+  "required": [
+    "reportSchema",
+    "profile",
+    "status",
+    "bindings",
+    "summary",
+    "executions",
+    "rows",
+    "globalCorpora",
+    "independentReview",
+    "reportDigest"
+  ],
+  "properties": {
+    "reportSchema": { "const": "ibex/restricted-profile-target-report/1" },
+    "profile": { "const": "ibex/exact-embedder-contract/1" },
+    "status": { "enum": ["conformant", "incomplete"] },
+    "bindings": {
+      "type": "object",
+      "required": [
+        "sourceRevision",
+        "sourceTreeDigest",
+        "target",
+        "engine",
+        "definitionRawContentDigest",
+        "projectionRawContentDigest",
+        "coverageRawContentDigest",
+        "implementationManifestRawContentDigest",
+        "fixturePlanRawContentDigest",
+        "reportSchemaRawContentDigest"
+      ],
+      "properties": {
+        "sourceRevision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "sourceTreeDigest": { "$ref": "#/$defs/digest" },
+        "target": { "$ref": "#/$defs/target" },
+        "engine": {
+          "type": "object",
+          "required": [
+            "artifactPath",
+            "kind",
+            "binaryDigest",
+            "patchIdentity",
+            "targetArchitecture",
+            "structuralFeatures"
+          ],
+          "properties": {
+            "artifactPath": { "type": "string", "minLength": 1 },
+            "kind": { "const": "hermes" },
+            "binaryDigest": { "$ref": "#/$defs/digest" },
+            "patchIdentity": { "type": "string", "minLength": 1 },
+            "targetArchitecture": { "$ref": "#/$defs/stableId" },
+            "structuralFeatures": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/stableId" }
+            }
+          },
+          "additionalProperties": false
+        },
+        "definitionRawContentDigest": { "$ref": "#/$defs/digest" },
+        "projectionRawContentDigest": { "$ref": "#/$defs/digest" },
+        "coverageRawContentDigest": { "$ref": "#/$defs/digest" },
+        "implementationManifestRawContentDigest": { "$ref": "#/$defs/digest" },
+        "fixturePlanRawContentDigest": { "$ref": "#/$defs/digest" },
+        "reportSchemaRawContentDigest": { "$ref": "#/$defs/digest" }
+      },
+      "additionalProperties": false
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "total",
+        "conformant",
+        "incomplete",
+        "reachable",
+        "structurallyAbsent",
+        "trustedControlPlane",
+        "passedObservations",
+        "missingObservations",
+        "failedObservations"
+      ],
+      "properties": {
+        "total": { "type": "integer", "minimum": 1 },
+        "conformant": { "type": "integer", "minimum": 0 },
+        "incomplete": { "type": "integer", "minimum": 0 },
+        "reachable": { "type": "integer", "minimum": 1 },
+        "structurallyAbsent": { "type": "integer", "minimum": 1 },
+        "trustedControlPlane": { "type": "integer", "minimum": 1 },
+        "passedObservations": { "type": "integer", "minimum": 0 },
+        "missingObservations": { "type": "integer", "minimum": 0 },
+        "failedObservations": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "executions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": [
+          "executionId",
+          "fixtureId",
+          "outcome",
+          "command",
+          "exitCode",
+          "resultMarker",
+          "artifactDigest",
+          "engineBinaryDigest",
+          "observations"
+        ],
+        "properties": {
+          "executionId": { "$ref": "#/$defs/stableId" },
+          "fixtureId": { "$ref": "#/$defs/stableId" },
+          "outcome": { "enum": ["passed", "failed", "invalid"] },
+          "command": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "exitCode": { "type": "integer" },
+          "resultMarker": { "type": "string", "minLength": 1 },
+          "artifactDigest": { "$ref": "#/$defs/digest" },
+          "engineBinaryDigest": { "$ref": "#/$defs/digest" },
+          "observations": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "object",
+              "required": ["edgeId", "kind", "outcome", "observedIdentity"],
+              "properties": {
+                "edgeId": { "$ref": "#/$defs/stableId" },
+                "kind": {
+                  "enum": [
+                    "live-invocation",
+                    "control-plane-negative",
+                    "source-install",
+                    "live-reachability"
+                  ]
+                },
+                "outcome": { "enum": ["passed", "failed"] },
+                "observedIdentity": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "edgeId",
+          "disposition",
+          "requiredEvidenceKinds",
+          "passedEvidenceKinds",
+          "failedEvidenceKinds",
+          "missingEvidenceKinds",
+          "executionIds",
+          "status"
+        ],
+        "properties": {
+          "edgeId": { "$ref": "#/$defs/stableId" },
+          "disposition": {
+            "enum": [
+              "reachable",
+              "structurally-absent",
+              "trusted-control-plane"
+            ]
+          },
+          "requiredEvidenceKinds": { "$ref": "#/$defs/evidenceKinds" },
+          "passedEvidenceKinds": { "$ref": "#/$defs/evidenceKinds" },
+          "failedEvidenceKinds": { "$ref": "#/$defs/evidenceKinds" },
+          "missingEvidenceKinds": { "$ref": "#/$defs/evidenceKinds" },
+          "executionIds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/stableId" }
+          },
+          "status": { "enum": ["conformant", "incomplete"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "globalCorpora": {
+      "type": "array",
+      "minItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": ["id", "status", "executionIds"],
+        "properties": {
+          "id": { "$ref": "#/$defs/stableId" },
+          "status": { "enum": ["passed", "failed", "missing"] },
+          "executionIds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/stableId" }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "independentReview": {
+      "type": "object",
+      "required": ["status", "artifactDigest", "unresolvedCritical", "unresolvedHigh"],
+      "properties": {
+        "status": { "enum": ["clear", "pending", "failed"] },
+        "artifactDigest": {
+          "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+        },
+        "unresolvedCritical": { "type": "integer", "minimum": 0 },
+        "unresolvedHigh": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "reportDigest": { "$ref": "#/$defs/digest" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256-[A-Za-z0-9_-]{43}$" },
+    "stableId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[._/-][a-z0-9]+)*$"
+    },
+    "target": {
+      "type": "object",
+      "required": ["triple", "features"],
+      "properties": {
+        "triple": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+){2,}$"
+        },
+        "features": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidenceKinds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "live-invocation",
+          "control-plane-negative",
+          "source-install",
+          "live-reachability"
+        ]
+      }
+    }
+  }
+}

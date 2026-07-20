@@ -135273,6 +135273,16 @@
             "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
           },
           {
+            "id": "surface.callback.restricted.exact.checkpoint.output.1al4vku",
+            "classification": "closed",
+            "surface": {
+              "kind": "callback",
+              "name": "restricted-exact-checkpoint-output"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Embedder and worklet callback data channels remain closed until their typed payload and attribution are proved."
+          },
+          {
             "id": "surface.callback.signal.delivery.0rrtfw7",
             "classification": "non-capability",
             "surface": {
@@ -140993,6 +141003,16 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.host.abi.ex.hermes.configure.restricted.exact.activation.12kr2mk",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_configure_restricted_exact_activation"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.create.04wgtwz",
             "classification": "non-capability",
             "surface": {
@@ -141021,6 +141041,16 @@
             },
             "cap": "vm:evaluate",
             "rationale": "The explicitly diagnostic unarmed runtime constructor is outside every production profile."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.create.restricted.exact.0ef6yrt",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_create_restricted_exact"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
           },
           {
             "id": "surface.host.abi.ex.hermes.current.principal.id.1m53qbn",
@@ -141603,6 +141633,16 @@
             "rationale": "This native session-layer control operates presentation, editor state, or a parity-safe virtual-namespace projection without granting JavaScript authority; any external effect is classified and mediated at its own route."
           },
           {
+            "id": "surface.host.abi.ex.hermes.run.restricted.exact.bundle.1y309kh",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_run_restricted_exact_bundle"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.runtime.nonce.0sqhs3l",
             "classification": "non-capability",
             "surface": {
@@ -141738,6 +141778,16 @@
             "surface": {
               "kind": "host-abi",
               "name": "ex_hermes_set_module_sync_callback"
+            },
+            "rationaleId": "callback-attribution-carrier",
+            "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_set_restricted_exact_checkpoint_callback"
             },
             "rationaleId": "callback-attribution-carrier",
             "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
@@ -142143,6 +142193,16 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.host.abi.ex.host.claim.restricted.exact.context.13osz2b",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_claim_restricted_exact_context"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.host.console.flush.1tisl1d",
             "classification": "non-capability",
             "surface": {
@@ -142243,6 +142303,16 @@
                 "source-identity-mismatch"
               ]
             }
+          },
+          {
+            "id": "surface.host.abi.ex.host.copy.restricted.exact.bundle.09bbsk3",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_copy_restricted_exact_bundle"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
             "id": "surface.host.abi.ex.host.enter.context.15xwr1j",
@@ -208795,6 +208865,16 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.native.op.exactresolvemodule.0t2oyt7",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "__exactResolveModule"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.native.op.exactrevokehandle.1hlpy1t",
             "classification": "non-capability",
             "surface": {
@@ -222831,7 +222911,7 @@
               "name": "global:eval"
             },
             "cap": "vm:evaluate",
-            "rationale": "Dynamic global code evaluation is closed by the initial profile and lockdown."
+            "rationale": "Dynamic JavaScript compilation remains closed; the restricted profile replaces these globals with throwing sentinels."
           },
           {
             "id": "surface.native.op.global.event.0z0erp1",
@@ -225395,6 +225475,16 @@
             }
           },
           {
+            "id": "surface.native.op.global.exact.publishcheckpoint.1sxxctt",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:exact.publishCheckpoint"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Exact layout, state-mirror, module-dispatch, and hit-test calls are ambient embedder channels."
+          },
+          {
             "id": "surface.native.op.global.exact.readablestreamtoarray.02ii6au",
             "classification": "non-capability",
             "surface": {
@@ -227106,6 +227196,16 @@
             "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
           },
           {
+            "id": "surface.native.op.global.exact.takecheckpointbytes.1hbxdow",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:exact.takeCheckpointBytes"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.native.op.global.exact.transpiler.0lkhd8g",
             "classification": "non-capability",
             "surface": {
@@ -228545,7 +228645,7 @@
               "name": "global:Function"
             },
             "cap": "vm:evaluate",
-            "rationale": "Dynamic global code evaluation is closed by the initial profile and lockdown."
+            "rationale": "Dynamic JavaScript compilation remains closed; the restricted profile replaces these globals with throwing sentinels."
           },
           {
             "id": "surface.native.op.global.gc.0dj0o95",
@@ -257194,6 +257294,26 @@
             }
           },
           {
+            "id": "surface.native.op.restrictedrandom.1mvjo88",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "__restrictedRandom"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
+            "id": "surface.native.op.restrictedwallclock.0ik8lyf",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "__restrictedWallClock"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
             "id": "surface.native.op.stringbuffer.05y6skt",
             "classification": "non-capability",
             "surface": {
@@ -267316,6 +267436,16 @@
             "rationale": "The CDP evaluation route executes debugger-controlled source in the inspected runtime."
           },
           {
+            "id": "surface.startup.evaluation.ex.hermes.run.restricted.exact.bundle.authenticated.restricte.1e57hbx",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "evaluation:ex_hermes_run_restricted_exact_bundle:authenticated-restricted-exact-bundle"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
             "id": "surface.startup.evaluation.has.include.18ool1z.stream.enhance.0x24hc2",
             "classification": "non-capability",
             "surface": {
@@ -267446,6 +267576,16 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.startup.evaluation.installrestrictedexactglobals.restricted.exact.lockdown.0xlst78",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "evaluation:installRestrictedExactGlobals:restricted-exact-lockdown"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
             "id": "surface.startup.evaluation.installwebsocketglobals.windows.websocket.shim.0w4o2cz",
             "classification": "non-capability",
             "surface": {
@@ -267501,6 +267641,16 @@
             "surface": {
               "kind": "startup",
               "name": "install-route:ex_hermes_create_impl:installGlobals"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.startup.install.route.ex.hermes.create.impl.installrestrictedexactglobals.17p1el8",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "install-route:ex_hermes_create_impl:installRestrictedExactGlobals"
             },
             "rationaleId": "authority-control-plane",
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -267806,6 +267956,16 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.startup.install.route.installrestrictedexactglobals.installtimerglobals.1kww2tg",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "install-route:installRestrictedExactGlobals:installTimerGlobals"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.startup.install.route.prepareandroidstoragepathsprojection.0qv3qsf.installstorag.091wgkm",
             "classification": "non-capability",
             "surface": {
@@ -268036,6 +268196,16 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.startup.installer.installrestrictedexactglobals.17llg9x",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "installer:installRestrictedExactGlobals"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.startup.installer.installsharedruntimebundle.0laasxs",
             "classification": "non-capability",
             "surface": {
@@ -268224,6 +268394,16 @@
             },
             "rationaleId": "callback-attribution-carrier",
             "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+          },
+          {
+            "id": "surface.startup.script.authenticated.restricted.exact.bundle.1v2bh2d",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "script:authenticated-restricted-exact-bundle"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
             "id": "surface.startup.script.bootstrap.04ar0fr",
@@ -268434,6 +268614,16 @@
             },
             "rationaleId": "runtime-bootstrap-state",
             "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
+            "id": "surface.startup.script.restricted.exact.lockdown.1wpbysw",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "script:restricted-exact-lockdown"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
             "id": "surface.startup.script.shared.runtime.bundle.0qbxu0i",

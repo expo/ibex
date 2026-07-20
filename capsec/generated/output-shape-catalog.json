@@ -32133,6 +32133,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.callback.restricted.exact.checkpoint.output.1al4vku",
+      "status": "unresolved",
+      "reasonCode": "callback-payload-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_restricted_exact_checkpoint_callback"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.callback.signal.delivery.0rrtfw7",
       "status": "output-bearing",
       "reasonCode": "source-derived-callback-output",
@@ -37248,6 +37257,17 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.configure.restricted.exact.activation.12kr2mk",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_configure_restricted_exact_activation"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.create.04wgtwz",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -37275,6 +37295,17 @@
       "reasonCode": "source-derived-host-abi-output",
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#ex_hermes_create_diagnostic"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.create.restricted.exact.0ef6yrt",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_create_restricted_exact"
       ],
       "outputKinds": [
         "[[return]]"
@@ -38036,6 +38067,18 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.run.restricted.exact.bundle.1y309kh",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_run_restricted_exact_bundle"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:error"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.runtime.nonce.0sqhs3l",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -38195,6 +38238,19 @@
       "outputKinds": [
         "callback:callback/0",
         "callback:callback/4"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_restricted_exact_checkpoint_callback"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "callback:callback/0",
+        "callback:callback/2"
       ]
     },
     {
@@ -38646,6 +38702,17 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.host.claim.restricted.exact.context.13osz2b",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_claim_restricted_exact_context"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.host.console.flush.1tisl1d",
       "status": "structural-only",
       "reasonCode": "source-derived-void-all-input-abi",
@@ -38671,6 +38738,19 @@
         "src/host/abi.rs#ex_host_console_log_bytes"
       ],
       "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.copy.restricted.exact.bundle.09bbsk3",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_copy_restricted_exact_bundle"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:format",
+        "out:len"
+      ]
     },
     {
       "surfaceId": "surface.host.abi.ex.host.enter.context.15xwr1j",
@@ -51174,6 +51254,15 @@
       ]
     },
     {
+      "surfaceId": "surface.native.op.exactresolvemodule.0t2oyt7",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactResolveModule"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.native.op.exactrevokehandle.1hlpy1t",
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
@@ -52091,6 +52180,7 @@
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactTimerRef",
         "src/engine/hermes_runtime_timers.cc#__exactTimerRef",
         "src/engine/hermes_runtime_timers.cc#jsi-global:__exactTimerRef"
       ],
@@ -52103,6 +52193,7 @@
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactTimerUnref",
         "src/engine/hermes_runtime_timers.cc#__exactTimerUnref",
         "src/engine/hermes_runtime_timers.cc#jsi-global:__exactTimerUnref"
       ],
@@ -58068,7 +58159,8 @@
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
-        "src/engine/bootstrap/compat-polyfills.js#Date"
+        "src/engine/bootstrap/compat-polyfills.js#Date",
+        "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:Date"
       ],
       "outputKinds": [
         "public-invocation"
@@ -58954,6 +59046,7 @@
         "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyProcessCompatFix:sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
         "src/engine/hermes_bootstrap.cc#runLegacyCompatPolyfills",
         "src/engine/hermes_bootstrap.cc#runLegacyProcessCompatFix",
+        "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:eval",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
         "src/engine/hermes_runtime.cc#lockdownJS:eval"
       ],
@@ -60609,6 +60702,17 @@
       ]
     },
     {
+      "surfaceId": "surface.native.op.global.exact.publishcheckpoint.1sxxctt",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#jsi-global:exact.publishCheckpoint"
+      ],
+      "outputKinds": [
+        "native-invocation"
+      ]
+    },
+    {
       "surfaceId": "surface.native.op.global.exact.readablestreamtoarray.02ii6au",
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
@@ -61143,6 +61247,17 @@
       ],
       "outputKinds": [
         "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.exact.takecheckpointbytes.1hbxdow",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#jsi-global:exact.takeCheckpointBytes"
+      ],
+      "outputKinds": [
+        "native-invocation"
       ]
     },
     {
@@ -62704,6 +62819,7 @@
         "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
         "scripts/install-android-hermes.sh#com.facebook.react:react-android",
         "scripts/install-windows-hermes.ps1#hermes-windows-",
+        "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:Function",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
         "src/engine/hermes_runtime.cc#lockdownJS:Function"
       ],
@@ -68644,7 +68760,8 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:performance",
-        "src/engine/bootstrap/bootstrap-globals.js#performance"
+        "src/engine/bootstrap/bootstrap-globals.js#performance",
+        "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:performance"
       ],
       "outputKinds": [
         "public-property-read"
@@ -79187,11 +79304,13 @@
     {
       "surfaceId": "surface.native.op.ibexlockeddown.1l9g3ta",
       "status": "output-bearing",
-      "reasonCode": "source-asserted-structured-output",
+      "reasonCode": "source-derived-public-output",
       "sourceRefs": [
-        "src/engine/hermes_runtime.cc#__ibexLockedDown"
+        "src/engine/hermes_runtime.cc#__ibexLockedDown",
+        "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:__ibexLockedDown"
       ],
       "outputKinds": [
+        "public-property-read",
         "structured-output"
       ]
     },
@@ -79956,6 +80075,30 @@
       "sourceRefs": [
         "src/engine/hermes_runtime_fetch.cc#__nativeFetchSync",
         "src/engine/hermes_runtime_fetch.cc#jsi-global:__nativeFetchSync"
+      ],
+      "outputKinds": [
+        "native-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.restrictedrandom.1mvjo88",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__restrictedRandom",
+        "src/engine/hermes_runtime.cc#jsi-global:__restrictedRandom"
+      ],
+      "outputKinds": [
+        "native-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.restrictedwallclock.0ik8lyf",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__restrictedWallClock",
+        "src/engine/hermes_runtime.cc#jsi-global:__restrictedWallClock"
       ],
       "outputKinds": [
         "native-invocation"
@@ -81684,6 +81827,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.startup.evaluation.ex.hermes.run.restricted.exact.bundle.authenticated.restricte.1e57hbx",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_run_restricted_exact_bundle:evaluateJavaScript:<authenticated-restricted-exact-bundle>"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.startup.evaluation.has.include.18ool1z.stream.enhance.0x24hc2",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
@@ -81801,6 +81953,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.startup.evaluation.installrestrictedexactglobals.restricted.exact.lockdown.0xlst78",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#installRestrictedExactGlobals:evaluateJavaScript:<restricted-exact-lockdown>"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.startup.evaluation.installwebsocketglobals.windows.websocket.shim.0w4o2cz",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
@@ -81851,6 +82012,15 @@
       "reasonCode": "startup-structural-route",
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#ex_hermes_create_impl:installGlobals"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.startup.install.route.ex.hermes.create.impl.installrestrictedexactglobals.17p1el8",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_create_impl:installRestrictedExactGlobals"
       ],
       "outputKinds": []
     },
@@ -82126,6 +82296,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.startup.install.route.installrestrictedexactglobals.installtimerglobals.1kww2tg",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#installRestrictedExactGlobals:installTimerGlobals"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.startup.install.route.prepareandroidstoragepathsprojection.0qv3qsf.installstorag.091wgkm",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
@@ -82342,6 +82521,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.startup.installer.installrestrictedexactglobals.17llg9x",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#installRestrictedExactGlobals"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.startup.installer.installsharedruntimebundle.0laasxs",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
@@ -82512,6 +82700,15 @@
       "reasonCode": "startup-structural-route",
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#ex_hermes_vm_set_job_scheduler_capture"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.startup.script.authenticated.restricted.exact.bundle.1v2bh2d",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#script:<authenticated-restricted-exact-bundle>"
       ],
       "outputKinds": []
     },
@@ -82702,6 +82899,15 @@
       "reasonCode": "startup-structural-route",
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#script:<promise-unwrap>"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.startup.script.restricted.exact.lockdown.1wpbysw",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#script:<restricted-exact-lockdown>"
       ],
       "outputKinds": []
     },
@@ -82952,15 +83158,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-pfKwYtRvBNs7G4wx_GOS9cQvQ0rYDmcxdWne7tiG4nM",
+  "catalogKeyDigest": "sha256-VTJW7_CXZTV6FIHAly_X-2CZxwW8yjTnBAmEyXQYWp8",
   "counts": {
-    "coverageSurfaces": 7283,
-    "outputBearingSurfaces": 5729,
-    "structuralOnlySurfaces": 1550,
-    "unresolvedSurfaces": 4,
-    "catalogRows": 6397,
+    "coverageSurfaces": 7302,
+    "outputBearingSurfaces": 5739,
+    "structuralOnlySurfaces": 1557,
+    "unresolvedSurfaces": 6,
+    "catalogRows": 6413,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 5990,
+    "sourceInventoryRows": 6006,
     "structuredRows": 407
   },
   "rows": [
@@ -145406,6 +145612,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.configure.restricted.exact.activation.12kr2mk",
+        "output": "[[return]]",
+        "alias": "ex_hermes_configure_restricted_exact_activation",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_configure_restricted_exact_activation"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_configure_restricted_exact_activation"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.create.04wgtwz",
         "output": "[[return]]",
         "alias": "ex_hermes_create",
@@ -145463,6 +145690,27 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime.cc#ex_hermes_create_diagnostic"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.create.restricted.exact.0ef6yrt",
+        "output": "[[return]]",
+        "alias": "ex_hermes_create_restricted_exact",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_create_restricted_exact"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_create_restricted_exact"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -149150,6 +149398,48 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.run.restricted.exact.bundle.1y309kh",
+        "output": "[[return]]",
+        "alias": "ex_hermes_run_restricted_exact_bundle",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_run_restricted_exact_bundle"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_run_restricted_exact_bundle"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.run.restricted.exact.bundle.1y309kh",
+        "output": "out:error",
+        "alias": "ex_hermes_run_restricted_exact_bundle",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_run_restricted_exact_bundle"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_run_restricted_exact_bundle"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.runtime.nonce.0sqhs3l",
         "output": "[[return]]",
         "alias": "ex_hermes_runtime_nonce",
@@ -149669,6 +149959,69 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_sync_callback"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw",
+        "output": "[[return]]",
+        "alias": "ex_hermes_set_restricted_exact_checkpoint_callback",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_set_restricted_exact_checkpoint_callback"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_set_restricted_exact_checkpoint_callback"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw",
+        "output": "callback:callback/0",
+        "alias": "ex_hermes_set_restricted_exact_checkpoint_callback",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_set_restricted_exact_checkpoint_callback"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_set_restricted_exact_checkpoint_callback"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw",
+        "output": "callback:callback/2",
+        "alias": "ex_hermes_set_restricted_exact_checkpoint_callback",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_set_restricted_exact_checkpoint_callback"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_set_restricted_exact_checkpoint_callback"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -151307,6 +151660,90 @@
         ],
         "sourceRefs": [
           "src/host/abi.rs#ex_host_claim_diagnostic_context"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.claim.restricted.exact.context.13osz2b",
+        "output": "[[return]]",
+        "alias": "ex_host_claim_restricted_exact_context",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_claim_restricted_exact_context"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_claim_restricted_exact_context"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.copy.restricted.exact.bundle.09bbsk3",
+        "output": "[[return]]",
+        "alias": "ex_host_copy_restricted_exact_bundle",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_copy_restricted_exact_bundle"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_copy_restricted_exact_bundle"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.copy.restricted.exact.bundle.09bbsk3",
+        "output": "out:format",
+        "alias": "ex_host_copy_restricted_exact_bundle",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_copy_restricted_exact_bundle"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_copy_restricted_exact_bundle"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.copy.restricted.exact.bundle.09bbsk3",
+        "output": "out:len",
+        "alias": "ex_host_copy_restricted_exact_bundle",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_copy_restricted_exact_bundle"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_copy_restricted_exact_bundle"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -168151,6 +168588,7 @@
           "native-op:__exactTimerRef"
         ],
         "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactTimerRef",
           "src/engine/hermes_runtime_timers.cc#__exactTimerRef",
           "src/engine/hermes_runtime_timers.cc#jsi-global:__exactTimerRef"
         ]
@@ -168173,6 +168611,7 @@
           "native-op:__exactTimerUnref"
         ],
         "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactTimerUnref",
           "src/engine/hermes_runtime_timers.cc#__exactTimerUnref",
           "src/engine/hermes_runtime_timers.cc#jsi-global:__exactTimerUnref"
         ]
@@ -179272,7 +179711,8 @@
           "native-op:global:Date"
         ],
         "sourceRefs": [
-          "src/engine/bootstrap/compat-polyfills.js#Date"
+          "src/engine/bootstrap/compat-polyfills.js#Date",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:Date"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -180844,6 +181284,7 @@
           "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyProcessCompatFix:sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
           "src/engine/hermes_bootstrap.cc#runLegacyCompatPolyfills",
           "src/engine/hermes_bootstrap.cc#runLegacyProcessCompatFix",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:eval",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ]
@@ -184109,6 +184550,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.native.op.global.exact.publishcheckpoint.1sxxctt",
+        "output": "[[return]]",
+        "alias": "global:exact.publishCheckpoint",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:exact.publishCheckpoint"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#jsi-global:exact.publishCheckpoint"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.native.op.global.exact.readablestreamtoarray.02ii6au",
         "output": "[[return]]",
         "alias": "global:Exact.readableStreamToArray",
@@ -185110,6 +185572,27 @@
         ],
         "sourceRefs": [
           "src/engine/bootstrap/exact-global.js#Exact.stringWidth"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.exact.takecheckpointbytes.1hbxdow",
+        "output": "[[return]]",
+        "alias": "global:exact.takeCheckpointBytes",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:exact.takeCheckpointBytes"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#jsi-global:exact.takeCheckpointBytes"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -187914,6 +188397,7 @@
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
           "scripts/install-android-hermes.sh#com.facebook.react:react-android",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:Function",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ]
@@ -198783,7 +199267,8 @@
         ],
         "sourceRefs": [
           "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:performance",
-          "src/engine/bootstrap/bootstrap-globals.js#performance"
+          "src/engine/bootstrap/bootstrap-globals.js#performance",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:performance"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -218082,6 +218567,28 @@
       "key": {
         "surfaceId": "surface.native.op.ibexlockeddown.1l9g3ta",
         "output": "[[value]]",
+        "alias": "__ibexLockedDown",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:__ibexLockedDown"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__ibexLockedDown",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:__ibexLockedDown"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.ibexlockeddown.1l9g3ta",
+        "output": "[[value]]",
         "alias": "globalThis.__ibexLockedDown",
         "mode": "lockdown",
         "sourceKind": "native-op",
@@ -218342,6 +218849,50 @@
         "sourceRefs": [
           "src/engine/hermes_runtime_fetch.cc#__nativeFetchSync",
           "src/engine/hermes_runtime_fetch.cc#jsi-global:__nativeFetchSync"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.restrictedrandom.1mvjo88",
+        "output": "[[return]]",
+        "alias": "__restrictedRandom",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:__restrictedRandom"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__restrictedRandom",
+          "src/engine/hermes_runtime.cc#jsi-global:__restrictedRandom"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.restrictedwallclock.0ik8lyf",
+        "output": "[[return]]",
+        "alias": "__restrictedWallClock",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:__restrictedWallClock"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__restrictedWallClock",
+          "src/engine/hermes_runtime.cc#jsi-global:__restrictedWallClock"
         ]
       },
       "requiredValueProof": "live-value-observation"

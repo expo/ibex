@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/restricted-profile-projection.schema.json",
+  "title": "Generated restricted Exact embedder full-edge projection",
+  "type": "object",
+  "required": [
+    "projectionSchema",
+    "profile",
+    "fullProfile",
+    "status",
+    "definitionRawContentDigest",
+    "coverageRawContentDigest",
+    "implementationManifestRawContentDigest",
+    "schemaRawContentDigests",
+    "sourceEdgeSet",
+    "candidateTargets",
+    "counts",
+    "rows",
+    "promotionReady",
+    "blockers"
+  ],
+  "properties": {
+    "projectionSchema": { "const": "ibex/restricted-profile-projection/1" },
+    "profile": { "const": "ibex/exact-embedder-contract/1" },
+    "fullProfile": { "const": "ibex/capsec/1" },
+    "status": { "const": "phase0-candidate-evidence-pending" },
+    "definitionRawContentDigest": { "$ref": "#/$defs/digest" },
+    "coverageRawContentDigest": { "$ref": "#/$defs/digest" },
+    "implementationManifestRawContentDigest": { "$ref": "#/$defs/digest" },
+    "schemaRawContentDigests": {
+      "type": "object",
+      "required": [
+        "advertisements",
+        "definition",
+        "fixturePlan",
+        "projection",
+        "targetAttestations",
+        "targetReport"
+      ],
+      "properties": {
+        "advertisements": { "$ref": "#/$defs/digest" },
+        "definition": { "$ref": "#/$defs/digest" },
+        "fixturePlan": { "$ref": "#/$defs/digest" },
+        "projection": { "$ref": "#/$defs/digest" },
+        "targetAttestations": { "$ref": "#/$defs/digest" },
+        "targetReport": { "$ref": "#/$defs/digest" }
+      },
+      "additionalProperties": false
+    },
+    "sourceEdgeSet": {
+      "type": "object",
+      "required": ["count", "digest"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 1 },
+        "digest": { "$ref": "#/$defs/digest" }
+      },
+      "additionalProperties": false
+    },
+    "candidateTargets": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/target" }
+    },
+    "counts": {
+      "type": "object",
+      "required": ["total", "reachable", "structurallyAbsent", "trustedControlPlane", "evidenced"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 1 },
+        "reachable": { "type": "integer", "minimum": 1 },
+        "structurallyAbsent": { "type": "integer", "minimum": 1 },
+        "trustedControlPlane": { "type": "integer", "minimum": 1 },
+        "evidenced": { "const": 0 }
+      },
+      "additionalProperties": false
+    },
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "array",
+        "minItems": 3,
+        "maxItems": 3,
+        "prefixItems": [
+          { "type": "string", "minLength": 1 },
+          { "enum": ["reachable", "structurally-absent", "trusted-control-plane"] },
+          { "const": "pending" }
+        ],
+        "items": false
+      }
+    },
+    "promotionReady": { "const": false },
+    "blockers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256-[A-Za-z0-9_-]{43}$" },
+    "target": {
+      "type": "object",
+      "required": ["triple", "features"],
+      "properties": {
+        "triple": { "type": "string", "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+){2,}$" },
+        "features": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?$" }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

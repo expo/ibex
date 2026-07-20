@@ -2,7 +2,7 @@
   "rootGlobalDispositionManifestSchema": "ibex/root-global-disposition-manifest/1",
   "profile": "ibex/capsec/1",
   "status": "enforced-by-armed-live-sweep",
-  "sourceDigest": "sha256-6SZehp1CZe1D-5EVHLBh30BWhSFfwzOikEYeOyjiudE",
+  "sourceDigest": "sha256-0LqH2sq9KjPNhFtbR0y2iE0zBGDeXdOeUq582E8qfXs",
   "sweep": {
     "roots": [
       "globalThis"
@@ -1052,6 +1052,7 @@
       "surface.native.op.global.exact.peek.01d6vnb",
       "surface.native.op.global.exact.peek.status.0j2fa7h",
       "surface.native.op.global.exact.platform.056t94j",
+      "surface.native.op.global.exact.publishcheckpoint.1sxxctt",
       "surface.native.op.global.exact.readablestreamtoarray.02ii6au",
       "surface.native.op.global.exact.readablestreamtoarraybuffer.0i6rqpc",
       "surface.native.op.global.exact.readablestreamtoblob.1a6lh4a",
@@ -1099,6 +1100,7 @@
       "surface.native.op.global.exact.stdin.0fi583m",
       "surface.native.op.global.exact.stdout.1jkhp0b",
       "surface.native.op.global.exact.stringwidth.0t0mb3f",
+      "surface.native.op.global.exact.takecheckpointbytes.1hbxdow",
       "surface.native.op.global.exact.transpiler.0lkhd8g",
       "surface.native.op.global.exact.unsafe.0e659ba",
       "surface.native.op.global.exact.unsafe.arraybuffertostring.1o0vuhj",
@@ -2590,6 +2592,8 @@
       "surface.native.op.ibexrefreshcompartmentbaseline.1mo463m",
       "surface.native.op.nativefetch.17pv6n3",
       "surface.native.op.nativefetchsync.17pnac8",
+      "surface.native.op.restrictedrandom.1mvjo88",
+      "surface.native.op.restrictedwallclock.0ik8lyf",
       "surface.native.op.stringbuffer.05y6skt",
       "surface.native.op.svget.1spmln9",
       "surface.native.op.svset.0snna21",
@@ -19294,6 +19298,39 @@
       "nativeImplementation": false
     },
     {
+      "installId": "root-global.date.b61d7fdda3324e8b",
+      "observedKey": "native-op:global:Date",
+      "registryEdgeId": "surface.native.op.global.date.1c0a19v",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "evaluated-native-script",
+          "legacy-bootstrap"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/compat-polyfills.js#Date",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:Date"
+        ],
+        "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "Date"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-evaluated-script",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
       "installId": "root-global.date.constructor.93cbf235d8aa73cc",
       "observedKey": "native-op:global:Date.constructor",
       "registryEdgeId": "surface.native.op.global.date.constructor.03hdgjx",
@@ -19319,37 +19356,6 @@
             "value": "constructor"
           }
         ]
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "exposed",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.date.d2d7599aa0c13114",
-      "observedKey": "native-op:global:Date",
-      "registryEdgeId": "surface.native.op.global.date.1c0a19v",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/compat-polyfills.js#Date"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "Date"
-        },
-        "path": []
       },
       "aliases": [],
       "installPhase": "bootstrap-script",
@@ -21922,12 +21928,13 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.eval.89b607bdefe84c52",
+      "installId": "root-global.eval.73843a5bf0609028",
       "observedKey": "native-op:global:eval",
       "registryEdgeId": "surface.native.op.global.eval.018ogi5",
       "branch": {
         "id": "default",
         "routes": [
+          "evaluated-native-script",
           "hermes-intrinsic-source-patched-afb724557d11-84bc50a29f72",
           "legacy-bootstrap"
         ],
@@ -21957,6 +21964,7 @@
           "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyProcessCompatFix:sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
           "src/engine/hermes_bootstrap.cc#runLegacyCompatPolyfills",
           "src/engine/hermes_bootstrap.cc#runLegacyProcessCompatFix",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:eval",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ],
@@ -21971,7 +21979,7 @@
         "path": []
       },
       "aliases": [],
-      "installPhase": "bootstrap-script",
+      "installPhase": "native-evaluated-script",
       "privateConsumer": null,
       "disposition": "converted",
       "traversal": "descend",
@@ -27441,6 +27449,42 @@
       "nativeImplementation": false
     },
     {
+      "installId": "root-global.exact.publishcheckpoint.7720885a47f74a76",
+      "observedKey": "native-op:global:exact.publishCheckpoint",
+      "registryEdgeId": "surface.native.op.global.exact.publishcheckpoint.1sxxctt",
+      "branch": {
+        "id": "ios",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#jsi-global:exact.publishCheckpoint"
+        ],
+        "targetVariant": "ios",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "exact"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "publishCheckpoint"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
       "installId": "root-global.exact.readablestreamtoarray.e750c63835301bcc",
       "observedKey": "native-op:global:Exact.readableStreamToArray",
       "registryEdgeId": "surface.native.op.global.exact.readablestreamtoarray.02ii6au",
@@ -29250,6 +29294,42 @@
       "liveExpectation": "reachable",
       "resolution": "static",
       "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.exact.takecheckpointbytes.1ab0abd4f34c0f5c",
+      "observedKey": "native-op:global:exact.takeCheckpointBytes",
+      "registryEdgeId": "surface.native.op.global.exact.takecheckpointbytes.1hbxdow",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#jsi-global:exact.takeCheckpointBytes"
+        ],
+        "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "exact"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "takeCheckpointBytes"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
     },
     {
       "installId": "root-global.exact.transpiler.c9fd61ac540f7547",
@@ -48996,12 +49076,13 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.function.8d24322a671fd1e8",
+      "installId": "root-global.function.7eb6eebeb681375d",
       "observedKey": "native-op:global:Function",
       "registryEdgeId": "surface.native.op.global.function.132ixh3",
       "branch": {
         "id": "default",
         "routes": [
+          "evaluated-native-script",
           "hermes-intrinsic-source-patched-afb724557d11-84bc50a29f72"
         ],
         "sourceRefs": [
@@ -49024,6 +49105,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
           "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:Function",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
@@ -49038,7 +49120,7 @@
         "path": []
       },
       "aliases": [],
-      "installPhase": "source-derived",
+      "installPhase": "native-evaluated-script",
       "privateConsumer": null,
       "disposition": "converted",
       "traversal": "descend",
@@ -51224,12 +51306,12 @@
       "observedKey": "native-op:__ibexLockedDown",
       "registryEdgeId": "surface.native.op.ibexlockeddown.1l9g3ta",
       "branch": {
-        "id": "native-lockdown-script",
+        "id": "default",
         "routes": [
           "evaluated-native-script"
         ],
         "sourceRefs": [
-          "src/engine/hermes_runtime.cc#__ibexLockedDown"
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:__ibexLockedDown"
         ],
         "targetVariant": "default",
         "activation": "always"
@@ -68256,6 +68338,41 @@
       "nativeImplementation": false
     },
     {
+      "installId": "root-global.performance.0ac338e1b7317d1c",
+      "observedKey": "native-op:global:performance",
+      "registryEdgeId": "surface.native.op.global.performance.19v50zv",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "evaluated-native-script",
+          "legacy-bootstrap",
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:performance",
+          "src/engine/bootstrap/bootstrap-globals.js#performance",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:performance"
+        ],
+        "targetVariant": "default",
+        "activation": "shared-runtime-bundle"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "performance"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-evaluated-script",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
       "installId": "root-global.performance.4c24f2cffa1e38d8",
       "observedKey": "native-op:global:Performance",
       "registryEdgeId": "surface.native.op.global.performance.1rh3iej",
@@ -68279,39 +68396,6 @@
       },
       "aliases": [],
       "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "exposed",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.performance.9e9e52db7c4ce18b",
-      "observedKey": "native-op:global:performance",
-      "registryEdgeId": "surface.native.op.global.performance.19v50zv",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap",
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:performance",
-          "src/engine/bootstrap/bootstrap-globals.js#performance"
-        ],
-        "targetVariant": "default",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "performance"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
       "privateConsumer": null,
       "disposition": "exposed",
       "traversal": "descend",
@@ -88258,6 +88342,68 @@
       "nativeImplementation": false
     },
     {
+      "installId": "root-global.restrictedrandom.64a55a4b5efccc90",
+      "observedKey": "native-op:__restrictedRandom",
+      "registryEdgeId": "surface.native.op.restrictedrandom.1mvjo88",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#jsi-global:__restrictedRandom"
+        ],
+        "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__restrictedRandom"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.restrictedwallclock.1ab8a6c27a62effd",
+      "observedKey": "native-op:__restrictedWallClock",
+      "registryEdgeId": "surface.native.op.restrictedwallclock.0ik8lyf",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#jsi-global:__restrictedWallClock"
+        ],
+        "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__restrictedWallClock"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
       "installId": "root-global.scheduleonappruntime.697e636741aec523",
       "observedKey": "native-op:global:scheduleOnAppRuntime",
       "registryEdgeId": "surface.native.op.global.scheduleonappruntime.1rw05f6",
@@ -102306,10 +102452,10 @@
     }
   ],
   "counts": {
-    "installBranches": 2721,
-    "logicalGlobals": 2574,
-    "registryEdges": 2574,
+    "installBranches": 2725,
+    "logicalGlobals": 2578,
+    "registryEdges": 2578,
     "sealedOrPrivate": 346,
-    "permittedReachable": 2375
+    "permittedReachable": 2379
   }
 }

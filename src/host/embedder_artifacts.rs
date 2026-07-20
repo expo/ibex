@@ -62,6 +62,110 @@ struct ExactOperationEndowments {
     ui_worklet: Vec<u32>,
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RestrictedContractBundleBinding {
+    binding_schema: String,
+    format: String,
+    root_set_digest: Digest,
+    contract_ir_digest: Digest,
+    module_graph_digest: Digest,
+    build_identity_digest: Digest,
+    #[serde(default)]
+    engine_bytecode_version: Option<u32>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RestrictedEngineBinding {
+    binary_digest: Digest,
+    bytecode_version: u32,
+    object: capsec_semantics::model::ObjectIdentity,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RestrictedProtectedArtifact {
+    host_path: LogicalPath,
+    object: capsec_semantics::model::ObjectIdentity,
+    content_digest: Digest,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RestrictedBundleArtifact {
+    host_path: LogicalPath,
+    object: capsec_semantics::model::ObjectIdentity,
+    content_digest: Digest,
+    format: String,
+    byte_length: usize,
+    root_set_digest: Digest,
+    contract_ir_digest: Digest,
+    module_graph_digest: Digest,
+    build_identity_digest: Digest,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RestrictedExactArtifact {
+    artifact_schema: String,
+    profile: String,
+    full_profile: String,
+    status: String,
+    semantic_core: String,
+    vocab_digest: Digest,
+    registry_digest: Digest,
+    source_edge_set_digest: Digest,
+    restricted_surface_closure_digest: Digest,
+    profile_definition_raw_content_digest: Digest,
+    projection_raw_content_digest: Digest,
+    advertisements_raw_content_digest: Digest,
+    target: String,
+    features: Vec<String>,
+    engine: RestrictedEngineBinding,
+    operation_manifest: RestrictedProtectedArtifact,
+    bundle: RestrictedBundleArtifact,
+    package_graph_digest: Digest,
+    run_nonce: String,
+    artifact_digest: Digest,
+}
+
+#[derive(Clone, Debug)]
+pub struct AuthenticatedRestrictedExactArtifact {
+    artifact_digest: Digest,
+    target: String,
+    features: Vec<String>,
+    operation_binding: ExactEmbedderBinding,
+    bundle: Vec<u8>,
+    bundle_format: String,
+}
+
+impl AuthenticatedRestrictedExactArtifact {
+    pub fn digest(&self) -> &Digest {
+        &self.artifact_digest
+    }
+
+    pub fn operation_binding(&self) -> &ExactEmbedderBinding {
+        &self.operation_binding
+    }
+
+    pub fn target(&self) -> &str {
+        &self.target
+    }
+
+    pub fn features(&self) -> &[String] {
+        &self.features
+    }
+
+    pub fn bundle(&self) -> &[u8] {
+        &self.bundle
+    }
+
+    pub fn bundle_format(&self) -> &str {
+        &self.bundle_format
+    }
+}
+
 struct MaterializedArtifact {
     host_path: LogicalPath,
     object: capsec_semantics::model::ObjectIdentity,
@@ -497,6 +601,393 @@ fn freshen_document(document: &mut serde_json::Value, nonce: String) -> Result<D
     Digest::new(digest).map_err(anyhow::Error::msg)
 }
 
+fn raw_content_digest(bytes: &[u8]) -> Result<Digest> {
+    Digest::new(format!(
+        "sha256-{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(bytes))
+    ))
+    .map_err(anyhow::Error::msg)
+}
+
+fn validate_restricted_bundle_format(
+    format: &str,
+    engine_bytecode_version: Option<u32>,
+    loaded_bytecode_version: u32,
+    bytes: &[u8],
+) -> Result<()> {
+    match format {
+        "source-utf8" => {
+            anyhow::ensure!(
+                engine_bytecode_version.is_none(),
+                "source bundle must not claim a Hermes bytecode version"
+            );
+            let source =
+                std::str::from_utf8(bytes).context("restricted source bundle is not UTF-8")?;
+            anyhow::ensure!(
+                !source.as_bytes().contains(&0),
+                "restricted source bundle contains NUL"
+            );
+        }
+        "hbc-v1" => anyhow::ensure!(
+            engine_bytecode_version == Some(loaded_bytecode_version),
+            "restricted HBC bundle version does not match the loaded Hermes engine"
+        ),
+        _ => anyhow::bail!("restricted Contract bundle format is unsupported"),
+    }
+    Ok(())
+}
+
+fn read_restricted_protected_artifact(
+    artifact: &RestrictedProtectedArtifact,
+    expected_len: Option<usize>,
+    label: &str,
+) -> Result<Vec<u8>> {
+    use std::io::Read as _;
+
+    let path = super::host_path_from_logical_path(&artifact.host_path, label)
+        .map_err(anyhow::Error::msg)?;
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        options.custom_flags(0x0020_0000);
+    }
+    let mut file = options
+        .open(&path)
+        .with_context(|| format!("cannot pin {label} {}", path.display()))?;
+    let before = file.metadata()?;
+    anyhow::ensure!(before.is_file(), "{label} is not a regular file");
+    anyhow::ensure!(
+        super::object_identity_for_open_file(&file).map_err(anyhow::Error::msg)? == artifact.object,
+        "{label} object identity changed"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        anyhow::ensure!(
+            before.permissions().mode() & 0o222 == 0,
+            "{label} remains writable"
+        );
+    }
+    #[cfg(not(unix))]
+    anyhow::ensure!(before.permissions().readonly(), "{label} remains writable");
+    if let Some(expected) = expected_len {
+        anyhow::ensure!(before.len() == expected as u64, "{label} length changed");
+    }
+    let mut bytes = Vec::with_capacity(before.len() as usize);
+    file.read_to_end(&mut bytes)?;
+    anyhow::ensure!(
+        raw_content_digest(&bytes)? == artifact.content_digest,
+        "{label} content digest changed"
+    );
+    let after = file.metadata()?;
+    anyhow::ensure!(
+        after.len() == before.len()
+            && super::object_identity_for_open_file(&file).map_err(anyhow::Error::msg)?
+                == artifact.object,
+        "{label} changed while it was authenticated"
+    );
+    Ok(bytes)
+}
+
+/// Authenticate a serialized restricted Exact candidate artifact without
+/// installing it. Production installation remains separately gated by the
+/// report-derived target advertisement family.
+pub fn authenticate_restricted_exact_embedder_artifact(
+    artifact_bytes: &[u8],
+) -> Result<AuthenticatedRestrictedExactArtifact> {
+    super::reject_closed_startup_environment()?;
+    let text =
+        std::str::from_utf8(artifact_bytes).context("restricted Exact artifact is not UTF-8")?;
+    let value = capsec_semantics::strict_json::parse_strict(text)
+        .context("restricted Exact artifact is not strict JSON")?;
+    let artifact: RestrictedExactArtifact =
+        serde_json::from_value(value.clone()).context("invalid restricted Exact artifact")?;
+    anyhow::ensure!(
+        artifact.artifact_schema == "ibex/restricted-exact-artifact/1"
+            && artifact.profile == "ibex/exact-embedder-contract/1"
+            && artifact.full_profile == crate::capsec_registry_generated::CAPSEC_PROFILE
+            && artifact.status == "candidate-unadvertised"
+            && artifact.semantic_core == crate::capsec_registry_generated::CAPSEC_SEMANTIC_CORE,
+        "restricted Exact artifact profile identity mismatch"
+    );
+    let computed_digest = compute_domain_digest(
+        "ibex:restricted-exact-artifact:1",
+        &value,
+        &["artifactDigest".to_owned()],
+    )?;
+    anyhow::ensure!(
+        computed_digest == artifact.artifact_digest.as_str(),
+        "restricted Exact artifact digest is stale or tampered"
+    );
+
+    let definition_bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/registry/restricted-exact-profile-definition.json"
+    ));
+    let projection_bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/generated/restricted-exact-profile-projection.json"
+    ));
+    let advertisements_bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/generated/restricted-exact-target-advertisements.json"
+    ));
+    let definition: serde_json::Value = serde_json::from_slice(definition_bytes)?;
+    let advertisements: serde_json::Value = serde_json::from_slice(advertisements_bytes)?;
+    let (vocab_digest, registry_digest) = checked_identity_digests()?;
+    anyhow::ensure!(
+        artifact.profile_definition_raw_content_digest == raw_content_digest(definition_bytes)?
+            && artifact.projection_raw_content_digest == raw_content_digest(projection_bytes)?
+            && artifact.advertisements_raw_content_digest
+                == raw_content_digest(advertisements_bytes)?
+            && artifact.restricted_surface_closure_digest == raw_content_digest(projection_bytes)?
+            && artifact.vocab_digest == vocab_digest
+            && artifact.registry_digest == registry_digest
+            && artifact.source_edge_set_digest.as_str()
+                == definition["sourceEdgeSet"]["digest"]
+                    .as_str()
+                    .unwrap_or_default(),
+        "restricted Exact artifact authority digest mismatch"
+    );
+    anyhow::ensure!(
+        advertisements["advertisements"]
+            .as_array()
+            .is_some_and(Vec::is_empty),
+        "candidate artifact authentication cannot consume an advertised profile"
+    );
+
+    let engine = crate::engine::loaded_engine_binary_identity().map_err(anyhow::Error::msg)?;
+    let bytecode_version =
+        crate::engine::loaded_engine_bytecode_version().map_err(anyhow::Error::msg)?;
+    anyhow::ensure!(
+        artifact.target == runtime_target_triple()
+            && artifact.features == engine.structural_features
+            && artifact.engine.binary_digest.as_str() == engine.binary_digest
+            && artifact.engine.object == engine.object
+            && artifact.engine.bytecode_version == bytecode_version,
+        "restricted Exact artifact does not identify the loaded engine"
+    );
+    let empty_graph = serde_json::json!({"nodes": [], "importEdges": []});
+    anyhow::ensure!(
+        artifact.package_graph_digest.as_str()
+            == compute_domain_digest("ibex:capsec:package-graph:1", &empty_graph, &[])?,
+        "restricted Exact artifact package graph is not the canonical empty graph"
+    );
+    let nonce = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(&artifact.run_nonce)
+        .context("restricted Exact artifact run nonce is invalid")?;
+    anyhow::ensure!(
+        nonce.len() == PRODUCTION_RUN_NONCE_BYTES
+            && artifact.run_nonce != CONTRACT_FIXTURE_RUN_NONCE,
+        "restricted Exact artifact run nonce is not construction-fresh"
+    );
+
+    let operation_bytes = read_restricted_protected_artifact(
+        &artifact.operation_manifest,
+        None,
+        "restricted Exact operation manifest",
+    )?;
+    let operation_binding = parse_exact_operation_manifest(&operation_bytes)?;
+    anyhow::ensure!(
+        operation_binding.operation_manifest_digest == artifact.operation_manifest.content_digest,
+        "restricted Exact operation manifest binding mismatch"
+    );
+    let bundle_protected = RestrictedProtectedArtifact {
+        host_path: artifact.bundle.host_path.clone(),
+        object: artifact.bundle.object.clone(),
+        content_digest: artifact.bundle.content_digest.clone(),
+    };
+    let bundle = read_restricted_protected_artifact(
+        &bundle_protected,
+        Some(artifact.bundle.byte_length),
+        "restricted Contract bundle",
+    )?;
+    validate_restricted_bundle_format(
+        &artifact.bundle.format,
+        (artifact.bundle.format == "hbc-v1").then_some(artifact.engine.bytecode_version),
+        bytecode_version,
+        &bundle,
+    )?;
+    // These fields are deliberately read through the strict typed artifact;
+    // their exact values are authenticated by artifactDigest and consumed by
+    // the Exact activation handshake rather than by Ibex policy selection.
+    let _activation_identity = (
+        artifact.bundle.root_set_digest,
+        artifact.bundle.contract_ir_digest,
+        artifact.bundle.module_graph_digest,
+        artifact.bundle.build_identity_digest,
+    );
+
+    Ok(AuthenticatedRestrictedExactArtifact {
+        artifact_digest: artifact.artifact_digest,
+        target: artifact.target,
+        features: artifact.features,
+        operation_binding,
+        bundle,
+        bundle_format: artifact.bundle.format,
+    })
+}
+
+/// Construct one immutable, target-local candidate artifact for the restricted
+/// Exact profile. This operation deliberately does not install a Host or claim
+/// target support: the generated advertisement family remains the sole
+/// promotion authority and is empty until conformance completes.
+///
+/// @ref LLP 0033#4-profile-identity-and-anti-confusion-rules — bind the exact
+/// profile, engine, registries, operation manifest, Contract bundle, and nonce.
+/// @ref LLP 0033#6-authenticated-contract-code-ingress — admit one graph-closed
+/// bundle and no path, URL, cwd, or ambient module-loader fallback.
+pub fn build_restricted_exact_embedder_artifact(
+    operation_manifest_bytes: &[u8],
+    bundle_bytes: &[u8],
+    bundle_binding_bytes: &[u8],
+) -> Result<serde_json::Value> {
+    super::reject_closed_startup_environment()?;
+    anyhow::ensure!(
+        !bundle_bytes.is_empty(),
+        "restricted Contract bundle is empty"
+    );
+    let operation_binding = parse_exact_operation_manifest(operation_manifest_bytes)?;
+    let binding_text = std::str::from_utf8(bundle_binding_bytes)
+        .context("restricted Contract bundle binding is not UTF-8")?;
+    let binding_value = capsec_semantics::strict_json::parse_strict(binding_text)
+        .context("restricted Contract bundle binding is not strict JSON")?;
+    let binding: RestrictedContractBundleBinding = serde_json::from_value(binding_value)
+        .context("invalid restricted Contract bundle binding")?;
+    anyhow::ensure!(
+        binding.binding_schema == "exact/restricted-contract-bundle-binding/1",
+        "restricted Contract bundle binding has an unsupported schema"
+    );
+
+    let bytecode_version =
+        crate::engine::loaded_engine_bytecode_version().map_err(anyhow::Error::msg)?;
+    validate_restricted_bundle_format(
+        &binding.format,
+        binding.engine_bytecode_version,
+        bytecode_version,
+        bundle_bytes,
+    )?;
+
+    let definition_bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/registry/restricted-exact-profile-definition.json"
+    ));
+    let projection_bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/generated/restricted-exact-profile-projection.json"
+    ));
+    let advertisements_bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/generated/restricted-exact-target-advertisements.json"
+    ));
+    let definition: serde_json::Value = serde_json::from_slice(definition_bytes)?;
+    let projection: serde_json::Value = serde_json::from_slice(projection_bytes)?;
+    let advertisements: serde_json::Value = serde_json::from_slice(advertisements_bytes)?;
+    anyhow::ensure!(
+        definition["profile"] == "ibex/exact-embedder-contract/1"
+            && projection["profile"] == definition["profile"]
+            && advertisements["profile"] == definition["profile"],
+        "restricted profile authority identity mismatch"
+    );
+    anyhow::ensure!(
+        advertisements["advertisements"]
+            .as_array()
+            .is_some_and(Vec::is_empty),
+        "candidate artifact builder must be reviewed before consuming a promoted advertisement"
+    );
+
+    let engine = crate::engine::loaded_engine_binary_identity().map_err(anyhow::Error::msg)?;
+    let target = runtime_target_triple();
+    anyhow::ensure!(
+        definition["candidateTargets"]
+            .as_array()
+            .is_some_and(|targets| targets.iter().any(|row| {
+                row["triple"] == target
+                    && row["features"] == serde_json::json!(engine.structural_features)
+            })),
+        "loaded engine target/features are not a restricted profile candidate"
+    );
+    let (vocab_digest, registry_digest) = checked_identity_digests()?;
+    let source_edge_set_digest = Digest::new(
+        definition["sourceEdgeSet"]["digest"]
+            .as_str()
+            .context("restricted profile definition lacks its source-edge-set digest")?,
+    )
+    .map_err(anyhow::Error::msg)?;
+    let restricted_surface_closure_digest = raw_content_digest(projection_bytes)?;
+
+    let manifest_artifact = materialize_protected_artifact(
+        "restricted-exact-operation-manifest",
+        operation_manifest_bytes,
+        &operation_binding.operation_manifest_digest,
+    )?;
+    let bundle_digest = raw_content_digest(bundle_bytes)?;
+    let bundle_artifact =
+        materialize_protected_artifact("restricted-contract-bundle", bundle_bytes, &bundle_digest)?;
+    let empty_graph = serde_json::json!({"nodes": [], "importEdges": []});
+    let package_graph_digest = Digest::new(compute_domain_digest(
+        "ibex:capsec:package-graph:1",
+        &empty_graph,
+        &[],
+    )?)
+    .map_err(anyhow::Error::msg)?;
+
+    let mut artifact = serde_json::json!({
+        "artifactSchema": "ibex/restricted-exact-artifact/1",
+        "profile": "ibex/exact-embedder-contract/1",
+        "fullProfile": crate::capsec_registry_generated::CAPSEC_PROFILE,
+        "status": "candidate-unadvertised",
+        "semanticCore": crate::capsec_registry_generated::CAPSEC_SEMANTIC_CORE,
+        "vocabDigest": vocab_digest,
+        "registryDigest": registry_digest,
+        "sourceEdgeSetDigest": source_edge_set_digest,
+        "restrictedSurfaceClosureDigest": restricted_surface_closure_digest,
+        "profileDefinitionRawContentDigest": raw_content_digest(definition_bytes)?,
+        "projectionRawContentDigest": raw_content_digest(projection_bytes)?,
+        "advertisementsRawContentDigest": raw_content_digest(advertisements_bytes)?,
+        "target": target,
+        "features": engine.structural_features,
+        "engine": {
+            "binaryDigest": engine.binary_digest,
+            "bytecodeVersion": bytecode_version,
+            "object": engine.object,
+        },
+        "operationManifest": {
+            "hostPath": manifest_artifact.host_path,
+            "object": manifest_artifact.object,
+            "contentDigest": manifest_artifact.content_digest,
+        },
+        "bundle": {
+            "hostPath": bundle_artifact.host_path,
+            "object": bundle_artifact.object,
+            "contentDigest": bundle_artifact.content_digest,
+            "format": binding.format,
+            "byteLength": bundle_bytes.len(),
+            "rootSetDigest": binding.root_set_digest,
+            "contractIrDigest": binding.contract_ir_digest,
+            "moduleGraphDigest": binding.module_graph_digest,
+            "buildIdentityDigest": binding.build_identity_digest,
+        },
+        "packageGraphDigest": package_graph_digest,
+        "runNonce": fresh_production_nonce()?,
+        "artifactDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    });
+    let digest = compute_domain_digest(
+        "ibex:restricted-exact-artifact:1",
+        &artifact,
+        &["artifactDigest".to_owned()],
+    )?;
+    artifact["artifactDigest"] = serde_json::json!(digest);
+    Ok(artifact)
+}
+
 /// Authenticate, bind, and freshen one embedder artifact pair.
 ///
 /// This validates everything that can be established before installation,
@@ -894,6 +1385,87 @@ mod tests {
     use capsec_semantics::model::{LogicalPath, LogicalRoot};
     use sha2::Sha256;
 
+    #[repr(C)]
+    struct HermesRuntimeOpaque {
+        _private: [u8; 0],
+    }
+
+    unsafe extern "C" {
+        fn ex_hermes_create_restricted_exact(
+            artifact_digest: *const std::ffi::c_char,
+        ) -> *mut HermesRuntimeOpaque;
+        fn ex_hermes_configure_restricted_exact_activation(
+            runtime: *mut HermesRuntimeOpaque,
+            checkpoint_data: *const u8,
+            checkpoint_len: usize,
+            wall_clock_ms: u64,
+            rng_seed_0: u64,
+            rng_seed_1: u64,
+        ) -> i32;
+        fn ex_hermes_run_restricted_exact_bundle(
+            runtime: *mut HermesRuntimeOpaque,
+            out_error: *mut *mut std::ffi::c_char,
+        ) -> i32;
+        fn ex_hermes_set_restricted_exact_checkpoint_callback(
+            runtime: *mut HermesRuntimeOpaque,
+            callback: extern "C" fn(*const u8, usize, *mut std::ffi::c_void),
+            context: *mut std::ffi::c_void,
+        ) -> i32;
+        fn ex_hermes_set_dispatch_callback(
+            runtime: *mut HermesRuntimeOpaque,
+            callback: extern "C" fn(*const u8, usize, *mut std::ffi::c_void),
+            context: *mut std::ffi::c_void,
+        );
+        fn ex_hermes_set_exact_host_call_async(
+            runtime: *mut HermesRuntimeOpaque,
+            context_kind: i32,
+            allowed_operation_ids: *const u32,
+            allowed_operation_count: usize,
+            operation_manifest_digest: *const std::ffi::c_char,
+            callback: extern "C" fn(
+                *mut HermesRuntimeOpaque,
+                u64,
+                u32,
+                *const u8,
+                usize,
+                *mut std::ffi::c_void,
+            ),
+            context: *mut std::ffi::c_void,
+        ) -> i32;
+        fn ex_hermes_eval(
+            runtime: *mut HermesRuntimeOpaque,
+            data: *const u8,
+            len: usize,
+            source_url: *const std::ffi::c_char,
+            is_bytecode: i32,
+            out_value: *mut *mut std::ffi::c_char,
+        ) -> i32;
+        fn ex_hermes_dispatch_event(
+            runtime: *mut HermesRuntimeOpaque,
+            handler_id: u32,
+            payload_json: *const std::ffi::c_char,
+        ) -> i32;
+        fn ex_hermes_poll(runtime: *mut HermesRuntimeOpaque, now_ms: u64) -> i32;
+        fn ex_hermes_free_string(value: *mut std::ffi::c_char);
+        fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
+    }
+
+    extern "C" fn capture_dispatch(data: *const u8, len: usize, context: *mut std::ffi::c_void) {
+        let output = unsafe { &mut *(context.cast::<Vec<u8>>()) };
+        output.extend_from_slice(unsafe { std::slice::from_raw_parts(data, len) });
+    }
+
+    extern "C" fn reject_unexpected_host_call(
+        _: *mut HermesRuntimeOpaque,
+        _: u64,
+        _: u32,
+        _: *const u8,
+        _: usize,
+        _: *mut std::ffi::c_void,
+    ) {
+        panic!("restricted fixture made an unexpected host call");
+    }
+
     struct RealEmbedderFixture {
         _temp: tempfile::TempDir,
         project_root: std::path::PathBuf,
@@ -1141,6 +1713,96 @@ mod tests {
         .to_vec()
     }
 
+    fn restricted_bundle_binding(format: &str, engine_bytecode_version: Option<u32>) -> Vec<u8> {
+        let digest = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        serde_json::to_vec(&serde_json::json!({
+            "bindingSchema": "exact/restricted-contract-bundle-binding/1",
+            "format": format,
+            "rootSetDigest": digest,
+            "contractIrDigest": digest,
+            "moduleGraphDigest": digest,
+            "buildIdentityDigest": digest,
+            "engineBytecodeVersion": engine_bytecode_version,
+        }))
+        .unwrap()
+    }
+
+    unsafe fn configured_restricted_exact_runtime(
+        bundle: &[u8],
+    ) -> (*mut HermesRuntimeOpaque, Box<Vec<u8>>, Box<Vec<u8>>) {
+        let artifact = build_restricted_exact_embedder_artifact(
+            &exact_manifest(),
+            bundle,
+            &restricted_bundle_binding("source-utf8", None),
+        )
+        .unwrap();
+        let artifact_bytes = serde_json::to_vec(&artifact).unwrap();
+        let authenticated =
+            authenticate_restricted_exact_embedder_artifact(&artifact_bytes).unwrap();
+        let manifest_digest = std::ffi::CString::new(
+            authenticated
+                .operation_binding()
+                .operation_manifest_digest
+                .as_str(),
+        )
+        .unwrap();
+        let operations = authenticated.operation_binding().endowments.app.clone();
+        let installed_digest = unsafe {
+            crate::host::abi::install_restricted_exact_host_for_conformance(&artifact_bytes)
+        }
+        .unwrap();
+        let artifact_digest = std::ffi::CString::new(installed_digest).unwrap();
+        let runtime = unsafe { ex_hermes_create_restricted_exact(artifact_digest.as_ptr()) };
+        assert!(!runtime.is_null());
+        assert_eq!(
+            unsafe {
+                ex_hermes_configure_restricted_exact_activation(
+                    runtime,
+                    std::ptr::null(),
+                    0,
+                    1234,
+                    0x1234,
+                    0x5678,
+                )
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                ex_hermes_set_exact_host_call_async(
+                    runtime,
+                    1,
+                    operations.as_ptr(),
+                    operations.len(),
+                    manifest_digest.as_ptr(),
+                    reject_unexpected_host_call,
+                    std::ptr::null_mut(),
+                )
+            },
+            0
+        );
+        let mut dispatch = Box::new(Vec::<u8>::new());
+        unsafe {
+            ex_hermes_set_dispatch_callback(
+                runtime,
+                capture_dispatch,
+                (&mut *dispatch as *mut Vec<u8>).cast(),
+            );
+        }
+        let mut checkpoints = Box::new(Vec::<u8>::new());
+        assert_eq!(
+            unsafe {
+                ex_hermes_set_restricted_exact_checkpoint_callback(
+                    runtime,
+                    capture_dispatch,
+                    (&mut *checkpoints as *mut Vec<u8>).cast(),
+                )
+            },
+            0
+        );
+        (runtime, dispatch, checkpoints)
+    }
+
     fn prepare_exact_through_abi(fixture: &RealEmbedderFixture) -> serde_json::Value {
         let manifest = exact_manifest();
         let output = unsafe {
@@ -1384,6 +2046,528 @@ mod tests {
             &expected,
         )
         .unwrap();
+    }
+
+    #[test]
+    fn restricted_exact_builder_binds_one_immutable_candidate_bundle() {
+        let _guard = crate::host::abi::host_test_lock();
+        let bundle = b"globalThis.__restrictedContractLoaded = true;";
+        let result = build_restricted_exact_embedder_artifact(
+            &exact_manifest(),
+            bundle,
+            &restricted_bundle_binding("source-utf8", None),
+        );
+        if crate::engine::loaded_engine_structural_features()
+            != [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown",
+            ]
+        {
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("not a restricted profile candidate"));
+            return;
+        }
+        let artifact = result.unwrap();
+        assert_eq!(artifact["profile"], "ibex/exact-embedder-contract/1");
+        assert_eq!(artifact["status"], "candidate-unadvertised");
+        assert_eq!(artifact["bundle"]["format"], "source-utf8");
+        assert_eq!(artifact["bundle"]["byteLength"], bundle.len());
+        assert_eq!(
+            artifact["bundle"]["contentDigest"],
+            serde_json::to_value(raw_content_digest(bundle).unwrap()).unwrap()
+        );
+        assert_ne!(
+            artifact["artifactDigest"],
+            "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        );
+        assert_ne!(artifact["runNonce"], CONTRACT_FIXTURE_RUN_NONCE);
+        let authenticated = authenticate_restricted_exact_embedder_artifact(
+            &serde_json::to_vec(&artifact).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(authenticated.bundle(), bundle);
+        assert_eq!(authenticated.bundle_format(), "source-utf8");
+        assert_eq!(
+            authenticated.digest().as_str(),
+            artifact["artifactDigest"].as_str().unwrap()
+        );
+        assert!(crate::host::abi::install_restricted_exact_host(
+            &serde_json::to_vec(&artifact).unwrap(),
+        )
+        .unwrap_err()
+        .contains("not advertised"));
+
+        let installed_digest = unsafe {
+            crate::host::abi::install_restricted_exact_host_for_conformance(
+                &serde_json::to_vec(&artifact).unwrap(),
+            )
+        }
+        .unwrap();
+        let digest_c = std::ffi::CString::new(installed_digest).unwrap();
+        assert_eq!(crate::host::abi::ex_host_claim_diagnostic_context(), 0);
+        assert_eq!(
+            unsafe { crate::host::abi::ex_host_claim_armed_context(digest_c.as_ptr()) },
+            0
+        );
+        let context =
+            unsafe { crate::host::abi::ex_host_claim_restricted_exact_context(digest_c.as_ptr()) };
+        assert_ne!(context, 0);
+        crate::host::abi::ex_host_release_context(context);
+
+        let mut tampered = artifact;
+        tampered["bundle"]["rootSetDigest"] =
+            serde_json::json!("sha256-__________________________________________8");
+        assert!(authenticate_restricted_exact_embedder_artifact(
+            &serde_json::to_vec(&tampered).unwrap(),
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("stale or tampered"));
+    }
+
+    #[test]
+    fn restricted_exact_runtime_has_authenticated_single_use_ingress() {
+        let _guard = crate::host::abi::host_test_lock();
+        let bundle = br#"
+          (() => {
+            const checkpoint = exact.takeCheckpointBytes();
+            if (checkpoint.length !== 3 || checkpoint[0] !== 7 ||
+                Date.now() !== 1234 || new Date().getTime() !== 1234 ||
+                typeof Math.random() !== 'number') {
+              throw new Error('activation mismatch');
+            }
+            for (const name of [
+              'require', 'process', 'Bun', 'Deno', 'Ibex', 'Exact', 'fetch',
+              'WebSocket', 'XMLHttpRequest', 'WebAssembly', 'SharedArrayBuffer',
+              'Atomics', '__hostCall', '__hostCallAsync', '__compartments',
+              '__exactCapabilityCheck', '__exactGetEnv', '__exactResolveModule',
+              '__exactTimerRef', '__exactTimerUnref'
+            ]) {
+              if (typeof globalThis[name] !== 'undefined') {
+                throw new Error(`forbidden global ${name}`);
+              }
+            }
+            const constructors = [
+              Function,
+              (async function () {}).constructor,
+              (function* () {}).constructor
+            ];
+            for (const constructor of constructors) {
+              let refused = false;
+              try { constructor('return globalThis')(); } catch (_) { refused = true; }
+              if (!refused) throw new Error('dynamic constructor escaped lockdown');
+            }
+            if (typeof exact.invokeHostAsync !== 'function' ||
+                typeof exact.dispatch !== 'function') {
+              throw new Error('restricted callbacks missing');
+            }
+            exact.dispatch(new Uint8Array([9, 4, 1]));
+            exact.publishCheckpoint(new Uint8Array([1, 2, 3, 4]));
+          })();
+        "#;
+        let result = build_restricted_exact_embedder_artifact(
+            &exact_manifest(),
+            bundle,
+            &restricted_bundle_binding("source-utf8", None),
+        );
+        if crate::engine::loaded_engine_structural_features()
+            != [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown",
+            ]
+        {
+            assert!(result.is_err());
+            return;
+        }
+        let artifact = result.unwrap();
+        let artifact_bytes = serde_json::to_vec(&artifact).unwrap();
+        let authenticated =
+            authenticate_restricted_exact_embedder_artifact(&artifact_bytes).unwrap();
+        let manifest_digest = std::ffi::CString::new(
+            authenticated
+                .operation_binding()
+                .operation_manifest_digest
+                .as_str(),
+        )
+        .unwrap();
+        let installed_digest = unsafe {
+            crate::host::abi::install_restricted_exact_host_for_conformance(&artifact_bytes)
+        }
+        .unwrap();
+        let artifact_digest = std::ffi::CString::new(installed_digest).unwrap();
+
+        unsafe {
+            let wrong_digest =
+                std::ffi::CString::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+                    .unwrap();
+            assert!(ex_hermes_create_restricted_exact(wrong_digest.as_ptr()).is_null());
+            let runtime = ex_hermes_create_restricted_exact(artifact_digest.as_ptr());
+            assert!(!runtime.is_null());
+
+            let checkpoint = [7_u8, 8, 9];
+            assert_eq!(
+                ex_hermes_configure_restricted_exact_activation(
+                    runtime,
+                    checkpoint.as_ptr(),
+                    checkpoint.len(),
+                    1234,
+                    0x1234,
+                    0x5678,
+                ),
+                0
+            );
+            assert_eq!(
+                ex_hermes_configure_restricted_exact_activation(
+                    runtime,
+                    checkpoint.as_ptr(),
+                    checkpoint.len(),
+                    1234,
+                    0x1234,
+                    0x5678,
+                ),
+                -3
+            );
+            let mut premature_error = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_run_restricted_exact_bundle(runtime, &mut premature_error),
+                1
+            );
+            assert!(!premature_error.is_null());
+            assert!(std::ffi::CStr::from_ptr(premature_error)
+                .to_string_lossy()
+                .contains("callbacks must be installed"));
+            ex_hermes_free_string(premature_error);
+            let operations = [1000_u32];
+            assert_eq!(
+                ex_hermes_set_exact_host_call_async(
+                    runtime,
+                    2,
+                    operations.as_ptr(),
+                    operations.len(),
+                    manifest_digest.as_ptr(),
+                    reject_unexpected_host_call,
+                    std::ptr::null_mut(),
+                ),
+                -3
+            );
+            assert_eq!(
+                ex_hermes_set_exact_host_call_async(
+                    runtime,
+                    1,
+                    operations.as_ptr(),
+                    operations.len(),
+                    manifest_digest.as_ptr(),
+                    reject_unexpected_host_call,
+                    std::ptr::null_mut(),
+                ),
+                0
+            );
+            let mut dispatched = Vec::<u8>::new();
+            ex_hermes_set_dispatch_callback(
+                runtime,
+                capture_dispatch,
+                (&mut dispatched as *mut Vec<u8>).cast(),
+            );
+            let mut replacement_dispatch = Vec::<u8>::new();
+            ex_hermes_set_dispatch_callback(
+                runtime,
+                capture_dispatch,
+                (&mut replacement_dispatch as *mut Vec<u8>).cast(),
+            );
+            let mut published_checkpoint = Vec::<u8>::new();
+            assert_eq!(
+                ex_hermes_set_restricted_exact_checkpoint_callback(
+                    runtime,
+                    capture_dispatch,
+                    (&mut published_checkpoint as *mut Vec<u8>).cast(),
+                ),
+                0
+            );
+            let mut replacement_checkpoint = Vec::<u8>::new();
+            assert_eq!(
+                ex_hermes_set_restricted_exact_checkpoint_callback(
+                    runtime,
+                    capture_dispatch,
+                    (&mut replacement_checkpoint as *mut Vec<u8>).cast(),
+                ),
+                -5
+            );
+
+            let mut error = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_run_restricted_exact_bundle(runtime, &mut error),
+                0,
+                "{}",
+                if error.is_null() {
+                    String::new()
+                } else {
+                    std::ffi::CStr::from_ptr(error)
+                        .to_string_lossy()
+                        .into_owned()
+                }
+            );
+            if !error.is_null() {
+                ex_hermes_free_string(error);
+            }
+            assert_eq!(dispatched, [9, 4, 1]);
+            assert!(replacement_dispatch.is_empty());
+            assert_eq!(published_checkpoint, [1, 2, 3, 4]);
+            assert!(replacement_checkpoint.is_empty());
+
+            let mut replay_error = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_run_restricted_exact_bundle(runtime, &mut replay_error),
+                1
+            );
+            assert!(!replay_error.is_null());
+            ex_hermes_free_string(replay_error);
+
+            let source = b"1 + 1";
+            let source_url = std::ffi::CString::new("forbidden.js").unwrap();
+            let mut eval_error = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_eval(
+                    runtime,
+                    source.as_ptr(),
+                    source.len(),
+                    source_url.as_ptr(),
+                    0,
+                    &mut eval_error,
+                ),
+                1
+            );
+            assert!(!eval_error.is_null());
+            ex_hermes_free_string(eval_error);
+            ex_hermes_destroy(runtime);
+        }
+    }
+
+    #[test]
+    fn restricted_exact_startup_checkpoint_failures_poison_the_runtime() {
+        let _guard = crate::host::abi::host_test_lock();
+        if crate::engine::loaded_engine_structural_features()
+            != [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown",
+            ]
+        {
+            return;
+        }
+        let fixtures: &[(&str, &[u8])] = &[
+            (
+                "missing-initial-checkpoint",
+                br#"(() => { exact.takeCheckpointBytes(); })();"#,
+            ),
+            (
+                "duplicate-initial-checkpoint",
+                br#"(() => {
+                  exact.takeCheckpointBytes();
+                  exact.publishCheckpoint(new Uint8Array([1]));
+                  exact.publishCheckpoint(new Uint8Array([2]));
+                })();"#,
+            ),
+            (
+                "malformed-initial-checkpoint",
+                br#"(() => {
+                  exact.takeCheckpointBytes();
+                  exact.publishCheckpoint({});
+                })();"#,
+            ),
+            (
+                "oversize-initial-checkpoint",
+                br#"(() => {
+                  exact.takeCheckpointBytes();
+                  exact.publishCheckpoint(new Uint8Array(16 * 1024 * 1024 + 1));
+                })();"#,
+            ),
+        ];
+        for (name, bundle) in fixtures {
+            let (runtime, _dispatch, mut checkpoints) =
+                unsafe { configured_restricted_exact_runtime(bundle) };
+            unsafe {
+                let mut error = std::ptr::null_mut();
+                assert_ne!(
+                    ex_hermes_run_restricted_exact_bundle(runtime, &mut error),
+                    0,
+                    "{name} unexpectedly succeeded"
+                );
+                assert!(!error.is_null(), "{name} returned no error");
+                ex_hermes_free_string(error);
+                assert_eq!(ex_hermes_poll(runtime, 1234), -1, "{name} still polled");
+                let payload = std::ffi::CString::new("{}").unwrap();
+                assert_eq!(
+                    ex_hermes_dispatch_event(runtime, 1, payload.as_ptr()),
+                    -1,
+                    "{name} still accepted events"
+                );
+                assert_eq!(
+                    ex_hermes_set_restricted_exact_checkpoint_callback(
+                        runtime,
+                        capture_dispatch,
+                        (&mut *checkpoints as *mut Vec<u8>).cast(),
+                    ),
+                    -9,
+                    "{name} allowed callback replacement after poison"
+                );
+                let mut replay_error = std::ptr::null_mut();
+                assert_ne!(
+                    ex_hermes_run_restricted_exact_bundle(runtime, &mut replay_error),
+                    0,
+                    "{name} allowed replay after poison"
+                );
+                assert!(!replay_error.is_null());
+                ex_hermes_free_string(replay_error);
+                ex_hermes_destroy(runtime);
+            }
+        }
+    }
+
+    #[test]
+    fn restricted_exact_event_checkpoint_failures_poison_the_runtime() {
+        let _guard = crate::host::abi::host_test_lock();
+        if crate::engine::loaded_engine_structural_features()
+            != [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown",
+            ]
+        {
+            return;
+        }
+        let bundle = br#"(() => {
+          exact.takeCheckpointBytes();
+          exact.publishCheckpoint(new Uint8Array([7]));
+          Object.defineProperty(globalThis, '__exactDispatchEvent', {
+            value: (handler) => {
+              if (handler === 1) return;
+              if (handler === 2) {
+                exact.publishCheckpoint(new Uint8Array([8]));
+                exact.publishCheckpoint(new Uint8Array([8]));
+                return;
+              }
+              if (handler === 3) throw new Error('hostile event');
+              if (handler === 4) {
+                exact.publishCheckpoint({});
+                return;
+              }
+              exact.publishCheckpoint(new Uint8Array([9]));
+            },
+            writable: false,
+            configurable: false
+          });
+        })();"#;
+        let payload = std::ffi::CString::new("{}").unwrap();
+
+        let (runtime, _dispatch, checkpoints) =
+            unsafe { configured_restricted_exact_runtime(bundle) };
+        unsafe {
+            let mut error = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_run_restricted_exact_bundle(runtime, &mut error),
+                0
+            );
+            assert!(error.is_null());
+            assert_eq!(ex_hermes_dispatch_event(runtime, 5, payload.as_ptr()), 0);
+            assert_eq!(*checkpoints, [7, 9]);
+            ex_hermes_destroy(runtime);
+        }
+
+        for handler in [1_u32, 2, 3, 4] {
+            let (runtime, _dispatch, _checkpoints) =
+                unsafe { configured_restricted_exact_runtime(bundle) };
+            unsafe {
+                let mut error = std::ptr::null_mut();
+                assert_eq!(
+                    ex_hermes_run_restricted_exact_bundle(runtime, &mut error),
+                    0
+                );
+                assert!(error.is_null());
+                assert_eq!(
+                    ex_hermes_dispatch_event(runtime, handler, payload.as_ptr()),
+                    -1,
+                    "hostile handler {handler} unexpectedly succeeded"
+                );
+                assert_eq!(ex_hermes_poll(runtime, 1234), -1);
+                assert_eq!(ex_hermes_dispatch_event(runtime, 5, payload.as_ptr()), -1);
+                ex_hermes_destroy(runtime);
+            }
+        }
+
+        let (missing_handler_runtime, _dispatch, _checkpoints) = unsafe {
+            configured_restricted_exact_runtime(
+                br#"(() => {
+                  exact.takeCheckpointBytes();
+                  exact.publishCheckpoint(new Uint8Array([7]));
+                })();"#,
+            )
+        };
+        unsafe {
+            let mut error = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_run_restricted_exact_bundle(missing_handler_runtime, &mut error),
+                0
+            );
+            assert!(error.is_null());
+            assert_eq!(
+                ex_hermes_dispatch_event(missing_handler_runtime, 1, payload.as_ptr()),
+                -1
+            );
+            assert_eq!(ex_hermes_poll(missing_handler_runtime, 1234), -1);
+            ex_hermes_destroy(missing_handler_runtime);
+        }
+
+        let (malformed_payload_runtime, _dispatch, _checkpoints) =
+            unsafe { configured_restricted_exact_runtime(bundle) };
+        unsafe {
+            let mut error = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_run_restricted_exact_bundle(malformed_payload_runtime, &mut error),
+                0
+            );
+            assert!(error.is_null());
+            let malformed = std::ffi::CString::new("{").unwrap();
+            assert_eq!(
+                ex_hermes_dispatch_event(malformed_payload_runtime, 5, malformed.as_ptr()),
+                -1
+            );
+            assert_eq!(ex_hermes_poll(malformed_payload_runtime, 1234), -1);
+            ex_hermes_destroy(malformed_payload_runtime);
+        }
+    }
+
+    #[test]
+    fn restricted_exact_builder_rejects_format_and_engine_confusion() {
+        let _guard = crate::host::abi::host_test_lock();
+        let manifest = exact_manifest();
+        assert!(build_restricted_exact_embedder_artifact(
+            &manifest,
+            b"source",
+            &restricted_bundle_binding("source-utf8", Some(1)),
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("must not claim"));
+        assert!(build_restricted_exact_embedder_artifact(
+            &manifest,
+            &[0xff],
+            &restricted_bundle_binding("source-utf8", None),
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("not UTF-8"));
+        assert!(build_restricted_exact_embedder_artifact(
+            &manifest,
+            b"hbc",
+            &restricted_bundle_binding("hbc-v1", Some(u32::MAX)),
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("does not match"));
     }
 
     #[test]

@@ -71,7 +71,9 @@ uint64_t coerceTimerDelayMs(facebook::jsi::Runtime& runtime,
 
 }  // namespace
 
-void installTimerGlobals(ExactHermesRuntime* handle) {
+void installTimerGlobals(
+    ExactHermesRuntime* handle,
+    bool install_ref_controls) {
   auto& rt = *handle->runtime;
 
   auto setTimeoutFn = facebook::jsi::Function::createFromHostFunction(
@@ -219,53 +221,53 @@ void installTimerGlobals(ExactHermesRuntime* handle) {
         return facebook::jsi::Value::undefined();
       });
 
-  auto timerRefFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactTimerRef"),
-      1,
-      [handle](facebook::jsi::Runtime& runtime,
-               const facebook::jsi::Value&,
-               const facebook::jsi::Value* args,
-               size_t count) -> facebook::jsi::Value {
-        (void)runtime;
-        if (count > 0 && args[0].isNumber()) {
-          uint64_t id = static_cast<uint64_t>(args[0].asNumber());
-          auto it = handle->timers.find(id);
-          // @ref LLP 0021#handles-dynamic-authority-and-generations — retained
-          // control-plane state is mutable only by its authenticated owner.
-          if (it != handle->timers.end() &&
-              it->second.principal == currentPrincipalId()) {
-            it->second.referenced = true;
-          }
-        }
-        return facebook::jsi::Value::undefined();
-      });
-
-  auto timerUnrefFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactTimerUnref"),
-      1,
-      [handle](facebook::jsi::Runtime& runtime,
-               const facebook::jsi::Value&,
-               const facebook::jsi::Value* args,
-               size_t count) -> facebook::jsi::Value {
-        (void)runtime;
-        if (count > 0 && args[0].isNumber()) {
-          uint64_t id = static_cast<uint64_t>(args[0].asNumber());
-          auto it = handle->timers.find(id);
-          if (it != handle->timers.end() &&
-              it->second.principal == currentPrincipalId()) {
-            it->second.referenced = false;
-          }
-        }
-        return facebook::jsi::Value::undefined();
-      });
-
   rt.global().setProperty(rt, "setTimeout", std::move(setTimeoutFn));
   rt.global().setProperty(rt, "clearTimeout", std::move(clearTimeoutFn));
   rt.global().setProperty(rt, "setInterval", std::move(setIntervalFn));
   rt.global().setProperty(rt, "clearInterval", std::move(clearIntervalFn));
   rt.global().setProperty(rt, "queueMicrotask", std::move(queueMicrotaskFn));
-  rt.global().setProperty(rt, "__exactTimerRef", std::move(timerRefFn));
-  rt.global().setProperty(rt, "__exactTimerUnref", std::move(timerUnrefFn));
+  if (install_ref_controls) {
+    auto timerRefFn = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "__exactTimerRef"),
+        1,
+        [handle](facebook::jsi::Runtime& runtime,
+                 const facebook::jsi::Value&,
+                 const facebook::jsi::Value* args,
+                 size_t count) -> facebook::jsi::Value {
+          (void)runtime;
+          if (count > 0 && args[0].isNumber()) {
+            uint64_t id = static_cast<uint64_t>(args[0].asNumber());
+            auto it = handle->timers.find(id);
+            // @ref LLP 0021#handles-dynamic-authority-and-generations — retained
+            // control-plane state is mutable only by its authenticated owner.
+            if (it != handle->timers.end() &&
+                it->second.principal == currentPrincipalId()) {
+              it->second.referenced = true;
+            }
+          }
+          return facebook::jsi::Value::undefined();
+        });
+    auto timerUnrefFn = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "__exactTimerUnref"),
+        1,
+        [handle](facebook::jsi::Runtime& runtime,
+                 const facebook::jsi::Value&,
+                 const facebook::jsi::Value* args,
+                 size_t count) -> facebook::jsi::Value {
+          (void)runtime;
+          if (count > 0 && args[0].isNumber()) {
+            uint64_t id = static_cast<uint64_t>(args[0].asNumber());
+            auto it = handle->timers.find(id);
+            if (it != handle->timers.end() &&
+                it->second.principal == currentPrincipalId()) {
+              it->second.referenced = false;
+            }
+          }
+          return facebook::jsi::Value::undefined();
+        });
+    rt.global().setProperty(rt, "__exactTimerRef", std::move(timerRefFn));
+    rt.global().setProperty(rt, "__exactTimerUnref", std::move(timerUnrefFn));
+  }
 }
