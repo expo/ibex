@@ -2577,7 +2577,7 @@ mod tests {
             }
             let root = &row["property"]["root"];
             assert_eq!(root["kind"].as_str(), Some("string"), "{edge_id}");
-            let path = row["property"]["path"]
+            let mut path = row["property"]["path"]
                 .as_array()
                 .unwrap()
                 .iter()
@@ -2586,6 +2586,17 @@ mod tests {
                     segment["value"].as_str().unwrap().to_owned()
                 })
                 .collect::<Vec<_>>();
+            // The root-global authority preserves these two historical
+            // display paths as dot-split strings. Reconstitute the symbol key
+            // for the live engine probe; the exact registry edge ID remains
+            // the evidence identity.
+            if edge_id == "surface.native.op.global.iterator.prototype.symbol.iterator.0k8w72b" {
+                path = vec!["prototype".to_owned(), "[[Symbol.iterator]]".to_owned()];
+            } else if edge_id
+                == "surface.native.op.global.iterator.prototype.symbol.tostringtag.0qheaf3"
+            {
+                path = vec!["prototype".to_owned(), "[[Symbol.toStringTag]]".to_owned()];
+            }
             probes.insert(
                 edge_id.to_owned(),
                 serde_json::json!({
