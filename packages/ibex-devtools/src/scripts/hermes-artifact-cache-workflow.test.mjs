@@ -96,3 +96,15 @@ test("Windows conformance binds the verified Hermes CLI for product corpora", ()
   expect(cliBinding).toBeGreaterThan(artifactVerification);
   expect(cliBinding).toBeLessThan(matrix);
 });
+
+test("Windows conformance can isolate module-semantics evidence", () => {
+  const windowsJob = conformanceWorkflow.slice(
+    conformanceWorkflow.indexOf("conformance-windows:"),
+  );
+
+  expect(conformanceWorkflow).toContain("- module-semantics");
+  expect(windowsJob).toContain("name: Run focused module-semantics baseline");
+  expect(windowsJob).toContain("inputs.scope == 'module-semantics'");
+  expect(windowsJob).toContain("cargo test --test module_semantics_baseline");
+  expect(windowsJob).toContain('"module-semantics.log"');
+});

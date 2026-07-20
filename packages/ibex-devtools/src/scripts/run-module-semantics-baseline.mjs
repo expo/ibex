@@ -97,6 +97,10 @@ function stableObservation(result) {
   };
 }
 
+function describeObservation(result) {
+  return JSON.stringify(stableObservation(result));
+}
+
 function readBaseline() {
   return JSON.parse(readFileSync(baselinePath, 'utf8'));
 }
@@ -144,10 +148,10 @@ function main() {
       const currentIbex = fixture.currentIbex || { outcome: 'marker' };
       if (currentIbex.outcome === 'error') {
         if (ibex.status === 0) {
-          failures.push(`Ibex unexpectedly succeeded; expected named current-path error containing ${JSON.stringify(currentIbex.stderrIncludes)}`);
+          failures.push(`Ibex unexpectedly succeeded with ${describeObservation(ibex)}; expected named current-path error containing ${JSON.stringify(currentIbex.stderrIncludes)}`);
         }
         if (!ibex.stderr.includes(currentIbex.stderrIncludes)) {
-          failures.push(`Ibex error did not contain ${JSON.stringify(currentIbex.stderrIncludes)}: ${ibex.stderr.trim()}`);
+          failures.push(`Ibex error did not contain ${JSON.stringify(currentIbex.stderrIncludes)}; observation ${describeObservation(ibex)}; stderr: ${ibex.stderr.trim()}`);
         }
       } else {
         if (ibex.status !== 0) {

@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-20 (ENG-24933 physically clears the verified Windows Hermes CLI binding and advances the default product suite to platform-specific module-semantics baseline drift)
 **Revised:** 2026-07-20 (ENG-24933 physically clears Windows EC key generation/export and advances the default product suite to a missing verified-Hermes CLI binding)
 **Revised:** 2026-07-20 (ENG-24933 physically clears the Windows KDF/AES frontier and narrows 23 crypto product tests to missing CNG EC key generation/export)
 **Revised:** 2026-07-20 (ENG-24933 physically verifies Windows HKDF and advances the full public matrix to the missing CNG PBKDF2 backend)
@@ -2234,6 +2235,17 @@ workflow had not bound `IBEX_HERMES_BIN` to the `hermes.exe` already present
 in the verified Windows artifact. The workflow now checks that exact CLI and
 exports its absolute path before any complete-matrix suite. This repair still
 requires physical execution; no target cell or advertisement is promoted.
+Full physical run
+[`29739719378`](https://github.com/ccheever/ibex/actions/runs/29739719378)
+executed the verified Windows `hermes.exe`, passed all three LLP 0026
+`module_runner_spike` tests, and advanced the default Rust suite to 555 passes.
+The next failure was the single `module_semantics_baseline` test: two fixtures
+whose checked baseline records the macOS compatibility loader's named error
+instead exited successfully on Windows. The audit-mode `env:read:*` diagnostic
+was incidental, not the failure cause. A focused module-semantics workflow
+scope now retains the exact Windows status and marker observations so any
+platform-specific baseline can be evidence-derived rather than invented. No
+target cell or advertisement is promoted.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked

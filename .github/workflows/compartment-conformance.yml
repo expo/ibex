@@ -17,13 +17,14 @@ on:
           - macos
           - windows
       scope:
-        description: Evidence scope (focused startup repair or complete matrix)
+        description: Evidence scope (focused repair or complete matrix)
         required: true
         default: full
         type: choice
         options:
           - full
           - startup
+          - module-semantics
   schedule:
     # Weekly, Monday 08:00 UTC (after the patch canary).
     - cron: "0 8 * * 1"
@@ -296,6 +297,17 @@ jobs:
           if ($callbackExit -ne 0 -or $startupExit -ne 0) {
             throw "focused principal evidence failed (wrapper/callback=$callbackExit, startup=$startupExit)"
           }
+
+      - name: Run focused module-semantics baseline
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.scope == 'module-semantics' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $directory = Join-Path $PWD "target\capsec-focused-windows"
+          New-Item -ItemType Directory -Force -Path $directory | Out-Null
+          cargo test --test module_semantics_baseline -- --exact --test-threads=1 --nocapture 2>&1 |
+            Tee-Object -FilePath (Join-Path $directory "module-semantics.log")
+          if ($LASTEXITCODE -ne 0) { throw "focused module-semantics baseline failed" }
 
       - name: Run the complete CapSec matrix and bind evidence
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'full' }}
