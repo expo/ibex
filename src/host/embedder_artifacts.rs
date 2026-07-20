@@ -3409,7 +3409,7 @@ mod tests {
                     .then(|| row[0].as_str().unwrap().to_owned())
             })
             .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(absent_ids.len(), 7_147);
+        assert_eq!(absent_ids.len(), 7_194);
         let coverage: serde_json::Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/capsec/registry/coverage-edges.json"
@@ -3526,7 +3526,7 @@ mod tests {
         let probe_plan: serde_json::Value = serde_json::from_slice(probe_plan_bytes).unwrap();
         let planned_edges = probe_plan["edges"].as_array().unwrap();
         assert_eq!(planned_edges.len(), absent_ids.len());
-        assert_eq!(probe_plan["counts"]["edges"].as_u64(), Some(7_147));
+        assert_eq!(probe_plan["counts"]["edges"].as_u64(), Some(7_194));
         let probe_plan_digest = format!(
             "sha256-{}",
             base64::engine::general_purpose::URL_SAFE_NO_PAD
