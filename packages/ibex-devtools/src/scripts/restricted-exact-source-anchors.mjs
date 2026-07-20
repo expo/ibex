@@ -2817,6 +2817,81 @@ function legacyStdioLazyMethodBinding({ branch, sourceRef, sourcePath, locator, 
   });
 }
 
+function legacyObjectPublishedMemberBinding({
+  branch,
+  sourceRef,
+  sourcePath,
+  locator,
+  absolute,
+  text,
+  bytes,
+}) {
+  if (!branch?.observedKey?.startsWith("native-op:global:")
+    || !sourcePath.startsWith("src/engine/bootstrap/")
+    || !sourcePath.endsWith(".js")
+    || branch.observedKey.slice("native-op:global:".length) !== locator
+    || locator.includes("[[")) return null;
+  const logicalPath = locator.split(".");
+  if (logicalPath.length < 3) return null;
+  const memberName = logicalPath.at(-1);
+  const publicationPath = logicalPath.slice(0, -1);
+  const index = javascriptIndex(absolute, text);
+  const aliases = new Map();
+  walkJavaScript(parse(text, { sourceType: "script", allowReturnOutsideFunction: true }).program, (node) => {
+    if (node.type !== "VariableDeclarator" || node.id?.type !== "Identifier") return;
+    const segments = memberSegments(node.init);
+    if (!segments) return;
+    const normalized = ["globalThis", "__global", "g", "self", "window"].includes(segments[0])
+      ? segments.slice(1)
+      : segments;
+    aliases.set(node.id.name, normalized);
+  });
+  const normalize = (segments) => {
+    if (!segments) return null;
+    let normalized = ["globalThis", "__global", "g", "self", "window"].includes(segments[0])
+      ? segments.slice(1)
+      : segments;
+    const alias = aliases.get(normalized[0]);
+    if (alias) normalized = [...alias, ...normalized.slice(1)];
+    return normalized;
+  };
+  const candidates = [];
+  for (const assignment of index.assignments) {
+    if (JSON.stringify(normalize(assignment.segments)) !== JSON.stringify(publicationPath)) continue;
+    const resolved = resolveIdentifierValue(index, assignment.value);
+    const object = resolved.node;
+    if (object?.type !== "ObjectExpression") continue;
+    const property = objectProperty(object, memberName);
+    if (!property) continue;
+    candidates.push({ property, publication: assignment.parent ?? assignment.node });
+  }
+  const unique = [...new Map(candidates.map((candidate) => [
+    `${candidate.property.start}:${candidate.publication.start}`,
+    candidate,
+  ])).values()];
+  if (unique.length === 0) return null;
+  const sites = [];
+  const producerPaths = [];
+  for (const [indexValue, candidate] of unique.entries()) {
+    const producer = sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${locator}.object-member.${indexValue}`, range: { startByte: candidate.property.start, endByte: candidate.property.end }, text, bytes });
+    const publication = sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${publicationPath.join(".")}.publication.${indexValue}`, range: { startByte: candidate.publication.start, endByte: candidate.publication.end }, text, bytes });
+    sites.push(producer, publication);
+    producerPaths.push({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0legacy-object-member\0${indexValue}`),
+      conditionId: `legacy-object-publication:${sourcePath}:${candidate.publication.start}`,
+      requiredSiteIds: [producer.siteId, publication.siteId],
+    });
+  }
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "javascript-object-publication-route",
+    targetGlobalPath: locator,
+    resolutionPolicy: producerPaths.length > 1 ? "conditioned-alternatives" : "composite-path",
+    sites,
+    producerPaths,
+  });
+}
+
 function exactGlobalAliasBinding({ branch, sourceRef, sourcePath, locator, absolute, text, bytes }) {
   if (sourcePath !== "src/engine/bootstrap/exact-global.js"
     || !/^native-op:global:(?:Bun|Exact)(?:\.|$)/u.test(branch?.observedKey ?? "")
@@ -3111,6 +3186,43 @@ function nativeDefinitionBinding({ branch, sourceRef, sourcePath, locator, text,
       conditionId: `target-branch:${branch.targetVariant}:definition:${sourcePath}`,
       requiredSiteIds: [producer.siteId, publication.siteId],
     }],
+  });
+}
+
+function nativeSymbolTerminalBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (!branch?.observedKey?.startsWith("native-op:")
+    || branch.observedKey.startsWith("native-op:global:")
+    || branch.observedKey.startsWith("native-op:inspector.")
+    || !/\.(?:cc|mm|h)$/u.test(sourcePath)) return null;
+  const symbol = branch.observedKey.slice("native-op:".length);
+  if (locator !== symbol || !/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(symbol)) return null;
+  const whole = { startByte: 0, endByte: text.length };
+  const occurrences = tokenRangesWithin(text, symbol, whole).filter((range) => {
+    const sourceLine = lineRange(text, range.startByte);
+    const line = text.slice(sourceLine.startByte, sourceLine.endByte).trimStart();
+    return !line.startsWith("//") && !line.startsWith("/*") && !line.startsWith("*");
+  });
+  if (occurrences.length === 0) return null;
+  const sites = [];
+  const producerPaths = [];
+  for (const [indexValue, occurrence] of occurrences.entries()) {
+    const statement = lineRange(text, occurrence.startByte);
+    const statementText = text.slice(statement.startByte, statement.endByte);
+    const producer = sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${symbol}.native-symbol.${indexValue}`, range: occurrence, text, bytes });
+    const terminal = sourceSite({ sourceRef, path: sourcePath, role: /(?:setProperty|defineProperty|=)/u.test(statementText) ? "publication" : "dispatch", siteKey: `${symbol}.native-execution.${indexValue}`, range: statement, text, bytes });
+    sites.push(producer, terminal);
+    producerPaths.push({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0native-symbol\0${indexValue}`),
+      conditionId: `native-source-site:${sourcePath}:${occurrence.startByte}`,
+      requiredSiteIds: [producer.siteId, terminal.siteId],
+    });
+  }
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "native-symbol-terminal-route",
+    resolutionPolicy: producerPaths.length > 1 ? "conditioned-alternatives" : "composite-path",
+    sites,
+    producerPaths,
   });
 }
 
@@ -6654,11 +6766,13 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? typescriptModuleObjectMemberProvenanceBinding({ branch, sourceRef, ...loaded })
     ?? exactGlobalAliasBinding({ branch, sourceRef, ...loaded })
     ?? evaluatedCppGlobalBinding({ branch, sourceRef, ...loaded })
+    ?? nativeSymbolTerminalBinding({ branch, sourceRef, ...loaded })
     ?? cppSymbolProvenanceBinding({ branch, sourceRef, ...loaded })
     ?? legacyViewConstructorTableBinding({ branch, sourceRef, ...loaded })
     ?? legacyReturnedPrototypeMemberBinding({ branch, sourceRef, ...loaded })
     ?? legacyJavascriptGlobalRouteBinding({ branch, sourceRef, ...loaded })
     ?? legacyStdioLazyMethodBinding({ branch, sourceRef, ...loaded })
+    ?? legacyObjectPublishedMemberBinding({ branch, sourceRef, ...loaded })
     ?? legacyJavascriptTerminalRouteBinding({ branch, sourceRef, ...loaded })
     ?? legacyJavascriptAliasRouteBinding({ branch, sourceRef, ...loaded })
     ?? generatedJavascriptGlobalBinding({ branch, sourceRef, ...loaded })

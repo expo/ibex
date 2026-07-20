@@ -908,6 +908,34 @@ void install(Runtime& rt) {
     }
   });
 
+  test("binds process object members through aliased object publication", () => {
+    const fixtures = [
+      [
+        "process.features.inspector",
+        "src/engine/bootstrap/stream-enhance.js#process.features.inspector",
+      ],
+      [
+        "process.features.cached_builtins",
+        "src/engine/bootstrap/compat-polyfills.js#process.features.cached_builtins",
+      ],
+      [
+        "process.report.compact",
+        "src/engine/bootstrap/stream-enhance.js#process.report.compact",
+      ],
+    ];
+    for (const [locator, sourceRef] of fixtures) {
+      const branch = {
+        branchId: `surface.native.op.global.${locator}.default`,
+        observedKey: `native-op:global:${locator}`,
+        targetVariant: "default",
+      };
+      const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+      expect(binding.locatorKind).toBe("javascript-object-publication-route");
+      expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status)
+        .toBe("executable");
+    }
+  });
+
   test("binds an object-literal global member without crediting its installer", () => {
     const branch = {
       branchId: "surface.native.op.global.atomics.add.all",
@@ -1148,6 +1176,25 @@ void install(Runtime& rt) {
     ]);
   });
 
+  test("binds exact native symbols to their executable source sites", () => {
+    const fixtures = [
+      ["__esModule", "src/engine/hermes_module_runner.cc#__esModule"],
+      ["__exactRunOnJS", "src/engine/hermes_runtime_worklet.cc#__exactRunOnJS"],
+    ];
+    for (const [symbol, sourceRef] of fixtures) {
+      const branch = {
+        branchId: `surface.native.op.${symbol}.default`,
+        observedKey: `native-op:${symbol}`,
+        targetVariant: "default",
+      };
+      const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+      expect(binding.locatorKind).toBe("native-symbol-terminal-route");
+      expect(binding.producerPaths.length).toBeGreaterThan(0);
+      expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status)
+        .toBe("executable");
+    }
+  });
+
   test("binds evaluated C++ JavaScript through member, publication, and dispatch", () => {
     const fixtures = [
       ["fetch", "src/engine/hermes_runtime_fetch.cc#embedded:windowsFetchShim:fetch", "windows"],
@@ -1328,7 +1375,7 @@ void install(Runtime& rt) {
       .toBe("executable");
   });
 
-  test("binds module-level global assignments and C++ supporting symbols", () => {
+  test("binds module-level global assignments and exact C++ terminal symbols", () => {
     const moduleBinding = resolveRestrictedExactBranchSourceBinding({
       branchId: "surface.native.op.android.dispatch.all",
       observedKey: "native-op:__exactAndroidDispatchPlatformEvent",
@@ -1340,7 +1387,8 @@ void install(Runtime& rt) {
       observedKey: "native-op:__compartments",
       targetVariant: "default",
     }, "src/engine/hermes_module_runner.cc#__compartments");
-    expect(cppBinding.locatorKind).toBe("cpp-symbol-provenance");
+    expect(cppBinding.locatorKind).toBe("native-symbol-terminal-route");
+    expect(cppBinding.producerPaths.length).toBeGreaterThan(0);
   });
 
   test("binds a TypeScript member without crediting the entire class", () => {
