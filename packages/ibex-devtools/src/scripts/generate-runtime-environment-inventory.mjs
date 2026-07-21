@@ -90,6 +90,50 @@ function canonicalJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
+function displayDifferenceValue(value) {
+  const rendered = JSON.stringify(value);
+  if (rendered === undefined) return "<missing>";
+  return rendered.length <= 240 ? rendered : `${rendered.slice(0, 237)}...`;
+}
+
+export function firstCanonicalJsonDifference(committedSource, renderedSource) {
+  const committed = JSON.parse(committedSource);
+  const rendered = JSON.parse(renderedSource);
+  const visit = (left, right, jsonPath) => {
+    if (Object.is(left, right)) return null;
+    if (Array.isArray(left) || Array.isArray(right)) {
+      if (!Array.isArray(left) || !Array.isArray(right)) {
+        return { jsonPath, committed: left, rendered: right };
+      }
+      if (left.length !== right.length) {
+        return {
+          jsonPath: `${jsonPath}.length`,
+          committed: left.length,
+          rendered: right.length,
+        };
+      }
+      for (let index = 0; index < left.length; index += 1) {
+        const difference = visit(left[index], right[index], `${jsonPath}[${index}]`);
+        if (difference) return difference;
+      }
+      return null;
+    }
+    if (
+      left !== null && right !== null
+      && typeof left === "object" && typeof right === "object"
+    ) {
+      const keys = canonicalSet([...Object.keys(left), ...Object.keys(right)]);
+      for (const key of keys) {
+        const difference = visit(left[key], right[key], `${jsonPath}.${key}`);
+        if (difference) return difference;
+      }
+      return null;
+    }
+    return { jsonPath, committed: left, rendered: right };
+  };
+  return visit(committed, rendered, "$");
+}
+
 function sha256(value) {
   return `sha256-${crypto.createHash("sha256").update(value).digest("hex")}`;
 }
@@ -466,7 +510,7 @@ async function discoveredEnvironmentRows(root = repoRoot) {
   );
 }
 
-export async function checkRuntimeEnvironmentInventory() {
+async function inspectRuntimeEnvironmentInventory() {
   assertProjectionSources(repoRoot);
   const { artifact, schemaSource, source } = loadRuntimeEnvironmentInventory();
   const rendered = renderRuntimeEnvironmentInventory(
@@ -475,7 +519,16 @@ export async function checkRuntimeEnvironmentInventory() {
     { schemaSource },
   );
   assertPostArmEvidenceSources(JSON.parse(rendered), repoRoot);
-  return source === rendered ? [] : [relative(runtimeEnvironmentInventoryPath)];
+  return {
+    difference: source === rendered
+      ? null
+      : firstCanonicalJsonDifference(source, rendered),
+    stale: source === rendered ? [] : [relative(runtimeEnvironmentInventoryPath)],
+  };
+}
+
+export async function checkRuntimeEnvironmentInventory() {
+  return (await inspectRuntimeEnvironmentInventory()).stale;
 }
 
 export async function writeRuntimeEnvironmentInventory() {
@@ -534,10 +587,13 @@ async function main(argv) {
     console.log(`wrote ${relative(runtimeEnvironmentInventoryPath)}`);
     return;
   }
-  const stale = await checkRuntimeEnvironmentInventory();
+  const { difference, stale } = await inspectRuntimeEnvironmentInventory();
   if (stale.length > 0) {
+    const detail = difference
+      ? `\nFirst difference at ${difference.jsonPath}: committed=${displayDifferenceValue(difference.committed)} rendered=${displayDifferenceValue(difference.rendered)}`
+      : "";
     throw new Error(
-      `runtime environment inventory is stale: ${stale.join(", ")}\nRun: bun run generate:runtime-environment-inventory`,
+      `runtime environment inventory is stale: ${stale.join(", ")}${detail}\nRun: bun run generate:runtime-environment-inventory`,
     );
   }
   const { artifact } = loadRuntimeEnvironmentInventory();

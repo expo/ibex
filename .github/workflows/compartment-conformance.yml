@@ -440,6 +440,7 @@ jobs:
         shell: pwsh
         run: |
           bun run check:capsec-registry
+          bun run check:runtime-environment-inventory
           bun run check:example-policy
 
       - name: Cache patched Hermes artifacts

@@ -1809,6 +1809,13 @@ impl Host {
         operation_manifest_digest: Option<&str>,
         operations: &[u32],
     ) -> bool {
+        if !self.is_production_armed() {
+            // The explicitly diagnostic constructor has no protected manifest
+            // to authenticate. Keep that posture distinct: it accepts only
+            // the legacy null-manifest request and cannot make an arbitrary
+            // caller digest look authenticated.
+            return operation_manifest_digest.is_none();
+        }
         let Some(operation_manifest_digest) = operation_manifest_digest else {
             return false;
         };
@@ -9439,6 +9446,21 @@ mod tests {
             &[7, 11]
         ));
         assert!(!host.authorizes_exact_endowment(1, None, &[7, 11]));
+    }
+
+    #[test]
+    fn diagnostic_exact_endowment_accepts_only_the_unattested_null_manifest_path() {
+        let host = Host::new(HostConfig {
+            mode: SecurityMode::Enforce,
+            ..Default::default()
+        });
+
+        assert!(host.authorizes_exact_endowment(1, None, &[7, 11]));
+        assert!(!host.authorizes_exact_endowment(
+            1,
+            Some("sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA"),
+            &[7, 11]
+        ));
     }
 
     #[test]

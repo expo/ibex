@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   checkRuntimeEnvironmentInventory,
+  firstCanonicalJsonDifference,
   loadRuntimeEnvironmentInventory,
   repoRoot,
   reconcileRuntimeEnvironmentRows,
@@ -82,6 +83,17 @@ const POST_ARM_EVIDENCE = {
 };
 
 describe("runtime environment stage inventory", () => {
+  test("reports the first bounded semantic difference for cross-platform drift", () => {
+    const committed = `${JSON.stringify({ rows: [{ sourcePath: "src/a.rs", sourceOffset: 7 }] }, null, 2)}\n`;
+    const rendered = `${JSON.stringify({ rows: [{ sourcePath: "src/a.rs", sourceOffset: 9 }] }, null, 2)}\n`;
+    expect(firstCanonicalJsonDifference(committed, rendered)).toEqual({
+      jsonPath: "$.rows[0].sourceOffset",
+      committed: 7,
+      rendered: 9,
+    });
+    expect(firstCanonicalJsonDifference(committed, committed)).toBeNull();
+  });
+
   test("retains reviewed stages while refreshing offset evidence", () => {
     const source = occurrence({ sourceOffset: 200 });
     const discovered = surface("env:EXAMPLE", [source]);

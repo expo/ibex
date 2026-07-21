@@ -5,7 +5,10 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (r39 — records the nineteenth ineligible run: the
+**Revised:** 2026-07-20 (r40 — closes two additional nineteenth-run failures:
+restores the explicitly diagnostic null-manifest Exact ingress without letting
+an arbitrary digest appear authenticated, and moves runtime-environment drift
+into Windows preflight with a bounded first-difference diagnostic; r39 — records the nineteenth ineligible run: the
 dedicated Apple restricted-evidence leg correctly refused the Linux-only
 `Intl.NumberFormat.prototype.formatToParts` reachability row, proving that the
 single cross-target disposition projection was unsound; versions the profile
@@ -811,6 +814,26 @@ tests continue to reject source, target, and profile changes. The run is
 ineligible regardless of the retained Linux result. No eighteenth-run artifact
 is reviewed, promoted, attested, or advertised; a fresh complete immutable-
 source run is required.
+The nineteenth run (Actions run `29802110505`, exact source
+`6ad2dfa35fd279a0923d7bffba94dd716563530c`) is wholly ineligible despite a
+passing Linux restricted-evidence leg. The dedicated Apple leg correctly
+refused the Linux-only `Intl.NumberFormat.prototype.formatToParts` row, which
+exposed the unsound target-neutral disposition projection repaired above. The
+complete macOS matrix independently failed four default-feature Exact ingress
+tests because diagnostic runtimes reached the armed manifest requirement
+before the Host could select their explicitly unattested diagnostic posture;
+diagnostic authorization now accepts only a null manifest, while armed and
+restricted authorization still requires the exact manifest/context/operation
+binding. The focused four-test ingress corpus and a new Host posture test pass.
+The Windows matrix completed its patched Release Hermes build and then found
+`runtime-environment-inventory.json` stale, but the old check did not retain
+the differing field. That check now reports the first bounded JSON-path/value
+difference and runs in Windows governance preflight before Hermes setup. The
+source-bound absence route graph and fixture-plan digest are regenerated only
+because the Host source bytes changed; all 7,194 Apple-default absent edges,
+7,408 source routes, 9,796 live probes, and 10,300 live-probe bindings remain
+unchanged. No nineteenth-run artifact is reviewed, promoted, attested, or
+advertised; another fresh complete immutable-source run is required.
 A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full
