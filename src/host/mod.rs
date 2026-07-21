@@ -6928,6 +6928,8 @@ fn authenticated_source_beneath_binding(
                         source_path.display()
                     );
                 }
+                let object = object_identity_for_open_file(&opened)?;
+                let before = metadata;
                 let mut bytes = Vec::new();
                 let mut opened = opened;
                 opened.read_to_end(&mut bytes).with_context(|| {
@@ -6936,7 +6938,17 @@ fn authenticated_source_beneath_binding(
                         source_path.display()
                     )
                 })?;
-                return Ok(bytes);
+                let after = opened.metadata()?;
+                if object_identity_for_open_file(&opened)? != object
+                    || before.file_size() != after.file_size()
+                    || before.last_write_time() != after.last_write_time()
+                {
+                    anyhow::bail!(
+                        "authenticated module source changed during read: {}",
+                        source_path.display()
+                    );
+                }
+                return Ok(AuthenticatedFirstPartySource { bytes, object });
             }
             if !metadata.is_dir() {
                 anyhow::bail!(
@@ -7131,7 +7143,10 @@ fn refuse_shared_package_objects_beneath_project(
                 ))
             })?;
             if metadata.is_file() || metadata.file_type().is_symlink() {
+                #[cfg(unix)]
                 let object = object_identity_for_metadata(&metadata)?;
+                #[cfg(windows)]
+                let object = object_identity_for_host_path(&child)?;
                 if package_objects.contains_key(&object) {
                     return Err(capsec_semantics::Error::ArmRefused(format!(
                         "package source and first-party source share one authenticated object: {}",

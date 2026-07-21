@@ -32,9 +32,11 @@ static int ibex_entry_has_name(const char *entry, const char *name) {
 }
 
 static int ibex_allowlist_index(const char *entry) {
+  /* A variable bound keeps GCC's -Wtype-limits quiet when the generated
+     allowlist is empty and the macro expands to a literal 0. */
+  const size_t allowlist_count = IBEX_COMPILED_ENVIRONMENT_ALLOWLIST_COUNT;
   size_t index;
-  for (index = 0; index < IBEX_COMPILED_ENVIRONMENT_ALLOWLIST_COUNT;
-       ++index) {
+  for (index = 0; index < allowlist_count; ++index) {
     if (ibex_entry_has_name(entry,
                             IBEX_COMPILED_ENVIRONMENT_ALLOWLIST[index])) {
       return (int)index;

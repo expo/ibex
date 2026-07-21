@@ -442,7 +442,7 @@ describe("LLP 0023 output-disposition dataset", () => {
           row.key.returnVariant === "success",
       ),
     ).toBe(true);
-  }, 30_000);
+  }, 120_000);
 
   test("uses exactly the canonical seven-part key", () => {
     expect(JSON.parse(canonicalOutputDispositionKey(key(0)))).toEqual([

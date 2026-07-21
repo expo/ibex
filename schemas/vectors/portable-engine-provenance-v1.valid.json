@@ -677,7 +677,7 @@
       "manifestDigest": "sha256-R2FtpDYsLxAQ-BpnHLNS8eUijYVZLwWYQVdWeToGptY",
       "archiveDigest": "sha256-7777777777777777777777777777777777777777777777777777777777777777",
       "provenanceBundleDigest": "sha256-29b353204eebcc86637cb251e5e515b9033d4bbdd24ee181b3ed2d8b935c30e4",
-      "verificationPolicyDigest": "sha256-G7TJMFC1GBSQAUfwJGj0ntiaD__XpcGkakGUw9wap4w",
+      "verificationPolicyDigest": "sha256-nrT-qUnoiLP1IdL5mjQezq-KP6VezfuhrTga9yq9Gck",
       "repository": "ccheever/ibex",
       "publisherWorkflow": ".github/workflows/hermes-artifacts.yml",
       "sourceRef": "refs/heads/main",
@@ -731,8 +731,8 @@
         "interfaceContractDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
       },
       "manifestDigest": "sha256-R2FtpDYsLxAQ-BpnHLNS8eUijYVZLwWYQVdWeToGptY",
-      "installationReceiptDigest": "sha256-bwMgxBsVI-cQ9SKUT1iMU_HTfqQs3XEWfVplD3wbgao",
-      "verificationPolicyDigest": "sha256-G7TJMFC1GBSQAUfwJGj0ntiaD__XpcGkakGUw9wap4w",
+      "installationReceiptDigest": "sha256-EZ__qvPeD6tEnDF1Fq1dWnlXvT24piV0PAjYg1GpLX0",
+      "verificationPolicyDigest": "sha256-nrT-qUnoiLP1IdL5mjQezq-KP6VezfuhrTga9yq9Gck",
       "target": {
         "triple": "aarch64-apple-darwin",
         "structuralFeatures": [
@@ -781,7 +781,7 @@
         }
       ],
       "nonSystemLoadableDependencies": [],
-      "consumptionDigest": "sha256-BNu3P1-QZI3gOv4E1kcYlNibQKdD1RQG_hovYAakGbg"
+      "consumptionDigest": "sha256-qfq71wIiP6PfUEYKy18QvykHsh7v12AeDmN17zgqGJg"
     },
     "postLinkVerification": {
       "schema": "ibex/portable-engine-post-link-verification/1",
@@ -807,10 +807,10 @@
         "reviewedProfileIdentityDigest": "sha256-u5dQA6qdaF5TB9N52neD2EJyN2HPt3KGNbSI1HUkb-Q",
         "interfaceContractDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
       },
-      "buildConsumptionDigest": "sha256-BNu3P1-QZI3gOv4E1kcYlNibQKdD1RQG_hovYAakGbg",
+      "buildConsumptionDigest": "sha256-qfq71wIiP6PfUEYKy18QvykHsh7v12AeDmN17zgqGJg",
       "manifestDigest": "sha256-R2FtpDYsLxAQ-BpnHLNS8eUijYVZLwWYQVdWeToGptY",
-      "installationReceiptDigest": "sha256-bwMgxBsVI-cQ9SKUT1iMU_HTfqQs3XEWfVplD3wbgao",
-      "verificationPolicyDigest": "sha256-G7TJMFC1GBSQAUfwJGj0ntiaD__XpcGkakGUw9wap4w",
+      "installationReceiptDigest": "sha256-EZ__qvPeD6tEnDF1Fq1dWnlXvT24piV0PAjYg1GpLX0",
+      "verificationPolicyDigest": "sha256-nrT-qUnoiLP1IdL5mjQezq-KP6VezfuhrTga9yq9Gck",
       "target": {
         "triple": "aarch64-apple-darwin",
         "structuralFeatures": [
@@ -831,10 +831,10 @@
       },
       "payloadRevalidation": {
         "artifactId": "sha256-1Zn4fxnACSTUiCG0_DpVyy0jXAajBFjYV9st5X9i0Pw",
-        "buildConsumptionDigest": "sha256-BNu3P1-QZI3gOv4E1kcYlNibQKdD1RQG_hovYAakGbg",
+        "buildConsumptionDigest": "sha256-qfq71wIiP6PfUEYKy18QvykHsh7v12AeDmN17zgqGJg",
         "manifestDigest": "sha256-R2FtpDYsLxAQ-BpnHLNS8eUijYVZLwWYQVdWeToGptY",
-        "installationReceiptDigest": "sha256-bwMgxBsVI-cQ9SKUT1iMU_HTfqQs3XEWfVplD3wbgao",
-        "verificationPolicyDigest": "sha256-G7TJMFC1GBSQAUfwJGj0ntiaD__XpcGkakGUw9wap4w",
+        "installationReceiptDigest": "sha256-EZ__qvPeD6tEnDF1Fq1dWnlXvT24piV0PAjYg1GpLX0",
+        "verificationPolicyDigest": "sha256-nrT-qUnoiLP1IdL5mjQezq-KP6VezfuhrTga9yq9Gck",
         "manifestEntryCount": 28,
         "regularEntryCount": 14,
         "regularByteCount": 1067670,
@@ -873,7 +873,7 @@
         ]
       },
       "outcome": "verified",
-      "verificationDigest": "sha256-bFoEhNVazTSKmITVV6I8gvlpxOWsm_lBEPIv3OGz18M"
+      "verificationDigest": "sha256-MOWrOSOV1TpgJi9QuAdNEd0tJqOBqSmXnD2byfu_iDs"
     },
     "mappedInstance": {
       "schema": "ibex/mapped-engine-instance-identity/1",
@@ -1748,15 +1748,10 @@
       "platformSystemDependencies": {
         "apple": [
           "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
-          "/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices",
           "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
-          "/System/Library/Frameworks/Security.framework/Versions/A/Security",
           "/usr/lib/libSystem.B.dylib",
           "/usr/lib/libc++.1.dylib",
-          "/usr/lib/libiconv.2.dylib",
-          "/usr/lib/libobjc.A.dylib",
-          "/usr/lib/libresolv.9.dylib",
-          "/usr/lib/libz.1.dylib"
+          "/usr/lib/libobjc.A.dylib"
         ],
         "linux": [
           "libc.so.6",
@@ -1840,19 +1835,19 @@
         "reviewedProfileIdentityDigest": "sha256-u5dQA6qdaF5TB9N52neD2EJyN2HPt3KGNbSI1HUkb-Q",
         "interfaceContractDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
       },
-      "buildConsumptionDigest": "sha256-BNu3P1-QZI3gOv4E1kcYlNibQKdD1RQG_hovYAakGbg",
+      "buildConsumptionDigest": "sha256-qfq71wIiP6PfUEYKy18QvykHsh7v12AeDmN17zgqGJg",
       "enumerationDigest": "sha256-ulywbonM1f7sbfeGg5RcaPyazTAFLW3dQL3JDW_nbl8",
       "results": [
         {
           "logicalName": "bin/ibex",
           "targetKind": "bin",
           "evidenceFile": "0000.json",
-          "evidenceDigest": "sha256-c0a8b5fece933d5079031bc97edbc705627fb7f826c26323fb976ce1fd2492a3",
-          "verificationDigest": "sha256-bFoEhNVazTSKmITVV6I8gvlpxOWsm_lBEPIv3OGz18M"
+          "evidenceDigest": "sha256-af30d5958be7b3c4fd36741fc4b1e138f666453080fa03180ae6cdceb3fdad1e",
+          "verificationDigest": "sha256-MOWrOSOV1TpgJi9QuAdNEd0tJqOBqSmXnD2byfu_iDs"
         }
       ],
       "outcome": "verified",
-      "setDigest": "sha256-Fe89_6-VJeyRhBCoGEuuITlvFqvxVb248v8IggUKxVc"
+      "setDigest": "sha256-6sOw8Mr5tCXZQ7N3NCU6wSzkf-OtGhFFywRVOnfM5bU"
     }
   },
   "projections": [
@@ -1926,14 +1921,14 @@
       "documentPath": "trustPolicy",
       "domain": "ibex.portable-engine-provenance-trust-policy.v1",
       "omitFields": [],
-      "expectedDigest": "sha256-G7TJMFC1GBSQAUfwJGj0ntiaD__XpcGkakGUw9wap4w"
+      "expectedDigest": "sha256-nrT-qUnoiLP1IdL5mjQezq-KP6VezfuhrTga9yq9Gck"
     },
     {
       "id": "installation-receipt-digest",
       "documentPath": "installationReceipt",
       "domain": "ibex.portable-engine-installation-receipt.v1",
       "omitFields": [],
-      "expectedDigest": "sha256-bwMgxBsVI-cQ9SKUT1iMU_HTfqQs3XEWfVplD3wbgao"
+      "expectedDigest": "sha256-EZ__qvPeD6tEnDF1Fq1dWnlXvT24piV0PAjYg1GpLX0"
     },
     {
       "id": "interface-contract-digest",
@@ -1956,7 +1951,7 @@
       "omitFields": [
         "consumptionDigest"
       ],
-      "expectedDigest": "sha256-BNu3P1-QZI3gOv4E1kcYlNibQKdD1RQG_hovYAakGbg"
+      "expectedDigest": "sha256-qfq71wIiP6PfUEYKy18QvykHsh7v12AeDmN17zgqGJg"
     },
     {
       "id": "post-link-verification-digest",
@@ -1965,7 +1960,7 @@
       "omitFields": [
         "verificationDigest"
       ],
-      "expectedDigest": "sha256-bFoEhNVazTSKmITVV6I8gvlpxOWsm_lBEPIv3OGz18M"
+      "expectedDigest": "sha256-MOWrOSOV1TpgJi9QuAdNEd0tJqOBqSmXnD2byfu_iDs"
     },
     {
       "id": "post-link-verification-set-digest",
@@ -1974,7 +1969,7 @@
       "omitFields": [
         "setDigest"
       ],
-      "expectedDigest": "sha256-Fe89_6-VJeyRhBCoGEuuITlvFqvxVb248v8IggUKxVc"
+      "expectedDigest": "sha256-6sOw8Mr5tCXZQ7N3NCU6wSzkf-OtGhFFywRVOnfM5bU"
     },
     {
       "id": "mapped-observation-digest",
