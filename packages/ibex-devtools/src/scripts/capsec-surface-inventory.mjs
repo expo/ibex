@@ -75,6 +75,10 @@ function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
+function appendValues(target, values) {
+  for (const value of values) target.push(value);
+}
+
 function evidenceHash(value) {
   let hash = 0x811c9dc5;
   for (const byte of new TextEncoder().encode(value)) {
@@ -358,7 +362,7 @@ function collectCppStringValues(text, label) {
   const flushPending = () => {
     if (!pending) return;
     values.push(pending);
-    if (pendingIncludesRaw) values.push(...scanEmbeddedScriptStrings(pending));
+    if (pendingIncludesRaw) appendValues(values, scanEmbeddedScriptStrings(pending));
     pending = "";
     pendingIncludesRaw = false;
   };
@@ -2638,7 +2642,7 @@ function buildHostAbiOutputContract({
               typeRegistry,
             })
           : null;
-        if (expanded) outputChannels.push(...expanded);
+        if (expanded) appendValues(outputChannels, expanded);
         continue;
       }
       if (
@@ -3676,7 +3680,7 @@ function objectPropertyNames(node, substitutions = new Map()) {
     if (!property.computed && property.key?.type === "Identifier") {
       names.push(property.key.name);
     } else {
-      names.push(...staticPropertyName(property.key, substitutions));
+      appendValues(names, staticPropertyName(property.key, substitutions));
     }
   }
   return uniqueSorted(names);
@@ -11075,7 +11079,7 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
           environment,
         );
         for (const returned of tsReturnExpressions(declaration)) {
-          returns.push(...resolveValueExpressions(returned, invocation, seen));
+          appendValues(returns, resolveValueExpressions(returned, invocation, seen));
         }
       }
       return returns.length > 0 ? returns : [{ environment, node }];
@@ -11826,7 +11830,7 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
         (ts.isMethodDeclaration(property) ||
           ts.isGetAccessorDeclaration(property))
       ) {
-        values.push(...tsReturnExpressions(property));
+        appendValues(values, tsReturnExpressions(property));
       }
       if (
         names.includes("get") &&
@@ -16656,7 +16660,7 @@ export function scanRustLoaderRoutes(sources) {
           ? `${lexicalParent.definitionId ?? `${record.moduleId}::${lexicalParent.definition.name}`}::${record.definition.name}`
           : `${record.moduleId}::${record.definition.name}`;
     }
-    records.push(...sourceRecords);
+    appendValues(records, sourceRecords);
   }
 
   const byId = new Map(records.map((record) => [record.id, record]));
@@ -22313,17 +22317,20 @@ export async function discoverRepositorySurfaces(repoRoot) {
     const relativePath = posixPath(path.relative(repoRoot, filePath));
     const source = readUtf8(filePath);
     if (filePath.startsWith(`${engineRoot}${path.sep}`)) {
-      nativeRows.push(...scanPrivateNativeIdentifiers(source, relativePath));
-      nativeGlobalRows.push(
-        ...scanCppGlobalPropertySurfaces(source, relativePath),
+      appendValues(nativeRows, scanPrivateNativeIdentifiers(source, relativePath));
+      appendValues(
+        nativeGlobalRows,
+        scanCppGlobalPropertySurfaces(source, relativePath),
       );
-      nativeGlobalRows.push(
-        ...scanEvaluatedCppGlobalScripts(source, relativePath),
+      appendValues(
+        nativeGlobalRows,
+        scanEvaluatedCppGlobalScripts(source, relativePath),
       );
-      lifecycleRows.push(...scanNativeLifecycleSurfaces(source, relativePath));
+      appendValues(lifecycleRows, scanNativeLifecycleSurfaces(source, relativePath));
     }
-    abiRows.push(
-      ...scanCppPublicAbiDefinitions(source, relativePath, {
+    appendValues(
+      abiRows,
+      scanCppPublicAbiDefinitions(source, relativePath, {
         typeRegistry: abiTypeRegistry,
       }),
     );
@@ -22334,8 +22341,9 @@ export async function discoverRepositorySurfaces(repoRoot) {
     (candidate) => path.extname(candidate) === ".rs",
   )) {
     const relativePath = posixPath(path.relative(repoRoot, filePath));
-    abiRows.push(
-      ...scanRustPublicAbiDefinitions(readUtf8(filePath), relativePath),
+    appendValues(
+      abiRows,
+      scanRustPublicAbiDefinitions(readUtf8(filePath), relativePath),
     );
   }
   const androidJavaPath =

@@ -14,6 +14,10 @@
 import { fixtureObligationsForBranch } from "./capsec-fixture-obligations.mjs";
 import { targetApplicabilityForVariant } from "./capsec-target-branches.mjs";
 
+function appendValues(target, values) {
+  for (const value of values) target.push(value);
+}
+
 const PROFILE = "ibex/capsec/1";
 const COVERAGE_SCHEMA = "ibex/capsec-coverage/1";
 const STABLE_ID_RE = /^[a-z0-9]+(?:[._/-][a-z0-9]+)*$/u;
@@ -14524,7 +14528,7 @@ export function buildCoverageModel(surfaces, { definitions, rules }) {
     }
     seenEdgeIds.set(classification.edge.id, observedKey);
     edges.push(classification.edge);
-    implementationRows.push(...classification.implementationRows);
+    appendValues(implementationRows, classification.implementationRows);
   }
 
   edges.sort((left, right) => utf8Compare(left.id, right.id));
