@@ -16,6 +16,10 @@ import {
   taggedDigest,
   validateRestrictedFixturePlan,
 } from "./restricted-exact-target-report.mjs";
+import {
+  effectiveRestrictedProjectionRows,
+  parseRestrictedProfileDefinition,
+} from "./restricted-exact-target-dispositions.mjs";
 import { validateRestrictedExactAbsenceRouteGraph } from "./generate-restricted-exact-absence-route-graph.mjs";
 
 const EVIDENCE_SCHEMA = "ibex/restricted-profile-absence-evidence/1";
@@ -369,7 +373,16 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
     throw new Error("absence forbidden-root observations are incomplete");
   }
 
-  const absentIds = reportAuthorities.projection.rows
+  const plannedAbsentIds = reportAuthorities.projection.rows
+    .filter((row) => row[1] === "structurally-absent")
+    .map((row) => row[0]);
+  const definition = reportAuthorities.definition
+    ?? parseRestrictedProfileDefinition(reportAuthorities.rawAuthorities.definition);
+  const absentIds = effectiveRestrictedProjectionRows({
+    projection: reportAuthorities.projection,
+    definition,
+    target: artifact.target,
+  })
     .filter((row) => row[1] === "structurally-absent")
     .map((row) => row[0]);
   const absentSet = new Set(absentIds);
@@ -380,7 +393,7 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
   const plannedByEdge = new Map(probePlan.edges.map((row) => [row.edgeId, row]));
   if (
     canonicalJson(probePlan.edges.map((row) => row.edgeId))
-      !== canonicalJson(absentIds)
+      !== canonicalJson(plannedAbsentIds)
   ) {
     throw new Error("absence evidence probe plan does not equal the projection obligations");
   }

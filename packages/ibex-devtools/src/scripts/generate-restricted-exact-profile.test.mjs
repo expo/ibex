@@ -41,9 +41,9 @@ describe("LLP 0033 restricted Exact profile projection", () => {
   test("projects every full-registry edge once and advertises nothing", () => {
     const result = loadAndBuildRestrictedExactProfile();
     expect(result.projection.counts.total).toBe(7347);
-    expect(result.projection.counts.reachable).toBe(132);
+    expect(result.projection.counts.reachable).toBe(131);
     expect(result.projection.counts.trustedControlPlane).toBe(22);
-    expect(result.projection.counts.structurallyAbsent).toBe(7193);
+    expect(result.projection.counts.structurallyAbsent).toBe(7194);
     expect(result.projection.rows).toHaveLength(result.projection.counts.total);
     expect(result.projection.promotionReady).toBe(false);
     expect(result.advertisements.advertisements).toEqual([]);
@@ -81,6 +81,26 @@ describe("LLP 0033 restricted Exact profile projection", () => {
     const renamed = inputs();
     renamed.definition.reachable[0].surfaceName = "wrong-name";
     expect(() => buildRestrictedExactProfile(renamed)).toThrow("identity drift");
+  });
+
+  test("rejects target override identity, target, and redundancy drift", () => {
+    const wrongIdentity = inputs();
+    wrongIdentity.definition.targetDispositionOverrides[0].surfaceName = "wrong-name";
+    expect(() => buildRestrictedExactProfile(wrongIdentity)).toThrow(
+      "target disposition override identity drift",
+    );
+
+    const wrongTarget = inputs();
+    wrongTarget.definition.targetDispositionOverrides[0].target.triple = "x86_64-unknown-other";
+    expect(() => buildRestrictedExactProfile(wrongTarget)).toThrow(
+      "target disposition override names non-candidate",
+    );
+
+    const redundant = inputs();
+    redundant.definition.targetDispositionOverrides[0].disposition = "structurally-absent";
+    expect(() => buildRestrictedExactProfile(redundant)).toThrow(
+      "target disposition override is redundant",
+    );
   });
 
   test("rejects divergence from the source-derived implementation manifest", () => {

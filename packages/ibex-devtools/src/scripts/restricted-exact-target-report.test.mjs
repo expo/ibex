@@ -97,8 +97,26 @@ describe("LLP 0033 restricted Exact target report", () => {
     expect(report.summary.total).toBe(7347);
     expect(report.summary.conformant).toBe(0);
     expect(report.summary.incomplete).toBe(7347);
-    expect(report.summary.missingObservations).toBe(14540);
+    expect(report.summary.missingObservations).toBe(14541);
     expect(report.rows.every((row) => row.executionIds.length === 0)).toBe(true);
+  }, 15_000);
+
+  test("derives the divergent Intl obligation from the exact report target", () => {
+    const apple = fixture();
+    const appleReport = buildRestrictedTargetReport(apple);
+    const linux = fixture();
+    linux.bindings.target = linux.definition.candidateTargets[1];
+    linux.bindings.engine.targetArchitecture = "x86_64";
+    linux.bindings.engine.structuralFeatures = linux.bindings.target.features;
+    const linuxReport = buildRestrictedTargetReport(linux);
+    const edgeId = "surface.native.op.global.intl.numberformat.prototype.formattoparts.1ogrg4u";
+    expect(appleReport.rows.find((row) => row.edgeId === edgeId).disposition).toBe(
+      "structurally-absent",
+    );
+    expect(linuxReport.rows.find((row) => row.edgeId === edgeId).disposition).toBe(
+      "reachable",
+    );
+    expect(linuxReport.summary.missingObservations).toBe(14540);
   }, 15_000);
 
   test("rejects a fabricated clear-review digest", () => {
@@ -138,7 +156,7 @@ describe("LLP 0033 restricted Exact target report", () => {
     expect(report.summary.conformant).toBe(1);
     expect(report.summary.incomplete).toBe(7346);
     expect(report.summary.passedObservations).toBe(1);
-    expect(report.summary.missingObservations).toBe(14539);
+    expect(report.summary.missingObservations).toBe(14540);
   }, 15_000);
 
   test("requires both source-install and live-reachability for absence", () => {

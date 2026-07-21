@@ -233,6 +233,35 @@ export function buildRestrictedExactProfile({
     if (control.has(edgeId)) throw new Error(`restricted profile disposition overlap: ${edgeId}`);
   }
 
+  const candidateTargetKeys = new Set(
+    definition.candidateTargets.map((target) => canonicalJson(target)),
+  );
+  assertSortedUnique(
+    definition.targetDispositionOverrides.map(
+      (override) => `${canonicalJson(override.target)}\0${override.edgeId}`,
+    ),
+    "target disposition overrides",
+  );
+  for (const override of definition.targetDispositionOverrides) {
+    if (!candidateTargetKeys.has(canonicalJson(override.target))) {
+      throw new Error(`target disposition override names non-candidate ${override.target.triple}`);
+    }
+    const edge = edgesById.get(override.edgeId);
+    if (!edge) throw new Error(`target disposition override names unknown edge ${override.edgeId}`);
+    if (
+      edge.surface?.kind !== override.surfaceKind
+      || edge.surface?.name !== override.surfaceName
+    ) {
+      throw new Error(`target disposition override identity drift for ${override.edgeId}`);
+    }
+    const defaultDisposition = reachable.get(override.edgeId)
+      ?? control.get(override.edgeId)
+      ?? definition.structuralAbsencePolicy.complementDisposition;
+    if (override.disposition === defaultDisposition) {
+      throw new Error(`target disposition override is redundant for ${override.edgeId}`);
+    }
+  }
+
   const rows = edgeIds.map((edgeId) => {
     const disposition = reachable.get(edgeId)
       ?? control.get(edgeId)

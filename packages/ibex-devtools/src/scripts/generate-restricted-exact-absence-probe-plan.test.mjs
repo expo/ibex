@@ -28,15 +28,15 @@ describe("LLP 0033 restricted Exact absence probe plan", () => {
   test("assigns source and live probes to every absent edge", () => {
     const plan = buildRestrictedExactAbsenceProbePlan(inputs());
     expect(plan.counts).toEqual({
-      edges: 7193,
-      sourceInstallProbes: 7407,
-      liveReachabilityProbes: 9794,
+      edges: 7194,
+      sourceInstallProbes: 7408,
+      liveReachabilityProbes: 9796,
     });
     expect(plan.edges.every((row) => row.sourceInstall.length > 0)).toBe(true);
     expect(plan.edges.every((row) => row.liveReachability.length > 0)).toBe(true);
     expect(plan.edges.filter((row) => row.liveReachability.some(
       (probe) => probe.routeKind === "descriptor-prefix",
-    )).length).toBe(2459);
+    )).length).toBe(2460);
   });
 
   test("rejects an absent edge without an implementation branch", () => {

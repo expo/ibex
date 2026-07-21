@@ -10,13 +10,14 @@
     "status",
     "sourceEdgeSet",
     "candidateTargets",
+    "targetDispositionOverrides",
     "reachable",
     "trustedControlPlane",
     "structuralAbsencePolicy",
     "advertisements"
   ],
   "properties": {
-    "definitionSchema": { "const": "ibex/restricted-profile-definition/1" },
+    "definitionSchema": { "const": "ibex/restricted-profile-definition/2" },
     "profile": { "const": "ibex/exact-embedder-contract/1" },
     "fullProfile": { "const": "ibex/capsec/1" },
     "status": { "const": "draft-unadvertised" },
@@ -34,6 +35,23 @@
       "minItems": 1,
       "uniqueItems": true,
       "items": { "$ref": "#/$defs/target" }
+    },
+    "targetDispositionOverrides": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": ["target", "edgeId", "surfaceKind", "surfaceName", "disposition", "reason"],
+        "properties": {
+          "target": { "$ref": "#/$defs/target" },
+          "edgeId": { "type": "string", "minLength": 1 },
+          "surfaceKind": { "enum": ["builtin", "callback", "cli", "host-abi", "loader", "native-op", "startup"] },
+          "surfaceName": { "type": "string", "minLength": 1 },
+          "disposition": { "enum": ["reachable", "structurally-absent", "trusted-control-plane"] },
+          "reason": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
     },
     "reachable": { "$ref": "#/$defs/boundEdges" },
     "trustedControlPlane": { "$ref": "#/$defs/boundEdges" },

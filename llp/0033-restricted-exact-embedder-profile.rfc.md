@@ -5,7 +5,15 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (r38 — records the eighteenth ineligible run: Linux
+**Revised:** 2026-07-20 (r39 — records the nineteenth ineligible run: the
+dedicated Apple restricted-evidence leg correctly refused the Linux-only
+`Intl.NumberFormat.prototype.formatToParts` reachability row, proving that the
+single cross-target disposition projection was unsound; versions the profile
+definition, makes target disposition overrides explicit and identity-bound,
+requires Apple to prove this edge structurally absent while Linux must execute
+it as reachable, regenerates the Apple-default 131-reachable/7,194-absent
+projection and absence authorities, and keeps the failed revision wholly
+unreviewed and unpromoted pending a fresh complete run; r38 — records the eighteenth ineligible run: Linux
 produced a fully conformant 7,347-row report with 14,540 passed and zero failed
 or missing observations, but Windows lost the setup-node search path when the
 engine loader prepended canonical `PATH` beside the runner's `Path` spelling;
@@ -478,15 +486,19 @@ empty.
 Implementation status (2026-07-20): the additive definition, projection, and
 advertisement schemas and their non-writing drift gate are implemented. The
 authored definition pins the exact 7,347-edge full-registry set and binds each
-of 132 candidate reachable and 22 trusted-control-plane rows to its
-source-derived kind and name; the remaining 7,193 rows are candidate
+of 131 default reachable and 22 trusted-control-plane rows to its
+source-derived kind and name; the remaining 7,194 default rows are candidate
 structural absences whose source-install and live-reachability evidence is
-explicitly pending. The projection also binds the raw definition, coverage,
-implementation-manifest, and three profile-schema byte digests. Six mutation
-tests reject edge-set addition/removal/duplication, implementation-manifest
+explicitly pending. One identity-bound Linux target override makes
+`Intl.NumberFormat.prototype.formatToParts` reachable there, yielding the
+Linux-effective 132/7,193 split without changing Apple’s 131/7,194 split. The
+projection also binds the raw definition, coverage,
+implementation-manifest, and three profile-schema byte digests. Seven mutation
+mutation tests reject edge-set addition/removal/duplication, implementation-manifest
 divergence, disposition overlap, bound-identity drift, ordering drift,
-raw-byte/object mismatch, advertisement attempts, projection omission, and
-digest tampering. The profile-distinct constructor, activation configuration,
+target-override identity/candidate/redundancy drift, raw-byte/object mismatch,
+advertisement attempts, projection omission, and digest tampering. The
+profile-distinct constructor, activation configuration,
 authenticated bundle-copy/run ingress, and their dedicated restricted
 installer/evaluation routes now enter the full registry and are explicitly
 admitted by the projection. The immutable checkpoint-output setter and
@@ -520,16 +532,18 @@ Executable-route completion now covers all 7,566 implementation branches with
 no incomplete source route. Its inventory correction replaced three synthetic
 `node_stream` export rows with 52 exact inherited writable-member rows and
 removed the false `PerformanceMark.name` and `PerformanceMeasure.name` rows.
-The regenerated authority has 7,193 absent edges, 7,407 source-install probes,
-9,794 live-reachability probes, and descriptor-prefix probes for 2,459 edges.
+The regenerated Apple-default authority has 7,194 absent edges, 7,408
+source-install probes, 9,796 live-reachability probes, and descriptor-prefix
+probes for 2,460 edges.
 Because the definition, coverage, projection, probe plan, route graph, and
 fixture-plan bindings changed, every earlier Apple evidence artifact and report
 is historical only and cannot contribute to promotion.
 The first pinned Linux run then reached the absence executor and found
 `Intl.NumberFormat.prototype.formatToParts` live in the no-debugger Intl build.
 The fail-closed mismatch invalidated that run; the exact edge is now admitted
-as reachable and must receive its own fresh invocation observation before any
-Linux report can conform.
+only by the Linux target override and must receive its own fresh invocation
+observation before any Linux report can conform while Apple must prove its
+source and live absence.
 The second pinned Linux release attempt reached the regenerated reachable
 executor but stopped before engine invocation or evidence materialization: its
 explicit native-edge cardinality assertion still expected the earlier 115-row

@@ -1,5 +1,5 @@
 {
-  "definitionSchema": "ibex/restricted-profile-definition/1",
+  "definitionSchema": "ibex/restricted-profile-definition/2",
   "profile": "ibex/exact-embedder-contract/1",
   "fullProfile": "ibex/capsec/1",
   "status": "draft-unadvertised",
@@ -23,6 +23,23 @@
         "native-compartments",
         "native-lockdown"
       ]
+    }
+  ],
+  "targetDispositionOverrides": [
+    {
+      "target": {
+        "triple": "x86_64-unknown-linux-gnu",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "edgeId": "surface.native.op.global.intl.numberformat.prototype.formattoparts.1ogrg4u",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Intl.NumberFormat.prototype.formatToParts",
+      "disposition": "reachable",
+      "reason": "the pinned Linux Intl build exposes this deterministic operation while the pinned Apple Intl implementation does not"
     }
   ],
   "reachable": [
@@ -439,12 +456,6 @@
       "surfaceKind": "native-op",
       "surfaceName": "global:Intl.NumberFormat.prototype",
       "reason": "exact-engine restricted realm exposes the source-derived root path after lockdown: Intl.NumberFormat.prototype"
-    },
-    {
-      "edgeId": "surface.native.op.global.intl.numberformat.prototype.formattoparts.1ogrg4u",
-      "surfaceKind": "native-op",
-      "surfaceName": "global:Intl.NumberFormat.prototype.formatToParts",
-      "reason": "the pinned Linux Intl build exposes this deterministic NumberFormat operation after restricted lockdown"
     },
     {
       "edgeId": "surface.native.op.global.iterator.06iood9",

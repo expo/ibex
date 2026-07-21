@@ -1609,6 +1609,68 @@ mod tests {
     use capsec_semantics::model::{LogicalPath, LogicalRoot};
     use sha2::Sha256;
 
+    fn restricted_conformance_target() -> serde_json::Value {
+        let triple = std::env::var("IBEX_RESTRICTED_TARGET_TRIPLE").unwrap_or_else(|_| {
+            match (std::env::consts::ARCH, std::env::consts::OS) {
+                ("aarch64", "macos") => "aarch64-apple-darwin".to_owned(),
+                ("x86_64", "linux") => "x86_64-unknown-linux-gnu".to_owned(),
+                (arch, os) => format!("{arch}-unknown-{os}"),
+            }
+        });
+        serde_json::json!({
+            "triple": triple,
+            "features": [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown",
+            ],
+        })
+    }
+
+    fn effective_restricted_projection_rows() -> Vec<(String, String)> {
+        let projection: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/generated/restricted-exact-profile-projection.json"
+        )))
+        .unwrap();
+        let definition: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/registry/restricted-exact-profile-definition.json"
+        )))
+        .unwrap();
+        let target = restricted_conformance_target();
+        assert!(definition["candidateTargets"]
+            .as_array()
+            .unwrap()
+            .contains(&target));
+        let overrides = definition["targetDispositionOverrides"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| row["target"] == target)
+            .map(|row| {
+                (
+                    row["edgeId"].as_str().unwrap().to_owned(),
+                    row["disposition"].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+        projection["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                let row = row.as_array().unwrap();
+                let edge_id = row[0].as_str().unwrap().to_owned();
+                let disposition = overrides
+                    .get(&edge_id)
+                    .cloned()
+                    .unwrap_or_else(|| row[1].as_str().unwrap().to_owned());
+                (edge_id, disposition)
+            })
+            .collect()
+    }
+
     fn restricted_advertisement_fixture(
         projection_digest: &Digest,
         engine_digest: &Digest,
@@ -3759,7 +3821,7 @@ mod tests {
             "/capsec/generated/restricted-exact-profile-projection.json"
         )))
         .unwrap();
-        let absent_ids = projection["rows"]
+        let planned_absent_ids = projection["rows"]
             .as_array()
             .unwrap()
             .iter()
@@ -3769,7 +3831,13 @@ mod tests {
                     .then(|| row[0].as_str().unwrap().to_owned())
             })
             .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(absent_ids.len(), 7_193);
+        let absent_ids = effective_restricted_projection_rows()
+            .into_iter()
+            .filter_map(|(edge_id, disposition)| {
+                (disposition == "structurally-absent").then_some(edge_id)
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(absent_ids.is_subset(&planned_absent_ids));
         let coverage: serde_json::Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/capsec/registry/coverage-edges.json"
@@ -3885,8 +3953,11 @@ mod tests {
         ));
         let probe_plan: serde_json::Value = serde_json::from_slice(probe_plan_bytes).unwrap();
         let planned_edges = probe_plan["edges"].as_array().unwrap();
-        assert_eq!(planned_edges.len(), absent_ids.len());
-        assert_eq!(probe_plan["counts"]["edges"].as_u64(), Some(7_193));
+        assert_eq!(planned_edges.len(), planned_absent_ids.len());
+        assert_eq!(
+            probe_plan["counts"]["edges"].as_u64(),
+            Some(planned_absent_ids.len() as u64)
+        );
         let probe_plan_digest = format!(
             "sha256-{}",
             base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -3924,7 +3995,10 @@ mod tests {
             Some("aarch64-apple-darwin")
         );
         let routes = route_graph["routes"].as_array().unwrap();
-        assert_eq!(routes.len(), 7_407);
+        assert_eq!(
+            routes.len() as u64,
+            route_graph["counts"]["routes"].as_u64().unwrap()
+        );
         let route_by_source_probe = routes
             .iter()
             .map(|route| (route["sourceProbeId"].as_str().unwrap().to_owned(), route))
@@ -3940,10 +4014,15 @@ mod tests {
                     .push(route);
             }
         }
-        assert_eq!(routes_by_live_probe.len(), 9_794);
         assert_eq!(
-            routes_by_live_probe.values().map(Vec::len).sum::<usize>(),
-            10_298
+            routes_by_live_probe.len() as u64,
+            probe_plan["counts"]["liveReachabilityProbes"]
+                .as_u64()
+                .unwrap()
+        );
+        assert_eq!(
+            routes_by_live_probe.values().map(Vec::len).sum::<usize>() as u64,
+            route_graph["counts"]["liveProbeBindings"].as_u64().unwrap()
         );
 
         let probe_logical_path = |path: &str, undefined_terminal_is_unreachable: bool| {
@@ -4237,7 +4316,10 @@ mod tests {
         let mut observations = Vec::<serde_json::Value>::with_capacity(absent_ids.len() * 2);
         for planned in planned_edges {
             let edge_id = planned["edgeId"].as_str().unwrap();
-            assert!(absent_ids.contains(edge_id));
+            assert!(planned_absent_ids.contains(edge_id));
+            if !absent_ids.contains(edge_id) {
+                continue;
+            }
             let edge = &edges[edge_id];
             let kind = edge["surface"]["kind"].as_str().unwrap();
             let identity = format!("{}:{}", kind, edge["surface"]["name"].as_str().unwrap());
@@ -4463,19 +4545,9 @@ mod tests {
             return;
         }
 
-        let projection: serde_json::Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/capsec/generated/restricted-exact-profile-projection.json"
-        )))
-        .unwrap();
-        let reachable_ids = projection["rows"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|row| {
-                let row = row.as_array().unwrap();
-                (row[1].as_str() == Some("reachable")).then(|| row[0].as_str().unwrap().to_owned())
-            })
+        let reachable_ids = effective_restricted_projection_rows()
+            .into_iter()
+            .filter_map(|(edge_id, disposition)| (disposition == "reachable").then_some(edge_id))
             .collect::<std::collections::BTreeSet<_>>();
         let native_ids = reachable_ids
             .iter()
@@ -4492,7 +4564,15 @@ mod tests {
             .filter(|id| id.starts_with("surface.callback."))
             .cloned()
             .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(native_ids.len(), 116);
+        let target = restricted_conformance_target();
+        assert_eq!(
+            native_ids.len(),
+            if target["triple"] == "x86_64-unknown-linux-gnu" {
+                116
+            } else {
+                115
+            }
+        );
         let startup_trace_edges = [
             "surface.startup.runtime.create.09gd22j",
             "surface.startup.install.route.ex.hermes.create.impl.installrestrictedexactglobals.17p1el8",
@@ -5018,8 +5098,8 @@ mod tests {
         }
 
         // The real engine observations above cover every reachable projection
-        // class: 116 JS/native identities, nine startup edges, and seven
-        // lifecycle callback edges.
+        // class: the target-effective JS/native identities, nine startup
+        // edges, and seven lifecycle callback edges.
         assert_eq!(native_ids.len() + 9 + 7, reachable_ids.len());
     }
 

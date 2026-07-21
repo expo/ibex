@@ -23,6 +23,10 @@ import {
   loadRestrictedReportAuthorities,
   taggedDigest,
 } from "./restricted-exact-target-report.mjs";
+import {
+  effectiveRestrictedProjectionRows,
+  parseRestrictedProfileDefinition,
+} from "./restricted-exact-target-dispositions.mjs";
 
 const EVIDENCE_SCHEMA = "ibex/restricted-profile-reachable-evidence/1";
 const PROFILE = "ibex/exact-embedder-contract/1";
@@ -178,7 +182,13 @@ export function validateEngine(artifact) {
 }
 
 function validateObservations(artifact, authorities) {
-  const reachableIds = authorities.projection.rows
+  const definition = authorities.definition
+    ?? parseRestrictedProfileDefinition(authorities.rawAuthorities.definition);
+  const reachableIds = effectiveRestrictedProjectionRows({
+    projection: authorities.projection,
+    definition,
+    target: artifact.target,
+  })
     .filter((row) => row[1] === "reachable")
     .map((row) => row[0]);
   const observationIds = artifact.observations.map((row) => row.edgeId);

@@ -23,6 +23,10 @@ import {
   repoRoot,
 } from "./capsec-contract.mjs";
 import { validateRestrictedExactAbsenceRouteGraph } from "./generate-restricted-exact-absence-route-graph.mjs";
+import {
+  effectiveRestrictedProjectionRows,
+  parseRestrictedProfileDefinition,
+} from "./restricted-exact-target-dispositions.mjs";
 
 const reportSchemaPath = path.join(
   capsecRoot,
@@ -386,6 +390,7 @@ function observationIdentity(edge) {
 }
 
 function deriveRestrictedTargetReport({
+  definition,
   projection,
   coverage,
   implementationManifest,
@@ -396,6 +401,12 @@ function deriveRestrictedTargetReport({
   independentReview,
   rawAuthorities,
 }) {
+  definition ??= parseRestrictedProfileDefinition(rawAuthorities.definition);
+  const effectiveRows = effectiveRestrictedProjectionRows({
+    projection,
+    definition,
+    target: bindings.target,
+  });
   const absenceProbePlan = validateRestrictedFixturePlan(fixturePlan);
   const graphDigest = fixturePlan.absenceRouteGraph.rawContentDigest;
   const absenceRouteGraph = routeGraphsByRawDigest.get(graphDigest);
@@ -483,7 +494,7 @@ function deriveRestrictedTargetReport({
     assertSortedUnique(localKeys, `restricted observations in ${execution.executionId}`);
   }
 
-  const rows = projection.rows.map(([edgeId, disposition]) => {
+  const rows = effectiveRows.map(([edgeId, disposition]) => {
     const requiredEvidenceKinds = [...requiredByDisposition.get(disposition)].sort();
     const passedEvidenceKinds = [];
     const failedEvidenceKinds = [];
@@ -614,6 +625,7 @@ export function loadRestrictedReportAuthorities() {
     reportSchema: reportSchemaPath,
   };
   return {
+    definition: readJsonStrict(paths.definition),
     projection: readJsonStrict(paths.projection),
     coverage: readJsonStrict(paths.coverage),
     implementationManifest: readJsonStrict(paths.implementationManifest),
