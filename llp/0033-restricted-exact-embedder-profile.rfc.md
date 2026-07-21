@@ -5,7 +5,16 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (r34 — records the thirteenth source-bound run: Linux
+**Revised:** 2026-07-20 (r35 — records the fourteenth and fifteenth
+source-bound runs, both ineligible: the early preflight localized Windows
+checkout and recursion defects before Hermes installation; canonicalizes the
+already line-ending-insensitive reviewed-source contract for CRLF anchors and
+tokens, canonicalizes only fixture diagnostic path separators, and terminates
+recursive class-factory discovery by exact active-definition identity while
+preserving all discovered class members; the full 91-test source inventory,
+contract negatives, example policies, and unchanged registry identities pass
+locally, advertisements remain empty, and a fresh complete run is required;
+r34 — records the thirteenth source-bound run: Linux
 passed every native executor and global corpus before report construction
 refused a stale implementation-manifest binding, macOS refused four stale
 example-policy digests, and Windows exposed a second Bun loader stack overflow
@@ -676,6 +685,32 @@ the registry and example-policy checks before installing Hermes, so this class
 of governance drift fails before the expensive target build. No thirteenth-run
 artifact is reviewed, promoted, attested, or advertised. A fresh complete
 immutable-source run is required.
+The fourteenth run (`29797880157`, source
+`dd9b5367da9e5e9cded0f64a747f5fc5c17ec588`) proved that the new governance
+preflight passes on Linux and macOS before either engine build. Windows job
+`88532845894` failed that same preflight for two host-specific reasons: the
+Node registry process exhausted its call stack without retaining a stack
+trace, and a multiline reviewed-source token compared LF authority text to a
+CRLF checkout even though the reviewed-range digest contract already
+canonicalized line endings. The run was canceled by the diagnostic repair and
+is wholly ineligible.
+The fifteenth run (`29798150819`, source
+`e7a98a60ee44cd3ac7bb316ef2b67e27999fbd70`) retained the full Windows stack:
+recursive class-factory return discovery repeatedly re-entered the same exact
+callable definition. Its example-policy check independently reached the
+negative-fixture corpus and then treated the intended duplicate-key refusal as
+unrelated because the diagnostic used Windows path separators. The repair
+tracks active callable definitions in both builtin-export and global-install
+class discovery, preserves every non-cyclic return alternative, and adds a
+recursive factory corpus that retains inherited and own members. Fixture
+diagnostic attribution now canonicalizes only slash direction; rejection
+semantics and fixture bytes are unchanged. The CRLF corpus also rewrites every
+reviewed evidence source and proves the same scoped digests and tokens pass,
+while the existing token-preserving dead-code mutation still fails. The full
+91-test inventory, all contract negative fixtures, four example-policy checks,
+and the unchanged 7,347-edge/7,566-branch/14,694-cell/12,845-reference registry
+pass locally. No fourteenth- or fifteenth-run artifact is reviewed, promoted,
+attested, or advertised. A fresh complete immutable-source run is required.
 A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full

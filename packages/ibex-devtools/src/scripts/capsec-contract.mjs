@@ -3317,6 +3317,12 @@ export function validateImplementationManifestSemantics(
   });
 }
 
+export function diagnosticMentionsFixturePath(diagnostic, fixturePath) {
+  return String(diagnostic)
+    .replaceAll("\\", "/")
+    .includes(String(fixturePath).replaceAll("\\", "/"));
+}
+
 export function loadAndValidateContract() {
   const ajv = buildValidator();
   const registryDir = path.join(capsecRoot, "registry");
@@ -4381,7 +4387,10 @@ export function loadAndValidateContract() {
     try {
       validateInvalidFixtureEntry(entry, contract);
     } catch (error) {
-      if (error?.code || !String(error?.message ?? error).includes(entry.path)) {
+      if (
+        error?.code ||
+        !diagnosticMentionsFixturePath(error?.message ?? error, entry.path)
+      ) {
         throw new Error(
           `${entry.path}: invalid fixture failed for an unrelated reason: ${error?.message ?? error}`,
           { cause: error },

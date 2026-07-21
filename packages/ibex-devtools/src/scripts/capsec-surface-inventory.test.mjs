@@ -1864,6 +1864,22 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       }
     }
 
+    const recursiveFactoryRows = scanStaticBuiltinExports(
+      `class Base { inherited() {} }
+       function make(depth) {
+         if (depth > 0) return make(depth - 1);
+         return class extends Base { own() {} };
+       }
+       module.exports.Public = make(1);`,
+      {
+        sourceKey: "node_recursive_class_factory",
+        sourcePath: "src/builtins/recursive-class-factory.js",
+      },
+    );
+    expect(recursiveFactoryRows.map((row) => row.metadata.exportName)).toEqual(
+      expect.arrayContaining(["Public.inherited", "Public.own"]),
+    );
+
     const inherited = scanStaticBuiltinExports(
       "function Base() {} Base.prototype.hidden = function() {}; function Public() {} util.inherits(Public, Base); module.exports = { Public };",
       {
@@ -2511,6 +2527,19 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         );
       }
     }
+
+    const recursiveFactoryRows = scanStaticGlobalApiSurfaces(
+      `class Base { inherited() {} }
+       function make(depth) {
+         if (depth > 0) return make(depth - 1);
+         return class extends Base { own() {} };
+       }
+       globalThis.Public = make(1);`,
+      "src/engine/bootstrap/recursive-class-factory.js",
+    );
+    expect(recursiveFactoryRows.map((row) => row.name)).toEqual(
+      expect.arrayContaining(["global:Public.inherited", "global:Public.own"]),
+    );
 
     const inherited = scanStaticGlobalApiSurfaces(
       "function Base() {} Base.prototype.hidden = function() {}; function Public() {} util.inherits(Public, Base); globalThis.Public = Public;",

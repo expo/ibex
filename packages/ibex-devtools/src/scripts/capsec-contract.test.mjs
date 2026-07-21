@@ -25,6 +25,7 @@ import {
   canonicalJson,
   compareAuthorityContainment,
   computeDomainDigest,
+  diagnosticMentionsFixturePath,
   invalidFixtureNames,
   loadAndValidateContract as loadAndValidateContractUncached,
   parseJsonStrict,
@@ -68,6 +69,21 @@ afterAll(() => {
 });
 
 describe("LLP 0021 capsec contract", () => {
+  test("invalid-fixture diagnostics match slash and backslash checkouts", () => {
+    expect(
+      diagnosticMentionsFixturePath(
+        'capsec\\testdata\\invalid\\duplicate-key.json: duplicate JSON object key "cap"',
+        "testdata/invalid/duplicate-key.json",
+      ),
+    ).toBe(true);
+    expect(
+      diagnosticMentionsFixturePath(
+        "capsec/testdata/invalid/other.json: rejected",
+        "testdata/invalid/duplicate-key.json",
+      ),
+    ).toBe(false);
+  });
+
   test("all schemas, registries, examples, and generated output validate", () => {
     const contract = loadAndValidateContract();
     const counts = runContractCheck();
