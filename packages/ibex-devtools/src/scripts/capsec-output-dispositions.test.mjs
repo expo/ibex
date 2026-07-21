@@ -476,7 +476,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       unresolvedSurfaces: 79,
       catalogRows: 6_515,
       parameterizedBindings: 1,
-      sourceInventoryRows: 6_030,
+      sourceInventoryRows: 6_108,
       structuredRows: 407,
     });
     expect(catalog.surfaceAccounts).toHaveLength(coverage.edges.length);

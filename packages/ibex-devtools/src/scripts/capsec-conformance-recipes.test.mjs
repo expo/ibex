@@ -255,11 +255,11 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(24_266);
+    expect(recipes.summary.requiredFixtures).toBe(24_581);
     // Thirty reviewed roots gain exact fresh-engine receipts while the
     // formerly source-misattributed stream/promises export probe is retracted.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_538);
-    expect(recipes.summary.unresolvedFixtures).toBe(21_728);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_574);
+    expect(recipes.summary.unresolvedFixtures).toBe(22_007);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -355,9 +355,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(24_151);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_182);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_969);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(24_466);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_218);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(22_248);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -373,7 +373,7 @@ describe("exact-target CapSec executable recipes", () => {
       windowsCryptoRecipes.filter(
         (recipe) => recipe.status === "fully-executable",
       ),
-    ).toHaveLength(56);
+    ).toHaveLength(82);
     const unavailableWindowsNativeRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -817,7 +817,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(2_936);
+    expect(rationaleOnly).toHaveLength(3_066);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -826,12 +826,12 @@ describe("exact-target CapSec executable recipes", () => {
         ]),
       ),
     ).toEqual({
-      "attribution-missing-deny": 510,
-      "generation-recheck": 510,
-      "principal-restore": 510,
-      "snapshot-mismatch-deny": 510,
-      "cannot-widen-authority": 448,
-      "post-lockdown-invariant": 448,
+      "attribution-missing-deny": 515,
+      "generation-recheck": 515,
+      "principal-restore": 515,
+      "snapshot-mismatch-deny": 515,
+      "cannot-widen-authority": 503,
+      "post-lockdown-invariant": 503,
     });
     expect(
       rationaleOnly.every(

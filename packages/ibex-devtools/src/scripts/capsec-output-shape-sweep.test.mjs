@@ -872,6 +872,7 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       recipe,
       engineBinaryDigest: bindings.engine.binaryDigest,
       coverage: { edges: [coverageEdge] },
+      executor: "ibex-target-absence-public-surface-harness",
       runtimeObservation: {
         observationSchema: "ibex/capsec-runtime-public-observation/1",
         invocation: {

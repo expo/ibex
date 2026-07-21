@@ -118,7 +118,7 @@ const loaded = residualInvocations();
 describe("builtin non-capability/closed output recipes", () => {
   test("accounts for the exact callable/accessor and descriptor residual universe", async () => {
     const rows = await loaded;
-    expect(rows).toHaveLength(534);
+    expect(rows).toHaveLength(498);
     expect(
       Object.fromEntries(
         ["non-capability", "closed"].map((classification) => [

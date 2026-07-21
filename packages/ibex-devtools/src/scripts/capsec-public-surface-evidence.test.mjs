@@ -432,8 +432,8 @@ function effectBuiltinModuleImportObservation(recipe) {
   const decisionIdentity = {
     profile: "ibex/capsec/1",
     semanticCore: "capsec/semantics/1",
-    vocabDigest: "sha256-tMjEjSYk_pzBqmakbJdIr5Q4_8xelMMnp6DkEDNi-Uw",
-    registryDigest: "sha256-I2Qcbd3XQz6KKyIG55fdfZWH9A6ZMDWQVDbH_EA_E-A",
+    vocabDigest: "sha256-CLsBG6A-EjvItlmCjNZRd4Ys_FbJWCvxTFNBdMM19gQ",
+    registryDigest: "sha256-z34MCv31bkHEvhDM3ppRnakZfUi9lZEZmSv5XhQ8WI8",
     policyDigest: `sha256-${"P".repeat(43)}`,
     armedSnapshotDigest: `sha256-${"S".repeat(43)}`,
   };
