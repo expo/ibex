@@ -763,6 +763,12 @@ jobs:
           $dllDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $install "bin\hermesvm.dll")).Hash.ToLowerInvariant()
           $linkDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $install "lib\hermes.lib")).Hash.ToLowerInvariant()
           $manifestIdentity = "$($manifest.sourceCommit.Substring(0, 12))-$($manifest.patchDigest)"
+          # Print the observed authority inputs (all public digests) so a
+          # refusal below names its cause instead of one aggregated throw.
+          Write-Host "observed manifest: $($manifest | ConvertTo-Json -Compress)"
+          Write-Host "observed receipt identity: $($receipt.origin.reviewedProfileIdentity | ConvertTo-Json -Compress)"
+          Write-Host "observed receipt origin: kind=$($receipt.origin.kind) configuration=$($receipt.origin.configuration) debugger=$($receipt.origin.debugger)"
+          Write-Host "computed: assetKey=$expectedAssetKey builder=$builderDigest installer=$installerDigest patchApplication=$patchApplicationDigest patchStack=$patchStackDigest patchIdentity=$patchIdentityDigest dll=$dllDigest link=$linkDigest identity=$manifestIdentity"
           if ($env:ASSET_KEY -ne $expectedAssetKey -or
               $manifestIdentity -ne $env:IDENTITY -or
               $manifest.configuration -ne "Release" -or

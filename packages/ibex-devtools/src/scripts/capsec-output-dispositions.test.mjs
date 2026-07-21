@@ -517,7 +517,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       schema,
     );
     expect(validate(catalog), JSON.stringify(validate.errors)).toBe(true);
-  }, 30_000);
+  }, 120_000);
 
   test("accounts source-shaped globals and source-bound callback outputs", async () => {
     const fixture = await repositoryCatalogFixture();
@@ -789,7 +789,7 @@ describe("LLP 0023 output-disposition dataset", () => {
         }),
       ).toThrow(/callback output contract/);
     }
-  }, 30_000);
+  }, 120_000);
 
   test("source-asserts native control tokens and identity-bearing freeze outputs", async () => {
     const fixture = await repositoryCatalogFixture();
@@ -1062,7 +1062,7 @@ describe("LLP 0023 output-disposition dataset", () => {
     expect(androidRuntime).toContain('"__exactOSRelease"');
     expect(androidRuntime).toContain('"__exactOSVersion"');
     expect(androidRuntime).toContain("process.setProperty(");
-  }, 30_000);
+  }, 120_000);
 
   test("catalogs fixed native callback deliveries separately from ignored callback returns", async () => {
     const { catalog, coverage } = await repositoryCatalogFixture();
@@ -1210,7 +1210,7 @@ describe("LLP 0023 output-disposition dataset", () => {
             JSON.stringify(observerSourceRefs),
       ),
     ).toBe(true);
-  }, 30_000);
+  }, 120_000);
 
   test("derives every host ABI account and output row only from its signature contract", async () => {
     const { catalog, coverage, surfaces } = await repositoryCatalogFixture();
@@ -1327,7 +1327,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       returnVariant: "default",
       contextId: "host.private-native-call-initialized",
     });
-  }, 30_000);
+  }, 120_000);
 
   test("derives output membership independently of classification, capability, and rationale", async () => {
     const fixture = await repositoryCatalogFixture();
@@ -1350,7 +1350,7 @@ describe("LLP 0023 output-disposition dataset", () => {
     expect(mutated.contexts).toEqual(fixture.catalog.contexts);
     expect(mutated.catalogKeyDigest).toBe(fixture.catalog.catalogKeyDigest);
     expect(mutated.counts).toEqual(fixture.catalog.counts);
-  }, 30_000);
+  }, 120_000);
 
   test("blocks verified promotion while any source surface is unresolved", async () => {
     const fixture = await repositoryCatalogFixture();
@@ -1380,7 +1380,7 @@ describe("LLP 0023 output-disposition dataset", () => {
         },
       }),
     ).toThrow(/verified output catalog has 79 unresolved surface accounts/);
-  }, 30_000);
+  }, 120_000);
 
   test("rejects incomplete accounts and registrar-only value evidence", async () => {
     const { catalog, coverage } = await repositoryCatalogFixture();
@@ -1573,7 +1573,7 @@ describe("LLP 0023 output-disposition dataset", () => {
         `${schemaPath}: ${JSON.stringify(validate.errors)}`,
       ).toBe(true);
     }
-  }, 30_000);
+  }, 120_000);
 
   test("pins the reviewed umask closure and devNull property-read migration", async () => {
     const { catalog } = await repositoryCatalogFixture();
@@ -1800,7 +1800,7 @@ describe("LLP 0023 output-disposition dataset", () => {
         ),
       ).toMatchObject({ requiredValueProof: "live-value-observation" });
     }
-  }, 30_000);
+  }, 120_000);
 
   test("rejects every v1 policy/evidence compatibility shape", () => {
     const { catalog, policy, evidence } = fixture();

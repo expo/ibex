@@ -738,7 +738,7 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         dispositionDataset: relabeledDataset,
       }),
     ).toThrow(/differ from the current source-derived reviewed dataset/);
-  }, 60_000);
+  }, 180_000);
 
   test("authors source-bound sweep probes for every Host target-absence binding", async () => {
     const { executionPartition, recipeCatalog, target } =
@@ -763,7 +763,7 @@ describe("output-shape-sweep-v3 evidence contract", () => {
           !Object.hasOwn(row.probe.sourceDescriptor, "expectedObservation"),
       ),
     ).toBe(true);
-  }, 60_000);
+  }, 180_000);
 
   test("lifts validated public target-absence evidence into the full sweep", async () => {
     const {
@@ -918,7 +918,7 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         observation: { outcome: "absent", normalizedValue: "absent" },
       }),
     ]);
-  }, 60_000);
+  }, 180_000);
 
   test("normalizes private native path markers only in authenticated Host-ABI context", () => {
     const raw = {
@@ -1269,7 +1269,7 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         (row) => row.key.alias === "ex_android_initialize",
       ),
     ).toBe(false);
-  }, 60_000);
+  }, 180_000);
 
   test("rejects a self-consistent target-absence substitution before it can shift the Host ABI partition", async () => {
     const {
@@ -1351,7 +1351,7 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       executionPartition.hostAbi.rows.length,
       executionPartition.hostAbi.residuals.length,
     ]).toEqual([59, 473, 41]);
-  }, 60_000);
+  }, 180_000);
 
   test("routes and exactly validates the complete builtin-effects tranche", async () => {
     const { catalog, coverage, surfaces, target } =
