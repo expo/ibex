@@ -144,10 +144,10 @@ describe("source-bound Host ABI output templates", () => {
     const legacyScalarAuthored = scalarAuthored.filter(({ edge }) =>
       legacyNames.has(edge.surface.name),
     );
-    expect(ordinaryScalarAuthored).toHaveLength(229);
+    expect(ordinaryScalarAuthored).toHaveLength(235);
     expect(
       new Set(ordinaryScalarAuthored.map(({ edge }) => edge.surface.name)).size,
-    ).toBe(224);
+    ).toBe(230);
     expect(legacyScalarAuthored.length).toBe(
       catalog.rows.filter(
         (row) =>
@@ -186,7 +186,7 @@ describe("source-bound Host ABI output templates", () => {
       "native-hermes-module-runner-runtime": 27,
       "native-hermes-owned-runtime-teardown": 1,
       "native-hermes-owned-value-runtime": 5,
-      "native-hermes-stateless-current-target": 8,
+      "native-hermes-stateless-current-target": 14,
       "native-hermes-worklet-runtime": 12,
     });
     if (legacyScalarAuthored.length > 0) {

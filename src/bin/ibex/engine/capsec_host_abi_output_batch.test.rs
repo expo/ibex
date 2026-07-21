@@ -670,6 +670,12 @@ extern "C" {
     fn ex_hermes_engine_binary_path(out: *mut std::os::raw::c_char, out_len: usize) -> i32;
     fn ex_hermes_engine_mapped_object(out_device: *mut u64, out_inode: *mut u64) -> i32;
     fn ex_hermes_bytecode_version() -> u32;
+    fn ex_hermes_gpu_provider_abi_version() -> u32;
+    fn ex_hermes_gpu_provider_abi_version_v2() -> u32;
+    fn ex_hermes_gpu_provider_descriptor_size_v1() -> usize;
+    fn ex_hermes_gpu_provider_descriptor_size_v2() -> usize;
+    fn ex_hermes_gpu_decoded_image_abi_version_v1() -> u32;
+    fn ex_hermes_gpu_decoded_image_descriptor_size_v1() -> usize;
     fn ex_hermes_evaluation_result_init(result: *mut NativeEvaluationResult);
     fn ex_hermes_evaluation_result_dispose(result: *mut NativeEvaluationResult);
     fn ex_hermes_eval_structured_diagnostic(
@@ -5120,6 +5126,24 @@ fn execute_host_wake_hook_callback(selector: &str) -> Result<Value, String> {
 fn execute_hermes_stateless(function_name: &str, selector: &str) -> Result<Value, String> {
     let result = match function_name {
         "ex_hermes_bytecode_version" => returned_number(unsafe { ex_hermes_bytecode_version() }),
+        "ex_hermes_gpu_provider_abi_version" => {
+            returned_number(unsafe { ex_hermes_gpu_provider_abi_version() })
+        }
+        "ex_hermes_gpu_provider_abi_version_v2" => {
+            returned_number(unsafe { ex_hermes_gpu_provider_abi_version_v2() })
+        }
+        "ex_hermes_gpu_provider_descriptor_size_v1" => {
+            returned_number(unsafe { ex_hermes_gpu_provider_descriptor_size_v1() } as u32)
+        }
+        "ex_hermes_gpu_provider_descriptor_size_v2" => {
+            returned_number(unsafe { ex_hermes_gpu_provider_descriptor_size_v2() } as u32)
+        }
+        "ex_hermes_gpu_decoded_image_abi_version_v1" => {
+            returned_number(unsafe { ex_hermes_gpu_decoded_image_abi_version_v1() })
+        }
+        "ex_hermes_gpu_decoded_image_descriptor_size_v1" => {
+            returned_number(unsafe { ex_hermes_gpu_decoded_image_descriptor_size_v1() } as u32)
+        }
         "ex_hermes_create" => {
             let runtime = unsafe { ex_hermes_create() };
             if runtime.is_null() {
@@ -7436,6 +7460,30 @@ fn merged_host_abi_output_routes_execute_bounded_calls() {
     assert!(preflight_error["value"]
         .as_str()
         .is_some_and(|value| !value.is_empty()));
+
+    // The GPU provider/decoded-image version getters return the exact reviewed
+    // ABI constants and the descriptor sizes are the loaded engine's nonzero
+    // struct footprints; each executes as a direct stateless engine call.
+    for (function_name, expected) in [
+        ("ex_hermes_gpu_provider_abi_version", 0x0001_0000u32),
+        ("ex_hermes_gpu_provider_abi_version_v2", 0x0002_0000u32),
+        ("ex_hermes_gpu_decoded_image_abi_version_v1", 0x0001_0000u32),
+    ] {
+        let observation = execute_hermes_stateless(function_name, "[[return]]")
+            .unwrap_or_else(|error| panic!("{function_name}: {error}"));
+        assert_eq!(observation, returned_number(expected));
+    }
+    for function_name in [
+        "ex_hermes_gpu_provider_descriptor_size_v1",
+        "ex_hermes_gpu_provider_descriptor_size_v2",
+        "ex_hermes_gpu_decoded_image_descriptor_size_v1",
+    ] {
+        let observation = execute_hermes_stateless(function_name, "[[return]]")
+            .unwrap_or_else(|error| panic!("{function_name}: {error}"));
+        assert_eq!(observation["kind"], "return");
+        assert_eq!(observation["rawValueShape"], "number");
+        assert_ne!(observation["value"], 0);
+    }
 
     let sandbox = FsSandbox::new();
     for (function_name, selector, shape) in [

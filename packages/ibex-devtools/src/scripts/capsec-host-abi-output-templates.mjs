@@ -154,6 +154,15 @@ const HERMES_STATELESS_FUNCTIONS = new Set([
   "ex_hermes_evaluation_result_dispose",
   "ex_hermes_evaluation_result_init",
   "ex_hermes_free_string",
+  // The GPU provider/decoded-image ABI version and descriptor-size getters
+  // return compile-time constants from the loaded engine with no runtime or
+  // provider state; the batch executor invokes each exact symbol directly.
+  "ex_hermes_gpu_decoded_image_abi_version_v1",
+  "ex_hermes_gpu_decoded_image_descriptor_size_v1",
+  "ex_hermes_gpu_provider_abi_version",
+  "ex_hermes_gpu_provider_abi_version_v2",
+  "ex_hermes_gpu_provider_descriptor_size_v1",
+  "ex_hermes_gpu_provider_descriptor_size_v2",
   "ex_hermes_module_preflight_bytecode",
   "ex_hermes_now_ms",
 ]);
