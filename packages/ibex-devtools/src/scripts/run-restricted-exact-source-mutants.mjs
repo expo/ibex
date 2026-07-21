@@ -50,11 +50,12 @@ export const restrictedExactSourceMutants = Object.freeze([
   Object.freeze({
     id: "install-forbidden-global",
     sourcePath: RUNTIME_SOURCE,
-    before: restrictedInstallerNeedle,
-    after: `  installTimerGlobals(handle, false);
-  rt.global().setProperty(rt, "process", facebook::jsi::Value(1));
-
-  auto exactObject = rt.global().getPropertyAsObject(rt, "exact");`,
+    before: `      installRestrictedExactGlobals(handle);
+    } else {`,
+    after: `      installRestrictedExactGlobals(handle);
+      handle->runtime->global().setProperty(
+          *handle->runtime, "process", facebook::jsi::Value(1));
+    } else {`,
     expectedFailureMarker: "restricted source-mutant detector: bootstrap posture",
   }),
   Object.freeze({
