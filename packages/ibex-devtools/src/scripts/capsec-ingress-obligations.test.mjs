@@ -250,6 +250,33 @@ describe("LLP 0022 authenticated ingress obligations", () => {
     }
   });
 
+  test("accepts CRLF source checkouts without weakening reviewed bytes", () => {
+    const dataset = loadDataset();
+    const evidenceRoot = copyEvidenceTree(dataset);
+    try {
+      const sourcePaths = new Set(
+        dataset.obligations.flatMap((obligation) =>
+          obligation.sourceEvidence.map((evidence) => evidence.path),
+        ),
+      );
+      for (const relativePath of sourcePaths) {
+        const sourcePath = path.join(evidenceRoot, relativePath);
+        const source = fs.readFileSync(sourcePath, "utf8");
+        fs.writeFileSync(sourcePath, source.replace(/(?<!\r)\n/gu, "\r\n"));
+      }
+
+      expect(() =>
+        validateIngressObligationDataset({
+          coverage: coverageFor(dataset),
+          dataset,
+          repoRoot: evidenceRoot,
+        }),
+      ).not.toThrow();
+    } finally {
+      fs.rmSync(evidenceRoot, { recursive: true, force: true });
+    }
+  });
+
   test("rejects a token-preserving dead-code mutation in reviewed enforcement", () => {
     const dataset = loadDataset();
     const evidenceRoot = copyEvidenceTree(dataset);

@@ -881,12 +881,21 @@ function uniqueAnchorOffset(source, anchor, label) {
 }
 
 function extractReviewedRange(source, range, label) {
-  const start = uniqueAnchorOffset(source, range.start, `${label} start`);
-  const end = uniqueAnchorOffset(source, range.end, `${label} end`);
+  const normalizedSource = normalizeReviewedSource(source);
+  const start = uniqueAnchorOffset(
+    normalizedSource,
+    normalizeReviewedSource(range.start),
+    `${label} start`,
+  );
+  const end = uniqueAnchorOffset(
+    normalizedSource,
+    normalizeReviewedSource(range.end),
+    `${label} end`,
+  );
   if (end <= start) {
     throw new Error(`${label}: structural range is reversed`);
   }
-  return source.slice(start, end);
+  return normalizedSource.slice(start, end);
 }
 
 // Kept exported so an intentional source review can print the new scoped
@@ -962,7 +971,12 @@ function sourceAssertion(repoRoot, assertion, label) {
     ),
   }));
   for (const token of assertion.tokens) {
-    if (!reviewed.some((range) => range.source.includes(token))) {
+    const normalizedToken = normalizeReviewedSource(token);
+    if (
+      !reviewed.some((range) =>
+        normalizeReviewedSource(range.source).includes(normalizedToken),
+      )
+    ) {
       throw new Error(
         `${label}: ${assertion.path} lacks token ${JSON.stringify(token)} in its reviewed source ranges`,
       );
