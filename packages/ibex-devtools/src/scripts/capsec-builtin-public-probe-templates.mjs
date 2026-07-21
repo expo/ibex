@@ -197,6 +197,10 @@ const ZLIB_ONE_SHOT_EXPORTS = Object.freeze({
   inflateSync: "Inflate",
   unzip: "Unzip",
   unzipSync: "Unzip",
+  // zstd one-shots are intentionally omitted: this runtime registers no native
+  // zstd backend, so zstdCompress*/zstdDecompress* throw at runtime rather than
+  // furnishing a bounded normal return. They stay residual until the native
+  // backend exists on the bound engine.
 });
 
 function zlibRootCallSpecs() {
@@ -481,6 +485,69 @@ function exactCryptoCallSpecs() {
       [...CRYPTO_ECDH_CONSTRUCTOR_ARGUMENTS],
     );
   }
+  // AES-256-CBC has a fixed 32-byte key and 16-byte IV, and the Cipher /
+  // Decipher bodies for these methods only mutate in-memory chunk/AAD/tag
+  // state and return the receiver or an empty Buffer — they never reach the
+  // native EVP bridge (that is deferred to final(), which stays residual).
+  // Their one-shot construction and mutation therefore have a bounded normal
+  // return with no observable capability decision.
+  const CBC_CONSTRUCTOR_ARGUMENTS = Object.freeze([
+    jsonArgument("aes-256-cbc"),
+    uint8ArrayArgument([
+      0x69, 0x62, 0x65, 0x78, 0x69, 0x62, 0x65, 0x78, 0x69, 0x62, 0x65, 0x78,
+      0x69, 0x62, 0x65, 0x78, 0x69, 0x62, 0x65, 0x78, 0x69, 0x62, 0x65, 0x78,
+      0x69, 0x62, 0x65, 0x78, 0x69, 0x62, 0x65, 0x78,
+    ]),
+    uint8ArrayArgument([
+      0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62,
+      0x63, 0x64, 0x65, 0x66,
+    ]),
+  ]);
+  for (const rootName of [
+    "createCipher",
+    "createCipheriv",
+    "createDecipher",
+    "createDecipheriv",
+  ]) {
+    specs[rootName] = rootCall([...CBC_CONSTRUCTOR_ARGUMENTS], "object");
+  }
+  for (const ownerExportName of [
+    "Cipher",
+    "Cipheriv",
+    "Decipher",
+    "Decipheriv",
+  ]) {
+    specs[ownerExportName] = constructTarget([...CBC_CONSTRUCTOR_ARGUMENTS]);
+    specs[`${ownerExportName}.constructor`] = constructTarget([
+      ...CBC_CONSTRUCTOR_ARGUMENTS,
+    ]);
+    specs[`${ownerExportName}.update`] = constructedOwner(
+      ownerExportName,
+      [jsonArgument("ibex")],
+      "object",
+      [...CBC_CONSTRUCTOR_ARGUMENTS],
+    );
+    specs[`${ownerExportName}.setAutoPadding`] = constructedOwner(
+      ownerExportName,
+      [],
+      "object",
+      [...CBC_CONSTRUCTOR_ARGUMENTS],
+    );
+    specs[`${ownerExportName}.setAAD`] = constructedOwner(
+      ownerExportName,
+      [uint8ArrayArgument([0x69, 0x62, 0x65, 0x78])],
+      "object",
+      [...CBC_CONSTRUCTOR_ARGUMENTS],
+    );
+  }
+  for (const ownerExportName of ["Decipher", "Decipheriv"]) {
+    specs[`${ownerExportName}.setAuthTag`] = constructedOwner(
+      ownerExportName,
+      [uint8ArrayArgument([0x69, 0x62, 0x65, 0x78, 0x69, 0x62, 0x65, 0x78])],
+      "object",
+      [...CBC_CONSTRUCTOR_ARGUMENTS],
+    );
+  }
   return Object.freeze(specs);
 }
 
@@ -515,6 +582,15 @@ const NODE_NET_CALL_SPECS = Object.freeze({
   Server: constructTarget([]),
   "Server.ref": constructedOwner("Server", [], "object"),
   "Server.unref": constructedOwner("Server", [], "object"),
+  // A freshly constructed Socket owns no native handle: destroy(), ref(),
+  // and unref() only update in-memory lifecycle state and return the
+  // receiver. net.Stream is the exact source's legacy alias for Socket.
+  "Socket.destroy": constructedOwner("Socket", [], "object"),
+  "Socket.ref": constructedOwner("Socket", [], "object"),
+  "Socket.unref": constructedOwner("Socket", [], "object"),
+  "Stream.destroy": constructedOwner("Stream", [], "object"),
+  "Stream.ref": constructedOwner("Stream", [], "object"),
+  "Stream.unref": constructedOwner("Stream", [], "object"),
   SocketAddress: constructTarget([
     jsonArgument({ address: "127.0.0.1", family: "ipv4", port: 0 }),
   ]),
@@ -1299,7 +1375,7 @@ function streamPrototypeSpec(exportName) {
         "object",
       );
     }
-    if (methodName === "on") {
+    if (methodName === "addListener" || methodName === "on") {
       return streamOwnerCall(
         ownerExportName,
         [jsonArgument("ibex"), noopArgument()],
