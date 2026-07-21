@@ -3336,6 +3336,14 @@ async fn execute_module_runner_host_abi_public_recipe(
         "export const value = 3;\n",
     )
     .expect("write module-runner public CommonJS ESM dependency");
+    // The declared computed-candidate target must resolve at graph
+    // preparation even though no fixture ever invokes the dynamic route;
+    // the import stays dormant and unexecuted.
+    std::fs::write(
+        project_root.join("dynamic.mjs"),
+        "export const dormant = true;\n",
+    )
+    .expect("write module-runner public dormant dynamic candidate");
     std::fs::write(
         project_root.join("package.json"),
         r#"{"ibex":{"computedCandidates":{"sites":[{"requester":"commonjs-entry.cjs","label":"cjs-route","specifiers":["./dynamic.mjs"]},{"requester":"entry.mjs","label":"esm-route","specifiers":["./dynamic.mjs"]}]}}}"#,
