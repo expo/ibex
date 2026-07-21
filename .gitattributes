@@ -27,5 +27,14 @@ src/engine/hermes_runtime.cc text eol=lf
 # every authority byte-identical across checkouts so the hermetic build's
 # content check is genuinely portable to Windows.
 src/builtins/** text eol=lf
+src/engine/bootstrap/** text eol=lf
 packages/ibex-runtime-js/src/** text eol=lf
 modules.ts text eol=lf
+
+# Example-policy checks authenticate package and policy bytes, not an
+# end-of-line-normalized approximation. Keep the checked examples identical
+# on every host while leaving binary demo payloads unclassified.
+examples/llp0013-supply-chain/** text eol=lf
+examples/capsec-demo/**/*.js text eol=lf
+examples/capsec-demo/**/*.mjs text eol=lf
+examples/capsec-demo/**/*.json text eol=lf

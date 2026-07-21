@@ -5,7 +5,11 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (r35 — records the fourteenth and fifteenth
+**Revised:** 2026-07-20 (r36 — records the sixteenth ineligible run, which
+proved both recursion guards and then exposed unpinned Windows CRLF bytes in
+the bootstrap inventory and example package-integrity corpus; pins those exact
+byte-sensitive source families to LF at checkout without normalizing security
+digests or changing any authority, fixture, or gate; r35 — records the fourteenth and fifteenth
 source-bound runs, both ineligible: the early preflight localized Windows
 checkout and recursion defects before Hermes installation; canonicalizes the
 already line-ending-insensitive reviewed-source contract for CRLF anchors and
@@ -711,6 +715,22 @@ while the existing token-preserving dead-code mutation still fails. The full
 and the unchanged 7,347-edge/7,566-branch/14,694-cell/12,845-reference registry
 pass locally. No fourteenth- or fifteenth-run artifact is reviewed, promoted,
 attested, or advertised. A fresh complete immutable-source run is required.
+The sixteenth run (`29798567432`, source
+`26c17301f72387e082c64c0204f16d54f93df522`) proved that Windows registry
+generation no longer overflows. It then failed closed on a computed class
+member in the checked-in web-streams polyfill, while example policies reported
+package-integrity changes with identical capability floors. Reproducing the
+Windows CRLF form of the polyfill locally yields the same scanner refusal, and
+the example package snapshot intentionally hashes raw package bytes. The
+repository already pins CapSec authorities, generated bindings, builtin
+sources, and runtime-JS sources to LF, but omitted `src/engine/bootstrap/**`
+and the checked example package/policy sources. Those byte-sensitive text
+families are now explicitly `text eol=lf`; the binary demo payload remains
+unclassified. A synthetic `core.autocrlf=true` index checkout contains no CR
+bytes in any pinned JS/MJS/JSON input. No digest implementation is normalized,
+no generated policy is rewritten from Windows bytes, and no sixteenth-run
+artifact is reviewed, promoted, attested, or advertised. A fresh complete
+immutable-source run is required.
 A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full
