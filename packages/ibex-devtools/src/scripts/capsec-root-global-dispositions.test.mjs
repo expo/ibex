@@ -368,6 +368,13 @@ describe("root-global disposition manifest", () => {
           "src/engine/hermes_runtime.cc#jsi-global:exact.invokeHostAsync",
         ],
       }),
+      surface("global:exact.takeCheckpointBytes", {
+        globalName: "exact",
+        memberName: "takeCheckpointBytes",
+        sourceRefs: [
+          "src/engine/hermes_runtime.cc#jsi-global:exact.takeCheckpointBytes",
+        ],
+      }),
       surface("__OriginalPromise", {
         metadata: {
           sourceKey: "shared_runtime",
@@ -409,9 +416,11 @@ describe("root-global disposition manifest", () => {
       globals: conditional,
       coverage: coverage(conditional),
     });
-    const activation = (root) =>
-      manifest.rows.find((row) => row.property.root.value === root).branch
-        .activation;
+    const activation = (root, memberName) =>
+      manifest.rows.find((row) =>
+        row.property.root.value === root &&
+        (memberName === undefined || row.property.path[0]?.value === memberName)
+      ).branch.activation;
     expect(activation("Bun")).toBe("bun-compat-shared-runtime");
     expect(activation("__exactEcdsaSign")).toBe("openssl-crypto");
     expect(activation("__nativeFetchSync")).toBe("windows-native");
@@ -419,8 +428,11 @@ describe("root-global disposition manifest", () => {
     expect(activation("__exactNativeWrapState")).toBe(
       "post-bootstrap-lazy",
     );
-    expect(activation("exact")).toBe(
+    expect(activation("exact", "invokeHostAsync")).toBe(
       "post-bootstrap-embedder-endowment",
+    );
+    expect(activation("exact", "takeCheckpointBytes")).toBe(
+      "restricted-exact-profile",
     );
     expect(activation("__OriginalPromise")).toBe(
       "diagnostic-unarmed-promise-fallback",

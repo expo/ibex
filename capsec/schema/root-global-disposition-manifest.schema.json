@@ -164,6 +164,7 @@
             "legacy-runtime-fallback",
             "openssl-crypto",
             "post-bootstrap-embedder-endowment",
+            "restricted-exact-profile",
             "post-bootstrap-lazy",
             "web-streams-polyfill",
             "windows-native"

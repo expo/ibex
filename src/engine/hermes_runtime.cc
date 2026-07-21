@@ -6713,6 +6713,9 @@ static bool rootGlobalActivationApplies(
   if (std::strcmp(activation, "legacy-runtime-fallback") == 0) {
     return !handle->shared_runtime_bundle_installed;
   }
+  if (std::strcmp(activation, "restricted-exact-profile") == 0) {
+    return handle->restricted_exact;
+  }
   if (std::strcmp(activation, "bun-compat-shared-runtime") == 0) {
     return handle->shared_runtime_bundle_installed &&
         handle->bootstrap_bun_compat;

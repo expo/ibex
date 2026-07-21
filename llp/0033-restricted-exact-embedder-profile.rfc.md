@@ -5,7 +5,13 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (r26 — records the seventh pinned Linux release attempt,
+**Revised:** 2026-07-20 (r27 — records the eighth pinned Linux release attempt,
+whose Linux target job passed while the complete source revision remained
+ineligible: macOS exposed that `exact.takeCheckpointBytes` was incorrectly
+classified as an every-armed-runtime descriptor rather than restricted-profile
+only, and Windows hit a fail-closed registry-generator stack overflow; pins the
+restricted-profile activation correction without opening advertisement and
+retains the passing Linux artifact as unpromotable evidence; r26 — records the seventh pinned Linux release attempt,
 whose Linux target job passed but whose source revision is ineligible because
 the macOS and Windows matrix legs both caught three stale source offsets in the
 generated runtime-environment inventory; refreshes only those derived offsets
@@ -512,6 +518,21 @@ offsets and the complete generated-drift check is clean afterward. Because
 the passing Linux artifact binds the governance-dirty source revision, it is
 ineligible for report promotion or advertisement and remains failed program
 evidence. A fresh clean-source run remains required.
+The eighth pinned Linux release attempt (Actions run `29786220284`, Linux job
+`88498226963`, exact source `15849088c9d8bb1fa6bc0acee630231b7d043138`)
+again passed the complete restricted Exact target-evidence job and retained all
+four target evidence artifacts plus the unreviewed report. The same immutable
+source revision failed the complete matrix on two independent fail-closed
+checks. macOS's loaded-engine attestation found that the generated root-global
+authority required `exact.takeCheckpointBytes` in the full armed constructor,
+although the descriptor is installed only by the mutually exclusive restricted
+Exact constructor. Windows's registry drift command stopped with a Bun maximum
+call-stack error before evidence execution. The root-global activation model
+now records `exact.takeCheckpointBytes` as `restricted-exact-profile` and the
+native live sweep applies that row only when `handle->restricted_exact` is true.
+The Linux artifact remains ineligible for report promotion or advertisement;
+the Windows generator failure must also be repaired and the complete immutable
+source rerun before review or publication.
 A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full

@@ -29306,7 +29306,7 @@
           "src/engine/hermes_runtime.cc#jsi-global:exact.takeCheckpointBytes"
         ],
         "targetVariant": "default",
-        "activation": "always"
+        "activation": "restricted-exact-profile"
       },
       "property": {
         "root": {

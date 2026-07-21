@@ -281,6 +281,13 @@ const POST_BOOTSTRAP_EMBEDDER_ENDOWMENT_PATHS = new Set([
   "exact.invokeHostAsync",
 ]);
 
+const RESTRICTED_EXACT_PROFILE_PATHS = new Set([
+  // The restricted constructor installs checkpoint ingress before sealing its
+  // deliberately small realm. Full armed and diagnostic runtimes never own
+  // this descriptor.
+  "exact.takeCheckpointBytes",
+]);
+
 const IPC_BOOTSTRAP_ROOTS = new Set([
   "__exactInstallAsyncIpcListenerPatch",
   "__exactProcessIpcBootstrap",
@@ -318,6 +325,9 @@ function branchActivation(surface, routes, sourceRefs, targetVariant) {
   if (POST_BOOTSTRAP_LAZY_ROOTS.has(root)) return "post-bootstrap-lazy";
   if (POST_BOOTSTRAP_EMBEDDER_ENDOWMENT_PATHS.has(logicalPath)) {
     return "post-bootstrap-embedder-endowment";
+  }
+  if (RESTRICTED_EXACT_PROFILE_PATHS.has(logicalPath)) {
+    return "restricted-exact-profile";
   }
 
   if (IPC_BOOTSTRAP_ROOTS.has(root)) return "ipc-channel-bootstrap";
