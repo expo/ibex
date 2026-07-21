@@ -174,6 +174,15 @@ const HERMES_DIAGNOSTIC_FUNCTIONS = new Set([
   // runtime is destroyed with the fixture.
   "ex_hermes_quarantine_runtime_v1",
   "ex_hermes_runtime_is_quarantined_v1",
+  // The embedder-capability window and provider registrations execute the
+  // reviewed feature-off sequence on one owned diagnostic runtime: the window
+  // opens and closes normally while the exact null-descriptor registrations
+  // are refused with the reviewed status.
+  "ex_hermes_begin_embedder_capabilities_v1",
+  "ex_hermes_finalize_embedder_capabilities_v1",
+  "ex_hermes_set_gpu_decoded_image_provider_v1",
+  "ex_hermes_set_gpu_provider_v1",
+  "ex_hermes_set_gpu_provider_v2",
   "ex_hermes_cancel_structured_work_target",
   "ex_hermes_create_diagnostic",
   "ex_hermes_debugger_enable",

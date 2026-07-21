@@ -672,6 +672,20 @@ extern "C" {
     fn ex_hermes_bytecode_version() -> u32;
     fn ex_hermes_gpu_provider_abi_version() -> u32;
     fn ex_hermes_quarantine_runtime_v1(runtime: *mut HermesRuntimeOpaque) -> i32;
+    fn ex_hermes_begin_embedder_capabilities_v1(runtime: *mut HermesRuntimeOpaque) -> i32;
+    fn ex_hermes_finalize_embedder_capabilities_v1(runtime: *mut HermesRuntimeOpaque) -> i32;
+    fn ex_hermes_set_gpu_provider_v1(
+        runtime: *mut HermesRuntimeOpaque,
+        descriptor: *const std::ffi::c_void,
+    ) -> i32;
+    fn ex_hermes_set_gpu_provider_v2(
+        runtime: *mut HermesRuntimeOpaque,
+        descriptor: *const std::ffi::c_void,
+    ) -> i32;
+    fn ex_hermes_set_gpu_decoded_image_provider_v1(
+        runtime: *mut HermesRuntimeOpaque,
+        descriptor: *const std::ffi::c_void,
+    ) -> i32;
     fn ex_hermes_runtime_is_quarantined_v1(runtime: *const HermesRuntimeOpaque) -> u32;
     fn ex_hermes_gpu_provider_abi_version_v2() -> u32;
     fn ex_hermes_gpu_provider_descriptor_size_v1() -> usize;
@@ -5237,6 +5251,42 @@ fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Valu
         "ex_hermes_runtime_is_quarantined_v1" => {
             returned_number(unsafe { ex_hermes_runtime_is_quarantined_v1(runtime.raw) })
         }
+        // Without the webgpu-binding feature the registration window opens and
+        // closes normally while every provider descriptor is refused; null is
+        // the exact reviewed no-provider input for that refusal.
+        "ex_hermes_begin_embedder_capabilities_v1" => {
+            returned_number(unsafe { ex_hermes_begin_embedder_capabilities_v1(runtime.raw) })
+        }
+        "ex_hermes_finalize_embedder_capabilities_v1" => {
+            if unsafe { ex_hermes_begin_embedder_capabilities_v1(runtime.raw) } != 0 {
+                return Err("embedder capability window did not open".into());
+            }
+            returned_number(unsafe { ex_hermes_finalize_embedder_capabilities_v1(runtime.raw) })
+        }
+        "ex_hermes_set_gpu_provider_v1" => {
+            if unsafe { ex_hermes_begin_embedder_capabilities_v1(runtime.raw) } != 0 {
+                return Err("embedder capability window did not open".into());
+            }
+            returned_number(unsafe {
+                ex_hermes_set_gpu_provider_v1(runtime.raw, std::ptr::null())
+            })
+        }
+        "ex_hermes_set_gpu_provider_v2" => {
+            if unsafe { ex_hermes_begin_embedder_capabilities_v1(runtime.raw) } != 0 {
+                return Err("embedder capability window did not open".into());
+            }
+            returned_number(unsafe {
+                ex_hermes_set_gpu_provider_v2(runtime.raw, std::ptr::null())
+            })
+        }
+        "ex_hermes_set_gpu_decoded_image_provider_v1" => {
+            if unsafe { ex_hermes_begin_embedder_capabilities_v1(runtime.raw) } != 0 {
+                return Err("embedder capability window did not open".into());
+            }
+            returned_number(unsafe {
+                ex_hermes_set_gpu_decoded_image_provider_v1(runtime.raw, std::ptr::null())
+            })
+        }
         "ex_hermes_cancel_structured_work_target" => {
             returned_number(unsafe {
                 ex_hermes_cancel_structured_work_target(runtime.raw, runtime.nonce, 0)
@@ -7496,6 +7546,25 @@ fn merged_host_abi_output_routes_execute_bounded_calls() {
         assert_eq!(observation["rawValueShape"], "number");
         assert_ne!(observation["value"], 0);
     }
+
+    // The reviewed feature-off embedder sequence: the capability window opens
+    // and closes with status 0 while null provider descriptors are refused
+    // with the exact reviewed status.
+    for (function_name, expected) in [
+        ("ex_hermes_begin_embedder_capabilities_v1", 0i32),
+        ("ex_hermes_finalize_embedder_capabilities_v1", 0i32),
+        ("ex_hermes_set_gpu_provider_v1", -3i32),
+        ("ex_hermes_set_gpu_provider_v2", -3i32),
+        ("ex_hermes_set_gpu_decoded_image_provider_v1", -3i32),
+        ("ex_hermes_quarantine_runtime_v1", 0i32),
+    ] {
+        let observation = execute_hermes_diagnostic(function_name, "[[return]]")
+            .unwrap_or_else(|error| panic!("{function_name}: {error}"));
+        assert_eq!(observation, returned_number(expected));
+    }
+    let quarantined = execute_hermes_diagnostic("ex_hermes_runtime_is_quarantined_v1", "[[return]]")
+        .expect("execute quarantine inspection on a fresh runtime");
+    assert_eq!(quarantined, returned_number(0));
 
     let sandbox = FsSandbox::new();
     for (function_name, selector, shape) in [
