@@ -258,8 +258,8 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.summary.requiredFixtures).toBe(24_581);
     // Thirty reviewed roots gain exact fresh-engine receipts while the
     // formerly source-misattributed stream/promises export probe is retracted.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_574);
-    expect(recipes.summary.unresolvedFixtures).toBe(22_007);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_587);
+    expect(recipes.summary.unresolvedFixtures).toBe(21_994);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -356,8 +356,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(24_466);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_218);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(22_248);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_231);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(22_235);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -373,7 +373,7 @@ describe("exact-target CapSec executable recipes", () => {
       windowsCryptoRecipes.filter(
         (recipe) => recipe.status === "fully-executable",
       ),
-    ).toHaveLength(82);
+    ).toHaveLength(95);
     const unavailableWindowsNativeRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(

@@ -608,7 +608,15 @@ test("takePhoto reports the decoded blob dimensions for track photos", async () 
     expect(photo.width).toBe(4032); // pre-fix: 64 (preview canvas width)
     expect(photo.height).toBe(3024);
   } finally {
-    g.ImageCapture = previousImageCapture;
-    g.createImageBitmap = previousCreateImageBitmap;
+    if (previousImageCapture === undefined) {
+      delete g.ImageCapture;
+    } else {
+      g.ImageCapture = previousImageCapture;
+    }
+    if (previousCreateImageBitmap === undefined) {
+      delete g.createImageBitmap;
+    } else {
+      g.createImageBitmap = previousCreateImageBitmap;
+    }
   }
 });

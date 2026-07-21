@@ -1921,7 +1921,14 @@ separate report-crediting diagnostic; nine is not the total physical public
 coverage. The baseline's remaining 21,728 recipe rows span 5,362 public
 terminals, and every one carries `public-surface-invocation-not-authored`.
 These counts are a dated current-source measurement and must be regenerated,
-not treated as timeless contract constants.
+not treated as timeless contract constants. After the 2026-07-20 main-line
+integration (GPU authority ABI v2, app-bundle staging, patch 0012, and the
+ENG-24578 probe tranches) the regenerated aarch64-apple-darwin baseline is
+7,575 candidate cells expanding to 24,581 required fixture-recipe rows, of
+which 2,587 have source-authored physical public invocations and 21,994
+remain unresolved; the per-class cell split above predates that integration
+and must be re-derived with the target-cell command before any promotion
+attempt.
 Other residual counts overlap those same rows and must not be added as more
 fixtures. Executor plumbing cannot honestly synthesize the missing public
 arguments, scenarios, or enforcement-terminal observations, so preparation
