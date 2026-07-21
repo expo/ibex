@@ -1,6 +1,23 @@
 # CapSec digests and generated drift checks are byte-sensitive. Pin every
 # contract artifact and cross-language generated binding to LF so a Windows
 # checkout cannot be clean in Git while differing from the canonical bytes.
+*.c text eol=lf
+*.cc text eol=lf
+*.cjs text eol=lf
+*.cpp text eol=lf
+*.h text eol=lf
+*.hpp text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.mjs text eol=lf
+*.ps1 text eol=lf
+*.rs text eol=lf
+*.sh text eol=lf
+*.toml text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
 capsec/** text eol=lf
 packages/ibex-runtime-js/src/security/capsec-registry.generated.ts text eol=lf
 src/builtins/helpers/capsec-registry.generated.cjs text eol=lf

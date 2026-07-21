@@ -5,7 +5,13 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (r36 — records the sixteenth ineligible run, which
+**Revised:** 2026-07-20 (r37 — records the seventeenth ineligible run, which
+passed the repaired Windows scanner and raw package identities before exposing
+two remaining host-form identifiers: CRLF in unpinned reviewed build sources
+and backslashes in persisted import-site provenance; pins source-code text
+extensions to LF and serializes repository-relative provenance with `/` while
+retaining native paths for I/O, with POSIX/Windows identity and synthetic
+autocrlf-checkout regressions; r36 — records the sixteenth ineligible run, which
 proved both recursion guards and then exposed unpinned Windows CRLF bytes in
 the bootstrap inventory and example package-integrity corpus; pins those exact
 byte-sensitive source families to LF at checkout without normalizing security
@@ -729,6 +735,23 @@ families are now explicitly `text eol=lf`; the binary demo payload remains
 unclassified. A synthetic `core.autocrlf=true` index checkout contains no CR
 bytes in any pinned JS/MJS/JSON input. No digest implementation is normalized,
 no generated policy is rewritten from Windows bytes, and no sixteenth-run
+artifact is reviewed, promoted, attested, or advertised. A fresh complete
+immutable-source run is required.
+The seventeenth run (`29798787304`, source
+`570f0ea0b77b3806c17482371a88eae551864b35`) passed the recursive factory and
+web-streams inventory paths on Windows and retained the same package principal
+integrities. It then failed two deeper host-form checks: the native-global
+marker account compared its reviewed multiline `build.rs` feature binding to
+a CRLF checkout, and the generated policies differed only because persisted
+import-site provenance used Windows backslashes. All checked source-code text
+extensions are now pinned to LF, rather than adding individual files after
+each deeper audit reaches them. Filesystem traversal continues to use native
+paths, while the policy generator converts only repository-relative persisted
+identities and diagnostics to `/`. A direct `path.win32`/`path.posix` corpus
+proves the same identity, and a synthetic `core.autocrlf=true` checkout has no
+CR bytes across the governed source extensions. The reduced-stack registry
+retains 7,347 edges, 7,566 branches, 14,694 cells, and 12,845 references, and
+all four example policies remain byte-identical locally. No seventeenth-run
 artifact is reviewed, promoted, attested, or advertised. A fresh complete
 immutable-source run is required.
 A strict activation-artifact schema

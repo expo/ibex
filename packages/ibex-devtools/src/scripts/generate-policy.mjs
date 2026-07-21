@@ -42,6 +42,7 @@ import {
   packageRelativeModulePath,
   packageRootForModuleId,
 } from './policy-package-snapshot.mjs';
+import { portableRelativePath } from './portable-path.mjs';
 
 const args = process.argv.slice(2);
 const opts = { mode: 'enforce' };
@@ -316,7 +317,7 @@ if (typeof bundle.close === 'function') await bundle.close();
 
 if (generationErrors.length) {
   for (const err of generationErrors) {
-    console.error(`error: ${err.message} (${path.relative(root, err.file)}:${err.line})`);
+    console.error(`error: ${err.message} (${portableRelativePath(root, err.file)}:${err.line})`);
   }
   process.exit(2);
 }
@@ -333,7 +334,8 @@ for (const target of edgeTargets) {
 
 if (generationErrors.length) {
   for (const err of generationErrors) {
-    const where = err.line ? `${path.relative(root, err.file)}:${err.line}` : path.relative(root, err.file);
+    const relativeFile = portableRelativePath(root, err.file);
+    const where = err.line ? `${relativeFile}:${err.line}` : relativeFile;
     console.error(`error: ${err.message} (${where})`);
   }
   process.exit(2);
@@ -440,7 +442,7 @@ function surfacesFor(pkg) {
 
 rootSiteLists.sort((a, b) => compareCanonicalBytes(a.file, b.file));
 for (const { file, sites } of rootSiteLists) {
-  const rel = path.relative(root, file);
+  const rel = portableRelativePath(root, file);
   for (const site of sites) {
     const where = `${rel}:${site.line}`;
     if (site.capabilities.length || Object.keys(site.also).length) {
@@ -470,7 +472,7 @@ for (const { file, sites } of rootSiteLists) {
 
 if (generationErrors.length) {
   for (const err of generationErrors) {
-    console.error(`error: ${err.message} (${path.relative(root, err.file)}:${err.line})`);
+    console.error(`error: ${err.message} (${portableRelativePath(root, err.file)}:${err.line})`);
   }
   process.exit(2);
 }
@@ -559,7 +561,7 @@ const artifact = buildCanonicalPolicy(principals, rootImports);
 const rendered = `${JSON.stringify(artifact, null, 2)}\n`;
 
 for (const ignored of ignoredPackageGrants) {
-  const rel = path.relative(root, ignored.file);
+  const rel = portableRelativePath(root, ignored.file);
   for (const site of ignored.sites) {
     console.error(
       `warning: grant attribute in package code is not a grant channel and was ignored: ` +
@@ -583,10 +585,10 @@ if (opts.check) {
     process.exit(1);
   }
   if (existing === rendered) {
-    console.log(`policy artifact up to date: ${path.relative(process.cwd(), out)}`);
+    console.log(`policy artifact up to date: ${portableRelativePath(process.cwd(), out)}`);
     process.exit(0);
   }
-  console.error(`policy artifact is stale: ${path.relative(process.cwd(), out)}`);
+  console.error(`policy artifact is stale: ${portableRelativePath(process.cwd(), out)}`);
   try {
     const existingJson = JSON.parse(existing);
     // Diff the declared mode too: a policy generated with `--mode audit` drifts
@@ -628,6 +630,6 @@ if (opts.check) {
 await fs.writeFile(out, rendered);
 const granted = artifact.principals.filter((p) => p.floor.length).length;
 console.log(
-  `wrote ${path.relative(process.cwd(), out)}: ${artifact.principals.length} package(s), ` +
+  `wrote ${portableRelativePath(process.cwd(), out)}: ${artifact.principals.length} package(s), ` +
     `${granted} with grants, mode=${opts.mode}`,
 );
