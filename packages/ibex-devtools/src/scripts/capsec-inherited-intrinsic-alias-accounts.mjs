@@ -47,10 +47,13 @@ const BUFFER_PATH = "packages/ibex-runtime-js/src/node/Buffer.ts";
 const RUNTIME_BOOTSTRAP_PATH = "packages/ibex-runtime-js/src/bootstrap.ts";
 const COMPAT_BOOTSTRAP_PATH = "src/engine/bootstrap/compat-polyfills.js";
 
+// The profile identity includes the reviewed VS 17/18 generator-selection
+// branch in build-hermes-windows.ps1; its mutation tests below remain the
+// fail-closed authority for later installer or target drift.
 const REVIEWED_PROFILE_DIGEST =
-  "sha256-de9a13fce307df0129c82f534c292b86c3d48c3429f39b93f1ee4995b7a0835f";
+  "sha256-54a00a1aabeae396578e85eb0fd10afc14b16c25cc711f90bd0756ebefdc6578";
 const REVIEWED_SOURCE_REVIEW_DIGEST =
-  "sha256-aaf990d9904087cf91a48f79f2f87dc4f623008a520fdf7babd0b6e476b7ffd1";
+  "sha256-67ab7509edc3087783dad5fbca3bc1572db0ecf6cf0028e12eb01110134fa47b";
 
 const REVIEWED_SOURCE_NODE_DIGESTS = Object.freeze({
   bufferImplementation:

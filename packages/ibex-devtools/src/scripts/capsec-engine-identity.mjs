@@ -88,8 +88,22 @@ export function engineLoaderEnvironment(
 ) {
   const env = { ...baseEnvironment };
   const prepend = (name, directory) => {
-    env[name] = env[name]
-      ? `${directory}${path.delimiter}${env[name]}`
+    const aliases =
+      platform === "win32"
+        ? Object.keys(env).filter(
+            (candidate) => candidate.toLowerCase() === name.toLowerCase(),
+          )
+        : [name];
+    const priorValues = aliases
+      .map((candidate) => env[candidate])
+      .filter((value) => typeof value === "string" && value.length > 0);
+    if (new Set(priorValues).size > 1) {
+      throw new Error(`${name}: conflicting case-insensitive environment aliases`);
+    }
+    const prior = priorValues[0];
+    for (const alias of aliases) delete env[alias];
+    env[name] = prior
+      ? `${directory}${path.delimiter}${prior}`
       : directory;
   };
   if (platform === "darwin") {

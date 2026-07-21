@@ -5,7 +5,18 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (r37 — records the seventeenth ineligible run, which
+**Revised:** 2026-07-20 (r38 — records the eighteenth ineligible run: Linux
+produced a fully conformant 7,347-row report with 14,540 passed and zero failed
+or missing observations, but Windows lost the setup-node search path when the
+engine loader prepended canonical `PATH` beside the runner's `Path` spelling;
+normalizes only case-insensitive Windows environment-key aliases while
+retaining the full prior search value; macOS built and verified the pinned
+debugger-free Hermes framework and passed the public fixture shards before its
+default-feature Rust test link exposed observer-only tests that were not
+feature-gated; gates those five tests without removing them from the required
+all-features run, repairs the stack-safe canonicalizer's legacy AST-digest
+compatibility, reconciles audited source-derived cardinalities, and keeps every
+artifact unreviewed and unpromoted; r37 — records the seventeenth ineligible run, which
 passed the repaired Windows scanner and raw package identities before exposing
 two remaining host-form identifiers: CRLF in unpinned reviewed build sources
 and backslashes in persisted import-site provenance; pins source-code text
@@ -754,6 +765,38 @@ retains 7,347 edges, 7,566 branches, 14,694 cells, and 12,845 references, and
 all four example policies remain byte-identical locally. No seventeenth-run
 artifact is reviewed, promoted, attested, or advertised. A fresh complete
 immutable-source run is required.
+The eighteenth run (`29799049627`, source
+`ceb154ef07f389c36045cb6387ad8bf52c543085`) passed governance preflight on
+Linux, macOS, and Windows. Linux job `88536364607` then completed all four
+restricted Exact evidence families and generated a report with all 7,347 rows
+conformant, 14,540 passed observations, and zero failed or missing observations;
+the report remains incomplete solely at the pending independent-review gate.
+Windows job `88536364593` completed the patched Release Hermes source build and
+binary-profile verification, then failed the first repeated drift command:
+`engineLoaderEnvironment` prepended the DLL directory under canonical `PATH`
+beside the runner's existing `Path` key, and Bun's nested `node` script saw only
+the DLL directory. The loader now collapses case-insensitive Windows aliases to
+one canonical key while preserving the full previous search value; Darwin and
+Linux behavior is unchanged, and a focused mixed-case regression passes.
+macOS job `88536364636` built and verified the pinned debugger-free framework,
+completed the exact-engine attestation and all eight public fixture shards,
+then failed `rust-default-full` at link time because five restricted evidence
+tests referenced symbols compiled only by the `capsec-conformance-observer`
+feature. Those tests are now gated by that feature, so the default artifact
+does not acquire test observers and the immediately following required
+all-features suite still compiles and executes them. The broad local devtools
+suite additionally found source-derived count assertions left at the
+pre-restricted-profile inventory, an alias-only native-freeze validator, and a
+stack-safe canonicalizer rewrite that changed the legacy serialization used by
+a reviewed Babel-AST digest. The assertions are reconciled to the generated
+7,347-edge authority, the freeze rule now matches its exact structured native
+rows, and canonicalization again reproduces the reviewed AST bytes. The
+reviewed engine-profile digest is updated only for the already reviewed Visual
+Studio 2026 source-build branch in `scripts/build-hermes-windows.ps1`; mutation
+tests continue to reject source, target, and profile changes. The run is
+ineligible regardless of the retained Linux result. No eighteenth-run artifact
+is reviewed, promoted, attested, or advertised; a fresh complete immutable-
+source run is required.
 A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full

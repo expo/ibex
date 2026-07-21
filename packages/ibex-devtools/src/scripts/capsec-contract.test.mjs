@@ -195,6 +195,11 @@ describe("LLP 0021 capsec contract", () => {
     expect(canonical.endsWith("]]]]")).toBe(true);
   });
 
+  test("stack-safe canonicalization preserves legacy diagnostic structures", () => {
+    expect(canonicalJson({ value: undefined })).toBe('{"value":undefined}');
+    expect(canonicalJson([undefined])).toBe("[]");
+  });
+
   test("I-JSON validation does not depend on the JavaScript call-stack ceiling", () => {
     let value = "valid";
     for (let depth = 0; depth < 50_000; depth += 1) value = { child: value };

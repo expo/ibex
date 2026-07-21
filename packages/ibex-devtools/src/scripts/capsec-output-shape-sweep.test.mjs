@@ -986,8 +986,12 @@ describe("output-shape-sweep-v3 evidence contract", () => {
     );
     const surfaceIds = new Set(edges.map((edge) => edge.id));
     const catalog = v2Catalog(
-      repository.catalog.rows.filter((row) =>
-        surfaceIds.has(row.key.surfaceId),
+      repository.catalog.rows.filter(
+        (row) =>
+          surfaceIds.has(row.key.surfaceId) &&
+          row.discovery.kind === "source-asserted-structured-output" &&
+          row.key.sourceKind === "native-op" &&
+          row.key.output === "[[return]]",
       ),
     );
     const coverage = { edges };
@@ -1202,17 +1206,17 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         "ibex/capsec-output-shape-execution-partition/1",
       completeCatalogKeyDigest: completeCatalog.catalogKeyDigest,
     });
-    expect(completeCatalog.rows).toHaveLength(6397);
-    expect(executionPartition.genericCatalog.rows).toHaveLength(5875);
-    expect(executionPartition.genericProbes).toHaveLength(5875);
+    expect(completeCatalog.rows).toHaveLength(6462);
+    expect(executionPartition.genericCatalog.rows).toHaveLength(5929);
+    expect(executionPartition.genericProbes).toHaveLength(5929);
     expect(
       executionPartition.genericCatalog.rows.some(
         (row) => row.key.sourceKind === "host-abi",
       ),
     ).toBe(false);
-    expect(executionPartition.hostAbi.targetAbsenceBindings).toHaveLength(59);
+    expect(executionPartition.hostAbi.targetAbsenceBindings).toHaveLength(62);
     expect(executionPartition.hostAbi.rows).toHaveLength(463);
-    expect(executionPartition.hostAbi.residuals).toHaveLength(0);
+    expect(executionPartition.hostAbi.residuals).toHaveLength(8);
 
     const baseBindings = fixture().bindings;
     const targetAbsenceProbes = buildTargetAbsenceOutputShapeProbes({
@@ -1221,21 +1225,26 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       recipeCatalog,
       target,
     });
-    const completePlan = buildOutputShapeSweepPlan({
-      catalog: completeCatalog,
-      probes: [
-        ...executionPartition.genericProbes,
-        ...executionPartition.hostAbi.rows,
-        ...targetAbsenceProbes,
-      ],
-      ...baseBindings,
-      target,
-      engine: {
-        ...baseBindings.engine,
-        structuralFeatures: [...target.features],
-      },
-    });
-    expect(completePlan.rows).toHaveLength(6397);
+    // Eight restricted-Exact private Host ABI rows deliberately have no
+    // generic loaded-JS proof. They are closed by the dedicated restricted
+    // control-plane evidence family, and this partition must not fabricate a
+    // generic probe merely to make its local plan total.
+    expect(() =>
+      buildOutputShapeSweepPlan({
+        catalog: completeCatalog,
+        probes: [
+          ...executionPartition.genericProbes,
+          ...executionPartition.hostAbi.rows,
+          ...targetAbsenceProbes,
+        ],
+        ...baseBindings,
+        target,
+        engine: {
+          ...baseBindings.engine,
+          structuralFeatures: [...target.features],
+        },
+      }),
+    ).toThrow(/not bidirectional; missing=/u);
 
     const androidRows = [
       ...executionPartition.hostAbi.targetAbsenceBindings,
@@ -1331,12 +1340,12 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       shifted.hostAbi.targetAbsenceBindings.length,
       shifted.hostAbi.rows.length,
       shifted.hostAbi.residuals.length,
-    ]).not.toEqual([59, 463, 0]);
+    ]).not.toEqual([62, 463, 8]);
     expect([
       executionPartition.hostAbi.targetAbsenceBindings.length,
       executionPartition.hostAbi.rows.length,
       executionPartition.hostAbi.residuals.length,
-    ]).toEqual([59, 463, 0]);
+    ]).toEqual([62, 463, 8]);
   }, 60_000);
 
   test("routes and exactly validates the complete builtin-effects tranche", async () => {

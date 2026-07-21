@@ -209,13 +209,16 @@ export function canonicalJson(value) {
     }
     const current = frame.value;
     if (current === null || typeof current !== "object") {
-      output.push(JSON.stringify(current));
+      const serialized = JSON.stringify(current);
+      output.push(
+        serialized === undefined ? (frame.undefinedText ?? "") : serialized,
+      );
       continue;
     }
     if (Array.isArray(current)) {
       stack.push({ type: "text", value: "]" });
       for (let index = current.length - 1; index >= 0; index -= 1) {
-        stack.push({ type: "value", value: current[index] });
+        stack.push({ type: "value", value: current[index], undefinedText: "" });
         if (index > 0) stack.push({ type: "text", value: "," });
       }
       stack.push({ type: "text", value: "[" });
@@ -225,7 +228,16 @@ export function canonicalJson(value) {
     stack.push({ type: "text", value: "}" });
     for (let index = keys.length - 1; index >= 0; index -= 1) {
       const key = keys[index];
-      stack.push({ type: "value", value: current[key] });
+      // The former recursive implementation interpolated object values into
+      // a template literal. Preserve that behavior for non-I-JSON diagnostic
+      // structures (notably Babel ASTs with explicit undefined fields) while
+      // arrays retain Array#join's empty-field behavior. Valid I-JSON output
+      // is unchanged.
+      stack.push({
+        type: "value",
+        value: current[key],
+        undefinedText: "undefined",
+      });
       stack.push({ type: "text", value: ":" });
       stack.push({ type: "text", value: JSON.stringify(key) });
       if (index > 0) stack.push({ type: "text", value: "," });

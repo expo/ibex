@@ -2082,15 +2082,24 @@ function validateProbe(probe, key, label) {
   }
 }
 
+function isNativeFreezeIdentityRow(catalogRow) {
+  return (
+    catalogRow.discovery?.kind === STRUCTURED_DISCOVERY_KIND &&
+    catalogRow.key.sourceKind === "native-op" &&
+    catalogRow.key.output === "[[return]]" &&
+    new Set(["__exactDeepFreeze", "__exactNativeFreeze"]).has(
+      catalogRow.key.alias,
+    )
+  );
+}
+
 function validateCatalogProbeMechanism(catalogRow, probe, label) {
   if (catalogRow.requiredValueProof !== "live-value-observation") {
     throw new Error(`${label}: catalog row does not require live value proof`);
   }
   validateOutputValueProofKind(probe.kind, `${label}.kind`);
   if (
-    new Set(["__exactDeepFreeze", "__exactNativeFreeze"]).has(
-      catalogRow.key.alias,
-    ) &&
+    isNativeFreezeIdentityRow(catalogRow) &&
     probe.sourceDescriptor?.kind !== NATIVE_FREEZE_OUTPUT_SOURCE_DESCRIPTOR_KIND
   ) {
     throw new Error(
@@ -2683,10 +2692,7 @@ export function buildOutputShapeSweepProbes({
             })
           : null;
       const authoredNativeFreezeInvocation =
-        row.discovery.kind === STRUCTURED_DISCOVERY_KIND &&
-        row.key.sourceKind === "native-op" &&
-        row.key.output === "[[return]]" &&
-        new Set(["__exactDeepFreeze", "__exactNativeFreeze"]).has(row.key.alias)
+        isNativeFreezeIdentityRow(row)
           ? authoredNativeFreezeOutputInvocation({
               catalogRow: row,
               surface: sourceSurface,

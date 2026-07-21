@@ -1723,6 +1723,12 @@ mod tests {
             payload_json: *const std::ffi::c_char,
         ) -> i32;
         fn ex_hermes_poll(runtime: *mut HermesRuntimeOpaque, now_ms: u64) -> i32;
+        fn ex_hermes_free_string(value: *mut std::ffi::c_char);
+        fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    unsafe extern "C" {
         fn ex_hermes_has_pending_tasks(runtime: *mut HermesRuntimeOpaque) -> i32;
         fn ex_hermes_next_timer(runtime: *mut HermesRuntimeOpaque) -> i64;
         fn ex_hermes_now_ms() -> u64;
@@ -1774,8 +1780,6 @@ mod tests {
             payload: *const u8,
             payload_len: usize,
         );
-        fn ex_hermes_free_string(value: *mut std::ffi::c_char);
-        fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
     }
 
     extern "C" fn capture_dispatch(data: *const u8, len: usize, context: *mut std::ffi::c_void) {
@@ -1794,11 +1798,13 @@ mod tests {
         panic!("restricted fixture made an unexpected host call");
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     #[derive(Default)]
     struct RestrictedHostCallCapture {
         calls: Vec<(u64, u32, Vec<u8>)>,
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     extern "C" fn resolve_restricted_host_call(
         runtime: *mut HermesRuntimeOpaque,
         call_id: u64,
@@ -1826,6 +1832,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     #[derive(Default)]
     struct PendingRestrictedHostCall {
         call_id: u64,
@@ -1833,6 +1840,7 @@ mod tests {
         payload: Vec<u8>,
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     extern "C" fn capture_pending_restricted_host_call(
         _: *mut HermesRuntimeOpaque,
         call_id: u64,
@@ -2823,6 +2831,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     #[test]
     fn restricted_exact_control_plane_edges_enforce_lifecycle_refusals() {
         let _guard = crate::host::abi::host_test_lock();
@@ -3420,6 +3429,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     #[test]
     fn restricted_exact_structural_absences_match_live_root_reachability() {
         let _guard = crate::host::abi::host_test_lock();
@@ -3499,6 +3509,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     #[test]
     fn restricted_exact_teardown_drains_admitted_completion_and_refuses_stale_generation() {
         let _guard = crate::host::abi::host_test_lock();
@@ -3652,6 +3663,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     #[test]
     fn restricted_exact_absence_edges_close_source_and_live_routes() {
         let _guard = crate::host::abi::host_test_lock();
@@ -4437,6 +4449,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     #[test]
     fn restricted_exact_reachable_edges_execute_on_the_bound_engine() {
         let _guard = crate::host::abi::host_test_lock();

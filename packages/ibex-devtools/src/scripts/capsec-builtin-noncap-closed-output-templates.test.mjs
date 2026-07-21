@@ -118,7 +118,7 @@ const loaded = residualInvocations();
 describe("builtin non-capability/closed output recipes", () => {
   test("accounts for the exact callable/accessor and descriptor residual universe", async () => {
     const rows = await loaded;
-    expect(rows).toHaveLength(543);
+    expect(rows).toHaveLength(562);
     expect(
       Object.fromEntries(
         ["non-capability", "closed"].map((classification) => [
@@ -128,20 +128,21 @@ describe("builtin non-capability/closed output recipes", () => {
           ).length,
         ]),
       ),
-    ).toEqual({ "non-capability": 365, closed: 178 });
+    ).toEqual({ "non-capability": 384, closed: 178 });
     expect(
       builtinNoncapClosedOutputRouteManifest(rows.map((row) => row.invocation)),
     ).toMatchObject({
-      total: 543,
+      total: 562,
       operations: {
         call: 330,
         construct: 35,
         "import-refusal": 22,
-        unexercisable: 156,
+        unexercisable: 175,
       },
       residualReasons: {
         "receiver-needs-external-or-network-lifecycle": 95,
         "runtime-inspection-or-escape-surface-has-no-safe-receiver": 61,
+        "stream-route-retains-or-defers-work": 19,
       },
     });
     // Duplex now owns an explicit `_undestroy` descriptor, so its invocation

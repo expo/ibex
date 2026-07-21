@@ -70,6 +70,18 @@ describe("exact loaded engine identity", () => {
         platform: "linux",
       }).LD_LIBRARY_PATH,
     ).toBe("/opt/ibex/lib");
+    const windows = engineLoaderEnvironment("/engine/hermesvm.dll", {
+      baseEnvironment: { Path: "/node:/system" },
+      platform: "win32",
+    });
+    expect(windows.PATH).toBe(`/engine${path.delimiter}/node:/system`);
+    expect(windows.Path).toBeUndefined();
+    expect(() =>
+      engineLoaderEnvironment("/engine/hermesvm.dll", {
+        baseEnvironment: { PATH: "/first", Path: "/second" },
+        platform: "win32",
+      }),
+    ).toThrow(/conflicting case-insensitive environment aliases/u);
   });
 
   test("derives Windows volume and file identity from the named artifact", () => {

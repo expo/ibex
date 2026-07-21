@@ -654,13 +654,14 @@ describe("source-bound global callable recipes", () => {
     // the frozen 882-row baseline preceded the deliberate closure of two
     // accessibility callbacks, thirty IndexedDB callables, and two worklet
     // helpers. Those rows remain covered by the closed-surface batches rather
-    // than borrowing non-capability execution evidence.
-    expect(recipes).toHaveLength(848);
+    // than borrowing non-capability execution evidence. One newly discovered
+    // stream route is retained honestly as unexercisable.
+    expect(recipes).toHaveLength(849);
     expect(counts).toEqual({
       call: 601,
       construct: 9,
       get: 4,
-      unexercisable: 234,
+      unexercisable: 235,
     });
   }, 30_000);
 });
