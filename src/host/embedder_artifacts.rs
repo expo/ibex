@@ -22,7 +22,7 @@ use capsec_semantics::path_alias::{BoundVolumePathCanonicalizer, PathAliasCanoni
 use sha2::{Digest as _, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read as _, Seek as _, Write as _};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const PRODUCTION_RUN_NONCE_BYTES: usize = 16;
 const CONTRACT_FIXTURE_RUN_NONCE: &str = "AQIDBAUGBwgJCgsMDQ4PEA";
@@ -435,6 +435,15 @@ fn materialize_protected_artifact(
     digest: &Digest,
 ) -> Result<MaterializedArtifact> {
     let cache_root = crate::runtime_cache_dir()?;
+    materialize_protected_artifact_at(&cache_root, role, bytes, digest)
+}
+
+fn materialize_protected_artifact_at(
+    cache_root: &Path,
+    role: &str,
+    bytes: &[u8],
+    digest: &Digest,
+) -> Result<MaterializedArtifact> {
     let directory = cache_root.join("capsec-artifacts");
     std::fs::create_dir_all(&directory)?;
     let directory_metadata = std::fs::symlink_metadata(&directory)?;
@@ -543,6 +552,60 @@ fn materialize_protected_artifact(
         object,
         content_digest,
     })
+}
+
+/// Authenticate an embedder-supplied cache root before it becomes the parent
+/// of protected restricted-profile artifacts. The cell supervisor creates
+/// this directory before worker launch; Ibex never derives it from an ambient
+/// home or cache environment.
+///
+/// @ref LLP 0033#6-authenticated-contract-code-ingress — restricted code
+/// ingress cannot fall back to cwd, a host path, or an ambient loader root.
+fn validate_restricted_exact_cache_root(cache_root: &Path) -> Result<PathBuf> {
+    let metadata = std::fs::symlink_metadata(cache_root).with_context(|| {
+        format!(
+            "restricted Exact cache root is unavailable: {}",
+            cache_root.display()
+        )
+    })?;
+    anyhow::ensure!(
+        metadata.is_dir() && !metadata.file_type().is_symlink(),
+        "restricted Exact cache root is not a stable directory"
+    );
+    validate_restricted_exact_cache_root_permissions(&metadata)?;
+    let canonical = std::fs::canonicalize(cache_root).with_context(|| {
+        format!(
+            "restricted Exact cache root cannot be canonicalized: {}",
+            cache_root.display()
+        )
+    })?;
+    let canonical_metadata = std::fs::symlink_metadata(&canonical)?;
+    anyhow::ensure!(
+        canonical_metadata.is_dir() && !canonical_metadata.file_type().is_symlink(),
+        "restricted Exact canonical cache root is not a stable directory"
+    );
+    validate_restricted_exact_cache_root_permissions(&canonical_metadata)?;
+    Ok(canonical)
+}
+
+#[cfg(unix)]
+fn validate_restricted_exact_cache_root_permissions(metadata: &std::fs::Metadata) -> Result<()> {
+    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+
+    anyhow::ensure!(
+        metadata.uid() == unsafe { libc::geteuid() },
+        "restricted Exact cache root is not owned by the worker uid"
+    );
+    anyhow::ensure!(
+        metadata.permissions().mode() & 0o077 == 0,
+        "restricted Exact cache root permits group or other access"
+    );
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn validate_restricted_exact_cache_root_permissions(_metadata: &std::fs::Metadata) -> Result<()> {
+    Ok(())
 }
 
 fn runtime_target_triple() -> String {
@@ -959,6 +1022,44 @@ pub fn build_restricted_exact_embedder_artifact(
     bundle_binding_bytes: &[u8],
 ) -> Result<serde_json::Value> {
     super::reject_closed_startup_environment()?;
+    let cache_root = crate::runtime_cache_dir()?;
+    build_restricted_exact_embedder_artifact_at(
+        &cache_root,
+        operation_manifest_bytes,
+        bundle_bytes,
+        bundle_binding_bytes,
+    )
+}
+
+/// Construct a restricted Exact artifact under an embedder-owned private
+/// cache root. This is the native cell-worker path: the root must already
+/// exist, must not be a symlink, and must be private to the worker uid. The
+/// API does not consult HOME or any platform cache environment.
+///
+/// @ref LLP 0033#7-construction-and-lifecycle — the target-local worker
+/// constructs and validates the fresh restricted artifact before Hermes.
+pub fn build_restricted_exact_embedder_artifact_in_cache(
+    cache_root: &Path,
+    operation_manifest_bytes: &[u8],
+    bundle_bytes: &[u8],
+    bundle_binding_bytes: &[u8],
+) -> Result<serde_json::Value> {
+    super::reject_closed_startup_environment()?;
+    let cache_root = validate_restricted_exact_cache_root(cache_root)?;
+    build_restricted_exact_embedder_artifact_at(
+        &cache_root,
+        operation_manifest_bytes,
+        bundle_bytes,
+        bundle_binding_bytes,
+    )
+}
+
+fn build_restricted_exact_embedder_artifact_at(
+    cache_root: &Path,
+    operation_manifest_bytes: &[u8],
+    bundle_bytes: &[u8],
+    bundle_binding_bytes: &[u8],
+) -> Result<serde_json::Value> {
     anyhow::ensure!(
         !bundle_bytes.is_empty(),
         "restricted Contract bundle is empty"
@@ -1041,14 +1142,19 @@ pub fn build_restricted_exact_embedder_artifact(
     .map_err(anyhow::Error::msg)?;
     let restricted_surface_closure_digest = raw_content_digest(projection_bytes)?;
 
-    let manifest_artifact = materialize_protected_artifact(
+    let manifest_artifact = materialize_protected_artifact_at(
+        cache_root,
         "restricted-exact-operation-manifest",
         operation_manifest_bytes,
         &operation_binding.operation_manifest_digest,
     )?;
     let bundle_digest = raw_content_digest(bundle_bytes)?;
-    let bundle_artifact =
-        materialize_protected_artifact("restricted-contract-bundle", bundle_bytes, &bundle_digest)?;
+    let bundle_artifact = materialize_protected_artifact_at(
+        cache_root,
+        "restricted-contract-bundle",
+        bundle_bytes,
+        &bundle_digest,
+    )?;
     let empty_graph = serde_json::json!({"nodes": [], "importEdges": []});
     let package_graph_digest = Digest::new(compute_domain_digest(
         "ibex:capsec:package-graph:1",
@@ -2426,6 +2532,77 @@ mod tests {
         .unwrap_err()
         .to_string()
         .contains("stale or tampered"));
+    }
+
+    #[test]
+    fn restricted_exact_builder_uses_embedder_owned_private_cache() {
+        let _guard = crate::host::abi::host_test_lock();
+        let temp = tempfile::tempdir().unwrap();
+        let cache_root = temp.path().join("cell-cache");
+        std::fs::create_dir(&cache_root).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            std::fs::set_permissions(&cache_root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let bundle = b"globalThis.__restrictedContractLoaded = true;";
+        let result = build_restricted_exact_embedder_artifact_in_cache(
+            &cache_root,
+            &exact_manifest(),
+            bundle,
+            &restricted_bundle_binding("source-utf8", None),
+        );
+        if crate::engine::loaded_engine_structural_features()
+            != [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown",
+            ]
+        {
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("not a restricted profile candidate"));
+            return;
+        }
+
+        let artifact = result.unwrap();
+        let bundle_digest = raw_content_digest(bundle).unwrap();
+        let bundle_path = std::fs::canonicalize(cache_root.join("capsec-artifacts").join(format!(
+            "{}.restricted-contract-bundle.json",
+            bundle_digest.as_str().trim_start_matches("sha256-")
+        )))
+        .unwrap();
+        assert_eq!(
+            artifact["bundle"]["hostPath"],
+            serde_json::to_value(absolute_artifact_path(&bundle_path).unwrap()).unwrap()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restricted_exact_builder_rejects_non_private_cache_roots() {
+        use std::os::unix::fs::{symlink, PermissionsExt as _};
+
+        let temp = tempfile::tempdir().unwrap();
+        let permissive = temp.path().join("permissive-cache");
+        std::fs::create_dir(&permissive).unwrap();
+        std::fs::set_permissions(&permissive, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(validate_restricted_exact_cache_root(&permissive)
+            .unwrap_err()
+            .to_string()
+            .contains("group or other"));
+
+        let private = temp.path().join("private-cache");
+        std::fs::create_dir(&private).unwrap();
+        std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let alias = temp.path().join("cache-alias");
+        symlink(&private, &alias).unwrap();
+        assert!(validate_restricted_exact_cache_root(&alias)
+            .unwrap_err()
+            .to_string()
+            .contains("not a stable directory"));
     }
 
     #[test]
