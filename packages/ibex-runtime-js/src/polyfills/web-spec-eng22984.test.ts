@@ -19,6 +19,10 @@
 import { expect, test, describe, beforeAll, afterAll } from 'bun:test';
 import { installArrayPolyfills } from './array';
 import { installArrayBufferPolyfills } from './arraybuffer';
+import {
+  isDetachedArrayBuffer,
+  markNonTransferableArrayBuffer,
+} from '../arraybuffer-detach';
 import { installIteratorPolyfills } from './iterator';
 import { installSetPolyfills } from './set';
 import { installIntlPolyfills } from './intl';
@@ -53,12 +57,19 @@ describe('ENG-22984 #1 ArrayBuffer resize is no longer a silent no-op', () => {
   let dResize: any;
   let dResizable: any;
   let dMaxByteLength: any;
+  let dTransfer: any;
+  let dTransferToFixedLength: any;
 
   beforeAll(() => {
     origAB = globalThis.ArrayBuffer;
     dResize = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'resize');
     dResizable = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'resizable');
     dMaxByteLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'maxByteLength');
+    dTransfer = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'transfer');
+    dTransferToFixedLength = Object.getOwnPropertyDescriptor(
+      ArrayBuffer.prototype,
+      'transferToFixedLength',
+    );
     delete (ArrayBuffer.prototype as any).resize;
     delete (ArrayBuffer.prototype as any).resizable;
     delete (ArrayBuffer.prototype as any).maxByteLength;
@@ -73,6 +84,13 @@ describe('ENG-22984 #1 ArrayBuffer resize is no longer a silent no-op', () => {
     else delete (proto as any).resizable;
     if (dMaxByteLength) Object.defineProperty(proto, 'maxByteLength', dMaxByteLength);
     else delete (proto as any).maxByteLength;
+    if (dTransfer) Object.defineProperty(proto, 'transfer', dTransfer);
+    else delete (proto as any).transfer;
+    if (dTransferToFixedLength) {
+      Object.defineProperty(proto, 'transferToFixedLength', dTransferToFixedLength);
+    } else {
+      delete (proto as any).transferToFixedLength;
+    }
     (globalThis as any).ArrayBuffer = origAB;
   });
 
@@ -92,6 +110,99 @@ describe('ENG-22984 #1 ArrayBuffer resize is no longer a silent no-op', () => {
 
   test('constructor still rejects a maxByteLength smaller than the length', () => {
     expect(() => new ArrayBuffer(8, { maxByteLength: 4 })).toThrow(RangeError);
+  });
+
+  test('transfer entry points preserve non-transferable buffers', () => {
+    for (const method of ['transfer', 'transferToFixedLength'] as const) {
+      const buffer = new ArrayBuffer(4);
+      new Uint8Array(buffer).set([1, 2, 3, 4]);
+      markNonTransferableArrayBuffer(buffer);
+
+      expect(() => (buffer as any)[method]()).toThrow(TypeError);
+      expect(isDetachedArrayBuffer(buffer)).toBe(false);
+      expect(Array.from(new Uint8Array(buffer))).toEqual([1, 2, 3, 4]);
+    }
+  });
+
+  test('legacy global registry deletion and replacement cannot bypass transfer fences', () => {
+    const legacyRegistryKey = Symbol.for('exact.nonTransferableArrayBuffers');
+    const previous = Object.getOwnPropertyDescriptor(globalThis, legacyRegistryKey);
+    try {
+      for (const [method, attack] of [
+        ['transfer', 'delete-entry'],
+        ['transferToFixedLength', 'replace-registry'],
+      ] as const) {
+        const buffer = new ArrayBuffer(4);
+        new Uint8Array(buffer).set([1, 2, 3, 4]);
+        markNonTransferableArrayBuffer(buffer);
+
+        const hostileRegistry = new WeakSet<ArrayBuffer>();
+        hostileRegistry.add(buffer);
+        Object.defineProperty(globalThis, legacyRegistryKey, {
+          value: hostileRegistry,
+          writable: true,
+          enumerable: false,
+          configurable: true,
+        });
+        if (attack === 'delete-entry') {
+          hostileRegistry.delete(buffer);
+        } else {
+          (globalThis as any)[legacyRegistryKey] = new WeakSet<ArrayBuffer>();
+        }
+
+        expect(() => (buffer as any)[method]()).toThrow(TypeError);
+        expect(isDetachedArrayBuffer(buffer)).toBe(false);
+        expect(Array.from(new Uint8Array(buffer))).toEqual([1, 2, 3, 4]);
+      }
+    } finally {
+      if (previous) {
+        Object.defineProperty(globalThis, legacyRegistryKey, previous);
+      } else {
+        Reflect.deleteProperty(globalThis, legacyRegistryKey);
+      }
+    }
+  });
+
+  test('WeakSet prototype poisoning cannot bypass transfer fences', () => {
+    const add = Object.getOwnPropertyDescriptor(WeakSet.prototype, 'add');
+    const has = Object.getOwnPropertyDescriptor(WeakSet.prototype, 'has');
+    try {
+      Object.defineProperty(WeakSet.prototype, 'add', {
+        value: function hostileAdd(this: WeakSet<object>): WeakSet<object> {
+          return this;
+        },
+        writable: true,
+        configurable: true,
+      });
+      Object.defineProperty(WeakSet.prototype, 'has', {
+        value: () => false,
+        writable: true,
+        configurable: true,
+      });
+
+      for (const method of ['transfer', 'transferToFixedLength'] as const) {
+        const buffer = new ArrayBuffer(4);
+        new Uint8Array(buffer).set([1, 2, 3, 4]);
+        markNonTransferableArrayBuffer(buffer);
+
+        expect(() => (buffer as any)[method]()).toThrow(TypeError);
+        expect(isDetachedArrayBuffer(buffer)).toBe(false);
+        expect(Array.from(new Uint8Array(buffer))).toEqual([1, 2, 3, 4]);
+      }
+    } finally {
+      if (add) Object.defineProperty(WeakSet.prototype, 'add', add);
+      if (has) Object.defineProperty(WeakSet.prototype, 'has', has);
+    }
+  });
+
+  test('fenced transfer still moves ordinary buffers', () => {
+    const buffer = new ArrayBuffer(4);
+    new Uint8Array(buffer).set([1, 2, 3, 4]);
+    const moved = (buffer as any).transfer(8) as ArrayBuffer;
+
+    expect(isDetachedArrayBuffer(buffer)).toBe(true);
+    expect(Array.from(new Uint8Array(moved)))
+      .toEqual([1, 2, 3, 4, 0, 0, 0, 0]);
   });
 });
 

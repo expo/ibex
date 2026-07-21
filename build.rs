@@ -1046,6 +1046,8 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_internal.h");
     println!("cargo:rerun-if-changed=src/engine/hermes_module_runner.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_gpu.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_gpu_v2.cc");
     println!("cargo:rerun-if-changed=src/engine/self_image.cc");
     // @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory —
     // native registry IDs are committed generated input to the C++ archive.
@@ -1759,6 +1761,8 @@ fn main() {
         .cpp(true)
         .file("src/engine/hermes_runtime.cc")
         .file("src/engine/hermes_module_runner.cc")
+        .file("src/engine/hermes_runtime_gpu.cc")
+        .file("src/engine/hermes_runtime_gpu_v2.cc")
         .file("src/engine/self_image.cc")
         .file("src/engine/hermes_bootstrap.cc")
         .file("src/engine/hermes_runtime_utils.cc")
@@ -1782,6 +1786,17 @@ fn main() {
     if std::env::var_os("CARGO_FEATURE_CAPSEC_CONFORMANCE_OBSERVER").is_some() {
         build.define("IBEX_CAPSEC_CONFORMANCE_OBSERVER", None);
         build.file("src/engine/hermes_session_conformance.cc");
+    }
+    if std::env::var_os("CARGO_FEATURE_WEBGPU_BINDING").is_some() {
+        build.define("IBEX_ENABLE_WEBGPU_BINDING", None);
+    }
+    if std::env::var_os("CARGO_FEATURE_GPU_BRIDGE_TEST_HOOKS").is_some() {
+        build.define("IBEX_GPU_BRIDGE_TEST_HOOKS", None);
+        // The mapped-range composition probe verifies that aliases minted by
+        // the private HostFunction are rejected by Hermes' transfer path.
+        // ISerialization is intentionally behind JSI_UNSTABLE; expose that
+        // interface only in test-hook artifacts, never ordinary binaries.
+        build.define("JSI_UNSTABLE", None);
     }
 
     if target_os == "windows" {
@@ -1943,6 +1958,7 @@ fn main() {
     }
 
     let jsi_header = jsi_include_dir.join("jsi").join("jsi.h");
+    let hermes_interfaces_header = jsi_include_dir.join("jsi").join("hermes-interfaces.h");
     let hermes_header = hermes_include_dir.join("hermes").join("hermes.h");
     let installed_runtime_config_header = hermes_include_dir
         .join("hermes")
@@ -1960,7 +1976,12 @@ fn main() {
             .map(|public| public.join("hermes").join("Public").join("RuntimeConfig.h"))
             .unwrap_or(installed_runtime_config_header)
     };
-    for probed_header in [&jsi_header, &hermes_header, &runtime_config_header] {
+    for probed_header in [
+        &jsi_header,
+        &hermes_interfaces_header,
+        &hermes_header,
+        &runtime_config_header,
+    ] {
         println!("cargo:rerun-if-changed={}", probed_header.display());
     }
     // @ref LLP 0005#c-compilation — Ibex supports both Hermes 0.11 headers
@@ -1968,6 +1989,16 @@ fn main() {
     // surface instead of keying these C++ code paths on target OS.
     if file_contains_all(&jsi_header, &["MutableBuffer", "createArrayBuffer"]) {
         build.define("EXACT_HAVE_JSI_MUTABLE_BUFFER", None);
+    }
+    if file_contains_all(
+        &hermes_interfaces_header,
+        &[
+            "class JSI_EXPORT IExactWebGpuArrayBuffer",
+            "createWebGpuMappedRangeAlias(",
+            "detachWebGpuMappedRange(",
+        ],
+    ) {
+        build.define("EXACT_HAVE_WEBGPU_MAPPED_ARRAY_BUFFER", None);
     }
     if file_contains_all(&jsi_header, &["queueMicrotask("]) {
         build.define("EXACT_HAVE_JSI_QUEUE_MICROTASK", None);

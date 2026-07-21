@@ -31,6 +31,7 @@ stale=()
 # registry freshness and its downstream contract digests are required.
 bun run check:capsec-registry
 bun run check:runtime-environment-inventory
+bun run check:host-task-ingress-inventory
 bun run check:capsec-contract
 bun run check:capsec-runtime-projection
 # @ref LLP 0014#the-generated-artifact — policy lockfiles bind the registry
@@ -55,6 +56,19 @@ if ! bun run generate:modules --check >/dev/null 2>&1; then
 fi
 if ! bun run generate:vendored-fingerprint --check >/dev/null 2>&1; then
   stale+=("vendored-generated/source-fingerprint.generated.txt")
+fi
+if ! bun run generate:webgpu-test-wrapper --check >/dev/null 2>&1; then
+  stale+=("tests/fixtures/webgpu-test-wrapper.generated.js")
+fi
+if ! bun run generate:webgpu-production-plan --check >/dev/null 2>&1; then
+  stale+=(
+    "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts"
+    "packages/ibex-runtime-js/src/webgpu/production-codecs.generated.ts"
+    "tests/fixtures/webgpu-production-codec-manifest-v1.generated.json"
+  )
+fi
+if ! bun run generate:webgpu-production-codec-corpus --check >/dev/null 2>&1; then
+  stale+=("tests/fixtures/webgpu-production-codec-corpus-v1.generated.json")
 fi
 
 # --- bundle builders (write to scratch, diff against committed) -------------

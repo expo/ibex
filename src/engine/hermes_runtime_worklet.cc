@@ -1099,6 +1099,11 @@ extern "C" int ex_hermes_dispatch_worklet_calls(
   if (!handle || (count > 0 && !calls) || !out_delivered) {
     return EX_WORKLET_ERROR;
   }
+  if (!exactRuntimeEnterUserExecution(handle)) {
+    return EX_WORKLET_ERROR;
+  }
+  ScopedGpuHostTask hostTask(handle);
+  if (!hostTask) return EX_WORKLET_ERROR;
   try {
     auto& rt = *handle->runtime;
     auto dispatcher_value =
@@ -1151,6 +1156,7 @@ extern "C" int ex_hermes_dispatch_worklet_calls(
           static_cast<size_t>(call.argument_count + 2));
       (*out_delivered)++;
     }
+    if (!hostTask.finish()) return EX_WORKLET_ERROR;
     return EX_WORKLET_OK;
   } catch (const facebook::jsi::JSError&) {
     return EX_WORKLET_ERROR;
@@ -1167,6 +1173,11 @@ extern "C" int ex_hermes_dispatch_worklet_json_batch(
   if (!handle || !batch_json || batch_len == 0) {
     return EX_WORKLET_ERROR;
   }
+  if (!exactRuntimeEnterUserExecution(handle)) {
+    return EX_WORKLET_ERROR;
+  }
+  ScopedGpuHostTask hostTask(handle);
+  if (!hostTask) return EX_WORKLET_ERROR;
   try {
     auto& rt = *handle->runtime;
     auto dispatcher_value =
@@ -1181,6 +1192,7 @@ extern "C" int ex_hermes_dispatch_worklet_json_batch(
     auto dispatcher = dispatcher_value.asObject(rt).asFunction(rt);
     (void)dispatcher.call(
         rt, std::move(batch), static_cast<double>(generation));
+    if (!hostTask.finish()) return EX_WORKLET_ERROR;
     return EX_WORKLET_OK;
   } catch (const facebook::jsi::JSError&) {
     return EX_WORKLET_ERROR;
@@ -1196,6 +1208,11 @@ extern "C" int ex_hermes_dispatch_motion_rated_publish(
       sample->value_count > EX_WORKLET_MAX_RUN_ON_JS_SLOTS) {
     return EX_WORKLET_ERROR;
   }
+  if (!exactRuntimeEnterUserExecution(handle)) {
+    return EX_WORKLET_ERROR;
+  }
+  ScopedGpuHostTask hostTask(handle);
+  if (!hostTask) return EX_WORKLET_ERROR;
   for (uint32_t index = 0; index < sample->value_count; index++) {
     if (!std::isfinite(sample->values[index])) {
       return EX_WORKLET_ERROR;
@@ -1233,6 +1250,7 @@ extern "C" int ex_hermes_dispatch_motion_rated_publish(
             rt, std::to_string(sample->channel_identity)),
         std::move(values),
         std::move(metadata));
+    if (!hostTask.finish()) return EX_WORKLET_ERROR;
     return EX_WORKLET_OK;
   } catch (const facebook::jsi::JSError&) {
     return EX_WORKLET_ERROR;

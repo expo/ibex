@@ -83,6 +83,20 @@ struct NextTickEntry {
   std::vector<facebook::jsi::Value> args;
 };
 
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
+// Heap-owned state for one debugger command admitted from a non-runtime
+// thread. App-bundle begin cancels every registered command while closing the
+// debugger gate, waking its caller even when Hermes never services the queued
+// interrupt. A late interrupt checks `cancelled` before touching the runtime.
+struct ExactPendingDebuggerCommand {
+  std::mutex mutex;
+  std::condition_variable cv;
+  bool cancelled{false};
+  bool settled{false};
+  std::string result;
+};
+#endif
+
 struct FetchCallbackEntry {
   std::shared_ptr<facebook::jsi::Function> resolve;
   std::shared_ptr<facebook::jsi::Function> reject;
@@ -194,6 +208,16 @@ struct ExactHostCallAsyncEntry {
 };
 
 struct ExactHermesRuntime;
+struct ExactGpuRuntimeBinding;
+struct ExactGpuRuntimeBindingV2;
+struct ExactGpuDecodedImageRuntimeBindingV1;
+
+enum class EmbedderCapabilityState : uint8_t {
+  LegacyAutoFinalize,
+  Configuring,
+  Finalized,
+  Failed,
+};
 
 struct ModuleFactoryEntry {
   uint64_t graph_generation{0};
@@ -506,8 +530,15 @@ struct ExactHermesRuntime {
   std::unique_ptr<facebook::jsi::Function>
       root_global_get_own_property_descriptor;
   std::unique_ptr<facebook::jsi::Function> root_global_get_prototype_of;
+  std::unique_ptr<facebook::jsi::Function> root_global_object_is_frozen;
   std::unique_ptr<facebook::jsi::Function> root_global_reflect_delete_property;
   std::vector<std::string> root_global_baseline_keys;
+  // Armed user execution opens only after the descriptor-only sweep has run
+  // against the final authenticated embedder capability projection. A
+  // transaction begun after ordinary bootstrap invalidates the earlier base
+  // sweep until its provider globals are published, sealed, and reverified.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  bool root_global_disposition_verified_for_user_execution{false};
   // Captured exactly once by the trusted loader bootstrap through a temporary
   // host-only rendezvous global. Project code never receives the closure and
   // cannot replace it after bootstrap deletes the rendezvous property.
@@ -528,6 +559,11 @@ struct ExactHermesRuntime {
   // armed runtime and irreversibly sealed before project source is admitted.
   // @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
   bool armed_bootstrap_eval_open{true};
+  // Set only by the named, owner-thread trusted seal after the reviewed
+  // shared-runtime ambient/global closure program completes without throwing.
+  // finish_bootstrap requires this witness instead of duplicating or
+  // implicitly running that program.
+  bool armed_shared_runtime_globals_sealed{false};
   // Immutable constructor-selected posture. Bootstrap must never consult
   // process-global environment toggles that other threads can observe/race.
   bool armed{false};
@@ -554,6 +590,19 @@ struct ExactHermesRuntime {
   int process_ipc_fd{-1};
   bool process_ipc_advanced_serialization{false};
   bool structural_lockdown{false};
+  // Multi-capability embedders opt into an explicit construction transaction.
+  // Legacy Exact-only callers remain on the historical auto-finalize path.
+  // Only the runtime owner thread mutates this state.
+  EmbedderCapabilityState embedder_capability_state{
+      EmbedderCapabilityState::LegacyAutoFinalize};
+  // Trusted bootstrap scripts run before the handle is published to an
+  // embedder. They do not close the construction-only capability window.
+  bool trusted_bootstrap_in_progress{false};
+  // The explicit embedder-capability transaction is a construction-only
+  // operation. Once any externally driven user-code entry point has run, a
+  // later transaction cannot publish provisional capabilities into that realm.
+  // Owner-thread only, like embedder_capability_state.
+  bool user_execution_started{false};
   bool shared_runtime_bundle_installed{false};
   // Strict JSON [{locator,endowments}] projection copied from the immutable
   // armed Host context. Locator punctuation is data, never bootstrap syntax.
@@ -569,6 +618,46 @@ struct ExactHermesRuntime {
   bool debugger_callback_set{false};
   std::atomic<bool> debugger_attached{false};
   std::atomic<bool> debugger_available{true};
+  // A successful GPU Canvas app-bundle begin excludes every debugger ingress
+  // until finish has proved the temporary capture root closed. The atomic is
+  // checked both before an off-thread interrupt is queued and again when that
+  // interrupt reaches the runtime thread; debug_mutex linearizes the gate with
+  // event publication/consumption and debugger snapshots.
+  // @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
+  std::atomic<bool> gpu_canvas_app_bundle_debugger_blocked{false};
+  // Owner-thread-only companion state. An attached debugger is temporarily
+  // detached at begin so a pre-existing breakpoint cannot pause trusted
+  // capture source, then restored before the gate opens after finish.
+  bool gpu_canvas_app_bundle_debugger_was_attached{false};
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
+  std::unordered_set<std::shared_ptr<ExactPendingDebuggerCommand>>
+      pending_debugger_commands;
+#endif
+#ifdef IBEX_GPU_BRIDGE_TEST_HOOKS
+  std::atomic<bool> test_pause_debugger_after_interrupt_enqueue{false};
+  std::atomic<bool> test_debugger_interrupt_enqueue_paused{false};
+#endif
+  // An owner-thread protocol failure can quarantine a live runtime before its
+  // embedder is able to schedule physical destruction. Quarantine is
+  // irreversible and closes every later drive/callback/debugger ingress while
+  // still permitting transaction cleanup and owner-thread destruction.
+  // @ref LLP 0002#runtime-driving-thread-contract
+  std::atomic<bool> runtime_quarantined{false};
+  // The additive outer app-bundle transaction closes every ordinary runtime
+  // drive before generated preparation publishes its carrier and remains
+  // closed through Canvas capture, runApp, and native absence verification.
+  std::atomic<bool> app_bundle_evaluation_open{false};
+  uint32_t app_bundle_expected_prepared_disposition{0};
+  bool app_bundle_immediate_evaluation_completed{false};
+  bool app_bundle_immediate_source_fallback_allowed{false};
+  bool app_bundle_prepared_classified{false};
+  bool app_bundle_prepared_staged{false};
+  bool app_bundle_prepared_invoked{false};
+  std::unique_ptr<facebook::jsi::Function>
+      app_bundle_prepared_consume_gpu_integration;
+  std::unique_ptr<facebook::jsi::Function> app_bundle_prepared_run_app;
+  std::atomic<bool> gpu_canvas_app_bundle_transaction_open{false};
+  bool gpu_canvas_app_bundle_owns_debugger_exclusion{false};
   std::mutex debug_mutex;
   std::deque<std::string> debug_events;
   std::unordered_set<uint32_t> known_scripts;
@@ -599,6 +688,15 @@ struct ExactHermesRuntime {
   uint64_t next_timer_id{1};
   std::unordered_map<uint64_t, TimerEntry> timers;
   std::deque<NextTickEntry> next_tick;
+  // One Canvas acquisition epoch spans the complete outer runtime-owner task,
+  // including nextTick and every microtask slice. Windows can bound one drain
+  // to 1024 jobs, so the active identity survives between poll calls until a
+  // slice reports completion. These fields are owner-thread-only.
+  uint64_t next_gpu_host_task_id{1};
+  uint64_t active_gpu_host_task_id{0};
+  uint32_t gpu_host_task_depth{0};
+  std::atomic<bool> gpu_host_task_microtask_continuation{false};
+  std::atomic<bool> gpu_host_task_checkpoint_failed{false};
   std::mutex task_mutex;
   std::vector<std::function<void(facebook::jsi::Runtime&)>> pending_tasks;
   std::atomic<int> active_spawn_processes{0};
@@ -710,6 +808,24 @@ struct ExactHermesRuntime {
                                    size_t payload_len,
                                    void* context) = nullptr;
   void* exact_host_call_async_context = nullptr;
+  // The shared runtime's one-shot GPU construction handoff is removed from
+  // globalThis at the armed bootstrap seal. Native retains it only until a
+  // late provider transaction consumes it or user execution closes it.
+  std::shared_ptr<facebook::jsi::Function> gpu_construction_capture;
+  // Optional provider-independent Exact GPU service registration. The binding
+  // owns the native mailbox plus owner-thread-only JSI bridge/Promise roots;
+  // no physical WGPU handle crosses this boundary. Runtime-js captures the
+  // bridge only in its private construction module and revokes it on teardown.
+  std::shared_ptr<ExactGpuRuntimeBinding> gpu_binding;
+  // Additive full-identity carrier. Exactly one of gpu_binding/gpu_binding_v2
+  // may be populated; keeping distinct types makes the V1 ABI and behavior
+  // mechanically unchanged while V2 is staged behind the same feature gate.
+  std::shared_ptr<ExactGpuRuntimeBindingV2> gpu_binding_v2;
+  // Construction-private, subordinate decoded-image callback. It contributes
+  // no capability-set bit and is consumed only while publishing a live V2
+  // private bridge. Teardown generation-fences and cancels it independently.
+  std::shared_ptr<ExactGpuDecodedImageRuntimeBindingV1>
+      gpu_decoded_image_binding_v1;
 };
 
 // Replace the captured typed-filesystem principal constraint for the current
@@ -730,7 +846,11 @@ const std::vector<uint64_t>* exactSwapTypedPrincipalStackForRuntimeDrive(
 /// @ref LLP 0013#mechanism-3
 class ExactRuntimeDriveGuard {
  public:
-  ExactRuntimeDriveGuard(ExactHermesRuntime* runtime, uint64_t expectedNonce = 0);
+  ExactRuntimeDriveGuard(
+      ExactHermesRuntime* runtime,
+      uint64_t expectedNonce = 0,
+      bool allowQuarantined = false,
+      bool allowAppBundleEvaluation = false);
   ~ExactRuntimeDriveGuard();
   ExactRuntimeDriveGuard(const ExactRuntimeDriveGuard&) = delete;
   ExactRuntimeDriveGuard& operator=(const ExactRuntimeDriveGuard&) = delete;
@@ -754,6 +874,87 @@ class ExactRuntimeDriveGuard {
   int32_t status_{EXACT_RUNTIME_DRIVE_INVALID};
 };
 
+/// Outermost runtime-owner user-code scope used by the typed Canvas current-
+/// texture lifetime. Destruction is the finally path: it drains nextTick and
+/// microtasks, retaining the same task identity across a bounded Windows
+/// continuation, then invokes the construction-captured GPU checkpoint once.
+/// Nested coercions/callbacks join the existing scope.
+/// @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
+class ScopedGpuHostTask {
+ public:
+  explicit ScopedGpuHostTask(ExactHermesRuntime* runtime) noexcept;
+  ~ScopedGpuHostTask();
+  ScopedGpuHostTask(const ScopedGpuHostTask&) = delete;
+  ScopedGpuHostTask& operator=(const ScopedGpuHostTask&) = delete;
+
+  explicit operator bool() const { return active_; }
+  bool finish() noexcept;
+
+ private:
+  ExactHermesRuntime* runtime_{nullptr};
+  bool active_{false};
+};
+
+/// Resume a bounded microtask continuation before admitting a new outer task.
+/// Returns false while another slice is still required or after checkpoint
+/// quarantine. A true result means a fresh task may begin.
+bool exactResumeGpuHostTaskContinuation(ExactHermesRuntime* runtime) noexcept;
+
+/// Irreversibly close all ordinary runtime drive and producer ingress while
+/// retaining only cleanup/query/destruction access to the exact generation.
+/// The caller must hold a successful owner-thread ExactRuntimeDriveGuard.
+bool exactRuntimeQuarantine(ExactHermesRuntime* runtime) noexcept;
+
+bool exactGpuCloseConstructionCapture(ExactHermesRuntime* runtime);
+bool exactGpuRetainConstructionCaptureForBootstrapSeal(
+    ExactHermesRuntime* runtime);
+
+inline bool exactRuntimeEnterUserExecution(ExactHermesRuntime* runtime) {
+  if (!runtime || !runtime->runtime) {
+    return false;
+  }
+  if (runtime->runtime_quarantined.load(std::memory_order_acquire)) {
+    return false;
+  }
+  if (runtime->app_bundle_evaluation_open.load(std::memory_order_acquire)) {
+    return false;
+  }
+  // A provisional or failed native capability transaction outranks every
+  // evaluator posture, including trusted construction. Native finalizers use
+  // direct owner-thread JSI and do not need this project-execution gate.
+  if (runtime->embedder_capability_state ==
+          EmbedderCapabilityState::Configuring ||
+      runtime->embedder_capability_state == EmbedderCapabilityState::Failed) {
+    return false;
+  }
+  if (runtime->trusted_bootstrap_in_progress) {
+    return true;
+  }
+  // The host-controlled bare evaluator remains the phase-limited trusted
+  // loader while armed_bootstrap_eval_open is true. It must neither close the
+  // provider rendezvous nor count as project execution; structured/project
+  // ingress independently refuses until finish_bootstrap closes this phase.
+  if (runtime->armed && runtime->armed_bootstrap_eval_open) {
+    return true;
+  }
+  if (runtime->armed &&
+      !runtime->root_global_disposition_verified_for_user_execution) {
+    runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
+    return false;
+  }
+  // The runtime-js handoff callback is construction-only. Closing it here is
+  // the final common fence for legacy/feature-off runtimes that never run a
+  // multi-capability finalizer; user code can never enumerate or call it.
+  if (!runtime->user_execution_started) {
+    if (!exactGpuCloseConstructionCapture(runtime)) {
+      runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
+      return false;
+    }
+  }
+  runtime->user_execution_started = true;
+  return true;
+}
+
 /// Construction-only evaluator used before registerRuntime publishes the
 /// generation. Public embedders must use ex_hermes_eval, whose drive guard can
 /// therefore reject every stale/off-owner/reentrant caller before dereference.
@@ -765,6 +966,24 @@ int exactHermesBootstrapEval(
     const char* sourceUrl,
     int isBytecode,
     char** outValue);
+
+/// Perform one owner-thread Hermes source/bytecode evaluation, optionally
+/// preceded by one trusted source prelude, and discard both results. Bytecode
+/// sanity is proven before the optional prelude executes. This internal
+/// primitive intentionally performs no nextTick or microtask drain, debugger
+/// script publication, thenable inspection/poll, result coercion, or mutable
+/// uncaught-exception hook between or after evaluations. The public GPU Canvas
+/// transaction wrappers are its only embedder ingress.
+int exactHermesEvalImmediateNoJobs(
+    ExactHermesRuntime* runtime,
+    const uint8_t* data,
+    size_t len,
+    const char* sourceUrl,
+    int isBytecode,
+    char** outError,
+    const uint8_t* preludeData = nullptr,
+    size_t preludeLen = 0,
+    const char* preludeSourceUrl = nullptr);
 
 struct NativeWebSocketCallbackContext {
   RuntimeCallbackTarget target;
@@ -1026,6 +1245,13 @@ extern "C" int32_t ex_host_authorize_typed_print_stack(
     size_t module_ids_len,
     uint32_t stage);
 
+// Reserved principals are part of the runtime's fallback attribution contract
+// too, so they must remain available when an embedder uses an unpatched Hermes
+// without frame-attribution symbols. Keep these values in sync with Hermes'
+// kRuntimePackageId and the Rust NO_USER_PRINCIPAL constant.
+constexpr uint32_t kRuntimePrincipalId = 0xFFFFFFFFu;
+constexpr uint32_t kNoUserPrincipalId = 0xFFFFFFFEu;
+
 // @ref LLP 0013#mechanism-3 — frame-derived capability attribution. The bridge
 // symbols are exported by the carried Hermes patch stack (patches/hermes/0003)
 // and are only referenced when EXACT_HAVE_FRAME_ATTRIBUTION is defined (build.rs
@@ -1072,16 +1298,6 @@ extern "C" int ex_hermes_vm_take_failed_job_context(
 // clobber or free the pointer this thread's attribution walk reads. The extern
 // is declared above with the other runtime-bound TLS so construction and
 // teardown scopes can select it too. (ENG-23011)
-// The reserved principal for runtime-internal code (bootstrap, module loader,
-// lockdown/compartment installers). Domains stamped with it are transparent to
-// frame attribution — the walk skips them so the nearest user frame is charged.
-// Kept in sync with kRuntimePackageId in Hermes' CapabilityAttribution.cpp.
-constexpr uint32_t kRuntimePrincipalId = 0xFFFFFFFFu;
-// Mirror of the Rust NO_USER_PRINCIPAL / engine kNoUserPrincipal: a principal
-// with no grants that fails closed. Used as a fail-closed sentinel when the
-// deputy-stack collector may have truncated (see checkCapability). (ENG-22643)
-constexpr uint32_t kNoUserPrincipalId = 0xFFFFFFFEu;
-
 // A thread may drive more than one Hermes runtime, including re-entrantly when
 // an embedder host call evaluates a nested runtime. Capability attribution must
 // follow the runtime currently being driven, then restore the outer runtime on
@@ -1863,10 +2079,34 @@ facebook::jsi::Object makeHeapInfoObject(
 std::string stringifyHeapInfo(
     const std::unordered_map<std::string, int64_t>& heapInfo);
 char* copyMallocString(const std::string& value);
+bool exactRuntimeDebuggerIngressAllowed(
+    const ExactHermesRuntime* runtime) noexcept;
+bool exactRuntimeBeginGpuCanvasDebuggerExclusion(
+    ExactHermesRuntime* runtime) noexcept;
+bool exactRuntimeFinishGpuCanvasDebuggerExclusion(
+    ExactHermesRuntime* runtime) noexcept;
 void pushDebugEvent(ExactHermesRuntime* runtime, const std::string& event);
 #if EXACT_HAS_HERMES_ASYNC_DEBUGGER
 std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> snapshotDebugger(
     ExactHermesRuntime* runtime);
+std::shared_ptr<ExactPendingDebuggerCommand> exactRuntimeAdmitDebuggerCommand(
+    ExactHermesRuntime* runtime,
+    std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI>* debugger);
+void exactRuntimeCancelPendingDebuggerCommands(
+    ExactHermesRuntime* runtime) noexcept;
+bool exactRuntimeDebuggerCommandCancelled(
+    const std::shared_ptr<ExactPendingDebuggerCommand>& command) noexcept;
+void exactRuntimeSettleDebuggerCommand(
+    ExactHermesRuntime* runtime,
+    const std::shared_ptr<ExactPendingDebuggerCommand>& command,
+    std::string result = {}) noexcept;
+std::string exactRuntimeWaitDebuggerCommand(
+    ExactHermesRuntime* runtime,
+    const std::shared_ptr<ExactPendingDebuggerCommand>& command,
+    bool* cancelled = nullptr) noexcept;
+void exactRuntimeDebuggerInterruptQueuedTestPause(
+    ExactHermesRuntime* runtime,
+    const std::shared_ptr<ExactPendingDebuggerCommand>& command) noexcept;
 #endif
 void clearDebugger(ExactHermesRuntime* runtime);
 void disableDebugger(ExactHermesRuntime* runtime);
@@ -1906,6 +2146,43 @@ extern "C" void ex_hermes_notify_callback();
 // including while destroy waits for native producer pins to drain.
 bool pushRuntimeFinalizer(RuntimeCallbackTarget target,
                           std::function<void()> fn);
+
+bool exactGpuBindingInstalled(const ExactHermesRuntime* runtime);
+bool exactGpuAuthenticatedV2ProviderGlobalsActive(
+    const ExactHermesRuntime* runtime);
+bool exactGpuAuthenticatedDecodedImageGlobalActive(
+    const ExactHermesRuntime* runtime);
+bool exactGpuCheckpointHostTask(ExactHermesRuntime* runtime);
+bool exactGpuOwnerDrainPending(const ExactHermesRuntime* runtime);
+int exactGpuDrainOwnerFallback(ExactHermesRuntime* runtime);
+int32_t exactGpuActivateInstall(ExactHermesRuntime* runtime);
+bool exactGpuPublishPrivateBridge(ExactHermesRuntime* runtime);
+bool exactGpuSealPrivateBridge(ExactHermesRuntime* runtime);
+void exactGpuRollbackInstall(ExactHermesRuntime* runtime);
+void exactGpuBeginRuntimeTeardown(ExactHermesRuntime* runtime);
+
+// Additive V2 implementation hooks, composed by the version-neutral lifecycle
+// helpers above. These stay engine-internal; the public surface is the C ABI in
+// exact_runtime.h plus the one-shot runtime-js construction capture.
+int32_t exactGpuV2ActivateInstall(ExactHermesRuntime* runtime);
+bool exactGpuV2PublishPrivateBridge(ExactHermesRuntime* runtime);
+bool exactGpuV2SealPrivateBridge(ExactHermesRuntime* runtime);
+bool exactGpuV2CheckpointHostTask(ExactHermesRuntime* runtime);
+bool exactGpuV2OwnerDrainPending(const ExactHermesRuntime* runtime);
+int exactGpuV2DrainOwnerFallback(ExactHermesRuntime* runtime);
+void exactGpuV2RollbackInstall(ExactHermesRuntime* runtime);
+void exactGpuV2BeginRuntimeTeardown(ExactHermesRuntime* runtime);
+
+bool exactGpuDecodedImageAttachAuthorityV1(
+    ExactHermesRuntime* runtime,
+    facebook::jsi::Runtime& rt,
+    facebook::jsi::Object& bridge);
+void exactGpuDecodedImageDiscardIfUnusedV1(ExactHermesRuntime* runtime);
+void exactGpuDecodedImageRollbackInstallV1(ExactHermesRuntime* runtime);
+void exactGpuDecodedImageBeginRuntimeTeardownV1(ExactHermesRuntime* runtime);
+bool exactGpuDecodedImageOwnerDrainPendingV1(
+    const ExactHermesRuntime* runtime);
+int exactGpuDecodedImageDrainOwnerFallbackV1(ExactHermesRuntime* runtime);
 
 void exactRequireFdReadable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
 void exactRequireFdWritable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);

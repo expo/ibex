@@ -94,6 +94,7 @@
     "generated/root-global-disposition-manifest.json",
     "generated/surface-inventory.md",
     "generated/target-advertisements.json",
-    "generated/target-matrix.md"
+    "generated/target-matrix.md",
+    "generated/webgpu-private-operation-registry.json"
   ]
 }

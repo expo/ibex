@@ -37,6 +37,7 @@ import {
   validateTrackedOutputDispositionEvidenceSentinel,
 } from "./capsec-output-dispositions.mjs";
 import { validateIngressObligationDataset } from "./capsec-ingress-obligations.mjs";
+import { checkHostTaskIngressInventory } from "./generate-host-task-ingress-inventory.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -54,6 +55,14 @@ const CONTRACT_DIGEST_OUTPUT_CATALOG = Object.freeze([
   "capsec/examples/digest-bundle.canonical.json",
   "capsec/examples/digest-vectors.canonical.json",
   "capsec/examples/registry-digest-bundle.canonical.json",
+]);
+
+// Source-audit artifacts have their own exact generator/checker and are not
+// semantic CapSec registries or inputs to the contract digest family. Keep
+// them under capsec/registry for review locality without silently adding them
+// to the policy contract manifest.
+const AUXILIARY_CHECKED_CAPSEC_FILES = new Set([
+  "registry/host-task-ingress-inventory.json",
 ]);
 
 const generatedImplementationManifestPath = path.join(
@@ -922,8 +931,15 @@ function relativeFiles(dir) {
       .sort((left, right) => Buffer.from(left.name).compare(Buffer.from(right.name)))) {
       const filePath = path.join(current, entry.name);
       if (entry.isDirectory()) visit(filePath);
-      else if (entry.isFile())
-        files.push(path.relative(capsecRoot, filePath).split(path.sep).join("/"));
+      else if (entry.isFile()) {
+        const relativePath = path
+          .relative(capsecRoot, filePath)
+          .split(path.sep)
+          .join("/");
+        if (!AUXILIARY_CHECKED_CAPSEC_FILES.has(relativePath)) {
+          files.push(relativePath);
+        }
+      }
     }
   };
   visit(root);
@@ -1087,6 +1103,7 @@ function resourceKindsOfOccurrence(occurrence) {
     case "storage-occurrence":
     case "lifecycle-occurrence":
     case "session-state-occurrence":
+    case "gpu-operation-occurrence":
     case "closed-occurrence":
       return [occurrence.resource.requested?.kind];
     default:
@@ -2031,6 +2048,24 @@ function validateOccurrenceFacts(occurrence, label, rules) {
         );
       }
       break;
+    case "gpu-operation-occurrence": {
+      if (!["requested", "commit", "repeat"].includes(occurrence.stage)) {
+        throw new Error(
+          `${label}: GPU operation occurrence supports only requested, commit, and repeat stages`,
+        );
+      }
+      const presentedHandleIdentities =
+        resource.presentedHandleIdentities ?? [];
+      assertUnique(
+        presentedHandleIdentities,
+        `${label}.resource.presentedHandleIdentities`,
+      );
+      assertSorted(
+        presentedHandleIdentities,
+        `${label}.resource.presentedHandleIdentities`,
+      );
+      break;
+    }
     default:
       break;
   }
@@ -4548,6 +4583,7 @@ export function invalidFixtureNames() {
 }
 
 export function runContractCheck({ write = false } = {}) {
+  const hostTaskIngress = checkHostTaskIngressInventory();
   let contract;
   let rendered;
   if (write) {
@@ -4608,6 +4644,10 @@ export function runContractCheck({ write = false } = {}) {
     invalidFixtures: contract.manifest.invalidFixtures.length,
     coverageEdges: contract.coverage.edges.length,
     targetCells: contract.targetCells.cells.length,
+    hostTaskIngressSites: Object.values(hostTaskIngress.counts).reduce(
+      (sum, count) => sum + count,
+      0,
+    ),
   };
 }
 
@@ -4622,7 +4662,7 @@ if (path.resolve(process.argv[1] ?? "") === __filename) {
     const counts = runContractCheck({ write });
     const verb = write ? "Generated and validated" : "Validated";
     console.log(
-      `${verb} capsec contract: ${counts.schemas} schemas, ${counts.capabilityDefinitions} definitions, ${counts.legacyCapabilities} legacy rows, ${counts.selectorExamples} selectors, ${counts.occurrenceExamples} occurrences, ${counts.decisionSets} decision set, ${counts.containmentVectors} containment vectors, ${counts.digestVectors} digest vectors, ${counts.invalidFixtures} invalid fixtures, ${counts.coverageEdges} coverage edges, ${counts.targetCells} target cells.`,
+      `${verb} capsec contract: ${counts.schemas} schemas, ${counts.capabilityDefinitions} definitions, ${counts.legacyCapabilities} legacy rows, ${counts.selectorExamples} selectors, ${counts.occurrenceExamples} occurrences, ${counts.decisionSets} decision set, ${counts.containmentVectors} containment vectors, ${counts.digestVectors} digest vectors, ${counts.invalidFixtures} invalid fixtures, ${counts.coverageEdges} coverage edges, ${counts.targetCells} target cells, ${counts.hostTaskIngressSites} host-task ingress sites.`,
     );
   } catch (error) {
     console.error(`error: ${error.message}`);

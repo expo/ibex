@@ -11759,6 +11759,9 @@ pub(crate) mod tests {
                     ProtectedArtifactRole::ExactOperationManifest => {
                         digest_at(&["exactEmbedder", "operationManifestDigest"])
                     }
+                    ProtectedArtifactRole::ExactWebgpuProfile => {
+                        digest_at(&["exactGpuProvider", "profileDigest"])
+                    }
                     ProtectedArtifactRole::ArmedPolicy => digest_at(&["policyDigest"]),
                     ProtectedArtifactRole::PackageGraph => digest_at(&["packageGraph", "digest"]),
                     ProtectedArtifactRole::Registry => digest_at(&["registryDigest"]),

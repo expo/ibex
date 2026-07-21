@@ -5,6 +5,10 @@
 **Systems:** Engine, Runtime, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-19 (makes authenticated V2 capture publish the exact source-derived WebGPU wrapper roots, gates `createImageBitmap` on attached decoded-image authority, and fences all armed user execution on a post-publication descriptor-only root sweep with revocation and terminal rollback on mismatch; no target advertisement or platform-support claim is added)
+**Revised:** 2026-07-19 (completes construction-private GPU V2 composition: pinned Hermes promotes internal ArrayBuffer storage to shared external ownership in place before aliasing, the two mapping HostFunctions preserve overlap/OOB/source/key/transfer invariants, operation-result bytes get one wrapper backing and an undefined success receipt, and forced compile-time/live-cast capability failures prove finalization rollback)
+**Revised:** 2026-07-17 (projects ASSIGNED_DETACHED requestDevice results while preserving both admission forms); 2026-07-17 (records native-or-absent FinalizationRegistry ownership and persistent-runtime `FsHandle` reclamation coverage); 2026-07-16 (projects self-contained detached-loss requestDevice terminals to the wrapper before outer receipt settlement); 2026-07-16 (adds the additive Exact GPU ABI V2 typed mailbox, lifecycle replay authority, construction-private four-method bridge, and close/service-entry race fences); 2026-07-16 (adds the construction-private low-level GPU bridge, bounded Promise receipt drain, and cancellation/retirement lifecycle without publishing a WebGPU JS API); 2026-07-16 (adds the optional Exact GPU service mailbox and non-waiting detached teardown); 2026-07-15 (ENG-25061 links indirect/star/namespace exports to native ModuleRecords); 2026-07-15 (ENG-25060 implements the common runtime-drive gate and native module factory/context/record capabilities); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized eval, poll, runner, and destroy entry); 2026-07-15 (ENG-25006: native fetch completion publishes its runtime callback before releasing the pending-fetch keepalive); 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
+**Revised:** 2026-07-16 (host-owned REPL/inspector/explicit keep-alive turns now expose their external liveness to native polling without promoting unreferenced timers into runtime liveness); 2026-07-15 (ENG-25061 links indirect/star/namespace exports to native live cells and adds the synchronous graph lifecycle driver); 2026-07-15 (ENG-25060 implements the common runtime-drive gate and native module factory/context/record capabilities); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized eval, poll, runner, and destroy entry); 2026-07-15 (ENG-25006: native fetch completion publishes its runtime callback before releasing the pending-fetch keepalive); 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
 **Revised:** 2026-07-18 (Windows runtime configuration reads the shared process
 environment rather than a DLL-private CRT snapshot, and legacy eval now settles
 its generated async wrappers consistently on every supported host)
@@ -182,6 +186,24 @@ available and falls back to the generated source header `[observed]`
 The HBC-vs-source selection and how these headers are produced is the build
 pipeline's concern — see [LLP 0005](./0005-build-pipeline-and-hermetic-default.explainer.md).
 
+The compatibility bootstrap preserves Hermes's native `FinalizationRegistry`
+when the pinned engine provides it and leaves the global absent when an engine
+does not. It does not install a JavaScript substitute: a registry that strongly
+retains each target cannot observe collection and would turn cleanup coverage
+into a false claim. `FsHandle` therefore registers its native handle id only
+when the real primitive exists; `revoke()` remains the deterministic fallback
+on runtimes where it does not `[observed]`
+(`src/engine/bootstrap/compat-polyfills.js`;
+`src/engine/hermes_runtime.cc`;
+`src/engine/mod.rs::native_finalization_registry_reclaims_dropped_fs_handles_in_a_persistent_runtime`;
+`src/engine/mod.rs::compat_and_fs_handle_sources_leave_finalization_absent_and_explicit_revoke_reclaims`).
+The persistent-runtime test runs the native reclamation probe only when the
+loaded Hermes artifact actually exposes the primitive; the repository does not
+otherwise classify every supported Hermes artifact as FinalizationRegistry-
+capable. The absence branch evaluates both authored production sources with the
+global absent, then constructs and explicitly revokes a real `FsHandle` rather
+than substituting a test-owned wrapper `[observed]` (`src/engine/mod.rs`).
+
 ## The event loop
 
 The host pumps the loop by calling `ex_hermes_poll(runtime, now_ms)`
@@ -256,6 +278,158 @@ throwing timer). Likewise the JS-side `unhandledrejection` default action sets
 `process.exitCode = 1` (preserving a user-set nonzero code) rather than
 crashing mid-run. Before ENG-23130, all of these logged and exited 0 — a
 silent green for any CI or agent using the exit code as the pass/fail signal.
+
+### Optional GPU service mailbox
+
+The optional Exact GPU service differs from ordinary fetch/filesystem workers:
+backend work may legitimately outlive the Hermes realm, so it must not retain a
+native-worker pin until provider completion. Registration copies a versioned
+function table and gives Exact a ref-counted plain-native mailbox containing
+only the runtime pointer-plus-nonce identity, atomic lifecycle state, and
+bounded event metadata `[observed]` (`src/engine/hermes_runtime_gpu.cc`;
+`src/engine/hermes_runtime_gpu_v2.cc`;
+[LLP 0002 §The optional Exact GPU service registration seam](./0002-host-embedding-abi.spec.md#the-optional-exact-gpu-service-registration-seam)).
+
+The mailbox moves `Installing -> Activating -> Live`, with
+`ProtocolViolation` as a terminal authority-reduction branch, then
+`Closing -> Detached`. The provider may call the sink's plain-native
+`retain_client`/`release_client` ownership hooks during `open_realm`, and must
+retain before storing the sink/context beyond that call. It may not call
+`on_event` or publish an event-producing path until Ibex invokes the required
+one-way `activate_realm` hook. Its invocation boundary is represented by the
+`Installing -> Activating` transition and is the first event-admission point.
+During `Activating`, any provider thread may deliver; this includes the
+post-hook-return race before Ibex's `Live` compare-exchange. Delivery observed
+while still `Installing` remains a protocol violation.
+
+A live callback never touches JSI on the service thread. It validates the ABI
+prefix, flags, realm, event kind, operation/completion pairing, and fixed byte/
+count budgets, then copies borrowed payload bytes into the mailbox. A
+pointer-plus-nonce pin is held only while publishing at most one callback-queue
+drain. The owner drain resolves operation completions or rejects structured
+operation/device/loss/realm/protocol errors. Pending Promise roots exist before
+the provider `submit` call, so synchronous delivery is race-safe; recent
+terminal tracking makes duplicate and stale events no-ops rather than a second
+settlement. The complete success return carrier is also built before those
+roots and submission records become observable. After successful provider
+admission, returning that prebuilt carrier performs no fallible property
+allocation. A pre-admission allocation failure reaches neither provider nor
+maps; provider rejection rolls the records back before constructing its failure
+carrier. If the provider synchronously publishes an accepted event and then
+returns nonzero, those signals contradict each other. The owner path returns a
+prebuilt `-8` protocol carrier, keeps the pending record for its scheduled
+drain, and quarantines exactly once: queued events/payload are cleared,
+outstanding work is cancelled, the realm is closed, and the receipt is rejected
+as a protocol violation. It never uses ordinary admission rejection or event
+discard for the contradiction. The completion is terminal before return, so a
+late duplicate is merely stale and cannot trigger another reduction or
+settlement.
+
+The additive V2 path keeps V1 untouched but replaces opaque completion tokens
+with exact generation-bearing realm/account/device/object identities and six
+typed event records. Its preliminary admission consults realm-lifetime
+lifecycle tombstones before the shorter recent-operation ring, so an exact
+loss/close replay remains discardable after more than 2,048 operation
+terminals while a same-key mutation quarantines. RequestDevice's
+`ASSIGNED_DETACHED + OBJECT` form is instead a self-contained operation
+terminal for a fresh service-detached already-lost device, preserves either
+NOT_ADMITTED/zero or ADMITTED/nonzero sequence provenance, and consumes no
+lifecycle tombstone. Owner drain calls the private wrapper sink with its full
+result before resolving the receipt; the wrapper recognizes the explicit
+`detachedAlreadyLost` projection, avoids its strong live-device registry, and
+settles `device.lost`, so Hermes queues that reaction before the outer
+requestDevice reaction. Service-attached device loss continues through the
+ordinary typed lifecycle record and replay table.
+
+For an ordinary successful operation terminal, that wrapper event is the sole
+typed result carrier. Owner drain moves the mailbox payload vector into one
+external `Uint8Array`, invokes the wrapper sink, then resolves the correlated
+receipt with `undefined` as an ordering signal. It does not construct a second
+result object or second payload backing for the ignored fulfillment value.
+Device-error rejection keeps its diagnostic payload behavior separately.
+
+V2 submit, cancel, and retire reserve an exact provider entry while holding the
+mailbox admission mutex, then invoke provider code without that lock. Realm
+close callback admission uses the same mutex and switches to `Closing` before
+return, so later unreserved bridge calls—including the one-shot event-sink
+installation—cannot cross. A pre-reserved call may finish after wall-clock
+close. ProtocolViolation observed after any synchronous provider call
+dominates its return and leaves Promise settlement to owner reduction.
+
+Drain publication is fail-closed without being lossy. Allocation failure while
+retaining the mailbox, pinning the runtime generation, materializing the
+callback, or appending it to the callback queue is caught at the provider
+boundary. Ibex leaves the copied event in place, poisons the realm, raises an
+allocation-free owner-drain flag, and wakes the host; pending-work and callback-
+backlog probes observe the same flag, and the next owner poll drains it before
+the ordinary callback queue. Runtime teardown remains the final owner-thread
+settler if the generation is already closing. No failure leg throws across the
+C ABI, strands a Promise, or settles one twice.
+
+Terminal fanout also has an aggregate bound: for as many as 1,024 pending
+receipts, the owner creates one at-most-16-MiB opaque diagnostic JSI value and
+attaches that shared read-only-by-contract value to each Error. Allocation work
+is therefore O(payload bytes + receipts). If the optional diagnostic allocation
+fails, every rejection still occurs exactly once with `payload: undefined`;
+Ibex does not retry a maximum-size allocation once per receipt.
+
+Successful finalization also creates a low-level JSI object with V1
+`submit`/`cancel`/`retire` or V2
+`submit`/`cancel`/`retire`/`setEventSink`/`createMappedRangeAlias`/
+`detachMappedRange`, passes it directly through a one-shot construction
+callback installed by the shared runtime bundle, verifies deletion of that
+callback, and keeps the value in a module-private runtime-js slot. The capture
+is closed by the common eval/debugger/module user-entry fence if unused.
+Successful capture, feature-off/no-provider finalization, rollback, and that
+common fence all verify that the construction property is actually absent;
+throwing, non-callable, or non-configurable hostile replacements fail the
+capability transaction and cannot advance the user-execution marker. The
+package exports omit this module and the app loader refuses both deep and
+filesystem paths into its directory. The bridge itself remains private. An
+authenticated V2 capture now feeds it to the generated wrapper, which publishes
+exactly the source-derived provider roots and, only with decoded-image
+authority, `createImageBitmap`; V1, provider absence, or failed authentication
+publishes none of them. Publication still makes no target advertisement or
+WebGPU platform-support claim.
+
+After wrapper publication, package-baseline refresh, and sealing, the engine
+must verify the final root projection with its pristine descriptor-only
+intrinsics before admitting armed user execution. If bootstrap has already
+finished, finalization repeats the sweep immediately; if bootstrap remains
+open, the embedder first calls the named owner-thread
+`ex_hermes_seal_armed_shared_runtime_globals_v1` transition and then
+`ex_hermes_finish_bootstrap` runs the sweep after closing the other session
+bridges. The native transition owns the only reviewed ambient-root closure
+program; embedders do not copy its list. An unexpected missing or extra
+conditional path invokes no getter,
+revokes every wrapper global, closes the GPU realm, and leaves the capability
+transaction terminally failed.
+
+The two V2 mapping methods are present only when the compiled and live pinned
+Hermes runtime exposes `IExactWebGpuArrayBuffer`; otherwise finalization
+withholds the whole V2 object and the capability transaction rolls back the
+opened realm and retained service. Map completion decoding retains the exact
+owned `Uint8Array` view instead of copying it. Mapped-at-creation starts with an
+ordinary internal `ArrayBuffer`; before minting its first alias, Hermes promotes
+that source's existing allocation to shared external ownership in place. The
+promotion is exception-safe, preserves the source identity and byte address,
+and copies no mapped bytes. The engine then mints independently detachable,
+possibly overlapping aliases over that one block, marks them with the
+`WebGPUBufferMapping` detach key, rejects OOB and alias-as-source requests,
+rejects ordinary transfer, and honors detach only through the matching private
+call. The wrapper consumes each live alias authority before that call and never
+retries a false or throwing detach. No JavaScript intrinsic, copy-and-shadow
+fallback, partial bridge, or support claim is published.
+
+Runtime destruction revokes that module slot and reserves `Closing` under the
+same mutex as callback admission. If teardown wins, it clears queued events,
+cancels pending completions and rejects their receipts on the owner thread,
+issues the nonblocking realm close, then marks the mailbox `Detached`. If a
+service REALM_CLOSED callback wins, that accepted terminal owns cleanup before
+poll; teardown neither cancels operations nor echoes close. It never waits for
+a terminal provider callback. A service-retained mailbox can therefore receive
+a late callback safely, report it discarded, and release itself after the
+runtime and address are gone.
 
 ### Inspector resource discipline
 
@@ -358,6 +532,7 @@ functions / globals for one subsystem and carries per-OS implementations behind
 | Console/IPC/timers | `hermes_runtime_console.cc`, `_ipc.cc`, `_timers.cc` | |
 | OS info / iOS | `hermes_runtime_osinfo.cc`, `hermes_runtime_ios.cc` | |
 | Debugger | `hermes_runtime_debugger.cc` | gated on `HERMES_ENABLE_DEBUGGER` |
+| Optional Exact GPU service | `hermes_runtime_gpu.cc`, `hermes_runtime_gpu_v2.cc` | additive V1/V2 service + construction-private bridge/typed receipt mailbox; authenticated V2 conditionally publishes the source-derived wrapper roots, without a target advertisement or support claim |
 
 The `native_fetch_*` / `native_websocket_*` files are per-OS. macOS/iOS use
 Foundation/NSURLSession implementations `[observed]`

@@ -1327,6 +1327,37 @@ pub fn install_armed_host(snapshot: &[u8], expected_json: &[u8]) -> Result<(), S
     Ok(())
 }
 
+/// Install the named, closed-world Exact WebGPU Pre-1A host profile. This is
+/// not a target advertisement and cannot be selected through the canonical
+/// `ex_host_install_armed` path.
+/// @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
+pub fn install_exact_experimental_webgpu_pre1a_armed_host(
+    snapshot: &[u8],
+    expected_json: &[u8],
+) -> Result<(), String> {
+    use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
+    super::reject_closed_startup_environment().map_err(|error| error.to_string())?;
+    let expected_text = std::str::from_utf8(expected_json)
+        .map_err(|error| format!("expected arming identity is not UTF-8: {error}"))?;
+    let expected_value = capsec_semantics::strict_json::parse_strict(expected_text)
+        .map_err(|error| error.to_string())?;
+    let expected: ExpectedArmingIdentity = serde_json::from_value(expected_value)
+        .map_err(|error| format!("invalid expected arming identity: {error}"))?;
+    let armed = ArmedSnapshot::load(snapshot, &expected).map_err(|error| error.to_string())?;
+    let host = Host::new_exact_experimental_webgpu_pre1a(
+        super::HostConfig {
+            mode: super::SecurityMode::Enforce,
+            ..Default::default()
+        },
+        Arc::new(armed),
+    )
+    .map_err(|error| error.to_string())?;
+    if install_host(host) == 0 {
+        return Err("failed to allocate an armed Host context token".into());
+    }
+    Ok(())
+}
+
 /// Prepare one construction-fresh authenticated artifact pair for a native
 /// embedder. The returned strict JSON envelope is owned by Rust and must be
 /// released with `ex_host_free_string`.
@@ -1454,6 +1485,123 @@ pub unsafe extern "C" fn ex_host_build_exact_armed_embedder_artifacts(
             unsafe { std::slice::from_raw_parts(operation_manifest, operation_manifest_len) };
         root.and_then(|root| {
             super::embedder_artifacts::build_exact_embedder_artifacts(root, manifest)
+        })
+    };
+    let envelope = match result {
+        Ok(artifacts) => serde_json::json!({"ok": true, "artifacts": artifacts}),
+        Err(error) => serde_json::json!({"ok": false, "error": error.to_string()}),
+    };
+    CString::new(envelope.to_string())
+        .map(CString::into_raw)
+        .unwrap_or(std::ptr::null_mut())
+}
+
+/// Build a complete target-local Exact artifact pair with the authenticated
+/// optional GPU provider binding and its independently protected WebGPU
+/// profile. All byte inputs are copied or consumed synchronously.
+///
+/// # Safety
+///
+/// Each non-null pointer must reference its declared byte length for this call.
+/// The project-root bytes are UTF-8 and need not be NUL terminated.
+/// @ref LLP 0002#the-optional-exact-gpu-service-registration-seam — the
+/// provider identity and profile are bound into the armed pair before runtime
+/// construction can install the optional service.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_build_exact_gpu_armed_embedder_artifacts(
+    project_root_utf8: *const u8,
+    project_root_utf8_len: usize,
+    operation_manifest: *const u8,
+    operation_manifest_len: usize,
+    gpu_provider_binding: *const u8,
+    gpu_provider_binding_len: usize,
+    webgpu_profile: *const u8,
+    webgpu_profile_len: usize,
+) -> *mut c_char {
+    let result = if project_root_utf8.is_null()
+        || project_root_utf8_len == 0
+        || operation_manifest.is_null()
+        || operation_manifest_len == 0
+        || gpu_provider_binding.is_null()
+        || gpu_provider_binding_len == 0
+        || webgpu_profile.is_null()
+        || webgpu_profile_len == 0
+    {
+        Err(anyhow::anyhow!(
+            "Exact project root, operation manifest, GPU provider binding, and WebGPU profile are required"
+        ))
+    } else {
+        let root_bytes =
+            unsafe { std::slice::from_raw_parts(project_root_utf8, project_root_utf8_len) };
+        let root = std::str::from_utf8(root_bytes)
+            .map(std::path::Path::new)
+            .map_err(|error| anyhow::anyhow!("Exact project root is not UTF-8: {error}"));
+        let manifest =
+            unsafe { std::slice::from_raw_parts(operation_manifest, operation_manifest_len) };
+        let binding =
+            unsafe { std::slice::from_raw_parts(gpu_provider_binding, gpu_provider_binding_len) };
+        let profile = unsafe { std::slice::from_raw_parts(webgpu_profile, webgpu_profile_len) };
+        root.and_then(|root| {
+            super::embedder_artifacts::build_exact_gpu_embedder_artifacts(
+                root, manifest, binding, profile,
+            )
+        })
+    };
+    let envelope = match result {
+        Ok(artifacts) => serde_json::json!({"ok": true, "artifacts": artifacts}),
+        Err(error) => serde_json::json!({"ok": false, "error": error.to_string()}),
+    };
+    CString::new(envelope.to_string())
+        .map(CString::into_raw)
+        .unwrap_or(std::ptr::null_mut())
+}
+
+/// Build the target-local artifacts for the named Exact WebGPU Pre-1A
+/// experiment. The checked registry supplies the selector set; callers cannot
+/// pass operation names, selectors, target cells, or wildcards.
+///
+/// # Safety
+///
+/// Each non-null pointer must reference its declared byte length for this call.
+/// All inputs are consumed synchronously and are not retained.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts(
+    project_root_utf8: *const u8,
+    project_root_utf8_len: usize,
+    operation_manifest: *const u8,
+    operation_manifest_len: usize,
+    gpu_provider_binding: *const u8,
+    gpu_provider_binding_len: usize,
+    webgpu_profile: *const u8,
+    webgpu_profile_len: usize,
+) -> *mut c_char {
+    let result = if project_root_utf8.is_null()
+        || project_root_utf8_len == 0
+        || operation_manifest.is_null()
+        || operation_manifest_len == 0
+        || gpu_provider_binding.is_null()
+        || gpu_provider_binding_len == 0
+        || webgpu_profile.is_null()
+        || webgpu_profile_len == 0
+    {
+        Err(anyhow::anyhow!(
+            "Exact project root, operation manifest, GPU provider binding, and WebGPU profile are required"
+        ))
+    } else {
+        let root_bytes =
+            unsafe { std::slice::from_raw_parts(project_root_utf8, project_root_utf8_len) };
+        let root = std::str::from_utf8(root_bytes)
+            .map(std::path::Path::new)
+            .map_err(|error| anyhow::anyhow!("Exact project root is not UTF-8: {error}"));
+        let manifest =
+            unsafe { std::slice::from_raw_parts(operation_manifest, operation_manifest_len) };
+        let binding =
+            unsafe { std::slice::from_raw_parts(gpu_provider_binding, gpu_provider_binding_len) };
+        let profile = unsafe { std::slice::from_raw_parts(webgpu_profile, webgpu_profile_len) };
+        root.and_then(|root| {
+            super::embedder_artifacts::build_exact_experimental_webgpu_pre1a_embedder_artifacts(
+                root, manifest, binding, profile,
+            )
         })
     };
     let envelope = match result {
@@ -1836,6 +1984,7 @@ pub extern "C" fn ex_host_restore_context(previous: u64) {
 
 #[no_mangle]
 pub extern "C" fn ex_host_release_context(context_id: u64) {
+    super::gpu_authority::purge_context(context_id);
     let mut removed_sessions = Vec::new();
     if let Some(sessions) = RUNTIME_VFS_SESSIONS.get() {
         let mut sessions = match sessions.write() {
@@ -2273,6 +2422,506 @@ pub unsafe extern "C" fn ex_host_authorize_exact_endowment(
     host.is_some_and(|host| {
         host.authorizes_exact_endowment(context_kind, manifest_digest, operations)
     }) as i32
+}
+
+fn digest_from_raw_sha256(bytes: *const u8) -> Option<capsec_semantics::model::Digest> {
+    if bytes.is_null() {
+        return None;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(bytes, 32) };
+    let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
+    capsec_semantics::model::Digest::new(format!("sha256-{encoded}")).ok()
+}
+
+/// Authenticate one complete optional Exact GPU service descriptor against the
+/// runtime-scoped armed snapshot. All pointer data is borrowed for this call.
+/// No service state has been retained when this function runs.
+///
+/// # Safety
+///
+/// Non-null digest pointers address exactly 32 readable bytes, `profile_id`
+/// addresses `profile_id_len` bytes, and `operation_ids` addresses
+/// `operation_count` readable `u32` values.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn ex_host_authorize_exact_gpu_provider(
+    context_id: u64,
+    abi_version: u32,
+    profile_id: *const u8,
+    profile_id_len: usize,
+    profile_digest: *const u8,
+    webgpu_c_vocabulary_digest: *const u8,
+    operation_set_digest: *const u8,
+    semantic_program_digest: *const u8,
+    operation_ids: *const u32,
+    operation_count: usize,
+    topology_id: u32,
+) -> i32 {
+    if context_id == 0
+        || profile_id.is_null()
+        || profile_id_len == 0
+        || profile_id_len > 256
+        || operation_ids.is_null()
+        || operation_count == 0
+        || operation_count > 4096
+    {
+        return 0;
+    }
+    let Ok(profile_id) =
+        std::str::from_utf8(unsafe { std::slice::from_raw_parts(profile_id, profile_id_len) })
+    else {
+        return 0;
+    };
+    let Some(profile_digest) = digest_from_raw_sha256(profile_digest) else {
+        return 0;
+    };
+    let Some(webgpu_c_vocabulary_digest) = digest_from_raw_sha256(webgpu_c_vocabulary_digest)
+    else {
+        return 0;
+    };
+    let Some(operation_set_digest) = digest_from_raw_sha256(operation_set_digest) else {
+        return 0;
+    };
+    let Some(semantic_program_digest) = digest_from_raw_sha256(semantic_program_digest) else {
+        return 0;
+    };
+    let operations = unsafe { std::slice::from_raw_parts(operation_ids, operation_count) };
+    let host = HOST_CONTEXTS.get().and_then(|contexts| {
+        contexts.read().ok().and_then(|contexts| {
+            contexts
+                .get(&context_id)
+                .filter(|record| record.claimed)
+                .map(|record| Arc::clone(&record.host))
+        })
+    });
+    host.is_some_and(|host| {
+        host.authorizes_exact_gpu_provider(
+            abi_version,
+            profile_id,
+            &profile_digest,
+            &webgpu_c_vocabulary_digest,
+            &operation_set_digest,
+            &semantic_program_digest,
+            None,
+            operations,
+            topology_id,
+        )
+    }) as i32
+}
+
+#[doc(hidden)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn exact_gpu_provider_authority_digest_v2(
+    abi_version: u32,
+    profile_id: &str,
+    profile_digest: &capsec_semantics::model::Digest,
+    webgpu_c_vocabulary_digest: &capsec_semantics::model::Digest,
+    operation_set_digest: &capsec_semantics::model::Digest,
+    semantic_program_digest: &capsec_semantics::model::Digest,
+    runtime_routing_digest: &capsec_semantics::model::Digest,
+    operations: &[u32],
+    topology_id: u32,
+) -> [u8; 32] {
+    use sha2::{Digest as _, Sha256};
+    let mut digest = Sha256::new();
+    digest.update(b"ibex:exact-gpu-provider-authority:v2\0");
+    let mut field = |label: &[u8], bytes: &[u8]| {
+        digest.update((label.len() as u64).to_le_bytes());
+        digest.update(label);
+        digest.update((bytes.len() as u64).to_le_bytes());
+        digest.update(bytes);
+    };
+    field(b"abi-version", &abi_version.to_le_bytes());
+    field(b"profile-id", profile_id.as_bytes());
+    field(b"profile-digest", profile_digest.as_str().as_bytes());
+    field(
+        b"webgpu-c-vocabulary-digest",
+        webgpu_c_vocabulary_digest.as_str().as_bytes(),
+    );
+    field(
+        b"operation-set-digest",
+        operation_set_digest.as_str().as_bytes(),
+    );
+    field(
+        b"semantic-program-digest",
+        semantic_program_digest.as_str().as_bytes(),
+    );
+    field(
+        b"runtime-routing-digest",
+        runtime_routing_digest.as_str().as_bytes(),
+    );
+    let mut operation_bytes = Vec::with_capacity(operations.len() * 4);
+    for operation in operations {
+        operation_bytes.extend_from_slice(&operation.to_le_bytes());
+    }
+    field(b"sorted-operation-ids", &operation_bytes);
+    field(b"topology-id", &topology_id.to_le_bytes());
+    drop(field);
+    digest.finalize().into()
+}
+
+/// Authenticate the additive GPU ABI V2 descriptor, including the independent
+/// domain-separated operation-to-runtime routing plan digest. Keeping this a
+/// distinct symbol prevents the V1 call shape from silently treating a newly
+/// appended digest as prefix-compatible authority.
+///
+/// # Safety
+///
+/// The pointer and length requirements are the V1 requirements above, plus
+/// `runtime_routing_digest` addressing exactly 32 readable bytes and
+/// `out_authority_digest` addressing exactly 32 writable bytes.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn ex_host_authorize_exact_gpu_provider_v2(
+    context_id: u64,
+    abi_version: u32,
+    profile_id: *const u8,
+    profile_id_len: usize,
+    profile_digest: *const u8,
+    webgpu_c_vocabulary_digest: *const u8,
+    operation_set_digest: *const u8,
+    semantic_program_digest: *const u8,
+    runtime_routing_digest: *const u8,
+    operation_ids: *const u32,
+    operation_count: usize,
+    topology_id: u32,
+    out_authority_digest: *mut u8,
+) -> i32 {
+    if abi_version != 0x0002_0000
+        || context_id == 0
+        || profile_id.is_null()
+        || profile_id_len == 0
+        || profile_id_len > 256
+        || operation_ids.is_null()
+        || operation_count == 0
+        || operation_count > 4096
+        || out_authority_digest.is_null()
+    {
+        return 0;
+    }
+    let Ok(profile_id) =
+        std::str::from_utf8(unsafe { std::slice::from_raw_parts(profile_id, profile_id_len) })
+    else {
+        return 0;
+    };
+    let Some(profile_digest) = digest_from_raw_sha256(profile_digest) else {
+        return 0;
+    };
+    let Some(webgpu_c_vocabulary_digest) = digest_from_raw_sha256(webgpu_c_vocabulary_digest)
+    else {
+        return 0;
+    };
+    let Some(operation_set_digest) = digest_from_raw_sha256(operation_set_digest) else {
+        return 0;
+    };
+    let Some(semantic_program_digest) = digest_from_raw_sha256(semantic_program_digest) else {
+        return 0;
+    };
+    let Some(runtime_routing_digest) = digest_from_raw_sha256(runtime_routing_digest) else {
+        return 0;
+    };
+    let operations = unsafe { std::slice::from_raw_parts(operation_ids, operation_count) };
+    let host = HOST_CONTEXTS.get().and_then(|contexts| {
+        contexts.read().ok().and_then(|contexts| {
+            contexts
+                .get(&context_id)
+                .filter(|record| record.claimed)
+                .map(|record| Arc::clone(&record.host))
+        })
+    });
+    let authorized = host.is_some_and(|host| {
+        host.authorizes_exact_gpu_provider(
+            abi_version,
+            profile_id,
+            &profile_digest,
+            &webgpu_c_vocabulary_digest,
+            &operation_set_digest,
+            &semantic_program_digest,
+            Some(&runtime_routing_digest),
+            operations,
+            topology_id,
+        )
+    });
+    if !authorized {
+        return 0;
+    }
+
+    let digest = exact_gpu_provider_authority_digest_v2(
+        abi_version,
+        profile_id,
+        &profile_digest,
+        &webgpu_c_vocabulary_digest,
+        &operation_set_digest,
+        &semantic_program_digest,
+        &runtime_routing_digest,
+        operations,
+        topology_id,
+    );
+    unsafe { std::ptr::copy_nonoverlapping(digest.as_ptr(), out_authority_digest, digest.len()) };
+    1
+}
+
+/// Capture one operation's generation-fenced caller attribution into a
+/// domain-separated SHA-256 digest. Inputs come only from the native
+/// runtime/frame-attribution path; this function is not installed as a JS host
+/// operation. The digest binds the armed snapshot, explicitly labelled
+/// actor/caller-effect-owner/scheduler roles, the canonical innermost-first
+/// constrained-principal stack, and every authority generation.
+///
+/// This digest is provenance, not a positive WebGPU authority decision. The
+/// semantic service must still authorize the operation-selected effects,
+/// stages, targets, and handle lineage before provider admission.
+///
+/// # Safety
+///
+/// `principals` addresses `principal_count` readable `u64` values and
+/// `out_digest` addresses exactly 32 writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_capture_exact_gpu_authority_context_v2(
+    context_id: u64,
+    runtime_address: u64,
+    runtime_nonce: u64,
+    context_kind: u32,
+    actor_principal: u64,
+    effect_owner_principal: u64,
+    scheduler_principal: u64,
+    has_scheduler_principal: u32,
+    principals: *const u64,
+    principal_count: usize,
+    facts: *const super::gpu_authority::ExactGpuAuthoritySessionFactsV2,
+    out_digest: *mut u8,
+    out_authority_session_id: *mut u64,
+) -> i32 {
+    if !out_authority_session_id.is_null() {
+        unsafe { *out_authority_session_id = 0 };
+    }
+    if context_id == 0
+        || runtime_address == 0
+        || runtime_nonce == 0
+        || !matches!(context_kind, 1 | 2)
+        || !matches!(has_scheduler_principal, 0 | 1)
+        || principals.is_null()
+        || principal_count == 0
+        || principal_count > 257
+        || facts.is_null()
+        || out_digest.is_null()
+        || out_authority_session_id.is_null()
+    {
+        return 0;
+    }
+    let facts = unsafe { *facts };
+    if facts.struct_size
+        != std::mem::size_of::<super::gpu_authority::ExactGpuAuthoritySessionFactsV2>() as u32
+        || facts.abi_version != 0x0002_0000
+        || facts.authority_session_id != 0
+        || facts.operation_id == 0
+        || facts.topology_id != 1
+        || facts.realm.runtime.runtime_address != runtime_address
+        || facts.realm.runtime.runtime_nonce != runtime_nonce
+        || facts.authority_context_digest != [0; 32]
+    {
+        return 0;
+    }
+    let principals = unsafe { std::slice::from_raw_parts(principals, principal_count) };
+    // Principal 0 is the authenticated application-root projection in Ibex,
+    // not an absence sentinel. Every numeric value, including 0, is resolved
+    // against this armed Host below; unknown values and both engine sentinels
+    // therefore fail closed. Duplicate values would make the stack encoding
+    // non-canonical and are rejected as well.
+    const RUNTIME_PRINCIPAL: u64 = u32::MAX as u64;
+    const NO_USER_PRINCIPAL: u64 = (u32::MAX - 1) as u64;
+    if actor_principal > u32::MAX as u64
+        || effect_owner_principal > u32::MAX as u64
+        || scheduler_principal > u32::MAX as u64
+        || matches!(actor_principal, RUNTIME_PRINCIPAL | NO_USER_PRINCIPAL)
+        || matches!(
+            effect_owner_principal,
+            RUNTIME_PRINCIPAL | NO_USER_PRINCIPAL
+        )
+        || (has_scheduler_principal == 0 && scheduler_principal != 0)
+        || (has_scheduler_principal == 1
+            && matches!(scheduler_principal, RUNTIME_PRINCIPAL | NO_USER_PRINCIPAL))
+        || principals[0] != actor_principal
+        || effect_owner_principal != actor_principal
+        || !principals.contains(&actor_principal)
+        || (has_scheduler_principal == 1 && !principals.contains(&scheduler_principal))
+        || principals.iter().any(|principal| {
+            *principal > u32::MAX as u64
+                || matches!(*principal, RUNTIME_PRINCIPAL | NO_USER_PRINCIPAL)
+        })
+        || principals
+            .iter()
+            .enumerate()
+            .any(|(index, principal)| principals[..index].contains(principal))
+    {
+        return 0;
+    }
+    let host = HOST_CONTEXTS.get().and_then(|contexts| {
+        contexts.read().ok().and_then(|contexts| {
+            contexts
+                .get(&context_id)
+                .filter(|record| record.claimed)
+                .map(|record| Arc::clone(&record.host))
+        })
+    });
+    let Some(host) = host else {
+        return 0;
+    };
+    let Some(snapshot) = host.armed_snapshot() else {
+        // Diagnostic/allow-all contexts cannot satisfy V2 provenance.
+        return 0;
+    };
+    let Some(generations) = host.typed_generations() else {
+        return 0;
+    };
+    let Some(actor) = host.typed_principal_for_module(&actor_principal.to_string()) else {
+        return 0;
+    };
+    let Some(effect_owner) = host.typed_principal_for_module(&effect_owner_principal.to_string())
+    else {
+        return 0;
+    };
+    let scheduler = if has_scheduler_principal == 1 {
+        let Some(scheduler) = host.typed_principal_for_module(&scheduler_principal.to_string())
+        else {
+            return 0;
+        };
+        Some(scheduler)
+    } else {
+        None
+    };
+    let Some(constrained_principals) = principals
+        .iter()
+        .map(|principal| host.typed_principal_for_module(&principal.to_string()))
+        .collect::<Option<Vec<_>>>()
+        .and_then(|principals| {
+            capsec_semantics::model::canonicalize_principal_set(principals).ok()
+        })
+    else {
+        return 0;
+    };
+
+    use sha2::{Digest as _, Sha256};
+    let mut digest = Sha256::new();
+    digest.update(b"ibex:exact-gpu-caller-attribution:ordered-stack:v2\0");
+    let snapshot_digest = snapshot.digest().as_str().as_bytes();
+    digest.update((snapshot_digest.len() as u64).to_le_bytes());
+    digest.update(snapshot_digest);
+    digest.update(context_id.to_le_bytes());
+    digest.update(runtime_address.to_le_bytes());
+    digest.update(runtime_nonce.to_le_bytes());
+    digest.update(context_kind.to_le_bytes());
+    digest.update(facts.operation_id.to_le_bytes());
+    digest.update(facts.topology_id.to_le_bytes());
+    digest.update(b"actor\0");
+    digest.update(actor_principal.to_le_bytes());
+    digest.update(b"caller-effect-owner\0");
+    digest.update(effect_owner_principal.to_le_bytes());
+    digest.update(b"scheduler\0");
+    digest.update(has_scheduler_principal.to_le_bytes());
+    digest.update(scheduler_principal.to_le_bytes());
+    digest.update(b"constrained-principals-innermost-first\0");
+    digest.update((principal_count as u64).to_le_bytes());
+    for principal in principals {
+        digest.update(principal.to_le_bytes());
+    }
+    digest.update(snapshot.generations().policy.get().to_le_bytes());
+    digest.update(generations.negative.get().to_le_bytes());
+    digest.update(generations.dynamic.get().to_le_bytes());
+    digest.update(generations.handle.get().to_le_bytes());
+    let digest: [u8; 32] = digest.finalize().into();
+    let carrier_facts = super::gpu_authority::GpuAuthorityCarrierFacts {
+        operation_id: facts.operation_id,
+        topology_id: facts.topology_id,
+        realm: facts.realm,
+        account: facts.account,
+        ingress_device: facts.ingress_device,
+        provider_generation: facts.provider_generation,
+        operation_instance_id: facts.operation_instance_id,
+        promise_id: facts.promise_id,
+        captured_scope_id: facts.captured_scope_id,
+        adapter_ordinal: facts.adapter_ordinal,
+        device_ingress_ordinal: facts.device_ingress_ordinal,
+        queue_ingress_ordinal: facts.queue_ingress_ordinal,
+        authority_context_digest: digest,
+        receiver: facts.receiver,
+        target: facts.target,
+    };
+    let attribution = super::gpu_authority::GpuAuthorityAttribution {
+        context_kind,
+        actor,
+        effect_owner,
+        scheduler,
+        constrained_principals,
+        policy_generation: snapshot.generations().policy.get(),
+        negative_generation: generations.negative.get(),
+        dynamic_generation: generations.dynamic.get(),
+        handle_generation: generations.handle.get(),
+    };
+    let Some(authority_session_id) = super::gpu_authority::capture_session(
+        context_id,
+        Arc::clone(&host),
+        attribution,
+        carrier_facts,
+    ) else {
+        return 0;
+    };
+    unsafe { std::ptr::copy_nonoverlapping(digest.as_ptr(), out_digest, digest.len()) };
+    unsafe { *out_authority_session_id = authority_session_id };
+    1
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_exact_gpu_authority_session_requested_v2(
+    context_id: u64,
+    authority_session_id: u64,
+) -> i32 {
+    i32::from(super::gpu_authority::requested_or_later(
+        context_id,
+        authority_session_id,
+    ))
+}
+
+/// Returns a borrowed pointer to an immutable process-lifetime table. The
+/// caller must neither mutate nor release it.
+#[no_mangle]
+pub extern "C" fn ex_host_exact_gpu_authority_session_api_v2(
+) -> *const super::gpu_authority::ExactGpuAuthoritySessionApiV2 {
+    let api: &'static super::gpu_authority::ExactGpuAuthoritySessionApiV2 =
+        super::gpu_authority::authority_session_api_v2();
+    std::ptr::from_ref(api)
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_force_retire_exact_gpu_authority_session_v2(
+    context_id: u64,
+    authority_session_id: u64,
+) -> i32 {
+    i32::from(super::gpu_authority::force_retire(
+        context_id,
+        authority_session_id,
+    ))
+}
+
+/// Verify that an explicit construction transaction installed exactly the
+/// capability roles named by its runtime-scoped armed snapshot.
+#[no_mangle]
+pub extern "C" fn ex_host_authorize_embedder_capability_set(
+    context_id: u64,
+    installed_flags: u32,
+) -> i32 {
+    if context_id == 0 {
+        return 0;
+    }
+    let host = HOST_CONTEXTS.get().and_then(|contexts| {
+        contexts.read().ok().and_then(|contexts| {
+            contexts
+                .get(&context_id)
+                .filter(|record| record.claimed)
+                .map(|record| Arc::clone(&record.host))
+        })
+    });
+    host.is_some_and(|host| host.authorizes_embedder_capability_set(installed_flags)) as i32
 }
 
 #[doc(hidden)]
@@ -3108,6 +3757,35 @@ pub unsafe extern "C" fn ex_host_install_armed(
         Ok(()) => 0,
         Err(error) => {
             eprintln!("error: refusing host arming: {error}");
+            -1
+        }
+    }
+}
+
+/// Opt into the named Exact WebGPU Pre-1A private-cell profile. This call is
+/// synchronous, must run on the same creating thread as the subsequent armed
+/// Hermes constructor, and accepts no selector or target-cell input.
+///
+/// # Safety
+///
+/// Each pointer must reference its declared byte length for this call. Inputs
+/// are copied before return.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_install_armed_experimental_webgpu_pre1a(
+    snapshot: *const u8,
+    snapshot_len: usize,
+    expected_identity: *const u8,
+    expected_identity_len: usize,
+) -> i32 {
+    if snapshot.is_null() || expected_identity.is_null() {
+        return -1;
+    }
+    let snapshot = unsafe { std::slice::from_raw_parts(snapshot, snapshot_len) };
+    let expected = unsafe { std::slice::from_raw_parts(expected_identity, expected_identity_len) };
+    match install_exact_experimental_webgpu_pre1a_armed_host(snapshot, expected) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("error: refusing experimental WebGPU Pre-1A host arming: {error}");
             -1
         }
     }
@@ -7627,6 +8305,195 @@ mod tests {
     use crate::host::{Host, HostConfig, SecurityMode};
     use std::io::{self, Write};
 
+    #[test]
+    fn gpu_v2_authority_digest_binds_every_descriptor_input() {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+        use capsec_semantics::model::Digest;
+
+        let digest = |encoded: &str| Digest::new(format!("sha256-{encoded}")).unwrap();
+        let profile = digest("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+        let vocabulary = digest("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA");
+        let operation_set = digest("CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA");
+        let semantic = digest("EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA");
+        let routing = digest("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA");
+        let operations = [7_u32, 11, 19];
+        let authority = |abi,
+                         profile_id: &str,
+                         profile_digest: &Digest,
+                         vocabulary_digest: &Digest,
+                         operation_set_digest: &Digest,
+                         semantic_digest: &Digest,
+                         routing_digest: &Digest,
+                         operation_ids: &[u32],
+                         topology| {
+            exact_gpu_provider_authority_digest_v2(
+                abi,
+                profile_id,
+                profile_digest,
+                vocabulary_digest,
+                operation_set_digest,
+                semantic_digest,
+                routing_digest,
+                operation_ids,
+                topology,
+            )
+        };
+        let baseline = authority(
+            0x0002_0000,
+            "exact-webgpu-phase1a-draft",
+            &profile,
+            &vocabulary,
+            &operation_set,
+            &semantic,
+            &routing,
+            &operations,
+            1,
+        );
+        let alternate =
+            Digest::new(format!("sha256-{}", URL_SAFE_NO_PAD.encode([0x5a; 32]))).unwrap();
+        let mutations = [
+            authority(
+                0x0002_0001,
+                "exact-webgpu-phase1a-draft",
+                &profile,
+                &vocabulary,
+                &operation_set,
+                &semantic,
+                &routing,
+                &operations,
+                1,
+            ),
+            authority(
+                0x0002_0000,
+                "exact-webgpu-phase1a-draft-mutated",
+                &profile,
+                &vocabulary,
+                &operation_set,
+                &semantic,
+                &routing,
+                &operations,
+                1,
+            ),
+            authority(
+                0x0002_0000,
+                "exact-webgpu-phase1a-draft",
+                &alternate,
+                &vocabulary,
+                &operation_set,
+                &semantic,
+                &routing,
+                &operations,
+                1,
+            ),
+            authority(
+                0x0002_0000,
+                "exact-webgpu-phase1a-draft",
+                &profile,
+                &alternate,
+                &operation_set,
+                &semantic,
+                &routing,
+                &operations,
+                1,
+            ),
+            authority(
+                0x0002_0000,
+                "exact-webgpu-phase1a-draft",
+                &profile,
+                &vocabulary,
+                &alternate,
+                &semantic,
+                &routing,
+                &operations,
+                1,
+            ),
+            authority(
+                0x0002_0000,
+                "exact-webgpu-phase1a-draft",
+                &profile,
+                &vocabulary,
+                &operation_set,
+                &alternate,
+                &routing,
+                &operations,
+                1,
+            ),
+            authority(
+                0x0002_0000,
+                "exact-webgpu-phase1a-draft",
+                &profile,
+                &vocabulary,
+                &operation_set,
+                &semantic,
+                &alternate,
+                &operations,
+                1,
+            ),
+            authority(
+                0x0002_0000,
+                "exact-webgpu-phase1a-draft",
+                &profile,
+                &vocabulary,
+                &operation_set,
+                &semantic,
+                &routing,
+                &[7, 12, 19],
+                1,
+            ),
+            authority(
+                0x0002_0000,
+                "exact-webgpu-phase1a-draft",
+                &profile,
+                &vocabulary,
+                &operation_set,
+                &semantic,
+                &routing,
+                &[7, 11],
+                1,
+            ),
+            authority(
+                0x0002_0000,
+                "exact-webgpu-phase1a-draft",
+                &profile,
+                &vocabulary,
+                &operation_set,
+                &semantic,
+                &routing,
+                &[11, 7, 19],
+                1,
+            ),
+            authority(
+                0x0002_0000,
+                "exact-webgpu-phase1a-draft",
+                &profile,
+                &vocabulary,
+                &operation_set,
+                &semantic,
+                &routing,
+                &operations,
+                2,
+            ),
+        ];
+        for mutation in mutations {
+            assert_ne!(baseline, mutation);
+        }
+        assert_eq!(
+            baseline,
+            authority(
+                0x0002_0000,
+                "exact-webgpu-phase1a-draft",
+                &profile,
+                &vocabulary,
+                &operation_set,
+                &semantic,
+                &routing,
+                &operations,
+                1,
+            ),
+            "the exact descriptor must derive a stable root-account authority"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn final_sealed_console_observation_excludes_a_new_producer() {
@@ -9514,5 +10381,23 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("Exact project root and operation manifest are required"));
+
+        let gpu_build_envelope = take_json(unsafe {
+            ex_host_build_exact_gpu_armed_embedder_artifacts(
+                ptr::null(),
+                0,
+                ptr::null(),
+                0,
+                ptr::null(),
+                0,
+                ptr::null(),
+                0,
+            )
+        });
+        assert_eq!(gpu_build_envelope["ok"], false);
+        assert!(gpu_build_envelope["error"]
+            .as_str()
+            .unwrap()
+            .contains("GPU provider binding, and WebGPU profile are required"));
     }
 }

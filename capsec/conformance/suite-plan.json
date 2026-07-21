@@ -7,7 +7,7 @@
     "capsec-registry-drift": { "phase": "preflight", "deadlineMs": 120000, "gracePeriodMs": 10000 },
     "capsec-contract-drift": { "phase": "preflight", "deadlineMs": 120000, "gracePeriodMs": 10000 },
     "generated-policy-drift": { "phase": "preflight", "deadlineMs": 120000, "gracePeriodMs": 10000 },
-    "all-generated-drift": { "phase": "preflight", "deadlineMs": 120000, "gracePeriodMs": 10000 },
+    "all-generated-drift": { "phase": "preflight", "deadlineMs": 300000, "gracePeriodMs": 10000 },
     "linked-literate-references": { "phase": "preflight", "deadlineMs": 120000, "gracePeriodMs": 10000 },
     "exact-loaded-engine-attestation": { "phase": "engine-attestation-before", "deadlineMs": 600000, "gracePeriodMs": 30000 },
     "generate-executable-recipes": { "phase": "recipe-catalog", "deadlineMs": 180000, "gracePeriodMs": 10000 },
@@ -41,7 +41,7 @@
   },
   "targets": {
     "aarch64-apple-darwin": {
-      "outerTimeoutMs": 21600000,
+      "outerTimeoutMs": 22500000,
       "setupReserveMs": 3600000,
       "cleanupUploadReserveMs": 900000,
       "maxPublicFixtureBatches": 8,
@@ -53,14 +53,13 @@
       "deadlineOverrides": {}
     },
     "x86_64-pc-windows-msvc": {
-      "outerTimeoutMs": 21600000,
+      "outerTimeoutMs": 22500000,
       "setupReserveMs": 3600000,
       "cleanupUploadReserveMs": 900000,
       "maxPublicFixtureBatches": 7,
       "maxPortablePublicFixtureBatches": 0,
       "aliasDiagnosticCommands": [],
       "deadlineOverrides": {
-        "all-generated-drift": 300000,
         "exact-loaded-engine-attestation": 2700000
       }
     }

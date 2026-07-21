@@ -209,6 +209,7 @@ pub enum ProtectedArtifactRole {
     ArmedPolicy,
     EngineBinary,
     ExactOperationManifest,
+    ExactWebgpuProfile,
     PackageGraph,
     Registry,
 }
@@ -252,6 +253,24 @@ pub struct ExactEmbedderBinding {
     pub schema: String,
     pub operation_manifest_digest: Digest,
     pub endowments: ExactEmbedderEndowments,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExactGpuProviderBinding {
+    pub schema: String,
+    pub abi_version: u32,
+    pub profile_id: String,
+    pub profile_digest: Digest,
+    pub webgpu_c_vocabulary_digest: Digest,
+    pub operation_set_digest: Digest,
+    pub semantic_program_digest: Digest,
+    /// Present only for ABI V2. This independently binds the generated
+    /// operation-to-runtime routing/codec/timing plan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_routing_digest: Option<Digest>,
+    pub operation_ids: Vec<u32>,
+    pub topology: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -575,6 +594,19 @@ impl ArmedSnapshot {
         let binding: ExactEmbedderBinding = serde_json::from_value(value.clone())
             .map_err(|error| invalid(format!("invalid Exact embedder binding: {error}")))?;
         validate_exact_embedder_binding(&binding)?;
+        Ok(Some(binding))
+    }
+
+    /// Optional Exact GPU service identity authenticated by the snapshot and
+    /// its independently protected profile artifact. This authorizes only the
+    /// native registration seam; it does not advertise a WebGPU JS surface.
+    pub fn exact_gpu_provider_binding(&self) -> Result<Option<ExactGpuProviderBinding>> {
+        let Some(value) = self.document.get("exactGpuProvider") else {
+            return Ok(None);
+        };
+        let binding: ExactGpuProviderBinding = serde_json::from_value(value.clone())
+            .map_err(|error| invalid(format!("invalid Exact GPU provider binding: {error}")))?;
+        validate_exact_gpu_provider_binding(&binding)?;
         Ok(Some(binding))
     }
 
@@ -1032,6 +1064,11 @@ fn validate_snapshot_invariants(
             .map_err(|error| invalid(format!("invalid Exact embedder binding: {error}")))?;
         validate_exact_embedder_binding(&binding)?;
     }
+    if let Some(value) = document.get("exactGpuProvider") {
+        let binding: ExactGpuProviderBinding = serde_json::from_value(value.clone())
+            .map_err(|error| invalid(format!("invalid Exact GPU provider binding: {error}")))?;
+        validate_exact_gpu_provider_binding(&binding)?;
+    }
 
     let root_identity: Principal =
         serde_json::from_value(value_at(document, &["rootIdentity"])?.clone())
@@ -1451,8 +1488,11 @@ fn validate_protected_object_rows(document: &Value) -> Result<()> {
     ];
     if document.get("exactEmbedder").is_some() {
         required.push(ProtectedArtifactRole::ExactOperationManifest);
-        required.sort();
     }
+    if document.get("exactGpuProvider").is_some() {
+        required.push(ProtectedArtifactRole::ExactWebgpuProfile);
+    }
+    required.sort();
     if rows.len() != required.len() {
         return refused("armed snapshot protected artifact count does not match its bindings");
     }
@@ -1529,10 +1569,20 @@ fn validate_expected_protected_artifacts(
                 .map_err(|error| invalid(format!("invalid Exact embedder binding: {error}")))
         })
         .transpose()?;
+    let gpu_binding = document
+        .get("exactGpuProvider")
+        .map(|value| {
+            serde_json::from_value::<ExactGpuProviderBinding>(value.clone())
+                .map_err(|error| invalid(format!("invalid Exact GPU provider binding: {error}")))
+        })
+        .transpose()?;
     if exact_binding.is_some() {
         required.push(ProtectedArtifactRole::ExactOperationManifest);
-        required.sort();
     }
+    if gpu_binding.is_some() {
+        required.push(ProtectedArtifactRole::ExactWebgpuProfile);
+    }
+    required.sort();
     if expected.protected_artifacts.len() + expected.embedded_protected_artifacts.len()
         != required.len()
     {
@@ -1587,6 +1637,13 @@ fn validate_expected_protected_artifacts(
                 "protected Exact operation manifest digest differs from its armed binding",
             );
         }
+        if artifact.role == ProtectedArtifactRole::ExactWebgpuProfile
+            && gpu_binding
+                .as_ref()
+                .is_none_or(|binding| artifact.content_digest != binding.profile_digest)
+        {
+            return refused("protected Exact WebGPU profile digest differs from its armed binding");
+        }
     }
 
     let mut embedded = expected.embedded_protected_artifacts.clone();
@@ -1617,6 +1674,15 @@ fn validate_expected_protected_artifacts(
         {
             return refused(
                 "protected embedded Exact operation manifest digest differs from its armed binding",
+            );
+        }
+        if artifact.role == ProtectedArtifactRole::ExactWebgpuProfile
+            && gpu_binding
+                .as_ref()
+                .is_none_or(|binding| artifact.content_digest != binding.profile_digest)
+        {
+            return refused(
+                "protected embedded Exact WebGPU profile digest differs from its armed binding",
             );
         }
     }
@@ -1685,6 +1751,52 @@ fn validate_exact_embedder_binding(binding: &ExactEmbedderBinding) -> Result<()>
     }
     if !binding.endowments.ui_worklet.is_empty() {
         return refused("Exact UI worklet endowment must remain empty");
+    }
+    Ok(())
+}
+
+/// Validate the complete identity carried by Exact's optional GPU provider
+/// binding. Artifact producers use the same validator before materializing the
+/// profile that armed-snapshot ingestion uses before accepting it.
+pub fn validate_exact_gpu_provider_binding(binding: &ExactGpuProviderBinding) -> Result<()> {
+    if binding.schema != "exact/webgpu-provider/1" {
+        return refused("Exact GPU provider binding schema is unsupported");
+    }
+    if binding.abi_version != 0x0001_0000 && binding.abi_version != 0x0002_0000 {
+        return refused("Exact GPU provider ABI version is unsupported");
+    }
+    if (binding.abi_version == 0x0001_0000 && binding.runtime_routing_digest.is_some())
+        || (binding.abi_version == 0x0002_0000 && binding.runtime_routing_digest.is_none())
+    {
+        return refused("Exact GPU runtime-routing digest does not match the ABI version");
+    }
+    if binding.profile_id.is_empty()
+        || binding.profile_id.len() > 256
+        || !binding
+            .profile_id
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        || !binding.profile_id.bytes().all(|byte| {
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_digit()
+                || matches!(byte, b'.' | b'_' | b'/' | b'-')
+        })
+    {
+        return refused("Exact GPU profile ID is not a bounded stable identifier");
+    }
+    if binding.operation_ids.is_empty()
+        || binding.operation_ids.len() > 4096
+        || binding.operation_ids.contains(&0)
+        || binding
+            .operation_ids
+            .windows(2)
+            .any(|pair| pair[0] >= pair[1])
+    {
+        return refused("Exact GPU operation set is not a bounded sorted unique uint32 set");
+    }
+    if binding.topology != "isolated-per-logical-v1" {
+        return refused("Exact GPU provider topology is unsupported");
     }
     Ok(())
 }
@@ -2221,6 +2333,9 @@ mod tests {
                     ProtectedArtifactRole::EngineBinary => digest_at(&["engine", "binaryDigest"]),
                     ProtectedArtifactRole::ExactOperationManifest => {
                         digest_at(&["exactEmbedder", "operationManifestDigest"])
+                    }
+                    ProtectedArtifactRole::ExactWebgpuProfile => {
+                        digest_at(&["exactGpuProvider", "profileDigest"])
                     }
                     ProtectedArtifactRole::ArmedPolicy => digest_at(&["policyDigest"]),
                     ProtectedArtifactRole::PackageGraph => digest_at(&["packageGraph", "digest"]),
@@ -3176,6 +3291,124 @@ mod tests {
                 .to_string()
                 .contains("manifest digest differs")
         );
+    }
+
+    #[test]
+    fn authenticates_exact_gpu_provider_identity_and_profile_artifact() {
+        let (bytes, mut expected) = fixture();
+        let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+        let profile_digest =
+            Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let vocabulary_digest =
+            Digest::new("sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA").unwrap();
+        let operation_set_digest =
+            Digest::new("sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA").unwrap();
+        let semantic_program_digest =
+            Digest::new("sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA").unwrap();
+        value["exactGpuProvider"] = serde_json::json!({
+            "schema": "exact/webgpu-provider/1",
+            "abiVersion": 65536,
+            "profileId": "exact-webgpu-phase1a-draft",
+            "profileDigest": profile_digest,
+            "webgpuCVocabularyDigest": vocabulary_digest,
+            "operationSetDigest": operation_set_digest,
+            "semanticProgramDigest": semantic_program_digest,
+            "operationIds": [7, 11, 19],
+            "topology": "isolated-per-logical-v1"
+        });
+        let object = serde_json::json!({
+            "platform": "unix",
+            "volume": "fixture-volume",
+            "file": "exact-webgpu-profile"
+        });
+        value["protectedObjects"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "role": "exact-webgpu-profile",
+                "object": object,
+                "deniedActions": ["fs:write"]
+            }));
+        expected
+            .protected_artifacts
+            .push(ExpectedProtectedArtifact {
+                role: ProtectedArtifactRole::ExactWebgpuProfile,
+                host_path: serde_json::from_value(serde_json::json!({
+                    "root": "absolute",
+                    "components": [
+                        {"encoding": "utf8", "value": "fixture"},
+                        {"encoding": "utf8", "value": "exact-webgpu-profile"}
+                    ],
+                    "hostBound": true
+                }))
+                .unwrap(),
+                object: serde_json::from_value(object).unwrap(),
+                content_digest: profile_digest.clone(),
+            });
+        let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value).unwrap();
+        value["armedSnapshotDigest"] = Value::String(digest.clone());
+        expected.armed_snapshot_digest = Digest::new(digest).unwrap();
+
+        let armed = ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();
+        let binding = armed.exact_gpu_provider_binding().unwrap().unwrap();
+        assert_eq!(binding.profile_id, "exact-webgpu-phase1a-draft");
+        assert_eq!(binding.profile_digest, profile_digest);
+        assert_eq!(binding.operation_ids, [7, 11, 19]);
+
+        let routing_digest =
+            Digest::new("sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA").unwrap();
+        let mut v2 = value.clone();
+        v2["exactGpuProvider"]["abiVersion"] = serde_json::json!(131072);
+        v2["exactGpuProvider"]["runtimeRoutingDigest"] = serde_json::json!(routing_digest.clone());
+        let v2_bytes = redigest(&mut v2);
+        let mut v2_expected = expected.clone();
+        v2_expected.armed_snapshot_digest =
+            Digest::new(v2["armedSnapshotDigest"].as_str().unwrap()).unwrap();
+        let v2_armed = ArmedSnapshot::load(&v2_bytes, &v2_expected).unwrap();
+        let v2_binding = v2_armed.exact_gpu_provider_binding().unwrap().unwrap();
+        assert_eq!(v2_binding.abi_version, 0x0002_0000);
+        assert_eq!(
+            v2_binding.runtime_routing_digest.as_ref(),
+            Some(&routing_digest)
+        );
+
+        let mut v2_missing_routing = v2.clone();
+        v2_missing_routing["exactGpuProvider"]
+            .as_object_mut()
+            .unwrap()
+            .remove("runtimeRoutingDigest");
+        assert!(ArmedSnapshot::load(
+            &serde_json::to_vec(&v2_missing_routing).unwrap(),
+            &v2_expected
+        )
+        .is_err());
+
+        let mut v1_with_routing = value.clone();
+        v1_with_routing["exactGpuProvider"]["runtimeRoutingDigest"] =
+            serde_json::json!(routing_digest.clone());
+        assert!(
+            ArmedSnapshot::load(&serde_json::to_vec(&v1_with_routing).unwrap(), &expected).is_err()
+        );
+
+        let mut unsorted = value.clone();
+        unsorted["exactGpuProvider"]["operationIds"] = serde_json::json!([11, 7]);
+        assert!(ArmedSnapshot::load(&redigest(&mut unsorted), &expected).is_err());
+
+        let mut wrong_profile_artifact = expected;
+        wrong_profile_artifact
+            .protected_artifacts
+            .iter_mut()
+            .find(|artifact| artifact.role == ProtectedArtifactRole::ExactWebgpuProfile)
+            .unwrap()
+            .content_digest =
+            Digest::new("sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA").unwrap();
+        assert!(ArmedSnapshot::load(
+            &serde_json::to_vec(&value).unwrap(),
+            &wrong_profile_artifact
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("WebGPU profile digest differs"));
     }
 
     #[test]

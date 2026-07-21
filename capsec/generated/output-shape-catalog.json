@@ -5,7 +5,7 @@
     "status": "unpromotable",
     "method": "source-inventory-surface-accounting-plus-source-asserted-structured-outputs",
     "requiredExecutor": "ibex-public-surface-harness/output-shape-sweep-v3",
-    "reason": "The output corpus remains unpromotable: one native module-marker surface account and three inherited-intrinsic alias surface accounts are unresolved, and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes all three account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations."
+    "reason": "The output corpus remains unpromotable: one native module-marker surface account and three inherited-intrinsic alias surface accounts are unresolved; the construction-private WebGPU program contributes 54 additional unresolved accounts (two callback ingresses, seven private bridge methods, and 45 operation routes) while public installation and platform support remain absent; and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes these account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations."
   },
   "contexts": [
     {
@@ -32447,6 +32447,24 @@
       ]
     },
     {
+      "surfaceId": "surface.callback.ingress.src.engine.hermes.runtime.gpu.cc.exactgpuclientsinkv1.on.event.r.1fte4gg",
+      "status": "unresolved",
+      "reasonCode": "callback-payload-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu.cc#callback-table:ExactGpuClientSinkV1:kGpuClientSink.on_event[4]:receiveGpuEvent"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.callback.ingress.src.engine.hermes.runtime.gpu.v2.cc.exactgpuclientsinkv2.on.even.0fl97zy",
+      "status": "unresolved",
+      "reasonCode": "callback-payload-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#callback-table:ExactGpuClientSinkV2:kGpuClientSinkV2.on_event[4]:receiveGpuEvent"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.callback.ios.dispatch.0j6pity",
       "status": "output-bearing",
       "reasonCode": "source-derived-callback-output",
@@ -32605,6 +32623,24 @@
       "reasonCode": "callback-producer-provenance",
       "sourceRefs": [
         "src/engine/hermes_runtime_fs_windows.cc#startFsAsync:pushRuntimeCallback"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.callback.producer.src.engine.hermes.runtime.gpu.cc.schedulegpumailboxdrain.pushru.0tdubwi",
+      "status": "structural-only",
+      "reasonCode": "callback-producer-provenance",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu.cc#scheduleGpuMailboxDrain:pushRuntimeCallback"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.callback.producer.src.engine.hermes.runtime.gpu.v2.cc.ex.hermes.complete.gpu.deco.1fzvv2i",
+      "status": "structural-only",
+      "reasonCode": "callback-producer-provenance",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_complete_gpu_decoded_image_v1:pushRuntimeCallback"
       ],
       "outputKinds": []
     },
@@ -38354,6 +38390,39 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.begin.app.bundle.evaluation.v1.0heml9g",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_begin_app_bundle_evaluation_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.begin.embedder.capabilities.v1.0e96o0g",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_begin_embedder_capabilities_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.begin.gpu.canvas.app.bundle.v1.1ny5zud",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_begin_gpu_canvas_app_bundle_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.bytecode.version.1ay7fmv",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -38381,6 +38450,17 @@
       "reasonCode": "source-derived-host-abi-output",
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#ex_hermes_cancel_structured_work_target"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.classify.prepared.native.startup.v1.0aj7l67",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_classify_prepared_native_startup_v1"
       ],
       "outputKinds": [
         "[[return]]"
@@ -38476,6 +38556,17 @@
       "reasonCode": "source-derived-host-abi-output",
       "sourceRefs": [
         "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_require_esm"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.complete.gpu.decoded.image.v1.0b51h0a",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_complete_gpu_decoded_image_v1"
       ],
       "outputKinds": [
         "[[return]]"
@@ -38639,6 +38730,17 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.deliver.gpu.canvas.attachment.receipt.v1.0v946lb",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_deliver_gpu_canvas_attachment_receipt_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.destroy.0m27uxn",
       "status": "structural-only",
       "reasonCode": "source-derived-void-all-input-abi",
@@ -38749,6 +38851,30 @@
       "outputKinds": [
         "[[return]]",
         "out:value"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.eval.gpu.canvas.app.bundle.immediate.v1.0xwvp9s",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:error"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.eval.gpu.canvas.app.bundle.with.prelude.immediate.v1.1c9miel",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:error"
       ]
     },
     {
@@ -38889,11 +39015,44 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.finalize.embedder.capabilities.v1.0x08s3n",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_finalize_embedder_capabilities_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.finish.app.bundle.evaluation.v1.1ss4yws",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_finish_app_bundle_evaluation_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.finish.bootstrap.11ahb91",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#ex_hermes_finish_bootstrap"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.finish.gpu.canvas.app.bundle.v1.1xpcpkd",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_finish_gpu_canvas_app_bundle_v1"
       ],
       "outputKinds": [
         "[[return]]"
@@ -38934,6 +39093,72 @@
       "reasonCode": "source-derived-host-abi-output",
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#ex_hermes_get_heap_info"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.gpu.decoded.image.abi.version.v1.0insuqi",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_decoded_image_abi_version_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.gpu.decoded.image.descriptor.size.v1.0gfsf8c",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_decoded_image_descriptor_size_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.gpu.provider.abi.version.0x7nnjz",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu.cc#ex_hermes_gpu_provider_abi_version"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.gpu.provider.abi.version.v2.1rrvsxc",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_provider_abi_version_v2"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v1.0zmd32n",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu.cc#ex_hermes_gpu_provider_descriptor_size_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v2.0zwcorm",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_provider_descriptor_size_v2"
       ],
       "outputKinds": [
         "[[return]]"
@@ -39246,6 +39471,17 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.quarantine.runtime.v1.104iqhs",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_quarantine_runtime_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.resolve.exact.host.call.081d2k5",
       "status": "structural-only",
       "reasonCode": "source-derived-void-all-input-abi",
@@ -39293,6 +39529,29 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.run.prepared.app.v1.12n10zc",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_run_prepared_app_v1"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:error"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.runtime.is.quarantined.v1.0eo02vr",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_runtime_is_quarantined_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.runtime.nonce.0sqhs3l",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -39321,6 +39580,17 @@
       ],
       "outputKinds": [
         "callback:callback/0"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.seal.armed.shared.runtime.globals.v1.1gs1iq6",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_seal_armed_shared_runtime_globals_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
       ]
     },
     {
@@ -39373,6 +39643,39 @@
         "callback:callback/2",
         "callback:callback/3",
         "callback:callback/5"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.set.gpu.decoded.image.provider.v1.17z20ln",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_set_gpu_decoded_image_provider_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.set.gpu.provider.v1.15ll1cc",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu.cc#ex_hermes_set_gpu_provider_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.set.gpu.provider.v2.16fjuf9",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_set_gpu_provider_v2"
+      ],
+      "outputKinds": [
+        "[[return]]"
       ]
     },
     {
@@ -39452,6 +39755,18 @@
       "outputKinds": [
         "callback:callback/0",
         "callback:callback/4"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.stage.prepared.native.startup.v1.1a6m6ld",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_stage_prepared_native_startup_v1"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:error"
       ]
     },
     {
@@ -39671,6 +39986,17 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.verify.prepared.native.startup.absent.v1.064gzo2",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_verify_prepared_native_startup_absent_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.host.armed.bootstrap.compatibility.flags.1m94svg",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -39693,6 +40019,17 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.host.authorize.embedder.capability.set.0c3to9p",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_authorize_embedder_capability_set"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.host.authorize.exact.endowment.035a1se",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -39701,6 +40038,29 @@
       ],
       "outputKinds": [
         "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.authorize.exact.gpu.provider.1lavehd",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_authorize_exact_gpu_provider"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.authorize.exact.gpu.provider.v2.0p7bkxe",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_authorize_exact_gpu_provider_v2"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:authority_digest"
       ]
     },
     {
@@ -39812,6 +40172,41 @@
       ],
       "outputKinds": [
         "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.build.exact.experimental.webgpu.pre1a.armed.embedder.artifacts.1rzd21y",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.build.exact.gpu.armed.embedder.artifacts.0pk4s1p",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_build_exact_gpu_armed_embedder_artifacts"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.capture.exact.gpu.authority.context.v2.1il17lt",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_capture_exact_gpu_authority_context_v2"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:authority_session_id",
+        "out:digest"
       ]
     },
     {
@@ -39981,6 +40376,39 @@
       "reasonCode": "source-derived-host-abi-output",
       "sourceRefs": [
         "src/host/abi.rs#ex_host_evaluate_typed_decision"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.exact.gpu.authority.session.api.v2.12651ze",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_exact_gpu_authority_session_api_v2"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.exact.gpu.authority.session.requested.v2.1qhv1j2",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_exact_gpu_authority_session_requested_v2"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.force.retire.exact.gpu.authority.session.v2.04a1p2h",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_force_retire_exact_gpu_authority_session_v2"
       ],
       "outputKinds": [
         "[[return]]"
@@ -40709,6 +41137,17 @@
       "reasonCode": "source-derived-host-abi-output",
       "sourceRefs": [
         "src/host/abi.rs#ex_host_install_armed"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.install.armed.experimental.webgpu.pre1a.1vyupem",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_install_armed_experimental_webgpu_pre1a"
       ],
       "outputKinds": [
         "[[return]]"
@@ -42568,6 +43007,10 @@
         "src/module_loader/mod.rs#directory_size:external:method:sum:count-1",
         "src/module_loader/mod.rs#directory_size:external:method:unwrap_or:count-1",
         "src/module_loader/mod.rs#directory_size:external:qualified:std::fs::read_dir:count-1",
+        "src/module_loader/mod.rs#ensure_public_runtime_source:external:call:Ok:count-1",
+        "src/module_loader/mod.rs#ensure_public_runtime_source:external:method:is_some_and:count-1",
+        "src/module_loader/mod.rs#ensure_public_runtime_source:external:method:ok:count-1",
+        "src/module_loader/mod.rs#ensure_public_runtime_source:external:qualified:std::fs::canonicalize:count-1",
         "src/module_loader/mod.rs#ensure_transpile_cache_dir:external:call:Err:count-2",
         "src/module_loader/mod.rs#ensure_transpile_cache_dir:external:call:Ok:count-2",
         "src/module_loader/mod.rs#ensure_transpile_cache_dir:external:call:drop:count-1",
@@ -42580,6 +43023,12 @@
         "src/module_loader/mod.rs#ensure_transpile_cache_dir:external:qualified:std::fs::OpenOptions::new:count-1",
         "src/module_loader/mod.rs#ensure_transpile_cache_dir:external:qualified:std::fs::create_dir_all:count-1",
         "src/module_loader/mod.rs#ensure_transpile_cache_dir:external:qualified:std::fs::remove_file:count-1",
+        "src/module_loader/mod.rs#is_private_runtime_source:external:method:any:count-2",
+        "src/module_loader/mod.rs#is_private_runtime_source:external:method:components:count-1",
+        "src/module_loader/mod.rs#is_private_runtime_source:external:method:filter_map:count-1",
+        "src/module_loader/mod.rs#is_private_runtime_source:external:method:to_str:count-1",
+        "src/module_loader/mod.rs#is_private_runtime_source:external:method:windows:count-2",
+        "src/module_loader/mod.rs#is_private_runtime_source:external:qualified:std::path::Component::Normal:count-1",
         "src/module_loader/mod.rs#legacy_runtime_transform:external:method:as_deref:count-1",
         "src/module_loader/mod.rs#load_module_source:external:call:Ok:count-2",
         "src/module_loader/mod.rs#load_module_source:external:method:display:count-1",
@@ -43041,6 +43490,10 @@
         "src/module_loader/mod.rs#duplicate_resolver_fd:external:qualified:OwnedFd::from_raw_fd:count-1",
         "src/module_loader/mod.rs#duplicate_resolver_fd:external:qualified:io::Error::last_os_error:count-1",
         "src/module_loader/mod.rs#duplicate_resolver_fd:external:qualified:libc::fcntl:count-1",
+        "src/module_loader/mod.rs#ensure_public_runtime_source:external:call:Ok:count-1",
+        "src/module_loader/mod.rs#ensure_public_runtime_source:external:method:is_some_and:count-1",
+        "src/module_loader/mod.rs#ensure_public_runtime_source:external:method:ok:count-1",
+        "src/module_loader/mod.rs#ensure_public_runtime_source:external:qualified:std::fs::canonicalize:count-1",
         "src/module_loader/mod.rs#ensure_transpile_cache_dir:external:call:Err:count-2",
         "src/module_loader/mod.rs#ensure_transpile_cache_dir:external:call:Ok:count-2",
         "src/module_loader/mod.rs#ensure_transpile_cache_dir:external:call:drop:count-1",
@@ -43064,6 +43517,12 @@
         "src/module_loader/mod.rs#find_package_root:external:method:to_path_buf:count-2",
         "src/module_loader/mod.rs#inputs:external:method:as_ref:count-1",
         "src/module_loader/mod.rs#inputs:external:method:ok_or_else:count-1",
+        "src/module_loader/mod.rs#is_private_runtime_source:external:method:any:count-2",
+        "src/module_loader/mod.rs#is_private_runtime_source:external:method:components:count-1",
+        "src/module_loader/mod.rs#is_private_runtime_source:external:method:filter_map:count-1",
+        "src/module_loader/mod.rs#is_private_runtime_source:external:method:to_str:count-1",
+        "src/module_loader/mod.rs#is_private_runtime_source:external:method:windows:count-2",
+        "src/module_loader/mod.rs#is_private_runtime_source:external:qualified:std::path::Component::Normal:count-1",
         "src/module_loader/mod.rs#legacy_runtime_transform:external:method:as_deref:count-1",
         "src/module_loader/mod.rs#lexical_absolute_path_for_resolver:external:call:Err:count-2",
         "src/module_loader/mod.rs#lexical_absolute_path_for_resolver:external:call:Ok:count-1",
@@ -46303,6 +46762,7 @@
       "status": "structural-only",
       "reasonCode": "loader-structural-route",
       "sourceRefs": [
+        "src/module_loader/mod.rs#ensure_public_runtime_source:operation:qualified:std::fs::canonicalize",
         "src/module_loader/mod.rs#module_cache_key:operation:qualified:std::fs::canonicalize",
         "src/module_loader/mod.rs#resolve_transpile_cache_dir:operation:qualified:std::fs::canonicalize"
       ],
@@ -46467,6 +46927,7 @@
       "status": "structural-only",
       "reasonCode": "loader-structural-route",
       "sourceRefs": [
+        "src/module_loader/mod.rs#ensure_public_runtime_source:operation:qualified:std::fs::canonicalize",
         "src/module_loader/mod.rs#module_cache_key:operation:qualified:std::fs::canonicalize",
         "src/module_loader/mod.rs#resolve_transpile_cache_dir:operation:qualified:std::fs::canonicalize"
       ],
@@ -47327,6 +47788,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.loader.route.load.rust.ensure.public.runtime.source.1pb5bvc",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/mod.rs#ensure_public_runtime_source"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.loader.route.load.rust.ensure.transpile.cache.dir.1m9lcbl",
       "status": "structural-only",
       "reasonCode": "loader-structural-route",
@@ -47350,6 +47820,15 @@
       "reasonCode": "loader-structural-route",
       "sourceRefs": [
         "src/module_loader/transpile.rs#from_value"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.route.load.rust.is.private.runtime.source.029pjeo",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/mod.rs#is_private_runtime_source"
       ],
       "outputKinds": []
     },
@@ -47885,6 +48364,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.loader.route.resolution.rust.ensure.public.runtime.source.14nz1py",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/mod.rs#ensure_public_runtime_source"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.loader.route.resolution.rust.ensure.transpile.cache.dir.0cyny3j",
       "status": "structural-only",
       "reasonCode": "loader-structural-route",
@@ -47935,6 +48423,15 @@
       "reasonCode": "loader-structural-route",
       "sourceRefs": [
         "src/module_loader/mod.rs#inputs"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.route.resolution.rust.is.private.runtime.source.0b473ea",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/mod.rs#is_private_runtime_source"
       ],
       "outputKinds": []
     },
@@ -49247,6 +49744,667 @@
       "outputKinds": [
         "public-property-read"
       ]
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.gpunativebridge.cancel.0xsazz3",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu.cc#construction-private:gpuNativeBridge.cancel:cancel:cancelGpuBridgeCall"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.gpunativebridge.retire.0rdydxm",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu.cc#construction-private:gpuNativeBridge.retire:retire:retireGpuBridgeCall"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.gpunativebridge.submit.0msz5eh",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu.cc#construction-private:gpuNativeBridge.submit:submit:submitGpuBridgeCall"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.gpunativebridgev2.cancel.1knoc8z",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.cancel:cancel:cancelGpuV2BridgeCall"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.gpunativebridgev2.createmappedrangealias.1wlkeyh",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.createMappedRangeAlias:createMappedRangeAlias:createGpuV2MappedRangeAliasBridgeCall"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.gpunativebridgev2.detachmappedrange.1bcb3hm",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.detachMappedRange:detachMappedRange:detachGpuV2MappedRangeBridgeCall"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.retire:retire:retireGpuV2BridgeCall"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.gpunativebridgev2.seteventsink.05cdr72",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.setEventSink:setEventSink:setGpuV2EventSinkBridgeCall"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.submit:submit:submitGpuV2BridgeCall"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpu.getpreferredcanvasformat.1c3jcst",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPU.getPreferredCanvasFormat:1287763171",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPU.getPreferredCanvasFormat:1287763171"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpu.requestadapter.0zednrz",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPU.requestAdapter:1660448199",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPU.requestAdapter:1660448199"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpuadapter.features.0zmvzzv",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUAdapter.features:1829554013",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUAdapter.features:1829554013"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpuadapter.requestdevice.0jbwy7n",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUAdapter.requestDevice:194635792",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUAdapter.requestDevice:194635792"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpubuffer.destroy.1686eph",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.destroy:3314731466",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.destroy:3314731466"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpubuffer.getmappedrange.1xssoqp",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.getMappedRange:2816646327",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.getMappedRange:2816646327"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpubuffer.mapasync.1ljjxvf",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.mapAsync:1760273919",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.mapAsync:1760273919"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpubuffer.mapstate.0rjd9le",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.mapState:2040228619",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.mapState:2040228619"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpubuffer.size.09wsi98",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.size:2239053141",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.size:2239053141"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpubuffer.unmap.1so0y44",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.unmap:1228615721",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.unmap:1228615721"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpubuffer.usage.1a63xy0",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.usage:1925415872",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.usage:1925415872"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucanvascontext.configure.0ktf630",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.configure:56177326",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.configure:56177326"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucanvascontext.getconfiguration.0d41y66",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.getConfiguration:3293775739",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.getConfiguration:3293775739"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucanvascontext.getcurrenttexture.1no46hs",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.getCurrentTexture:3157634281",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.getCurrentTexture:3157634281"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucanvascontext.unconfigure.12gdr9h",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.unconfigure:935342475",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.unconfigure:935342475"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucommandencoder.begincomputepass.1hbady1",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.beginComputePass:703389977",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.beginComputePass:703389977"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucommandencoder.beginrenderpass.152g8am",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.beginRenderPass:1908549907",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.beginRenderPass:1908549907"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucommandencoder.clearbuffer.0kv8x4h",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.clearBuffer:2307697425",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.clearBuffer:2307697425"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucommandencoder.copybuffertobuffer.1rtf8su",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.copyBufferToBuffer:4157082988",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.copyBufferToBuffer:4157082988"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucommandencoder.copytexturetotexture.0j64w0i",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.copyTextureToTexture:3703840263",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.copyTextureToTexture:3703840263"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucommandencoder.finish.0k90p0d",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.finish:2481184390",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.finish:2481184390"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.dispatchworkgroups.128rff0",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUComputePassEncoder.dispatchWorkgroups:2306328927",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUComputePassEncoder.dispatchWorkgroups:2306328927"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.end.1uq0ctc",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUComputePassEncoder.end:2768132602",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUComputePassEncoder.end:2768132602"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.setbindgroup.0dq2svx",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUComputePassEncoder.setBindGroup:142093524",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUComputePassEncoder.setBindGroup:142093524"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.setpipeline.1j3s7nj",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUComputePassEncoder.setPipeline:1600872137",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUComputePassEncoder.setPipeline:1600872137"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpudevice.createbindgroup.0z8qxfd",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createBindGroup:1199806466",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createBindGroup:1199806466"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpudevice.createbindgrouplayout.0ng298j",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createBindGroupLayout:2544948076",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createBindGroupLayout:2544948076"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpudevice.createbuffer.08g1gvn",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createBuffer:1869756926",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createBuffer:1869756926"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpudevice.createcommandencoder.0xjqx9i",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createCommandEncoder:4055478657",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createCommandEncoder:4055478657"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpudevice.createcomputepipeline.1kduhd8",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createComputePipeline:3202875898",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createComputePipeline:3202875898"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpudevice.createpipelinelayout.18zmjo1",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createPipelineLayout:3373402978",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createPipelineLayout:3373402978"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpudevice.createrenderpipeline.1j64qfn",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createRenderPipeline:2407151159",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createRenderPipeline:2407151159"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpudevice.createsampler.1k2hes7",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createSampler:3285037552",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createSampler:3285037552"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpudevice.createshadermodule.1tnit2w",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createShaderModule:599085487",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createShaderModule:599085487"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpudevice.createtexture.1vc5dzg",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createTexture:4177957718",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createTexture:4177957718"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpudevice.destroy.0eh76at",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.destroy:206890944",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.destroy:206890944"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpudevice.features.0o65siy",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.features:3810427763",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.features:3810427763"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpudevice.limits.1u2lztx",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.limits:1914447212",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.limits:1914447212"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpudevice.lost.1p4gowr",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.lost:892795326",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.lost:892795326"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpudevice.poperrorscope.01d29wy",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.popErrorScope:2687703037",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.popErrorScope:2687703037"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpudevice.pusherrorscope.1jnohqv",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.pushErrorScope:1311136574",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.pushErrorScope:1311136574"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpudevice.queue.03ii42g",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.queue:1949537636",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.queue:1949537636"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpuqueue.copyexternalimagetotexture.0iassmh",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUQueue.copyExternalImageToTexture:1909541119",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUQueue.copyExternalImageToTexture:1909541119"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpuqueue.submit.0sm1jlg",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUQueue.submit:308839175",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUQueue.submit:308839175"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpuqueue.writebuffer.09drr9l",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUQueue.writeBuffer:404589710",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUQueue.writeBuffer:404589710"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpuqueue.writetexture.0je9zc2",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUQueue.writeTexture:3114133342",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUQueue.writeTexture:3114133342"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.draw.1v1coju",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.draw:3054695767",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.draw:3054695767"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.end.1tvn90t",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.end:1724778411",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.end:1724778411"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setbindgroup.1n0cuyu",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.setBindGroup:314403009",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.setBindGroup:314403009"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setpipeline.1hzqdty",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.setPipeline:551383281",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.setPipeline:551383281"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setvertexbuffer.0yy9vps",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.setVertexBuffer:699569388",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.setVertexBuffer:699569388"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gputexture.createview.1uepitt",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.createView:1853125118",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.createView:1853125118"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gputexture.depthorarraylayers.0f86y2f",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.depthOrArrayLayers:31670442",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.depthOrArrayLayers:31670442"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gputexture.destroy.12degrq",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.destroy:2933046788",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.destroy:2933046788"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gputexture.dimension.1qty760",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.dimension:1277060789",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.dimension:1277060789"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gputexture.format.0tdul1j",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.format:4094543821",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.format:4094543821"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gputexture.height.0rwa46f",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.height:1899341095",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.height:1899341095"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gputexture.width.1utkugg",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.width:3310230093",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.width:3310230093"
+      ],
+      "outputKinds": []
     },
     {
       "surfaceId": "surface.native.op.dirname.11h8rni",
@@ -52292,6 +53450,15 @@
       ]
     },
     {
+      "surfaceId": "surface.native.op.exactpreparednativestartupv1.1brr31d",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactPreparedNativeStartupV1"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.native.op.exactprocessipcbootstrap.1f8twb6",
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
@@ -54286,10 +55453,11 @@
         "patches/hermes/0009-raw-throw-capture.patch#patch-content",
         "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
         "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+        "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
         "scripts/apply-hermes-patches.sh#patches",
         "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-c1f3df89055e0791e636aac0fbee262134192ca52cf3f1188ca68c908f0f7e4d",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-bcd4d101dbe751cd719ea502393948df592e094b8f61ca7f993b105ae77fe368",
         "scripts/build-hermes.sh#apply-hermes-patches.sh",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -54298,8 +55466,8 @@
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-74f4096d1723881b55c1b83115920482b22d844e52bfe8f92915822217e92c51",
         "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-d7696b7b07f7bf07e8d22db8af3e8756eef61a659aff76ff1d35dbfe5a08a043",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
         "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -58632,6 +59800,17 @@
       ]
     },
     {
+      "surfaceId": "surface.native.op.global.createimagebitmap.0rbailr",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:createImageBitmap"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
       "surfaceId": "surface.native.op.global.crypto.05lvgvq",
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
@@ -60247,10 +61426,11 @@
         "patches/hermes/0009-raw-throw-capture.patch#patch-content",
         "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
         "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+        "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
         "scripts/apply-hermes-patches.sh#patches",
         "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-c1f3df89055e0791e636aac0fbee262134192ca52cf3f1188ca68c908f0f7e4d",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-bcd4d101dbe751cd719ea502393948df592e094b8f61ca7f993b105ae77fe368",
         "scripts/build-hermes.sh#apply-hermes-patches.sh",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -60259,8 +61439,8 @@
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-74f4096d1723881b55c1b83115920482b22d844e52bfe8f92915822217e92c51",
         "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-d7696b7b07f7bf07e8d22db8af3e8756eef61a659aff76ff1d35dbfe5a08a043",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
         "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -64003,10 +65183,11 @@
         "patches/hermes/0009-raw-throw-capture.patch#patch-content",
         "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
         "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+        "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
         "scripts/apply-hermes-patches.sh#patches",
         "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-c1f3df89055e0791e636aac0fbee262134192ca52cf3f1188ca68c908f0f7e4d",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-bcd4d101dbe751cd719ea502393948df592e094b8f61ca7f993b105ae77fe368",
         "scripts/build-hermes.sh#apply-hermes-patches.sh",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -64015,8 +65196,8 @@
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-74f4096d1723881b55c1b83115920482b22d844e52bfe8f92915822217e92c51",
         "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-d7696b7b07f7bf07e8d22db8af3e8756eef61a659aff76ff1d35dbfe5a08a043",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
         "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -64056,10 +65237,11 @@
         "patches/hermes/0009-raw-throw-capture.patch#patch-content",
         "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
         "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+        "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
         "scripts/apply-hermes-patches.sh#patches",
         "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-c1f3df89055e0791e636aac0fbee262134192ca52cf3f1188ca68c908f0f7e4d",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-bcd4d101dbe751cd719ea502393948df592e094b8f61ca7f993b105ae77fe368",
         "scripts/build-hermes.sh#apply-hermes-patches.sh",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -64068,8 +65250,8 @@
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-74f4096d1723881b55c1b83115920482b22d844e52bfe8f92915822217e92c51",
         "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-d7696b7b07f7bf07e8d22db8af3e8756eef61a659aff76ff1d35dbfe5a08a043",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
         "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -64090,6 +65272,347 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:global",
         "src/engine/bootstrap/compat-polyfills.js#global",
         "src/engine/bootstrap/exact-global.js#global"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpu.1ui4rqn",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPU"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpuadapter.14eu3zq",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUAdapter"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpubindgrouplayout.0pjs9xd",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBindGroupLayout"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpubuffer.1vy1rid",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBuffer"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpubufferusage.1aqx9u0",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBufferUsage"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpucanvascontext.0mtodaa",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCanvasContext"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpucolorwrite.0i5fm61",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUColorWrite"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpucommandbuffer.1d4ltly",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCommandBuffer"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpucommandencoder.07kskj8",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCommandEncoder"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpucomputepassencoder.1hyirez",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUComputePassEncoder"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpucomputepipeline.1buodqe",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUComputePipeline"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpudevice.0lrubnp",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUDevice"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpudevicelostinfo.1lenyin",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUDeviceLostInfo"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpuerror.0c29ikf",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUError"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpuinternalerror.000fb0w",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUInternalError"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpumapmode.132t0bs",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUMapMode"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpuoutofmemoryerror.1ahnb3r",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUOutOfMemoryError"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpupipelinelayout.0a068mr",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUPipelineLayout"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpuqueue.038r0jq",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUQueue"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpurenderpassencoder.0wzq9oi",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPURenderPassEncoder"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpurenderpipeline.1uzysnh",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPURenderPipeline"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpusampler.1u62ynx",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSampler"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpushadermodule.0hsy4ja",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUShaderModule"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpushaderstage.1gts084",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUShaderStage"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpusupportedfeatures.1u2zxh0",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSupportedFeatures"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpusupportedlimits.0vlaq5r",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSupportedLimits"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gputexture.1cenb66",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTexture"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gputextureusage.17o0v49",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTextureUsage"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gputextureview.10piij3",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTextureView"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpuuncapturederrorevent.08sacdo",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUUncapturedErrorEvent"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpuvalidationerror.18jez7a",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUValidationError"
       ],
       "outputKinds": [
         "public-property-read"
@@ -69940,6 +71463,17 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:navigator"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.navigator.gpu.0k3b5ao",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:navigator.gpu"
       ],
       "outputKinds": [
         "public-property-read"
@@ -80467,6 +82001,31 @@
       ]
     },
     {
+      "surfaceId": "surface.native.op.ibexcapturegpucanvasruntimeintegration.0suajp6",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/runtime-internal.ts#beginExactGpuCanvasAppBundle:globals:__ibexCaptureGpuCanvasRuntimeIntegration",
+        "src/engine/hermes_runtime_gpu_v2.cc#__ibexCaptureGpuCanvasRuntimeIntegration"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.ibexcapturegpunativebridge.1no4kru",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/native-bridge.ts#installNativeGpuBridgeCapture:globals:__ibexCaptureGpuNativeBridge",
+        "src/engine/hermes_runtime_gpu.cc#__ibexCaptureGpuNativeBridge",
+        "src/engine/hermes_runtime_gpu_v2.cc#__ibexCaptureGpuNativeBridge"
+      ],
+      "outputKinds": [
+        "public-invocation"
+      ]
+    },
+    {
       "surfaceId": "surface.native.op.ibexcompartmentbaselinefinalized.124fmzn",
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
@@ -80501,6 +82060,51 @@
       "outputKinds": [
         "public-property-read"
       ]
+    },
+    {
+      "surfaceId": "surface.native.op.ibeximmediatehandlercalled.1t9yr5e",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#__ibexImmediateHandlerCalled"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.ibeximmediatemicrotaskran.1u63tdb",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#__ibexImmediateMicrotaskRan"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.ibeximmediatenexttickran.1e5ei92",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#__ibexImmediateNextTickRan"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.ibeximmediateresultcoerced.06n2sbz",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#__ibexImmediateResultCoerced"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.ibeximmediatetheninspected.1yxrdqj",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#__ibexImmediateThenInspected"
+      ],
+      "outputKinds": []
     },
     {
       "surfaceId": "surface.native.op.ibexlockeddown.1l9g3ta",
@@ -83062,6 +84666,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.startup.evaluation.ex.hermes.seal.armed.shared.runtime.globals.v1.armed.shared.r.0pzzqhk",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_seal_armed_shared_runtime_globals_v1:evaluateJavaScript:<armed-shared-runtime-seal-v1>"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.startup.evaluation.has.include.18ool1z.stream.enhance.0x24hc2",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
@@ -83894,6 +85507,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.startup.script.armed.shared.runtime.seal.v1.0gcognx",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#script:<armed-shared-runtime-seal-v1>"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.startup.script.bootstrap.04ar0fr",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
@@ -84017,6 +85639,33 @@
       "reasonCode": "startup-structural-route",
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#script:<ibex-cancellation-consistency>"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.startup.script.immediate.bytecode.1stdmdk",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#script:<immediate-bytecode>"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.startup.script.immediate.eval.0aoh0ap",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#script:<immediate-eval>"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.startup.script.immediate.prelude.01h6s8s",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#script:<immediate-prelude>"
       ],
       "outputKinds": []
     },
@@ -84330,15 +85979,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-dS-9_cXs8lXfoqYnkrR6AQIR7cPuCae8GRNs_Gbn-3s",
+  "catalogKeyDigest": "sha256-H2QWscYdm3MMJoxLQTPqK020Xsxs3KJvcU0O6pnOAjo",
   "counts": {
-    "coverageSurfaces": 7418,
-    "outputBearingSurfaces": 5767,
-    "structuralOnlySurfaces": 1647,
-    "unresolvedSurfaces": 4,
-    "catalogRows": 6437,
+    "coverageSurfaces": 7575,
+    "outputBearingSurfaces": 5838,
+    "structuralOnlySurfaces": 1658,
+    "unresolvedSurfaces": 79,
+    "catalogRows": 6515,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6030,
+    "sourceInventoryRows": 6108,
     "structuredRows": 407
   },
   "rows": [
@@ -147151,6 +148800,69 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.begin.app.bundle.evaluation.v1.0heml9g",
+        "output": "[[return]]",
+        "alias": "ex_hermes_begin_app_bundle_evaluation_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_begin_app_bundle_evaluation_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_begin_app_bundle_evaluation_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.begin.embedder.capabilities.v1.0e96o0g",
+        "output": "[[return]]",
+        "alias": "ex_hermes_begin_embedder_capabilities_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_begin_embedder_capabilities_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_begin_embedder_capabilities_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.begin.gpu.canvas.app.bundle.v1.1ny5zud",
+        "output": "[[return]]",
+        "alias": "ex_hermes_begin_gpu_canvas_app_bundle_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_begin_gpu_canvas_app_bundle_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_begin_gpu_canvas_app_bundle_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.bytecode.version.1ay7fmv",
         "output": "[[return]]",
         "alias": "ex_hermes_bytecode_version",
@@ -147208,6 +148920,27 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime.cc#ex_hermes_cancel_structured_work_target"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.classify.prepared.native.startup.v1.0aj7l67",
+        "output": "[[return]]",
+        "alias": "ex_hermes_classify_prepared_native_startup_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_classify_prepared_native_startup_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_classify_prepared_native_startup_v1"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -147529,6 +149262,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.complete.gpu.decoded.image.v1.0b51h0a",
+        "output": "[[return]]",
+        "alias": "ex_hermes_complete_gpu_decoded_image_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_complete_gpu_decoded_image_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_complete_gpu_decoded_image_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.create.04wgtwz",
         "output": "[[return]]",
         "alias": "ex_hermes_create",
@@ -147760,6 +149514,27 @@
         "sourceRefs": [
           "src/engine/hermes_runtime_debugger.cc#ex_hermes_debugger_set_breakpoint",
           "src/engine/hermes_runtime_platform_windows.cc#ex_hermes_debugger_set_breakpoint"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.deliver.gpu.canvas.attachment.receipt.v1.0v946lb",
+        "output": "[[return]]",
+        "alias": "ex_hermes_deliver_gpu_canvas_attachment_receipt_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_deliver_gpu_canvas_attachment_receipt_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_deliver_gpu_canvas_attachment_receipt_v1"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -148060,6 +149835,90 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.eval.gpu.canvas.app.bundle.immediate.v1.0xwvp9s",
+        "output": "[[return]]",
+        "alias": "ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.eval.gpu.canvas.app.bundle.immediate.v1.0xwvp9s",
+        "output": "out:error",
+        "alias": "ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.eval.gpu.canvas.app.bundle.with.prelude.immediate.v1.1c9miel",
+        "output": "[[return]]",
+        "alias": "ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.eval.gpu.canvas.app.bundle.with.prelude.immediate.v1.1c9miel",
+        "output": "out:error",
+        "alias": "ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.eval.lowered.session.1anyth1",
         "output": "[[return]]",
         "alias": "ex_hermes_eval_lowered_session",
@@ -149881,6 +151740,48 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime.cc#ex_hermes_evaluation_result_init"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.finalize.embedder.capabilities.v1.0x08s3n",
+        "output": "[[return]]",
+        "alias": "ex_hermes_finalize_embedder_capabilities_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_finalize_embedder_capabilities_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_finalize_embedder_capabilities_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.finish.app.bundle.evaluation.v1.1ss4yws",
+        "output": "[[return]]",
+        "alias": "ex_hermes_finish_app_bundle_evaluation_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_finish_app_bundle_evaluation_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_finish_app_bundle_evaluation_v1"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -149902,6 +151803,27 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime.cc#ex_hermes_finish_bootstrap"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.finish.gpu.canvas.app.bundle.v1.1xpcpkd",
+        "output": "[[return]]",
+        "alias": "ex_hermes_finish_gpu_canvas_app_bundle_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_finish_gpu_canvas_app_bundle_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_finish_gpu_canvas_app_bundle_v1"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -149944,6 +151866,132 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime.cc#ex_hermes_get_heap_info"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.gpu.decoded.image.abi.version.v1.0insuqi",
+        "output": "[[return]]",
+        "alias": "ex_hermes_gpu_decoded_image_abi_version_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_gpu_decoded_image_abi_version_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_decoded_image_abi_version_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.gpu.decoded.image.descriptor.size.v1.0gfsf8c",
+        "output": "[[return]]",
+        "alias": "ex_hermes_gpu_decoded_image_descriptor_size_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_gpu_decoded_image_descriptor_size_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_decoded_image_descriptor_size_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.gpu.provider.abi.version.0x7nnjz",
+        "output": "[[return]]",
+        "alias": "ex_hermes_gpu_provider_abi_version",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_gpu_provider_abi_version"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu.cc#ex_hermes_gpu_provider_abi_version"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.gpu.provider.abi.version.v2.1rrvsxc",
+        "output": "[[return]]",
+        "alias": "ex_hermes_gpu_provider_abi_version_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_gpu_provider_abi_version_v2"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_provider_abi_version_v2"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v1.0zmd32n",
+        "output": "[[return]]",
+        "alias": "ex_hermes_gpu_provider_descriptor_size_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_gpu_provider_descriptor_size_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu.cc#ex_hermes_gpu_provider_descriptor_size_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v2.0zwcorm",
+        "output": "[[return]]",
+        "alias": "ex_hermes_gpu_provider_descriptor_size_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_gpu_provider_descriptor_size_v2"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_provider_descriptor_size_v2"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -150937,6 +152985,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.quarantine.runtime.v1.104iqhs",
+        "output": "[[return]]",
+        "alias": "ex_hermes_quarantine_runtime_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_quarantine_runtime_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_quarantine_runtime_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.resume.structured.session.0q4sn5x",
         "output": "[[return]]",
         "alias": "ex_hermes_resume_structured_session",
@@ -151336,6 +153405,69 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.run.prepared.app.v1.12n10zc",
+        "output": "[[return]]",
+        "alias": "ex_hermes_run_prepared_app_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_run_prepared_app_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_run_prepared_app_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.run.prepared.app.v1.12n10zc",
+        "output": "out:error",
+        "alias": "ex_hermes_run_prepared_app_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_run_prepared_app_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_run_prepared_app_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.runtime.is.quarantined.v1.0eo02vr",
+        "output": "[[return]]",
+        "alias": "ex_hermes_runtime_is_quarantined_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_runtime_is_quarantined_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_runtime_is_quarantined_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.runtime.nonce.0sqhs3l",
         "output": "[[return]]",
         "alias": "ex_hermes_runtime_nonce",
@@ -151372,6 +153504,27 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime.cc#ex_hermes_schedule_watchdog_heartbeat_for_generation"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.seal.armed.shared.runtime.globals.v1.1gs1iq6",
+        "output": "[[return]]",
+        "alias": "ex_hermes_seal_armed_shared_runtime_globals_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_seal_armed_shared_runtime_globals_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_seal_armed_shared_runtime_globals_v1"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -151630,6 +153783,69 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.gpu.decoded.image.provider.v1.17z20ln",
+        "output": "[[return]]",
+        "alias": "ex_hermes_set_gpu_decoded_image_provider_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_set_gpu_decoded_image_provider_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_set_gpu_decoded_image_provider_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.gpu.provider.v1.15ll1cc",
+        "output": "[[return]]",
+        "alias": "ex_hermes_set_gpu_provider_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_set_gpu_provider_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu.cc#ex_hermes_set_gpu_provider_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.gpu.provider.v2.16fjuf9",
+        "output": "[[return]]",
+        "alias": "ex_hermes_set_gpu_provider_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_set_gpu_provider_v2"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_set_gpu_provider_v2"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.set.host.call.16xhko5",
         "output": "callback:callback/0",
         "alias": "ex_hermes_set_host_call",
@@ -151855,6 +154071,48 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_sync_callback"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.stage.prepared.native.startup.v1.1a6m6ld",
+        "output": "[[return]]",
+        "alias": "ex_hermes_stage_prepared_native_startup_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_stage_prepared_native_startup_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_stage_prepared_native_startup_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.stage.prepared.native.startup.v1.1a6m6ld",
+        "output": "out:error",
+        "alias": "ex_hermes_stage_prepared_native_startup_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_stage_prepared_native_startup_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_stage_prepared_native_startup_v1"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -153037,6 +155295,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.verify.prepared.native.startup.absent.v1.064gzo2",
+        "output": "[[return]]",
+        "alias": "ex_hermes_verify_prepared_native_startup_absent_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_verify_prepared_native_startup_absent_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_verify_prepared_native_startup_absent_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.host.armed.bootstrap.compatibility.flags.1m94svg",
         "output": "[[return]]",
         "alias": "ex_host_armed_bootstrap_compatibility_flags",
@@ -153079,6 +155358,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.host.authorize.embedder.capability.set.0c3to9p",
+        "output": "[[return]]",
+        "alias": "ex_host_authorize_embedder_capability_set",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_authorize_embedder_capability_set"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_authorize_embedder_capability_set"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.host.authorize.exact.endowment.035a1se",
         "output": "[[return]]",
         "alias": "ex_host_authorize_exact_endowment",
@@ -153094,6 +155394,69 @@
         ],
         "sourceRefs": [
           "src/host/abi.rs#ex_host_authorize_exact_endowment"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.authorize.exact.gpu.provider.1lavehd",
+        "output": "[[return]]",
+        "alias": "ex_host_authorize_exact_gpu_provider",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_authorize_exact_gpu_provider"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_authorize_exact_gpu_provider"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.authorize.exact.gpu.provider.v2.0p7bkxe",
+        "output": "[[return]]",
+        "alias": "ex_host_authorize_exact_gpu_provider_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_authorize_exact_gpu_provider_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_authorize_exact_gpu_provider_v2"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.authorize.exact.gpu.provider.v2.0p7bkxe",
+        "output": "out:authority_digest",
+        "alias": "ex_host_authorize_exact_gpu_provider_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_authorize_exact_gpu_provider_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_authorize_exact_gpu_provider_v2"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -153325,6 +155688,111 @@
         ],
         "sourceRefs": [
           "src/host/abi.rs#ex_host_build_exact_armed_embedder_artifacts"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.build.exact.experimental.webgpu.pre1a.armed.embedder.artifacts.1rzd21y",
+        "output": "[[return]]",
+        "alias": "ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.build.exact.gpu.armed.embedder.artifacts.0pk4s1p",
+        "output": "[[return]]",
+        "alias": "ex_host_build_exact_gpu_armed_embedder_artifacts",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_build_exact_gpu_armed_embedder_artifacts"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_build_exact_gpu_armed_embedder_artifacts"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.capture.exact.gpu.authority.context.v2.1il17lt",
+        "output": "[[return]]",
+        "alias": "ex_host_capture_exact_gpu_authority_context_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_capture_exact_gpu_authority_context_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_capture_exact_gpu_authority_context_v2"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.capture.exact.gpu.authority.context.v2.1il17lt",
+        "output": "out:authority_session_id",
+        "alias": "ex_host_capture_exact_gpu_authority_context_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_capture_exact_gpu_authority_context_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_capture_exact_gpu_authority_context_v2"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.capture.exact.gpu.authority.context.v2.1il17lt",
+        "output": "out:digest",
+        "alias": "ex_host_capture_exact_gpu_authority_context_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_capture_exact_gpu_authority_context_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_capture_exact_gpu_authority_context_v2"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -153640,6 +156108,69 @@
         ],
         "sourceRefs": [
           "src/host/abi.rs#ex_host_evaluate_typed_decision"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.exact.gpu.authority.session.api.v2.12651ze",
+        "output": "[[return]]",
+        "alias": "ex_host_exact_gpu_authority_session_api_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_exact_gpu_authority_session_api_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_exact_gpu_authority_session_api_v2"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.exact.gpu.authority.session.requested.v2.1qhv1j2",
+        "output": "[[return]]",
+        "alias": "ex_host_exact_gpu_authority_session_requested_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_exact_gpu_authority_session_requested_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_exact_gpu_authority_session_requested_v2"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.force.retire.exact.gpu.authority.session.v2.04a1p2h",
+        "output": "[[return]]",
+        "alias": "ex_host_force_retire_exact_gpu_authority_session_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_force_retire_exact_gpu_authority_session_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_force_retire_exact_gpu_authority_session_v2"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -155062,6 +157593,27 @@
         ],
         "sourceRefs": [
           "src/host/abi.rs#ex_host_install_armed"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.install.armed.experimental.webgpu.pre1a.1vyupem",
+        "output": "[[return]]",
+        "alias": "ex_host_install_armed_experimental_webgpu_pre1a",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_install_armed_experimental_webgpu_pre1a"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_install_armed_experimental_webgpu_pre1a"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -172014,10 +174566,11 @@
           "patches/hermes/0009-raw-throw-capture.patch#patch-content",
           "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
           "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-c1f3df89055e0791e636aac0fbee262134192ca52cf3f1188ca68c908f0f7e4d",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-bcd4d101dbe751cd719ea502393948df592e094b8f61ca7f993b105ae77fe368",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -172026,8 +174579,8 @@
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-74f4096d1723881b55c1b83115920482b22d844e52bfe8f92915822217e92c51",
           "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-d7696b7b07f7bf07e8d22db8af3e8756eef61a659aff76ff1d35dbfe5a08a043",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -180160,6 +182713,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.native.op.global.createimagebitmap.0rbailr",
+        "output": "[[value]]",
+        "alias": "global:createImageBitmap",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:createImageBitmap"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:createImageBitmap"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.native.op.global.crypto.05lvgvq",
         "output": "[[return]]",
         "alias": "global:Crypto",
@@ -183091,10 +185665,11 @@
           "patches/hermes/0009-raw-throw-capture.patch#patch-content",
           "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
           "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-c1f3df89055e0791e636aac0fbee262134192ca52cf3f1188ca68c908f0f7e4d",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-bcd4d101dbe751cd719ea502393948df592e094b8f61ca7f993b105ae77fe368",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -183103,8 +185678,8 @@
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-74f4096d1723881b55c1b83115920482b22d844e52bfe8f92915822217e92c51",
           "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-d7696b7b07f7bf07e8d22db8af3e8756eef61a659aff76ff1d35dbfe5a08a043",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -190167,10 +192742,11 @@
           "patches/hermes/0009-raw-throw-capture.patch#patch-content",
           "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
           "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-c1f3df89055e0791e636aac0fbee262134192ca52cf3f1188ca68c908f0f7e4d",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-bcd4d101dbe751cd719ea502393948df592e094b8f61ca7f993b105ae77fe368",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -190179,8 +192755,8 @@
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-74f4096d1723881b55c1b83115920482b22d844e52bfe8f92915822217e92c51",
           "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-d7696b7b07f7bf07e8d22db8af3e8756eef61a659aff76ff1d35dbfe5a08a043",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -190240,10 +192816,11 @@
           "patches/hermes/0009-raw-throw-capture.patch#patch-content",
           "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
           "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-c1f3df89055e0791e636aac0fbee262134192ca52cf3f1188ca68c908f0f7e4d",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-bcd4d101dbe751cd719ea502393948df592e094b8f61ca7f993b105ae77fe368",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -190252,8 +192829,8 @@
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-74f4096d1723881b55c1b83115920482b22d844e52bfe8f92915822217e92c51",
           "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-d7696b7b07f7bf07e8d22db8af3e8756eef61a659aff76ff1d35dbfe5a08a043",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -190284,6 +192861,657 @@
           "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:global",
           "src/engine/bootstrap/compat-polyfills.js#global",
           "src/engine/bootstrap/exact-global.js#global"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpu.1ui4rqn",
+        "output": "[[value]]",
+        "alias": "global:GPU",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPU"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPU"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuadapter.14eu3zq",
+        "output": "[[value]]",
+        "alias": "global:GPUAdapter",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUAdapter"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUAdapter"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpubindgrouplayout.0pjs9xd",
+        "output": "[[value]]",
+        "alias": "global:GPUBindGroupLayout",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUBindGroupLayout"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBindGroupLayout"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpubuffer.1vy1rid",
+        "output": "[[value]]",
+        "alias": "global:GPUBuffer",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUBuffer"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBuffer"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpubufferusage.1aqx9u0",
+        "output": "[[value]]",
+        "alias": "global:GPUBufferUsage",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUBufferUsage"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUBufferUsage"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpucanvascontext.0mtodaa",
+        "output": "[[value]]",
+        "alias": "global:GPUCanvasContext",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUCanvasContext"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCanvasContext"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpucolorwrite.0i5fm61",
+        "output": "[[value]]",
+        "alias": "global:GPUColorWrite",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUColorWrite"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUColorWrite"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpucommandbuffer.1d4ltly",
+        "output": "[[value]]",
+        "alias": "global:GPUCommandBuffer",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUCommandBuffer"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCommandBuffer"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpucommandencoder.07kskj8",
+        "output": "[[value]]",
+        "alias": "global:GPUCommandEncoder",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUCommandEncoder"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUCommandEncoder"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpucomputepassencoder.1hyirez",
+        "output": "[[value]]",
+        "alias": "global:GPUComputePassEncoder",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUComputePassEncoder"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUComputePassEncoder"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpucomputepipeline.1buodqe",
+        "output": "[[value]]",
+        "alias": "global:GPUComputePipeline",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUComputePipeline"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUComputePipeline"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpudevice.0lrubnp",
+        "output": "[[value]]",
+        "alias": "global:GPUDevice",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUDevice"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUDevice"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpudevicelostinfo.1lenyin",
+        "output": "[[value]]",
+        "alias": "global:GPUDeviceLostInfo",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUDeviceLostInfo"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUDeviceLostInfo"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuerror.0c29ikf",
+        "output": "[[value]]",
+        "alias": "global:GPUError",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUError"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUError"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuinternalerror.000fb0w",
+        "output": "[[value]]",
+        "alias": "global:GPUInternalError",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUInternalError"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUInternalError"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpumapmode.132t0bs",
+        "output": "[[value]]",
+        "alias": "global:GPUMapMode",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUMapMode"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUMapMode"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuoutofmemoryerror.1ahnb3r",
+        "output": "[[value]]",
+        "alias": "global:GPUOutOfMemoryError",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUOutOfMemoryError"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUOutOfMemoryError"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpupipelinelayout.0a068mr",
+        "output": "[[value]]",
+        "alias": "global:GPUPipelineLayout",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUPipelineLayout"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUPipelineLayout"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuqueue.038r0jq",
+        "output": "[[value]]",
+        "alias": "global:GPUQueue",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUQueue"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUQueue"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpurenderpassencoder.0wzq9oi",
+        "output": "[[value]]",
+        "alias": "global:GPURenderPassEncoder",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPURenderPassEncoder"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPURenderPassEncoder"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpurenderpipeline.1uzysnh",
+        "output": "[[value]]",
+        "alias": "global:GPURenderPipeline",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPURenderPipeline"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPURenderPipeline"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpusampler.1u62ynx",
+        "output": "[[value]]",
+        "alias": "global:GPUSampler",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUSampler"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSampler"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpushadermodule.0hsy4ja",
+        "output": "[[value]]",
+        "alias": "global:GPUShaderModule",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUShaderModule"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUShaderModule"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpushaderstage.1gts084",
+        "output": "[[value]]",
+        "alias": "global:GPUShaderStage",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUShaderStage"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUShaderStage"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpusupportedfeatures.1u2zxh0",
+        "output": "[[value]]",
+        "alias": "global:GPUSupportedFeatures",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUSupportedFeatures"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSupportedFeatures"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpusupportedlimits.0vlaq5r",
+        "output": "[[value]]",
+        "alias": "global:GPUSupportedLimits",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUSupportedLimits"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUSupportedLimits"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gputexture.1cenb66",
+        "output": "[[value]]",
+        "alias": "global:GPUTexture",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUTexture"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTexture"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gputextureusage.17o0v49",
+        "output": "[[value]]",
+        "alias": "global:GPUTextureUsage",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUTextureUsage"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTextureUsage"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gputextureview.10piij3",
+        "output": "[[value]]",
+        "alias": "global:GPUTextureView",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUTextureView"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUTextureView"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuuncapturederrorevent.08sacdo",
+        "output": "[[value]]",
+        "alias": "global:GPUUncapturedErrorEvent",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUUncapturedErrorEvent"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUUncapturedErrorEvent"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuvalidationerror.18jez7a",
+        "output": "[[value]]",
+        "alias": "global:GPUValidationError",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUValidationError"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUValidationError"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -201013,6 +204241,27 @@
         ],
         "sourceRefs": [
           "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:navigator"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.navigator.gpu.0k3b5ao",
+        "output": "[[value]]",
+        "alias": "global:navigator.gpu",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:navigator.gpu"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:navigator.gpu"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -220280,6 +223529,51 @@
           "src/bin/ibex/engine/hermes.rs#install_capsec_context_test_observer",
           "src/engine/hermes_runtime.cc#__ibexCapsecContextObserver_",
           "src/engine/hermes_runtime.cc#ibex_test_install_capsec_context_observer"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.ibexcapturegpucanvasruntimeintegration.0suajp6",
+        "output": "[[return]]",
+        "alias": "__ibexCaptureGpuCanvasRuntimeIntegration",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:__ibexCaptureGpuCanvasRuntimeIntegration"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/runtime-internal.ts#beginExactGpuCanvasAppBundle:globals:__ibexCaptureGpuCanvasRuntimeIntegration",
+          "src/engine/hermes_runtime_gpu_v2.cc#__ibexCaptureGpuCanvasRuntimeIntegration"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.ibexcapturegpunativebridge.1no4kru",
+        "output": "[[return]]",
+        "alias": "__ibexCaptureGpuNativeBridge",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:__ibexCaptureGpuNativeBridge"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/native-bridge.ts#installNativeGpuBridgeCapture:globals:__ibexCaptureGpuNativeBridge",
+          "src/engine/hermes_runtime_gpu.cc#__ibexCaptureGpuNativeBridge",
+          "src/engine/hermes_runtime_gpu_v2.cc#__ibexCaptureGpuNativeBridge"
         ]
       },
       "requiredValueProof": "live-value-observation"

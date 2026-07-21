@@ -181,7 +181,7 @@ describe("source-bound Host ABI output templates", () => {
       "rust-host-http-live-server": 24,
       "rust-host-sqlite-memory": 13,
       "rust-host-terminal-inert": 8,
-      "native-hermes-diagnostic-runtime": 24,
+      "native-hermes-diagnostic-runtime": 25,
       "native-hermes-bounded-dispatch-runtime": 3,
       "native-hermes-module-runner-runtime": 27,
       "native-hermes-owned-runtime-teardown": 1,

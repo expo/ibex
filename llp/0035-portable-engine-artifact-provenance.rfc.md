@@ -5,6 +5,18 @@
 **Systems:** Security, Engine, Build, Distribution, CI, Runtime, Host ABI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
+**Revised:** 2026-07-20 (integrates the concurrently landed main line — GPU
+authority ABI v2, app-bundle staging routes, the WebGPU mapped-arraybuffer
+alias Hermes patch 0012, and reviewed builder profile receipts — into the
+portable-promotion branch; the union of the two reviewed builder authorities is
+restamped through the evaluator review ID, Hermes profile digest,
+source-review digest, and output-disposition catalog-key digest, and the
+pinned no-debugger Apple engine is rebuilt with the merged patch stack under a
+fresh provenance receipt. The merged output-shape catalog has 6,515 rows with
+41 honest host-ABI residual rows — the new GPU authority/app-bundle stateful
+routes have no authored bounded output templates yet — so the sweep plan
+remains non-bidirectional, the ceremony stays blocked, and advertisements
+remain empty.)
 **Revised:** 2026-07-20 (native package production and credentialed publishing
 are isolated by immutable raw-artifact handoffs; the checkout-local installer
 uses a policy-bound, byte-pinned offline verifier and reconstructive transport

@@ -24,7 +24,7 @@ jobs:
   conformance:
     name: Complete matrix + unadvertised evidence (macOS arm64)
     runs-on: macos-14
-    timeout-minutes: 360
+    timeout-minutes: 375
     env:
       # download-hermes.sh defaults to the developer/debug profile. This job
       # proves the physical Release target, so bind both artifact selection and
@@ -144,7 +144,7 @@ jobs:
   conformance-windows:
     name: Complete matrix + unadvertised evidence (Windows x64)
     runs-on: windows-2022
-    timeout-minutes: 360
+    timeout-minutes: 375
     env:
       HERMES_ENABLE_DEBUGGER: "false"
     steps:

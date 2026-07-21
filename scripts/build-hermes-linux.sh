@@ -203,6 +203,20 @@ cp -f "$INSTALL_DIR/lib/libhermesvm.so" "$LINUX_LIB_DIR/"
 cp -f "$INSTALL_DIR/lib/libhermesvm_a.a" "$LINUX_LIB_DIR/"
 cp -f "$INSTALL_DIR/lib/libjsi.a" "$LINUX_LIB_DIR/"
 cp -f "$INSTALL_DIR/lib/libboost_context.a" "$LINUX_LIB_DIR/"
+rm -f "$INSTALL_DIR/lib/hermes-profile-provenance.json" \
+    "$LINUX_LIB_DIR/hermes-profile-provenance.json"
+LINUX_CACHE_KEY="$(ibex_hermes_linux_source_cache_key "${IBEX_HERMES_SOURCE_COMMIT:0:12}")"
+echo "Source cache key: $LINUX_CACHE_KEY"
+ibex_write_source_patched_profile_receipt \
+    "$INSTALL_DIR/lib/libhermesvm.so" \
+    "$INSTALL_DIR/lib/hermes-profile-provenance.json" \
+    "$HERMES_VERSION" \
+    "$LINUX_CACHE_KEY"
+if [[ -f "$INSTALL_DIR/lib/hermes-profile-provenance.json" ]]; then
+    cp -f "$INSTALL_DIR/lib/hermes-profile-provenance.json" "$LINUX_LIB_DIR/"
+else
+    echo "[provenance] custom Hermes source build has no reviewed profile receipt." >&2
+fi
 ARCH="$(uname -m)"
 case "$ARCH" in
     x86_64|amd64) HERMESC_ARCH="x64" ;;

@@ -1211,17 +1211,20 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         "ibex/capsec-output-shape-execution-partition/1",
       completeCatalogKeyDigest: completeCatalog.catalogKeyDigest,
     });
-    expect(completeCatalog.rows).toHaveLength(6437);
-    expect(executionPartition.genericCatalog.rows).toHaveLength(5907);
-    expect(executionPartition.genericProbes).toHaveLength(5907);
+    expect(completeCatalog.rows).toHaveLength(6515);
+    expect(executionPartition.genericCatalog.rows).toHaveLength(5942);
+    expect(executionPartition.genericProbes).toHaveLength(5942);
     expect(
       executionPartition.genericCatalog.rows.some(
         (row) => row.key.sourceKind === "host-abi",
       ),
     ).toBe(false);
     expect(executionPartition.hostAbi.targetAbsenceBindings).toHaveLength(59);
-    expect(executionPartition.hostAbi.rows).toHaveLength(471);
-    expect(executionPartition.hostAbi.residuals).toHaveLength(0);
+    expect(executionPartition.hostAbi.rows).toHaveLength(473);
+    // The 41 residual rows are the concurrently landed GPU authority/app-bundle
+    // host routes that do not yet have authored bounded output templates; the
+    // sweep plan must keep failing bidirectionality until they are closed.
+    expect(executionPartition.hostAbi.residuals).toHaveLength(41);
 
     const baseBindings = fixture().bindings;
     const targetAbsenceProbes = buildTargetAbsenceOutputShapeProbes({
@@ -1230,21 +1233,22 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       recipeCatalog,
       target,
     });
-    const completePlan = buildOutputShapeSweepPlan({
-      catalog: completeCatalog,
-      probes: [
-        ...executionPartition.genericProbes,
-        ...executionPartition.hostAbi.rows,
-        ...targetAbsenceProbes,
-      ],
-      ...baseBindings,
-      target,
-      engine: {
-        ...baseBindings.engine,
-        structuralFeatures: [...target.features],
-      },
-    });
-    expect(completePlan.rows).toHaveLength(6437);
+    expect(() =>
+      buildOutputShapeSweepPlan({
+        catalog: completeCatalog,
+        probes: [
+          ...executionPartition.genericProbes,
+          ...executionPartition.hostAbi.rows,
+          ...targetAbsenceProbes,
+        ],
+        ...baseBindings,
+        target,
+        engine: {
+          ...baseBindings.engine,
+          structuralFeatures: [...target.features],
+        },
+      }),
+    ).toThrow(/output-shape sweep probes is not bidirectional; missing=/);
 
     const androidRows = [
       ...executionPartition.hostAbi.targetAbsenceBindings,
@@ -1340,12 +1344,12 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       shifted.hostAbi.targetAbsenceBindings.length,
       shifted.hostAbi.rows.length,
       shifted.hostAbi.residuals.length,
-    ]).not.toEqual([59, 471, 0]);
+    ]).not.toEqual([59, 473, 41]);
     expect([
       executionPartition.hostAbi.targetAbsenceBindings.length,
       executionPartition.hostAbi.rows.length,
       executionPartition.hostAbi.residuals.length,
-    ]).toEqual([59, 471, 0]);
+    ]).toEqual([59, 473, 41]);
   }, 60_000);
 
   test("routes and exactly validates the complete builtin-effects tranche", async () => {

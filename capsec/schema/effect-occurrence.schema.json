@@ -41,6 +41,7 @@
         { "$ref": "#/$defs/storageOccurrence" },
         { "$ref": "#/$defs/lifecycleOccurrence" },
         { "$ref": "#/$defs/sessionStateOccurrence" },
+        { "$ref": "#/$defs/gpuOperationOccurrence" },
         { "$ref": "#/$defs/closedOccurrence" }
       ]
     }
@@ -429,6 +430,45 @@
         "kind": { "const": "session-state-occurrence" },
         "requested": {
           "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/sessionState"
+        }
+      },
+      "additionalProperties": false
+    },
+    "gpuOperationOccurrence": {
+      "type": "object",
+      "required": [
+        "kind",
+        "requested",
+        "realmIdentity",
+        "accountIdentity",
+        "receiverIdentity"
+      ],
+      "properties": {
+        "kind": { "const": "gpu-operation-occurrence" },
+        "requested": {
+          "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/gpuOperation"
+        },
+        "realmIdentity": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "accountIdentity": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "deviceIdentity": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "receiverIdentity": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "targetIdentity": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "presentedHandleIdentities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+          }
         }
       },
       "additionalProperties": false

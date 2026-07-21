@@ -245,26 +245,258 @@ char* copyMallocString(const std::string& value) {
   return heap;
 }
 
+bool exactRuntimeDebuggerIngressAllowed(
+    const ExactHermesRuntime* runtime) noexcept {
+  return runtime &&
+      !runtime->runtime_quarantined.load(std::memory_order_acquire) &&
+      !runtime->gpu_canvas_app_bundle_debugger_blocked.load(
+          std::memory_order_acquire);
+}
+
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
+namespace {
+
+void cancelPendingDebuggerCommandsLocked(
+    ExactHermesRuntime* runtime) noexcept {
+  for (const auto& command : runtime->pending_debugger_commands) {
+    {
+      std::lock_guard<std::mutex> commandLock(command->mutex);
+      command->cancelled = true;
+      command->settled = true;
+      command->result.clear();
+    }
+    command->cv.notify_all();
+  }
+  runtime->pending_debugger_commands.clear();
+}
+
+}  // namespace
+#endif
+
+bool exactRuntimeBeginGpuCanvasDebuggerExclusion(
+    ExactHermesRuntime* runtime) noexcept {
+  if (!runtime || !runtime->runtime ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      runtime->runtime_quarantined.load(std::memory_order_acquire)) {
+    return false;
+  }
+
+  bool wasAttached = false;
+  {
+    std::lock_guard<std::mutex> lock(runtime->debug_mutex);
+    if (runtime->gpu_canvas_app_bundle_debugger_blocked.load(
+            std::memory_order_relaxed)) {
+      return false;
+    }
+    wasAttached = runtime->debugger_attached.load(std::memory_order_acquire);
+    runtime->gpu_canvas_app_bundle_debugger_was_attached = wasAttached;
+    runtime->gpu_canvas_app_bundle_debugger_blocked.store(
+        true, std::memory_order_release);
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
+    // Linearize gate closure with command admission. Every command that won
+    // admission before this point is cancelled and its waiter is settled
+    // before the temporary capture root can be published.
+    cancelPendingDebuggerCommandsLocked(runtime);
+#endif
+  }
+
+#if defined(HERMES_ENABLE_DEBUGGER) && EXACT_HAS_HERMES_ASYNC_DEBUGGER
+  if (wasAttached) {
+    try {
+      runtime->runtime->getDebugger().setIsDebuggerAttached(false);
+    } catch (...) {
+      std::lock_guard<std::mutex> lock(runtime->debug_mutex);
+      runtime->gpu_canvas_app_bundle_debugger_was_attached = false;
+      runtime->gpu_canvas_app_bundle_debugger_blocked.store(
+          false, std::memory_order_release);
+      return false;
+    }
+  }
+#else
+  if (wasAttached) {
+    std::lock_guard<std::mutex> lock(runtime->debug_mutex);
+    runtime->gpu_canvas_app_bundle_debugger_was_attached = false;
+    runtime->gpu_canvas_app_bundle_debugger_blocked.store(
+        false, std::memory_order_release);
+    return false;
+  }
+#endif
+  return true;
+}
+
+bool exactRuntimeFinishGpuCanvasDebuggerExclusion(
+    ExactHermesRuntime* runtime) noexcept {
+  if (!runtime || !runtime->runtime ||
+      runtime->runtime_thread != std::this_thread::get_id()) {
+    return false;
+  }
+
+  bool restoreAttached = false;
+  {
+    std::lock_guard<std::mutex> lock(runtime->debug_mutex);
+    if (!runtime->gpu_canvas_app_bundle_debugger_blocked.load(
+            std::memory_order_relaxed)) {
+      return false;
+    }
+    restoreAttached =
+        !runtime->runtime_quarantined.load(std::memory_order_acquire) &&
+        runtime->gpu_canvas_app_bundle_debugger_was_attached;
+  }
+
+#if defined(HERMES_ENABLE_DEBUGGER) && EXACT_HAS_HERMES_ASYNC_DEBUGGER
+  if (restoreAttached) {
+    try {
+      runtime->runtime->getDebugger().setIsDebuggerAttached(true);
+    } catch (...) {
+      // Keep the exclusion closed. The app-bundle caller must destroy this
+      // runtime rather than expose a realm whose debugger state is ambiguous.
+      return false;
+    }
+  }
+#else
+  if (restoreAttached) {
+    return false;
+  }
+#endif
+
+  {
+    std::lock_guard<std::mutex> lock(runtime->debug_mutex);
+    runtime->gpu_canvas_app_bundle_debugger_was_attached = false;
+    runtime->gpu_canvas_app_bundle_debugger_blocked.store(
+        false, std::memory_order_release);
+  }
+  return true;
+}
+
 void pushDebugEvent(ExactHermesRuntime* runtime, const std::string& event) {
   if (!runtime) {
     return;
   }
   std::lock_guard<std::mutex> lock(runtime->debug_mutex);
+  if (runtime->runtime_quarantined.load(std::memory_order_relaxed) ||
+      runtime->gpu_canvas_app_bundle_debugger_blocked.load(
+          std::memory_order_relaxed)) {
+    return;
+  }
   runtime->debug_events.push_back(event);
 }
 
 #if EXACT_HAS_HERMES_ASYNC_DEBUGGER
 std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> snapshotDebugger(
     ExactHermesRuntime* runtime) {
-  if (!runtime || !runtime->debugger_available.load()) {
+  if (!runtime || !runtime->debugger_available.load() ||
+      !exactRuntimeDebuggerIngressAllowed(runtime)) {
     return nullptr;
   }
 
   std::lock_guard<std::mutex> lock(runtime->debug_mutex);
-  if (!runtime->debugger || !runtime->debugger_available.load()) {
+  if (!runtime->debugger || !runtime->debugger_available.load() ||
+      runtime->runtime_quarantined.load(std::memory_order_relaxed) ||
+      runtime->gpu_canvas_app_bundle_debugger_blocked.load(
+          std::memory_order_relaxed)) {
     return nullptr;
   }
   return runtime->debugger;
+}
+
+std::shared_ptr<ExactPendingDebuggerCommand> exactRuntimeAdmitDebuggerCommand(
+    ExactHermesRuntime* runtime,
+    std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI>* debugger) {
+  if (debugger) debugger->reset();
+  if (!runtime || !debugger) return nullptr;
+  std::lock_guard<std::mutex> lock(runtime->debug_mutex);
+  if (!runtime->debugger || !runtime->debugger_available.load() ||
+      runtime->runtime_quarantined.load(std::memory_order_relaxed) ||
+      runtime->gpu_canvas_app_bundle_debugger_blocked.load(
+          std::memory_order_relaxed)) {
+    return nullptr;
+  }
+  auto command = std::make_shared<ExactPendingDebuggerCommand>();
+  runtime->pending_debugger_commands.insert(command);
+  *debugger = runtime->debugger;
+  return command;
+}
+
+void exactRuntimeCancelPendingDebuggerCommands(
+    ExactHermesRuntime* runtime) noexcept {
+  if (!runtime) return;
+  std::lock_guard<std::mutex> lock(runtime->debug_mutex);
+  cancelPendingDebuggerCommandsLocked(runtime);
+}
+
+bool exactRuntimeDebuggerCommandCancelled(
+    const std::shared_ptr<ExactPendingDebuggerCommand>& command) noexcept {
+  if (!command) return true;
+  std::lock_guard<std::mutex> lock(command->mutex);
+  return command->cancelled;
+}
+
+void exactRuntimeSettleDebuggerCommand(
+    ExactHermesRuntime* runtime,
+    const std::shared_ptr<ExactPendingDebuggerCommand>& command,
+    std::string result) noexcept {
+  if (!command) return;
+  {
+    std::lock_guard<std::mutex> lock(command->mutex);
+    if (!command->settled) {
+      command->result = std::move(result);
+      command->settled = true;
+    }
+  }
+  command->cv.notify_all();
+  if (!runtime) return;
+  std::lock_guard<std::mutex> lock(runtime->debug_mutex);
+  runtime->pending_debugger_commands.erase(command);
+}
+
+std::string exactRuntimeWaitDebuggerCommand(
+    ExactHermesRuntime* runtime,
+    const std::shared_ptr<ExactPendingDebuggerCommand>& command,
+    bool* cancelled) noexcept {
+  if (cancelled) *cancelled = true;
+  if (!command) return {};
+  std::string result;
+  bool didCancel = false;
+  {
+    std::unique_lock<std::mutex> lock(command->mutex);
+    if (!command->cv.wait_for(
+            lock,
+            std::chrono::seconds(10),
+            [&] { return command->settled; })) {
+      command->cancelled = true;
+      command->settled = true;
+    }
+    didCancel = command->cancelled;
+    result = command->result;
+  }
+  command->cv.notify_all();
+  if (runtime) {
+    std::lock_guard<std::mutex> lock(runtime->debug_mutex);
+    runtime->pending_debugger_commands.erase(command);
+  }
+  if (cancelled) *cancelled = didCancel;
+  return result;
+}
+
+void exactRuntimeDebuggerInterruptQueuedTestPause(
+    ExactHermesRuntime* runtime,
+    const std::shared_ptr<ExactPendingDebuggerCommand>& command) noexcept {
+#ifdef IBEX_GPU_BRIDGE_TEST_HOOKS
+  if (!runtime ||
+      !runtime->test_pause_debugger_after_interrupt_enqueue.exchange(
+          false, std::memory_order_acq_rel)) {
+    return;
+  }
+  runtime->test_debugger_interrupt_enqueue_paused.store(
+      true, std::memory_order_release);
+  std::unique_lock<std::mutex> lock(command->mutex);
+  command->cv.wait(lock, [&] { return command->settled; });
+  runtime->test_debugger_interrupt_enqueue_paused.store(
+      false, std::memory_order_release);
+#else
+  (void)runtime;
+  (void)command;
+#endif
 }
 #endif
 
@@ -275,6 +507,7 @@ void clearDebugger(ExactHermesRuntime* runtime) {
 
   std::lock_guard<std::mutex> lock(runtime->debug_mutex);
 #if EXACT_HAS_HERMES_ASYNC_DEBUGGER
+  cancelPendingDebuggerCommandsLocked(runtime);
   runtime->debugger.reset();
 #endif
   runtime->debugger_callback_set = false;

@@ -21,6 +21,10 @@ import {
 } from "./capsec-android-bridge-inventory.mjs";
 import { normalizeComposedInstallationBranches } from "./capsec-installation-branches.mjs";
 import { discoverNativeNetworkingBackendSurfaces } from "./capsec-native-network-backend-inventory.mjs";
+import {
+  buildWebGpuOperationSurfaces,
+  loadAuthenticatedWebGpuProductionPlan,
+} from "./capsec-webgpu-operation-registry.mjs";
 
 const textDecoder = new TextDecoder("utf-8", { fatal: true });
 
@@ -358,9 +362,7 @@ function collectCppStringValues(text, label) {
   const flushPending = () => {
     if (!pending) return;
     values.push(pending);
-    if (pendingIncludesRaw) {
-      for (const value of scanEmbeddedScriptStrings(pending)) values.push(value);
-    }
+    if (pendingIncludesRaw) values.push(...scanEmbeddedScriptStrings(pending));
     pending = "";
     pendingIncludesRaw = false;
   };
@@ -806,6 +808,7 @@ function parseRustExternFunction(tokens, itemIndex, definitionsByNameIndex) {
   }
   const definition = definitionsByNameIndex.get(cursor + 3);
   return {
+    bodyClose: definition.bodyClose,
     bodyOpen: definition.bodyOpen,
     internalName: tokens[cursor + 3].value,
     isUnsafe,
@@ -1077,8 +1080,8 @@ export function scanRustPublicAbiDefinitions(
 function lexCpp(text, label) {
   const tokens = [];
   let index = 0;
-  const push = (type, value, offset = index) =>
-    tokens.push({ type, value, offset });
+  const push = (type, value, start = index, end = start + value.length) =>
+    tokens.push({ type, value, offset: start, start, end });
 
   const skipQuoted = (quote, collect) => {
     const start = index;
@@ -1088,7 +1091,8 @@ function lexCpp(text, label) {
       const char = text[index];
       if (char === quote) {
         index += 1;
-        if (collect) push("string", decodeEscapedString(raw, label), start);
+        if (collect)
+          push("string", decodeEscapedString(raw, label), start, index);
         return;
       }
       if (char === "\\") {
@@ -1146,7 +1150,12 @@ function lexCpp(text, label) {
             throw new Error(
               `${label}: unterminated raw string at byte ${start}`,
             );
-          push("string", text.slice(open + 1, close), start);
+          push(
+            "string",
+            text.slice(open + 1, close),
+            start,
+            close + closeMarker.length,
+          );
           index = close + closeMarker.length;
           continue;
         }
@@ -1171,16 +1180,16 @@ function lexCpp(text, label) {
       const start = index;
       index += 1;
       while (/[A-Za-z0-9_]/u.test(text[index] ?? "")) index += 1;
-      push("identifier", text.slice(start, index), start);
+      push("identifier", text.slice(start, index), start, index);
       continue;
     }
     const pair = text.slice(index, index + 2);
     if (new Set(["::", "->", "[[", "]]"]).has(pair)) {
-      push("punctuation", pair, index);
+      push("punctuation", pair, index, index + 2);
       index += 2;
       continue;
     }
-    push("punctuation", char, index);
+    push("punctuation", char, index, index + 1);
     index += 1;
   }
   return tokens;
@@ -1508,8 +1517,18 @@ export function scanCppAbiTypeRegistry(text, sourcePath = "<native-header>") {
       throw new Error(`${sourcePath}: unterminated ABI typedef`);
     }
     let declaratorOpen = -1;
+    let aggregateDepth = 0;
     for (let cursor = index + 1; cursor < statementEnd - 4; cursor += 1) {
+      if (tokens[cursor].value === "{") {
+        aggregateDepth += 1;
+        continue;
+      }
+      if (tokens[cursor].value === "}") {
+        aggregateDepth -= 1;
+        continue;
+      }
       if (
+        aggregateDepth === 0 &&
         tokens[cursor].value === "(" &&
         tokens[cursor + 1]?.value === "*" &&
         tokens[cursor + 2]?.type === "identifier" &&
@@ -2425,8 +2444,26 @@ function annotatedOwnership(value) {
     : { kind: value };
 }
 
-function publicAbiReturnOwnership(functionName, language, returnTokens) {
+function publicAbiReturnOwnership(
+  functionName,
+  language,
+  returnTokens,
+  returnOwnershipProof,
+) {
   const type = abiTypeDescriptor(returnTokens).canonical;
+  if (
+    language === "rust" &&
+    functionName === "ex_host_exact_gpu_authority_session_api_v2" &&
+    type ===
+      "* const super : : gpu_authority : : ExactGpuAuthoritySessionApiV2" &&
+    returnOwnershipProof === "rust-static-reference-to-pointer"
+  ) {
+    // The exact body binds the helper result to an &'static reference before
+    // converting it with ptr::from_ref. Rust therefore rejects a helper drift
+    // to non-static storage, while the structural proof below rejects a body
+    // that returns an unrelated pointer under the same name and signature.
+    return { kind: "borrowed" };
+  }
   const isCharacterPointer =
     type === "char *" ||
     type === "* mut c_char" ||
@@ -2533,6 +2570,7 @@ function buildHostAbiOutputContract({
   language,
   parameters: rawParameters,
   returnTokens,
+  returnOwnershipProof = null,
   sourceRef,
   typeRegistry,
 }) {
@@ -2593,7 +2631,12 @@ function buildHostAbiOutputContract({
   const returnKind = abiTypeKind(language, returnTokens, { isReturn: true });
   const returnOwnership =
     returnKind === "pointer"
-      ? publicAbiReturnOwnership(functionName, language, returnTokens)
+      ? publicAbiReturnOwnership(
+          functionName,
+          language,
+          returnTokens,
+          returnOwnershipProof,
+        )
       : { kind: "not-applicable" };
   const returnContract = {
     kind: returnKind,
@@ -2640,9 +2683,7 @@ function buildHostAbiOutputContract({
               typeRegistry,
             })
           : null;
-        if (expanded) {
-          for (const channel of expanded) outputChannels.push(channel);
-        }
+        if (expanded) outputChannels.push(...expanded);
         continue;
       }
       if (
@@ -2665,10 +2706,9 @@ function buildHostAbiOutputContract({
         selector: outputSelector(parameter.name),
       });
     } else if (parameter.role === "callback-payload") {
-      for (const channel of
-        callbackBindings.get(parameter.index)?.outputChannels ?? []) {
-        outputChannels.push(channel);
-      }
+      outputChannels.push(
+        ...(callbackBindings.get(parameter.index)?.outputChannels ?? []),
+      );
     }
   }
 
@@ -2696,10 +2736,9 @@ function buildHostAbiOutputContract({
     ) {
       unresolved.push(`aggregate-schema:${label}`);
     }
-    for (const reason of
-      callbackBindings.get(parameter.index)?.unresolved ?? []) {
-      unresolved.push(reason);
-    }
+    unresolved.push(
+      ...(callbackBindings.get(parameter.index)?.unresolved ?? []),
+    );
   }
 
   return {
@@ -2860,6 +2899,57 @@ export function deriveHostAbiOutputCatalogAccount(surface) {
   };
 }
 
+function rustAbiReturnOwnershipProof(tokens, record) {
+  if (
+    record.name !== "ex_host_exact_gpu_authority_session_api_v2" ||
+    record.bodyClose <= record.bodyOpen
+  ) {
+    return null;
+  }
+  const body = tokens
+    .slice(record.bodyOpen + 1, record.bodyClose)
+    .map((token) => token.value);
+  const expected = [
+    "let",
+    "api",
+    ":",
+    "&",
+    "'",
+    "static",
+    "super",
+    ":",
+    ":",
+    "gpu_authority",
+    ":",
+    ":",
+    "ExactGpuAuthoritySessionApiV2",
+    "=",
+    "super",
+    ":",
+    ":",
+    "gpu_authority",
+    ":",
+    ":",
+    "authority_session_api_v2",
+    "(",
+    ")",
+    ";",
+    "std",
+    ":",
+    ":",
+    "ptr",
+    ":",
+    ":",
+    "from_ref",
+    "(",
+    "api",
+    ")",
+  ];
+  return JSON.stringify(body) === JSON.stringify(expected)
+    ? "rust-static-reference-to-pointer"
+    : null;
+}
+
 function rustHostAbiOutputContract(
   tokens,
   record,
@@ -2889,6 +2979,7 @@ function rustHostAbiOutputContract(
       record.name,
     ),
     returnTokens,
+    returnOwnershipProof: rustAbiReturnOwnershipProof(tokens, record),
     sourceRef,
     typeRegistry: null,
   });
@@ -3345,9 +3436,9 @@ function javascriptLexicalBindingIndex(program) {
     for (const [key, value] of Object.entries(node)) {
       if (omittedKeys.has(key)) continue;
       if (Array.isArray(value)) {
-        for (const child of value) {
-          if (child && typeof child === "object") children.push(child);
-        }
+        children.push(
+          ...value.filter((child) => child && typeof child === "object"),
+        );
       } else if (value && typeof value === "object") {
         children.push(value);
       }
@@ -3673,9 +3764,7 @@ function objectPropertyNames(node, substitutions = new Map()) {
     if (!property.computed && property.key?.type === "Identifier") {
       names.push(property.key.name);
     } else {
-      for (const name of staticPropertyName(property.key, substitutions)) {
-        names.push(name);
-      }
+      names.push(...staticPropertyName(property.key, substitutions));
     }
   }
   return uniqueSorted(names);
@@ -10263,6 +10352,22 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
   }
 
   const literalArrays = new Map();
+  const literalStringArrayInitializer = (expression) => {
+    const value = tsUnwrapExpression(expression);
+    if (ts.isArrayLiteralExpression(value)) return value;
+    if (
+      ts.isCallExpression(value) &&
+      value.arguments.length === 1 &&
+      ts.isPropertyAccessExpression(tsUnwrapExpression(value.expression)) &&
+      ts.isIdentifier(tsUnwrapExpression(value.expression).expression) &&
+      tsUnwrapExpression(value.expression).expression.text === 'Object' &&
+      tsUnwrapExpression(value.expression).name.text === 'freeze'
+    ) {
+      const argument = tsUnwrapExpression(value.arguments[0]);
+      return ts.isArrayLiteralExpression(argument) ? argument : null;
+    }
+    return null;
+  };
   const arraySymbol = (expression) => {
     const value = tsUnwrapExpression(expression);
     return ts.isIdentifier(value) ? symbolAt(value) : null;
@@ -10272,17 +10377,21 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
       if (
         ts.isVariableDeclaration(node) &&
         ts.isIdentifier(node.name) &&
-        node.initializer &&
-        ts.isArrayLiteralExpression(tsUnwrapExpression(node.initializer))
+        node.initializer
       ) {
+        const initializer = literalStringArrayInitializer(node.initializer);
+        if (!initializer) {
+          ts.forEachChild(node, visit);
+          return;
+        }
         const symbol = symbolAt(node.name);
-        const values = tsUnwrapExpression(node.initializer)
+        const values = initializer
           .elements.map((element) => tsUnwrapExpression(element))
           .filter((element) => ts.isStringLiteralLike(element))
           .map((element) => element.text);
         if (
           symbol &&
-          values.length === tsUnwrapExpression(node.initializer).elements.length
+          values.length === initializer.elements.length
         ) {
           literalArrays.set(symbol, new Set(values));
         }
@@ -10383,22 +10492,14 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
       const values = [];
       for (const declaration of symbol.declarations ?? []) {
         if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
-          for (const value of staticStrings(
-            declaration.initializer,
-            environment,
-            seen,
-          )) {
-            values.push(value);
-          }
+          values.push(
+            ...staticStrings(declaration.initializer, environment, seen),
+          );
         }
         if (ts.isParameter(declaration) && bound?.expression) {
-          for (const value of staticStrings(
-            bound.expression,
-            bound.environment,
-            seen,
-          )) {
-            values.push(value);
-          }
+          values.push(
+            ...staticStrings(bound.expression, bound.environment, seen),
+          );
         }
       }
       return uniqueSorted(values);
@@ -10445,24 +10546,24 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
       const paths = [];
       for (const declaration of symbol.declarations ?? []) {
         if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
-          for (const candidate of globalPaths(
-            declaration.initializer,
-            environment,
-            seen,
-            includeInstalled,
-          )) {
-            paths.push(candidate);
-          }
+          paths.push(
+            ...globalPaths(
+              declaration.initializer,
+              environment,
+              seen,
+              includeInstalled,
+            ),
+          );
         }
         if (ts.isParameter(declaration) && bound?.expression) {
-          for (const candidate of globalPaths(
-            bound.expression,
-            bound.environment,
-            seen,
-            includeInstalled,
-          )) {
-            paths.push(candidate);
-          }
+          paths.push(
+            ...globalPaths(
+              bound.expression,
+              bound.environment,
+              seen,
+              includeInstalled,
+            ),
+          );
         }
       }
       return paths;
@@ -10871,9 +10972,7 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
           environment,
         );
         for (const returned of tsReturnExpressions(declaration)) {
-          for (const value of resolveValueExpressions(returned, invocation, seen)) {
-            returns.push(value);
-          }
+          returns.push(...resolveValueExpressions(returned, invocation, seen));
         }
       }
       return returns.length > 0 ? returns : [{ environment, node }];
@@ -11596,7 +11695,7 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
         (ts.isMethodDeclaration(property) ||
           ts.isGetAccessorDeclaration(property))
       ) {
-        for (const value of tsReturnExpressions(property)) values.push(value);
+        values.push(...tsReturnExpressions(property));
       }
       if (
         names.includes("get") &&
@@ -11604,11 +11703,9 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
         (ts.isArrowFunction(tsUnwrapExpression(property.initializer)) ||
           ts.isFunctionExpression(tsUnwrapExpression(property.initializer)))
       ) {
-        for (const value of tsReturnExpressions(
-          tsUnwrapExpression(property.initializer),
-        )) {
-          values.push(value);
-        }
+        values.push(
+          ...tsReturnExpressions(tsUnwrapExpression(property.initializer)),
+        );
       }
     }
     return values;
@@ -11685,6 +11782,21 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
     if (dynamicTable) return;
     if (value) {
       const valueNode = tsUnwrapExpression(value);
+      // This temporary root is not an app-callable API: native capability
+      // finalization invokes it exactly once and then proves it deleted. Its
+      // callback can install authenticated app-realm globals, so include that
+      // helper-driven continuation in the same source-derived inventory as a
+      // direct global write. Without following the registered callable, the
+      // inventory would see only the handoff itself and miss every property
+      // installed during its native invocation.
+      if (
+        segments.length === 1 &&
+        segments[0] === '__ibexCaptureGpuNativeBridge'
+      ) {
+        for (const declaration of callableDeclarations(valueNode, environment)) {
+          enqueueFunction(declaration, environment);
+        }
+      }
       if (
         ts.isNewExpression(valueNode) &&
         ts.isIdentifier(tsUnwrapExpression(valueNode.expression)) &&
@@ -11764,20 +11876,25 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
   let processNode;
   const processObjectDefineCall = (call, environment) => {
     const callee = tsUnwrapExpression(call.expression);
-    if (
-      !ts.isPropertyAccessExpression(callee) ||
-      !ts.isIdentifier(callee.expression) ||
-      callee.expression.text !== "Object"
-    ) {
-      return false;
-    }
-    const method = callee.name.text;
+    const sourcePath = relativeSourcePath(call);
+    const capturedRuntimeDefineProperty =
+      ts.isIdentifier(callee) &&
+      callee.text === "objectDefineProperty" &&
+      sourcePath ===
+        "packages/ibex-runtime-js/src/webgpu/runtime-internal.ts";
+    const method = capturedRuntimeDefineProperty
+      ? "defineProperty"
+      : ts.isPropertyAccessExpression(callee) &&
+          ts.isIdentifier(callee.expression) &&
+          callee.expression.text === "Object"
+        ? callee.name.text
+        : null;
+    if (!method) return false;
     if (!new Set(["defineProperty", "defineProperties", "assign"]).has(method))
       return false;
     const target = call.arguments[0];
     const bases = target ? globalPaths(target, environment) : [];
     if (bases.length === 0) return false;
-    const sourcePath = relativeSourcePath(call);
 
     if (method === "defineProperty") {
       const names = registrationNames(call.arguments[1], environment);
@@ -11921,6 +12038,55 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
   processNode = (node, environment) => {
     if (!node) return;
     observeReviewedPrefixRead(node, environment);
+    // Native retains these callbacks from the exact frozen V2 construction
+    // result and invokes them around later app-bundle evals or at an outer
+    // host-task checkpoint.
+    // Follow that returned controller object just as we follow the original
+    // construction capture, otherwise its phase-limited root mutation would
+    // disappear from the authored source inventory.
+    if (
+      ts.isReturnStatement(node) &&
+      relativeSourcePath(node) ===
+        "packages/ibex-runtime-js/src/webgpu/runtime-internal.ts"
+    ) {
+      const returned = tsUnwrapExpression(node.expression);
+      const frozenObject =
+        ts.isCallExpression(returned) &&
+        ts.isIdentifier(tsUnwrapExpression(returned.expression)) &&
+        tsUnwrapExpression(returned.expression).text === "objectFreeze"
+          ? tsUnwrapExpression(returned.arguments[0])
+          : null;
+      if (frozenObject && ts.isObjectLiteralExpression(frozenObject)) {
+        for (const property of frozenObject.properties) {
+          const names = propertyNames(
+            property.name,
+            environment,
+            relativeSourcePath(property),
+          );
+          if (
+            !names.some((name) =>
+              new Set([
+                "checkpointHostTask",
+                "beginCanvasAppBundle",
+                "finishCanvasAppBundle",
+              ]).has(name),
+            )
+          ) {
+            continue;
+          }
+          if (ts.isMethodDeclaration(property)) {
+            enqueueFunction(property, environment);
+          } else if (ts.isPropertyAssignment(property)) {
+            for (const declaration of callableDeclarations(
+              property.initializer,
+              environment,
+            )) {
+              enqueueFunction(declaration, environment);
+            }
+          }
+        }
+      }
+    }
     if (
       ts.isFunctionLike(node) ||
       ts.isClassDeclaration(node) ||
@@ -12420,6 +12586,126 @@ function cppUnsignedIntegerArgument(tokens) {
   return Number.isSafeInteger(value) ? value : null;
 }
 
+const CAPSEC_CALLBACK_TABLE_INGRESS_MACRO =
+  "IBEX_CAPSEC_CALLBACK_TABLE_INGRESS";
+const CAPSEC_GPU_CALLBACK_GUARD_IDENTIFIERS = [
+  CAPSEC_CALLBACK_TABLE_INGRESS_MACRO,
+  "receiveGpuEvent",
+];
+const CAPSEC_GPU_CALLBACK_GUARD_ERROR =
+  "Ibex CapSec GPU callback identifiers must not be preprocessor macros";
+const CAPSEC_GPU_CALLBACK_GUARD_CONDITION = [
+  "#if defined(IBEX_CAPSEC_CALLBACK_TABLE_INGRESS) || \\",
+  "    defined(receiveGpuEvent)",
+].join("\n");
+const CAPSEC_GPU_TERMINAL_GUARD_IDENTIFIERS = [
+  "submitGpuBridgeCall",
+  "cancelGpuBridgeCall",
+  "retireGpuBridgeCall",
+];
+const CAPSEC_GPU_TERMINAL_GUARD_ERROR =
+  "Ibex CapSec GPU terminal handlers must not be preprocessor macros";
+const CAPSEC_GPU_TERMINAL_GUARD_CONDITION = [
+  "#if defined(submitGpuBridgeCall) || defined(cancelGpuBridgeCall) || \\",
+  "    defined(retireGpuBridgeCall)",
+].join("\n");
+const CAPSEC_GPU_V2_TERMINAL_GUARD_IDENTIFIERS = [
+  "submitGpuV2BridgeCall",
+  "cancelGpuV2BridgeCall",
+  "retireGpuV2BridgeCall",
+  "setGpuV2EventSinkBridgeCall",
+  "createGpuV2MappedRangeAliasBridgeCall",
+  "detachGpuV2MappedRangeBridgeCall",
+];
+const CAPSEC_GPU_V2_TERMINAL_GUARD_ERROR =
+  "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros";
+const CAPSEC_GPU_V2_TERMINAL_GUARD_CONDITION = [
+  "#if defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \\",
+  "    defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \\",
+  "    defined(createGpuV2MappedRangeAliasBridgeCall) || \\",
+  "    defined(detachGpuV2MappedRangeBridgeCall)",
+].join("\n");
+const CAPSEC_GPU_TERMINAL_GUARD_PROFILES = [
+  {
+    condition: CAPSEC_GPU_TERMINAL_GUARD_CONDITION,
+    error: CAPSEC_GPU_TERMINAL_GUARD_ERROR,
+    identifiers: CAPSEC_GPU_TERMINAL_GUARD_IDENTIFIERS,
+  },
+  {
+    condition: CAPSEC_GPU_V2_TERMINAL_GUARD_CONDITION,
+    error: CAPSEC_GPU_V2_TERMINAL_GUARD_ERROR,
+    identifiers: CAPSEC_GPU_V2_TERMINAL_GUARD_IDENTIFIERS,
+  },
+];
+const CAPSEC_WEBGPU_ENABLED_IF = "#if defined(IBEX_ENABLE_WEBGPU_BINDING)";
+const CAPSEC_WEBGPU_DISABLED_IF = "#if !defined(IBEX_ENABLE_WEBGPU_BINDING)";
+const CAPSEC_WEBGPU_EXTERNAL_GATE = "IBEX_ENABLE_WEBGPU_BINDING";
+const CAPSEC_WEBGPU_TEST_HOOKS_IF = [
+  "#if defined(IBEX_ENABLE_WEBGPU_BINDING) && \\",
+  "    defined(IBEX_GPU_BRIDGE_TEST_HOOKS)",
+].join("\n");
+const CAPSEC_GPU_CANONICAL_INCLUDE_DIRECTIVES = [
+  '#include "hermes_runtime_internal.h"',
+  '#include "../../include/exact_runtime.h"',
+  "#include <algorithm>",
+  "#include <array>",
+  "#include <atomic>",
+  "#include <chrono>",
+  "#include <cmath>",
+  "#include <cstring>",
+  "#include <deque>",
+  "#include <limits>",
+  "#include <memory>",
+  "#include <mutex>",
+  "#include <new>",
+  "#include <optional>",
+  "#include <string>",
+  "#include <thread>",
+  "#include <unordered_map>",
+  "#include <unordered_set>",
+  "#include <utility>",
+  "#include <vector>",
+];
+const CAPSEC_GPU_CANONICAL_INCLUDE_BLOCK = [
+  CAPSEC_GPU_CANONICAL_INCLUDE_DIRECTIVES.slice(0, 2).join("\n"),
+  CAPSEC_GPU_CANONICAL_INCLUDE_DIRECTIVES.slice(2).join("\n"),
+].join("\n\n");
+const CAPSEC_GPU_INCLUDE_INVENTORY = "hermes-runtime-gpu-exact-v1";
+const CAPSEC_CALLBACK_TABLE_INGRESS_DEFINITION = [
+  "#define IBEX_CAPSEC_CALLBACK_TABLE_INGRESS(table_type, field_name, callback) \\",
+  "  callback",
+].join("\n");
+const CAPSEC_CALLBACK_TABLE_INGRESS_UNDEF =
+  "#undef IBEX_CAPSEC_CALLBACK_TABLE_INGRESS";
+
+function cppDirectReturnedCallIdentifier(tokens) {
+  const bodyOpen = tokens.findIndex((token) => token.value === "{");
+  if (bodyOpen === -1) return null;
+  const bodyClose = matchingToken(tokens, bodyOpen, "{", "}");
+  if (bodyClose === -1 || bodyClose !== tokens.length - 1) return null;
+  const body = tokens.slice(bodyOpen + 1, bodyClose);
+  if (
+    body.length < 5 ||
+    body[0]?.value !== "return" ||
+    body[1]?.type !== "identifier" ||
+    body[2]?.value !== "("
+  ) {
+    return null;
+  }
+  const callClose = matchingToken(body, 2, "(", ")");
+  if (
+    callClose === -1 ||
+    callClose !== body.length - 2 ||
+    body.at(-1)?.value !== ";"
+  ) {
+    return null;
+  }
+  return {
+    identifier: body[1].value,
+    start: body[1].start,
+  };
+}
+
 /**
  * Recover direct `createFromHostFunction` assignments.  This is intentionally
  * narrower than the general JSI inventory: a public probe may call a global
@@ -12465,10 +12751,29 @@ function cppAssignedHostFunctions(tokens, sourcePath) {
     }
     if (variable < 0) continue;
     const variableName = tokens[variable].value;
-    const descriptor = { arity, functionName };
+    const terminalCall = cppDirectReturnedCallIdentifier(args[3]);
+    const descriptor = {
+      arity,
+      factoryEnd: tokens[close].end,
+      functionName,
+      terminalHandler: terminalCall?.identifier ?? null,
+      terminalHandlerStart: terminalCall?.start ?? null,
+    };
     const prior = functions.get(variableName);
     if (prior === null) continue;
-    if (prior && JSON.stringify(prior) !== JSON.stringify(descriptor)) {
+    if (
+      prior &&
+      JSON.stringify({
+        arity: prior.arity,
+        functionName: prior.functionName,
+        terminalHandler: prior.terminalHandler,
+      }) !==
+        JSON.stringify({
+          arity: descriptor.arity,
+          functionName: descriptor.functionName,
+          terminalHandler: descriptor.terminalHandler,
+        })
+    ) {
       // Common local names such as `executor` can be reused by independent
       // nested factories. That makes the assignment ambiguous for public
       // invocation purposes, so retain no descriptor rather than guessing.
@@ -12492,6 +12797,1251 @@ function cppMovedOrDirectIdentifier(tokens) {
       tokens[index + 3]?.value === ")",
   );
   return move === -1 ? null : tokens[move + 2].value;
+}
+
+function cppAssignedVariableBefore(tokens, beforeIndex) {
+  let equals = beforeIndex - 1;
+  while (
+    equals >= 0 &&
+    tokens[equals].value !== "=" &&
+    tokens[equals].value !== ";" &&
+    tokens[equals].value !== "{" &&
+    tokens[equals].value !== "}"
+  ) {
+    equals -= 1;
+  }
+  if (equals < 1 || tokens[equals].value !== "=") return null;
+  for (let index = equals - 1; index >= 0; index -= 1) {
+    if (tokens[index].type === "identifier") return tokens[index].value;
+  }
+  return null;
+}
+
+/**
+ * Discover HostFunctions installed only on a construction-captured native
+ * object. The join is deliberately structural: the function factory's name
+ * and arity, the property installation, the object move into a shared JSI
+ * root, and that root's direct capture call must all remain present.
+ */
+export function scanCppConstructionPrivateBridgeSurfaces(
+  text,
+  sourcePath = "<native-source>",
+) {
+  const tokens = lexCpp(text, sourcePath);
+  const assignedHostFunctions = cppAssignedHostFunctions(tokens, sourcePath);
+  const terminalGuardEvidence = cppGpuTerminalGuardEvidence(
+    text,
+    tokens,
+    assignedHostFunctions,
+  );
+  if (!terminalGuardEvidence) return [];
+  const capturedOwners = new Set();
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index]?.value !== "make_shared") continue;
+    let open = index + 1;
+    while (
+      open < tokens.length &&
+      tokens[open].value !== "(" &&
+      tokens[open].value !== ";"
+    ) {
+      open += 1;
+    }
+    if (tokens[open]?.value !== "(") continue;
+    const close = matchingToken(tokens, open, "(", ")");
+    if (close === -1) {
+      throw new Error(`${sourcePath}: make_shared call is unterminated`);
+    }
+    const capturedVariable = cppAssignedVariableBefore(tokens, index);
+    if (!capturedVariable) continue;
+    const argumentsList = cppCallArguments(tokens, open, close);
+    const movedOwner = argumentsList
+      .map(cppMovedOrDirectIdentifier)
+      .find((candidate) => candidate !== null);
+    if (!movedOwner) continue;
+
+    const captured = tokens.some((token, callIndex) => {
+      if (
+        token.value !== "call" ||
+        tokens[callIndex - 1]?.value !== "." ||
+        tokens[callIndex - 2]?.value !== "capture" ||
+        tokens[callIndex + 1]?.value !== "("
+      ) {
+        return false;
+      }
+      const callClose = matchingToken(tokens, callIndex + 1, "(", ")");
+      if (callClose === -1) {
+        throw new Error(
+          `${sourcePath}: construction capture call is unterminated`,
+        );
+      }
+      return tokens
+        .slice(callIndex + 2, callClose)
+        .some(
+          (candidate, argumentIndex, argumentsTokens) =>
+            candidate.value === capturedVariable &&
+            argumentsTokens[argumentIndex - 1]?.value === "*",
+        );
+    });
+    if (captured) capturedOwners.add(movedOwner);
+  }
+
+  const rows = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      !new Set(["defineGpuProperty", "defineGpuV2Property"]).has(
+        tokens[index]?.value,
+      ) ||
+      tokens[index + 1]?.value !== "("
+    ) {
+      continue;
+    }
+    const close = matchingToken(tokens, index + 1, "(", ")");
+    if (close === -1) {
+      throw new Error(`${sourcePath}: defineGpuProperty call is unterminated`);
+    }
+    const args = cppCallArguments(tokens, index + 1, close);
+    if (args.length < 4) continue;
+    const owner = cppMovedOrDirectIdentifier(args[1]);
+    const memberName = cppLiteralArgument(args[2]);
+    const functionVariable = cppMovedOrDirectIdentifier(args[3]);
+    const hostFunction = assignedHostFunctions.get(functionVariable);
+    if (
+      !owner ||
+      !capturedOwners.has(owner) ||
+      !memberName ||
+      !hostFunction ||
+      hostFunction.functionName !== memberName
+    ) {
+      continue;
+    }
+    const terminalHandler = hostFunction.terminalHandler;
+    if (!terminalHandler) continue;
+    const name = `construction-private:${owner}.${memberName}`;
+    const sourceRefs = [
+      sourceSymbol(
+        sourcePath,
+        `construction-private:${owner}.${memberName}:${functionVariable}:${terminalHandler}`,
+      ),
+    ];
+    const branch = makeInstallationBranch(
+      "construction-private-host-function",
+      "default",
+      sourceRefs,
+    );
+    rows.push(
+      makeSurface("native-op", name, sourceRefs, {
+        metadata: {
+          arity: hostFunction.arity,
+          bindingConditionalContext:
+            terminalGuardEvidence.bindingConditionalContext,
+          branches: [branch],
+          bridgeOwner: owner,
+          conditionalStackAuthenticated:
+            terminalGuardEvidence.conditionalStackAuthenticated,
+          definitionConditionalContext:
+            terminalGuardEvidence.definitionConditionalContext,
+          evidenceType: "construction-private-host-function",
+          externalFeatureGate: terminalGuardEvidence.externalFeatureGate,
+          externalFeatureGateSourceMutationCount:
+            terminalGuardEvidence.externalFeatureGateSourceMutationCount,
+          functionVariable,
+          identityGuardCount: terminalGuardEvidence.identityGuardCount,
+          identityGuardError: terminalGuardEvidence.identityGuardError,
+          identityGuardIdentifiers:
+            terminalGuardEvidence.identityGuardIdentifiers,
+          identityGuardLifetime: terminalGuardEvidence.identityGuardLifetime,
+          includeDirectiveCount: terminalGuardEvidence.includeDirectiveCount,
+          includeInventory: terminalGuardEvidence.includeInventory,
+          installationBranches: [branch],
+          interveningDirectiveCount:
+            terminalGuardEvidence.interveningDirectiveCount,
+          memberName,
+          occurrenceCount: 1,
+          physicalGuardFormat: terminalGuardEvidence.physicalGuardFormat,
+          protectedIdentifierTokenCounts:
+            terminalGuardEvidence.protectedIdentifierTokenCounts,
+          semanticRoles: ["construction-private-native-operation"],
+          sourceAliasCount: terminalGuardEvidence.sourceAliasCount,
+          surfaceType: "construction-private-bridge",
+          terminalHandlerBindingCount: terminalGuardEvidence.bindingCount,
+          terminalHandlerDefinitionCount: terminalGuardEvidence.definitionCount,
+          terminalHandler,
+          translationPhaseAuthenticated:
+            terminalGuardEvidence.translationPhaseAuthenticated,
+        },
+      }),
+    );
+  }
+  return sortSurfaces(rows);
+}
+
+function cppDirectiveEnd(text, start) {
+  let cursor = start;
+  while (cursor < text.length) {
+    const newline = text.indexOf("\n", cursor);
+    if (newline === -1) return text.length;
+    const beforeNewline =
+      text[newline - 1] === "\r" ? newline - 2 : newline - 1;
+    if (beforeNewline >= start && text[beforeNewline] === "\\") {
+      cursor = newline + 1;
+      continue;
+    }
+    return newline;
+  }
+  return text.length;
+}
+
+function cppPreprocessorDirectives(text, tokens) {
+  const directives = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    let introducerLength = token.value === "#" ? 1 : 0;
+    if (
+      token.value === "%" &&
+      tokens[index + 1]?.value === ":" &&
+      token.end === tokens[index + 1].start
+    ) {
+      introducerLength = 2;
+    }
+    if (
+      token.value === "?" &&
+      tokens[index + 1]?.value === "?" &&
+      tokens[index + 2]?.value === "=" &&
+      token.end === tokens[index + 1].start &&
+      tokens[index + 1].end === tokens[index + 2].start
+    ) {
+      introducerLength = 3;
+    }
+    if (introducerLength === 0) continue;
+    const lineStart = text.lastIndexOf("\n", token.start - 1) + 1;
+    if (text.slice(lineStart, token.start).trim() !== "") continue;
+    const end = cppDirectiveEnd(text, token.start);
+    const directiveTokens = [];
+    for (let cursor = index; cursor < tokens.length; cursor += 1) {
+      if (tokens[cursor].start >= end) break;
+      directiveTokens.push(tokens[cursor]);
+    }
+    directives.push({
+      end,
+      fullEnd: end < text.length && text[end] === "\n" ? end + 1 : end,
+      introducer: text.slice(
+        token.start,
+        tokens[index + introducerLength - 1].end,
+      ),
+      kind:
+        directiveTokens[introducerLength]?.type === "identifier"
+          ? directiveTokens[introducerLength].value
+          : null,
+      lineStart,
+      raw: text.slice(lineStart, end),
+      start: token.start,
+      tokens: directiveTokens,
+    });
+  }
+  return directives;
+}
+
+function cppIsLineContinuation(text, token) {
+  if (token.value !== "\\") return false;
+  return (
+    text[token.end] === "\n" ||
+    (text[token.end] === "\r" && text[token.end + 1] === "\n")
+  );
+}
+
+function cppSemanticDirectiveTokens(text, directive) {
+  return directive.tokens.filter(
+    (token) => !cppIsLineContinuation(text, token),
+  );
+}
+
+function cppDirectiveHasExactValues(text, directive, expected) {
+  const semantic = cppSemanticDirectiveTokens(text, directive);
+  return (
+    semantic.length === expected.length &&
+    semantic.every((token, index) => token.value === expected[index])
+  );
+}
+
+function cppConditionalBranchModel(directives) {
+  const frames = [];
+  const stack = [];
+  for (const directive of directives) {
+    if (new Set(["if", "ifdef", "ifndef"]).has(directive.kind)) {
+      const frame = {
+        branches: [
+          {
+            directive,
+            end: null,
+            kind: "if",
+            start: directive.fullEnd,
+          },
+        ],
+        end: null,
+        endDirective: null,
+        open: directive,
+        sawElse: false,
+      };
+      frames.push(frame);
+      stack.push(frame);
+      continue;
+    }
+    if (new Set(["elif", "else"]).has(directive.kind)) {
+      const frame = stack.at(-1);
+      if (!frame || frame.sawElse) return null;
+      frame.branches.at(-1).end = directive.lineStart;
+      if (directive.kind === "else") frame.sawElse = true;
+      frame.branches.push({
+        directive,
+        end: null,
+        kind: directive.kind,
+        start: directive.fullEnd,
+      });
+      continue;
+    }
+    if (directive.kind !== "endif") continue;
+    const frame = stack.pop();
+    if (!frame) return null;
+    frame.branches.at(-1).end = directive.lineStart;
+    frame.end = directive.fullEnd;
+    frame.endDirective = directive;
+  }
+  if (stack.length !== 0) return null;
+  return {
+    frames,
+    pathAt(position) {
+      return frames
+        .flatMap((frame) => {
+          const branch = frame.branches.find(
+            (candidate) =>
+              candidate.start <= position && position < candidate.end,
+          );
+          return branch ? [{ branch, frame }] : [];
+        })
+        .sort((left, right) => left.frame.open.start - right.frame.open.start);
+    },
+  };
+}
+
+function cppPhaseTwoTokenSequenceIsAuthentic(text, tokens) {
+  const phaseTwoText = text.replace(/\\(?:\r\n|\n)/gu, "");
+  let phaseTwoTokens;
+  try {
+    phaseTwoTokens = lexCpp(phaseTwoText, "<gpu-phase-two-source>");
+  } catch {
+    return false;
+  }
+  const rawTokens = tokens.filter(
+    (token) => !cppIsLineContinuation(text, token),
+  );
+  return (
+    rawTokens.length === phaseTwoTokens.length &&
+    rawTokens.every(
+      (token, index) =>
+        token.type === phaseTwoTokens[index].type &&
+        token.value === phaseTwoTokens[index].value,
+    )
+  );
+}
+
+function cppGapContainsOnlyTrivia(gap) {
+  let cursor = 0;
+  while (cursor < gap.length) {
+    if (/\s/u.test(gap[cursor])) {
+      cursor += 1;
+      continue;
+    }
+    if (gap.startsWith("/*", cursor)) {
+      const end = gap.indexOf("*/", cursor + 2);
+      if (end === -1) return false;
+      cursor = end + 2;
+      continue;
+    }
+    if (gap.startsWith("//", cursor)) {
+      const newline = gap.indexOf("\n", cursor + 2);
+      cursor = newline === -1 ? gap.length : newline + 1;
+      continue;
+    }
+    if (gap[cursor] === "\\" && gap[cursor + 1] === "\n") {
+      cursor += 2;
+      continue;
+    }
+    if (
+      gap[cursor] === "\\" &&
+      gap[cursor + 1] === "\r" &&
+      gap[cursor + 2] === "\n"
+    ) {
+      cursor += 3;
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+function cppGpuProtectedSpellingsAreAuthentic(text, tokens) {
+  const protectedSpellings = [
+    CAPSEC_WEBGPU_EXTERNAL_GATE,
+    ...CAPSEC_GPU_CALLBACK_GUARD_IDENTIFIERS,
+    ...CAPSEC_GPU_TERMINAL_GUARD_IDENTIFIERS,
+    ...CAPSEC_GPU_V2_TERMINAL_GUARD_IDENTIFIERS,
+    "include",
+    "include_next",
+    "import",
+  ];
+  for (let start = 0; start < tokens.length; start += 1) {
+    const first = tokens[start];
+    if (first.type !== "identifier") continue;
+    for (const protectedSpelling of protectedSpellings) {
+      if (
+        first.value === protectedSpelling ||
+        !protectedSpelling.startsWith(first.value)
+      ) {
+        continue;
+      }
+      let combined = first.value;
+      for (let end = start + 1; end < tokens.length; end += 1) {
+        const token = tokens[end];
+        if (
+          token.type !== "identifier" ||
+          !cppGapContainsOnlyTrivia(
+            text.slice(tokens[end - 1].end, token.start),
+          )
+        ) {
+          break;
+        }
+        combined += token.value;
+        if (combined === protectedSpelling) return false;
+        if (!protectedSpelling.startsWith(combined)) break;
+      }
+    }
+  }
+  return true;
+}
+
+function cppGpuIncludeInventoryIsAuthentic(
+  text,
+  tokens,
+  directives,
+  conditionalModel,
+) {
+  const includeKinds = new Set(["include", "include_next", "import"]);
+  const includes = directives.filter((directive) =>
+    includeKinds.has(directive.kind),
+  );
+  if (
+    includes.length !== CAPSEC_GPU_CANONICAL_INCLUDE_DIRECTIVES.length ||
+    directives
+      .slice(0, includes.length)
+      .some((directive, index) => directive !== includes[index]) ||
+    tokens[0]?.start !== includes[0]?.start ||
+    includes.some(
+      (directive, index) =>
+        directive.kind !== "include" ||
+        directive.start !== directive.lineStart ||
+        directive.raw !== CAPSEC_GPU_CANONICAL_INCLUDE_DIRECTIVES[index] ||
+        conditionalModel.pathAt(directive.start).length !== 0,
+    )
+  ) {
+    return false;
+  }
+  return (
+    text.slice(includes[0].lineStart, includes.at(-1).end) ===
+    CAPSEC_GPU_CANONICAL_INCLUDE_BLOCK
+  );
+}
+
+function cppGpuPreprocessorModel(text, tokens) {
+  if (/\?\?[=/'()!<>-]/u.test(text)) return null;
+  if (!cppPhaseTwoTokenSequenceIsAuthentic(text, tokens)) return null;
+  if (!cppGpuProtectedSpellingsAreAuthentic(text, tokens)) return null;
+  if (
+    tokens.some((token) => new Set(["_Pragma", "__pragma"]).has(token.value))
+  ) {
+    return null;
+  }
+  const directives = cppPreprocessorDirectives(text, tokens);
+  if (directives.some((directive) => directive.introducer !== "#")) {
+    return null;
+  }
+  const allowedExternalGateDirectives = new Set([
+    CAPSEC_WEBGPU_ENABLED_IF,
+    CAPSEC_WEBGPU_DISABLED_IF,
+    CAPSEC_WEBGPU_TEST_HOOKS_IF,
+  ]);
+  if (
+    directives.some((directive) => {
+      const semantic = cppSemanticDirectiveTokens(text, directive);
+      return (
+        semantic.some((token) => token.value === CAPSEC_WEBGPU_EXTERNAL_GATE) &&
+        (directive.kind !== "if" ||
+          directive.start !== directive.lineStart ||
+          !allowedExternalGateDirectives.has(directive.raw))
+      );
+    })
+  ) {
+    return null;
+  }
+  const conditionalModel = cppConditionalBranchModel(directives);
+  if (!conditionalModel) return null;
+  if (
+    directives.some((directive) => {
+      if (!new Set(["define", "undef"]).has(directive.kind)) return false;
+      const semantic = cppSemanticDirectiveTokens(text, directive);
+      return semantic[2]?.value === CAPSEC_WEBGPU_EXTERNAL_GATE;
+    }) ||
+    !cppGpuIncludeInventoryIsAuthentic(
+      text,
+      tokens,
+      directives,
+      conditionalModel,
+    )
+  ) {
+    return null;
+  }
+  return {
+    conditionalModel,
+    directives,
+    externalFeatureGate: CAPSEC_WEBGPU_EXTERNAL_GATE,
+    externalFeatureGateSourceMutationCount: 0,
+    includeDirectiveCount: CAPSEC_GPU_CANONICAL_INCLUDE_DIRECTIVES.length,
+    includeInventory: CAPSEC_GPU_INCLUDE_INVENTORY,
+    translationPhaseAuthenticated: true,
+  };
+}
+
+function cppExactDefinedErrorGuards(
+  text,
+  tokens,
+  identifiers,
+  errorMessage,
+  physicalCondition,
+) {
+  const preprocessor = cppGpuPreprocessorModel(text, tokens);
+  if (!preprocessor) {
+    return { conditionalModel: null, directives: [], guards: [] };
+  }
+  const { conditionalModel, directives } = preprocessor;
+  const expectedCondition = ["#", "if"];
+  identifiers.forEach((identifier, index) => {
+    if (index > 0) expectedCondition.push("|", "|");
+    expectedCondition.push("defined", "(", identifier, ")");
+  });
+  const guards = [];
+  for (let index = 0; index + 2 < directives.length; index += 1) {
+    const condition = directives[index];
+    const error = directives[index + 1];
+    const end = directives[index + 2];
+    if (
+      !cppDirectiveHasExactValues(text, condition, expectedCondition) ||
+      !cppDirectiveHasExactValues(text, error, ["#", "error", errorMessage]) ||
+      !cppDirectiveHasExactValues(text, end, ["#", "endif"]) ||
+      condition.start !== condition.lineStart ||
+      condition.raw !== physicalCondition ||
+      error.start !== error.lineStart ||
+      error.raw !== `#error "${errorMessage}"` ||
+      end.start !== end.lineStart ||
+      end.raw !== "#endif" ||
+      condition.fullEnd !== error.lineStart ||
+      error.fullEnd !== end.lineStart
+    ) {
+      continue;
+    }
+    guards.push({
+      directiveStarts: [condition.start, error.start, end.start],
+      end: end.fullEnd,
+      endDirective: end,
+      errorDirective: error,
+      start: condition.start,
+      conditionDirective: condition,
+    });
+  }
+  return { ...preprocessor, guards };
+}
+
+function cppTokenIsInDirective(token, directives) {
+  return directives.some(
+    (directive) =>
+      directive.start <= token.start && token.start < directive.end,
+  );
+}
+
+function cppIdentifierTokensOutsideDirectives(tokens, directives, identifier) {
+  return tokens.filter(
+    (token) =>
+      token.type === "identifier" &&
+      token.value === identifier &&
+      !cppTokenIsInDirective(token, directives),
+  );
+}
+
+function cppFunctionDefinitionExtent(tokens, identifierStart) {
+  const identifierIndex = tokens.findIndex(
+    (token) => token.start === identifierStart,
+  );
+  if (identifierIndex === -1 || tokens[identifierIndex + 1]?.value !== "(") {
+    return null;
+  }
+  const parametersClose = matchingToken(tokens, identifierIndex + 1, "(", ")");
+  if (parametersClose === -1) return null;
+  let bodyOpen = parametersClose + 1;
+  if (tokens[bodyOpen]?.value === "noexcept") {
+    bodyOpen += 1;
+    if (tokens[bodyOpen]?.value === "(") {
+      bodyOpen = matchingToken(tokens, bodyOpen, "(", ")") + 1;
+    }
+  }
+  if (tokens[bodyOpen]?.value !== "{") return null;
+  const bodyClose = matchingToken(tokens, bodyOpen, "{", "}");
+  if (bodyClose === -1) return null;
+  return {
+    end: tokens[bodyClose].end,
+    start: tokens[identifierIndex].start,
+  };
+}
+
+function cppRegionHasOnlyDirectives(directives, start, end, allowedStarts) {
+  return !directives.some(
+    (directive) =>
+      start <= directive.start &&
+      directive.start < end &&
+      !allowedStarts.has(directive.start),
+  );
+}
+
+function cppAuthenticatedGpuConditionalContext(
+  directives,
+  conditionalModel,
+  positions,
+  authenticatedKind,
+) {
+  let authenticatedFrameStart = null;
+  let authenticatedFrame = null;
+  for (const position of positions) {
+    const path = conditionalModel.pathAt(position);
+    if (path.length === 1) {
+      const candidate = path[0].branch.kind;
+      const frame = path[0].frame;
+      if (
+        authenticatedKind === "webgpu-enabled-if" &&
+        (candidate !== "if" ||
+          frame.open.start !== frame.open.lineStart ||
+          frame.open.raw !== CAPSEC_WEBGPU_ENABLED_IF ||
+          frame.branches.length !== 1 ||
+          frame.endDirective?.start !== frame.endDirective?.lineStart ||
+          frame.endDirective?.raw !== "#endif")
+      ) {
+        return null;
+      }
+      if (
+        authenticatedKind === "webgpu-enabled-else" &&
+        (candidate !== "else" ||
+          frame.open.start !== frame.open.lineStart ||
+          frame.open.raw !== CAPSEC_WEBGPU_DISABLED_IF ||
+          frame.branches.length !== 2 ||
+          frame.branches[0].kind !== "if" ||
+          frame.branches[1].kind !== "else" ||
+          frame.branches[1].directive.start !==
+            frame.branches[1].directive.lineStart ||
+          frame.branches[1].directive.raw !== "#else" ||
+          frame.endDirective?.start !== frame.endDirective?.lineStart ||
+          frame.endDirective?.raw !== "#endif")
+      ) {
+        return null;
+      }
+      if (
+        directives.some(
+          (directive) =>
+            frame.open.fullEnd <= directive.start &&
+            directive.start < frame.endDirective.lineStart &&
+            new Set(["include", "include_next", "import"]).has(directive.kind),
+        )
+      ) {
+        return null;
+      }
+      if (authenticatedFrameStart === null) {
+        authenticatedFrameStart = frame.open.start;
+        authenticatedFrame = frame;
+      } else if (authenticatedFrameStart !== frame.open.start) {
+        return null;
+      }
+      continue;
+    }
+    return null;
+  }
+  return authenticatedFrame
+    ? { context: authenticatedKind, frame: authenticatedFrame }
+    : null;
+}
+
+function cppGpuTerminalGuardEvidence(text, tokens, assignedHostFunctions) {
+  const candidates = CAPSEC_GPU_TERMINAL_GUARD_PROFILES.map((profile) => ({
+    profile,
+    evidence: cppExactDefinedErrorGuards(
+      text,
+      tokens,
+      profile.identifiers,
+      profile.error,
+      profile.condition,
+    ),
+  })).filter(
+    ({ profile, evidence }) =>
+      evidence.conditionalModel &&
+      evidence.guards.length === profile.identifiers.length + 1,
+  );
+  if (candidates.length !== 1) return null;
+  const { profile } = candidates[0];
+  const {
+    conditionalModel,
+    directives,
+    externalFeatureGate,
+    externalFeatureGateSourceMutationCount,
+    guards,
+    includeDirectiveCount,
+    includeInventory,
+    translationPhaseAuthenticated,
+  } = candidates[0].evidence;
+  const terminalIdentifiers = profile.identifiers;
+  if (
+    guards.some(
+      (guard, index) => index > 0 && guards[index - 1].start >= guard.start,
+    )
+  ) {
+    return null;
+  }
+
+  const definitions = new Map();
+  const bindings = new Map();
+  const protectedIdentifierTokenCounts = {};
+  for (const identifier of terminalIdentifiers) {
+    const allTokens = tokens.filter(
+      (token) => token.type === "identifier" && token.value === identifier,
+    );
+    protectedIdentifierTokenCounts[identifier] = allTokens.length;
+    if (allTokens.length !== guards.length + 2) return null;
+    const sourceTokens = cppIdentifierTokensOutsideDirectives(
+      tokens,
+      directives,
+      identifier,
+    );
+    if (sourceTokens.length !== 2) return null;
+    const definition = cppFunctionDefinitionExtent(
+      tokens,
+      sourceTokens[0].start,
+    );
+    if (!definition) return null;
+    const matchingBindings = [...assignedHostFunctions.values()].filter(
+      (descriptor) =>
+        descriptor?.terminalHandler === identifier &&
+        descriptor.terminalHandlerStart === sourceTokens[1].start,
+    );
+    if (matchingBindings.length !== 1) return null;
+    definitions.set(identifier, definition);
+    bindings.set(identifier, matchingBindings[0]);
+  }
+
+  const definitionEnd = Math.max(
+    ...[...definitions.values()].map((definition) => definition.end),
+  );
+  const bindingStart = Math.min(
+    ...[...bindings.values()].map((binding) => binding.terminalHandlerStart),
+  );
+  const bindingEnd = Math.max(
+    ...[...bindings.values()].map((binding) => binding.factoryEnd),
+  );
+  const orderedDefinitions = terminalIdentifiers.map(
+    (identifier) => definitions.get(identifier),
+  );
+  for (let index = 0; index < orderedDefinitions.length; index += 1) {
+    const definition = orderedDefinitions[index];
+    if (
+      guards[index].end >= definition.start ||
+      (index > 0 && orderedDefinitions[index - 1].end >= guards[index].start) ||
+      !cppRegionHasOnlyDirectives(
+        directives,
+        guards[index].start,
+        definition.start,
+        new Set(guards[index].directiveStarts),
+      )
+    ) {
+      return null;
+    }
+  }
+  if (
+    definitionEnd >= guards.at(-1).start ||
+    guards.at(-1).end >= bindingStart ||
+    !cppRegionHasOnlyDirectives(
+      directives,
+      guards.at(-1).start,
+      bindingEnd,
+      new Set(guards.at(-1).directiveStarts),
+    )
+  ) {
+    return null;
+  }
+  const definitionConditional = cppAuthenticatedGpuConditionalContext(
+    directives,
+    conditionalModel,
+    [
+      ...guards.slice(0, terminalIdentifiers.length).map((guard) => guard.start),
+      ...orderedDefinitions.map((definition) => definition.start),
+    ],
+    "webgpu-enabled-if",
+  );
+  const bindingConditional = cppAuthenticatedGpuConditionalContext(
+    directives,
+    conditionalModel,
+    [
+      guards.at(-1).start,
+      ...[...bindings.values()].map((binding) => binding.terminalHandlerStart),
+      bindingEnd - 1,
+    ],
+    "webgpu-enabled-else",
+  );
+  if (
+    !definitionConditional ||
+    !bindingConditional ||
+    definitionConditional.frame.open.start >=
+      bindingConditional.frame.open.start
+  ) {
+    return null;
+  }
+
+  return {
+    bindingConditionalContext: bindingConditional.context,
+    conditionalStackAuthenticated: true,
+    definitions,
+    definitionConditionalContext: definitionConditional.context,
+    bindingCount: 1,
+    definitionCount: 1,
+    externalFeatureGate,
+    externalFeatureGateSourceMutationCount,
+    identityGuardCount: guards.length,
+    identityGuardError: profile.error,
+    identityGuardIdentifiers: [...terminalIdentifiers],
+    identityGuardLifetime: "guard-definitions-and-bindings",
+    includeDirectiveCount,
+    includeInventory,
+    interveningDirectiveCount: 0,
+    physicalGuardFormat: "exact-lf-physical-lines",
+    protectedIdentifierTokenCounts,
+    sourceAliasCount: 0,
+    translationPhaseAuthenticated,
+  };
+}
+
+function cppGpuCallbackGuardEvidence(
+  text,
+  tokens,
+  macroDefinition,
+  macroUndef,
+  macroInvocationStart,
+) {
+  const {
+    conditionalModel,
+    directives,
+    externalFeatureGate,
+    externalFeatureGateSourceMutationCount,
+    guards,
+    includeDirectiveCount,
+    includeInventory,
+    translationPhaseAuthenticated,
+  } = cppExactDefinedErrorGuards(
+    text,
+    tokens,
+    CAPSEC_GPU_CALLBACK_GUARD_IDENTIFIERS,
+    CAPSEC_GPU_CALLBACK_GUARD_ERROR,
+    CAPSEC_GPU_CALLBACK_GUARD_CONDITION,
+  );
+  if (!conditionalModel || guards.length !== 1) return null;
+  const protectedIdentifierTokenCounts = {};
+  for (const [identifier, expectedCount] of [
+    [CAPSEC_CALLBACK_TABLE_INGRESS_MACRO, 4],
+    ["receiveGpuEvent", 3],
+  ]) {
+    const count = tokens.filter(
+      (token) => token.type === "identifier" && token.value === identifier,
+    ).length;
+    protectedIdentifierTokenCounts[identifier] = count;
+    if (count !== expectedCount) return null;
+  }
+
+  const markerSourceTokens = cppIdentifierTokensOutsideDirectives(
+    tokens,
+    directives,
+    CAPSEC_CALLBACK_TABLE_INGRESS_MACRO,
+  );
+  const callbackSourceTokens = cppIdentifierTokensOutsideDirectives(
+    tokens,
+    directives,
+    "receiveGpuEvent",
+  );
+  if (
+    markerSourceTokens.length !== 1 ||
+    markerSourceTokens[0].start !== macroInvocationStart ||
+    callbackSourceTokens.length !== 2
+  ) {
+    return null;
+  }
+  const callbackDefinition = cppFunctionDefinitionExtent(
+    tokens,
+    callbackSourceTokens[0].start,
+  );
+  if (
+    !callbackDefinition ||
+    macroDefinition.start !== macroDefinition.lineStart ||
+    macroDefinition.raw !== CAPSEC_CALLBACK_TABLE_INGRESS_DEFINITION ||
+    macroUndef.start !== macroUndef.lineStart ||
+    macroUndef.raw !== CAPSEC_CALLBACK_TABLE_INGRESS_UNDEF ||
+    guards[0].end >= callbackDefinition.start ||
+    callbackDefinition.end >= macroDefinition.start ||
+    callbackSourceTokens[1].start <= macroInvocationStart ||
+    callbackSourceTokens[1].start >= macroUndef.start
+  ) {
+    return null;
+  }
+  const allowedDirectiveStarts = new Set([
+    ...guards[0].directiveStarts,
+    macroDefinition.start,
+    macroUndef.start,
+  ]);
+  if (
+    !cppRegionHasOnlyDirectives(
+      directives,
+      guards[0].start,
+      macroUndef.end,
+      allowedDirectiveStarts,
+    )
+  ) {
+    return null;
+  }
+  const conditional = cppAuthenticatedGpuConditionalContext(
+    directives,
+    conditionalModel,
+    [
+      guards[0].start,
+      callbackDefinition.start,
+      macroDefinition.start,
+      macroInvocationStart,
+      callbackSourceTokens[1].start,
+      macroUndef.start,
+    ],
+    "webgpu-enabled-if",
+  );
+  if (!conditional) return null;
+  return {
+    callbackDefinitionCount: 1,
+    conditionalContext: conditional.context,
+    conditionalStackAuthenticated: true,
+    externalFeatureGate,
+    externalFeatureGateSourceMutationCount,
+    identityGuardCount: guards.length,
+    identityGuardError: CAPSEC_GPU_CALLBACK_GUARD_ERROR,
+    identityGuardIdentifiers: [...CAPSEC_GPU_CALLBACK_GUARD_IDENTIFIERS],
+    identityGuardLifetime: "guard-callback-definition-table-undef",
+    includeDirectiveCount,
+    includeInventory,
+    interveningDirectiveCount: 0,
+    physicalGuardFormat: "exact-lf-physical-lines",
+    protectedIdentifierTokenCounts,
+    sourceAliasCount: 0,
+    translationPhaseAuthenticated,
+  };
+}
+
+/**
+ * Bind the callback marker to one exact function-like identity macro and its
+ * complete lexical lifetime. The marker is security evidence, so merely
+ * spelling honest arguments at the use site is insufficient: C++ must also
+ * expand the fifth initializer field directly to that callback identifier.
+ */
+function cppCallbackTableIngressMacroBinding(text, tokens) {
+  const directives = cppPreprocessorDirectives(text, tokens);
+  const definitions = directives.filter((directive) => {
+    const semantic = cppSemanticDirectiveTokens(text, directive);
+    return (
+      directive.kind === "define" &&
+      semantic[2]?.value === CAPSEC_CALLBACK_TABLE_INGRESS_MACRO
+    );
+  });
+  const undefs = directives.filter((directive) => {
+    const semantic = cppSemanticDirectiveTokens(text, directive);
+    return (
+      directive.kind === "undef" &&
+      semantic[2]?.value === CAPSEC_CALLBACK_TABLE_INGRESS_MACRO
+    );
+  });
+  if (definitions.length !== 1 || undefs.length !== 1) return null;
+
+  const definition = definitions[0];
+  const definitionTokens = cppSemanticDirectiveTokens(text, definition);
+  const expectedDefinition = [
+    "#",
+    "define",
+    CAPSEC_CALLBACK_TABLE_INGRESS_MACRO,
+    "(",
+    "table_type",
+    ",",
+    "field_name",
+    ",",
+    "callback",
+    ")",
+    "callback",
+  ];
+  if (
+    definitionTokens.length !== expectedDefinition.length ||
+    definitionTokens.some(
+      (token, index) => token.value !== expectedDefinition[index],
+    ) ||
+    definitionTokens[2].end !== definitionTokens[3].start
+  ) {
+    return null;
+  }
+
+  const undef = undefs[0];
+  const undefTokens = cppSemanticDirectiveTokens(text, undef);
+  if (
+    undefTokens.length !== 3 ||
+    undefTokens[0]?.value !== "#" ||
+    undefTokens[1]?.value !== "undef" ||
+    undefTokens[2]?.value !== CAPSEC_CALLBACK_TABLE_INGRESS_MACRO ||
+    definition.start >= undef.start
+  ) {
+    return null;
+  }
+
+  const conditionalKinds = new Set([
+    "if",
+    "ifdef",
+    "ifndef",
+    "elif",
+    "else",
+    "endif",
+  ]);
+  if (
+    directives.some(
+      (directive) =>
+        definition.start < directive.start &&
+        directive.start < undef.start &&
+        conditionalKinds.has(directive.kind),
+    )
+  ) {
+    return null;
+  }
+
+  const invocations = tokens.filter(
+    (token, index) =>
+      token.value === CAPSEC_CALLBACK_TABLE_INGRESS_MACRO &&
+      tokens[index + 1]?.value === "(" &&
+      token.start !== definitionTokens[2].start,
+  );
+  if (
+    invocations.length !== 1 ||
+    invocations[0].start <= definition.end ||
+    invocations[0].start >= undef.start
+  ) {
+    return null;
+  }
+
+  const guardEvidence = cppGpuCallbackGuardEvidence(
+    text,
+    tokens,
+    definition,
+    undef,
+    invocations[0].start,
+  );
+  if (!guardEvidence) return null;
+
+  return {
+    ...guardEvidence,
+    invocationStart: invocations[0].start,
+    macroConditionalDirectiveCount: 0,
+    macroDefinitionCount: definitions.length,
+    macroInvocationCount: invocations.length,
+    macroLifetimeOrder: "define-invocation-undef",
+    macroName: CAPSEC_CALLBACK_TABLE_INGRESS_MACRO,
+    macroParameters: ["table_type", "field_name", "callback"],
+    macroReplacement: "callback",
+    macroUndefCount: undefs.length,
+  };
+}
+
+/** Discover named ingress slots embedded in versioned native callback tables. */
+export function scanCppVersionedCallbackTableIngresses(
+  text,
+  sourcePath = "<native-source>",
+) {
+  const tokens = lexCpp(text, sourcePath);
+  const macroBinding = cppCallbackTableIngressMacroBinding(text, tokens);
+  if (!macroBinding) return [];
+  const rows = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      tokens[index]?.value !== CAPSEC_CALLBACK_TABLE_INGRESS_MACRO ||
+      tokens[index]?.start !== macroBinding.invocationStart ||
+      tokens[index + 1]?.value !== "("
+    ) {
+      continue;
+    }
+    const close = matchingToken(tokens, index + 1, "(", ")");
+    if (close === -1) {
+      throw new Error(`${sourcePath}: callback-table ingress is unterminated`);
+    }
+    const args = cppCallArguments(tokens, index + 1, close);
+    if (args.length !== 3) continue;
+    const identifiers = args.map((argument) =>
+      argument.length === 1 && argument[0].type === "identifier"
+        ? argument[0].value
+        : null,
+    );
+    const [tableType, fieldName, callback] = identifiers;
+    // Skip the macro definition itself; concrete versioned table types carry
+    // an ABI suffix and callback fields are lower snake case.
+    if (
+      !tableType ||
+      !/[A-Za-z0-9]V[0-9]+$/u.test(tableType) ||
+      !fieldName ||
+      !/^[a-z][a-z0-9_]*$/u.test(fieldName) ||
+      !callback
+    ) {
+      continue;
+    }
+
+    let initializerOpen = -1;
+    let initializerClose = -1;
+    for (let candidate = index - 1; candidate >= 1; candidate -= 1) {
+      if (
+        tokens[candidate]?.value !== "{" ||
+        tokens[candidate - 1]?.value !== "="
+      ) {
+        continue;
+      }
+      const candidateClose = matchingToken(tokens, candidate, "{", "}");
+      if (candidateClose > close) {
+        initializerOpen = candidate;
+        initializerClose = candidateClose;
+        break;
+      }
+    }
+    if (initializerOpen === -1) continue;
+
+    const equals = initializerOpen - 1;
+    let declarationStart = equals - 1;
+    while (
+      declarationStart >= 0 &&
+      !new Set([";", "{", "}"]).has(tokens[declarationStart]?.value)
+    ) {
+      declarationStart -= 1;
+    }
+    const declaration = tokens.slice(declarationStart + 1, equals);
+    const declarationIdentifiers = declaration
+      .filter((token) => token.type === "identifier")
+      .map((token) => token.value);
+    const initializerVariable = declarationIdentifiers.at(-1) ?? null;
+    if (
+      !initializerVariable ||
+      !declarationIdentifiers.slice(0, -1).includes(tableType)
+    ) {
+      continue;
+    }
+
+    const initializerFields = cppCallArguments(
+      tokens,
+      initializerOpen,
+      initializerClose,
+    );
+    if (initializerFields.at(-1)?.length === 0) initializerFields.pop();
+    const callbackFieldIndex = 4;
+    const callbackField = initializerFields[callbackFieldIndex] ?? [];
+    if (
+      initializerFields.length !== 5 ||
+      callbackField.length !== close - index + 1 ||
+      callbackField[0] !== tokens[index] ||
+      callbackField.at(-1) !== tokens[close]
+    ) {
+      continue;
+    }
+    const structSizeExpression = initializerFields[0]
+      .map((token) => token.value)
+      .join("");
+    const abiVersionExpression = initializerFields[1]
+      .map((token) => token.value)
+      .join("");
+    const retainCallback = cppMovedOrDirectIdentifier(initializerFields[2]);
+    const releaseCallback = cppMovedOrDirectIdentifier(initializerFields[3]);
+    if (
+      structSizeExpression !== `sizeof(${tableType})` ||
+      !abiVersionExpression ||
+      !retainCallback ||
+      !releaseCallback
+    ) {
+      continue;
+    }
+    const name = `ingress:${sourcePath}:${tableType}.${fieldName}:${callback}`;
+    const sourceRefs = [
+      sourceSymbol(
+        sourcePath,
+        `callback-table:${tableType}:${initializerVariable}.${fieldName}[${callbackFieldIndex}]:${callback}`,
+      ),
+    ];
+    const branch = makeInstallationBranch(
+      "versioned-callback-table-ingress",
+      "default",
+      sourceRefs,
+    );
+    rows.push(
+      makeSurface("callback", name, sourceRefs, {
+        metadata: {
+          branches: [branch],
+          abiVersionExpression,
+          callback,
+          callbackDefinitionCount: macroBinding.callbackDefinitionCount,
+          conditionalContext: macroBinding.conditionalContext,
+          conditionalStackAuthenticated:
+            macroBinding.conditionalStackAuthenticated,
+          effectiveCallbackExpression: callback,
+          callbackFieldCount: initializerFields.length,
+          callbackFieldIndex,
+          evidenceType: "versioned-callback-table-ingress",
+          externalFeatureGate: macroBinding.externalFeatureGate,
+          externalFeatureGateSourceMutationCount:
+            macroBinding.externalFeatureGateSourceMutationCount,
+          fieldName,
+          installationBranches: [branch],
+          initializerVariable,
+          identityGuardCount: macroBinding.identityGuardCount,
+          identityGuardError: macroBinding.identityGuardError,
+          identityGuardIdentifiers: macroBinding.identityGuardIdentifiers,
+          identityGuardLifetime: macroBinding.identityGuardLifetime,
+          includeDirectiveCount: macroBinding.includeDirectiveCount,
+          includeInventory: macroBinding.includeInventory,
+          interveningDirectiveCount: macroBinding.interveningDirectiveCount,
+          macroConditionalDirectiveCount:
+            macroBinding.macroConditionalDirectiveCount,
+          macroDefinitionCount: macroBinding.macroDefinitionCount,
+          macroInvocationCount: macroBinding.macroInvocationCount,
+          macroLifetimeOrder: macroBinding.macroLifetimeOrder,
+          macroName: macroBinding.macroName,
+          macroParameters: macroBinding.macroParameters,
+          macroReplacement: macroBinding.macroReplacement,
+          macroUndefCount: macroBinding.macroUndefCount,
+          occurrenceCount: 1,
+          physicalGuardFormat: macroBinding.physicalGuardFormat,
+          protectedIdentifierTokenCounts:
+            macroBinding.protectedIdentifierTokenCounts,
+          releaseCallback,
+          retainCallback,
+          structSizeExpression,
+          sourceAliasCount: macroBinding.sourceAliasCount,
+          tableType,
+          translationPhaseAuthenticated:
+            macroBinding.translationPhaseAuthenticated,
+        },
+      }),
+    );
+  }
+  return sortSurfaces(rows);
 }
 
 function cppHostFunctionValueDescriptor(
@@ -13022,6 +14572,7 @@ const REVIEWED_HERMES_PATCH_PATHS = [
   "patches/hermes/0009-raw-throw-capture.patch",
   "patches/hermes/0010-completion-record-discriminator.patch",
   "patches/hermes/0011-structured-async-failure-provenance.patch",
+  "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch",
 ];
 
 const REVIEWED_REACHABLE_HERMES_EVALUATORS = [
@@ -13079,12 +14630,12 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
       patchIdentityAuthorityDigest:
         "sha256-7dd0ebd78fe1a3732c3a9a8f5686c0925e723bc886dc03ce22bbb32b56552b1f",
       patchStackDigest:
-        "sha256-4ee8b3103bf9341b9d7460884323978471558d5a03f0926d70e5593c07ff9025",
+        "sha256-08e6330d9fabe98b6915ed2b4bc042e65e1005b2efa3676e79eaff21d930e8c1",
       sourceBuildAuthorityDigests: {
         "scripts/build-hermes-linux.sh":
-          "sha256-bbefba3ac32b2679277c8a87683b35e321bd5e7186662007c53d9cdd88f28baf",
+          "sha256-4f6a4476f40096067fb0ed6c93f8f9bb8cf05a3e9f3f6edb0efe5915d7e28988",
         "scripts/build-hermes.sh":
-          "sha256-e92adef3926587e3c14f9dabf7409aa2d84d73ac9f05ad430a2b30c3d5488765",
+          "sha256-45d927d725f28145e7299283e8c9ea298c190aac83050484e63accad187036ae",
       },
       sourceCommit: "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",
       sourceRef: "260318099.0.0-stable",
@@ -13114,7 +14665,7 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
       patchIdentityAuthorityDigest:
         "sha256-7dd0ebd78fe1a3732c3a9a8f5686c0925e723bc886dc03ce22bbb32b56552b1f",
       patchStackDigest:
-        "sha256-4ee8b3103bf9341b9d7460884323978471558d5a03f0926d70e5593c07ff9025",
+        "sha256-08e6330d9fabe98b6915ed2b4bc042e65e1005b2efa3676e79eaff21d930e8c1",
       sourceBuildAuthorityDigest:
         "sha256-a0241603b740cdd9b2747a53f6c97803192b60c7f8579b8b2f661dd048c7b1e4",
       sourceCommit: "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",
@@ -16465,16 +18016,16 @@ export function scanRuntimeCliSurfaces(
           ),
         );
       }
-      for (const row of cliValueShapeRows(
+      rows.push(
+        ...cliValueShapeRows(
           "option",
           command.path,
           option.id,
           option.valueShape,
           sourcePath,
           ref,
-        )) {
-        rows.push(row);
-      }
+        ),
+      );
     }
 
     const positionals = command.positionals ?? [];
@@ -16546,16 +18097,16 @@ export function scanRuntimeCliSurfaces(
           },
         ),
       );
-      for (const row of cliValueShapeRows(
+      rows.push(
+        ...cliValueShapeRows(
           "positional",
           command.path,
           positional.id,
           positional.valueShape,
           sourcePath,
           ref,
-        )) {
-        rows.push(row);
-      }
+        ),
+      );
     }
   }
 
@@ -17941,7 +19492,7 @@ export function scanRustLoaderRoutes(sources) {
           ? `${lexicalParent.definitionId ?? `${record.moduleId}::${lexicalParent.definition.name}`}::${record.definition.name}`
           : `${record.moduleId}::${record.definition.name}`;
     }
-    for (const record of sourceRecords) records.push(record);
+    records.push(...sourceRecords);
   }
 
   const byId = new Map(records.map((record) => [record.id, record]));
@@ -21335,7 +22886,11 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
   fixedSurface(
     "loader",
     "module-runner-edge-authorization",
-    fixedEvidence("rust-function", "src/module_loader/security.rs", "authorize"),
+    fixedEvidence(
+      "rust-function",
+      "src/module_loader/security.rs",
+      "authorize",
+    ),
   ),
   fixedSurface(
     "loader",
@@ -23573,24 +25128,26 @@ export async function discoverRepositorySurfaces(repoRoot) {
     const relativePath = posixPath(path.relative(repoRoot, filePath));
     const source = readUtf8(filePath);
     if (filePath.startsWith(`${engineRoot}${path.sep}`)) {
-      for (const row of scanPrivateNativeIdentifiers(source, relativePath)) {
-        nativeRows.push(row);
-      }
-      for (const row of scanCppGlobalPropertySurfaces(source, relativePath)) {
-        nativeGlobalRows.push(row);
-      }
-      for (const row of scanEvaluatedCppGlobalScripts(source, relativePath)) {
-        nativeGlobalRows.push(row);
-      }
-      for (const row of scanNativeLifecycleSurfaces(source, relativePath)) {
-        lifecycleRows.push(row);
-      }
+      nativeRows.push(...scanPrivateNativeIdentifiers(source, relativePath));
+      nativeRows.push(
+        ...scanCppConstructionPrivateBridgeSurfaces(source, relativePath),
+      );
+      nativeGlobalRows.push(
+        ...scanCppGlobalPropertySurfaces(source, relativePath),
+      );
+      nativeGlobalRows.push(
+        ...scanEvaluatedCppGlobalScripts(source, relativePath),
+      );
+      lifecycleRows.push(...scanNativeLifecycleSurfaces(source, relativePath));
+      lifecycleRows.push(
+        ...scanCppVersionedCallbackTableIngresses(source, relativePath),
+      );
     }
-    for (const row of scanCppPublicAbiDefinitions(source, relativePath, {
-      typeRegistry: abiTypeRegistry,
-    })) {
-      abiRows.push(row);
-    }
+    abiRows.push(
+      ...scanCppPublicAbiDefinitions(source, relativePath, {
+        typeRegistry: abiTypeRegistry,
+      }),
+    );
   }
 
   for (const filePath of listFiles(
@@ -23598,12 +25155,9 @@ export async function discoverRepositorySurfaces(repoRoot) {
     (candidate) => path.extname(candidate) === ".rs",
   )) {
     const relativePath = posixPath(path.relative(repoRoot, filePath));
-    for (const row of scanRustPublicAbiDefinitions(
-      readUtf8(filePath),
-      relativePath,
-    )) {
-      abiRows.push(row);
-    }
+    abiRows.push(
+      ...scanRustPublicAbiDefinitions(readUtf8(filePath), relativePath),
+    );
   }
   const androidJavaPath =
     "platform/android/java/dev/ibex/runtime/IbexNetworking.java";
@@ -23680,30 +25234,28 @@ export async function discoverRepositorySurfaces(repoRoot) {
     (candidate) => path.extname(candidate) === ".js",
   )) {
     const relativePath = posixPath(path.relative(repoRoot, filePath));
-    for (const row of scanStaticGlobalApiSurfaces(
-      readUtf8(filePath),
-      relativePath,
-      {
+    globalRows.push(
+      ...scanStaticGlobalApiSurfaces(readUtf8(filePath), relativePath, {
         evaluatorInstallation:
           legacyEvaluatorInstallations[path.basename(filePath)],
-      },
-    )) {
-      globalRows.push(row);
-    }
+      }),
+    );
   }
   const hermesEvaluatorProfiles =
     discoverHermesEvaluatorIdentityProfiles(repoRoot);
-  for (const row of scanLockdownEvaluatorSurfaces(
+  globalRows.push(
+    ...scanLockdownEvaluatorSurfaces(
       readUtf8(path.join(engineRoot, "hermes_runtime.cc")),
       "src/engine/hermes_runtime.cc",
       hermesEvaluatorProfiles,
-    )) {
-    globalRows.push(row);
-  }
+    ),
+  );
   const globals = mergeSurfaceEvidence(
     globalRows,
     "bootstrap global API inventory",
   );
+  const authenticatedWebGpuProductionPlan =
+    loadAuthenticatedWebGpuProductionPlan(repoRoot);
   const nativeOps = mergeSurfaceEvidence(
     [
       ...globals,
@@ -23712,6 +25264,7 @@ export async function discoverRepositorySurfaces(repoRoot) {
         repoRoot,
       ),
       ...discoverNativeNetworkingBackendSurfaces(repoRoot),
+      ...buildWebGpuOperationSurfaces(authenticatedWebGpuProductionPlan),
     ],
     "native and global operation inventory",
   );
@@ -23895,6 +25448,7 @@ export async function discoverRepositorySurfaces(repoRoot) {
   return {
     ...categories,
     commands: cli,
+    authenticatedWebGpuProductionPlan,
     surfaces,
   };
 }

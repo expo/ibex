@@ -631,7 +631,10 @@ static int emit_module_event_impl(
     const uint32_t* node_id,
     const uint8_t* payload,
     size_t payload_len) {
-  if (!runtime || !runtime->runtime) return -1;
+  if (!exactRuntimeEnterUserExecution(runtime)) return -1;
+
+  ScopedGpuHostTask hostTask(runtime);
+  if (!hostTask) return -1;
 
   auto& rt = *runtime->runtime;
 
@@ -681,6 +684,7 @@ static int emit_module_event_impl(
         handler.call(rt, std::move(moduleStr), std::move(eventStr));
       }
     }
+    if (!hostTask.finish()) return -1;
     return 0;
   } catch (const facebook::jsi::JSError& err) {
     ex_host_console_log(1, err.getMessage().c_str());
@@ -726,7 +730,10 @@ extern "C" int ex_hermes_dispatch_event(
     ExactHermesRuntime* runtime,
     uint32_t handler_id,
     const char* payload_json) {
-  if (!runtime || !runtime->runtime) return -1;
+  if (!exactRuntimeEnterUserExecution(runtime)) return -1;
+
+  ScopedGpuHostTask hostTask(runtime);
+  if (!hostTask) return -1;
 
   auto& rt = *runtime->runtime;
 
@@ -744,6 +751,7 @@ extern "C" int ex_hermes_dispatch_event(
         rt,
         facebook::jsi::Value(static_cast<double>(handler_id)),
         std::move(payload));
+    if (!hostTask.finish()) return -1;
     return 0;
   } catch (const facebook::jsi::JSError& err) {
     ex_host_console_log(1, err.getMessage().c_str());

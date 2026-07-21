@@ -37,13 +37,13 @@ use super::embedded_graph::{
 };
 use super::graph::{ComputedCandidateSiteMap, GraphEdgeKey, SynchronousGraphPlan};
 use super::identity::{ResolutionKind, SourceId};
-#[cfg(test)]
-use super::producer_spike::produce_module_artifact_v1;
 use super::producer_spike::{
     produce_builtin_artifact_v1, produce_commonjs_artifact_with_sites_v1, produce_json_artifact_v1,
     produce_module_artifact_with_sites_v1, unsupported_module_runner_reason,
     verify_current_transform_fingerprint_v1,
 };
+#[cfg(test)]
+use super::producer_spike::{produce_commonjs_artifact_v1, produce_module_artifact_v1};
 use super::{package_tree_integrity, ModuleKind, ModuleLoader, ResolvedModule};
 
 pub enum SourceModuleGraphBuildV1 {
@@ -1972,6 +1972,380 @@ pub fn artifact_edge_attributes(
 mod tests {
     use super::*;
     use capsec_semantics::model::PathComponent;
+
+    #[cfg(unix)]
+    fn armed_file_host(project_root: &Path) -> crate::host::Host {
+        use capsec_semantics::arming::{
+            ArmedEntry, ArmedEntryKind, ArmedExecutionMode, ArmedRootBinding, ArmedSnapshot,
+            ExpectedArmingIdentity, ExpectedProtectedArtifact, ProtectedArtifactRole,
+        };
+        use capsec_semantics::model::{Digest, LogicalPath, LogicalRoot, PathComponent};
+
+        let absolute_path = |path: &Path| LogicalPath {
+            root: LogicalRoot::Absolute,
+            components: path
+                .components()
+                .filter_map(|component| match component {
+                    std::path::Component::Normal(component) => Some(
+                        PathComponent::utf8(component.to_str().expect("test path is UTF-8"))
+                            .unwrap(),
+                    ),
+                    _ => None,
+                })
+                .collect(),
+            host_bound: Some(true),
+        };
+        let project_root = std::fs::canonicalize(project_root).unwrap();
+        let package_root = project_root.join("node_modules/image-lib");
+        std::fs::create_dir_all(&package_root).unwrap();
+
+        let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/examples/armed-snapshot.canonical.json"
+        )))
+        .unwrap();
+        value["workflow"] = serde_json::json!("production");
+        value["effectiveMode"] = serde_json::json!("enforce");
+        value["entry"] = serde_json::to_value(ArmedEntry {
+            kind: ArmedEntryKind::File,
+            identity: NonEmptyString::new("file:///project/entry.mjs").unwrap(),
+            mode: ArmedExecutionMode::Program,
+        })
+        .unwrap();
+
+        let project_path = serde_json::to_value(absolute_path(&project_root)).unwrap();
+        let package_path = serde_json::to_value(absolute_path(&package_root)).unwrap();
+        let project_object = crate::host::object_identity_for_host_path(&project_root).unwrap();
+        let package_object = crate::host::object_identity_for_host_path(&package_root).unwrap();
+        for binding in value["rootBindings"].as_array_mut().unwrap() {
+            if binding["logicalRoot"] == "project" {
+                binding["hostPath"] = project_path.clone();
+                binding["object"] = serde_json::to_value(&project_object).unwrap();
+            } else if binding["logicalRoot"] == "package" {
+                binding["hostPath"] = package_path.clone();
+                binding["object"] = serde_json::to_value(&package_object).unwrap();
+            }
+        }
+        value["projectRootDiscovery"] = serde_json::json!({
+            "origin": project_path,
+            "selectedRoot": project_path,
+            "markerKind": "explicit-project",
+            "markerPath": project_path,
+            "markerSetVersion": capsec_semantics::arming::PROJECT_ROOT_MARKER_SET_VERSION,
+        });
+
+        let root_bindings = value["rootBindings"].as_array().unwrap().clone();
+        let project_components = root_bindings
+            .iter()
+            .find(|binding| binding["logicalRoot"] == "project")
+            .unwrap()["hostPath"]["components"]
+            .as_array()
+            .unwrap()
+            .clone();
+        for node in value["packageGraph"]["nodes"].as_array_mut().unwrap() {
+            let principal = node["principal"].clone();
+            let binding = root_bindings
+                .iter()
+                .find(|binding| binding.get("owner") == Some(&principal))
+                .unwrap();
+            let package_components = binding["hostPath"]["components"].as_array().unwrap();
+            let (logical_root, relative) = package_components
+                .strip_prefix(project_components.as_slice())
+                .map(|relative| ("project", relative.to_vec()))
+                .unwrap_or_else(|| ("package", Vec::new()));
+            node["resolvingSpecifier"] = principal["name"].clone();
+            node["rootObject"] = binding["object"].clone();
+            node["virtualAliases"] = serde_json::json!([{
+                "root": logical_root,
+                "components": relative,
+            }]);
+            node["platformDisposition"] = serde_json::json!("required");
+        }
+        let authored_edges = value["packageGraph"]["importEdges"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let mut typed_edges = Vec::new();
+        for edge in authored_edges {
+            let request = edge["imported"]["name"].as_str().unwrap();
+            for (kind, conditions) in [
+                ("common-js-require", vec!["node", "require"]),
+                ("dynamic-import", vec!["import", "node"]),
+                ("esm-static", vec!["import", "node"]),
+            ] {
+                typed_edges.push(serde_json::json!({
+                    "importer": edge["importer"],
+                    "imported": edge["imported"],
+                    "requestSpecifier": request,
+                    "resolutionKind": kind,
+                    "conditions": conditions,
+                    "attributes": {},
+                }));
+            }
+        }
+        value["packageGraph"]["importEdges"] = serde_json::Value::Array(typed_edges);
+        value["packageGraph"]["digest"] = serde_json::Value::String(
+            capsec_semantics::digest::compute_domain_digest(
+                "ibex:capsec:package-graph:1",
+                &value["packageGraph"],
+                &["digest".to_owned()],
+            )
+            .unwrap(),
+        );
+        let bindings: Vec<ArmedRootBinding> =
+            serde_json::from_value(value["rootBindings"].clone()).unwrap();
+        value["pathCanonicalizers"] = serde_json::to_value(
+            capsec_semantics::path_alias::contract_fixture_canonicalizer_rows(
+                bindings
+                    .iter()
+                    .map(|binding| (binding.object.platform, binding.object.volume.clone())),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        value["armedSnapshotDigest"] = serde_json::Value::String(
+            capsec_semantics::digest::compute_checked_contract_digest(
+                capsec_semantics::digest::DigestKind::ArmedSnapshot,
+                &value,
+            )
+            .unwrap(),
+        );
+
+        let digest_at = |path: &[&str]| {
+            let field = path
+                .iter()
+                .fold(&value, |current, segment| &current[*segment]);
+            Digest::new(field.as_str().unwrap()).unwrap()
+        };
+        let protected_artifacts = value["protectedObjects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                let role: ProtectedArtifactRole =
+                    serde_json::from_value(row["role"].clone()).unwrap();
+                let content_digest = match role {
+                    ProtectedArtifactRole::EngineBinary => digest_at(&["engine", "binaryDigest"]),
+                    ProtectedArtifactRole::ExactOperationManifest => {
+                        digest_at(&["exactEmbedder", "operationManifestDigest"])
+                    }
+                    ProtectedArtifactRole::ExactWebgpuProfile => {
+                        digest_at(&["exactGpuProvider", "profileDigest"])
+                    }
+                    ProtectedArtifactRole::ArmedPolicy => digest_at(&["policyDigest"]),
+                    ProtectedArtifactRole::PackageGraph => digest_at(&["packageGraph", "digest"]),
+                    ProtectedArtifactRole::Registry => digest_at(&["registryDigest"]),
+                };
+                ExpectedProtectedArtifact {
+                    role,
+                    host_path: serde_json::from_value(serde_json::json!({
+                        "root": "absolute",
+                        "components": [
+                            {"encoding": "utf8", "value": "fixture"},
+                            {"encoding": "utf8", "value": row["role"].as_str().unwrap()},
+                        ],
+                        "hostBound": true,
+                    }))
+                    .unwrap(),
+                    object: serde_json::from_value(row["object"].clone()).unwrap(),
+                    content_digest,
+                }
+            })
+            .collect();
+        let expected = ExpectedArmingIdentity {
+            profile: value["capsVocab"].as_str().unwrap().into(),
+            semantic_core: value["semanticCore"].as_str().unwrap().into(),
+            vocab_digest: digest_at(&["vocabDigest"]),
+            registry_digest: digest_at(&["registryDigest"]),
+            policy_digest: digest_at(&["policyDigest"]),
+            armed_snapshot_digest: digest_at(&["armedSnapshotDigest"]),
+            target: value["engine"]["target"].as_str().unwrap().into(),
+            engine_binary_digest: digest_at(&["engine", "binaryDigest"]),
+            features: value["engine"]["features"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|feature| feature.as_str().unwrap().into())
+                .collect(),
+            package_graph_digest: digest_at(&["packageGraph", "digest"]),
+            entry: serde_json::from_value(value["entry"].clone()).unwrap(),
+            project_root_discovery: serde_json::from_value(value["projectRootDiscovery"].clone())
+                .unwrap(),
+            path_canonicalizers: serde_json::from_value(value["pathCanonicalizers"].clone())
+                .unwrap(),
+            protected_artifacts,
+            embedded_protected_artifacts: Vec::new(),
+        };
+        let snapshot =
+            ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();
+        // SAFETY: the fixture authenticates its complete snapshot immediately
+        // above and substitutes only the test target-cell advertisement.
+        unsafe {
+            crate::host::Host::new_armed_for_test(
+                crate::host::HostConfig {
+                    mode: crate::host::SecurityMode::Enforce,
+                    ..Default::default()
+                },
+                Arc::new(snapshot),
+            )
+        }
+        .unwrap()
+    }
+
+    #[cfg(unix)]
+    fn authenticated_file_request(
+        host: &crate::host::Host,
+    ) -> crate::engine::evaluation::SourceRequest {
+        let vfs = host.virtual_file_system().unwrap();
+        let entry = vfs
+            .resolve_root_file_url("file:///project/entry.mjs", None)
+            .unwrap();
+        let session = host.mint_armed_session_token().unwrap();
+        let mut sequence = crate::engine::evaluation::SubmissionSequence::new(session).unwrap();
+        let submission = sequence
+            .mint_file(entry.logical_referrer().unwrap(), &[])
+            .unwrap();
+        let request = host
+            .authenticated_vfs_file_read(&vfs, entry, submission)
+            .unwrap()
+            .into_capsule()
+            .into_request()
+            .unwrap();
+        vfs.close();
+        request
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authenticated_entry_request_validation_rejects_substituted_bytes() {
+        let project = tempfile::tempdir().unwrap();
+        let entry = project.path().join("entry.mjs");
+        std::fs::write(&entry, "export const value = 1;\n").unwrap();
+        let entry = std::fs::canonicalize(entry).unwrap();
+        let host = armed_file_host(project.path());
+        let request = authenticated_file_request(&host);
+        let producer_digest =
+            Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let mut graph = match build_authenticated_source_graph_v1_for_host(
+            &host,
+            &entry,
+            producer_digest.clone(),
+            "hermes-test",
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!(
+                    "test graph unexpectedly required legacy: {}",
+                    requirement.reason
+                )
+            }
+        };
+        graph
+            .validate_authenticated_entry_request(&request)
+            .unwrap();
+
+        let entry_id = graph.entry.clone();
+        let (source_label, source_path) = {
+            let record = graph.records.get(&entry_id).unwrap();
+            (
+                record.path.to_string_lossy().into_owned(),
+                record.path.clone(),
+            )
+        };
+        graph.records.get_mut(&entry_id).unwrap().artifact = produce_module_artifact_v1(
+            entry_id.clone(),
+            &source_label,
+            &source_path,
+            "export const value = 2;\n",
+            producer_digest,
+        )
+        .unwrap();
+        graph.plan().unwrap();
+        let error = graph
+            .validate_authenticated_entry_request(&request)
+            .expect_err("an internally valid graph substituted different entry bytes");
+        assert!(
+            error
+                .to_string()
+                .contains("identity changed after the structured request"),
+            "unexpected integrity-join refusal: {error:#}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authenticated_entry_request_validation_rejects_substituted_grammar() {
+        let project = tempfile::tempdir().unwrap();
+        let entry = project.path().join("entry.mjs");
+        let source = "process.exitCode = 0;\n";
+        std::fs::write(&entry, source).unwrap();
+        let entry = std::fs::canonicalize(entry).unwrap();
+        let host = armed_file_host(project.path());
+        let request = authenticated_file_request(&host);
+        let producer_digest =
+            Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let mut graph = match build_authenticated_source_graph_v1_for_host(
+            &host,
+            &entry,
+            producer_digest.clone(),
+            "hermes-test",
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!(
+                    "test graph unexpectedly required legacy: {}",
+                    requirement.reason
+                )
+            }
+        };
+        graph
+            .validate_authenticated_entry_request(&request)
+            .unwrap();
+
+        let entry_id = graph.entry.clone();
+        let (source_label, source_path) = {
+            let record = graph.records.get(&entry_id).unwrap();
+            (
+                record.path.to_string_lossy().into_owned(),
+                record.path.clone(),
+            )
+        };
+        graph.records.get_mut(&entry_id).unwrap().artifact = produce_commonjs_artifact_v1(
+            entry_id.clone(),
+            &source_label,
+            &source_path,
+            source,
+            producer_digest,
+        )
+        .unwrap();
+        let entry_artifact = graph
+            .records()
+            .find(|(source_id, _, _)| *source_id == graph.entry())
+            .unwrap()
+            .2;
+        assert_eq!(
+            entry_artifact.artifact().semantics.source_integrity,
+            *request.source_digest()
+        );
+        assert_eq!(
+            entry_artifact.artifact().semantics.source_goal,
+            super::super::artifact::SourceGoalV1::CommonJs
+        );
+        graph.plan().unwrap();
+        let error = graph
+            .validate_authenticated_entry_request(&request)
+            .expect_err("an internally valid graph substituted CommonJS entry grammar");
+        assert!(
+            error
+                .to_string()
+                .contains("grammar differs from the structured request"),
+            "unexpected grammar-join refusal: {error:#}"
+        );
+    }
 
     #[test]
     fn checked_in_schema_names_the_prepared_graph_envelope() {
