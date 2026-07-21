@@ -8,7 +8,7 @@
   },
   "absenceRouteGraph": {
     "path": "capsec/generated/restricted-exact-absence-route-graph.json",
-    "rawContentDigest": "sha256-kJtiB_l5VUxHxSNKYgzg8n7Tieck8bfEt2xvnli5nmY"
+    "rawContentDigest": "sha256-gPJ1gTX6STR3KddBOq9qFT1U2qlRuLuomHuht17ReWg"
   },
   "evidenceKinds": [
     {
@@ -69,6 +69,11 @@
       "id": "profile-confusion",
       "requiredForConformant": true,
       "requirement": "Reject full, diagnostic, and restricted Host/artifact confusion before engine allocation or JSI mutation."
+    },
+    {
+      "id": "source-mutants",
+      "requiredForConformant": true,
+      "requirement": "Compile and execute exact source changes which select the full installer, install the module loader, install a forbidden global, retain a callback after deleting its global, and install a forbidden global lazily after poll; every mutant must fail at its preregistered production boundary."
     },
     {
       "id": "teardown",

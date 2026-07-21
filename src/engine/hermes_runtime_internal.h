@@ -1800,6 +1800,7 @@ bool eval_bootstrap_script(ExactHermesRuntime* handle,
                            bool allowHbc);
 
 bool installModuleLoader(ExactHermesRuntime* handle);
+bool verifyRestrictedExactRuntimePosture(ExactHermesRuntime* handle);
 void captureLegacyBootstrapEnvironment(ExactHermesRuntime* handle);
 void ensureStreamEnhance(ExactHermesRuntime* handle);
 void ensureWebCrypto(ExactHermesRuntime* handle);

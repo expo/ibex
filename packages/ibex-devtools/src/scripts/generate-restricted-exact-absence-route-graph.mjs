@@ -239,7 +239,7 @@ function buildSourceDerivedTopology(probePlan, implementationManifest, sourceRou
     sourceSpan(
       "span.restricted-posture",
       "src/engine/hermes_runtime.cc",
-      "static bool verifyRestrictedExactRuntimePosture(ExactHermesRuntime* handle) {",
+      "bool verifyRestrictedExactRuntimePosture(ExactHermesRuntime* handle) {",
       "static void cleanupPartiallyConstructedRuntime(",
     ),
     sourceSpan(

@@ -7512,7 +7512,7 @@ static bool verifyArmedBootstrapFinalized(ExactHermesRuntime* handle) {
   }
 }
 
-static bool verifyRestrictedExactRuntimePosture(ExactHermesRuntime* handle) {
+bool verifyRestrictedExactRuntimePosture(ExactHermesRuntime* handle) {
   if (handle == nullptr || !handle->runtime || !handle->restricted_exact) {
     return false;
   }
@@ -7540,9 +7540,14 @@ static bool verifyRestrictedExactRuntimePosture(ExactHermesRuntime* handle) {
     const bool absent = std::all_of(
         std::begin(kForbiddenGlobals), std::end(kForbiddenGlobals),
         [&rt](const char* name) { return !rt.global().hasProperty(rt, name); });
+    const bool noFullProfileRetainedCallbacks =
+        !handle->structured_unhandled_rejection_handler &&
+        !handle->structured_rejection_handled_handler &&
+        !handle->structured_session_import_materializer;
     return locked.isBool() && locked.getBool() && exact.isObject() &&
         function.isObject() &&
-        function.getObject(rt).isFunction(rt) && absent;
+        function.getObject(rt).isFunction(rt) && absent &&
+        noFullProfileRetainedCallbacks;
   } catch (...) {
     return false;
   }
@@ -14497,8 +14502,11 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
   ExactRuntimeDriveGuard drive(runtime);
   if (!drive) return drive.status();
   const int result = pollRuntime(runtime, now_ms, false);
-  if (result >= 0 && runtime->restricted_exact &&
-      verifyRestrictedExactRuntimePosture(runtime)) {
+  if (result >= 0 && runtime->restricted_exact) {
+    if (!verifyRestrictedExactRuntimePosture(runtime)) {
+      runtime->restricted_exact_poisoned = true;
+      return -1;
+    }
     recordRestrictedExactCutset(
         runtime, RestrictedExactCutset::TemporalPollPostureSealed);
   }

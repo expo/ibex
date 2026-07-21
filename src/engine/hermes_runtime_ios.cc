@@ -899,6 +899,13 @@ extern "C" int ex_hermes_dispatch_event(
           "restricted Exact event did not publish exactly one successor checkpoint");
       return -1;
     }
+    if (runtime->restricted_exact &&
+        !verifyRestrictedExactRuntimePosture(runtime)) {
+      runtime->restricted_exact_poisoned = true;
+      ex_host_console_log(
+          1, "restricted Exact event changed the locked runtime posture");
+      return -1;
+    }
     return 0;
   } catch (const facebook::jsi::JSError& err) {
     if (runtime->restricted_exact) runtime->restricted_exact_poisoned = true;
@@ -961,6 +968,12 @@ extern "C" int ex_hermes_dispatch_restricted_exact_event(
       ex_host_console_log(
           1,
           "restricted Exact stable event did not publish exactly one successor checkpoint");
+      return -1;
+    }
+    if (!verifyRestrictedExactRuntimePosture(runtime)) {
+      runtime->restricted_exact_poisoned = true;
+      ex_host_console_log(
+          1, "restricted Exact stable event changed the locked runtime posture");
       return -1;
     }
     return 0;

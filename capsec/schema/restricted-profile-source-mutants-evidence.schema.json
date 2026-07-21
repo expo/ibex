@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/restricted-profile-source-mutants-evidence.schema.json",
+  "title": "Restricted Exact executable source-mutant evidence",
+  "type": "object",
+  "required": [
+    "evidenceSchema", "profile", "runId", "sourceRevision", "sourceTreeDigest",
+    "target", "engine", "hermesProfileProvenance", "authorityDigests",
+    "bindingEvidenceRawContentDigest", "commandEnvironment", "executions",
+    "exitCode", "resultMarker"
+  ],
+  "properties": {
+    "evidenceSchema": { "const": "ibex/restricted-exact-source-mutants-evidence/1" },
+    "profile": { "const": "ibex/exact-embedder-contract/1" },
+    "runId": { "$ref": "#/$defs/stableId" },
+    "sourceRevision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sourceTreeDigest": { "$ref": "#/$defs/digest" },
+    "target": {
+      "type": "object",
+      "required": ["triple", "features"],
+      "properties": {
+        "triple": { "$ref": "#/$defs/stableId" },
+        "features": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } }
+      },
+      "additionalProperties": false
+    },
+    "engine": {
+      "type": "object",
+      "required": ["kind", "engineArtifactPath", "binaryDigest", "object", "targetArchitecture", "structuralFeatures"],
+      "properties": {
+        "kind": { "const": "hermes" },
+        "engineArtifactPath": { "type": "string", "minLength": 1 },
+        "binaryDigest": { "$ref": "#/$defs/digest" },
+        "object": { "type": "object", "minProperties": 3 },
+        "targetArchitecture": { "$ref": "#/$defs/stableId" },
+        "structuralFeatures": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } }
+      },
+      "additionalProperties": false
+    },
+    "hermesProfileProvenance": {
+      "type": "object",
+      "required": ["path", "rawContentDigest", "receipt"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "rawContentDigest": { "$ref": "#/$defs/digest" },
+        "receipt": { "type": "object", "minProperties": 1 }
+      },
+      "additionalProperties": false
+    },
+    "authorityDigests": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/digest" }
+    },
+    "bindingEvidenceRawContentDigest": { "$ref": "#/$defs/digest" },
+    "commandEnvironment": {
+      "type": "object",
+      "required": ["runner", "platform", "architecture", "rustc", "cargo"],
+      "properties": {
+        "runner": { "type": "string", "minLength": 1 },
+        "platform": { "$ref": "#/$defs/stableId" },
+        "architecture": { "$ref": "#/$defs/stableId" },
+        "rustc": { "type": "string", "minLength": 1 },
+        "cargo": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "executions": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": [
+          "mutantId", "sourcePath", "beforeBase64", "afterBase64",
+          "originalSourceRawContentDigest", "mutatedSourceRawContentDigest",
+          "diffBase64", "diffRawContentDigest", "buildCommand", "executeCommand",
+          "testBinaryDigest", "buildExitCode", "testExitCode",
+          "expectedFailureMarker", "outputBase64", "outputRawContentDigest",
+          "resultMarker"
+        ],
+        "properties": {
+          "mutantId": { "enum": ["select-full-installer", "install-module-loader", "install-forbidden-global", "retain-callback-after-global-deletion", "lazy-global-after-poll"] },
+          "sourcePath": { "const": "src/engine/hermes_runtime.cc" },
+          "beforeBase64": { "$ref": "#/$defs/base64" },
+          "afterBase64": { "$ref": "#/$defs/base64" },
+          "originalSourceRawContentDigest": { "$ref": "#/$defs/digest" },
+          "mutatedSourceRawContentDigest": { "$ref": "#/$defs/digest" },
+          "diffBase64": { "$ref": "#/$defs/base64" },
+          "diffRawContentDigest": { "$ref": "#/$defs/digest" },
+          "buildCommand": { "$ref": "#/$defs/command" },
+          "executeCommand": { "$ref": "#/$defs/command" },
+          "testBinaryDigest": { "$ref": "#/$defs/digest" },
+          "buildExitCode": { "const": 0 },
+          "testExitCode": { "type": "integer", "not": { "const": 0 } },
+          "expectedFailureMarker": { "type": "string", "minLength": 1 },
+          "outputBase64": { "$ref": "#/$defs/base64" },
+          "outputRawContentDigest": { "$ref": "#/$defs/digest" },
+          "resultMarker": { "type": "string", "pattern": "^ibex-restricted-source-mutant:detected:" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "exitCode": { "const": 0 },
+    "resultMarker": { "const": "ibex-restricted-source-mutants:passed" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256-[A-Za-z0-9_-]{43}$" },
+    "stableId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$" },
+    "base64": { "type": "string", "pattern": "^[A-Za-z0-9+/]+={0,2}$" },
+    "command": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+  }
+}

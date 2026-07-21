@@ -5,7 +5,12 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-21 (r46 — makes observer non-interference a sixth
+**Revised:** 2026-07-21 (r47 — implements the five executable source mutants
+as a seventh preregistered corpus, adds isolated patched-worktree release builds
+and exact failure-boundary evidence, and closes the production posture gaps
+they exposed by poisoning poll/event drift and rejecting full-profile retained
+callback slots; the complete clean mutant run, fresh matrix, review, and
+advertisements remain pending; r46 — makes observer non-interference a sixth
 preregistered global corpus, compiling the same production-only transcript
 fixture in separate observer-disabled and observer-enabled release builds and
 requiring equal descriptor, checkpoint, event/poll, callback, poison, and
@@ -1137,6 +1142,23 @@ unless the resulting artifact is embedded in the preregistered global corpus.
 Local debug executions of both build modes and all validator mutations pass;
 a clean release evidence run on each target remains required and no existing
 evidence or advertisement is promoted by this checkpoint.
+
+The r47 source-mutant corpus applies five exact, reviewable edits to isolated
+detached worktrees at the bound source revision: selecting `installGlobals`,
+calling `installModuleLoader` from the restricted installer, installing the
+forbidden `process` global, retaining a `__hostCall` callback after deleting
+its root spelling, and installing `process` lazily after a poll turn. Each
+variant compiles the real release C++/Rust test artifact with the conformance
+observer enabled and must fail the same production-only detector at its
+preregistered bootstrap or temporal posture boundary. Evidence embeds the
+literal before/after bytes, source and diff digests, mutant binary digest,
+commands, raw failing output, and exact marker; substitution, a passing mutant,
+or a different boundary fails validation. Normal restricted execution now
+checks full-profile-only retained callback slots as part of runtime posture and
+poisons any post-event or post-poll posture drift. The ordinary fixture and all
+five exact-source validator mutations pass locally, but a clean five-build
+target execution is still required before the corpus can receive evidence
+credit.
 
 ### Phase 1 — Apple vertical slice
 

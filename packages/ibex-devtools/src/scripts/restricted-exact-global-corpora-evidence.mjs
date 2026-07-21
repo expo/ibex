@@ -10,6 +10,7 @@ import {
 } from "./restricted-exact-reachable-evidence.mjs";
 import { restrictedGlobalCorpusPlan } from "./run-restricted-exact-global-corpora.mjs";
 import { validateRestrictedObserverEquivalenceEvidence } from "./run-restricted-exact-observer-equivalence.mjs";
+import { validateRestrictedSourceMutantsEvidence } from "./run-restricted-exact-source-mutants.mjs";
 import {
   loadRestrictedReportAuthorities,
   taggedDigest,
@@ -47,6 +48,7 @@ export function ingestRestrictedGlobalCorporaEvidence(
     "restricted global corpus binding evidence",
   );
   const hasObserverEquivalence = Object.hasOwn(artifact, "observerEquivalence");
+  const hasSourceMutants = Object.hasOwn(artifact, "sourceMutants");
   const artifactKeys = [
     "evidenceSchema",
     "profile",
@@ -65,6 +67,7 @@ export function ingestRestrictedGlobalCorporaEvidence(
     "executions",
   ];
   if (hasObserverEquivalence) artifactKeys.splice(11, 0, "observerEquivalence");
+  if (hasSourceMutants) artifactKeys.splice(12, 0, "sourceMutants");
   assertExactKeys(
     artifact,
     artifactKeys,
@@ -85,6 +88,9 @@ export function ingestRestrictedGlobalCorporaEvidence(
   if (!hasObserverEquivalence) {
     throw new Error("restricted global corpus evidence omits observer equivalence");
   }
+  if (!hasSourceMutants) {
+    throw new Error("restricted global corpus evidence omits source mutants");
+  }
   const patchIdentity = validateEngine(artifact);
   const observerEquivalenceRaw = Buffer.from(
     `${JSON.stringify(artifact.observerEquivalence, null, 2)}\n`,
@@ -92,6 +98,15 @@ export function ingestRestrictedGlobalCorporaEvidence(
   );
   validateRestrictedObserverEquivalenceEvidence(
     observerEquivalenceRaw,
+    bindingEvidenceBytes,
+    reportAuthorities,
+  );
+  const sourceMutantsRaw = Buffer.from(
+    `${JSON.stringify(artifact.sourceMutants, null, 2)}\n`,
+    "utf8",
+  );
+  validateRestrictedSourceMutantsEvidence(
+    sourceMutantsRaw,
     bindingEvidenceBytes,
     reportAuthorities,
   );
@@ -145,6 +160,34 @@ export function ingestRestrictedGlobalCorporaEvidence(
         || execution.outputDigest !== taggedDigest(observerEquivalenceRaw)
       ) {
         throw new Error("global corpus observer-equivalence execution drift");
+      }
+      expectedExecutionIds.push(executionId);
+      continue;
+    }
+    if (planned.id === "source-mutants") {
+      const executionId = "restricted-corpus.source-mutants.exact-source-bypass-detection";
+      const execution = executionById.get(executionId);
+      const expectedCommand = [
+        "bun",
+        "packages/ibex-devtools/src/scripts/run-restricted-exact-source-mutants.mjs",
+        "--binding-evidence",
+        "<reachable-evidence>",
+        "--output",
+        "<source-mutants-evidence>",
+      ];
+      if (
+        corpus.status !== "passed"
+        || canonicalJson(corpus.executionIds) !== canonicalJson([executionId])
+        || !execution
+        || execution.fixtureId !== planned.id
+        || execution.outcome !== "passed"
+        || execution.exitCode !== 0
+        || execution.resultMarker
+          !== "ibex-restricted-global-corpus:passed:source-mutants:exact-source-bypass-detection"
+        || canonicalJson(execution.command) !== canonicalJson(expectedCommand)
+        || execution.outputDigest !== taggedDigest(sourceMutantsRaw)
+      ) {
+        throw new Error("global corpus source-mutants execution drift");
       }
       expectedExecutionIds.push(executionId);
       continue;

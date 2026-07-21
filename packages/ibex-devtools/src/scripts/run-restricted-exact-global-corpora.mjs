@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import { canonicalJson, parseJsonStrict, repoRoot } from "./capsec-contract.mjs";
 import { validateRestrictedObserverEquivalenceEvidence } from "./run-restricted-exact-observer-equivalence.mjs";
+import { validateRestrictedSourceMutantsEvidence } from "./run-restricted-exact-source-mutants.mjs";
 import { taggedDigest } from "./restricted-exact-target-report.mjs";
 
 export const restrictedGlobalCorpusPlan = Object.freeze([
@@ -47,6 +48,10 @@ export const restrictedGlobalCorpusPlan = Object.freeze([
     ]),
   }),
   Object.freeze({
+    id: "source-mutants",
+    tests: Object.freeze([]),
+  }),
+  Object.freeze({
     id: "teardown",
     tests: Object.freeze([
       "restricted_exact_control_plane_edges_enforce_lifecycle_refusals",
@@ -70,12 +75,18 @@ function parseArgs(argv) {
   return {
     bindingEvidencePath: path.resolve(repoRoot, value("--binding-evidence")),
     observerEquivalencePath: path.resolve(repoRoot, value("--observer-equivalence")),
+    sourceMutantsPath: path.resolve(repoRoot, value("--source-mutants")),
     outputPath: path.resolve(repoRoot, value("--output")),
   };
 }
 
 function main() {
-  const { bindingEvidencePath, observerEquivalencePath, outputPath } = parseArgs(
+  const {
+    bindingEvidencePath,
+    observerEquivalencePath,
+    sourceMutantsPath,
+    outputPath,
+  } = parseArgs(
     process.argv.slice(2),
   );
   const sourceRevision = execFileSync("git", ["rev-parse", "HEAD"], {
@@ -93,6 +104,11 @@ function main() {
   const observerEquivalenceRaw = fs.readFileSync(observerEquivalencePath);
   const observerEquivalence = validateRestrictedObserverEquivalenceEvidence(
     observerEquivalenceRaw,
+    bindingRaw,
+  );
+  const sourceMutantsRaw = fs.readFileSync(sourceMutantsPath);
+  const sourceMutants = validateRestrictedSourceMutantsEvidence(
+    sourceMutantsRaw,
     bindingRaw,
   );
   if (binding.sourceRevision !== sourceRevision) {
@@ -134,6 +150,28 @@ function main() {
         exitCode: observerEquivalence.exitCode,
         resultMarker: "ibex-restricted-global-corpus:passed:observer-equivalence:release-build-transcript-equality",
         outputDigest: taggedDigest(observerEquivalenceRaw),
+      });
+      corpora.push({ id: corpus.id, status: "passed", executionIds });
+      continue;
+    }
+    if (corpus.id === "source-mutants") {
+      const executionId = "restricted-corpus.source-mutants.exact-source-bypass-detection";
+      executionIds.push(executionId);
+      executions.push({
+        executionId,
+        fixtureId: corpus.id,
+        outcome: "passed",
+        command: [
+          "bun",
+          "packages/ibex-devtools/src/scripts/run-restricted-exact-source-mutants.mjs",
+          "--binding-evidence",
+          "<reachable-evidence>",
+          "--output",
+          "<source-mutants-evidence>",
+        ],
+        exitCode: sourceMutants.exitCode,
+        resultMarker: "ibex-restricted-global-corpus:passed:source-mutants:exact-source-bypass-detection",
+        outputDigest: taggedDigest(sourceMutantsRaw),
       });
       corpora.push({ id: corpus.id, status: "passed", executionIds });
       continue;
@@ -207,6 +245,7 @@ function main() {
       architecture: process.arch,
     },
     observerEquivalence,
+    sourceMutants,
     exitCode: 0,
     resultMarker: "ibex-restricted-global-corpora:passed",
     corpora,

@@ -2256,7 +2256,10 @@ mod tests {
         .unwrap();
         let artifact_digest = std::ffi::CString::new(installed_digest).unwrap();
         let runtime = unsafe { ex_hermes_create_restricted_exact(artifact_digest.as_ptr()) };
-        assert!(!runtime.is_null());
+        assert!(
+            !runtime.is_null(),
+            "restricted source-mutant detector: bootstrap posture"
+        );
         assert_eq!(
             unsafe {
                 ex_hermes_configure_restricted_exact_activation(
@@ -5581,6 +5584,61 @@ mod tests {
                 .write_all(b"\n")
                 .expect("finish restricted observer-equivalence transcript");
         }
+    }
+
+    #[test]
+    fn restricted_exact_source_mutant_detection_fixture() {
+        let _guard = crate::host::abi::host_test_lock();
+        if crate::engine::loaded_engine_structural_features()
+            != [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown",
+            ]
+        {
+            return;
+        }
+        let bundle = br#"(() => {
+          exact.takeCheckpointBytes();
+          Object.defineProperty(globalThis, '__exactDispatchStableEvent', {
+            value: () => exact.publishCheckpoint(new Uint8Array([2])),
+            writable: false,
+            enumerable: false,
+            configurable: false
+          });
+          exact.publishCheckpoint(new Uint8Array([1]));
+        })();"#;
+        let (runtime, _dispatch, checkpoints) =
+            unsafe { configured_restricted_exact_runtime(bundle) };
+        let mut error = std::ptr::null_mut();
+        assert_eq!(
+            unsafe { ex_hermes_run_restricted_exact_bundle(runtime, &mut error) },
+            0,
+            "restricted source-mutant detector: bundle posture"
+        );
+        assert!(error.is_null());
+        assert!(
+            unsafe { ex_hermes_poll(runtime, 1234) } >= 0,
+            "restricted source-mutant detector: temporal posture"
+        );
+        let binding = std::ffi::CString::new(
+            r#"{"instancePath":["Counter#0"],"nodeIdentity":"up","event":"press","actionIdentity":"increment"}"#,
+        )
+        .unwrap();
+        let payload = std::ffi::CString::new(r#"{"delta":1}"#).unwrap();
+        assert_eq!(
+            unsafe {
+                ex_hermes_dispatch_restricted_exact_event(
+                    runtime,
+                    binding.as_ptr(),
+                    payload.as_ptr(),
+                )
+            },
+            0,
+            "restricted source-mutant detector: event posture"
+        );
+        assert_eq!(*checkpoints, [1, 2]);
+        unsafe { ex_hermes_destroy(runtime) };
     }
 
     #[test]

@@ -31,6 +31,7 @@
     "schema/restricted-profile-observer-equivalence-evidence.schema.json",
     "schema/restricted-profile-projection.schema.json",
     "schema/restricted-profile-source-bindings.schema.json",
+    "schema/restricted-profile-source-mutants-evidence.schema.json",
     "schema/restricted-profile-target-attestations.schema.json",
     "schema/restricted-profile-target-report.schema.json",
     "schema/root-global-disposition-manifest.schema.json",
