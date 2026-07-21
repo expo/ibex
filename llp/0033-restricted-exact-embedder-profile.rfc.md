@@ -5,7 +5,9 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-21 (r42 — records the twentieth attempted immutable-source
+**Revised:** 2026-07-21 (r43 — records the twenty-first run's complete Apple
+restricted evidence and imports its pending-review report without advertising
+the target; r42 — records the twentieth attempted immutable-source
 run's macOS governance failure and refreshes only the four generated example
 policy vocabulary, registry, and self-digests without changing authored
 authority; r41 — adds the pooled worker's bounded structural
@@ -872,6 +874,18 @@ refreshed and rechecked. The still-running Linux and Windows legs belong to
 the now-invalid source revision and cannot contribute to a later report; the
 same-ref replacement run cancels them. No partial result, artifact, or prior
 target success is reused, reviewed, promoted, attested, or advertised.
+The twenty-first immutable-source run (Actions run `29812663179`, exact source
+`9bef25663157a4deef7c4ef089c3e774b7deacc1`) passed the Apple restricted
+target leg and retained four exact evidence families plus the generated
+pending-review report. The report accounts for all 7,349 projected edges:
+132 reachable, 23 trusted-control-plane, and 7,194 structurally absent; all
+14,543 required observations passed with zero missing or failed observations,
+and all five hostile corpora passed. Local regeneration reopens the imported
+bytes and reproduces report digest
+`sha256-e9bcHUTg1e9_HqWgoxSP1JDciBMWrEYzMKR0dagxh-I`. The report remains
+`incomplete` because independent security review is pending; the Linux
+restricted and complete-matrix legs remain independent unsettled gates. No
+target is advertised and no Exact production consumer may pin this candidate.
 A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full
