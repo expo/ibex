@@ -3107,7 +3107,7 @@ describe("exact-target CapSec executable recipes", () => {
         ),
       ),
     ).toEqual({
-      exact_crypto: 84,
+      exact_crypto: 97,
       node_module: 3,
       node_net: 22,
       node_v8: 1,
