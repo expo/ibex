@@ -1,9 +1,9 @@
 {
   "probePlanSchema": "ibex/restricted-profile-absence-probe-plan/1",
   "profile": "ibex/exact-embedder-contract/1",
-  "projectionRawContentDigest": "sha256-5VojUThBnALhLC_lPYtwPF7ch3-u8dJcMGFWxRzgDRA",
+  "projectionRawContentDigest": "sha256-mM3FOS_2T-S8iFPzyz5Qi0cUpJ8dAo_xTDK5cGbLCHY",
   "coverageRawContentDigest": "sha256-HAE42W6gCg2kA5x_CBPckbSLwdDRaGvHuzdrGTSVudg",
-  "implementationManifestRawContentDigest": "sha256-_sqfg-MEhdABqxlp0RQKh8fhtpq3nSOK3922Nt5wVP0",
+  "implementationManifestRawContentDigest": "sha256-cX23ZUdGx6Ah86l89PwKB2cm5fk6JaV-3A8vRcunI04",
   "rootGlobalManifestRawContentDigest": "sha256-NOFscTIAKgVUXDQ01pZXTt3uKpnnh27IA_1HSPmWGlY",
   "counts": {
     "edges": 7193,

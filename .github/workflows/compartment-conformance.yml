@@ -55,6 +55,11 @@ jobs:
       - name: Install JS dependencies
         run: bun install --frozen-lockfile
 
+      - name: Preflight CapSec governance before Hermes setup
+        run: |
+          bun run check:capsec-registry
+          bun run check:example-policy
+
       - name: Install Linux native build dependencies
         run: |
           sudo apt-get update
@@ -190,6 +195,11 @@ jobs:
       - name: Install JS dependencies
         run: bun install --frozen-lockfile
 
+      - name: Preflight CapSec governance before Hermes setup
+        run: |
+          bun run check:capsec-registry
+          bun run check:example-policy
+
       # Cache the patched no-debugger framework + host tools. The explicit
       # profile version prevents debugger-enabled reuse, while the hash binds
       # the pin, patch stack, installer, and source-build authorities that
@@ -313,6 +323,12 @@ jobs:
       - name: Install JS dependencies
         shell: pwsh
         run: bun install --frozen-lockfile
+
+      - name: Preflight CapSec governance before Hermes setup
+        shell: pwsh
+        run: |
+          bun run check:capsec-registry
+          bun run check:example-policy
 
       - name: Cache patched Hermes artifacts
         uses: actions/cache@v4

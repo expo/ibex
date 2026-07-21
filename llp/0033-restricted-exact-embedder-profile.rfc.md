@@ -5,7 +5,15 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (r33 — records the twelfth source-bound run: Linux
+**Revised:** 2026-07-20 (r34 — records the thirteenth source-bound run: Linux
+passed every native executor and global corpus before report construction
+refused a stale implementation-manifest binding, macOS refused four stale
+example-policy digests, and Windows exposed a second Bun loader stack overflow
+in Ajv; refreshes the policy examples and the complete probe-plan/route-graph/
+fixture-plan/profile dependency chain, runs only the registry generator under
+Node (which reproduces identical bytes at a 512 KiB stack), and adds the same
+governance preflight before every expensive engine build; advertisements remain
+empty and a fresh complete run is required; r33 — records the twelfth source-bound run: Linux
 completed all four evidence families but is ineligible because Windows
 overflowed while loading the broad Babel core facade and macOS exposed a
 merge-union mismatch in the target-absence runner and disposition policy; the
@@ -645,6 +653,29 @@ and `exact.publishCheckpoint`; it does not remove or weaken a gate. The
 exhaustive recipe and output-disposition suites pass with a one-to-one 119-key
 absence-output join. No twelfth-run artifact is reviewed, promoted, attested,
 or advertised. A fresh complete immutable-source run is required.
+The thirteenth run (`29796296114`, source
+`471a3c03faa6c4621b7227880c9a1c41899ad9ab`) is also wholly ineligible. Linux
+job `88528209196` passed the 132-row reachable executor, the 22-row control
+executor, all 7,193 source/live absence closures, and the locked global corpora.
+Report construction then refused because the output-disposition repair changed
+the implementation-manifest authority without regenerating the bound absence
+probe plan and route graph. macOS job `88528209225` stopped even earlier at the
+generated-policy preflight because the four example policies still carried the
+prior registry digest. Windows job `88528209226` again overflowed in registry
+generation: the direct parser import removed the locally reproduced Babel-core
+initializer failure, but a 384 KiB local stack reveals the next broad generated
+initializer in Ajv. Running the unchanged registry generator under Node passes
+with a 512 KiB stack and reproduces the exact 7,347-edge, 7,566-branch,
+14,694-cell, 12,845-source-reference output bytes. Only the registry generator
+process moves to Node; Bun remains the package runner and all other commands are
+unchanged. The four example policies are regenerated from their existing
+entries, then the absence probe plan, route graph, locked fixture-plan raw
+digests, profile projection, and empty advertisement authority are regenerated
+in dependency order with unchanged cardinalities. Every platform job now runs
+the registry and example-policy checks before installing Hermes, so this class
+of governance drift fails before the expensive target build. No thirteenth-run
+artifact is reviewed, promoted, attested, or advertised. A fresh complete
+immutable-source run is required.
 A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full
