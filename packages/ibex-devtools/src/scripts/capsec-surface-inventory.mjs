@@ -12,7 +12,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { parseSync } from "@babel/core";
+import { parse } from "@babel/parser";
 import ts from "typescript";
 import {
   joinAndroidBridgeImplementationRefs,
@@ -3236,15 +3236,9 @@ const ROOT_EXPORT_OBJECT = "<module-exports>";
 
 function parseJavaScript(text, sourcePath) {
   try {
-    return parseSync(text, {
-      ast: true,
-      babelrc: false,
-      code: false,
-      configFile: false,
+    return parse(text, {
       sourceType: "unambiguous",
-      parserOpts: {
-        allowReturnOutsideFunction: true,
-      },
+      allowReturnOutsideFunction: true,
     }).program;
   } catch (error) {
     throw new Error(
@@ -18719,16 +18713,10 @@ function parseEnvironmentJavaScript(text, sourcePath) {
   if (extension === ".ts" || extension === ".tsx") plugins.push("typescript");
   if (extension === ".jsx" || extension === ".tsx") plugins.push("jsx");
   try {
-    return parseSync(text, {
-      ast: true,
-      babelrc: false,
-      code: false,
-      configFile: false,
-      parserOpts: {
-        allowReturnOutsideFunction: true,
-        plugins,
-      },
+    return parse(text, {
       sourceType: "unambiguous",
+      allowReturnOutsideFunction: true,
+      plugins,
     }).program;
   } catch (error) {
     throw new Error(

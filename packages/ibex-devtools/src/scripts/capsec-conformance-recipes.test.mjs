@@ -144,9 +144,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_665);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_469);
-    expect(recipes.summary.unresolvedFixtures).toBe(21_196);
+    expect(recipes.summary.requiredFixtures).toBe(23_749);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_472);
+    expect(recipes.summary.unresolvedFixtures).toBe(21_277);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -173,7 +173,7 @@ describe("exact-target CapSec executable recipes", () => {
     // be authenticated strongly enough for safe cleanup. ENG-24933 adds the
     // reviewed direct-operation and retained-descriptor probes without
     // widening that mkdtemp boundary.
-    expect(nativePublicFixtures).toHaveLength(517);
+    expect(nativePublicFixtures).toHaveLength(519);
     expect(
       nativePublicFixtures
         .filter(
@@ -198,13 +198,13 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.scenario === "non-capability" &&
           recipe.publicSurfaceProbe.invocation.expectedResult === "return",
       ),
-    ).toHaveLength(243);
+    ).toHaveLength(244);
     expect(
       nativePublicFixtures.filter(
         (recipe) =>
           recipe.publicSurfaceProbe.invocation.expectedResult === "absent",
       ),
-    ).toHaveLength(41);
+    ).toHaveLength(42);
     expect(recipes.summary.fullyExecutableFixtures).toBe(
       authoredPublicFixtures,
     );
@@ -242,9 +242,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_550);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_327);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_223);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_634);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_329);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_305);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -255,7 +255,7 @@ describe("exact-target CapSec executable recipes", () => {
     const windowsAbsenceRecipes = windowsRecipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
-    expect(windowsAbsenceRecipes).toHaveLength(22);
+    expect(windowsAbsenceRecipes).toHaveLength(23);
     expect(
       windowsAbsenceRecipes.every(
         (recipe) =>
@@ -504,7 +504,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(2_830);
+    expect(rationaleOnly).toHaveLength(2_850);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -517,8 +517,8 @@ describe("exact-target CapSec executable recipes", () => {
       "generation-recheck": 510,
       "principal-restore": 510,
       "snapshot-mismatch-deny": 510,
-      "cannot-widen-authority": 395,
-      "post-lockdown-invariant": 395,
+      "cannot-widen-authority": 405,
+      "post-lockdown-invariant": 405,
     });
     expect(
       rationaleOnly.every(
@@ -1741,10 +1741,35 @@ describe("exact-target CapSec executable recipes", () => {
     const rows = recipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
-    expect(rows).toHaveLength(112);
+    expect(rows).toHaveLength(114);
     expect(rows.every((recipe) => recipe.scenario === "absent")).toBe(true);
     expect(rows.every((recipe) => recipe.status === "fully-executable")).toBe(
       true,
+    );
+    expect(
+      rows.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.invocationSchema ===
+          "ibex/capsec-target-absence-invocation/1",
+      ),
+    ).toHaveLength(91);
+    expect(
+      rows.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.invocationSchema ===
+          "ibex/capsec-native-global-invocation/1",
+      ),
+    ).toHaveLength(23);
+    expect(
+      new Set(rows.map((recipe) => recipe.terminalObservedKey)).size,
+    ).toBe(114);
+    expect(rows.map((recipe) => recipe.terminalObservedKey)).toEqual(
+      expect.arrayContaining([
+        "host-abi:ex_hermes_set_restricted_exact_checkpoint_callback",
+        "native-op:global:exact.publishCheckpoint",
+        "native-op:__exactOSRelease",
+        "native-op:__exactOSVersion",
+      ]),
     );
     const outputCatalog = readJson(
       "capsec/generated/output-shape-catalog.json",
@@ -1836,26 +1861,26 @@ describe("exact-target CapSec executable recipes", () => {
       },
     });
 
-    expect(bindings).toHaveLength(115);
+    expect(bindings).toHaveLength(119);
     expect(
       bindings.filter((binding) => binding.key.sourceKind === "host-abi"),
-    ).toHaveLength(59);
+    ).toHaveLength(62);
     expect(
       bindings.filter((binding) => binding.key.sourceKind === "native-op"),
-    ).toHaveLength(56);
+    ).toHaveLength(57);
     expect(
       bindings.filter(
         (binding) =>
           binding.invocationSchema ===
           "ibex/capsec-target-absence-invocation/1",
       ),
-    ).toHaveLength(93);
+    ).toHaveLength(96);
     expect(
       bindings.filter(
         (binding) =>
           binding.invocationSchema === "ibex/capsec-native-global-invocation/1",
       ),
-    ).toHaveLength(22);
+    ).toHaveLength(23);
 
     const policy = readJson("capsec/registry/output-disposition-policy.json");
     const targetAbsentSurfaceIds = new Set(
@@ -1871,7 +1896,7 @@ describe("exact-target CapSec executable recipes", () => {
       .map((decision) => canonicalOutputDispositionKey(decision.key))
       .sort();
     expect(actualKeys).toEqual(expectedKeys);
-    expect(targetAbsentDecisions).toHaveLength(115);
+    expect(targetAbsentDecisions).toHaveLength(119);
     const bindingByKey = new Map(
       bindings.map((binding) => [
         canonicalOutputDispositionKey(binding.key),

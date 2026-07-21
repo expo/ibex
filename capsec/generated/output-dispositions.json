@@ -55025,12 +55025,12 @@
         "returnVariant": "default",
         "contextId": "host.private-native-call-initialized"
       },
-      "disposition": "non-path",
+      "disposition": "absent",
       "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
+        "outcome": "absent",
+        "normalizedValue": "absent"
       },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-DWjL0ubpI1UiIxBAe5XXuqc5uyeaYGpgj0h6JM1gloo, requires the loaded target to observe this exact output key absent."
     },
     {
       "key": {
@@ -55042,12 +55042,12 @@
         "returnVariant": "default",
         "contextId": "host.private-native-call-initialized"
       },
-      "disposition": "non-path",
+      "disposition": "absent",
       "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
+        "outcome": "absent",
+        "normalizedValue": "absent"
       },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-DWjL0ubpI1UiIxBAe5XXuqc5uyeaYGpgj0h6JM1gloo, requires the loaded target to observe this exact output key absent."
     },
     {
       "key": {
@@ -55059,12 +55059,12 @@
         "returnVariant": "default",
         "contextId": "host.private-native-call-initialized"
       },
-      "disposition": "non-path",
+      "disposition": "absent",
       "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
+        "outcome": "absent",
+        "normalizedValue": "absent"
       },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-DWjL0ubpI1UiIxBAe5XXuqc5uyeaYGpgj0h6JM1gloo, requires the loaded target to observe this exact output key absent."
     },
     {
       "key": {
@@ -82599,12 +82599,12 @@
         "returnVariant": "default",
         "contextId": "runtime.bootstrap-native-call-loaded"
       },
-      "disposition": "non-path",
+      "disposition": "absent",
       "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
+        "outcome": "absent",
+        "normalizedValue": "absent"
       },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.global.exact.publishcheckpoint.1sxxctt.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-UlLWfEz9E-rKcBSi0QOl2L6cyH3EjG_Kiv1zVYKchPY, requires the loaded target to observe this exact output key absent."
     },
     {
       "key": {
@@ -109879,9 +109879,9 @@
     "catalogRows": 6462,
     "dispositionRows": 6462,
     "byDisposition": {
-      "absent": 152,
+      "absent": 156,
       "closed": 28,
-      "non-path": 6134,
+      "non-path": 6130,
       "private-native-path": 5,
       "refused": 12,
       "reserved-constant": 1,

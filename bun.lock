@@ -6,6 +6,7 @@
       "name": "ibex-workspace",
       "devDependencies": {
         "@babel/core": "^7.24.0",
+        "@babel/parser": "^7.24.0",
         "@babel/plugin-transform-classes": "^7.24.0",
         "@babel/preset-env": "^7.24.0",
         "@rollup/plugin-babel": "^6.1.0",

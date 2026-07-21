@@ -5,7 +5,15 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (r32 — adds both explicit-cache assertions to the
+**Revised:** 2026-07-20 (r33 — records the twelfth source-bound run: Linux
+completed all four evidence families but is ineligible because Windows
+overflowed while loading the broad Babel core facade and macOS exposed a
+merge-union mismatch in the target-absence runner and disposition policy; the
+inventory now imports the narrow parser directly, while the Apple corpus pins
+all 114 distinct absent surfaces, its 91 target-symbol/23 native-global split,
+and exact absent dispositions for the restricted checkpoint callback's three
+outputs plus `exact.publishCheckpoint`; no report or advertisement is promoted
+and a fresh complete immutable-source run remains required; r32 — adds both explicit-cache assertions to the
 existing locked artifact-tamper corpus after the workflow audit found that
 adding Rust tests alone did not cause the selected release corpus to execute
 them; the eleventh run is ineligible and no observation from it changes the
@@ -614,6 +622,29 @@ measurement policy changes. The eleventh run (`29792673997`, source
 `eb6e75087a0cd7f7b772dc5240cb7d3c22eabb9b`) is consequently ineligible even
 if its unmodified selected suite passes. No result from that run informed the
 fixture change. A new complete source-bound run is required.
+The twelfth run (`29792856330`, source
+`8d817a820783b3568af4337c161083bd31ea7500`) completed the Linux target job
+(`88518164381`) and retained reachable, control-plane, absence, global-corpus,
+and pending-report artifacts with 7,347 conformant rows, zero incomplete rows,
+132 reachable, 7,193 absent, and 22 control rows. That artifact is nevertheless
+ineligible because the same immutable source failed both other matrix legs.
+Windows job `88518164386` overflowed before evidence execution while the
+registry generator loaded `@babel/core`'s generated facade; a 512 KiB local
+stack reproduces the failure, while importing `@babel/parser` directly passes
+the same 91-test inventory suite, reduced-stack registry check, and unchanged
+7,347-edge/7,566-branch/14,694-cell generated identities. macOS job
+`88518164357` reached public absence batch 006 and found 114 generated absent
+fixtures against a stale 112-fixture runner assertion. The two pre-merge
+parents each had 112 surfaces but different sets; their correct union adds the
+restricted checkpoint callback and `exact.publishCheckpoint` from one side and
+the two Android-only OS-version properties from the other, yielding 91
+target-symbol and 23 native-global probes. The reconciled corpus retains exact
+cardinality and uniqueness assertions and adds the four missing `absent`
+output decisions for the checkpoint callback's return/two callback channels
+and `exact.publishCheckpoint`; it does not remove or weaken a gate. The
+exhaustive recipe and output-disposition suites pass with a one-to-one 119-key
+absence-output join. No twelfth-run artifact is reviewed, promoted, attested,
+or advertised. A fresh complete immutable-source run is required.
 A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full

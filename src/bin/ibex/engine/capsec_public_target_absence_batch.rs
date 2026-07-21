@@ -122,9 +122,9 @@ const TARGET_ABSENCE_BATCH_COMMAND: [&str; 9] = [
     "--",
     "--test-threads=1",
 ];
-const EXPECTED_ABSENT_FIXTURES: usize = 112;
-const EXPECTED_TARGET_ABSENCE_FIXTURES: usize = 90;
-const EXPECTED_NATIVE_GLOBAL_ABSENCE_FIXTURES: usize = 22;
+const EXPECTED_ABSENT_FIXTURES: usize = 114;
+const EXPECTED_TARGET_ABSENCE_FIXTURES: usize = 91;
+const EXPECTED_NATIVE_GLOBAL_ABSENCE_FIXTURES: usize = 23;
 
 fn tagged_jcs_digest(value: &serde_json::Value) -> String {
     let bytes = capsec_semantics::canonical::to_jcs_bytes(value)

@@ -1477,7 +1477,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       "sha256-Bk3WVTFjpwV3HpWZN8WhWMNHQdUV8tCXARuePm4Mkn0",
     );
     expect(policy.catalogKeyDigest).toBe(catalog.catalogKeyDigest);
-    expect(policy.overrides).toHaveLength(369);
+    expect(policy.overrides).toHaveLength(373);
     expect(
       new Set(
         policy.overrides.map((row) => canonicalOutputDispositionKey(row.key)),
@@ -1492,7 +1492,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       ),
     ).toBe(true);
     expect(countsBy(policy.overrides, (row) => row.disposition)).toEqual({
-      absent: 152,
+      absent: 156,
       closed: 28,
       "non-path": 41,
       "private-native-path": 5,
@@ -1511,9 +1511,9 @@ describe("LLP 0023 output-disposition dataset", () => {
       catalogRows: 6_462,
       dispositionRows: 6_462,
       byDisposition: {
-        absent: 152,
+        absent: 156,
         closed: 28,
-        "non-path": 6_134,
+        "non-path": 6_130,
         "private-native-path": 5,
         refused: 12,
         "reserved-constant": 1,
@@ -1526,13 +1526,13 @@ describe("LLP 0023 output-disposition dataset", () => {
     });
 
     // The legacy v1 policy had 494 explicit overrides. The exact-key join
-    // retained 227; 142 source-reviewed v2 corrections remain after removing
+    // retained 227; 146 source-reviewed v2 corrections remain after removing
     // four overrides for the now-private original-Promise carrier.
     expect({
       legacyExplicitOverrides: 494,
       exactKeyRetained: 227,
       exactKeyDropped: 267,
-      reviewedV2Corrections: 142,
+      reviewedV2Corrections: 146,
       currentOverrides: policy.overrides.length,
       droppedByCatalogAccount: {
         "output-bearing-key-changed": 14,
@@ -1551,8 +1551,8 @@ describe("LLP 0023 output-disposition dataset", () => {
       legacyExplicitOverrides: 494,
       exactKeyRetained: 227,
       exactKeyDropped: 267,
-      reviewedV2Corrections: 142,
-      currentOverrides: 369,
+      reviewedV2Corrections: 146,
+      currentOverrides: 373,
       droppedByCatalogAccount: {
         "output-bearing-key-changed": 14,
         "structural-only": 137,

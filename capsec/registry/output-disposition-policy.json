@@ -4376,6 +4376,57 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw",
+        "output": "[[return]]",
+        "alias": "ex_hermes_set_restricted_exact_checkpoint_callback",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-DWjL0ubpI1UiIxBAe5XXuqc5uyeaYGpgj0h6JM1gloo, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw",
+        "output": "callback:callback/0",
+        "alias": "ex_hermes_set_restricted_exact_checkpoint_callback",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-DWjL0ubpI1UiIxBAe5XXuqc5uyeaYGpgj0h6JM1gloo, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw",
+        "output": "callback:callback/2",
+        "alias": "ex_hermes_set_restricted_exact_checkpoint_callback",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.set.restricted.exact.checkpoint.callback.1p8dplw.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-DWjL0ubpI1UiIxBAe5XXuqc5uyeaYGpgj0h6JM1gloo, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.accessibilityflags.1m7g2yw",
         "output": "[[return]]",
         "alias": "java:dev.ibex.runtime.IbexNetworking.accessibilityFlags",
@@ -6192,6 +6243,23 @@
         "normalizedValue": "absent"
       },
       "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.global.exact.nodeexists.1qt4kt0.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-oMj5h_0R0hCliHx_FH7Yqp4vthU3uh6QVFVXqR_kJuU, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.exact.publishcheckpoint.1sxxctt",
+        "output": "[[return]]",
+        "alias": "global:exact.publishCheckpoint",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.global.exact.publishcheckpoint.1sxxctt.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-UlLWfEz9E-rKcBSi0QOl2L6cyH3EjG_Kiv1zVYKchPY, requires the loaded target to observe this exact output key absent."
     },
     {
       "key": {
