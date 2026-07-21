@@ -47,11 +47,13 @@ IBEX_REACT_ANDROID_DEBUG_AAR_SHA256="46fc1bfcb0a0aa2c79a81d7804105c88de7d2936fce
 # (coreutils) emit identical "<hex>  <path>" lines, so either tool produces
 # the same digest below.
 ibex_sha256() {
+    # Windows coreutils prints the binary-mode "*" marker; canonicalize to the
+    # two-space text form so digest-over-digest payloads are platform-stable.
     if command -v shasum >/dev/null 2>&1; then
         shasum -a 256 "$@"
     else
         sha256sum "$@"
-    fi
+    fi | sed 's/^\([0-9a-f]\{64\}\) \*/\1  /'
 }
 
 ibex_hermes_patch_digest() {

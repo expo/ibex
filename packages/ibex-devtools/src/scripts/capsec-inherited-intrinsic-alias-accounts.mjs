@@ -48,9 +48,9 @@ const RUNTIME_BOOTSTRAP_PATH = "packages/ibex-runtime-js/src/bootstrap.ts";
 const COMPAT_BOOTSTRAP_PATH = "src/engine/bootstrap/compat-polyfills.js";
 
 const REVIEWED_PROFILE_DIGEST =
-  "sha256-7c4576bd5de6ba188e6201d60a65ba82094965c0e890dc99035b7c8268ec0c82";
+  "sha256-6699a177d9dcae75ae10660264377623a4193e216f8060f92e97fad8e08b17ea";
 const REVIEWED_SOURCE_REVIEW_DIGEST =
-  "sha256-867f33cdc9d0da67d1aea7396bf5582b37c79a5c46dd71207bf583c401305a5f";
+  "sha256-fec05d36e4d20ae29abef36024be8afb38dad330c8fd82f8111105522832df6d";
 
 const REVIEWED_SOURCE_NODE_DIGESTS = Object.freeze({
   bufferImplementation:

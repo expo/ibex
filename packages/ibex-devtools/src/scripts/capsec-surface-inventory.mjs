@@ -14628,7 +14628,7 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
       patchApplicationAuthorityDigest:
         "sha256-4d422defe36111f1749f01c7884d942062ad54e6a7d611eee624547002bc4cdd",
       patchIdentityAuthorityDigest:
-        "sha256-7dd0ebd78fe1a3732c3a9a8f5686c0925e723bc886dc03ce22bbb32b56552b1f",
+        "sha256-6e939803e5b0b5605a886debe46f3e3378ad5b34c1c7528a75954bba48366930",
       patchStackDigest:
         "sha256-08e6330d9fabe98b6915ed2b4bc042e65e1005b2efa3676e79eaff21d930e8c1",
       sourceBuildAuthorityDigests: {
@@ -14663,7 +14663,7 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
       patchApplicationAuthorityDigest:
         "sha256-4d422defe36111f1749f01c7884d942062ad54e6a7d611eee624547002bc4cdd",
       patchIdentityAuthorityDigest:
-        "sha256-7dd0ebd78fe1a3732c3a9a8f5686c0925e723bc886dc03ce22bbb32b56552b1f",
+        "sha256-6e939803e5b0b5605a886debe46f3e3378ad5b34c1c7528a75954bba48366930",
       patchStackDigest:
         "sha256-08e6330d9fabe98b6915ed2b4bc042e65e1005b2efa3676e79eaff21d930e8c1",
       sourceBuildAuthorityDigest:
