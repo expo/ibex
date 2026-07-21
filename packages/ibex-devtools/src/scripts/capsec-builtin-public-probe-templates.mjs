@@ -548,6 +548,57 @@ function exactCryptoCallSpecs() {
       [...CBC_CONSTRUCTOR_ARGUMENTS],
     );
   }
+  // Certificate (SPKAC) is a validate-and-return compatibility shim: the
+  // constructor takes no arguments, and exportChallenge/exportPublicKey/
+  // verifySpkac only validate the SPKAC argument's type then return a fixed
+  // empty Buffer / empty string / false. No native path is reached.
+  specs.Certificate = constructTarget([]);
+  specs["Certificate.exportChallenge"] = constructedOwner(
+    "Certificate",
+    [jsonArgument("ibex-spkac")],
+    "object",
+    [],
+  );
+  specs["Certificate.exportPublicKey"] = constructedOwner(
+    "Certificate",
+    [jsonArgument("ibex-spkac")],
+    "string",
+    [],
+  );
+  specs["Certificate.verifySpkac"] = constructedOwner(
+    "Certificate",
+    [jsonArgument("ibex-spkac")],
+    "boolean",
+    [],
+  );
+  // X509Certificate's constructor stores the raw/PEM bytes without parsing, and
+  // check*/verify/toString/toJSON/toLegacyObject are trap-free stubs returning
+  // undefined/false/the stored PEM/{}. Its value-bearing fields (subject,
+  // publicKey, fingerprint, ...) are prototype accessors and stay residual.
+  const X509_CONSTRUCTOR_ARGUMENTS = Object.freeze([
+    jsonArgument("ibex-x509-fixture"),
+  ]);
+  specs.X509Certificate = constructTarget([...X509_CONSTRUCTOR_ARGUMENTS]);
+  // toString is inherited from Object.prototype in the loaded runtime (not an
+  // own property of X509Certificate.prototype), so it stays residual rather
+  // than being dispatched as an own prototype method.
+  for (const [methodName, resultType] of [
+    ["checkEmail", "undefined"],
+    ["checkHost", "undefined"],
+    ["checkIP", "undefined"],
+    ["checkIssued", "boolean"],
+    ["checkPrivateKey", "boolean"],
+    ["toJSON", "string"],
+    ["toLegacyObject", "object"],
+    ["verify", "boolean"],
+  ]) {
+    specs[`X509Certificate.${methodName}`] = constructedOwner(
+      "X509Certificate",
+      [],
+      resultType,
+      [...X509_CONSTRUCTOR_ARGUMENTS],
+    );
+  }
   return Object.freeze(specs);
 }
 
