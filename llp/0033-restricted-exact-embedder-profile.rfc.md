@@ -5,7 +5,11 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (r31 — adds the native-only explicit-cache artifact
+**Revised:** 2026-07-20 (r32 — adds both explicit-cache assertions to the
+existing locked artifact-tamper corpus after the workflow audit found that
+adding Rust tests alone did not cause the selected release corpus to execute
+them; the eleventh run is ineligible and no observation from it changes the
+gate or fixture policy; r31 — adds the native-only explicit-cache artifact
 builder required by the real Exact cell worker: the supervisor-created root
 must already exist, must not be a symlink, and on Unix must be worker-owned
 with no group/other access; protected manifest and bundle objects materialize
@@ -592,7 +596,8 @@ that already-created root explicitly, rejects a missing or symlink root, and
 on Unix rejects a root not owned by the worker uid or accessible to group or
 other users. It canonicalizes the accepted root and materializes the protected
 operation-manifest and Contract-bundle objects only beneath it; no JavaScript,
-global, C ABI, loader, path-selection, or advertisement surface is added. The
+global, C ABI, loader, attacker-reachable path-selection, or advertisement
+surface is added. The
 ambient-cache builder remains for existing native callers. Focused tests bind
 the resulting protected bundle path to the supplied root and reject permissive
 and symlink roots. Repository-wide generated drift remains clean at the same
@@ -602,6 +607,13 @@ tenth release run (`29791976958`, source
 construction path and is ineligible for review, report promotion, or
 advertisement regardless of its diagnostic result; a fresh complete
 immutable-source run is required.
+The subsequent workflow-selection audit found that those two new Rust tests
+were not named by the locked global-corpus runner. They now execute under the
+existing `artifact-tamper` corpus; no corpus identity, disposition, gate, or
+measurement policy changes. The eleventh run (`29792673997`, source
+`eb6e75087a0cd7f7b772dc5240cb7d3c22eabb9b`) is consequently ineligible even
+if its unmodified selected suite passes. No result from that run informed the
+fixture change. A new complete source-bound run is required.
 A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full

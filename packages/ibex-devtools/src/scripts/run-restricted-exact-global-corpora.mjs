@@ -14,6 +14,8 @@ export const restrictedGlobalCorpusPlan = Object.freeze([
     id: "artifact-tamper",
     tests: Object.freeze([
       "restricted_exact_builder_binds_one_immutable_candidate_bundle",
+      "restricted_exact_builder_uses_embedder_owned_private_cache",
+      "restricted_exact_builder_rejects_non_private_cache_roots",
       "restricted_exact_builder_rejects_format_and_engine_confusion",
     ]),
   }),
