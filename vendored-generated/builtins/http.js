@@ -3,10 +3,14 @@ var _httpNetModule = null;
 var _httpStreamModule = null;
 try {
 	_httpNetModule = require("net");
-} catch (_netModuleErr) {}
+} catch (_netModuleErr) {
+	_httpNetModule = null;
+}
 try {
 	_httpStreamModule = require("node:stream");
-} catch (_streamModuleErr) {}
+} catch (_streamModuleErr) {
+	_httpStreamModule = null;
+}
 var EventEmitter = require("events").EventEmitter;
 var Readable = null;
 function getReadableCtor() {

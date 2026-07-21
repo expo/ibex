@@ -7,8 +7,8 @@
 // @ref LLP 0013#policy
 var _httpNetModule = null;
 var _httpStreamModule = null;
-try { _httpNetModule = require('net'); } catch (_netModuleErr) {}
-try { _httpStreamModule = require('node:stream'); } catch (_streamModuleErr) {}
+try { _httpNetModule = require('net'); } catch (_netModuleErr) { _httpNetModule = null; }
+try { _httpStreamModule = require('node:stream'); } catch (_streamModuleErr) { _httpStreamModule = null; }
 var _swallowDebugLog = function() {};
 function _swallowDebug(msg, err) {
   _swallowDebugLog(msg, err);
