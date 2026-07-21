@@ -1636,6 +1636,44 @@ const STRUCTURED_OUTPUT_RECIPES = Object.freeze([
     ],
   }),
   Object.freeze({
+    surfaceName: "__exactDispatchStableEvent",
+    assertions: [
+      {
+        path: "src/engine/hermes_runtime_ios.cc",
+        region: {
+          start:
+            'extern "C" int ex_hermes_dispatch_restricted_exact_event(',
+          end: "// =============================================================================",
+        },
+        tokens: [
+          'getProperty(rt, "__exactDispatchStableEvent")',
+          "parseJsonValue(rt, binding_json)",
+          "parseJsonValue(rt, payload_json)",
+          "rt, std::move(binding), std::move(payload)",
+          "checkpointCountBefore + 1",
+          "return 0;",
+        ],
+      },
+    ],
+    shapes: [
+      shape("callback:dispatch/0", "__exactDispatchStableEvent.binding", {
+        mode: "json-payload",
+        sourceKind: "native-op",
+        returnVariant: "json-value",
+      }),
+      shape("callback:dispatch/1", "__exactDispatchStableEvent.payload", {
+        mode: "json-payload",
+        sourceKind: "native-op",
+        returnVariant: "json-value",
+      }),
+      shape("callback:dispatch/1", "__exactDispatchStableEvent.payload", {
+        mode: "empty-payload",
+        sourceKind: "native-op",
+        returnVariant: "undefined",
+      }),
+    ],
+  }),
+  Object.freeze({
     surfaceName: "__exactModuleEvent",
     assertions: [
       {

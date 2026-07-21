@@ -23,6 +23,7 @@ const repoRoot = path.resolve(
 );
 const names = new Set([
   "__exactDispatchEvent",
+  "__exactDispatchStableEvent",
   "__exactModuleEvent",
   "__exactMotionRatedPublish",
   "__exactRunOnJS",
@@ -90,11 +91,11 @@ beforeAll(async () => {
 
 describe("fixed native delivery output templates", () => {
   test("authors only the four delivery families with bounded native fixtures", () => {
-    expect(cases).toHaveLength(38);
+    expect(cases).toHaveLength(41);
     const authored = cases.filter(({ invocation }) => invocation !== null);
     const sourceOnly = cases.filter(({ invocation }) => invocation === null);
     expect(authored).toHaveLength(21);
-    expect(sourceOnly).toHaveLength(17);
+    expect(sourceOnly).toHaveLength(20);
     expect(
       Object.fromEntries(
         [...Map.groupBy(authored, ({ edge }) => edge.surface.name)]
@@ -109,7 +110,13 @@ describe("fixed native delivery output templates", () => {
     });
     expect(
       new Set(sourceOnly.map(({ edge }) => edge.surface.name)),
-    ).toEqual(new Set(["__exactDispatchEvent", "__exactModuleEvent"]));
+    ).toEqual(
+      new Set([
+        "__exactDispatchEvent",
+        "__exactDispatchStableEvent",
+        "__exactModuleEvent",
+      ]),
+    );
 
     for (const { catalogRow, edge, surface, invocation } of authored) {
       expect(invocation).toMatchObject({

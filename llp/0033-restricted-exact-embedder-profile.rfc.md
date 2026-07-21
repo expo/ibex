@@ -5,7 +5,14 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (r40 — closes two additional nineteenth-run failures:
+**Revised:** 2026-07-21 (r41 — adds the pooled worker's bounded structural
+semantic-event ingress as a dedicated restricted-only owner-thread ABI,
+resolves the binding solely inside the activated immutable Contract bundle,
+requires exactly one successor checkpoint, poisons malformed, stale,
+oversized, missing, or failed transitions, and regenerates the closed-world
+authority at 132 Apple-default reachable, 23 trusted-control-plane, and 7,194
+structurally absent rows while keeping evidence, review, promotion, and
+advertisements empty pending a fresh complete run; r40 — closes two additional nineteenth-run failures:
 restores the explicitly diagnostic null-manifest Exact ingress without letting
 an arbitrary digest appear authenticated, and moves runtime-environment drift
 into Windows preflight with a bounded first-difference diagnostic; r39 — records the nineteenth ineligible run: the
@@ -834,6 +841,23 @@ because the Host source bytes changed; all 7,194 Apple-default absent edges,
 7,408 source routes, 9,796 live probes, and 10,300 live-probe bindings remain
 unchanged. No nineteenth-run artifact is reviewed, promoted, attested, or
 advertised; another fresh complete immutable-source run is required.
+The pooled Exact worker requires semantic events to survive realm destruction
+without trusting generation-local numeric handler IDs. The restricted Host ABI
+therefore now accepts only bounded binding and payload JSON after authenticated
+bundle activation, invokes the immutable bundle's non-configurable
+`__exactDispatchStableEvent` hook, and requires that synchronous transition to
+publish exactly one successor checkpoint. The bundle resolves
+`instancePath`, `nodeIdentity`, `event`, and `actionIdentity` against the newly
+mounted realm; Ibex does not mint, reinterpret, or retain those identities.
+Missing, malformed, oversized, stale, throwing, zero-checkpoint, duplicate-
+checkpoint, post-poison, non-owner, pre-activation, and non-restricted calls
+fail closed. Native mechanism tests execute fresh-realm success, stale and
+bounded-input poisoning, and exact successor cardinality; the reachable and
+control-plane evidence executors independently exercise the new realm hook and
+Host ABI. This amendment adds exactly two source-derived registry edges and
+changes the immutable evidence authority, so all earlier and currently running
+source revisions remain ineligible for its report. No report, attestation, or
+advertisement is synthesized from the local mechanism run.
 A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full

@@ -1,7 +1,7 @@
 {
   "outputDispositionDatasetSchema": "ibex/capsec-output-dispositions/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256-Bk3WVTFjpwV3HpWZN8WhWMNHQdUV8tCXARuePm4Mkn0",
+  "catalogKeyDigest": "sha256-S73-GuaQjNBkpT6wJcxnGEYx_XFnQMEyTePMM9SK5K4",
   "evidence": {
     "status": "unpromotable",
     "reason": "The output corpus remains unpromotable: one native module-marker surface account and three inherited-intrinsic alias surface accounts are unresolved, and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes all three account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations."
@@ -51753,6 +51753,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.dispatch.restricted.exact.event.0qonogo",
+        "output": "[[return]]",
+        "alias": "ex_hermes_dispatch_restricted_exact_event",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.dispatch.restricted.exact.event.0qonogo.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-QPU7L_2BL2g34n2Nfyte0HlPCCbZhgCqsnCFAc61-Zo, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.dispatch.worklet.calls.0duc0ou",
         "output": "[[return]]",
         "alias": "ex_hermes_dispatch_worklet_calls",
@@ -61535,6 +61552,57 @@
         "sourceKind": "native-op",
         "returnVariant": "default",
         "contextId": "javascript.package-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactdispatchstableevent.1qe8h6w",
+        "output": "callback:dispatch/0",
+        "alias": "__exactDispatchStableEvent.binding",
+        "mode": "json-payload",
+        "sourceKind": "native-op",
+        "returnVariant": "json-value",
+        "contextId": "javascript.package-callback-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactdispatchstableevent.1qe8h6w",
+        "output": "callback:dispatch/1",
+        "alias": "__exactDispatchStableEvent.payload",
+        "mode": "empty-payload",
+        "sourceKind": "native-op",
+        "returnVariant": "undefined",
+        "contextId": "javascript.package-callback-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactdispatchstableevent.1qe8h6w",
+        "output": "callback:dispatch/1",
+        "alias": "__exactDispatchStableEvent.payload",
+        "mode": "json-payload",
+        "sourceKind": "native-op",
+        "returnVariant": "json-value",
+        "contextId": "javascript.package-callback-loaded"
       },
       "disposition": "non-path",
       "expectation": {
@@ -109876,12 +109944,12 @@
     }
   ],
   "counts": {
-    "catalogRows": 6462,
-    "dispositionRows": 6462,
+    "catalogRows": 6466,
+    "dispositionRows": 6466,
     "byDisposition": {
-      "absent": 156,
+      "absent": 157,
       "closed": 28,
-      "non-path": 6130,
+      "non-path": 6133,
       "private-native-path": 5,
       "refused": 12,
       "reserved-constant": 1,

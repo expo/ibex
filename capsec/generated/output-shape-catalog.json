@@ -38008,6 +38008,17 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.dispatch.restricted.exact.event.0qonogo",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_dispatch_restricted_exact_event"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.dispatch.worklet.calls.0duc0ou",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -49406,6 +49417,17 @@
       ],
       "outputKinds": [
         "public-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.exactdispatchstableevent.1qe8h6w",
+      "status": "output-bearing",
+      "reasonCode": "source-asserted-structured-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#__exactDispatchStableEvent"
+      ],
+      "outputKinds": [
+        "structured-output"
       ]
     },
     {
@@ -83656,16 +83678,16 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-Bk3WVTFjpwV3HpWZN8WhWMNHQdUV8tCXARuePm4Mkn0",
+  "catalogKeyDigest": "sha256-S73-GuaQjNBkpT6wJcxnGEYx_XFnQMEyTePMM9SK5K4",
   "counts": {
-    "coverageSurfaces": 7347,
-    "outputBearingSurfaces": 5785,
+    "coverageSurfaces": 7349,
+    "outputBearingSurfaces": 5787,
     "structuralOnlySurfaces": 1557,
     "unresolvedSurfaces": 5,
-    "catalogRows": 6462,
+    "catalogRows": 6466,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6055,
-    "structuredRows": 407
+    "sourceInventoryRows": 6056,
+    "structuredRows": 410
   },
   "rows": [
     {
@@ -147502,6 +147524,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.dispatch.restricted.exact.event.0qonogo",
+        "output": "[[return]]",
+        "alias": "ex_hermes_dispatch_restricted_exact_event",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_dispatch_restricted_exact_event"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_dispatch_restricted_exact_event"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.dispatch.worklet.calls.0duc0ou",
         "output": "[[return]]",
         "alias": "ex_hermes_dispatch_worklet_calls",
@@ -159613,6 +159656,60 @@
         "sourceRefs": [
           "src/engine/bootstrap/stream-enhance.js#__exactDispatchPendingSignals",
           "src/engine/hermes_runtime_crypto.cc#__exactDispatchPendingSignals"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactdispatchstableevent.1qe8h6w",
+        "output": "callback:dispatch/0",
+        "alias": "__exactDispatchStableEvent.binding",
+        "mode": "json-payload",
+        "sourceKind": "native-op",
+        "returnVariant": "json-value",
+        "contextId": "javascript.package-callback-loaded"
+      },
+      "discovery": {
+        "kind": "source-asserted-structured-output",
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#region:extern \"C\" int ex_hermes_dispatch_restricted_exact_event(..// =============================================================================#tokens:getProperty(rt, \"__exactDispatchStableEvent\")+parseJsonValue(rt, binding_json)+parseJsonValue(rt, payload_json)+rt, std::move(binding), std::move(payload)+checkpointCountBefore + 1+return 0;"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactdispatchstableevent.1qe8h6w",
+        "output": "callback:dispatch/1",
+        "alias": "__exactDispatchStableEvent.payload",
+        "mode": "empty-payload",
+        "sourceKind": "native-op",
+        "returnVariant": "undefined",
+        "contextId": "javascript.package-callback-loaded"
+      },
+      "discovery": {
+        "kind": "source-asserted-structured-output",
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#region:extern \"C\" int ex_hermes_dispatch_restricted_exact_event(..// =============================================================================#tokens:getProperty(rt, \"__exactDispatchStableEvent\")+parseJsonValue(rt, binding_json)+parseJsonValue(rt, payload_json)+rt, std::move(binding), std::move(payload)+checkpointCountBefore + 1+return 0;"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactdispatchstableevent.1qe8h6w",
+        "output": "callback:dispatch/1",
+        "alias": "__exactDispatchStableEvent.payload",
+        "mode": "json-payload",
+        "sourceKind": "native-op",
+        "returnVariant": "json-value",
+        "contextId": "javascript.package-callback-loaded"
+      },
+      "discovery": {
+        "kind": "source-asserted-structured-output",
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#region:extern \"C\" int ex_hermes_dispatch_restricted_exact_event(..// =============================================================================#tokens:getProperty(rt, \"__exactDispatchStableEvent\")+parseJsonValue(rt, binding_json)+parseJsonValue(rt, payload_json)+rt, std::move(binding), std::move(payload)+checkpointCountBefore + 1+return 0;"
         ]
       },
       "requiredValueProof": "live-value-observation"

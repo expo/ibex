@@ -3,9 +3,9 @@
   "profile": "ibex/exact-embedder-contract/1",
   "fullProfile": "ibex/capsec/1",
   "status": "phase0-candidate-evidence-pending",
-  "definitionRawContentDigest": "sha256-8qkVZLC2Y4BbCbdFrDi1qtrlgFIj8WZF-LvDgo--R5M",
-  "coverageRawContentDigest": "sha256-HAE42W6gCg2kA5x_CBPckbSLwdDRaGvHuzdrGTSVudg",
-  "implementationManifestRawContentDigest": "sha256-cX23ZUdGx6Ah86l89PwKB2cm5fk6JaV-3A8vRcunI04",
+  "definitionRawContentDigest": "sha256-VRbcSij9qaD7_LLvAFpV6UcN1qcU0Ui1KL9elirVfe4",
+  "coverageRawContentDigest": "sha256--4CpjYel1kiqnZt3KP5bqImBSVa0cQoVU4gioJg5Qh0",
+  "implementationManifestRawContentDigest": "sha256-y7SHJs3yaRSOPcXr5wVFEt_eVT6mLNnjHpvcvznlIHo",
   "schemaRawContentDigests": {
     "advertisements": "sha256-4S5Zx8dROCgs71PSwf8veVy5RsHY89KAejOL_8pAzZ4",
     "definition": "sha256-KJAmZhpn2c0VcCXG6qlMcUKtDpJlL4fJ5hs-sWCkshI",
@@ -15,8 +15,8 @@
     "targetReport": "sha256-9pfYln-aIXfsTb7fXDhCB6PY_8E-aV91wmyIEdgrH5w"
   },
   "sourceEdgeSet": {
-    "count": 7347,
-    "digest": "sha256-P1ZQ8J03k9wwXr4hd8t3fqrChk86bhiLOqZhupO8IyU"
+    "count": 7349,
+    "digest": "sha256-pDR6qeFKRULwOezy62IncHG9bEZL9nYTAIbMLawsQRQ"
   },
   "candidateTargets": [
     {
@@ -37,10 +37,10 @@
     }
   ],
   "counts": {
-    "total": 7347,
-    "reachable": 131,
+    "total": 7349,
+    "reachable": 132,
     "structurallyAbsent": 7194,
-    "trustedControlPlane": 22,
+    "trustedControlPlane": 23,
     "evidenced": 0
   },
   "rows": [
@@ -3597,6 +3597,7 @@
     ["surface.host.abi.ex.hermes.destroy.0m27uxn","trusted-control-plane","pending"],
     ["surface.host.abi.ex.hermes.dispatch.event.0lbx6vi","trusted-control-plane","pending"],
     ["surface.host.abi.ex.hermes.dispatch.motion.rated.publish.0bbxbt5","structurally-absent","pending"],
+    ["surface.host.abi.ex.hermes.dispatch.restricted.exact.event.0qonogo","trusted-control-plane","pending"],
     ["surface.host.abi.ex.hermes.dispatch.worklet.calls.0duc0ou","structurally-absent","pending"],
     ["surface.host.abi.ex.hermes.dispatch.worklet.json.batch.0vpbf64","structurally-absent","pending"],
     ["surface.host.abi.ex.hermes.emit.module.event.00w52n6","structurally-absent","pending"],
@@ -4526,6 +4527,7 @@
     ["surface.native.op.exactdeflatesync.1ub149z","structurally-absent","pending"],
     ["surface.native.op.exactdispatchevent.1158ilx","structurally-absent","pending"],
     ["surface.native.op.exactdispatchpendingsignals.0rebamv","structurally-absent","pending"],
+    ["surface.native.op.exactdispatchstableevent.1qe8h6w","reachable","pending"],
     ["surface.native.op.exactdnsgetservers.0juhxzo","structurally-absent","pending"],
     ["surface.native.op.exactdnslookup.0wdcfty","structurally-absent","pending"],
     ["surface.native.op.exactdnslookupasync.1bkrzlm","structurally-absent","pending"],

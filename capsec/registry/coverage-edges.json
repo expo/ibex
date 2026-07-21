@@ -141675,6 +141675,16 @@
       "rationale": "Generic embedder event, host-call, and handle transfer is closed."
     },
     {
+      "id": "surface.host.abi.ex.hermes.dispatch.restricted.exact.event.0qonogo",
+      "classification": "closed",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_dispatch_restricted_exact_event"
+      },
+      "cap": "ipc:channel",
+      "rationale": "Generic embedder event, host-call, and handle transfer is closed."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.dispatch.worklet.calls.0duc0ou",
       "classification": "closed",
       "surface": {
@@ -201231,6 +201241,16 @@
       },
       "cap": "process:signal",
       "rationale": "Pending-signal dispatch invokes shared listeners and may reset and re-deliver a signal to the host process."
+    },
+    {
+      "id": "surface.native.op.exactdispatchstableevent.1qe8h6w",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__exactDispatchStableEvent"
+      },
+      "rationaleId": "callback-attribution-carrier",
+      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
     },
     {
       "id": "surface.native.op.exactdnsgetservers.0juhxzo",

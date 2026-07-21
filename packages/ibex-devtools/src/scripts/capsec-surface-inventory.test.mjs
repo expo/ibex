@@ -5986,10 +5986,10 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     expect(first.hostAbi.some((row) => row.name === "ex_host_fs_open")).toBe(
       true,
     );
-    // The checked-in generated authority contains 317 exact host ABI rows.
+    // The checked-in generated authority contains 318 exact host ABI rows.
     // Keep this assertion joined to that live inventory rather than the stale
     // pre-LLP-0033 count of 311.
-    expect(first.hostAbi).toHaveLength(317);
+    expect(first.hostAbi).toHaveLength(318);
     for (const [name, sourceRef] of [
       [
         "evaluation:installGlobals:native-freeze-conformance-observation",
@@ -6064,7 +6064,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .sort(),
       ),
     ).toEqual({
-      "output-bearing": 267,
+      "output-bearing": 268,
       "structural-only": 50,
     });
     expect(
@@ -6097,7 +6097,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .map(([role, channels]) => [role, channels.length])
           .sort(),
       ),
-    ).toEqual({ callback: 61, out: 207, return: 249 });
+    ).toEqual({ callback: 61, out: 207, return: 250 });
     expect(
       Object.fromEntries(
         [
@@ -6113,7 +6113,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       "none:void": 68,
       "value:aggregate": 17,
       "value:pointer": 50,
-      "value:scalar": 182,
+      "value:scalar": 183,
     });
     expect(
       Object.fromEntries(
@@ -6129,7 +6129,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     ).toEqual({
       "callback-payload": 39,
       inout: 9,
-      input: 765,
+      input: 768,
       output: 78,
     });
 

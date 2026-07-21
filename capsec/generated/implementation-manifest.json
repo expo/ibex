@@ -118441,6 +118441,39 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.dispatch.restricted.exact.event.0qonogo",
+      "observedKey": "host-abi:ex_hermes_dispatch_restricted_exact_event",
+      "branchId": "surface.host.abi.ex.hermes.dispatch.restricted.exact.event.0qonogo.ios",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.dispatch.restricted.exact.event.0qonogo.ios",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_dispatch_restricted_exact_event"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_dispatch_restricted_exact_event"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_dispatch_restricted_exact_event"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_dispatch_restricted_exact_event"
+      },
+      "branchKind": "single",
+      "targetVariant": "ios",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "ios"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_dispatch_restricted_exact_event"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.dispatch.restricted.exact.event.0qonogo.ios.closed"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.dispatch.worklet.calls.0duc0ou",
       "observedKey": "host-abi:ex_hermes_dispatch_worklet_calls",
       "branchId": "surface.host.abi.ex.hermes.dispatch.worklet.calls.0duc0ou.default",
@@ -158638,6 +158671,41 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.native.op.exactdispatchpendingsignals.0rebamv.default.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactdispatchstableevent.1qe8h6w",
+      "observedKey": "native-op:__exactDispatchStableEvent",
+      "branchId": "surface.native.op.exactdispatchstableevent.1qe8h6w.main",
+      "enforcementBranchId": "surface.native.op.exactdispatchstableevent.1qe8h6w.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__exactDispatchStableEvent"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#__exactDispatchStableEvent"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#__exactDispatchStableEvent"
+        ],
+        "terminalObservedKey": "native-op:__exactDispatchStableEvent"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#__exactDispatchStableEvent"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.native.op.exactdispatchstableevent.1qe8h6w.main.attribution-missing-deny",
+        "surface.native.op.exactdispatchstableevent.1qe8h6w.main.generation-recheck",
+        "surface.native.op.exactdispatchstableevent.1qe8h6w.main.non-capability",
+        "surface.native.op.exactdispatchstableevent.1qe8h6w.main.principal-restore",
+        "surface.native.op.exactdispatchstableevent.1qe8h6w.main.snapshot-mismatch-deny"
       ]
     },
     {
@@ -270360,6 +270428,7 @@
         "surface.callback.worklet.scheduled.drain.1g4n74z",
         "surface.host.abi.ex.hermes.dispatch.event.0lbx6vi",
         "surface.host.abi.ex.hermes.dispatch.motion.rated.publish.0bbxbt5",
+        "surface.host.abi.ex.hermes.dispatch.restricted.exact.event.0qonogo",
         "surface.host.abi.ex.hermes.dispatch.worklet.calls.0duc0ou",
         "surface.host.abi.ex.hermes.dispatch.worklet.json.batch.0vpbf64",
         "surface.host.abi.ex.hermes.emit.module.event.00w52n6",
@@ -270545,7 +270614,7 @@
         "surface.startup.installer.installipclistenerpatch.1a0b3bh",
         "surface.startup.script.ipc.listener.183xoza"
       ],
-      "rationale": "Closed by 226 observed surface edges."
+      "rationale": "Closed by 227 observed surface edges."
     },
     {
       "definitionId": "lifecycle:exit",
@@ -273059,59 +273128,59 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-HBdNOeo4oxNtQY2u8SRK3L3bFklbG5-QodDjQcUfjw4"
+      "rawContentDigest": "sha256-CIPt_f8DwrrP_o45XD_qkirYUqf5E0dHTGFMkaVKj54"
     },
     {
       "kind": "output-disposition-dataset",
       "path": "capsec/generated/output-dispositions.json",
-      "rawContentDigest": "sha256-RNKmK2dVcwjDnRpmAEYFmzVW9BlYJfkluxBhleU1rt8"
+      "rawContentDigest": "sha256-axsgo_0OEsWSQpHtszToK959q1c6TLdKwWlDD0GLfvk"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/output-dispositions.md",
-      "rawContentDigest": "sha256-wKfXqX7X9YjLad4txkZ_IZun7uuJxGF8MmsVqXDqOD4"
+      "rawContentDigest": "sha256-ua3qZB51ykmZB0QM_cZBoCadQEHYj6KOjwZSU7O4xUA"
     },
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-uoyFXWIvcGU4cJR48NZCjoW8UHTmzLo1TF-L8s4W6y8"
+      "rawContentDigest": "sha256-z4L8d_6exC_HQ8_736LhWZpb8IsRaX-mA54WP26xPt4"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-mfAFHTorzFTX7JkN7EMAjEdeMhXuB0UMQ20IYH1ySLs"
+      "rawContentDigest": "sha256-e66MaYk9KABnq0viXhh6AWr4Tuc8jYWHpmYsthvWMPg"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-HAE42W6gCg2kA5x_CBPckbSLwdDRaGvHuzdrGTSVudg"
+      "rawContentDigest": "sha256--4CpjYel1kiqnZt3KP5bqImBSVa0cQoVU4gioJg5Qh0"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-RhGX0PH4yGVFn_z30D95PYWtm--hjOZRQex9MeOd1FA"
+      "rawContentDigest": "sha256-HjPaTsPZeLKDf14-aRrMWrbMIhuDSdvSqzM_x_Q21SU"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-7UPYTYBObioRaV1lJVblJpTMLvs8M_Sc-oYijgAO74M"
+      "rawContentDigest": "sha256-JqKuxkgAHmWLBLtqzn3txhkiB-eE4BHfZOzwL5RcbVs"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-X58TEUntrX03dB0ZQzjsh6ro0nDvacXIoPI_pZeR1cc"
+      "rawContentDigest": "sha256-DX8hAztgxv9N9IgYTDBxkti5tlO3a8kwiwNChxsouaI"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-c6p_NpreAb7CAQzI2Shq9mMQPe-xNqwm-AFLKLHsdWE"
+      "rawContentDigest": "sha256-psJM3c_jb3IJ4ptgwHd8HY7ipj9VDNVkgEaX3Z83mPk"
     }
   ],
   "counts": {
-    "observedReferences": 12845,
-    "logicalSurfaces": 7347,
-    "enforcementBranches": 7566,
-    "coverageEdges": 7347,
-    "targetCells": 14694
+    "observedReferences": 12847,
+    "logicalSurfaces": 7349,
+    "enforcementBranches": 7568,
+    "coverageEdges": 7349,
+    "targetCells": 14698
   }
 }

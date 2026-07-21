@@ -1414,6 +1414,16 @@ int ex_hermes_dispatch_event(
     uint32_t handler_id,
     const char* payload_json);
 
+/// Dispatch one structurally identified semantic event into an activated
+/// exact-session/v1 runtime. The immutable bundle resolves binding_json
+/// against its newly mounted Contract realm; stale or malformed bindings
+/// poison the restricted runtime. A successful call must publish exactly one
+/// successor checkpoint.
+int ex_hermes_dispatch_restricted_exact_event(
+    ExactHermesRuntime* runtime,
+    const char* binding_json,
+    const char* payload_json);
+
 // =============================================================================
 // Host ABI (called from Rust, used by hermes_runtime.cc)
 // =============================================================================

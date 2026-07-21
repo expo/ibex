@@ -1,7 +1,7 @@
 {
   "outputDispositionPolicySchema": "ibex/capsec-output-disposition-policy/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256-Bk3WVTFjpwV3HpWZN8WhWMNHQdUV8tCXARuePm4Mkn0",
+  "catalogKeyDigest": "sha256-S73-GuaQjNBkpT6wJcxnGEYx_XFnQMEyTePMM9SK5K4",
   "defaultDisposition": "non-path",
   "defaultRationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them.",
   "overrides": [
@@ -4186,6 +4186,23 @@
         "normalizedValue": "absent"
       },
       "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.dispatch.event.0lbx6vi.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-fndYb18b7BQBs60YzodAFDMda0vQNNQqZMhzl7e6f8E, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.dispatch.restricted.exact.event.0qonogo",
+        "output": "[[return]]",
+        "alias": "ex_hermes_dispatch_restricted_exact_event",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.dispatch.restricted.exact.event.0qonogo.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-QPU7L_2BL2g34n2Nfyte0HlPCCbZhgCqsnCFAc61-Zo, requires the loaded target to observe this exact output key absent."
     },
     {
       "key": {

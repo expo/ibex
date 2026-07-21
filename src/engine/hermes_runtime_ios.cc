@@ -28,6 +28,14 @@
 
 namespace {
 constexpr size_t kMaxRestrictedExactCheckpointOutputBytes = 16 * 1024 * 1024;
+constexpr size_t kMaxRestrictedExactBindingJsonBytes = 64 * 1024;
+constexpr size_t kMaxRestrictedExactEventPayloadJsonBytes = 8 * 1024 * 1024;
+
+size_t boundedCStringLength(const char* value, size_t maximum) {
+  size_t length = 0;
+  while (length <= maximum && value[length] != '\0') ++length;
+  return length;
+}
 }
 
 // Kernel FFI functions (implemented in Rust kernel crate)
@@ -898,6 +906,70 @@ extern "C" int ex_hermes_dispatch_event(
     return -1;
   } catch (...) {
     if (runtime->restricted_exact) runtime->restricted_exact_poisoned = true;
+    return -1;
+  }
+}
+
+extern "C" int ex_hermes_dispatch_restricted_exact_event(
+    ExactHermesRuntime* runtime,
+    const char* binding_json,
+    const char* payload_json) {
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive || !runtime->runtime || !runtime->restricted_exact) return -1;
+  if (runtime->runtime_thread != std::this_thread::get_id()) return -1;
+  if (!runtime->restricted_exact_bundle_consumed ||
+      runtime->restricted_exact_poisoned) {
+    return -1;
+  }
+  if (!binding_json) {
+    runtime->restricted_exact_poisoned = true;
+    return -1;
+  }
+  const size_t bindingLength =
+      boundedCStringLength(binding_json, kMaxRestrictedExactBindingJsonBytes);
+  const size_t payloadLength = payload_json
+      ? boundedCStringLength(
+            payload_json, kMaxRestrictedExactEventPayloadJsonBytes)
+      : 0;
+  if (bindingLength == 0 ||
+      bindingLength > kMaxRestrictedExactBindingJsonBytes ||
+      payloadLength > kMaxRestrictedExactEventPayloadJsonBytes) {
+    runtime->restricted_exact_poisoned = true;
+    return -1;
+  }
+
+  auto& rt = *runtime->runtime;
+  const uint64_t checkpointCountBefore =
+      runtime->restricted_exact_checkpoint_publication_count;
+  try {
+    auto handlerValue =
+        rt.global().getProperty(rt, "__exactDispatchStableEvent");
+    if (!handlerValue.isObject() ||
+        !handlerValue.getObject(rt).isFunction(rt)) {
+      runtime->restricted_exact_poisoned = true;
+      return -1;
+    }
+    auto binding = parseJsonValue(rt, binding_json);
+    auto payload = payloadLength > 0
+        ? parseJsonValue(rt, payload_json)
+        : facebook::jsi::Value::undefined();
+    handlerValue.getObject(rt).asFunction(rt).call(
+        rt, std::move(binding), std::move(payload));
+    if (runtime->restricted_exact_checkpoint_publication_count !=
+        checkpointCountBefore + 1) {
+      runtime->restricted_exact_poisoned = true;
+      ex_host_console_log(
+          1,
+          "restricted Exact stable event did not publish exactly one successor checkpoint");
+      return -1;
+    }
+    return 0;
+  } catch (const facebook::jsi::JSError& error) {
+    runtime->restricted_exact_poisoned = true;
+    ex_host_console_log(1, error.getMessage().c_str());
+    return -1;
+  } catch (...) {
+    runtime->restricted_exact_poisoned = true;
     return -1;
   }
 }

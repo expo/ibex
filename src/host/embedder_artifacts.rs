@@ -1784,6 +1784,11 @@ mod tests {
             handler_id: u32,
             payload_json: *const std::ffi::c_char,
         ) -> i32;
+        fn ex_hermes_dispatch_restricted_exact_event(
+            runtime: *mut HermesRuntimeOpaque,
+            binding_json: *const std::ffi::c_char,
+            payload_json: *const std::ffi::c_char,
+        ) -> i32;
         fn ex_hermes_poll(runtime: *mut HermesRuntimeOpaque, now_ms: u64) -> i32;
         fn ex_hermes_free_string(value: *mut std::ffi::c_char);
         fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
@@ -2942,13 +2947,24 @@ mod tests {
                 )
             })
             .collect::<std::collections::BTreeMap<_, _>>();
-        assert_eq!(control_ids.len(), 22);
+        assert_eq!(control_ids.len(), 23);
 
         let bundle = br#"(() => {
           exact.takeCheckpointBytes();
           globalThis.__exactDispatchEvent = (handlerId) => {
             exact.publishCheckpoint(new Uint8Array([handlerId & 255]));
           };
+          Object.defineProperty(globalThis, '__exactDispatchStableEvent', {
+            value: (binding, payload) => {
+              if (!binding || binding.actionIdentity !== 'increment' ||
+                  !Array.isArray(binding.instancePath) || payload.delta !== 1) {
+                throw new Error('stale stable binding');
+              }
+              exact.publishCheckpoint(new Uint8Array([6]));
+            },
+            writable: false,
+            configurable: false
+          });
           exact.dispatch(new Uint8Array([9]));
           exact.invokeHostAsync(1000, new Uint8Array([1])).then(() => {}, () => {});
           exact.publishCheckpoint(new Uint8Array([0]));
@@ -3333,6 +3349,21 @@ mod tests {
             unsafe { ex_hermes_dispatch_event(runtime, 5, payload.as_ptr()) },
             0
         );
+        let stable_binding = std::ffi::CString::new(
+            r#"{"instancePath":["Counter#0"],"nodeIdentity":"up","event":"press","actionIdentity":"increment"}"#,
+        )
+        .unwrap();
+        let stable_payload = std::ffi::CString::new(r#"{"delta":1}"#).unwrap();
+        assert_eq!(
+            unsafe {
+                ex_hermes_dispatch_restricted_exact_event(
+                    runtime,
+                    stable_binding.as_ptr(),
+                    stable_payload.as_ptr(),
+                )
+            },
+            0
+        );
         let malformed = std::ffi::CString::new("{").unwrap();
         assert_eq!(
             unsafe { ex_hermes_dispatch_event(runtime, 5, malformed.as_ptr()) },
@@ -3342,10 +3373,25 @@ mod tests {
             unsafe { ex_hermes_dispatch_event(runtime, 5, payload.as_ptr()) },
             -1
         );
+        assert_eq!(
+            unsafe {
+                ex_hermes_dispatch_restricted_exact_event(
+                    runtime,
+                    stable_binding.as_ptr(),
+                    stable_payload.as_ptr(),
+                )
+            },
+            -1
+        );
         record(
             "surface.host.abi.ex.hermes.dispatch.event.0lbx6vi",
             "valid event published one successor checkpoint",
             "malformed event poisoned runtime and post-poison event returned -1",
+        );
+        record(
+            "surface.host.abi.ex.hermes.dispatch.restricted.exact.event.0qonogo",
+            "valid structural binding published one successor checkpoint",
+            "post-poison structural event returned -1",
         );
         assert_eq!(unsafe { ex_hermes_poll(runtime, now_1) }, -1);
 
@@ -4554,6 +4600,13 @@ mod tests {
             .filter(|id| id.starts_with("surface.native.op."))
             .cloned()
             .collect::<std::collections::BTreeSet<_>>();
+        let stable_event_edge_id = "surface.native.op.exactdispatchstableevent.1qe8h6w";
+        assert!(native_ids.contains(stable_event_edge_id));
+        let root_probe_native_ids = native_ids
+            .iter()
+            .filter(|id| id.as_str() != stable_event_edge_id)
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>();
         let startup_ids = reachable_ids
             .iter()
             .filter(|id| id.starts_with("surface.startup."))
@@ -4568,9 +4621,9 @@ mod tests {
         assert_eq!(
             native_ids.len(),
             if target["triple"] == "x86_64-unknown-linux-gnu" {
-                116
+                117
             } else {
-                115
+                116
             }
         );
         let startup_trace_edges = [
@@ -4669,13 +4722,24 @@ mod tests {
                 }),
             );
         }
-        assert_eq!(probes.len(), native_ids.len());
+        assert_eq!(probes.len(), root_probe_native_ids.len());
 
         let mut bundle = br#"((specs) => {
           'use strict';
           const results = [];
           const ingress = exact.takeCheckpointBytes();
           if (!(ingress instanceof Uint8Array)) throw new Error('checkpoint ingress was not bytes');
+          Object.defineProperty(globalThis, '__exactDispatchStableEvent', {
+            value: (binding, payload) => {
+              if (!binding || binding.actionIdentity !== 'stable-probe' ||
+                  !Array.isArray(binding.instancePath) || payload.marker !== 83) {
+                throw new Error('invalid stable event probe');
+              }
+              exact.publishCheckpoint(new Uint8Array([83]));
+            },
+            writable: false,
+            configurable: false
+          });
 
           const keyFor = (segment) => {
             if (segment === '[[Symbol.iterator]]') return Symbol.iterator;
@@ -4844,13 +4908,14 @@ mod tests {
             assert_eq!(host_calls.calls[0].1, 1000);
             assert_eq!(host_calls.calls[0].2, [1, 2, 3]);
 
+            let initial_checkpoint_len = checkpoints.len();
             let results: Vec<serde_json::Value> = serde_json::from_slice(&checkpoints).unwrap();
-            assert_eq!(results.len(), native_ids.len());
+            assert_eq!(results.len(), root_probe_native_ids.len());
             let result_ids = results
                 .iter()
                 .map(|row| row["edgeId"].as_str().unwrap().to_owned())
                 .collect::<std::collections::BTreeSet<_>>();
-            assert_eq!(result_ids, native_ids);
+            assert_eq!(result_ids, root_probe_native_ids);
             let unresolved = results
                 .iter()
                 .filter(|row| row["status"].as_str() == Some("unresolved"))
@@ -4860,6 +4925,28 @@ mod tests {
                 "reachable native edges failed exact resolution: {}",
                 serde_json::to_string_pretty(&unresolved).unwrap()
             );
+
+            let stable_binding = std::ffi::CString::new(
+                r#"{"instancePath":["Probe#0"],"nodeIdentity":"probe","event":"press","actionIdentity":"stable-probe"}"#,
+            )
+            .unwrap();
+            let stable_payload = std::ffi::CString::new(r#"{"marker":83}"#).unwrap();
+            assert_eq!(
+                ex_hermes_dispatch_restricted_exact_event(
+                    runtime,
+                    stable_binding.as_ptr(),
+                    stable_payload.as_ptr(),
+                ),
+                0
+            );
+            assert_eq!(checkpoints.len(), initial_checkpoint_len + 1);
+            assert_eq!(checkpoints[initial_checkpoint_len], 83);
+            let stable_event_proof = serde_json::json!({
+                "edgeId": stable_event_edge_id,
+                "status": "invoked-returned",
+                "bindingResolution": "new-realm-structural-identity",
+                "successorCheckpointByte": 83,
+            });
 
             let next_timer_ms = ex_hermes_next_timer(runtime);
             assert!(next_timer_ms >= 0, "reachable timer edge did not arm");
@@ -4956,6 +5043,13 @@ mod tests {
                         })
                     })
                     .collect::<Vec<_>>();
+                observations.push(serde_json::json!({
+                    "edgeId": stable_event_edge_id,
+                    "kind": "live-invocation",
+                    "outcome": "passed",
+                    "observedIdentity": observed_identities[stable_event_edge_id],
+                    "proof": stable_event_proof,
+                }));
                 for (bit, edge_id) in startup_trace_edges.iter().enumerate() {
                     observations.push(serde_json::json!({
                         "edgeId": edge_id,
@@ -5294,6 +5388,196 @@ mod tests {
             );
             assert_eq!(ex_hermes_poll(malformed_payload_runtime, 1234), -1);
             ex_hermes_destroy(malformed_payload_runtime);
+        }
+    }
+
+    #[test]
+    fn restricted_exact_stable_event_resolves_new_realm_binding_and_poison_stale() {
+        let _guard = crate::host::abi::host_test_lock();
+        if crate::engine::loaded_engine_structural_features()
+            != [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown",
+            ]
+        {
+            return;
+        }
+        let bundle = br#"(() => {
+          exact.takeCheckpointBytes();
+          exact.publishCheckpoint(new Uint8Array([1]));
+          Object.defineProperty(globalThis, '__exactDispatchStableEvent', {
+            value: (binding, payload) => {
+              if (!binding || binding.actionIdentity !== 'increment' ||
+                  !Array.isArray(binding.instancePath) ||
+                  payload.delta !== 1) {
+                throw new Error('stale stable binding');
+              }
+              exact.publishCheckpoint(new Uint8Array([2]));
+            },
+            writable: false,
+            configurable: false
+          });
+        })();"#;
+        let binding = std::ffi::CString::new(
+            r#"{"instancePath":["Counter#0"],"nodeIdentity":"up","event":"press","actionIdentity":"increment"}"#,
+        )
+        .unwrap();
+        let stale = std::ffi::CString::new(
+            r#"{"instancePath":["Counter#0"],"nodeIdentity":"up","event":"press","actionIdentity":"stale"}"#,
+        )
+        .unwrap();
+        let payload = std::ffi::CString::new(r#"{"delta":1}"#).unwrap();
+
+        let (runtime, _dispatch, checkpoints) =
+            unsafe { configured_restricted_exact_runtime(bundle) };
+        unsafe {
+            let mut error = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_run_restricted_exact_bundle(runtime, &mut error),
+                0
+            );
+            assert!(error.is_null());
+            assert_eq!(
+                ex_hermes_dispatch_restricted_exact_event(
+                    runtime,
+                    binding.as_ptr(),
+                    payload.as_ptr(),
+                ),
+                0
+            );
+            assert_eq!(*checkpoints, [1, 2]);
+            ex_hermes_destroy(runtime);
+        }
+
+        let (runtime, _dispatch, _checkpoints) =
+            unsafe { configured_restricted_exact_runtime(bundle) };
+        unsafe {
+            let mut error = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_run_restricted_exact_bundle(runtime, &mut error),
+                0
+            );
+            assert!(error.is_null());
+            assert_eq!(
+                ex_hermes_dispatch_restricted_exact_event(
+                    runtime,
+                    stale.as_ptr(),
+                    payload.as_ptr(),
+                ),
+                -1
+            );
+            assert_eq!(
+                ex_hermes_dispatch_restricted_exact_event(
+                    runtime,
+                    binding.as_ptr(),
+                    payload.as_ptr(),
+                ),
+                -1
+            );
+            assert_eq!(ex_hermes_poll(runtime, 1234), -1);
+            ex_hermes_destroy(runtime);
+        }
+
+        for use_null_binding in [true, false] {
+            let oversized_binding = std::ffi::CString::new(vec![b'a'; 64 * 1024 + 1]).unwrap();
+            let invalid_binding = if use_null_binding {
+                std::ptr::null()
+            } else {
+                oversized_binding.as_ptr()
+            };
+            let (runtime, _dispatch, _checkpoints) =
+                unsafe { configured_restricted_exact_runtime(bundle) };
+            unsafe {
+                let mut error = std::ptr::null_mut();
+                assert_eq!(
+                    ex_hermes_run_restricted_exact_bundle(runtime, &mut error),
+                    0
+                );
+                assert!(error.is_null());
+                assert_eq!(
+                    ex_hermes_dispatch_restricted_exact_event(
+                        runtime,
+                        invalid_binding,
+                        payload.as_ptr(),
+                    ),
+                    -1
+                );
+                assert_eq!(
+                    ex_hermes_dispatch_restricted_exact_event(
+                        runtime,
+                        binding.as_ptr(),
+                        payload.as_ptr(),
+                    ),
+                    -1
+                );
+                ex_hermes_destroy(runtime);
+            }
+        }
+    }
+
+    #[test]
+    fn restricted_exact_stable_event_requires_exactly_one_successor_checkpoint() {
+        let _guard = crate::host::abi::host_test_lock();
+        if crate::engine::loaded_engine_structural_features()
+            != [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown",
+            ]
+        {
+            return;
+        }
+        let binding = std::ffi::CString::new(
+            r#"{"instancePath":["Counter#0"],"nodeIdentity":"up","event":"press","actionIdentity":"increment"}"#,
+        )
+        .unwrap();
+        let payload = std::ffi::CString::new("{}").unwrap();
+        for (fixture, bundle) in [
+            (
+                "missing-successor",
+                br#"(() => {
+                  exact.takeCheckpointBytes();
+                  exact.publishCheckpoint(new Uint8Array([1]));
+                  globalThis.__exactDispatchStableEvent = () => {};
+                })();"#
+                    .as_slice(),
+            ),
+            (
+                "duplicate-successor",
+                br#"(() => {
+                  exact.takeCheckpointBytes();
+                  exact.publishCheckpoint(new Uint8Array([1]));
+                  globalThis.__exactDispatchStableEvent = () => {
+                    exact.publishCheckpoint(new Uint8Array([2]));
+                    exact.publishCheckpoint(new Uint8Array([3]));
+                  };
+                })();"#
+                    .as_slice(),
+            ),
+        ] {
+            let (runtime, _dispatch, _checkpoints) =
+                unsafe { configured_restricted_exact_runtime(bundle) };
+            unsafe {
+                let mut error = std::ptr::null_mut();
+                assert_eq!(
+                    ex_hermes_run_restricted_exact_bundle(runtime, &mut error),
+                    0,
+                    "{fixture}"
+                );
+                assert!(error.is_null(), "{fixture}");
+                assert_eq!(
+                    ex_hermes_dispatch_restricted_exact_event(
+                        runtime,
+                        binding.as_ptr(),
+                        payload.as_ptr(),
+                    ),
+                    -1,
+                    "{fixture}"
+                );
+                assert_eq!(ex_hermes_poll(runtime, 1234), -1, "{fixture}");
+                ex_hermes_destroy(runtime);
+            }
         }
     }
 

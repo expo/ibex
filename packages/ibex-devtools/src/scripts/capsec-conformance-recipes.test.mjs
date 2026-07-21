@@ -144,9 +144,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_749);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_472);
-    expect(recipes.summary.unresolvedFixtures).toBe(21_277);
+    expect(recipes.summary.requiredFixtures).toBe(23_755);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_473);
+    expect(recipes.summary.unresolvedFixtures).toBe(21_282);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -242,9 +242,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_634);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_640);
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_329);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_305);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_311);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -504,7 +504,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(2_850);
+    expect(rationaleOnly).toHaveLength(2_854);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -513,10 +513,10 @@ describe("exact-target CapSec executable recipes", () => {
         ]),
       ),
     ).toEqual({
-      "attribution-missing-deny": 510,
-      "generation-recheck": 510,
-      "principal-restore": 510,
-      "snapshot-mismatch-deny": 510,
+      "attribution-missing-deny": 511,
+      "generation-recheck": 511,
+      "principal-restore": 511,
+      "snapshot-mismatch-deny": 511,
       "cannot-widen-authority": 405,
       "post-lockdown-invariant": 405,
     });
@@ -1741,7 +1741,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rows = recipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
-    expect(rows).toHaveLength(114);
+    expect(rows).toHaveLength(115);
     expect(rows.every((recipe) => recipe.scenario === "absent")).toBe(true);
     expect(rows.every((recipe) => recipe.status === "fully-executable")).toBe(
       true,
@@ -1752,7 +1752,7 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe.invocation.invocationSchema ===
           "ibex/capsec-target-absence-invocation/1",
       ),
-    ).toHaveLength(91);
+    ).toHaveLength(92);
     expect(
       rows.filter(
         (recipe) =>
@@ -1762,9 +1762,10 @@ describe("exact-target CapSec executable recipes", () => {
     ).toHaveLength(23);
     expect(
       new Set(rows.map((recipe) => recipe.terminalObservedKey)).size,
-    ).toBe(114);
+    ).toBe(115);
     expect(rows.map((recipe) => recipe.terminalObservedKey)).toEqual(
       expect.arrayContaining([
+        "host-abi:ex_hermes_dispatch_restricted_exact_event",
         "host-abi:ex_hermes_set_restricted_exact_checkpoint_callback",
         "native-op:global:exact.publishCheckpoint",
         "native-op:__exactOSRelease",
@@ -1861,10 +1862,10 @@ describe("exact-target CapSec executable recipes", () => {
       },
     });
 
-    expect(bindings).toHaveLength(119);
+    expect(bindings).toHaveLength(120);
     expect(
       bindings.filter((binding) => binding.key.sourceKind === "host-abi"),
-    ).toHaveLength(62);
+    ).toHaveLength(63);
     expect(
       bindings.filter((binding) => binding.key.sourceKind === "native-op"),
     ).toHaveLength(57);
@@ -1874,7 +1875,7 @@ describe("exact-target CapSec executable recipes", () => {
           binding.invocationSchema ===
           "ibex/capsec-target-absence-invocation/1",
       ),
-    ).toHaveLength(96);
+    ).toHaveLength(97);
     expect(
       bindings.filter(
         (binding) =>
@@ -1896,7 +1897,7 @@ describe("exact-target CapSec executable recipes", () => {
       .map((decision) => canonicalOutputDispositionKey(decision.key))
       .sort();
     expect(actualKeys).toEqual(expectedKeys);
-    expect(targetAbsentDecisions).toHaveLength(119);
+    expect(targetAbsentDecisions).toHaveLength(120);
     const bindingByKey = new Map(
       bindings.map((binding) => [
         canonicalOutputDispositionKey(binding.key),

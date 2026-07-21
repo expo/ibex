@@ -148,6 +148,7 @@ const DEFINITIONS = Object.freeze({
 
 const SOURCE_ONLY_SURFACES = new Set([
   "__exactDispatchEvent",
+  "__exactDispatchStableEvent",
   "__exactModuleEvent",
 ]);
 

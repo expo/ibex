@@ -4,8 +4,8 @@
   "fullProfile": "ibex/capsec/1",
   "status": "draft-unadvertised",
   "sourceEdgeSet": {
-    "count": 7347,
-    "digest": "sha256-P1ZQ8J03k9wwXr4hd8t3fqrChk86bhiLOqZhupO8IyU"
+    "count": 7349,
+    "digest": "sha256-pDR6qeFKRULwOezy62IncHG9bEZL9nYTAIbMLawsQRQ"
   },
   "candidateTargets": [
     {
@@ -84,6 +84,12 @@
       "surfaceKind": "callback",
       "surfaceName": "timer-invoke",
       "reason": "the hibernation-safe Contract task subset invokes activation-owned timer callbacks during bounded polling"
+    },
+    {
+      "edgeId": "surface.native.op.exactdispatchstableevent.1qe8h6w",
+      "surfaceKind": "native-op",
+      "surfaceName": "__exactDispatchStableEvent",
+      "reason": "the authenticated Contract bundle resolves one structural event binding inside its newly mounted realm"
     },
     {
       "edgeId": "surface.native.op.global.arraybuffer.0h54i6m",
@@ -860,6 +866,12 @@
       "surfaceKind": "host-abi",
       "surfaceName": "ex_hermes_dispatch_event",
       "reason": "the owner-thread supervisor injects only authenticated semantic events after successful bundle activation"
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.dispatch.restricted.exact.event.0qonogo",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_hermes_dispatch_restricted_exact_event",
+      "reason": "the owner-thread supervisor injects a bounded structural binding and payload into the activated restricted realm"
     },
     {
       "edgeId": "surface.host.abi.ex.hermes.free.string.123yf3v",
