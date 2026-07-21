@@ -120,6 +120,31 @@ describe("LLP 0033 per-edge absence evidence", () => {
       "descriptor-prefix",
       "__compartments",
     )).not.toThrow();
+    const executableRoute = {
+      branchPathId: "family.0123456789abcdefabcd",
+      sourceBindingIds: ["binding.0123456789abcdefabcd"],
+    };
+    const executableObservation = {
+      ...structuredClone(observation),
+      ...executableRoute,
+      requestedRoute: {
+        kind: "descriptor-resolve",
+        ingressRoot: "__compartments",
+        terminal: "__compartments",
+      },
+      lastObservedNode: "runtime.root",
+      blockedEdge: {
+        from: "runtime.root",
+        to: "runtime.path:__compartments",
+      },
+    };
+    expect(() => validateRestrictedActualBoundaryObservation(
+      executableObservation,
+      "descriptor-prefix",
+      "__compartments",
+      "executable route boundary",
+      executableRoute,
+    )).not.toThrow();
     expect(() => validateRestrictedActualBoundaryObservation(
       undefined,
       "descriptor-prefix",

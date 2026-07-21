@@ -3,10 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { capsecRoot, readJsonStrict } from "./capsec-contract.mjs";
-import {
-  buildRestrictedExactAbsenceRouteGraph,
-  validateRestrictedExactAbsenceRouteGraph,
-} from "./generate-restricted-exact-absence-route-graph.mjs";
+import { validateRestrictedExactAbsenceRouteGraph } from "./generate-restricted-exact-absence-route-graph.mjs";
 
 const paths = {
   projection: path.join(capsecRoot, "generated/restricted-exact-profile-projection.json"),
@@ -16,27 +13,32 @@ const paths = {
   probePlan: path.join(capsecRoot, "generated/restricted-exact-absence-probe-plan.json"),
 };
 
-function inputs() {
-  return {
-    ...Object.fromEntries(Object.entries(paths).map(([name, file]) => [name, structuredClone(readJsonStrict(file))])),
-    raw: Object.fromEntries(Object.entries(paths).map(([name, file]) => [name, fs.readFileSync(file)])),
-  };
-}
+const source = Object.fromEntries(
+  Object.entries(paths).map(([name, file]) => [name, readJsonStrict(file)]),
+);
+const graph = readJsonStrict(
+  path.join(capsecRoot, "generated/restricted-exact-absence-route-graph.json"),
+);
 
-const baseSource = inputs();
-const baseGraph = buildRestrictedExactAbsenceRouteGraph(baseSource);
-
-function fixture() {
-  return { source: structuredClone(baseSource), graph: structuredClone(baseGraph) };
-}
-
-function validate(graph, source) {
+function validate() {
   return validateRestrictedExactAbsenceRouteGraph(graph, source);
 }
 
-describe("LLP 0033 restricted Exact absence dominance graph", () => {
-  test("binds every absent branch, live route, source file, and target-specific cut set", () => {
-    const { graph } = fixture();
+function expectMutation(mutate, pattern) {
+  const restore = mutate();
+  try {
+    expect(validate).toThrow(pattern);
+  } finally {
+    restore();
+  }
+}
+
+function branchTopology(route) {
+  return graph.topology.branchPaths.find((row) => row.branchId === route.branchId);
+}
+
+describe("LLP 0033 restricted Exact executable absence route graph", () => {
+  test("binds every absent branch, live route, exact source site, and target-specific cut set", () => {
     expect(graph.counts).toEqual({
       edges: 7194,
       routes: 7408,
@@ -44,97 +46,142 @@ describe("LLP 0033 restricted Exact absence dominance graph", () => {
       sourceBindings: 12468,
       liveProbeBindings: 10300,
     });
-    expect(graph.routes.every((route) => route.sourcePath.at(-1).startsWith("terminal."))).toBe(true);
+    expect(graph.routeGraphSchema).toBe("ibex/restricted-profile-absence-route-graph/2");
+    expect(graph.topology.branchPaths).toHaveLength(7408);
+    expect(graph.sourceBindings).toHaveLength(12468);
+    expect(graph.topology.sourceSites.length).toBeGreaterThan(26000);
+    expect(graph.topology.branchPaths.filter((row) => row.paths.length > 1).length).toBe(633);
     expect(graph.routes.every((route) => route.liveCutsetObservationIds.length === 3)).toBe(true);
-    expect(graph.topology.terminals).toHaveLength(7194);
     expect(graph.topology.sourceSpans).toHaveLength(5);
+    expect(validate()).toBe(graph);
   });
 
-  test("computes dominance and rejects a real topology bypass or cycle", () => {
-    const bypass = fixture();
-    bypass.graph.topology.edges.push({
-      from: bypass.graph.topology.sourceRoot,
-      to: bypass.graph.topology.terminals[0].nodeId,
-      routeClass: "source-selection",
-    });
-    bypass.graph.topology.edges.sort((left, right) =>
-      `${left.from}\0${left.to}`.localeCompare(`${right.from}\0${right.to}`));
-    expect(() => validate(bypass.graph, bypass.source)).toThrow(/do not dominate terminal/u);
+  test("computes per-family dominance and rejects a real bypass or cycle", () => {
+    const branch = graph.topology.branchPaths[0];
+    expectMutation(() => {
+      graph.topology.edges.push([
+        branch.routeFamily,
+        branch.sourceRoot,
+        branch.terminalNodeId,
+        ["source-selection"],
+        "expose",
+        "span:span.profile-selection",
+        null,
+      ]);
+      return () => graph.topology.edges.pop();
+    }, /source cut set does not dominate exact terminal/u);
 
-    const cycle = fixture();
-    cycle.graph.topology.edges.push({
-      from: cycle.graph.topology.terminals[0].nodeId,
-      to: cycle.graph.topology.sourceRoot,
-      routeClass: "source-selection",
-    });
-    cycle.graph.topology.edges.sort((left, right) =>
-      `${left.from}\0${left.to}`.localeCompare(`${right.from}\0${right.to}`));
-    expect(() => validate(cycle.graph, cycle.source)).toThrow(/contains a cycle/u);
+    expectMutation(() => {
+      graph.topology.edges.push([
+        branch.routeFamily,
+        branch.terminalNodeId,
+        branch.sourceRoot,
+        ["source-selection"],
+        "call",
+        "span:span.profile-selection",
+        null,
+      ]);
+      return () => graph.topology.edges.pop();
+    }, /contains a cycle/u);
   });
 
-  test("rejects topology branch omission and instrumented source-range drift", () => {
-    const branch = fixture();
-    branch.graph.topology.terminals[0].branchIds = [];
-    expect(() => validate(branch.graph, branch.source)).toThrow(/omits an implementation branch/u);
+  test("rejects branch omission, source-range drift, and a falsified cut-set event", () => {
+    expectMutation(() => {
+      const removed = graph.topology.branchPaths.shift();
+      return () => graph.topology.branchPaths.unshift(removed);
+    }, /every implementation branch/u);
 
-    const span = fixture();
-    span.graph.topology.sourceSpans[0].rawContentDigest =
-      "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-    expect(() => validate(span.graph, span.source)).toThrow(/source span drifted/u);
+    expectMutation(() => {
+      const span = graph.topology.sourceSpans[0];
+      const prior = span.rawContentDigest;
+      span.rawContentDigest = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+      return () => { span.rawContentDigest = prior; };
+    }, /source span drifted/u);
+
+    expectMutation(() => {
+      const route = graph.routes[0];
+      const prior = route.sourceCutsetObservationIds[0];
+      route.sourceCutsetObservationIds[0] = "restricted-exact.falsified";
+      return () => { route.sourceCutsetObservationIds[0] = prior; };
+    }, /actual cut-set observations/u);
   });
 
-  test("rejects route-level cut-set bypass and a falsified cut-set event", () => {
-    const { graph, source } = fixture();
-    graph.routes[0].sourcePath.splice(1, 1);
-    expect(() => validate(graph, source)).toThrow(/contains a non-edge/u);
-    const second = fixture();
-    second.graph.routes[0].sourceCutsetObservationIds[0] = "restricted-exact.falsified";
-    expect(() => validate(second.graph, second.source)).toThrow(/actual cut-set observations/u);
+  test("rejects selected-branch, exact-target, and boundary substitution", () => {
+    expectMutation(() => {
+      const route = graph.routes[0];
+      const prior = route.branchId;
+      route.branchId = graph.routes[1].branchId;
+      return () => { route.branchId = prior; };
+    }, /unknown or cross-edge branch/u);
+
+    expectMutation(() => {
+      const route = graph.routes[0];
+      const prior = route.observedIdentity;
+      route.observedIdentity = "builtin:swapped";
+      return () => { route.observedIdentity = prior; };
+    }, /target disagrees/u);
+
+    expectMutation(() => {
+      const route = graph.routes[0];
+      const prior = route.liveBoundary.blockedEdge.to;
+      route.liveBoundary.blockedEdge.to = graph.routes[1].liveBoundary.blockedEdge.to;
+      return () => { route.liveBoundary.blockedEdge.to = prior; };
+    }, /boundary is inferred or disagrees/u);
   });
 
-  test("rejects selected-branch and exact-target substitution", () => {
-    const { graph, source } = fixture();
-    graph.routes[0].branchId = graph.routes[1].branchId;
-    expect(() => validate(graph, source)).toThrow(/unknown or cross-edge branch/u);
-    const second = fixture();
-    second.graph.routes[0].observedIdentity = "builtin:swapped";
-    expect(() => validate(second.graph, second.source)).toThrow(/target disagrees/u);
+  test("rejects an invented lazy attacker route and a removed callback root", () => {
+    const first = graph.routes[0];
+    expectMutation(() => {
+      const root = graph.topology.nodes.find((node) => node.nodeId === branchTopology(first).liveRoot);
+      root.attackerRoots.push("lazy:unclassified-alias");
+      root.attackerRoots.sort();
+      return () => {
+        root.attackerRoots.splice(root.attackerRoots.indexOf("lazy:unclassified-alias"), 1);
+      };
+    }, /omits or invents an exact attacker root/u);
+
+    const callbackRoute = graph.routes.find((route) => route.observedIdentity.startsWith("callback:"));
+    expectMutation(() => {
+      const root = graph.topology.nodes.find((node) => node.nodeId === branchTopology(callbackRoute).liveRoot);
+      const index = root.attackerRoots.indexOf("__hostCall");
+      root.attackerRoots.splice(index, 1);
+      return () => root.attackerRoots.splice(index, 0, "__hostCall");
+    }, /omits or invents an exact attacker root/u);
   });
 
-  test("rejects a new alias or lazy attacker route and a retained callback root", () => {
-    const { graph, source } = fixture();
-    graph.routes[0].attackerRoots.push("lazy:unclassified-alias");
-    graph.routes[0].attackerRoots.sort();
-    expect(() => validate(graph, source)).toThrow(/omits or invents an attacker root/u);
-    const second = fixture();
-    const callbackRoute = second.graph.routes.find((route) => route.observedIdentity.startsWith("callback:"));
-    callbackRoute.attackerRoots = callbackRoute.attackerRoots.filter((root) => root !== "__hostCall");
-    expect(() => validate(second.graph, second.source)).toThrow(/omits or invents an attacker root/u);
+  test("rejects wrong terminal topology and source-content substitution", () => {
+    expectMutation(() => {
+      const branch = graph.topology.branchPaths[0];
+      const prior = branch.terminalNodeId;
+      branch.terminalNodeId = graph.topology.branchPaths[1].terminalNodeId;
+      return () => { branch.terminalNodeId = prior; };
+    }, /branch metadata drifted|non-edge|no exact attacker-root path/u);
+
+    expectMutation(() => {
+      const binding = graph.sourceBindings[0];
+      const prior = binding.rawContentDigest;
+      binding.rawContentDigest = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+      return () => { binding.rawContentDigest = prior; };
+    }, /not content-bound/u);
   });
 
-  test("rejects wrong terminal boundaries and source-content substitution", () => {
-    const { graph, source } = fixture();
-    graph.routes[0].livePath[graph.routes[0].livePath.length - 1] =
-      graph.topology.terminals[1].nodeId;
-    expect(() => validate(graph, source)).toThrow(/non-edge|exact terminal/u);
-    const second = fixture();
-    second.graph.routes[0].sourceBindings[0].rawContentDigest = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-    expect(() => validate(second.graph, second.source)).toThrow(/not content-bound/u);
-  });
+  test("rejects a new implementation branch and target-applicability confusion", () => {
+    const original = source.implementationManifest.surfaces.find(
+      (branch) => branch.edgeId === graph.routes[0].edgeId,
+    );
+    expectMutation(() => {
+      source.implementationManifest.surfaces.push({
+        ...structuredClone(original),
+        branchId: `${original.branchId}.new-alias`,
+      });
+      return () => source.implementationManifest.surfaces.pop();
+    }, /implementation branch/u);
 
-  test("rejects a new implementation branch without a generated route", () => {
-    const { graph, source } = fixture();
-    const original = source.implementationManifest.surfaces.find((branch) => branch.edgeId === graph.routes[0].edgeId);
-    source.implementationManifest.surfaces.push({
-      ...structuredClone(original),
-      branchId: `${original.branchId}.new-alias`,
-    });
-    expect(() => validate(graph, source)).toThrow(/implementation branch/u);
-  });
-
-  test("rejects target-applicability confusion", () => {
-    const { graph, source } = fixture();
-    graph.routes[0].applicability = { classification: "platform-excluded", reason: "forged" };
-    expect(() => validate(graph, source)).toThrow(/target applicability disagrees/u);
+    expectMutation(() => {
+      const route = graph.routes[0];
+      const prior = route.applicability;
+      route.applicability = { classification: "platform-excluded", reason: "forged" };
+      return () => { route.applicability = prior; };
+    }, /target applicability disagrees/u);
   });
 });

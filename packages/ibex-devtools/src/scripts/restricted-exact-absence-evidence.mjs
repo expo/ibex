@@ -156,10 +156,78 @@ export function validateRestrictedActualBoundaryObservation(
   routeKind,
   probeTarget,
   label = "restricted actual boundary observation",
+  route = undefined,
 ) {
-  assertExactKeys(observation, ["routeKind", "exactTarget", "boundary"], label);
+  const executableRouteV2 = observation
+    && Object.prototype.hasOwnProperty.call(observation, "branchPathId");
+  assertExactKeys(observation, executableRouteV2
+    ? [
+        "routeKind", "exactTarget", "branchPathId", "sourceBindingIds",
+        "requestedRoute", "lastObservedNode", "blockedEdge", "boundary",
+      ]
+    : ["routeKind", "exactTarget", "boundary"], label);
   if (observation.routeKind !== routeKind || observation.exactTarget !== probeTarget) {
     throw new Error(`${label} route identity drift`);
+  }
+  if (route && (!executableRouteV2
+    || observation.branchPathId !== route.branchPathId
+    || canonicalJson(observation.sourceBindingIds) !== canonicalJson(route.sourceBindingIds))) {
+    throw new Error(`${label} executable source route drift`);
+  }
+  if (executableRouteV2) {
+    const requestedRoute = {
+      "descriptor-prefix": () => ({
+        kind: "descriptor-resolve",
+        ingressRoot: probeTarget.split(".")[0],
+        terminal: probeTarget,
+      }),
+      "restricted-module-resolution": () => ({
+        kind: "module-resolve",
+        ingressRoot: "require",
+        argument: probeTarget.replace(/^builtin:/, ""),
+        terminal: probeTarget,
+      }),
+      "restricted-loader-entry": () => ({
+        kind: "loader-dispatch",
+        ingressRoot: "require",
+        operation: probeTarget.replace(/^loader:/, ""),
+        terminal: probeTarget,
+      }),
+      "restricted-cli-entry": () => ({
+        kind: "cli-dispatch",
+        ingressRoot: "process",
+        operation: probeTarget.replace(/^cli:/, ""),
+        terminal: probeTarget,
+      }),
+      "restricted-js-native-abi": () => ({
+        kind: "host-abi-dispatch",
+        ingressRoot: "__hostCall",
+        symbol: probeTarget.replace(/^host-abi:/, ""),
+        terminal: probeTarget,
+      }),
+      "restricted-callback-route": () => ({
+        kind: "callback-dispatch",
+        ingressRoot: "__hostCall",
+        callback: probeTarget.replace(/^callback:/, ""),
+        terminal: probeTarget,
+      }),
+      "restricted-startup-route": () => ({
+        kind: "startup-select",
+        ingressRoot: "restricted-bootstrap-selection",
+        startupIdentity: probeTarget.replace(/^startup:/, ""),
+        terminal: probeTarget,
+      }),
+      "restricted-native-installer-route": () => ({
+        kind: "native-installer-resolve",
+        ingressRoot: "restricted-native-installer",
+        nativeIdentity: probeTarget.replace(/^native-op:/, ""),
+        terminal: probeTarget,
+      }),
+    }[routeKind]?.();
+    if (!requestedRoute
+      || canonicalJson(observation.requestedRoute) !== canonicalJson(requestedRoute)) {
+      throw new Error(`${label} did not execute its exact requested route`);
+    }
   }
   const boundary = observation.boundary;
   if (!boundary || typeof boundary !== "object" || Array.isArray(boundary)) {
@@ -178,6 +246,8 @@ export function validateRestrictedActualBoundaryObservation(
   };
   let receipts = [];
   let expectedMode = "absent";
+  let expectedLastObservedNode;
+  let expectedBlockedTo;
   switch (routeKind) {
     case "descriptor-prefix":
       receipts = receiptBoundary("root-descriptor", [probeTarget]);
@@ -220,7 +290,9 @@ export function validateRestrictedActualBoundaryObservation(
       if (boundary.kind !== "startup-selection" || boundary.restrictedTrace !== 0x1ff || boundary.selected !== false) {
         throw new Error(`${label} startup selection drift`);
       }
-      return;
+      expectedLastObservedNode = "runtime.selector:restricted-exact";
+      expectedBlockedTo = `runtime.target:${probeTarget}`;
+      break;
     case "restricted-native-installer-route": {
       const logical = probeTarget.replace(/^native-op:/, "").replace(/^global:/, "");
       if (logical === "[[dynamic-table:native-global-name]]") {
@@ -243,6 +315,71 @@ export function validateRestrictedActualBoundaryObservation(
   }
   for (let index = 0; index < receipts.length; index += 1) {
     validateLogicalPathReceipt(receipts[index], expectedMode, `${label} receipt ${index}`);
+  }
+  if (!executableRouteV2) return;
+  if (receipts.length > 0) {
+    const receipt = receipts[0];
+    const segments = receipt.requestedPath.split(".");
+    expectedLastObservedNode = receipt.lastResolvedSegmentIndex === null
+      ? "runtime.root"
+      : `runtime.path:${segments.slice(0, receipt.lastResolvedSegmentIndex + 1).join(".")}`;
+    expectedBlockedTo = `runtime.path:${segments.slice(0, receipt.firstBlockedSegmentIndex + 1).join(".")}`;
+  }
+  if (observation.lastObservedNode !== expectedLastObservedNode
+    || canonicalJson(observation.blockedEdge) !== canonicalJson({
+      from: expectedLastObservedNode,
+      to: expectedBlockedTo,
+    })) {
+    throw new Error(`${label} actual runtime boundary drift`);
+  }
+}
+
+function validateTargetBuildReceipt(receipt, route, targetTriple, label) {
+  assertExactKeys(
+    receipt,
+    [
+      "targetTriple", "authority", "classification", "selectedByTargetBuild",
+      "conditionValuePresent",
+    ],
+    label,
+  );
+  const { kind, value } = route.targetApplicability;
+  let selected;
+  if (["all", "fallback"].includes(kind)) selected = true;
+  else if (kind === "operating-system") {
+    selected = {
+      macos: targetTriple.includes("apple-darwin"),
+      ios: targetTriple.includes("apple-ios"),
+      android: targetTriple.includes("android"),
+      windows: targetTriple.includes("windows"),
+    }[value] ?? false;
+  } else if (kind === "operating-system-family") {
+    selected = value === "apple"
+      ? targetTriple.includes("apple")
+      : value === "posix"
+        ? !targetTriple.includes("windows")
+        : false;
+  } else if (kind === "linux-backend") selected = targetTriple.includes("linux");
+  else if (kind === "runtime-variant" && value === "worklet") selected = false;
+  else if (kind === "build-condition") {
+    if (typeof receipt.conditionValuePresent !== "boolean") {
+      throw new Error(`${label} lacks its observed build-condition value`);
+    }
+    selected = receipt.conditionValuePresent;
+  } else {
+    throw new Error(`${label} has unclassified target applicability ${kind}:${value ?? ""}`);
+  }
+  const classification = selected
+    ? "compiled-selected"
+    : ["operating-system", "operating-system-family", "linux-backend"].includes(kind)
+      ? "platform-excluded"
+      : "compiled-but-disabled";
+  if (receipt.targetTriple !== targetTriple
+    || canonicalJson(receipt.authority) !== canonicalJson(route.targetApplicability)
+    || receipt.selectedByTargetBuild !== selected
+    || receipt.classification !== classification
+    || (kind !== "build-condition" && receipt.conditionValuePresent !== null)) {
+    throw new Error(`${label} disagrees with the actual target build`);
   }
 }
 
@@ -450,6 +587,10 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
     artifact.sourceRevision,
     "src/host/embedder_artifacts.rs",
   ).includes(Buffer.from('"actualBoundaryObservation"', "utf8"));
+  const expectsGraphBoundary = revisionBytes(
+    artifact.sourceRevision,
+    "src/host/embedder_artifacts.rs",
+  ).includes(Buffer.from('"graphBoundary"', "utf8"));
   const validateRouteReceipt = (
     receipt,
     route,
@@ -464,13 +605,14 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
       "lastObservedNode", "blockedEdge", "runtimeGeneration", "outcome",
     ];
     if (expectsActualBoundaryObservation) receiptKeys.splice(7, 0, "actualBoundaryObservation");
+    if (expectsGraphBoundary) receiptKeys.splice(7, 0, "graphBoundary");
     assertExactKeys(
       receipt,
       receiptKeys,
       `absence route receipt ${probeId}/${route.routeId}`,
     );
     const sourceSelection = proofKind === "source-selection";
-    const routePath = sourceSelection ? route.sourcePath : route.livePath;
+    const routeBoundary = sourceSelection ? route.sourceBoundary : route.liveBoundary;
     const observationIds = sourceSelection
       ? route.sourceCutsetObservationIds
       : route.liveCutsetObservationIds;
@@ -479,6 +621,14 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
     const expectedOutcome = sourceSelection
       ? "not-selected-or-retained"
       : "unreachable";
+    const legacyPath = sourceSelection ? route.sourcePath : route.livePath;
+    const boundaryMismatch = expectsGraphBoundary
+      ? canonicalJson(receipt.graphBoundary) !== canonicalJson(routeBoundary)
+      : receipt.lastObservedNode !== legacyPath.at(-3)
+        || canonicalJson(receipt.blockedEdge) !== canonicalJson({
+          from: legacyPath.at(-3),
+          to: legacyPath.at(-2),
+        });
     if (
       receipt.routeId !== route.routeId
       || receipt.probeId !== probeId
@@ -488,11 +638,7 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
       || receipt.proofKind !== proofKind
       || canonicalJson(receipt.cutsetObservations)
         !== canonicalJson(expectedObservations)
-      || receipt.lastObservedNode !== routePath.at(-3)
-      || canonicalJson(receipt.blockedEdge) !== canonicalJson({
-        from: routePath.at(-3),
-        to: routePath.at(-2),
-      })
+      || boundaryMismatch
       || receipt.outcome !== expectedOutcome
       || !Number.isSafeInteger(receipt.runtimeGeneration)
       || receipt.runtimeGeneration <= 0
@@ -506,16 +652,54 @@ export function ingestRestrictedAbsenceEvidence(rawBytes, authorities = undefine
       return;
     }
     if (sourceSelection) {
-      if (receipt.actualBoundaryObservation !== null || routeKind !== null) {
-        throw new Error(`source route receipt carried live boundary evidence for ${probeId}`);
+      if (!expectsGraphBoundary) {
+        if (receipt.actualBoundaryObservation !== null || routeKind !== null) {
+          throw new Error(`source route receipt carried live boundary evidence for ${probeId}`);
+        }
+        return;
       }
+      const observation = receipt.actualBoundaryObservation;
+      assertExactKeys(
+        observation,
+        [
+          "kind", "exactTarget", "branchId", "branchPathId", "sourceBindingIds",
+          "applicability", "targetBuildReceipt", "selected", "selectorObservation",
+          "lastObservedNode", "blockedEdge",
+        ],
+        `source boundary observation ${probeId}/${route.routeId}`,
+      );
+      if (routeKind !== null
+        || observation.kind !== "source-selector-installer-boundary"
+        || observation.exactTarget !== route.observedIdentity
+        || observation.branchId !== route.branchId
+        || observation.branchPathId !== route.branchPathId
+        || canonicalJson(observation.sourceBindingIds) !== canonicalJson(route.sourceBindingIds)
+        || canonicalJson(observation.applicability) !== canonicalJson(route.applicability)
+        || observation.selected !== false
+        || canonicalJson(observation.selectorObservation)
+          !== canonicalJson(cutsetObservationById.get(routeBoundary.observationId))) {
+        throw new Error(`source route receipt lacks actual selector evidence for ${probeId}`);
+      }
+      validateTargetBuildReceipt(
+        observation.targetBuildReceipt,
+        route,
+        artifact.target.triple,
+        `source target-build receipt ${probeId}/${route.routeId}`,
+      );
     } else {
       validateRestrictedActualBoundaryObservation(
         receipt.actualBoundaryObservation,
         routeKind,
         probeTarget,
         `absence route receipt ${probeId}/${route.routeId}`,
+        route,
       );
+    }
+    if (expectsGraphBoundary
+      && (receipt.lastObservedNode !== receipt.actualBoundaryObservation.lastObservedNode
+        || canonicalJson(receipt.blockedEdge)
+          !== canonicalJson(receipt.actualBoundaryObservation.blockedEdge))) {
+      throw new Error(`absence route receipt inferred its runtime boundary for ${probeId}`);
     }
   };
   const rootManifest = parseJsonStrict(rootManifestBytes, rootManifestRelativePath);

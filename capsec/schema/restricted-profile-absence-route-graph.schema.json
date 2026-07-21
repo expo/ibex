@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ibex.dev/capsec/schema/restricted-profile-absence-route-graph.schema.json",
-  "title": "Ibex restricted-profile absence dominance graph",
+  "title": "Ibex restricted-profile executable absence route graph",
   "type": "object",
   "required": [
     "routeGraphSchema",
@@ -10,11 +10,12 @@
     "authorityDigests",
     "counts",
     "sourceFiles",
+    "sourceBindings",
     "topology",
     "routes"
   ],
   "properties": {
-    "routeGraphSchema": { "const": "ibex/restricted-profile-absence-route-graph/1" },
+    "routeGraphSchema": { "const": "ibex/restricted-profile-absence-route-graph/2" },
     "profile": { "type": "string", "minLength": 1 },
     "target": {
       "type": "object",
@@ -67,76 +68,39 @@
         "additionalProperties": false
       }
     },
+    "sourceBindings": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/sourceBinding" }
+    },
     "topology": {
       "type": "object",
-      "required": ["sourceSpans", "nodes", "edges", "sourceRoot", "liveRoot", "sourceCutsets", "liveCutsets", "terminals"],
+      "required": ["sourceSpans", "sourceSites", "nodes", "edges", "branchPaths"],
       "properties": {
         "sourceSpans": {
-          "type": "array", "minItems": 5,
-          "items": {
-            "type": "object",
-            "required": ["spanId", "path", "startToken", "endToken", "startByte", "endByte", "startLine", "endLine", "rawContentDigest"],
-            "properties": {
-              "spanId": { "$ref": "#/$defs/stableId" },
-              "path": { "$ref": "#/$defs/repoPath" },
-              "startToken": { "type": "string", "minLength": 1 },
-              "endToken": { "type": "string", "minLength": 1 },
-              "startByte": { "type": "integer", "minimum": 0 },
-              "endByte": { "type": "integer", "minimum": 1 },
-              "startLine": { "type": "integer", "minimum": 1 },
-              "endLine": { "type": "integer", "minimum": 1 },
-              "rawContentDigest": { "$ref": "#/$defs/digest" }
-            },
-            "additionalProperties": false
-          }
+          "type": "array",
+          "minItems": 5,
+          "items": { "$ref": "#/$defs/sourceSpan" }
+        },
+        "sourceSites": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/sourceSite" }
         },
         "nodes": {
-          "type": "array", "minItems": 1,
-          "items": {
-            "type": "object",
-            "required": ["nodeId", "kind"],
-            "properties": {
-              "nodeId": { "$ref": "#/$defs/stableId" },
-              "kind": { "enum": ["attacker-root", "instrumented-cutset", "exposure-gateway", "terminal"] },
-              "sourceSpanId": { "$ref": "#/$defs/stableId" },
-              "observationId": { "$ref": "#/$defs/stableId" },
-              "surfaceKind": { "type": "string", "minLength": 1 },
-              "edgeId": { "$ref": "#/$defs/stableId" }
-            },
-            "additionalProperties": false
-          }
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/node" }
         },
         "edges": {
-          "type": "array", "minItems": 1,
-          "items": {
-            "type": "object",
-            "required": ["from", "to", "routeClass"],
-            "properties": {
-              "from": { "$ref": "#/$defs/stableId" },
-              "to": { "$ref": "#/$defs/stableId" },
-              "routeClass": { "enum": ["source-selection", "live-reachability", "terminal-exposure"] }
-            },
-            "additionalProperties": false
-          }
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/edge" }
         },
-        "sourceRoot": { "$ref": "#/$defs/stableId" },
-        "liveRoot": { "$ref": "#/$defs/stableId" },
-        "sourceCutsets": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } },
-        "liveCutsets": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } },
-        "terminals": {
-          "type": "array", "minItems": 1,
-          "items": {
-            "type": "object",
-            "required": ["edgeId", "nodeId", "gatewayNodeId", "branchIds", "liveProbeIds"],
-            "properties": {
-              "edgeId": { "$ref": "#/$defs/stableId" },
-              "nodeId": { "$ref": "#/$defs/stableId" },
-              "gatewayNodeId": { "$ref": "#/$defs/stableId" },
-              "branchIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } },
-              "liveProbeIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } }
-            },
-            "additionalProperties": false
-          }
+        "branchPaths": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/branchPath" }
         }
       },
       "additionalProperties": false
@@ -152,28 +116,222 @@
     "digest": { "type": "string", "pattern": "^sha256-[A-Za-z0-9_-]{43}$" },
     "repoPath": { "type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$" },
     "stableId": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]*$" },
-    "sourceBinding": {
+    "sourceSpan": {
       "type": "object",
-      "required": ["sourceRef", "path", "locator", "rawContentDigest"],
+      "required": ["spanId", "path", "startToken", "endToken", "startByte", "endByte", "startLine", "endLine", "rawContentDigest"],
       "properties": {
-        "sourceRef": { "type": "string", "minLength": 3 },
+        "spanId": { "$ref": "#/$defs/stableId" },
         "path": { "$ref": "#/$defs/repoPath" },
-        "locator": { "type": "string", "minLength": 1 },
+        "startToken": { "type": "string", "minLength": 1 },
+        "endToken": { "type": "string", "minLength": 1 },
+        "startByte": { "type": "integer", "minimum": 0 },
+        "endByte": { "type": "integer", "minimum": 1 },
+        "startLine": { "type": "integer", "minimum": 1 },
+        "endLine": { "type": "integer", "minimum": 1 },
         "rawContentDigest": { "$ref": "#/$defs/digest" }
       },
       "additionalProperties": false
     },
-    "segment": {
+    "sourceSite": {
       "type": "object",
-      "required": ["segmentId", "kind"],
+      "required": ["siteId", "path", "role", "startByte", "endByte", "startLine", "endLine", "rawContentDigest"],
       "properties": {
-        "segmentId": { "$ref": "#/$defs/stableId" },
-        "kind": { "enum": ["attacker-root", "target-selection", "implementation-branch", "cut-set"] },
-        "expectedTarget": { "type": "string", "minLength": 1 },
+        "siteId": { "$ref": "#/$defs/stableId" },
+        "path": { "$ref": "#/$defs/repoPath" },
+        "role": { "enum": ["alias", "branch-selector", "definition", "dispatch", "guard", "identity-authority", "lazy-trigger", "publication", "registration", "retention", "selector", "symbol-provenance", "value-producer"] },
+        "startByte": { "type": "integer", "minimum": 0 },
+        "endByte": { "type": "integer", "minimum": 1 },
+        "startLine": { "type": "integer", "minimum": 1 },
+        "endLine": { "type": "integer", "minimum": 1 },
+        "rawContentDigest": { "$ref": "#/$defs/digest" }
+      },
+      "additionalProperties": false
+    },
+    "producerPath": {
+      "type": "object",
+      "required": ["pathId", "conditionId", "requiredSiteIds"],
+      "properties": {
+        "pathId": { "$ref": "#/$defs/stableId" },
+        "conditionId": { "type": "string", "minLength": 1 },
+        "requiredSiteIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "sourceBinding": {
+      "type": "object",
+      "required": ["bindingId", "branchId", "sourceRef", "path", "locator", "rawContentDigest", "locatorKind", "resolutionPolicy", "siteIds", "producerPaths", "refusalPaths"],
+      "properties": {
+        "bindingId": { "$ref": "#/$defs/stableId" },
         "branchId": { "$ref": "#/$defs/stableId" },
-        "cutsetObservationId": { "$ref": "#/$defs/stableId" },
-        "observer": { "type": "string", "minLength": 1 },
-        "expectedFailureSegment": { "$ref": "#/$defs/stableId" }
+        "sourceRef": { "type": "string", "minLength": 3 },
+        "path": { "$ref": "#/$defs/repoPath" },
+        "locator": { "type": "string", "minLength": 1 },
+        "rawContentDigest": { "$ref": "#/$defs/digest" },
+        "locatorKind": { "type": "string", "minLength": 1 },
+        "resolutionPolicy": { "type": "string", "minLength": 1 },
+        "siteIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        },
+        "producerPaths": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/producerPath" }
+        },
+        "refusalPaths": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/producerPath" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "node": {
+      "type": "object",
+      "required": ["nodeId", "kind"],
+      "properties": {
+        "nodeId": { "$ref": "#/$defs/stableId" },
+        "kind": { "enum": ["attacker-root", "instrumented-cutset", "target-selection", "route-condition", "source-site", "terminal"] },
+        "sourceSpanId": { "$ref": "#/$defs/stableId" },
+        "observationId": { "$ref": "#/$defs/stableId" },
+        "edgeId": { "$ref": "#/$defs/stableId" },
+        "branchId": { "$ref": "#/$defs/stableId" },
+        "observedIdentity": { "type": "string", "minLength": 1 },
+        "attackerRoots": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "pathId": { "$ref": "#/$defs/stableId" },
+        "conditionId": { "type": "string", "minLength": 1 },
+        "disposition": { "enum": ["producer", "refusal"] },
+        "sourceSiteId": { "$ref": "#/$defs/stableId" }
+      },
+      "additionalProperties": false
+    },
+    "edge": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "prefixItems": [
+        { "type": "string", "pattern": "^family\\.[a-f0-9]{20}$" },
+        { "$ref": "#/$defs/stableId" },
+        { "$ref": "#/$defs/stableId" },
+        {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["source-selection", "live-reachability"] }
+        },
+        { "enum": ["call", "select", "register", "alias", "expose", "retain", "lazy-activate", "descriptor-child", "dispatch"] },
+        { "type": "string", "pattern": "^(?:span|site):[a-zA-Z0-9][a-zA-Z0-9._:-]*$" },
+        {
+          "type": ["string", "null"],
+          "pattern": "^(?:condition|node):.+$"
+        }
+      ],
+      "items": false
+    },
+    "terminal": {
+      "type": "object",
+      "required": ["edgeId", "branchId", "nodeId", "liveProbeIds"],
+      "properties": {
+        "edgeId": { "$ref": "#/$defs/stableId" },
+        "branchId": { "$ref": "#/$defs/stableId" },
+        "nodeId": { "$ref": "#/$defs/stableId" },
+        "liveProbeIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "branchImplementationPath": {
+      "type": "object",
+      "required": ["pathId", "conditionId", "disposition", "pathNodeId", "siteNodeIds"],
+      "properties": {
+        "pathId": { "$ref": "#/$defs/stableId" },
+        "conditionId": { "type": "string", "minLength": 1 },
+        "disposition": { "enum": ["producer", "refusal"] },
+        "pathNodeId": { "$ref": "#/$defs/stableId" },
+        "siteNodeIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "branchPath": {
+      "type": "object",
+      "required": ["branchId", "edgeId", "observedIdentity", "routeFamily", "sourceRoot", "liveRoot", "sourceCutsets", "liveCutsets", "branchNodeId", "terminalNodeId", "liveProbeIds", "paths"],
+      "properties": {
+        "branchId": { "$ref": "#/$defs/stableId" },
+        "edgeId": { "$ref": "#/$defs/stableId" },
+        "observedIdentity": { "type": "string", "minLength": 1 },
+        "routeFamily": { "type": "string", "pattern": "^family\\.[a-f0-9]{20}$" },
+        "sourceRoot": { "$ref": "#/$defs/stableId" },
+        "liveRoot": { "$ref": "#/$defs/stableId" },
+        "sourceCutsets": {
+          "type": "array", "minItems": 2, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        },
+        "liveCutsets": {
+          "type": "array", "minItems": 3, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        },
+        "branchNodeId": { "$ref": "#/$defs/stableId" },
+        "terminalNodeId": { "$ref": "#/$defs/stableId" },
+        "liveProbeIds": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        },
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/branchImplementationPath" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "routePath": {
+      "type": "object",
+      "required": ["pathId", "nodes"],
+      "properties": {
+        "pathId": { "$ref": "#/$defs/stableId" },
+        "nodes": {
+          "type": "array",
+          "minItems": 6,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "boundary": {
+      "type": "object",
+      "required": ["observationId", "lastObservedNode", "blockedEdge"],
+      "properties": {
+        "observationId": { "$ref": "#/$defs/stableId" },
+        "lastObservedNode": { "$ref": "#/$defs/stableId" },
+        "blockedEdge": {
+          "type": "object",
+          "required": ["from", "to"],
+          "properties": {
+            "from": { "$ref": "#/$defs/stableId" },
+            "to": { "$ref": "#/$defs/stableId" }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },
@@ -181,8 +339,9 @@
       "type": "object",
       "required": [
         "routeId", "edgeId", "sourceProbeId", "branchId", "observedIdentity",
-        "attackerRoots", "liveProbeIds", "applicability", "sourceBindings",
-        "sourcePath", "livePath", "sourceCutsetObservationIds", "liveCutsetObservationIds"
+        "liveProbeIds", "targetApplicability", "applicability", "sourceBindingIds",
+        "branchPathId", "sourceBoundary", "liveBoundary",
+        "sourceCutsetObservationIds", "liveCutsetObservationIds"
       ],
       "properties": {
         "routeId": { "$ref": "#/$defs/stableId" },
@@ -190,13 +349,18 @@
         "sourceProbeId": { "$ref": "#/$defs/stableId" },
         "branchId": { "$ref": "#/$defs/stableId" },
         "observedIdentity": { "type": "string", "minLength": 3 },
-        "attackerRoots": {
-          "type": "array", "minItems": 1, "uniqueItems": true,
-          "items": { "type": "string", "minLength": 1 }
-        },
         "liveProbeIds": {
           "type": "array", "minItems": 1, "uniqueItems": true,
           "items": { "$ref": "#/$defs/stableId" }
+        },
+        "targetApplicability": {
+          "type": "object",
+          "required": ["kind"],
+          "properties": {
+            "kind": { "enum": ["all", "build-condition", "fallback", "linux-backend", "operating-system", "operating-system-family", "runtime-variant"] },
+            "value": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
         },
         "applicability": {
           "type": "object",
@@ -207,11 +371,22 @@
           },
           "additionalProperties": false
         },
-        "sourceBindings": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/sourceBinding" } },
-        "sourcePath": { "type": "array", "minItems": 5, "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } },
-        "livePath": { "type": "array", "minItems": 6, "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } },
-        "sourceCutsetObservationIds": { "type": "array", "minItems": 2, "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } },
-        "liveCutsetObservationIds": { "type": "array", "minItems": 3, "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } }
+        "sourceBindingIds": {
+          "type": "array", "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        },
+        "branchPathId": { "type": "string", "pattern": "^family\\.[a-f0-9]{20}$" },
+        "sourceBoundary": { "$ref": "#/$defs/boundary" },
+        "liveBoundary": { "$ref": "#/$defs/boundary" },
+        "sourceCutsetObservationIds": {
+          "type": "array", "minItems": 2, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        },
+        "liveCutsetObservationIds": {
+          "type": "array", "minItems": 3, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        }
       },
       "additionalProperties": false
     }

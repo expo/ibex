@@ -346,11 +346,16 @@ export function validateRestrictedFixturePlan(fixturePlan, sourceBytes = {}) {
   let routeGraph = routeGraphsByRawDigest.get(fixturePlan.absenceRouteGraph.rawContentDigest);
   if (!routeGraph) {
     routeGraph = parseJsonStrict(rawRouteGraph, fixturePlan.absenceRouteGraph.path);
-    assertSchema(
-      schemaValidator(absenceRouteGraphSchemaPath),
-      routeGraph,
-      "restricted absence route graph",
-    );
+    if (routeGraph.routeGraphSchema === "ibex/restricted-profile-absence-route-graph/2") {
+      assertSchema(
+        schemaValidator(absenceRouteGraphSchemaPath),
+        routeGraph,
+        "restricted absence route graph",
+      );
+    } else if (routeGraph.routeGraphSchema
+      !== "ibex/restricted-profile-absence-route-graph/1") {
+      throw new Error(`unsupported restricted absence route graph schema ${routeGraph.routeGraphSchema}`);
+    }
     routeGraphsByRawDigest.set(fixturePlan.absenceRouteGraph.rawContentDigest, routeGraph);
   }
   if (

@@ -4134,7 +4134,10 @@ mod tests {
             "startup:script:<authenticated-restricted-exact-bundle>",
             "startup:evaluation:ex_hermes_run_restricted_exact_bundle:<authenticated-restricted-exact-bundle>",
         ];
-        let route_traversal = |route_kind: &str, target: &str| -> Option<serde_json::Value> {
+        let route_traversal = |route: &serde_json::Value,
+                               route_kind: &str,
+                               target: &str|
+         -> Option<serde_json::Value> {
             if target.is_empty() {
                 return None;
             }
@@ -4203,36 +4206,110 @@ mod tests {
                         if trace != 0x1ff {
                             return None;
                         }
-                        return Some(serde_json::json!({
-                            "routeKind": route_kind,
-                            "exactTarget": target,
-                            "boundary": {
-                                "kind": "dynamic-native-installer-roots",
-                                "receipts": probe_roots(&[
-                                    "__hostCall", "__hostCallAsync", "__exactResolveModule", "process",
-                                ])?,
-                                "restrictedTrace": trace,
-                            },
-                        }));
+                        serde_json::json!({
+                            "kind": "dynamic-native-installer-roots",
+                            "receipts": probe_roots(&[
+                                "__hostCall", "__hostCallAsync", "__exactResolveModule", "process",
+                            ])?,
+                            "restrictedTrace": trace,
+                        })
+                    } else {
+                        let direct_probe = logical.starts_with("__")
+                            || logical
+                                .as_bytes()
+                                .first()
+                                .is_some_and(u8::is_ascii_alphabetic);
+                        if !direct_probe {
+                            return None;
+                        }
+                        serde_json::json!({
+                            "kind": "native-logical-path",
+                            "receipts": [probe_logical_path(logical, true)?],
+                        })
                     }
-                    let direct_probe = logical.starts_with("__")
-                        || logical
-                            .as_bytes()
-                            .first()
-                            .is_some_and(u8::is_ascii_alphabetic);
-                    if !direct_probe {
-                        return None;
-                    }
-                    serde_json::json!({
-                        "kind": "native-logical-path",
-                        "receipts": [probe_logical_path(logical, true)?],
-                    })
                 }
                 _ => return None,
+            };
+            let requested_route = match route_kind {
+                "descriptor-prefix" => serde_json::json!({
+                    "kind": "descriptor-resolve",
+                    "ingressRoot": target.split('.').next()?,
+                    "terminal": target,
+                }),
+                "restricted-module-resolution" => serde_json::json!({
+                    "kind": "module-resolve",
+                    "ingressRoot": "require",
+                    "argument": target.strip_prefix("builtin:")?,
+                    "terminal": target,
+                }),
+                "restricted-loader-entry" => serde_json::json!({
+                    "kind": "loader-dispatch",
+                    "ingressRoot": "require",
+                    "operation": target.strip_prefix("loader:")?,
+                    "terminal": target,
+                }),
+                "restricted-cli-entry" => serde_json::json!({
+                    "kind": "cli-dispatch",
+                    "ingressRoot": "process",
+                    "operation": target.strip_prefix("cli:")?,
+                    "terminal": target,
+                }),
+                "restricted-js-native-abi" => serde_json::json!({
+                    "kind": "host-abi-dispatch",
+                    "ingressRoot": "__hostCall",
+                    "symbol": target.strip_prefix("host-abi:")?,
+                    "terminal": target,
+                }),
+                "restricted-callback-route" => serde_json::json!({
+                    "kind": "callback-dispatch",
+                    "ingressRoot": "__hostCall",
+                    "callback": target.strip_prefix("callback:")?,
+                    "terminal": target,
+                }),
+                "restricted-startup-route" => serde_json::json!({
+                    "kind": "startup-select",
+                    "ingressRoot": "restricted-bootstrap-selection",
+                    "startupIdentity": target.strip_prefix("startup:")?,
+                    "terminal": target,
+                }),
+                "restricted-native-installer-route" => serde_json::json!({
+                    "kind": "native-installer-resolve",
+                    "ingressRoot": "restricted-native-installer",
+                    "nativeIdentity": target.strip_prefix("native-op:")?,
+                    "terminal": target,
+                }),
+                _ => return None,
+            };
+            let (last_observed_node, blocked_to) = if route_kind == "restricted-startup-route" {
+                (
+                    "runtime.selector:restricted-exact".to_owned(),
+                    format!("runtime.target:{target}"),
+                )
+            } else {
+                let receipt = boundary["receipts"].as_array()?.first()?;
+                let requested_path = receipt["requestedPath"].as_str()?;
+                let segments = requested_path.split('.').collect::<Vec<_>>();
+                let last_observed_node = receipt["lastResolvedSegmentIndex"]
+                    .as_u64()
+                    .and_then(|index| usize::try_from(index).ok())
+                    .map(|index| format!("runtime.path:{}", segments[..=index].join(".")))
+                    .unwrap_or_else(|| "runtime.root".to_owned());
+                let blocked_index =
+                    usize::try_from(receipt["firstBlockedSegmentIndex"].as_u64()?).ok()?;
+                let blocked_to = format!("runtime.path:{}", segments[..=blocked_index].join("."));
+                (last_observed_node, blocked_to)
             };
             Some(serde_json::json!({
                 "routeKind": route_kind,
                 "exactTarget": target,
+                "branchPathId": route["branchPathId"],
+                "sourceBindingIds": route["sourceBindingIds"],
+                "requestedRoute": requested_route,
+                "lastObservedNode": last_observed_node,
+                "blockedEdge": {
+                    "from": last_observed_node,
+                    "to": blocked_to,
+                },
                 "boundary": boundary,
             }))
         };
@@ -4280,6 +4357,48 @@ mod tests {
         );
         let runtime_generation = unsafe { ex_hermes_runtime_nonce(runtime) };
         assert_ne!(runtime_generation, 0);
+        let target_build_receipt = |route: &serde_json::Value| {
+            let authority = &route["targetApplicability"];
+            let kind = authority["kind"].as_str().unwrap();
+            let value = authority["value"].as_str();
+            let selected = match (kind, value) {
+                ("all" | "fallback", _) => true,
+                ("operating-system", Some("macos")) => cfg!(target_os = "macos"),
+                ("operating-system", Some("ios")) => cfg!(target_os = "ios"),
+                ("operating-system", Some("android")) => cfg!(target_os = "android"),
+                ("operating-system", Some("windows")) => cfg!(target_os = "windows"),
+                ("operating-system-family", Some("apple")) => cfg!(target_vendor = "apple"),
+                ("operating-system-family", Some("posix")) => cfg!(target_family = "unix"),
+                ("linux-backend", _) => cfg!(target_os = "linux"),
+                ("build-condition", Some(condition)) => std::env::var_os(condition).is_some(),
+                ("runtime-variant", Some("worklet")) => false,
+                _ => panic!("unclassified target applicability {kind}:{value:?}"),
+            };
+            let classification = if selected {
+                "compiled-selected"
+            } else if [
+                "operating-system",
+                "operating-system-family",
+                "linux-backend",
+            ]
+            .contains(&kind)
+            {
+                "platform-excluded"
+            } else {
+                "compiled-but-disabled"
+            };
+            serde_json::json!({
+                "targetTriple": runtime_target_triple(),
+                "authority": authority,
+                "classification": classification,
+                "selectedByTargetBuild": selected,
+                "conditionValuePresent": if kind == "build-condition" {
+                    serde_json::json!(value.and_then(std::env::var_os).is_some())
+                } else {
+                    serde_json::Value::Null
+                },
+            })
+        };
         let execute_cutset = |route: &serde_json::Value,
                               probe_id: &str,
                               route_kind: &str,
@@ -4287,20 +4406,20 @@ mod tests {
                               source_selection: bool| {
             let route_id = route["routeId"].as_str().unwrap();
             let selected_target = route["observedIdentity"].as_str().unwrap();
-            let path_key = if source_selection {
-                "sourcePath"
-            } else {
-                "livePath"
-            };
             let cutset_key = if source_selection {
                 "sourceCutsetObservationIds"
             } else {
                 "liveCutsetObservationIds"
             };
-            let path = route[path_key].as_array().unwrap();
+            let boundary_key = if source_selection {
+                "sourceBoundary"
+            } else {
+                "liveBoundary"
+            };
+            let graph_boundary = &route[boundary_key];
             assert!(
-                path.len() >= 5,
-                "route graph path is incomplete: {route_id}"
+                graph_boundary.is_object(),
+                "route graph boundary is absent: {route_id}"
             );
             let cutset_observations = route[cutset_key]
                 .as_array()
@@ -4320,26 +4439,41 @@ mod tests {
                     target, selected_target,
                     "source route target substitution: {route_id}"
                 );
-            } else {
-                let attacker_identity = format!("{route_kind}:{target}");
-                assert!(
-                    route["attackerRoots"]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .any(|root| root.as_str() == Some(attacker_identity.as_str())),
-                    "live target is not an attacker root for {route_id}: {attacker_identity}"
+            } else if route_kind != "descriptor-prefix" {
+                assert_eq!(
+                    target, selected_target,
+                    "live route target substitution: {route_id}"
                 );
             }
             let actual_boundary_observation = if source_selection {
-                serde_json::Value::Null
+                let observation_id = graph_boundary["observationId"].as_str().unwrap();
+                let selector_observation = cutset_observation_by_id
+                    .get(observation_id)
+                    .unwrap_or_else(|| {
+                        panic!("source boundary is not an actual cut set: {route_id}")
+                    });
+                serde_json::json!({
+                    "kind": "source-selector-installer-boundary",
+                    "exactTarget": selected_target,
+                    "branchId": route["branchId"],
+                    "branchPathId": route["branchPathId"],
+                    "sourceBindingIds": route["sourceBindingIds"],
+                    "applicability": route["applicability"],
+                    "targetBuildReceipt": target_build_receipt(route),
+                    "selected": false,
+                    "selectorObservation": selector_observation,
+                    "lastObservedNode": graph_boundary["lastObservedNode"],
+                    "blockedEdge": graph_boundary["blockedEdge"],
+                })
             } else {
-                route_traversal(route_kind, target).unwrap_or_else(|| {
+                route_traversal(route, route_kind, target).unwrap_or_else(|| {
                     panic!(
                         "target-specific live traversal did not fail {route_id}: {route_kind} {target}"
                     )
                 })
             };
+            let last_observed_node = actual_boundary_observation["lastObservedNode"].clone();
+            let blocked_edge = actual_boundary_observation["blockedEdge"].clone();
             serde_json::json!({
                 "routeId": route_id,
                 "probeId": probe_id,
@@ -4348,12 +4482,10 @@ mod tests {
                 "branchId": route["branchId"],
                 "proofKind": if source_selection { "source-selection" } else { "live-reachability" },
                 "cutsetObservations": cutset_observations,
+                "graphBoundary": graph_boundary,
                 "actualBoundaryObservation": actual_boundary_observation,
-                "lastObservedNode": path[path.len() - 3],
-                "blockedEdge": {
-                    "from": path[path.len() - 3],
-                    "to": path[path.len() - 2],
-                },
+                "lastObservedNode": last_observed_node,
+                "blockedEdge": blocked_edge,
                 "runtimeGeneration": runtime_generation,
                 "outcome": if source_selection { "not-selected-or-retained" } else { "unreachable" },
             })

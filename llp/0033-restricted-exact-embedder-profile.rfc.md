@@ -5,7 +5,14 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-21 (r44 — records the twenty-first run's passing Apple
+**Revised:** 2026-07-21 (r45 — implements the executable-route v2 authority
+from the audited source-route topology: every absent branch now carries its
+real alternative route family, typed executable edges, exact byte-range source
+sites, explicit source and live boundaries, target-build applicability, and
+separate actual selector and runtime observations; the strengthened generator,
+schema, receipts, and semantic mutants pass locally, while observer-build
+equivalence, five executable source mutants, a fresh complete run, and
+independent review remain blocking and advertisements remain empty; r44 — records the twenty-first run's passing Apple
 and Linux restricted legs, its two complete-matrix harness failures, and the
 fourth failed independent absence review; invalidates all 7,194 nominal
 absence passes, retains 155 reachable/control-plane observations, pins the
@@ -1091,6 +1098,22 @@ full installer, installing the module loader from the restricted installer,
 installing one forbidden global, retaining a callback after global deletion,
 and lazy installation after a poll/event. JSON graph mutations remain useful
 but cannot substitute for these source mutants.
+
+The r45 implementation checkpoint replaces the rejected universal topology
+with the pre-existing audited source-route resolver as the graph authority.
+Its 7,194 absent edges expand to 7,408 branch routes, 12,468 source bindings,
+10,300 route-to-live bindings, and 26,818 exact byte-range source sites; 633
+branches retain multiple executable producer or refusal alternatives rather
+than being collapsed into one nominal path. Source and live dominator/cut-set
+claims are computed independently per route family and every claimed cut set
+is removal-checked. Native receipts distinguish the generated graph boundary
+from the actually observed selector, target-build, descriptor, dispatcher, or
+refusal boundary and record the exact requested route consumed by the probe.
+Focused generator, substitution, bypass, source-range, applicability, and
+native closure checks pass. This checkpoint does not satisfy the v2 exit gate:
+observer-enabled/disabled release equivalence, the five source-level mutants,
+fresh immutable-source target evidence, and independent review are still
+required before any absence row or advertisement can be promoted.
 
 ### Phase 1 — Apple vertical slice
 

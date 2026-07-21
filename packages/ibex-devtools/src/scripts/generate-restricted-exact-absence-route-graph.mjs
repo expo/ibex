@@ -19,6 +19,10 @@ import {
   assertConfinedGeneratedFile,
   writeGeneratedFilesTransactionally,
 } from "./generated-output-io.mjs";
+import {
+  buildRestrictedExactBranchSourceRoute,
+  resolveRestrictedExactBranchSourceBinding,
+} from "./restricted-exact-source-anchors.mjs";
 
 const repoRoot = path.dirname(capsecRoot);
 const inputs = {
@@ -45,7 +49,7 @@ function sortedUnique(values, label) {
   return result;
 }
 
-function splitSourceRef(sourceRef) {
+function resolvedSourceBinding(branch, sourceRef) {
   const separator = sourceRef.indexOf("#");
   if (separator < 1 || separator === sourceRef.length - 1) {
     throw new Error(`source ref lacks an exact path and locator: ${sourceRef}`);
@@ -61,10 +65,42 @@ function splitSourceRef(sourceRef) {
   if (!stat.isFile() || stat.isSymbolicLink()) {
     throw new Error(`source ref is not a regular non-symlink file: ${sourceRef}`);
   }
-  return { sourceRef, path: sourcePath, locator, rawContentDigest: digest(fs.readFileSync(absolute)) };
+  const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef, repoRoot);
+  return {
+    sourceRef,
+    path: sourcePath,
+    locator,
+    rawContentDigest: digest(fs.readFileSync(absolute)),
+    locatorKind: binding.locatorKind,
+    resolutionPolicy: binding.resolutionPolicy,
+    sites: binding.sites,
+    producerPaths: binding.producerPaths,
+    refusalPaths: binding.refusalPaths,
+  };
 }
 
 function applicabilityForMac(row) {
+  const { kind, value } = row.targetApplicability;
+  if (["all", "fallback"].includes(kind)) {
+    return { classification: "selected", reason: `target-applicability:${kind}` };
+  }
+  if (kind === "operating-system" && value === "macos") return { classification: "selected", reason: "target-applicability:operating-system:macos" };
+  if (kind === "operating-system-family" && ["apple", "posix"].includes(value)) {
+    return { classification: "selected", reason: `target-applicability:operating-system-family:${value}` };
+  }
+  if (["operating-system", "operating-system-family", "linux-backend"].includes(kind)) {
+    return { classification: "platform-excluded", reason: `target-applicability:${kind}:${value}` };
+  }
+  if (kind === "build-condition") {
+    return { classification: "compiled-but-disabled", reason: `target-applicability:build-condition:${value}` };
+  }
+  if (kind === "runtime-variant") {
+    return { classification: "compiled-but-disabled", reason: `target-applicability:runtime-variant:${value}` };
+  }
+  throw new Error(`unclassified Apple target applicability ${kind}${value ? `:${value}` : ""}`);
+}
+
+function legacyApplicabilityForMac(row) {
   const { kind, value } = row.targetApplicability;
   if (kind === "all") return { classification: "selected", reason: "target-applicability:all" };
   if (kind === "operating-system" && value === "macos") return { classification: "selected", reason: "target-applicability:operating-system:macos" };
@@ -136,17 +172,57 @@ function sourceSpan(
   };
 }
 
-const gatewayBySurfaceKind = Object.freeze({
-  builtin: "gateway.module-loader",
-  callback: "gateway.callback-producer",
-  cli: "gateway.external-process-cli",
-  "host-abi": "gateway.javascript-native-abi",
-  loader: "gateway.module-loader",
-  "native-op": "gateway.native-installer",
-  startup: "gateway.full-startup",
+function edgeKindForSiteRole(role) {
+  return {
+    alias: "alias",
+    "branch-selector": "select",
+    definition: "call",
+    dispatch: "dispatch",
+    guard: "select",
+    "identity-authority": "call",
+    "lazy-trigger": "lazy-activate",
+    publication: "expose",
+    registration: "register",
+    retention: "retain",
+    selector: "select",
+    "symbol-provenance": "call",
+    "value-producer": "call",
+  }[role] ?? "call";
+}
+
+function sourceAnchor(sourceSpanId) {
+  return `span:${sourceSpanId}`;
+}
+
+function siteAnchor(site) {
+  if (!site) throw new Error("topology edge lacks its exact source site");
+  return `site:${site.siteId}`;
+}
+
+const EDGE = Object.freeze({
+  routeFamily: 0,
+  from: 1,
+  to: 2,
+  routeClasses: 3,
+  edgeKind: 4,
+  sourceAnchorId: 5,
+  conditionBinding: 6,
 });
 
-function buildSourceDerivedTopology(probePlan, implementationManifest) {
+function topologyEdge({ from, to, routeClasses, edgeKind, routeFamily, anchor, conditionId, conditionNodeId }) {
+  return [
+    routeFamily,
+    from,
+    to,
+    routeClasses,
+    edgeKind,
+    anchor,
+    conditionId ? `condition:${conditionId}`
+      : conditionNodeId ? `node:${conditionNodeId}` : null,
+  ];
+}
+
+function buildSourceDerivedTopology(probePlan, implementationManifest, sourceRoutesByBranch) {
   const sourceSpans = [
     sourceSpan(
       "span.profile-selection",
@@ -179,80 +255,202 @@ function buildSourceDerivedTopology(probePlan, implementationManifest) {
       "extern \"C\" int ex_hermes_poll_with_external_keep_alive(",
     ),
   ];
-  const cutsets = [
-    ["cutset.profile-selected", "restricted-exact.profile-selected", "span.profile-selection"],
-    ["cutset.full-installer-skipped", "restricted-exact.full-installer-skipped", "span.profile-selection"],
-    ["cutset.bootstrap-posture-sealed", "restricted-exact.bootstrap-posture-sealed", "span.restricted-posture"],
-    ["cutset.bundle-posture-sealed", "restricted-exact.bundle-posture-sealed", "span.bundle-evaluation"],
-    ["cutset.temporal-poll-posture-sealed", "restricted-exact.temporal-poll-posture-sealed", "span.temporal-poll"],
+  const sourceCutsets = ["cutset.profile-selected", "cutset.full-installer-skipped"];
+  const liveCutsets = [
+    "cutset.bootstrap-posture-sealed",
+    "cutset.bundle-posture-sealed",
+    "cutset.temporal-poll-posture-sealed",
   ];
   const nodes = [
-    { nodeId: "root.authenticated-constructor", kind: "attacker-root", sourceSpanId: "span.profile-selection" },
-    { nodeId: "root.authenticated-bundle", kind: "attacker-root", sourceSpanId: "span.bundle-evaluation" },
-    ...cutsets.map(([nodeId, observationId, sourceSpanId]) => ({
-      nodeId, kind: "instrumented-cutset", observationId, sourceSpanId,
-    })),
-    ...Object.entries(gatewayBySurfaceKind).map(([surfaceKind, nodeId]) => ({
-      nodeId, kind: "exposure-gateway", surfaceKind,
-    })).filter((node, index, rows) => rows.findIndex((row) => row.nodeId === node.nodeId) === index),
+    {
+      nodeId: sourceCutsets[0], kind: "instrumented-cutset",
+      observationId: "restricted-exact.profile-selected", sourceSpanId: "span.profile-selection",
+    },
+    {
+      nodeId: sourceCutsets[1], kind: "instrumented-cutset",
+      observationId: "restricted-exact.full-installer-skipped", sourceSpanId: "span.profile-selection",
+    },
+    {
+      nodeId: liveCutsets[0], kind: "instrumented-cutset",
+      observationId: "restricted-exact.bootstrap-posture-sealed", sourceSpanId: "span.restricted-posture",
+    },
+    {
+      nodeId: liveCutsets[1], kind: "instrumented-cutset",
+      observationId: "restricted-exact.bundle-posture-sealed", sourceSpanId: "span.bundle-evaluation",
+    },
+    {
+      nodeId: liveCutsets[2], kind: "instrumented-cutset",
+      observationId: "restricted-exact.temporal-poll-posture-sealed", sourceSpanId: "span.temporal-poll",
+    },
   ];
-  const edges = [
-    { from: "root.authenticated-constructor", to: "cutset.profile-selected", routeClass: "source-selection" },
-    { from: "cutset.profile-selected", to: "cutset.full-installer-skipped", routeClass: "source-selection" },
-    { from: "root.authenticated-bundle", to: "cutset.bootstrap-posture-sealed", routeClass: "live-reachability" },
-    { from: "cutset.bootstrap-posture-sealed", to: "cutset.bundle-posture-sealed", routeClass: "live-reachability" },
-    { from: "cutset.bundle-posture-sealed", to: "cutset.temporal-poll-posture-sealed", routeClass: "live-reachability" },
-  ];
-  for (const gatewayNodeId of [...new Set(Object.values(gatewayBySurfaceKind))].sort()) {
-    edges.push(
-      { from: "cutset.full-installer-skipped", to: gatewayNodeId, routeClass: "source-selection" },
-      { from: "cutset.temporal-poll-posture-sealed", to: gatewayNodeId, routeClass: "live-reachability" },
-    );
-  }
-  const implementationsByEdge = new Map();
+  const edges = [];
+  const sourceSites = new Map();
+  const branchPaths = [];
+  const plannedByEdge = new Map(probePlan.edges.map((edge) => [edge.edgeId, edge]));
   for (const branch of implementationManifest.surfaces) {
-    const rows = implementationsByEdge.get(branch.edgeId) ?? [];
-    rows.push(branch.branchId);
-    implementationsByEdge.set(branch.edgeId, rows);
+    const plannedEdge = plannedByEdge.get(branch.edgeId);
+    if (!plannedEdge) continue;
+    const sourceRoute = sourceRoutesByBranch.get(branch.branchId);
+    if (!sourceRoute || sourceRoute.status !== "executable") {
+      throw new Error(`absence topology lacks executable source route: ${branch.branchId}`);
+    }
+    const suffix = stableDigest(branch.branchId);
+    const routeFamily = `family.${suffix}`;
+    const sourceRoot = `root.source.${suffix}`;
+    const liveRoot = `root.live.${suffix}`;
+    const branchNodeId = `target.${suffix}`;
+    const terminalNodeId = `terminal.${suffix}`;
+    const liveProbeIds = plannedEdge.liveReachability.map((probe) => probe.probeId).sort();
+    const declaredAttackerRoots = attackerRoots(plannedEdge.surfaceKind, plannedEdge.liveReachability);
+    nodes.push(
+      {
+        nodeId: sourceRoot, kind: "attacker-root", branchId: branch.branchId,
+        observedIdentity: branch.observedKey,
+        sourceSpanId: "span.profile-selection", attackerRoots: ["authenticated-restricted-constructor"],
+      },
+      {
+        nodeId: liveRoot, kind: "attacker-root", branchId: branch.branchId,
+        observedIdentity: branch.observedKey,
+        sourceSpanId: "span.bundle-evaluation", attackerRoots: declaredAttackerRoots,
+      },
+      {
+        nodeId: branchNodeId, kind: "target-selection", edgeId: branch.edgeId,
+        branchId: branch.branchId, observedIdentity: branch.observedKey,
+      },
+    );
+    edges.push(
+      topologyEdge({
+        from: sourceRoot, to: sourceCutsets[0], routeClasses: ["source-selection"],
+        edgeKind: "select", routeFamily, anchor: sourceAnchor("span.profile-selection"),
+      }),
+      topologyEdge({
+        from: sourceCutsets[0], to: sourceCutsets[1], routeClasses: ["source-selection"],
+        edgeKind: "select", routeFamily, anchor: sourceAnchor("span.profile-selection"),
+        conditionId: "runtime-profile:restricted-exact",
+      }),
+      topologyEdge({
+        from: sourceCutsets[1], to: branchNodeId, routeClasses: ["source-selection"],
+        edgeKind: "select", routeFamily, anchor: sourceAnchor("span.restricted-installer"),
+        conditionId: `implementation-branch:${branch.branchId}`,
+      }),
+      topologyEdge({
+        from: liveRoot, to: liveCutsets[0], routeClasses: ["live-reachability"],
+        edgeKind: "call", routeFamily, anchor: sourceAnchor("span.restricted-posture"),
+      }),
+      topologyEdge({
+        from: liveCutsets[0], to: liveCutsets[1], routeClasses: ["live-reachability"],
+        edgeKind: "call", routeFamily, anchor: sourceAnchor("span.bundle-evaluation"),
+      }),
+      topologyEdge({
+        from: liveCutsets[1], to: liveCutsets[2], routeClasses: ["live-reachability"],
+        edgeKind: "dispatch", routeFamily, anchor: sourceAnchor("span.temporal-poll"),
+      }),
+      topologyEdge({
+        from: liveCutsets[2], to: branchNodeId, routeClasses: ["live-reachability"],
+        edgeKind: "select", routeFamily, anchor: sourceAnchor("span.temporal-poll"),
+        conditionId: `exact-target:${branch.observedKey}`,
+      }),
+    );
+    const sitesById = new Map(sourceRoute.sites.map((site) => [site.siteId, site]));
+    const paths = [
+      ...sourceRoute.producerPaths.map((pathRow) => ({ ...pathRow, disposition: "producer" })),
+      ...sourceRoute.refusalPaths.map((pathRow) => ({ ...pathRow, disposition: "refusal" })),
+    ];
+    const emittedPaths = [];
+    for (const pathRow of paths) {
+      const pathNodeId = `path.${stableDigest(`${branch.branchId}\0${pathRow.pathId}`)}`;
+      nodes.push({
+        nodeId: pathNodeId,
+        kind: "route-condition",
+        pathId: pathRow.pathId,
+        conditionId: pathRow.conditionId,
+        disposition: pathRow.disposition,
+      });
+      const firstSite = sitesById.get(pathRow.requiredSiteIds[0]);
+      edges.push(topologyEdge({
+        from: branchNodeId, to: pathNodeId,
+        routeClasses: ["source-selection", "live-reachability"],
+        edgeKind: "select", routeFamily, anchor: siteAnchor(firstSite),
+        conditionNodeId: pathNodeId,
+      }));
+      const siteNodeIds = [];
+      let previousNode = pathNodeId;
+      for (const [index, siteId] of pathRow.requiredSiteIds.entries()) {
+        const site = sitesById.get(siteId);
+        if (!site) throw new Error(`source route path references unknown site: ${pathRow.pathId}`);
+        const priorSite = sourceSites.get(site.siteId);
+        if (priorSite && JSON.stringify(priorSite) !== JSON.stringify(site)) {
+          throw new Error(`source site identity collision: ${site.siteId}`);
+        }
+        sourceSites.set(site.siteId, site);
+        const siteNodeId = `site.${stableDigest(`${branch.branchId}\0${pathRow.pathId}\0${index}\0${siteId}`)}`;
+        siteNodeIds.push(siteNodeId);
+        nodes.push({
+          nodeId: siteNodeId,
+          kind: "source-site",
+          sourceSiteId: site.siteId,
+        });
+        const edgeKind = edgeKindForSiteRole(site.role);
+        edges.push(topologyEdge({
+          from: previousNode, to: siteNodeId,
+          routeClasses: ["source-selection", "live-reachability"],
+          edgeKind, routeFamily, anchor: siteAnchor(site), conditionNodeId: pathNodeId,
+        }));
+        previousNode = siteNodeId;
+      }
+      const finalSite = sitesById.get(pathRow.requiredSiteIds.at(-1));
+      edges.push(topologyEdge({
+        from: previousNode, to: terminalNodeId,
+        routeClasses: ["source-selection", "live-reachability"],
+        edgeKind: "expose", routeFamily, anchor: siteAnchor(finalSite), conditionNodeId: pathNodeId,
+      }));
+      emittedPaths.push({
+        pathId: pathRow.pathId,
+        conditionId: pathRow.conditionId,
+        disposition: pathRow.disposition,
+        pathNodeId,
+        siteNodeIds,
+      });
+    }
+    nodes.push({
+      nodeId: terminalNodeId, kind: "terminal",
+    });
+    branchPaths.push({
+      branchId: branch.branchId,
+      edgeId: branch.edgeId,
+      observedIdentity: branch.observedKey,
+      routeFamily,
+      sourceRoot,
+      liveRoot,
+      sourceCutsets,
+      liveCutsets,
+      branchNodeId,
+      terminalNodeId,
+      liveProbeIds,
+      paths: emittedPaths,
+    });
   }
-  const terminals = probePlan.edges.map((edge) => {
-    const nodeId = `terminal.${edge.edgeId}`;
-    const gatewayNodeId = gatewayBySurfaceKind[edge.surfaceKind];
-    if (!gatewayNodeId) throw new Error(`absence edge has no exposure gateway: ${edge.edgeId}`);
-    nodes.push({ nodeId, kind: "terminal", edgeId: edge.edgeId });
-    edges.push({ from: gatewayNodeId, to: nodeId, routeClass: "terminal-exposure" });
-    return {
-      edgeId: edge.edgeId,
-      nodeId,
-      gatewayNodeId,
-      branchIds: [...implementationsByEdge.get(edge.edgeId)].sort(),
-      liveProbeIds: edge.liveReachability.map((probe) => probe.probeId).sort(),
-    };
-  });
   nodes.sort((left, right) => left.nodeId.localeCompare(right.nodeId));
-  edges.sort((left, right) => `${left.from}\0${left.to}`.localeCompare(`${right.from}\0${right.to}`));
+  edges.sort((left, right) =>
+    `${left[EDGE.routeFamily]}\0${left[EDGE.routeClasses].join(",")}\0${left[EDGE.from]}\0${left[EDGE.to]}`
+      .localeCompare(`${right[EDGE.routeFamily]}\0${right[EDGE.routeClasses].join(",")}\0${right[EDGE.from]}\0${right[EDGE.to]}`));
+  branchPaths.sort((left, right) => left.branchId.localeCompare(right.branchId));
   return {
     sourceSpans,
+    sourceSites: [...sourceSites.values()].sort((left, right) => left.siteId.localeCompare(right.siteId)),
     nodes,
     edges,
-    sourceRoot: "root.authenticated-constructor",
-    liveRoot: "root.authenticated-bundle",
-    sourceCutsets: ["cutset.profile-selected", "cutset.full-installer-skipped"],
-    liveCutsets: [
-      "cutset.bootstrap-posture-sealed",
-      "cutset.bundle-posture-sealed",
-      "cutset.temporal-poll-posture-sealed",
-    ],
-    terminals,
+    branchPaths,
   };
 }
 
-function reachableNodes(topology, root, blocked = new Set()) {
+function reachableNodes(topology, root, blocked = new Set(), routeClass = null) {
   const adjacency = new Map();
   for (const edge of topology.edges) {
-    const targets = adjacency.get(edge.from) ?? [];
-    targets.push(edge.to);
-    adjacency.set(edge.from, targets);
+    if (routeClass !== null && !edge[EDGE.routeClasses].includes(routeClass)) continue;
+    const targets = adjacency.get(edge[EDGE.from]) ?? [];
+    targets.push(edge[EDGE.to]);
+    adjacency.set(edge[EDGE.from], targets);
   }
   const reached = new Set();
   const pending = blocked.has(root) ? [] : [root];
@@ -274,18 +472,20 @@ function validateSourceDerivedTopology(
   const nodeIds = topology.nodes.map((node) => node.nodeId);
   sortedUnique(nodeIds, "absence topology node IDs");
   const nodeSet = new Set(nodeIds);
-  const edgeKeys = topology.edges.map((edge) => `${edge.from}\0${edge.to}`);
+  const nodeById = new Map(topology.nodes.map((node) => [node.nodeId, node]));
+  const edgeKeys = topology.edges.map((edge) =>
+    `${edge[EDGE.routeFamily]}\0${edge[EDGE.routeClasses].join(",")}\0${edge[EDGE.from]}\0${edge[EDGE.to]}`);
   sortedUnique(edgeKeys, "absence topology edges");
-  if (topology.edges.some((edge) => !nodeSet.has(edge.from) || !nodeSet.has(edge.to))) {
+  if (topology.edges.some((edge) => !nodeSet.has(edge[EDGE.from]) || !nodeSet.has(edge[EDGE.to]))) {
     throw new Error("absence topology edge references an unknown node");
   }
   const indegree = new Map(nodeIds.map((nodeId) => [nodeId, 0]));
   const adjacency = new Map();
   for (const edge of topology.edges) {
-    indegree.set(edge.to, indegree.get(edge.to) + 1);
-    const targets = adjacency.get(edge.from) ?? [];
-    targets.push(edge.to);
-    adjacency.set(edge.from, targets);
+    indegree.set(edge[EDGE.to], indegree.get(edge[EDGE.to]) + 1);
+    const targets = adjacency.get(edge[EDGE.from]) ?? [];
+    targets.push(edge[EDGE.to]);
+    adjacency.set(edge[EDGE.from], targets);
   }
   const pending = nodeIds.filter((nodeId) => indegree.get(nodeId) === 0);
   let visited = 0;
@@ -298,29 +498,97 @@ function validateSourceDerivedTopology(
     }
   }
   if (visited !== nodeIds.length) throw new Error("absence topology contains a cycle");
-  const allSource = reachableNodes(topology, topology.sourceRoot);
-  const allLive = reachableNodes(topology, topology.liveRoot);
-  const withoutSourceCutsets = reachableNodes(topology, topology.sourceRoot, new Set(topology.sourceCutsets));
-  const withoutLiveCutsets = reachableNodes(topology, topology.liveRoot, new Set(topology.liveCutsets));
-  const plannedEdgeIds = probePlan.edges.map((edge) => edge.edgeId);
-  if (JSON.stringify(topology.terminals.map((row) => row.edgeId)) !== JSON.stringify(plannedEdgeIds)) {
-    throw new Error("absence topology terminals do not equal the probe-plan edges");
+  const spanIds = new Set(topology.sourceSpans.map((span) => span.spanId));
+  const siteIds = new Set(topology.sourceSites.map((site) => site.siteId));
+  if (siteIds.size !== topology.sourceSites.length) {
+    throw new Error("absence topology contains duplicate source-site identities");
   }
-  const branchesByEdge = new Map();
-  for (const branch of implementationManifest.surfaces) {
-    const branches = branchesByEdge.get(branch.edgeId) ?? [];
-    branches.push(branch.branchId);
-    branchesByEdge.set(branch.edgeId, branches);
+  for (const node of topology.nodes.filter((row) => row.kind === "source-site")) {
+    if (!siteIds.has(node.sourceSiteId)) {
+      throw new Error(`source-site node references unknown source site: ${node.nodeId}`);
+    }
   }
-  for (const terminal of topology.terminals) {
-    if (!allSource.has(terminal.nodeId) || !allLive.has(terminal.nodeId)) {
-      throw new Error(`absence topology terminal has no attacker-root path: ${terminal.edgeId}`);
+  for (const edge of topology.edges) {
+    const routeFamily = edge[EDGE.routeFamily];
+    const anchor = edge[EDGE.sourceAnchorId];
+    if (anchor.startsWith("span:") && !spanIds.has(anchor.slice("span:".length))) {
+      throw new Error(`topology edge references unknown source span: ${routeFamily}`);
     }
-    if (withoutSourceCutsets.has(terminal.nodeId) || withoutLiveCutsets.has(terminal.nodeId)) {
-      throw new Error(`instrumented cut sets do not dominate terminal: ${terminal.edgeId}`);
+    if (anchor.startsWith("site:") && !siteIds.has(anchor.slice("site:".length))) {
+      throw new Error(`topology edge references unknown source site: ${routeFamily}`);
     }
-    if (JSON.stringify(terminal.branchIds) !== JSON.stringify([...branchesByEdge.get(terminal.edgeId)].sort())) {
-      throw new Error(`absence topology omits an implementation branch: ${terminal.edgeId}`);
+    if (!anchor.startsWith("span:") && !anchor.startsWith("site:")) {
+      throw new Error(`topology edge has unclassified source anchor: ${routeFamily}`);
+    }
+    const conditionBinding = edge[EDGE.conditionBinding];
+    if (conditionBinding?.startsWith("node:")
+      && nodeById.get(conditionBinding.slice("node:".length))?.kind !== "route-condition") {
+      throw new Error(`topology edge references an unknown route condition: ${routeFamily}`);
+    }
+  }
+  const plannedEdgeIds = new Set(probePlan.edges.map((edge) => edge.edgeId));
+  const expectedBranches = implementationManifest.surfaces
+    .filter((branch) => plannedEdgeIds.has(branch.edgeId))
+    .map((branch) => branch.branchId)
+    .sort();
+  const actualBranches = topology.branchPaths.map((row) => row.branchId).sort();
+  if (JSON.stringify(actualBranches) !== JSON.stringify(expectedBranches)) {
+    throw new Error("absence topology does not cover every implementation branch exactly once");
+  }
+  const branchById = new Map(implementationManifest.surfaces.map((branch) => [branch.branchId, branch]));
+  const edgesByFamily = new Map();
+  for (const edge of topology.edges) {
+    const familyEdges = edgesByFamily.get(edge[EDGE.routeFamily]) ?? [];
+    familyEdges.push(edge);
+    edgesByFamily.set(edge[EDGE.routeFamily], familyEdges);
+  }
+  for (const branchPath of topology.branchPaths) {
+    const branch = branchById.get(branchPath.branchId);
+    if (!branch
+      || branchPath.edgeId !== branch.edgeId
+      || branchPath.observedIdentity !== branch.observedKey
+      || !nodeSet.has(branchPath.terminalNodeId)) {
+      throw new Error(`absence topology branch metadata drifted: ${branchPath.branchId}`);
+    }
+    if (branchPath.paths.length === 0) {
+      throw new Error(`absence topology branch has no executable path: ${branchPath.branchId}`);
+    }
+    const familyEdgeRows = edgesByFamily.get(branchPath.routeFamily) ?? [];
+    const familyTopology = { edges: familyEdgeRows };
+    const sourceReached = reachableNodes(familyTopology, branchPath.sourceRoot, new Set(), "source-selection");
+    const liveReached = reachableNodes(familyTopology, branchPath.liveRoot, new Set(), "live-reachability");
+    if (!sourceReached.has(branchPath.terminalNodeId) || !liveReached.has(branchPath.terminalNodeId)) {
+      throw new Error(`absence topology terminal has no exact attacker-root path: ${branchPath.branchId}`);
+    }
+    for (const cutset of branchPath.sourceCutsets) {
+      if (reachableNodes(familyTopology, branchPath.sourceRoot, new Set([cutset]), "source-selection").has(branchPath.terminalNodeId)) {
+        throw new Error(`source cut set does not dominate exact terminal: ${branchPath.branchId}/${cutset}`);
+      }
+    }
+    for (const cutset of branchPath.liveCutsets) {
+      if (reachableNodes(familyTopology, branchPath.liveRoot, new Set([cutset]), "live-reachability").has(branchPath.terminalNodeId)) {
+        throw new Error(`live cut set does not dominate exact terminal: ${branchPath.branchId}/${cutset}`);
+      }
+    }
+    const familyEdges = new Set(familyEdgeRows.flatMap((edge) =>
+      edge[EDGE.routeClasses].map((routeClass) =>
+        `${routeClass}\0${edge[EDGE.from]}\0${edge[EDGE.to]}`)));
+    for (const pathRow of branchPath.paths) {
+      const suffix = [branchPath.branchNodeId, pathRow.pathNodeId, ...pathRow.siteNodeIds, branchPath.terminalNodeId];
+      const paths = [
+        ["source-selection", [branchPath.sourceRoot, ...branchPath.sourceCutsets, ...suffix]],
+        ["live-reachability", [branchPath.liveRoot, ...branchPath.liveCutsets, ...suffix]],
+      ];
+      for (const [routeClass, route] of paths) {
+        if (new Set(route).size !== route.length) {
+          throw new Error(`absence topology executable path contains a cycle: ${branchPath.branchId}/${pathRow.pathId}`);
+        }
+        for (let index = 1; index < route.length; index += 1) {
+          if (!familyEdges.has(`${routeClass}\0${route[index - 1]}\0${route[index]}`)) {
+            throw new Error(`absence topology executable path contains a non-edge: ${branchPath.branchId}/${pathRow.pathId}`);
+          }
+        }
+      }
     }
   }
   for (const span of topology.sourceSpans) {
@@ -335,6 +603,150 @@ function validateSourceDerivedTopology(
       throw new Error(`absence topology source span drifted: ${span.spanId}`);
     }
   }
+}
+
+function validateLegacyRestrictedExactAbsenceRouteGraph(
+  graph,
+  { probePlan, implementationManifest, readSourceFile },
+) {
+  const nodeIds = graph.topology.nodes.map((node) => node.nodeId);
+  sortedUnique(nodeIds, "legacy absence topology node IDs");
+  const nodeSet = new Set(nodeIds);
+  const edgeKeys = graph.topology.edges.map((edge) =>
+    `${edge.routeClass}\0${edge.from}\0${edge.to}`);
+  sortedUnique(edgeKeys, "legacy absence topology edges");
+  if (graph.topology.edges.some((edge) => !nodeSet.has(edge.from) || !nodeSet.has(edge.to))) {
+    throw new Error("legacy absence topology edge references an unknown node");
+  }
+  const reachable = (root, blocked = new Set(), routeClass = null) => {
+    const adjacency = new Map();
+    for (const edge of graph.topology.edges) {
+      if (routeClass !== null && edge.routeClass !== routeClass) continue;
+      const targets = adjacency.get(edge.from) ?? [];
+      targets.push(edge.to);
+      adjacency.set(edge.from, targets);
+    }
+    const reached = new Set();
+    const pending = blocked.has(root) ? [] : [root];
+    while (pending.length > 0) {
+      const node = pending.pop();
+      if (reached.has(node) || blocked.has(node)) continue;
+      reached.add(node);
+      for (const target of adjacency.get(node) ?? []) pending.push(target);
+    }
+    return reached;
+  };
+  const allSource = reachable(graph.topology.sourceRoot);
+  const allLive = reachable(graph.topology.liveRoot);
+  const withoutSource = reachable(
+    graph.topology.sourceRoot,
+    new Set(graph.topology.sourceCutsets),
+  );
+  const withoutLive = reachable(
+    graph.topology.liveRoot,
+    new Set(graph.topology.liveCutsets),
+  );
+  const plannedEdgeIds = probePlan.edges.map((edge) => edge.edgeId);
+  if (JSON.stringify(graph.topology.terminals.map((row) => row.edgeId))
+    !== JSON.stringify(plannedEdgeIds)) {
+    throw new Error("legacy absence topology terminals do not equal the probe plan");
+  }
+  const branchesByEdge = new Map();
+  for (const branch of implementationManifest.surfaces) {
+    const branches = branchesByEdge.get(branch.edgeId) ?? [];
+    branches.push(branch.branchId);
+    branchesByEdge.set(branch.edgeId, branches);
+  }
+  for (const terminal of graph.topology.terminals) {
+    if (!allSource.has(terminal.nodeId) || !allLive.has(terminal.nodeId)
+      || withoutSource.has(terminal.nodeId) || withoutLive.has(terminal.nodeId)) {
+      throw new Error(`legacy cut sets do not dominate terminal: ${terminal.edgeId}`);
+    }
+    if (JSON.stringify(terminal.branchIds)
+      !== JSON.stringify([...(branchesByEdge.get(terminal.edgeId) ?? [])].sort())) {
+      throw new Error(`legacy absence topology omits an implementation branch: ${terminal.edgeId}`);
+    }
+  }
+  for (const span of graph.topology.sourceSpans) {
+    if (JSON.stringify(sourceSpan(
+      span.spanId,
+      span.path,
+      span.startToken,
+      span.endToken,
+      readSourceFile,
+    )) !== JSON.stringify(span)) {
+      throw new Error(`legacy absence topology source span drifted: ${span.spanId}`);
+    }
+  }
+  const implementationByBranch = new Map(
+    implementationManifest.surfaces.map((branch) => [branch.branchId, branch]),
+  );
+  const plannedByEdge = new Map(probePlan.edges.map((edge) => [edge.edgeId, edge]));
+  const sourceProbeIds = new Set();
+  const liveProbeCounts = new Map();
+  const routeIds = [];
+  const sourceFileByPath = new Map(graph.sourceFiles.map((file) => [file.path, file]));
+  const topologyEdges = new Set(graph.topology.edges.map((edge) => `${edge.from}\0${edge.to}`));
+  for (const route of graph.routes) {
+    routeIds.push(route.routeId);
+    if (sourceProbeIds.has(route.sourceProbeId)) {
+      throw new Error(`duplicate legacy source-probe route ${route.sourceProbeId}`);
+    }
+    sourceProbeIds.add(route.sourceProbeId);
+    const branch = implementationByBranch.get(route.branchId);
+    if (!branch || branch.edgeId !== route.edgeId
+      || route.observedIdentity !== branch.observedKey) {
+      throw new Error(`legacy route selects an unknown branch or target ${route.routeId}`);
+    }
+    if (JSON.stringify(route.applicability) !== JSON.stringify(legacyApplicabilityForMac(branch))) {
+      throw new Error(`legacy route target applicability drift ${route.routeId}`);
+    }
+    const planned = plannedByEdge.get(route.edgeId);
+    if (!planned
+      || JSON.stringify(route.attackerRoots)
+        !== JSON.stringify(attackerRoots(planned.surfaceKind, planned.liveReachability))) {
+      throw new Error(`legacy route attacker roots drift ${route.routeId}`);
+    }
+    for (const routePath of [route.sourcePath, route.livePath]) {
+      if (new Set(routePath).size !== routePath.length) {
+        throw new Error(`legacy route path contains a cycle ${route.routeId}`);
+      }
+      for (let index = 1; index < routePath.length; index += 1) {
+        if (!topologyEdges.has(`${routePath[index - 1]}\0${routePath[index]}`)) {
+          throw new Error(`legacy route path contains a non-edge ${route.routeId}`);
+        }
+      }
+    }
+    const expectedRefs = [...new Set([
+      ...branch.sourceRefs,
+      ...branch.enforcementRoute.sourceRefs,
+      ...branch.enforcementRoute.proofSourceRefs,
+    ])].sort();
+    if (JSON.stringify(route.sourceBindings.map((binding) => binding.sourceRef))
+      !== JSON.stringify(expectedRefs)) {
+      throw new Error(`legacy route source bindings drift ${route.routeId}`);
+    }
+    if (route.sourceBindings.some((binding) =>
+      sourceFileByPath.get(binding.path)?.rawContentDigest !== binding.rawContentDigest)) {
+      throw new Error(`legacy route source content drift ${route.routeId}`);
+    }
+    for (const probeId of route.liveProbeIds) {
+      liveProbeCounts.set(probeId, (liveProbeCounts.get(probeId) ?? 0) + 1);
+    }
+  }
+  sortedUnique(routeIds, "legacy absence route IDs");
+  const expectedSource = probePlan.edges
+    .flatMap((edge) => edge.sourceInstall.map((probe) => probe.probeId)).sort();
+  if (JSON.stringify([...sourceProbeIds].sort()) !== JSON.stringify(expectedSource)) {
+    throw new Error("legacy route graph does not cover every source probe");
+  }
+  const expectedLive = probePlan.edges
+    .flatMap((edge) => edge.liveReachability.map((probe) => probe.probeId)).sort();
+  if (JSON.stringify([...liveProbeCounts.keys()].sort()) !== JSON.stringify(expectedLive)
+    || expectedLive.some((probeId) => (liveProbeCounts.get(probeId) ?? 0) < 1)) {
+    throw new Error("legacy route graph does not cover every live probe");
+  }
+  return graph;
 }
 
 export function validateRestrictedExactAbsenceRouteGraph(
@@ -369,6 +781,16 @@ export function validateRestrictedExactAbsenceRouteGraph(
       throw new Error(`route graph source file drifted: ${sourceFile.path}`);
     }
   }
+  if (graph.routeGraphSchema === "ibex/restricted-profile-absence-route-graph/1") {
+    return validateLegacyRestrictedExactAbsenceRouteGraph(graph, {
+      probePlan,
+      implementationManifest,
+      readSourceFile,
+    });
+  }
+  if (graph.routeGraphSchema !== "ibex/restricted-profile-absence-route-graph/2") {
+    throw new Error(`unsupported restricted absence route graph schema ${graph.routeGraphSchema}`);
+  }
   validateSourceDerivedTopology(
     graph.topology,
     probePlan,
@@ -380,6 +802,25 @@ export function validateRestrictedExactAbsenceRouteGraph(
   const implementationByBranch = new Map(implementationManifest.surfaces.map((row) => [row.branchId, row]));
   const routeIds = [];
   const probeEdgeById = new Map(probePlan.edges.map((edge) => [edge.edgeId, edge]));
+  const topologyByBranch = new Map(graph.topology.branchPaths.map((row) => [row.branchId, row]));
+  const topologyEdgesByFamily = new Map();
+  for (const edge of graph.topology.edges) {
+    const familyEdges = topologyEdgesByFamily.get(edge[EDGE.routeFamily]) ?? new Set();
+    for (const routeClass of edge[EDGE.routeClasses]) {
+      familyEdges.add(`${routeClass}\0${edge[EDGE.from]}\0${edge[EDGE.to]}`);
+    }
+    topologyEdgesByFamily.set(edge[EDGE.routeFamily], familyEdges);
+  }
+  const sourceFileByPath = new Map(graph.sourceFiles.map((file) => [file.path, file]));
+  const sourceSiteById = new Map(graph.topology.sourceSites.map((site) => [site.siteId, site]));
+  const topologyNodeById = new Map(graph.topology.nodes.map((node) => [node.nodeId, node]));
+  const sourceBindingById = new Map(graph.sourceBindings.map((binding) => [binding.bindingId, binding]));
+  if (sourceBindingById.size !== graph.sourceBindings.length) {
+    throw new Error("route graph contains duplicate source-binding identities");
+  }
+  const observationByNode = new Map(graph.topology.nodes
+    .filter((node) => node.kind === "instrumented-cutset")
+    .map((node) => [node.nodeId, node.observationId]));
   for (const route of graph.routes) {
     routeIds.push(route.routeId);
     if (routesBySourceProbe.has(route.sourceProbeId)) throw new Error(`duplicate source-probe route ${route.sourceProbeId}`);
@@ -387,58 +828,89 @@ export function validateRestrictedExactAbsenceRouteGraph(
     const branch = implementationByBranch.get(route.branchId);
     if (!branch || branch.edgeId !== route.edgeId) throw new Error(`route selects unknown or cross-edge branch ${route.routeId}`);
     if (route.observedIdentity !== branch.observedKey) throw new Error(`route target disagrees with implementation branch ${route.routeId}`);
-    if (JSON.stringify(route.applicability) !== JSON.stringify(applicabilityForMac(branch))) {
+    if (JSON.stringify(route.targetApplicability) !== JSON.stringify(branch.targetApplicability)
+      || JSON.stringify(route.applicability) !== JSON.stringify(applicabilityForMac(branch))) {
       throw new Error(`route target applicability disagrees with implementation branch ${route.routeId}`);
     }
     const plannedEdge = probeEdgeById.get(route.edgeId);
     if (!plannedEdge) throw new Error(`route has no absence-plan edge ${route.routeId}`);
     const expectedRoots = attackerRoots(plannedEdge.surfaceKind, plannedEdge.liveReachability);
-    if (JSON.stringify(route.attackerRoots) !== JSON.stringify(expectedRoots)) {
-      throw new Error(`route omits or invents an attacker root ${route.routeId}`);
+    const branchTopology = topologyByBranch.get(route.branchId);
+    if (!branchTopology) throw new Error(`route lacks its exact branch topology ${route.routeId}`);
+    const liveRootNode = topologyNodeById.get(branchTopology.liveRoot);
+    if (JSON.stringify(liveRootNode?.attackerRoots) !== JSON.stringify(expectedRoots)) {
+      throw new Error(`route omits or invents an exact attacker root ${route.routeId}`);
     }
-    const topologyEdges = new Set(graph.topology.edges.map((edge) => `${edge.from}\0${edge.to}`));
-    const validatePath = (routePath, label) => {
-      if (new Set(routePath).size !== routePath.length) throw new Error(`${label} contains a cycle`);
-      for (let index = 1; index < routePath.length; index += 1) {
-        if (!topologyEdges.has(`${routePath[index - 1]}\0${routePath[index]}`)) {
+    if (route.branchPathId !== branchTopology.routeFamily) {
+      throw new Error(`route does not bind its executable branch topology ${route.routeId}`);
+    }
+    const topologyEdges = topologyEdgesByFamily.get(branchTopology.routeFamily) ?? new Set();
+    const validatePath = (routePath, routeClass, label) => {
+      if (new Set(routePath.nodes).size !== routePath.nodes.length) throw new Error(`${label} contains a cycle`);
+      for (let index = 1; index < routePath.nodes.length; index += 1) {
+        if (!topologyEdges.has(`${routeClass}\0${routePath.nodes[index - 1]}\0${routePath.nodes[index]}`)) {
           throw new Error(`${label} contains a non-edge`);
         }
       }
     };
-    validatePath(route.sourcePath, `${route.routeId} source path`);
-    validatePath(route.livePath, `${route.routeId} live path`);
-    const terminal = graph.topology.terminals.find((row) => row.edgeId === route.edgeId);
-    if (
-      route.sourcePath[0] !== graph.topology.sourceRoot
-      || route.livePath[0] !== graph.topology.liveRoot
-      || route.sourcePath.at(-1) !== terminal?.nodeId
-      || route.livePath.at(-1) !== terminal?.nodeId
-    ) {
-      throw new Error(`route path does not bind its exact terminal ${route.routeId}`);
+    for (const pathRow of branchTopology.paths) {
+      const suffix = [branchTopology.branchNodeId, pathRow.pathNodeId, ...pathRow.siteNodeIds, branchTopology.terminalNodeId];
+      validatePath(
+        { nodes: [branchTopology.sourceRoot, ...branchTopology.sourceCutsets, ...suffix] },
+        "source-selection",
+        `${route.routeId} source path ${pathRow.pathId}`,
+      );
+      validatePath(
+        { nodes: [branchTopology.liveRoot, ...branchTopology.liveCutsets, ...suffix] },
+        "live-reachability",
+        `${route.routeId} live path ${pathRow.pathId}`,
+      );
     }
-    const observationByNode = new Map(graph.topology.nodes
-      .filter((node) => node.kind === "instrumented-cutset")
-      .map((node) => [node.nodeId, node.observationId]));
-    const expectedSourceObservations = graph.topology.sourceCutsets.map((nodeId) => observationByNode.get(nodeId));
-    const expectedLiveObservations = graph.topology.liveCutsets.map((nodeId) => observationByNode.get(nodeId));
+    const expectedSourceObservations = branchTopology.sourceCutsets.map((nodeId) => observationByNode.get(nodeId));
+    const expectedLiveObservations = branchTopology.liveCutsets.map((nodeId) => observationByNode.get(nodeId));
     if (
       JSON.stringify(route.sourceCutsetObservationIds) !== JSON.stringify(expectedSourceObservations)
       || JSON.stringify(route.liveCutsetObservationIds) !== JSON.stringify(expectedLiveObservations)
     ) {
       throw new Error(`route does not bind actual cut-set observations ${route.routeId}`);
     }
+    const expectedSourceBoundary = {
+      observationId: expectedSourceObservations.at(-1),
+      lastObservedNode: branchTopology.sourceCutsets.at(-1),
+      blockedEdge: {
+        from: branchTopology.sourceCutsets.at(-1),
+        to: branchTopology.branchNodeId,
+      },
+    };
+    const expectedLiveBoundary = {
+      observationId: expectedLiveObservations.at(-1),
+      lastObservedNode: branchTopology.liveCutsets.at(-1),
+      blockedEdge: {
+        from: branchTopology.liveCutsets.at(-1),
+        to: branchTopology.branchNodeId,
+      },
+    };
+    if (JSON.stringify(route.sourceBoundary) !== JSON.stringify(expectedSourceBoundary)
+      || JSON.stringify(route.liveBoundary) !== JSON.stringify(expectedLiveBoundary)) {
+      throw new Error(`route boundary is inferred or disagrees with its graph ${route.routeId}`);
+    }
     const expectedBindings = [...new Set([
       ...branch.sourceRefs,
       ...branch.enforcementRoute.sourceRefs,
       ...branch.enforcementRoute.proofSourceRefs,
     ])].sort();
-    if (JSON.stringify(route.sourceBindings.map((binding) => binding.sourceRef)) !== JSON.stringify(expectedBindings)) {
+    const bindings = route.sourceBindingIds.map((bindingId) => sourceBindingById.get(bindingId));
+    if (bindings.some((binding) => !binding || binding.branchId !== route.branchId)
+      || JSON.stringify(bindings.map((binding) => binding.sourceRef)) !== JSON.stringify(expectedBindings)) {
       throw new Error(`route source bindings disagree with branch ${route.routeId}`);
     }
-    for (const binding of route.sourceBindings) {
-      const sourceFile = graph.sourceFiles.find((file) => file.path === binding.path);
+    for (const binding of bindings) {
+      const sourceFile = sourceFileByPath.get(binding.path);
       if (!sourceFile || sourceFile.rawContentDigest !== binding.rawContentDigest) {
         throw new Error(`route source binding is not content-bound ${route.routeId}`);
+      }
+      if (binding.siteIds.some((siteId) => !sourceSiteById.has(siteId))) {
+        throw new Error(`route source binding references an unknown exact source site ${route.routeId}`);
       }
     }
     for (const probeId of route.liveProbeIds) liveProbeCounts.set(probeId, (liveProbeCounts.get(probeId) ?? 0) + 1);
@@ -467,9 +939,25 @@ export function buildRestrictedExactAbsenceRouteGraph({ projection, coverage, im
   const target = implementationManifest.candidateTargets.find((candidate) => candidate.triple === "aarch64-apple-darwin");
   if (!target) throw new Error("implementation manifest lacks the preregistered Apple target");
   const branches = new Map(implementationManifest.surfaces.map((row) => [row.branchId, row]));
-  const topology = buildSourceDerivedTopology(probePlan, implementationManifest);
-  const terminalByEdge = new Map(topology.terminals.map((terminal) => [terminal.edgeId, terminal]));
+  const absentEdgeIds = new Set(probePlan.edges.map((edge) => edge.edgeId));
+  const sourceRoutesByBranch = new Map();
+  for (const branch of implementationManifest.surfaces.filter((row) => absentEdgeIds.has(row.edgeId))) {
+    const sourceRefs = [...new Set([
+      ...branch.sourceRefs,
+      ...branch.enforcementRoute.sourceRefs,
+      ...branch.enforcementRoute.proofSourceRefs,
+    ])].sort();
+    const sourceRoute = buildRestrictedExactBranchSourceRoute(branch, sourceRefs);
+    if (sourceRoute.status !== "executable") {
+      throw new Error(`implementation branch lacks executable route v2: ${branch.branchId}`);
+    }
+    sourceRoutesByBranch.set(branch.branchId, sourceRoute);
+  }
+  const topology = buildSourceDerivedTopology(probePlan, implementationManifest, sourceRoutesByBranch);
+  const topologyByBranch = new Map(topology.branchPaths.map((row) => [row.branchId, row]));
+  const topologySiteMap = new Map(topology.sourceSites.map((site) => [site.siteId, site]));
   const sourceFileMap = new Map();
+  const sourceBindingMap = new Map();
   let sourceBindings = 0;
   let liveProbeBindings = 0;
   const routes = [];
@@ -478,35 +966,69 @@ export function buildRestrictedExactAbsenceRouteGraph({ projection, coverage, im
     for (const sourceProbe of edge.sourceInstall) {
       const branch = branches.get(sourceProbe.branchId);
       if (!branch || branch.edgeId !== edge.edgeId) throw new Error(`probe selects unknown implementation branch ${sourceProbe.probeId}`);
-      const bindings = sourceProbe.sourceRefs.map(splitSourceRef);
-      for (const binding of bindings) sourceFileMap.set(binding.path, { path: binding.path, rawContentDigest: binding.rawContentDigest });
-      sourceBindings += bindings.length;
+      const sourceRefs = [...new Set([
+        ...branch.sourceRefs,
+        ...branch.enforcementRoute.sourceRefs,
+        ...branch.enforcementRoute.proofSourceRefs,
+      ])].sort();
+      const bindingIds = sourceRefs.map((sourceRef) => {
+        const binding = resolvedSourceBinding(branch, sourceRef);
+        const bindingId = `binding.${stableDigest(`${branch.branchId}\0${sourceRef}`)}`;
+        for (const site of binding.sites) {
+          const priorSite = topologySiteMap.get(site.siteId);
+          if (priorSite && JSON.stringify(priorSite) !== JSON.stringify(site)) {
+            throw new Error(`source binding site identity collision: ${site.siteId}`);
+          }
+          topologySiteMap.set(site.siteId, site);
+        }
+        sourceBindingMap.set(bindingId, {
+          bindingId,
+          branchId: branch.branchId,
+          sourceRef: binding.sourceRef,
+          path: binding.path,
+          locator: binding.locator,
+          rawContentDigest: binding.rawContentDigest,
+          locatorKind: binding.locatorKind,
+          resolutionPolicy: binding.resolutionPolicy,
+          siteIds: binding.sites.map((site) => site.siteId),
+          producerPaths: binding.producerPaths,
+          refusalPaths: binding.refusalPaths,
+        });
+        sourceFileMap.set(binding.path, { path: binding.path, rawContentDigest: binding.rawContentDigest });
+        return bindingId;
+      });
+      sourceBindings += bindingIds.length;
       liveProbeBindings += liveProbeIds.length;
       const routeId = `route.${stableDigest(`${edge.edgeId}\0${sourceProbe.branchId}`)}`;
-      const terminal = terminalByEdge.get(edge.edgeId);
-      const gateway = terminal.gatewayNodeId;
+      const branchTopology = topologyByBranch.get(sourceProbe.branchId);
+      if (!branchTopology) throw new Error(`probe lacks branch topology ${sourceProbe.probeId}`);
       routes.push({
         routeId,
         edgeId: edge.edgeId,
         sourceProbeId: sourceProbe.probeId,
         branchId: sourceProbe.branchId,
         observedIdentity: edge.observedIdentity,
-        attackerRoots: attackerRoots(edge.surfaceKind, edge.liveReachability),
         liveProbeIds,
+        targetApplicability: branch.targetApplicability,
         applicability: applicabilityForMac(branch),
-        sourceBindings: bindings,
-        sourcePath: [
-          topology.sourceRoot,
-          ...topology.sourceCutsets,
-          gateway,
-          terminal.nodeId,
-        ],
-        livePath: [
-          topology.liveRoot,
-          ...topology.liveCutsets,
-          gateway,
-          terminal.nodeId,
-        ],
+        sourceBindingIds: bindingIds,
+        branchPathId: branchTopology.routeFamily,
+        sourceBoundary: {
+          observationId: "restricted-exact.full-installer-skipped",
+          lastObservedNode: branchTopology.sourceCutsets.at(-1),
+          blockedEdge: {
+            from: branchTopology.sourceCutsets.at(-1),
+            to: branchTopology.branchNodeId,
+          },
+        },
+        liveBoundary: {
+          observationId: "restricted-exact.temporal-poll-posture-sealed",
+          lastObservedNode: branchTopology.liveCutsets.at(-1),
+          blockedEdge: {
+            from: branchTopology.liveCutsets.at(-1),
+            to: branchTopology.branchNodeId,
+          },
+        },
         sourceCutsetObservationIds: [
           "restricted-exact.profile-selected",
           "restricted-exact.full-installer-skipped",
@@ -520,9 +1042,11 @@ export function buildRestrictedExactAbsenceRouteGraph({ projection, coverage, im
     }
   }
   routes.sort((left, right) => left.routeId.localeCompare(right.routeId));
+  topology.sourceSites = [...topologySiteMap.values()].sort((left, right) => left.siteId.localeCompare(right.siteId));
   const sourceFiles = [...sourceFileMap.values()].sort((left, right) => left.path.localeCompare(right.path));
+  const resolvedSourceBindings = [...sourceBindingMap.values()].sort((left, right) => left.bindingId.localeCompare(right.bindingId));
   const graph = {
-    routeGraphSchema: "ibex/restricted-profile-absence-route-graph/1",
+    routeGraphSchema: "ibex/restricted-profile-absence-route-graph/2",
     profile: projection.profile,
     target,
     authorityDigests: {
@@ -532,6 +1056,7 @@ export function buildRestrictedExactAbsenceRouteGraph({ projection, coverage, im
     },
     counts: { edges: probePlan.counts.edges, routes: routes.length, sourceFiles: sourceFiles.length, sourceBindings, liveProbeBindings },
     sourceFiles,
+    sourceBindings: resolvedSourceBindings,
     topology,
     routes,
   };
@@ -551,7 +1076,9 @@ function loadGraph() {
 function main() {
   const write = process.argv.includes("--write");
   const graph = loadGraph();
-  const content = `${JSON.stringify(graph, null, 2)}\n`;
+  // One-space indentation keeps this complete, source-derived authority below
+  // GitHub's per-object limit without sacrificing line-addressable review.
+  const content = `${JSON.stringify(graph, null, 1)}\n`;
   if (write) {
     writeGeneratedFilesTransactionally(capsecRoot, [{ path: outputPath, content, label: "restricted Exact absence route graph" }]);
   } else {
