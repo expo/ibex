@@ -5,7 +5,10 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-21 (r41 — adds the pooled worker's bounded structural
+**Revised:** 2026-07-21 (r42 — records the twentieth attempted immutable-source
+run's macOS governance failure and refreshes only the four generated example
+policy vocabulary, registry, and self-digests without changing authored
+authority; r41 — adds the pooled worker's bounded structural
 semantic-event ingress as a dedicated restricted-only owner-thread ABI,
 resolves the binding solely inside the activated immutable Contract bundle,
 requires exactly one successor checkpoint, poisons malformed, stale,
@@ -858,6 +861,17 @@ Host ABI. This amendment adds exactly two source-derived registry edges and
 changes the immutable evidence authority, so all earlier and currently running
 source revisions remain ineligible for its report. No report, attestation, or
 advertisement is synthesized from the local mechanism run.
+The twentieth attempted immutable-source run (Actions run `29812331845`, exact
+source `0a08b154f7bee14887e839ad175cd28dd6ccabb8`) failed both macOS legs in
+the preregistered governance preflight before Hermes setup: the additive Host
+ABI changed the CapSec vocabulary and registry digests, but the four generated
+example policies still bound the preceding digests. Their authored imports,
+grants, endowments, denials, ceilings, and package rows were unchanged; only
+the generator-derived vocabulary, registry, and policy self-digests were
+refreshed and rechecked. The still-running Linux and Windows legs belong to
+the now-invalid source revision and cannot contribute to a later report; the
+same-ref replacement run cancels them. No partial result, artifact, or prior
+target success is reused, reviewed, promoted, attested, or advertised.
 A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full
