@@ -51,6 +51,12 @@ if ! bun run check:root-global-dispositions >/dev/null 2>&1; then
   stale+=("capsec/generated/root-global-disposition-manifest.json" "src/engine/root_global_disposition.generated.h")
 fi
 bun run check:restricted-exact-profile
+# The restricted evidence executor reopens both generated absence authorities
+# against their source bytes. Keep the ordinary drift gate on the same closure
+# so a source edit fails before an expensive target-evidence run reaches report
+# ingestion.
+bun run check:restricted-exact-absence-probe-plan
+bun run check:restricted-exact-absence-route-graph
 # Historical failed-review reports are immutable evidence, not active generated
 # authorities. Fresh exact-target reports are regenerated only from evidence
 # whose source and authority digests match the current candidate revision.
