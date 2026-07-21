@@ -7,6 +7,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { canonicalJson, parseJsonStrict, repoRoot } from "./capsec-contract.mjs";
+import { validateRestrictedObserverEquivalenceEvidence } from "./run-restricted-exact-observer-equivalence.mjs";
 import { taggedDigest } from "./restricted-exact-target-report.mjs";
 
 export const restrictedGlobalCorpusPlan = Object.freeze([
@@ -32,6 +33,10 @@ export const restrictedGlobalCorpusPlan = Object.freeze([
       "restricted_exact_runtime_has_authenticated_single_use_ingress",
       "restricted_exact_absence_edges_close_source_and_live_routes",
     ]),
+  }),
+  Object.freeze({
+    id: "observer-equivalence",
+    tests: Object.freeze([]),
   }),
   Object.freeze({
     id: "profile-confusion",
@@ -64,12 +69,15 @@ function parseArgs(argv) {
   };
   return {
     bindingEvidencePath: path.resolve(repoRoot, value("--binding-evidence")),
+    observerEquivalencePath: path.resolve(repoRoot, value("--observer-equivalence")),
     outputPath: path.resolve(repoRoot, value("--output")),
   };
 }
 
 function main() {
-  const { bindingEvidencePath, outputPath } = parseArgs(process.argv.slice(2));
+  const { bindingEvidencePath, observerEquivalencePath, outputPath } = parseArgs(
+    process.argv.slice(2),
+  );
   const sourceRevision = execFileSync("git", ["rev-parse", "HEAD"], {
     cwd: repoRoot,
     encoding: "utf8",
@@ -82,6 +90,11 @@ function main() {
   if (dirty.length !== 0) throw new Error("global corpus run requires a clean tracked source tree");
   const bindingRaw = fs.readFileSync(bindingEvidencePath);
   const binding = parseJsonStrict(bindingRaw, bindingEvidencePath);
+  const observerEquivalenceRaw = fs.readFileSync(observerEquivalencePath);
+  const observerEquivalence = validateRestrictedObserverEquivalenceEvidence(
+    observerEquivalenceRaw,
+    bindingRaw,
+  );
   if (binding.sourceRevision !== sourceRevision) {
     throw new Error("global corpus binding evidence used a different source revision");
   }
@@ -103,6 +116,28 @@ function main() {
   delete runEnvironment.IBEX_RESTRICTED_ABSENCE_EVIDENCE_OUTPUT;
   for (const corpus of restrictedGlobalCorpusPlan) {
     const executionIds = [];
+    if (corpus.id === "observer-equivalence") {
+      const executionId = "restricted-corpus.observer-equivalence.release-build-transcript-equality";
+      executionIds.push(executionId);
+      executions.push({
+        executionId,
+        fixtureId: corpus.id,
+        outcome: "passed",
+        command: [
+          "bun",
+          "packages/ibex-devtools/src/scripts/run-restricted-exact-observer-equivalence.mjs",
+          "--binding-evidence",
+          "<reachable-evidence>",
+          "--output",
+          "<observer-equivalence-evidence>",
+        ],
+        exitCode: observerEquivalence.exitCode,
+        resultMarker: "ibex-restricted-global-corpus:passed:observer-equivalence:release-build-transcript-equality",
+        outputDigest: taggedDigest(observerEquivalenceRaw),
+      });
+      corpora.push({ id: corpus.id, status: "passed", executionIds });
+      continue;
+    }
     for (const testName of corpus.tests) {
       const executionId = `restricted-corpus.${corpus.id}.${testName}`;
       const command = [
@@ -171,6 +206,7 @@ function main() {
       platform: process.platform,
       architecture: process.arch,
     },
+    observerEquivalence,
     exitCode: 0,
     resultMarker: "ibex-restricted-global-corpora:passed",
     corpora,

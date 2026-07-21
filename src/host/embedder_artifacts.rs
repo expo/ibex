@@ -1792,6 +1792,13 @@ mod tests {
         fn ex_hermes_poll(runtime: *mut HermesRuntimeOpaque, now_ms: u64) -> i32;
         fn ex_hermes_free_string(value: *mut std::ffi::c_char);
         fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
+        fn ex_hermes_resolve_exact_host_call(
+            runtime: *mut HermesRuntimeOpaque,
+            call_id: u64,
+            status: i32,
+            payload: *const u8,
+            payload_len: usize,
+        );
     }
 
     #[cfg(feature = "capsec-conformance-observer")]
@@ -1840,13 +1847,6 @@ mod tests {
         fn ibex_test_structured_control_teardown_wait_observed() -> i32;
         fn ibex_test_reset_structured_control_teardown_wait_observer() -> i32;
         fn ex_hermes_runtime_nonce(runtime: *mut HermesRuntimeOpaque) -> u64;
-        fn ex_hermes_resolve_exact_host_call(
-            runtime: *mut HermesRuntimeOpaque,
-            call_id: u64,
-            status: i32,
-            payload: *const u8,
-            payload_len: usize,
-        );
     }
 
     extern "C" fn capture_dispatch(data: *const u8, len: usize, context: *mut std::ffi::c_void) {
@@ -1863,6 +1863,40 @@ mod tests {
         _: *mut std::ffi::c_void,
     ) {
         panic!("restricted fixture made an unexpected host call");
+    }
+
+    #[derive(Default)]
+    struct RestrictedEquivalenceHostCapture {
+        calls: Vec<(u32, Vec<u8>)>,
+        completions_resolved: u64,
+    }
+
+    extern "C" fn resolve_restricted_equivalence_host_call(
+        runtime: *mut HermesRuntimeOpaque,
+        call_id: u64,
+        operation_id: u32,
+        data: *const u8,
+        len: usize,
+        context: *mut std::ffi::c_void,
+    ) {
+        let capture = unsafe { &mut *context.cast::<RestrictedEquivalenceHostCapture>() };
+        let payload = if data.is_null() || len == 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(data, len) }.to_vec()
+        };
+        capture.calls.push((operation_id, payload));
+        const COMPLETION: &[u8] = b"restricted-equivalence-completion";
+        unsafe {
+            ex_hermes_resolve_exact_host_call(
+                runtime,
+                call_id,
+                0,
+                COMPLETION.as_ptr(),
+                COMPLETION.len(),
+            );
+        }
+        capture.completions_resolved += 1;
     }
 
     #[cfg(feature = "capsec-conformance-observer")]
@@ -5327,6 +5361,226 @@ mod tests {
         // class: the target-effective JS/native identities, nine startup
         // edges, and seven lifecycle callback edges.
         assert_eq!(native_ids.len() + 9 + 7, reachable_ids.len());
+    }
+
+    #[test]
+    fn restricted_exact_observer_build_equivalence_transcript() {
+        let _guard = crate::host::abi::host_test_lock();
+        if crate::engine::loaded_engine_structural_features()
+            != [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown",
+            ]
+        {
+            return;
+        }
+
+        // This fixture deliberately uses only production ABI outcomes. The
+        // external runner builds and executes this exact test twice, once with
+        // and once without the conformance observer, then requires byte-for-
+        // byte canonical transcript equality. No observer ABI participates in
+        // the transcript it is intended to validate.
+        // @ref LLP 0033#third-review-disposition-and-executable-route-v2
+        let bundle = br#"(() => {
+          const forbidden = [
+            'require', 'process', 'Bun', 'Deno', 'Ibex', 'Exact', 'fetch',
+            'WebSocket', 'XMLHttpRequest', 'WebAssembly', 'SharedArrayBuffer',
+            'Atomics', '__hostCall', '__hostCallAsync', '__compartments',
+            '__exactCapabilityCheck', '__exactGetEnv', '__exactResolveModule',
+            '__exactRegisterPackage', '__exactSetPendingPackageId',
+            '__exactResolveManifestBuiltinInternal', '__exactSetActiveModuleId',
+            '__exactGrantCapability', '__exactCheckImport',
+            '__exactSetCompartmentFor', '__exactEnsureFs', '__exactEnsureHttp',
+            '__exactEnsureSqlite', '__exactEnsureDns',
+            '__exactEnsureChildProcess', '__exactEnsureNet', '__exactTimerRef',
+            '__exactTimerUnref'
+          ];
+          const methods = [
+            'dispatch', 'invokeHostAsync', 'publishCheckpoint',
+            'takeCheckpointBytes'
+          ];
+          const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'exact');
+          const snapshot = new Uint8Array(8 + forbidden.length);
+          snapshot[0] = 1;
+          snapshot[1] = forbidden.length;
+          snapshot[2] = descriptor === undefined ? 0 :
+            1 | (descriptor.writable ? 2 : 0) |
+            (descriptor.enumerable ? 4 : 0) |
+            (descriptor.configurable ? 8 : 0);
+          snapshot[3] = Object.isFrozen(exact) ? 1 : 0;
+          for (let index = 0; index < forbidden.length; index += 1) {
+            snapshot[4 + index] = Object.prototype.hasOwnProperty.call(
+              globalThis, forbidden[index]
+            ) ? 1 : 0;
+          }
+          for (let index = 0; index < methods.length; index += 1) {
+            const method = Object.getOwnPropertyDescriptor(exact, methods[index]);
+            snapshot[4 + forbidden.length + index] = method === undefined ? 0 :
+              1 | (typeof method.value === 'function' ? 2 : 0) |
+              (method.writable ? 4 : 0) | (method.enumerable ? 8 : 0) |
+              (method.configurable ? 16 : 0);
+          }
+          exact.takeCheckpointBytes();
+          exact.dispatch(snapshot);
+          exact.invokeHostAsync(1000, new Uint8Array([7, 8, 9])).then(value => {
+            exact.dispatch(new Uint8Array([0xc1, value.byteLength]));
+          });
+          Object.defineProperty(globalThis, '__exactDispatchStableEvent', {
+            value: (binding, payload) => {
+              if (binding.actionIdentity !== 'increment' || payload.delta !== 1) {
+                throw new Error('stale equivalence event');
+              }
+              exact.dispatch(new Uint8Array([0xe1, payload.delta]));
+              exact.publishCheckpoint(new Uint8Array([0xe2, payload.delta]));
+            },
+            writable: false,
+            enumerable: false,
+            configurable: false
+          });
+          const initial = new Uint8Array(snapshot.length + 1);
+          initial[0] = 0xa1;
+          initial.set(snapshot, 1);
+          exact.publishCheckpoint(initial);
+        })();"#;
+
+        let mut host_capture = Box::<RestrictedEquivalenceHostCapture>::default();
+        let (runtime, dispatch, checkpoints) = unsafe {
+            configured_restricted_exact_runtime_with_host_callback(
+                bundle,
+                resolve_restricted_equivalence_host_call,
+                (&mut *host_capture as *mut RestrictedEquivalenceHostCapture).cast(),
+            )
+        };
+        let binding = std::ffi::CString::new(
+            r#"{"instancePath":["Counter#0"],"nodeIdentity":"up","event":"press","actionIdentity":"increment"}"#,
+        )
+        .unwrap();
+        let stale_binding = std::ffi::CString::new(
+            r#"{"instancePath":["Counter#0"],"nodeIdentity":"up","event":"press","actionIdentity":"stale"}"#,
+        )
+        .unwrap();
+        let payload = std::ffi::CString::new(r#"{"delta":1}"#).unwrap();
+
+        let mut error = std::ptr::null_mut();
+        let startup_status = unsafe { ex_hermes_run_restricted_exact_bundle(runtime, &mut error) };
+        let startup_error = if error.is_null() {
+            None
+        } else {
+            let message = unsafe { std::ffi::CStr::from_ptr(error) }
+                .to_string_lossy()
+                .into_owned();
+            unsafe { ex_hermes_free_string(error) };
+            Some(message)
+        };
+        assert_eq!(startup_status, 0, "{startup_error:?}");
+        assert_eq!(host_capture.calls, [(1000, vec![7, 8, 9])]);
+        assert_eq!(host_capture.completions_resolved, 1);
+
+        let poll_after_completion = unsafe { ex_hermes_poll(runtime, 1234) };
+        let stable_event_status = unsafe {
+            ex_hermes_dispatch_restricted_exact_event(runtime, binding.as_ptr(), payload.as_ptr())
+        };
+        let idle_poll_status = unsafe { ex_hermes_poll(runtime, 1235) };
+        let stale_event_status = unsafe {
+            ex_hermes_dispatch_restricted_exact_event(
+                runtime,
+                stale_binding.as_ptr(),
+                payload.as_ptr(),
+            )
+        };
+        let poisoned_poll_status = unsafe { ex_hermes_poll(runtime, 1236) };
+        let poisoned_event_status = unsafe {
+            ex_hermes_dispatch_restricted_exact_event(runtime, binding.as_ptr(), payload.as_ptr())
+        };
+        assert_eq!(stable_event_status, 0);
+        assert_eq!(stale_event_status, -1);
+        assert_eq!(poisoned_poll_status, -1);
+        assert_eq!(poisoned_event_status, -1);
+
+        let descriptor_len = usize::from(dispatch[1]) + 8;
+        assert!(dispatch.len() >= descriptor_len);
+        let descriptor_snapshot = dispatch[..descriptor_len].to_vec();
+        let callback_transcript = dispatch[descriptor_len..].to_vec();
+        let checkpoint_transcript = checkpoints.to_vec();
+        let host_calls = host_capture
+            .calls
+            .iter()
+            .map(|(operation_id, payload)| {
+                serde_json::json!({
+                    "operationId": operation_id,
+                    "payload": payload,
+                })
+            })
+            .collect::<Vec<_>>();
+        unsafe { ex_hermes_destroy(runtime) };
+
+        let mut successor_host_capture = Box::<RestrictedEquivalenceHostCapture>::default();
+        let (successor, _successor_dispatch, _successor_checkpoints) = unsafe {
+            configured_restricted_exact_runtime_with_host_callback(
+                bundle,
+                resolve_restricted_equivalence_host_call,
+                (&mut *successor_host_capture as *mut RestrictedEquivalenceHostCapture).cast(),
+            )
+        };
+        let mut successor_error = std::ptr::null_mut();
+        let successor_run_status =
+            unsafe { ex_hermes_run_restricted_exact_bundle(successor, &mut successor_error) };
+        let successor_error_message = if successor_error.is_null() {
+            None
+        } else {
+            let message = unsafe { std::ffi::CStr::from_ptr(successor_error) }
+                .to_string_lossy()
+                .into_owned();
+            unsafe { ex_hermes_free_string(successor_error) };
+            Some(message)
+        };
+        assert_eq!(successor_run_status, 0, "{successor_error_message:?}");
+        let successor_poll_status = unsafe { ex_hermes_poll(successor, 1234) };
+        unsafe { ex_hermes_destroy(successor) };
+
+        let transcript = serde_json::json!({
+            "schema": "ibex/restricted-exact-observer-equivalence-transcript/1",
+            "descriptorSnapshot": descriptor_snapshot,
+            "checkpointBytes": checkpoint_transcript,
+            "eventAndPollResults": {
+                "pollAfterCompletion": poll_after_completion,
+                "stableEvent": stable_event_status,
+                "idlePoll": idle_poll_status,
+            },
+            "callbackTranscript": {
+                "hostCalls": host_calls,
+                "completionsResolved": host_capture.completions_resolved,
+                "dispatchBytes": callback_transcript,
+            },
+            "poisonState": {
+                "staleEvent": stale_event_status,
+                "pollAfterPoison": poisoned_poll_status,
+                "eventAfterPoison": poisoned_event_status,
+            },
+            "teardownResult": {
+                "destroyReturned": true,
+                "successorCreated": true,
+                "successorRun": successor_run_status,
+                "successorPoll": successor_poll_status,
+                "successorHostCalls": successor_host_capture.calls.len(),
+                "successorCompletionsResolved": successor_host_capture.completions_resolved,
+                "successorDestroyReturned": true,
+            },
+        });
+        if let Some(output_path) = std::env::var_os("IBEX_RESTRICTED_OBSERVER_EQUIVALENCE_OUTPUT") {
+            let mut output = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(output_path)
+                .expect("create restricted observer-equivalence transcript");
+            serde_json::to_writer_pretty(&mut output, &transcript)
+                .expect("serialize restricted observer-equivalence transcript");
+            use std::io::Write;
+            output
+                .write_all(b"\n")
+                .expect("finish restricted observer-equivalence transcript");
+        }
     }
 
     #[test]

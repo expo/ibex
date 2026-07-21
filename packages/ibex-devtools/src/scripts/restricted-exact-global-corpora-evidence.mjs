@@ -9,6 +9,7 @@ import {
   validateRevisionAndAuthorities,
 } from "./restricted-exact-reachable-evidence.mjs";
 import { restrictedGlobalCorpusPlan } from "./run-restricted-exact-global-corpora.mjs";
+import { validateRestrictedObserverEquivalenceEvidence } from "./run-restricted-exact-observer-equivalence.mjs";
 import {
   loadRestrictedReportAuthorities,
   taggedDigest,
@@ -45,25 +46,28 @@ export function ingestRestrictedGlobalCorporaEvidence(
     bindingEvidenceBytes,
     "restricted global corpus binding evidence",
   );
+  const hasObserverEquivalence = Object.hasOwn(artifact, "observerEquivalence");
+  const artifactKeys = [
+    "evidenceSchema",
+    "profile",
+    "runId",
+    "sourceRevision",
+    "sourceTreeDigest",
+    "target",
+    "engine",
+    "hermesProfileProvenance",
+    "authorityDigests",
+    "bindingEvidenceRawContentDigest",
+    "commandEnvironment",
+    "exitCode",
+    "resultMarker",
+    "corpora",
+    "executions",
+  ];
+  if (hasObserverEquivalence) artifactKeys.splice(11, 0, "observerEquivalence");
   assertExactKeys(
     artifact,
-    [
-      "evidenceSchema",
-      "profile",
-      "runId",
-      "sourceRevision",
-      "sourceTreeDigest",
-      "target",
-      "engine",
-      "hermesProfileProvenance",
-      "authorityDigests",
-      "bindingEvidenceRawContentDigest",
-      "commandEnvironment",
-      "exitCode",
-      "resultMarker",
-      "corpora",
-      "executions",
-    ],
+    artifactKeys,
     "restricted global corpus evidence",
   );
   if (
@@ -78,7 +82,19 @@ export function ingestRestrictedGlobalCorporaEvidence(
     throw new Error("global corpus binding evidence digest mismatch");
   }
   validateRevisionAndAuthorities(artifact, reportAuthorities);
+  if (!hasObserverEquivalence) {
+    throw new Error("restricted global corpus evidence omits observer equivalence");
+  }
   const patchIdentity = validateEngine(artifact);
+  const observerEquivalenceRaw = Buffer.from(
+    `${JSON.stringify(artifact.observerEquivalence, null, 2)}\n`,
+    "utf8",
+  );
+  validateRestrictedObserverEquivalenceEvidence(
+    observerEquivalenceRaw,
+    bindingEvidenceBytes,
+    reportAuthorities,
+  );
   const bindings = bindingsFor(artifact, patchIdentity);
   const bindingPatchIdentity = validateEngine(bindingEvidence);
   if (
@@ -105,6 +121,34 @@ export function ingestRestrictedGlobalCorporaEvidence(
   const expectedExecutionIds = [];
   for (const planned of restrictedGlobalCorpusPlan) {
     const corpus = artifact.corpora.find((row) => row.id === planned.id);
+    if (planned.id === "observer-equivalence") {
+      const executionId = "restricted-corpus.observer-equivalence.release-build-transcript-equality";
+      const execution = executionById.get(executionId);
+      const expectedCommand = [
+        "bun",
+        "packages/ibex-devtools/src/scripts/run-restricted-exact-observer-equivalence.mjs",
+        "--binding-evidence",
+        "<reachable-evidence>",
+        "--output",
+        "<observer-equivalence-evidence>",
+      ];
+      if (
+        corpus.status !== "passed"
+        || canonicalJson(corpus.executionIds) !== canonicalJson([executionId])
+        || !execution
+        || execution.fixtureId !== planned.id
+        || execution.outcome !== "passed"
+        || execution.exitCode !== 0
+        || execution.resultMarker
+          !== "ibex-restricted-global-corpus:passed:observer-equivalence:release-build-transcript-equality"
+        || canonicalJson(execution.command) !== canonicalJson(expectedCommand)
+        || execution.outputDigest !== taggedDigest(observerEquivalenceRaw)
+      ) {
+        throw new Error("global corpus observer-equivalence execution drift");
+      }
+      expectedExecutionIds.push(executionId);
+      continue;
+    }
     const expectedIds = planned.tests.map(
       (testName) => `restricted-corpus.${planned.id}.${testName}`,
     );

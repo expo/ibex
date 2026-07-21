@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/restricted-profile-observer-equivalence-evidence.schema.json",
+  "title": "Restricted Exact observer non-interference evidence",
+  "type": "object",
+  "required": [
+    "evidenceSchema",
+    "profile",
+    "runId",
+    "sourceRevision",
+    "sourceTreeDigest",
+    "target",
+    "engine",
+    "hermesProfileProvenance",
+    "authorityDigests",
+    "bindingEvidenceRawContentDigest",
+    "commandEnvironment",
+    "builds",
+    "comparison",
+    "exitCode",
+    "resultMarker"
+  ],
+  "properties": {
+    "evidenceSchema": { "const": "ibex/restricted-exact-observer-equivalence-evidence/1" },
+    "profile": { "const": "ibex/exact-embedder-contract/1" },
+    "runId": { "$ref": "#/$defs/stableId" },
+    "sourceRevision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sourceTreeDigest": { "$ref": "#/$defs/digest" },
+    "target": { "$ref": "#/$defs/target" },
+    "engine": { "$ref": "#/$defs/engine" },
+    "hermesProfileProvenance": { "$ref": "#/$defs/provenance" },
+    "authorityDigests": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/stableId" },
+      "additionalProperties": { "$ref": "#/$defs/digest" }
+    },
+    "bindingEvidenceRawContentDigest": { "$ref": "#/$defs/digest" },
+    "commandEnvironment": {
+      "type": "object",
+      "required": ["runner", "platform", "architecture", "rustc", "cargo"],
+      "properties": {
+        "runner": { "type": "string", "minLength": 1 },
+        "platform": { "$ref": "#/$defs/stableId" },
+        "architecture": { "$ref": "#/$defs/stableId" },
+        "rustc": { "type": "string", "minLength": 1 },
+        "cargo": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "builds": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        { "$ref": "#/$defs/disabledBuild" },
+        { "$ref": "#/$defs/enabledBuild" }
+      ],
+      "items": false
+    },
+    "comparison": {
+      "type": "object",
+      "required": ["fields", "rawBytesEqual", "canonicalEqual", "canonicalTranscriptDigest"],
+      "properties": {
+        "fields": {
+          "const": [
+            "descriptorSnapshot",
+            "checkpointBytes",
+            "eventAndPollResults",
+            "callbackTranscript",
+            "poisonState",
+            "teardownResult"
+          ]
+        },
+        "rawBytesEqual": { "const": true },
+        "canonicalEqual": { "const": true },
+        "canonicalTranscriptDigest": { "$ref": "#/$defs/digest" }
+      },
+      "additionalProperties": false
+    },
+    "exitCode": { "const": 0 },
+    "resultMarker": { "const": "ibex-restricted-observer-equivalence:passed" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256-[A-Za-z0-9_-]{43}$" },
+    "stableId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$" },
+    "target": {
+      "type": "object",
+      "required": ["triple", "features"],
+      "properties": {
+        "triple": { "$ref": "#/$defs/stableId" },
+        "features": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "engine": {
+      "type": "object",
+      "required": ["kind", "engineArtifactPath", "binaryDigest", "object", "targetArchitecture", "structuralFeatures"],
+      "properties": {
+        "kind": { "const": "hermes" },
+        "engineArtifactPath": { "type": "string", "minLength": 1 },
+        "binaryDigest": { "$ref": "#/$defs/digest" },
+        "object": {
+          "type": "object",
+          "required": ["platform", "volume", "file"],
+          "properties": {
+            "platform": { "$ref": "#/$defs/stableId" },
+            "volume": { "type": "string", "minLength": 1 },
+            "file": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "targetArchitecture": { "$ref": "#/$defs/stableId" },
+        "structuralFeatures": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["path", "rawContentDigest", "receipt"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "rawContentDigest": { "$ref": "#/$defs/digest" },
+        "receipt": { "type": "object", "minProperties": 1 }
+      },
+      "additionalProperties": false
+    },
+    "byteArray": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "integer", "minimum": 0, "maximum": 255 }
+    },
+    "transcript": {
+      "type": "object",
+      "required": ["schema", "descriptorSnapshot", "checkpointBytes", "eventAndPollResults", "callbackTranscript", "poisonState", "teardownResult"],
+      "properties": {
+        "schema": { "const": "ibex/restricted-exact-observer-equivalence-transcript/1" },
+        "descriptorSnapshot": { "$ref": "#/$defs/byteArray" },
+        "checkpointBytes": { "$ref": "#/$defs/byteArray" },
+        "eventAndPollResults": { "type": "object", "minProperties": 1 },
+        "callbackTranscript": { "type": "object", "minProperties": 1 },
+        "poisonState": { "type": "object", "minProperties": 1 },
+        "teardownResult": { "type": "object", "minProperties": 1 }
+      },
+      "additionalProperties": false
+    },
+    "baseBuildProperties": {
+      "type": "object",
+      "required": ["label", "observerEnabled", "featureSet", "buildCommand", "executeCommand", "testBinaryDigest", "transcriptRawBase64", "transcriptRawContentDigest", "transcriptCanonicalDigest", "transcript", "exitCode", "resultMarker"],
+      "properties": {
+        "label": { "enum": ["observer-disabled", "observer-enabled"] },
+        "observerEnabled": { "type": "boolean" },
+        "featureSet": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } },
+        "buildCommand": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "executeCommand": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "testBinaryDigest": { "$ref": "#/$defs/digest" },
+        "transcriptRawBase64": { "type": "string", "pattern": "^[A-Za-z0-9+/]+={0,2}$" },
+        "transcriptRawContentDigest": { "$ref": "#/$defs/digest" },
+        "transcriptCanonicalDigest": { "$ref": "#/$defs/digest" },
+        "transcript": { "$ref": "#/$defs/transcript" },
+        "exitCode": { "const": 0 },
+        "resultMarker": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "disabledBuild": {
+      "allOf": [
+        { "$ref": "#/$defs/baseBuildProperties" },
+        {
+          "type": "object",
+          "properties": {
+            "label": { "const": "observer-disabled" },
+            "observerEnabled": { "const": false },
+            "featureSet": { "const": [] },
+            "resultMarker": { "const": "ibex-restricted-observer-equivalence:passed:observer-disabled" }
+          }
+        }
+      ]
+    },
+    "enabledBuild": {
+      "allOf": [
+        { "$ref": "#/$defs/baseBuildProperties" },
+        {
+          "type": "object",
+          "properties": {
+            "label": { "const": "observer-enabled" },
+            "observerEnabled": { "const": true },
+            "featureSet": { "const": ["capsec-conformance-observer"] },
+            "resultMarker": { "const": "ibex-restricted-observer-equivalence:passed:observer-enabled" }
+          }
+        }
+      ]
+    }
+  }
+}

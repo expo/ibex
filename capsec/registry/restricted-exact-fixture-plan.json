@@ -61,6 +61,11 @@
       "requirement": "Prove generic eval, module loaders, host bridges, CLI, debugger, inspector, and compatibility globals remain unreachable."
     },
     {
+      "id": "observer-equivalence",
+      "requiredForConformant": true,
+      "requirement": "Build the same release-mode restricted runtime with and without the conformance observer and require canonical equality of descriptor snapshots, checkpoint bytes, event and poll results, callback transcripts, poison state, and teardown results."
+    },
+    {
       "id": "profile-confusion",
       "requiredForConformant": true,
       "requirement": "Reject full, diagnostic, and restricted Host/artifact confusion before engine allocation or JSI mutation."

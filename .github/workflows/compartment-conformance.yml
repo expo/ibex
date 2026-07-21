@@ -105,6 +105,7 @@ jobs:
           short_sha="${GITHUB_SHA:0:8}"
           evidence_dir="capsec/conformance/evidence/restricted-exact"
           reachable="$evidence_dir/reachable-x86_64-unknown-linux-gnu-$short_sha.json"
+          observer="$evidence_dir/observer-equivalence-x86_64-unknown-linux-gnu-$short_sha.json"
           control="$evidence_dir/control-x86_64-unknown-linux-gnu-$short_sha.json"
           absence="$evidence_dir/absence-x86_64-unknown-linux-gnu-$short_sha.json"
           corpora="$evidence_dir/global-corpora-x86_64-unknown-linux-gnu-$short_sha.json"
@@ -116,6 +117,9 @@ jobs:
               --features capsec-conformance-observer \
               host::embedder_artifacts::tests::restricted_exact_reachable_edges_execute_on_the_bound_engine \
               -- --exact --nocapture --test-threads=1
+          bun packages/ibex-devtools/src/scripts/run-restricted-exact-observer-equivalence.mjs \
+            --binding-evidence "$reachable" \
+            --output "$observer"
           IBEX_RESTRICTED_CONTROL_EVIDENCE_OUTPUT="$control" \
             cargo test -p ibex-runtime --lib --release \
               --features capsec-conformance-observer \
@@ -128,6 +132,7 @@ jobs:
               -- --exact --nocapture --test-threads=1
           bun packages/ibex-devtools/src/scripts/run-restricted-exact-global-corpora.mjs \
             --binding-evidence "$reachable" \
+            --observer-equivalence "$observer" \
             --output "$corpora"
           bun packages/ibex-devtools/src/scripts/generate-restricted-exact-target-report.mjs \
             "$reachable" "$control" "$absence" "$corpora" "$report" --write
@@ -220,6 +225,7 @@ jobs:
           short_sha="${GITHUB_SHA:0:8}"
           evidence_dir="capsec/conformance/evidence/restricted-exact"
           reachable="$evidence_dir/reachable-aarch64-apple-darwin-$short_sha.json"
+          observer="$evidence_dir/observer-equivalence-aarch64-apple-darwin-$short_sha.json"
           control="$evidence_dir/control-aarch64-apple-darwin-$short_sha.json"
           absence="$evidence_dir/absence-aarch64-apple-darwin-$short_sha.json"
           corpora="$evidence_dir/global-corpora-aarch64-apple-darwin-$short_sha.json"
@@ -231,6 +237,9 @@ jobs:
               --features capsec-conformance-observer \
               host::embedder_artifacts::tests::restricted_exact_reachable_edges_execute_on_the_bound_engine \
               -- --exact --nocapture --test-threads=1
+          bun packages/ibex-devtools/src/scripts/run-restricted-exact-observer-equivalence.mjs \
+            --binding-evidence "$reachable" \
+            --output "$observer"
           IBEX_RESTRICTED_CONTROL_EVIDENCE_OUTPUT="$control" \
             cargo test -p ibex-runtime --lib --release \
               --features capsec-conformance-observer \
@@ -243,6 +252,7 @@ jobs:
               -- --exact --nocapture --test-threads=1
           bun packages/ibex-devtools/src/scripts/run-restricted-exact-global-corpora.mjs \
             --binding-evidence "$reachable" \
+            --observer-equivalence "$observer" \
             --output "$corpora"
           bun packages/ibex-devtools/src/scripts/generate-restricted-exact-target-report.mjs \
             "$reachable" "$control" "$absence" "$corpora" "$report" --write

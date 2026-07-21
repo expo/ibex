@@ -5,7 +5,13 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-21 (r45 — implements the executable-route v2 authority
+**Revised:** 2026-07-21 (r46 — makes observer non-interference a sixth
+preregistered global corpus, compiling the same production-only transcript
+fixture in separate observer-disabled and observer-enabled release builds and
+requiring equal descriptor, checkpoint, event/poll, callback, poison, and
+teardown outputs; adds bound evidence schema, validator mutations, workflow
+execution, and fail-closed report ingestion while leaving target evidence,
+source mutants, review, and advertisements pending; r45 — implements the executable-route v2 authority
 from the audited source-route topology: every absent branch now carries its
 real alternative route family, typed executable edges, exact byte-range source
 sites, explicit source and live boundaries, target-build applicability, and
@@ -1114,6 +1120,23 @@ native closure checks pass. This checkpoint does not satisfy the v2 exit gate:
 observer-enabled/disabled release equivalence, the five source-level mutants,
 fresh immutable-source target evidence, and independent review are still
 required before any absence row or advertisement can be promoted.
+
+The r46 observer-equivalence corpus executes no observer ABI while collecting
+its comparison transcript. It records the restricted global and capability
+descriptors, exact initial and successor checkpoint bytes, stable-event and
+fixed-time poll statuses, normalized host-call and completion delivery, the
+post-refusal poisoned state, and destroy-plus-successor behavior. The runner
+builds the identical Rust fixture twice in isolated release target directories,
+with the second build adding only `capsec-conformance-observer`; it binds both
+test-binary identities and raw transcripts to the same source revision, target,
+Hermes binary, provenance receipt, authority set, and reachable-evidence
+artifact. Raw and canonical transcript equality are both mandatory. The
+standalone validator rejects feature confusion, raw/canonical substitution,
+field omission, or behavioral divergence, and the target report cannot pass
+unless the resulting artifact is embedded in the preregistered global corpus.
+Local debug executions of both build modes and all validator mutations pass;
+a clean release evidence run on each target remains required and no existing
+evidence or advertisement is promoted by this checkpoint.
 
 ### Phase 1 — Apple vertical slice
 
