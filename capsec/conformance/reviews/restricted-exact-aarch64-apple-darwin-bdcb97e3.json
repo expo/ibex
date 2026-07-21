@@ -1,0 +1,56 @@
+{
+  "kind": "ibex-llp-0033-independent-security-review",
+  "independent": true,
+  "reviewedCommit": "bdcb97e34a046b0185324a5565a4ffa565655736",
+  "reviewedReportDigest": "sha256-e9bcHUTg1e9_HqWgoxSP1JDciBMWrEYzMKR0dagxh-I",
+  "reviewedReportRawContentDigest": "sha256-Zf5bwpFTAwCgwNtI31LeAeLPcJ30Ai78m4zDZhI5EZs",
+  "reviewedProbePlanRawContentDigest": "sha256-nLbQkyFbrxjyPei-Ny9yEeL_5eB7MSxF240xJFeHOUI",
+  "reviewedRouteGraphRawContentDigest": "sha256-tfLXFIJo8vWJNqWsnbZDeK1yTFZOqZps7v2kXHqVjR8",
+  "reviewedEvidenceRawContentDigests": {
+    "absence-aarch64-apple-darwin-9bef2566.json": "sha256-n_wV3PesOsdy7pbxE_hr9lm1yBF2PU54h9aSnOAKbuk",
+    "control-aarch64-apple-darwin-9bef2566.json": "sha256-KzvGe2gAJQHZ-EH57-_ssWm3YXgaLfXwoWpjqmfwMsA",
+    "global-corpora-aarch64-apple-darwin-9bef2566.json": "sha256-zvxVoJrwE_vos78YYKL3BvQ-M5wuDEXh3qVdLvqeY1M",
+    "reachable-aarch64-apple-darwin-9bef2566.json": "sha256-K1C3x4grmSjaS_fmMDq-YSY8v7tG_QCT5wetwVvvnho"
+  },
+  "verdict": "fail",
+  "summary": "The Apple restricted-embedder report must remain incomplete. Independent inspection of commit bdcb97e3 confirms the central absence-proof defect rejected by both prior reviews (fd661ee8, d38f3af2) is unresolved: the 7,194 structural-absence rows still rest on a synthetic universal route topology, categorical target-ignoring live predicates, path-position-inferred failure boundaries, and non-independent source/live receipts. Executable-route v2 obligations (real source-derived dominance graph, resolved locators, non-heuristic applicability, observer equivalence) are not implemented. Teardown, native freeze-hatches, and the new stable event ingress are resolved. The report's independentReview.status is \"pending\" with 7,194 rows nominally \"conformant\"; it cannot clear.",
+  "unresolvedCritical": 1,
+  "unresolvedHigh": 1,
+  "findings": [
+    {
+      "severity": "critical",
+      "status": "unresolved",
+      "title": "Structural absence still proved over a synthetic universal topology with categorical, target-ignoring predicates and inferred boundaries",
+      "evidence": [
+        "generate-restricted-exact-absence-route-graph.mjs:139-248 (buildSourceDerivedTopology) hard-codes 2 attacker roots, 5 common cut-sets, and one gateway per surfaceKind (gatewayBySurfaceKind), wiring every gateway and every terminal behind the same cut-set chains; branch sourceRefs contribute no nodes/edges (only branchIds arrays at line 228). validateSourceDerivedTopology:301-321 merely confirms the generator placed terminals behind its own cut-sets — not dominance over executable attacker-root-to-target paths.",
+        "Routes are manufactured from identical templates: every route uses sourcePath=[sourceRoot,...sourceCutsets,gateway,terminal] and livePath=[liveRoot,...liveCutsets,gateway,terminal] with fixed cut-set observation IDs (generator lines 498-518).",
+        "embedder_artifacts.rs route_traversal:4146-4185 returns fixed root sets for restricted-module-resolution/loader/cli/js-native-abi and shared zero completion counters for callback, regardless of the exact target; only descriptor-prefix and native-op consume a real logical target. Source-selection (execute_cutset:4318-4342) emits a Null boundary and only asserts label equality (target==selected_target), so source and live proofs are not independent branch observations.",
+        "Failure boundary is inferred, not observed: execute_cutset:4352-4356 copies lastObservedNode and blockedEdge from path[len-3]/path[len-2]. This is the identical defect the two most recent independent reviews (fd661ee8, d38f3af2) recorded as unresolved critical; the report at 9bef2566 nonetheless marks all 7,194 absent rows conformant with independentReview.status=pending."
+      ],
+      "recommendation": "Do not credit structural absence. Build the executable-route v2 graph from real installer/registry/resolver/alias/lazy/producer/retained-reference/target nodes with computed dominance over every attacker-root-to-exact-target path (LLP 0033 §968-1062). Make every live executor consume and traverse its exact target and emit the refusal boundary at a target-specific site; keep source-selection an independent branch-selection observation. Add source-level mutation tests that introduce real installer/resolver/retention bypasses the instrumented Apple run must detect."
+    },
+    {
+      "severity": "high",
+      "status": "unresolved",
+      "title": "Executable-route v2 obligations unmet: unresolved source locators, heuristic applicability, and no observer equivalence",
+      "evidence": [
+        "splitSourceRef:48-65 only requires a '#' separator and that the file exists and is non-symlink, then hashes the whole file; it never resolves the locator to exactly one non-empty byte range via a closed grammar, nor verifies uniqueness or participation in a cut-set path, contradicting LLP 0033 §1027-1033. The 208 implementation files remain whole-file digest bindings.",
+        "applicabilityForMac:67-81 classifies build-condition edges as compiled-but-disabled and all unmatched kinds as runtime-disabled by heuristic, without any compiler or runtime-selection receipt (LLP 0033 §1035-1041 forbids heuristic runtime-disabled labeling of applicable Apple/POSIX branches).",
+        "No observer-enabled vs observer-disabled equivalence evidence is produced (LLP 0033 §1054-1056); the barrier_attestation (embedder_artifacts.rs:4257-4274) is a single observer snapshot. Prior review d38f3af2 recorded observerNonInterference as only partial and this is unchanged.",
+        "4,625 non-native-op edges (2,890 builtin, 569 loader, 540 CLI, 296 host-abi, 36 callback, 294 startup — per review 1efacfe0) receive categorical mandatory live probes that do not consume their target, so the majority of the 7,194 absent rows inherit the finding-1 defect."
+      ],
+      "recommendation": "Resolve every path#locator to a validated non-empty byte range with a closed locator grammar and bind it to a graph edge; replace heuristic applicability with real build-condition and runtime-selection receipts; and produce observer-enabled/disabled equivalence evidence (descriptor snapshots, checkpoint bytes, event/poll/callback transcripts, poison and teardown state) plus source-mutant detection on the instrumented Apple build before crediting any absence row."
+    },
+    {
+      "severity": "low",
+      "status": "resolved",
+      "title": "Teardown, native freeze-hatches, and stable restricted event ingress are sound",
+      "evidence": [
+        "Teardown/lifecycle evidence and native-freeze-hatch sealing (__exactDeepFreeze/__exactNativeFreeze deleted or shadowed, fail-closed) are recorded resolved by reviews 1efacfe0, fd661ee8, and d38f3af2 and unchanged at this commit.",
+        "The new stable event ingress (__exactDispatchStableEvent, commit 0a08b154 / LLP 0033 r41) is a dedicated restricted-only owner-thread ABI that resolves bindings inside the activated immutable bundle, requires exactly one successor checkpoint, and poisons malformed/stale/oversized/missing/non-owner/pre-activation/non-restricted transitions; native mechanism tests and the reachable/control-plane executors exercise it.",
+        "Review-artifact integrity (raw-digest-bound review reopening, rejection of fabricated clear-review digests) was flagged high in 1efacfe0 and is recorded resolved in fd661ee8/d38f3af2."
+      ],
+      "recommendation": "Retain these mechanisms as-is. They do not affect the verdict; the report remains blocked solely on the unresolved absence-proof critical and the executable-route v2 gaps in findings 1 and 2."
+    }
+  ]
+}

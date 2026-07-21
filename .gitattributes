@@ -9,6 +9,8 @@
 *.hpp text eol=lf
 *.js text eol=lf
 *.json text eol=lf
+*.m text eol=lf
+*.mm text eol=lf
 *.mjs text eol=lf
 *.ps1 text eol=lf
 *.rs text eol=lf

@@ -5,7 +5,12 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-21 (r43 — records the twenty-first run's complete Apple
+**Revised:** 2026-07-21 (r44 — records the twenty-first run's passing Apple
+and Linux restricted legs, its two complete-matrix harness failures, and the
+fourth failed independent absence review; invalidates all 7,194 nominal
+absence passes, retains 155 reachable/control-plane observations, pins the
+missing Objective-C LF authority and 115-fixture public corpus repair, and
+keeps advertisements empty pending executable-route v2; r43 — records the twenty-first run's complete Apple
 restricted evidence and imports its pending-review report without advertising
 the target; r42 — records the twentieth attempted immutable-source
 run's macOS governance failure and refreshes only the four generated example
@@ -886,6 +891,32 @@ bytes and reproduces report digest
 `incomplete` because independent security review is pending; the Linux
 restricted and complete-matrix legs remain independent unsettled gates. No
 target is advertised and no Exact production consumer may pin this candidate.
+The same run's Linux restricted leg independently passed, but the complete
+immutable-source matrix did not. The macOS public absence executor stopped on
+a stale 114-fixture assertion after the new stable-event edge correctly made
+the generated corpus 115 fixtures (92 target probes plus 23 native globals).
+The Windows matrix found that Objective-C and Objective-C++ sources were the
+only governed source extensions not pinned to LF, so a CRLF checkout shifted
+the source offset for `native_websocket_macos.mm` while local governance stayed
+clean. The checked constants now match the generated corpus and `*.m`/`*.mm`
+join the existing cross-platform LF authority; neither repair changes a
+surface disposition, fixture, evidence rule, or gate.
+
+Independent Opus review bound to retained checkpoint `bdcb97e3` nevertheless
+failed the Apple report with one unresolved critical and one unresolved high.
+It confirmed that the absence route graph still manufactures a universal
+root/cut-set/gateway/terminal topology, most live executors reduce exact
+targets to shared categorical root predicates, failure boundaries come from
+generated path positions, source-selection is not operationally independent,
+source locators are not resolved to ranges, target applicability remains
+heuristic, and observer/non-observer equivalence is absent. The failed-review
+ingestion therefore invalidates all 7,194 structural-absence rows, retains
+only 132 reachable and 23 control-plane rows as conformant, and records 14,388
+missing absence observations. Stable semantic-event ingress, teardown, native
+freeze-hatch closure, artifact confusion, and review binding were separately
+confirmed resolved. No target is advertised. The next blocking slice is the
+literal executable-route v2 repair and a fresh complete immutable-source run;
+the passing Linux artifact cannot be promoted from this reviewed-failed source.
 A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full
