@@ -169,6 +169,11 @@ const HERMES_STATELESS_FUNCTIONS = new Set([
 
 const HERMES_DIAGNOSTIC_FUNCTIONS = new Set([
   "ex_hermes_callback_backlog",
+  // Quarantine control and inspection execute against one owned diagnostic
+  // runtime per invocation; quarantining an owned runtime is bounded and the
+  // runtime is destroyed with the fixture.
+  "ex_hermes_quarantine_runtime_v1",
+  "ex_hermes_runtime_is_quarantined_v1",
   "ex_hermes_cancel_structured_work_target",
   "ex_hermes_create_diagnostic",
   "ex_hermes_debugger_enable",

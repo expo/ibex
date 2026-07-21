@@ -671,6 +671,8 @@ extern "C" {
     fn ex_hermes_engine_mapped_object(out_device: *mut u64, out_inode: *mut u64) -> i32;
     fn ex_hermes_bytecode_version() -> u32;
     fn ex_hermes_gpu_provider_abi_version() -> u32;
+    fn ex_hermes_quarantine_runtime_v1(runtime: *mut HermesRuntimeOpaque) -> i32;
+    fn ex_hermes_runtime_is_quarantined_v1(runtime: *const HermesRuntimeOpaque) -> u32;
     fn ex_hermes_gpu_provider_abi_version_v2() -> u32;
     fn ex_hermes_gpu_provider_descriptor_size_v1() -> usize;
     fn ex_hermes_gpu_provider_descriptor_size_v2() -> usize;
@@ -5224,6 +5226,16 @@ fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Valu
     let result = match function_name {
         "ex_hermes_callback_backlog" => {
             returned_number(unsafe { ex_hermes_callback_backlog(runtime.raw) })
+        }
+        "ex_hermes_quarantine_runtime_v1" => {
+            let status = unsafe { ex_hermes_quarantine_runtime_v1(runtime.raw) };
+            if unsafe { ex_hermes_runtime_is_quarantined_v1(runtime.raw) } != 1 {
+                return Err("quarantining the owned diagnostic runtime did not latch".into());
+            }
+            returned_number(status)
+        }
+        "ex_hermes_runtime_is_quarantined_v1" => {
+            returned_number(unsafe { ex_hermes_runtime_is_quarantined_v1(runtime.raw) })
         }
         "ex_hermes_cancel_structured_work_target" => {
             returned_number(unsafe {
