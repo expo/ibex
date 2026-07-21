@@ -146,6 +146,118 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  restricted-exact-apple:
+    name: Restricted Exact profile evidence (macOS arm64)
+    runs-on: macos-14
+    timeout-minutes: 240
+    env:
+      HERMES_ENABLE_DEBUGGER: "false"
+      IBEX_REQUIRE_HERMES_PROFILE_PROVENANCE: "true"
+      IBEX_RESTRICTED_TARGET_TRIPLE: aarch64-apple-darwin
+      HERMES_PROFILE_PROVENANCE_RECEIPT: ${{ github.workspace }}/ios/Frameworks/hermes-profile-provenance.json
+    steps:
+      - name: Check out Ibex
+        uses: actions/checkout@v4
+        with:
+          # Evidence validation authenticates the source trees named by
+          # committed prior reports. A shallow checkout cannot prove those
+          # historical Git identities and must fail closed.
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install 1.93.1 --profile minimal
+          rustup default 1.93.1
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Preflight CapSec governance before Hermes setup
+        run: |
+          bun run check:capsec-registry
+          bun run check:example-policy
+
+      - name: Cache patched Apple Hermes artifacts
+        id: hermes-cache-apple-restricted
+        uses: actions/cache@v4
+        with:
+          path: |
+            ios/Frameworks
+            tools/hermes
+            ~/.cache/exact/hermes
+          key: hermes-patched-no-debugger-v2-${{ runner.os }}-${{ hashFiles('scripts/hermes-version.sh', 'scripts/download-hermes.sh', 'scripts/build-hermes.sh', 'scripts/build-hermes-linux.sh', 'scripts/apply-hermes-patches.sh', 'patches/hermes/**') }}
+
+      - name: Build patched no-debugger Release Hermes (on cache miss)
+        if: steps.hermes-cache-apple-restricted.outputs.cache-hit != 'true'
+        run: ./scripts/download-hermes.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Verify Apple Hermes profile
+        run: |
+          set -euo pipefail
+          binary="ios/Frameworks/hermesvm.framework/Versions/Current/hermesvm"
+          receipt="ios/Frameworks/hermes-profile-provenance.json"
+          test -f "$binary"
+          test -f "$receipt"
+          symbols="$(nm -gU "$binary")"
+          [[ "$symbols" == *ex_hermes_vm_current_package_id* ]] \
+            || { echo "::error::Hermes framework lacks the patched attribution export"; exit 1; }
+          if [[ "$symbols" == *AsyncDebuggerAPI* ]]; then
+            echo "::error::Hermes framework exports debugger symbols"
+            exit 1
+          fi
+
+      - name: Execute restricted Exact target evidence
+        id: restricted-evidence
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA:0:8}"
+          evidence_dir="capsec/conformance/evidence/restricted-exact"
+          reachable="$evidence_dir/reachable-aarch64-apple-darwin-$short_sha.json"
+          control="$evidence_dir/control-aarch64-apple-darwin-$short_sha.json"
+          absence="$evidence_dir/absence-aarch64-apple-darwin-$short_sha.json"
+          corpora="$evidence_dir/global-corpora-aarch64-apple-darwin-$short_sha.json"
+          report="capsec/conformance/restricted-exact-aarch64-apple-darwin-report.json"
+          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
+
+          IBEX_RESTRICTED_REACHABLE_EVIDENCE_OUTPUT="$reachable" \
+            cargo test -p ibex-runtime --lib --release \
+              --features capsec-conformance-observer \
+              host::embedder_artifacts::tests::restricted_exact_reachable_edges_execute_on_the_bound_engine \
+              -- --exact --nocapture --test-threads=1
+          IBEX_RESTRICTED_CONTROL_EVIDENCE_OUTPUT="$control" \
+            cargo test -p ibex-runtime --lib --release \
+              --features capsec-conformance-observer \
+              host::embedder_artifacts::tests::restricted_exact_control_plane_edges_enforce_lifecycle_refusals \
+              -- --exact --nocapture --test-threads=1
+          IBEX_RESTRICTED_ABSENCE_EVIDENCE_OUTPUT="$absence" \
+            cargo test -p ibex-runtime --lib --release \
+              --features capsec-conformance-observer \
+              host::embedder_artifacts::tests::restricted_exact_absence_edges_close_source_and_live_routes \
+              -- --exact --nocapture --test-threads=1
+          bun packages/ibex-devtools/src/scripts/run-restricted-exact-global-corpora.mjs \
+            --binding-evidence "$reachable" \
+            --output "$corpora"
+          bun packages/ibex-devtools/src/scripts/generate-restricted-exact-target-report.mjs \
+            "$reachable" "$control" "$absence" "$corpora" "$report" --write
+
+      - name: Retain restricted Exact Apple evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: restricted-exact-macos-arm64-${{ github.sha }}
+          path: |
+            capsec/conformance/evidence/restricted-exact/*aarch64-apple-darwin-${{ steps.restricted-evidence.outputs.short_sha }}.json
+            capsec/conformance/restricted-exact-aarch64-apple-darwin-report.json
+          if-no-files-found: warn
+          retention-days: 30
+
   conformance:
     name: Complete matrix + unadvertised evidence (macOS arm64)
     runs-on: macos-14
