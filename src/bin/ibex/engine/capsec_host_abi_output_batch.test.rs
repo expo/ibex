@@ -673,6 +673,56 @@ extern "C" {
     fn ex_hermes_gpu_provider_abi_version() -> u32;
     fn ex_hermes_quarantine_runtime_v1(runtime: *mut HermesRuntimeOpaque) -> i32;
     fn ex_hermes_begin_embedder_capabilities_v1(runtime: *mut HermesRuntimeOpaque) -> i32;
+    fn ex_hermes_begin_app_bundle_evaluation_v1(
+        runtime: *mut HermesRuntimeOpaque,
+        expected_prepared_disposition: u32,
+    ) -> i32;
+    fn ex_hermes_finish_app_bundle_evaluation_v1(
+        runtime: *mut HermesRuntimeOpaque,
+        evaluation_succeeded: u32,
+    ) -> i32;
+    fn ex_hermes_begin_gpu_canvas_app_bundle_v1(
+        runtime: *mut HermesRuntimeOpaque,
+        expectation: u32,
+    ) -> i32;
+    fn ex_hermes_finish_gpu_canvas_app_bundle_v1(
+        runtime: *mut HermesRuntimeOpaque,
+        evaluation_succeeded: u32,
+    ) -> i32;
+    fn ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1(
+        runtime: *mut HermesRuntimeOpaque,
+        data: *const u8,
+        len: usize,
+        source_url: *const std::os::raw::c_char,
+        is_bytecode: i32,
+        out_error: *mut *mut std::os::raw::c_char,
+    ) -> i32;
+    fn ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1(
+        runtime: *mut HermesRuntimeOpaque,
+        prelude_data: *const u8,
+        prelude_len: usize,
+        prelude_source_url: *const std::os::raw::c_char,
+        artifact_data: *const u8,
+        artifact_len: usize,
+        artifact_source_url: *const std::os::raw::c_char,
+        artifact_is_bytecode: i32,
+        out_error: *mut *mut std::os::raw::c_char,
+    ) -> i32;
+    fn ex_hermes_classify_prepared_native_startup_v1(
+        runtime: *mut HermesRuntimeOpaque,
+        expected_disposition: u32,
+    ) -> i32;
+    fn ex_hermes_stage_prepared_native_startup_v1(
+        runtime: *mut HermesRuntimeOpaque,
+        out_error: *mut *mut std::os::raw::c_char,
+    ) -> i32;
+    fn ex_hermes_run_prepared_app_v1(
+        runtime: *mut HermesRuntimeOpaque,
+        out_error: *mut *mut std::os::raw::c_char,
+    ) -> i32;
+    fn ex_hermes_verify_prepared_native_startup_absent_v1(
+        runtime: *mut HermesRuntimeOpaque,
+    ) -> i32;
     fn ex_hermes_finalize_embedder_capabilities_v1(runtime: *mut HermesRuntimeOpaque) -> i32;
     fn ex_hermes_set_gpu_provider_v1(
         runtime: *mut HermesRuntimeOpaque,
@@ -5235,6 +5285,169 @@ fn execute_hermes_stateless(function_name: &str, selector: &str) -> Result<Value
     Ok(result)
 }
 
+// The exact reviewed no-webgpu prepared-startup source. `runApp` is never
+// invoked through this bounded prefix; the routes observe only the transaction
+// state machine, never application execution.
+const APP_BUNDLE_PREFIX_SOURCE: &[u8] = br#"
+    Object.defineProperty(globalThis, "__exactPreparedNativeStartupV1", {
+      value: Object.freeze({
+        preparedStartupVersion: 1,
+        disposition: "unused-valid",
+        consumeGpuRuntimeIntegration: function () {},
+        runApp: function () { globalThis.__ibexAppBundlePrefixRan = true; }
+      }),
+      writable: false, enumerable: false, configurable: true
+    });
+"#;
+
+/// Run the reviewed valid no-webgpu app-bundle transaction prefix on a fresh
+/// diagnostic runtime up to (but not including) `stop_before`, then invoke the
+/// named route and return its exact status. Every intermediate status is
+/// asserted against the reviewed value so a prefix step regressing cannot let
+/// the target's recorded status drift silently. Empirically verified on the
+/// diagnostic runtime: begin_app=0, eval(valid)=0, classify=0,
+/// begin_gpu_canvas=-6, stage=0, run=0, finish_gpu_canvas=-6, finish_app=0,
+/// verify_absent=0.
+fn execute_app_bundle_route(function_name: &str, selector: &str) -> Result<Value, String> {
+    let runtime = OwnedDiagnosticRuntime::new()?;
+    let raw = runtime.raw;
+    let source_url = CString::new("ibex:capsec-app-bundle").unwrap();
+
+    // The two eval routes are the only ones that surface an out:error string;
+    // an exact invalid Hermes bytecode artifact is refused with status 2 and a
+    // nonempty bounded error, which drives both selectors coherently.
+    if function_name == "ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1"
+        || function_name == "ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1"
+    {
+        if unsafe { ex_hermes_begin_app_bundle_evaluation_v1(raw, 2) } != 0 {
+            return Err("app-bundle evaluation window did not open".into());
+        }
+        let invalid = [0u8, 1, 2, 3, 4, 5, 6, 7];
+        let mut error = std::ptr::null_mut();
+        let status = if function_name == "ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1" {
+            unsafe {
+                ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1(
+                    raw,
+                    invalid.as_ptr(),
+                    invalid.len(),
+                    source_url.as_ptr(),
+                    1,
+                    &mut error,
+                )
+            }
+        } else {
+            let prelude = b"globalThis.__ibexCapsecPreludeRan = true;";
+            let prelude_url = CString::new("ibex:capsec-app-bundle-prelude").unwrap();
+            unsafe {
+                ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1(
+                    raw,
+                    prelude.as_ptr(),
+                    prelude.len(),
+                    prelude_url.as_ptr(),
+                    invalid.as_ptr(),
+                    invalid.len(),
+                    source_url.as_ptr(),
+                    1,
+                    &mut error,
+                )
+            }
+        };
+        let detail = take_hermes_string(error);
+        if status != 2 || detail.is_none() {
+            return Err(format!(
+                "{function_name}: invalid artifact did not return its bounded refusal (status {status})"
+            ));
+        }
+        return Ok(match selector {
+            "out:error" => returned_string(detail.expect("checked app-bundle detail")),
+            "[[return]]" => returned_number(status),
+            other => return Err(format!("unsupported app-bundle output selector {other}")),
+        });
+    }
+
+    // Ordered valid state-machine prefix. Each `(name, expected)` step runs and
+    // is asserted; when `name == function_name` its status is the recorded
+    // output. `runApp` never executes: the routes stop at run's status.
+    let mut out = std::ptr::null_mut();
+    macro_rules! prefix_step {
+        ($name:literal, $call:expr, $expected:expr) => {{
+            let status = $call;
+            if function_name == $name {
+                if status != $expected {
+                    return Err(format!(
+                        "{}: reviewed status {} regressed to {}",
+                        $name, $expected, status
+                    ));
+                }
+                return Ok(returned_number(status));
+            }
+            if status != $expected {
+                return Err(format!(
+                    "{}: reviewed prefix status {} regressed to {}",
+                    $name, $expected, status
+                ));
+            }
+        }};
+    }
+    prefix_step!(
+        "ex_hermes_begin_app_bundle_evaluation_v1",
+        unsafe { ex_hermes_begin_app_bundle_evaluation_v1(raw, 2) },
+        0
+    );
+    let eval_status = unsafe {
+        ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1(
+            raw,
+            APP_BUNDLE_PREFIX_SOURCE.as_ptr(),
+            APP_BUNDLE_PREFIX_SOURCE.len(),
+            source_url.as_ptr(),
+            0,
+            &mut out,
+        )
+    };
+    if eval_status != 0 || !out.is_null() {
+        return Err(format!(
+            "app-bundle valid prefix eval regressed (status {eval_status})"
+        ));
+    }
+    prefix_step!(
+        "ex_hermes_classify_prepared_native_startup_v1",
+        unsafe { ex_hermes_classify_prepared_native_startup_v1(raw, 2) },
+        0
+    );
+    prefix_step!(
+        "ex_hermes_begin_gpu_canvas_app_bundle_v1",
+        unsafe { ex_hermes_begin_gpu_canvas_app_bundle_v1(raw, 2) },
+        -6
+    );
+    prefix_step!(
+        "ex_hermes_stage_prepared_native_startup_v1",
+        unsafe { ex_hermes_stage_prepared_native_startup_v1(raw, &mut out) },
+        0
+    );
+    prefix_step!(
+        "ex_hermes_run_prepared_app_v1",
+        unsafe { ex_hermes_run_prepared_app_v1(raw, &mut out) },
+        0
+    );
+    prefix_step!(
+        "ex_hermes_finish_gpu_canvas_app_bundle_v1",
+        unsafe { ex_hermes_finish_gpu_canvas_app_bundle_v1(raw, 1) },
+        -6
+    );
+    prefix_step!(
+        "ex_hermes_finish_app_bundle_evaluation_v1",
+        unsafe { ex_hermes_finish_app_bundle_evaluation_v1(raw, 1) },
+        0
+    );
+    prefix_step!(
+        "ex_hermes_verify_prepared_native_startup_absent_v1",
+        unsafe { ex_hermes_verify_prepared_native_startup_absent_v1(raw) },
+        0
+    );
+    let _ = selector;
+    Err(format!("{function_name} is not an app-bundle route"))
+}
+
 fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Value, String> {
     let runtime = OwnedDiagnosticRuntime::new()?;
     let result = match function_name {
@@ -6852,6 +7065,9 @@ fn execute_immediate_host_abi_output(
         "native-hermes-diagnostic-runtime" => {
             execute_hermes_diagnostic(function_name, &validated.selector)
         }
+        "native-hermes-app-bundle-transaction" => {
+            execute_app_bundle_route(function_name, &validated.selector)
+        }
         "native-hermes-authenticated-armed-create" => execute_authenticated_armed_create(sandbox),
         "native-hermes-authenticated-session-runtime" => {
             execute_authenticated_session_output(function_name, &validated.selector, sandbox)
@@ -7565,6 +7781,38 @@ fn merged_host_abi_output_routes_execute_bounded_calls() {
     let quarantined = execute_hermes_diagnostic("ex_hermes_runtime_is_quarantined_v1", "[[return]]")
         .expect("execute quarantine inspection on a fresh runtime");
     assert_eq!(quarantined, returned_number(0));
+
+    // The reviewed no-webgpu app-bundle transaction, per route: each runs the
+    // valid prefix up to its own step and records the exact reviewed status.
+    for (function_name, expected) in [
+        ("ex_hermes_begin_app_bundle_evaluation_v1", 0i32),
+        ("ex_hermes_classify_prepared_native_startup_v1", 0i32),
+        ("ex_hermes_begin_gpu_canvas_app_bundle_v1", -6i32),
+        ("ex_hermes_stage_prepared_native_startup_v1", 0i32),
+        ("ex_hermes_run_prepared_app_v1", 0i32),
+        ("ex_hermes_finish_gpu_canvas_app_bundle_v1", -6i32),
+        ("ex_hermes_finish_app_bundle_evaluation_v1", 0i32),
+        ("ex_hermes_verify_prepared_native_startup_absent_v1", 0i32),
+    ] {
+        let observation = execute_app_bundle_route(function_name, "[[return]]")
+            .unwrap_or_else(|error| panic!("{function_name}: {error}"));
+        assert_eq!(observation, returned_number(expected));
+    }
+    for function_name in [
+        "ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1",
+        "ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1",
+    ] {
+        let status = execute_app_bundle_route(function_name, "[[return]]")
+            .unwrap_or_else(|error| panic!("{function_name}: {error}"));
+        assert_eq!(status, returned_number(2));
+        let detail = execute_app_bundle_route(function_name, "out:error")
+            .unwrap_or_else(|error| panic!("{function_name}: {error}"));
+        assert_eq!(detail["kind"], "return");
+        assert_eq!(detail["rawValueShape"], "string");
+        assert!(detail["value"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty()));
+    }
 
     let sandbox = FsSandbox::new();
     for (function_name, selector, shape) in [

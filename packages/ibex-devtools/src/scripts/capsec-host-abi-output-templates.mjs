@@ -167,6 +167,24 @@ const HERMES_STATELESS_FUNCTIONS = new Set([
   "ex_hermes_now_ms",
 ]);
 
+// The app-bundle transaction routes run the reviewed valid no-webgpu prepared
+// sequence on one owned diagnostic runtime and record each route's exact
+// transaction status; the two immediate-eval routes record the exact
+// invalid-artifact refusal (status 2) plus its bounded error string. runApp is
+// never invoked, so no application code executes through this bounded path.
+const HERMES_APP_BUNDLE_FUNCTIONS = new Set([
+  "ex_hermes_begin_app_bundle_evaluation_v1",
+  "ex_hermes_begin_gpu_canvas_app_bundle_v1",
+  "ex_hermes_classify_prepared_native_startup_v1",
+  "ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1",
+  "ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1",
+  "ex_hermes_finish_app_bundle_evaluation_v1",
+  "ex_hermes_finish_gpu_canvas_app_bundle_v1",
+  "ex_hermes_run_prepared_app_v1",
+  "ex_hermes_stage_prepared_native_startup_v1",
+  "ex_hermes_verify_prepared_native_startup_absent_v1",
+]);
+
 const HERMES_DIAGNOSTIC_FUNCTIONS = new Set([
   "ex_hermes_callback_backlog",
   // Quarantine control and inspection execute against one owned diagnostic
@@ -441,6 +459,11 @@ const BOUNDED_FAMILY_OUTPUT_SELECTORS = new Set([
   "ex_hermes_engine_mapped_object\0out:inode",
   "ex_hermes_eval\0out:value",
   "ex_hermes_module_preflight_bytecode\0out:error",
+  // The immediate app-bundle evaluators surface the exact bounded refusal
+  // string for an invalid Hermes bytecode artifact; stage/run carry their
+  // out_error channel through the reviewed success path (null string).
+  "ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1\0out:error",
+  "ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1\0out:error",
   ...["ex_hermes_evaluation_result_dispose", "ex_hermes_evaluation_result_init"]
     .flatMap((functionName) =>
       EVALUATION_RESULT_OUTPUT_SELECTORS
@@ -825,6 +848,12 @@ function operationFor(functionName, outputSelector = "[[return]]", key = null) {
   if (HERMES_STATELESS_FUNCTIONS.has(functionName)) {
     return {
       kind: "native-hermes-stateless-current-target",
+      targetVariant: "default",
+    };
+  }
+  if (HERMES_APP_BUNDLE_FUNCTIONS.has(functionName)) {
+    return {
+      kind: "native-hermes-app-bundle-transaction",
       targetVariant: "default",
     };
   }
