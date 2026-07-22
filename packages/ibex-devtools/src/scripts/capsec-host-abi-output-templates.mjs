@@ -324,6 +324,20 @@ const HOST_AUTHENTICATED_STATEFUL_FUNCTIONS = new Set([
   "ex_host_session_static_import_resolve_meta",
 ]);
 
+// GPU-authority and armed-embedder-artifact routes whose single output surface
+// is fully covered by their fail-closed refusal on invalid input: the four
+// authority checks return 0, and the two artifact builders return an exact
+// closed `{"ok":false,...}` refusal document. Their success paths need armed
+// GPU authority state and remain residual.
+const HOST_GPU_AUTHORITY_REFUSAL_FUNCTIONS = new Set([
+  "ex_host_authorize_embedder_capability_set",
+  "ex_host_authorize_exact_gpu_provider",
+  "ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts",
+  "ex_host_build_exact_gpu_armed_embedder_artifacts",
+  "ex_host_exact_gpu_authority_session_requested_v2",
+  "ex_host_force_retire_exact_gpu_authority_session_v2",
+]);
+
 // Stateful native families whose output shapes can be observed only while a
 // bounded production fixture owns their runtime/session/server lifecycle.
 // Membership is deliberately exact: adding a new ABI does not inherit an
@@ -820,6 +834,9 @@ function operationFor(functionName, outputSelector = "[[return]]", key = null) {
   }
   if (HOST_TYPED_AUTHORITY_FUNCTIONS.has(functionName)) {
     return { kind: "rust-host-authenticated-typed-authority" };
+  }
+  if (HOST_GPU_AUTHORITY_REFUSAL_FUNCTIONS.has(functionName)) {
+    return { kind: "rust-host-gpu-authority-refusal" };
   }
   if (HOST_AUTHENTICATED_STATEFUL_FUNCTIONS.has(functionName)) {
     return { kind: "rust-host-authenticated-stateful-output" };

@@ -1221,11 +1221,11 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       ),
     ).toBe(false);
     expect(executionPartition.hostAbi.targetAbsenceBindings).toHaveLength(59);
-    expect(executionPartition.hostAbi.rows).toHaveLength(498);
-    // The 16 residual rows are the concurrently landed GPU authority/app-bundle
+    expect(executionPartition.hostAbi.rows).toHaveLength(504);
+    // The 10 residual rows are the concurrently landed GPU authority/app-bundle
     // host routes that do not yet have authored bounded output templates; the
     // sweep plan must keep failing bidirectionality until they are closed.
-    expect(executionPartition.hostAbi.residuals).toHaveLength(16);
+    expect(executionPartition.hostAbi.residuals).toHaveLength(10);
 
     const baseBindings = fixture().bindings;
     const targetAbsenceProbes = buildTargetAbsenceOutputShapeProbes({
@@ -1345,12 +1345,12 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       shifted.hostAbi.targetAbsenceBindings.length,
       shifted.hostAbi.rows.length,
       shifted.hostAbi.residuals.length,
-    ]).not.toEqual([59, 498, 16]);
+    ]).not.toEqual([59, 504, 10]);
     expect([
       executionPartition.hostAbi.targetAbsenceBindings.length,
       executionPartition.hostAbi.rows.length,
       executionPartition.hostAbi.residuals.length,
-    ]).toEqual([59, 498, 16]);
+    ]).toEqual([59, 504, 10]);
   }, 180_000);
 
   test("routes and exactly validates the complete builtin-effects tranche", async () => {

@@ -3064,6 +3064,123 @@ fn fresh_legacy_host() {
     );
 }
 
+// The GPU-authority and armed-embedder-artifact routes fail closed on invalid
+// input before consulting any installed host or GPU authority state: the four
+// authority-check routes return 0 (not authorized / no such session) and the
+// two artifact builders return an exact `{"ok":false,...}` refusal document.
+// This proves each single-output surface's bounded refusal shape without an
+// armed GPU authority fixture; their success paths remain residual.
+fn execute_gpu_authority_refusal(function_name: &str) -> Result<Value, String> {
+    extern "C" {
+        fn ex_host_authorize_embedder_capability_set(context_id: u64, installed_flags: u32) -> i32;
+        fn ex_host_authorize_exact_gpu_provider(
+            context_id: u64,
+            abi_version: u32,
+            profile_id: *const u8,
+            profile_id_len: usize,
+            profile_digest: *const u8,
+            webgpu_c_vocabulary_digest: *const u8,
+            operation_set_digest: *const u8,
+            semantic_program_digest: *const u8,
+            operation_ids: *const u32,
+            operation_count: usize,
+            topology_id: u32,
+        ) -> i32;
+        fn ex_host_exact_gpu_authority_session_requested_v2(
+            context_id: u64,
+            authority_session_id: u64,
+        ) -> i32;
+        fn ex_host_force_retire_exact_gpu_authority_session_v2(
+            context_id: u64,
+            authority_session_id: u64,
+        ) -> i32;
+        fn ex_host_build_exact_gpu_armed_embedder_artifacts(
+            project_root_utf8: *const u8,
+            project_root_utf8_len: usize,
+            operation_manifest: *const u8,
+            operation_manifest_len: usize,
+            gpu_provider_binding: *const u8,
+            gpu_provider_binding_len: usize,
+            webgpu_profile: *const u8,
+            webgpu_profile_len: usize,
+        ) -> *mut std::os::raw::c_char;
+        fn ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts(
+            project_root_utf8: *const u8,
+            project_root_utf8_len: usize,
+            operation_manifest: *const u8,
+            operation_manifest_len: usize,
+            gpu_provider_binding: *const u8,
+            gpu_provider_binding_len: usize,
+            webgpu_profile: *const u8,
+            webgpu_profile_len: usize,
+        ) -> *mut std::os::raw::c_char;
+    }
+    fresh_legacy_host();
+    let build_refusal = |pointer: *mut std::os::raw::c_char| -> Result<Value, String> {
+        let detail = take_hermes_string(pointer)
+            .ok_or_else(|| format!("{function_name}: artifact builder returned no refusal"))?;
+        if !detail.contains("\"ok\":false") {
+            return Err(format!(
+                "{function_name}: artifact builder refusal is not a closed document: {detail}"
+            ));
+        }
+        Ok(returned_string(detail))
+    };
+    match function_name {
+        "ex_host_authorize_embedder_capability_set" => Ok(returned_number(unsafe {
+            ex_host_authorize_embedder_capability_set(0, 0)
+        })),
+        "ex_host_authorize_exact_gpu_provider" => Ok(returned_number(unsafe {
+            ex_host_authorize_exact_gpu_provider(
+                0,
+                0,
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                0,
+            )
+        })),
+        "ex_host_exact_gpu_authority_session_requested_v2" => Ok(returned_number(unsafe {
+            ex_host_exact_gpu_authority_session_requested_v2(0, 0)
+        })),
+        "ex_host_force_retire_exact_gpu_authority_session_v2" => Ok(returned_number(unsafe {
+            ex_host_force_retire_exact_gpu_authority_session_v2(0, 0)
+        })),
+        "ex_host_build_exact_gpu_armed_embedder_artifacts" => build_refusal(unsafe {
+            ex_host_build_exact_gpu_armed_embedder_artifacts(
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+                0,
+            )
+        }),
+        "ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts" => {
+            build_refusal(unsafe {
+                ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts(
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    0,
+                )
+            })
+        }
+        other => Err(format!("{other} is not a GPU-authority refusal route")),
+    }
+}
+
 fn execute_basic(function_name: &str) -> Result<Value, String> {
     fresh_legacy_host();
     let capability = CString::new("fs:read:/project/output.js").unwrap();
@@ -7059,6 +7176,7 @@ fn execute_immediate_host_abi_output(
         "rust-host-sqlite-memory" => execute_sqlite(function_name, sandbox),
         "rust-host-terminal-inert" => execute_terminal(function_name, &validated.selector),
         "rust-host-bounded-basic" => execute_basic(function_name),
+        "rust-host-gpu-authority-refusal" => execute_gpu_authority_refusal(function_name),
         "native-hermes-stateless-current-target" => {
             execute_hermes_stateless(function_name, &validated.selector)
         }
@@ -7812,6 +7930,31 @@ fn merged_host_abi_output_routes_execute_bounded_calls() {
         assert!(detail["value"]
             .as_str()
             .is_some_and(|value| !value.is_empty()));
+    }
+
+    // The GPU-authority checks refuse invalid input with 0; the two artifact
+    // builders return an exact closed refusal document.
+    for function_name in [
+        "ex_host_authorize_embedder_capability_set",
+        "ex_host_authorize_exact_gpu_provider",
+        "ex_host_exact_gpu_authority_session_requested_v2",
+        "ex_host_force_retire_exact_gpu_authority_session_v2",
+    ] {
+        let observation = execute_gpu_authority_refusal(function_name)
+            .unwrap_or_else(|error| panic!("{function_name}: {error}"));
+        assert_eq!(observation, returned_number(0));
+    }
+    for function_name in [
+        "ex_host_build_exact_gpu_armed_embedder_artifacts",
+        "ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts",
+    ] {
+        let observation = execute_gpu_authority_refusal(function_name)
+            .unwrap_or_else(|error| panic!("{function_name}: {error}"));
+        assert_eq!(observation["kind"], "return");
+        assert_eq!(observation["rawValueShape"], "string");
+        assert!(observation["value"]
+            .as_str()
+            .is_some_and(|value| value.contains("\"ok\":false")));
     }
 
     let sandbox = FsSandbox::new();

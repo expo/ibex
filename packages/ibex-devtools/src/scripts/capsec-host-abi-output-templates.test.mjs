@@ -144,10 +144,10 @@ describe("source-bound Host ABI output templates", () => {
     const legacyScalarAuthored = scalarAuthored.filter(({ edge }) =>
       legacyNames.has(edge.surface.name),
     );
-    expect(ordinaryScalarAuthored).toHaveLength(252);
+    expect(ordinaryScalarAuthored).toHaveLength(258);
     expect(
       new Set(ordinaryScalarAuthored.map(({ edge }) => edge.surface.name)).size,
-    ).toBe(247);
+    ).toBe(253);
     expect(legacyScalarAuthored.length).toBe(
       catalog.rows.filter(
         (row) =>
@@ -183,6 +183,7 @@ describe("source-bound Host ABI output templates", () => {
       "rust-host-terminal-inert": 8,
       "native-hermes-diagnostic-runtime": 32,
       "native-hermes-app-bundle-transaction": 10,
+      "rust-host-gpu-authority-refusal": 6,
       "native-hermes-bounded-dispatch-runtime": 3,
       "native-hermes-module-runner-runtime": 27,
       "native-hermes-owned-runtime-teardown": 1,
