@@ -5,7 +5,13 @@
 **Systems:** Build, Module Loader, Runtime, CLI
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
-**Revised:** 2026-07-18 (the aggregate generated-drift gate validates every
+**Revised:** 2026-07-22 (the CLI's default production arming consumes the
+canonical `ibex/capsec-policy/2` artifact again: the 2026-07-20 merge
+d8f5bf94 had silently restored the v1-only consumer in `runtime.rs`, which
+fail-closed every default `ibex run`/`repl` — the no-artifact default now
+synthesizes a v2-shaped identity over the authenticated entry, and the armed
+snapshot's root authority ceiling is the policy's authored `rootCeiling`
+rather than the canonical example's unbounded template value); 2026-07-18 (the aggregate generated-drift gate validates every
 checked policy lockfile so registry digest rotations cannot strand stale review
 artifacts); 2026-07-18 (checked portable policy examples pin their authenticated source trees and rendered artifacts to LF across Git checkout platforms); 2026-07-18 (Snapback's 0.2 requirement activates computed imports: the generator joins reviewed manifest declarations to producer-owned `ibex:site` correspondence rows and authenticates the exact materialized sidecars); 2026-07-17 (canonical policy v2 binds graph, entry, deployment profile, normalized root ceiling, and closed computed-candidate materialization for LLP 0028/0029); 2026-07-15 (LLP 0026 adoption defines the bounded initialization-triggering authority carried by an authorized import edge); 2026-07-11 (ENG-24147 typed authoring and canonical policy generation); 2026-07-12 (ENG-24239/24247/24251 registry-bound policy ingress, selector constraints, and semantic drift classification)
 **Related:** LLP 0013 (compartments/capability enforcement — this spec defines its grant-authoring surface); LLP 0007 (bundler pipeline the generator rides); LLP 0004 (package manifests); LLP 0026 (module-runner initialization authority)

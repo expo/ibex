@@ -4561,12 +4561,80 @@ fn build_default_armed_host(
             "/capsec/registry/policy-rules.json"
         )),
     )?;
+    // The synthesized no-artifact default below must carry the same v2 graph
+    // and entry identity a generated artifact would, so the frozen policy
+    // digest schema accepts it. The identity covers exactly the entry the
+    // launcher authenticated (or the project manifest for entry-less routes).
+    // @ref LLP 0014#the-generated-artifact — the canonical artifact is
+    // ibex/capsec-policy/2; a v1-shaped default cannot pass the frozen digest
+    // projection, so the default is v2-shaped even when no artifact exists.
+    let policy_entry_path = match cli_file_entry(cli) {
+        Some(entry) => {
+            let path = Path::new(entry);
+            if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                std::env::current_dir()?.join(path)
+            }
+        }
+        None => project_root.join("package.json"),
+    };
+    let policy_entry_path = std::fs::canonicalize(&policy_entry_path).with_context(|| {
+        format!(
+            "failed to authenticate policy entry {}",
+            policy_entry_path.display()
+        )
+    })?;
+    let policy_entry_relative =
+        policy_entry_path
+            .strip_prefix(&project_root)
+            .with_context(|| {
+                format!(
+                    "policy entry {} is outside project root {}",
+                    policy_entry_path.display(),
+                    project_root.display()
+                )
+            })?;
+    let policy_entry_name = policy_entry_relative
+        .to_str()
+        .context("canonical policy graph identity requires a Unicode project-relative entry")?
+        .replace(std::path::MAIN_SEPARATOR, "/");
+    let policy_entry_source = std::fs::read(&policy_entry_path).with_context(|| {
+        format!(
+            "failed to authenticate policy entry {}",
+            policy_entry_path.display()
+        )
+    })?;
+    let policy_entry_integrity =
+        ibex_runtime::module_loader::artifact::source_integrity(&policy_entry_source)?;
+    let policy_entry_identity = serde_json::json!({
+        "root": "project",
+        "components": runtime_path_components_json(policy_entry_relative)?,
+        "sourceIntegrity": policy_entry_integrity,
+    });
+    let policy_graph_snapshot = serde_json::json!({
+        "graphSnapshotSchema": "ibex/authenticated-graph-snapshot/1",
+        "entryIdentity": policy_entry_identity,
+        "nodes": [{
+            "principal": "<root>",
+            "modulePath": policy_entry_name,
+            "sourceIntegrity": policy_entry_integrity,
+        }],
+        "packages": [],
+        "edges": [],
+        "candidateSets": [],
+    });
+    let policy_graph_identity = compute_domain_digest(
+        "ibex/authenticated-graph-snapshot/1",
+        &policy_graph_snapshot,
+        &[],
+    )?;
     let policy_path = cli
         .policy
         .clone()
         .unwrap_or_else(|| project_root.join("ibex-policy.json"));
     let mut policy = serde_json::json!({
-        "policySchema": "ibex/capsec-policy/1",
+        "policySchema": "ibex/capsec-policy/2",
         "capsVocab": "ibex/capsec/1",
         "semanticCore": "capsec/semantics/1",
         "vocabDigest": expected_policy_identity.vocab_digest.clone(),
@@ -4574,6 +4642,17 @@ fn build_default_armed_host(
         "policyDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         "purpose": "production",
         "mode": "enforce",
+        "graphIdentity": policy_graph_identity,
+        "entryIdentity": policy_entry_identity,
+        "targetProfile": {"kind": "source", "profile": "portable-v1"},
+        "mountProfile": "project-v1",
+        "rootCeiling": [],
+        "computedCandidates": {
+            "schema": "ibex/computed-candidate-manifest/1",
+            "declarations": [],
+            "packageClosureOptIns": [],
+            "materializedSites": [],
+        },
         "rootImports": [],
         "principals": [],
     });
@@ -4589,7 +4668,7 @@ fn build_default_armed_host(
         anyhow::bail!("canonical policy {} not found", policy_path.display());
     }
     for (field, expected) in [
-        ("policySchema", "ibex/capsec-policy/1"),
+        ("policySchema", "ibex/capsec-policy/2"),
         ("capsVocab", "ibex/capsec/1"),
         ("semanticCore", "capsec/semantics/1"),
         ("purpose", "production"),
@@ -4735,6 +4814,19 @@ fn build_default_armed_host(
     value["bootstrapCompatibilityModes"] =
         serde_json::to_value(requested_bootstrap_compatibility_modes(cli))?;
     value["policyDigest"] = serde_json::json!(policy_digest);
+    // The armed root ceiling is exactly the canonical policy's authored root
+    // ceiling — never the template's. An absent authored ceiling arms bounded
+    // and empty rather than inheriting the example document's unbounded value.
+    value["rootAuthorityCeiling"] = serde_json::json!({
+        "kind": "bounded",
+        "authorities": policy["rootCeiling"]
+            .as_array()
+            .context("canonical root ceiling must be an array")?
+            .iter()
+            .map(|row| row["authority"].clone())
+            .collect::<Vec<_>>(),
+    });
+    value["bootstrapAuthorityFloor"] = serde_json::json!([]);
     value["engine"] = serde_json::json!({
         "target": exact_runtime_target(),
         "binaryDigest": engine_digest,

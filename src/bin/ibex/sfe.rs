@@ -921,6 +921,7 @@ mod tests {
                 "packageClosureOptIns": [],
                 "materializedSites": materialized_sites,
             },
+            "rootImports": [],
             "principals": [],
         });
         document["policyDigest"] = Value::String(
