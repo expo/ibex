@@ -1,4 +1,4 @@
-# Ibex
+# <img src="./assets/brand/ibex-mark.svg" alt="" width="27" height="36"> Ibex
 
 **Ibex** is the JavaScript/TypeScript **runtime** used by [Exact](https://github.com/ccheever/exact)
 and [Snapback](https://github.com/ccheever/valet). It embeds Hermes and exposes
