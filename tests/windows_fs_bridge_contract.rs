@@ -42,6 +42,8 @@ fn assert_before(source: &str, earlier: &str, later: &str) {
 #[test]
 fn windows_async_fs_surface_is_registered() {
     for hook in [
+        "__exactFsOpenAsync",
+        "__exactFsCloseAsync",
         "__exactFsReadFileAsync",
         "__exactFsWriteFileAsync",
         "__exactFsReadAsync",
@@ -56,6 +58,67 @@ fn windows_async_fs_surface_is_registered() {
             "missing Windows async hook {hook}"
         );
     }
+}
+
+#[test]
+fn windows_async_close_uses_a_reversible_queue_admission_reservation() {
+    // Queue capacity is injectable for deterministic resource-safety tests,
+    // and queue admission runs the reservation hook under the pool mutex —
+    // both mirroring the POSIX pool. (ENG-25389, salvaged from the
+    // codex/eng-24933-windows-resolve closure line and re-authored onto the
+    // reversible-reservation semantics that landed on main.)
+    assert!(WINDOWS_FS.contains("IBEX_TEST_FS_WORKER_MAX_QUEUE"));
+    assert!(WINDOWS_FS.contains("IBEX_TEST_FS_WORKER_THROW_ENQUEUE"));
+    assert!(WINDOWS_FS.contains("if (onQueueReserved) onQueueReserved();"));
+    // The reservation is reversible: cancel restores the entry, and only a
+    // lease-committed worker erases it and drops the handle reference.
+    assert!(WINDOWS_FS.contains("bool reserveFileForAsyncClose"));
+    assert!(WINDOWS_FS.contains("void cancelFileAsyncCloseReservation"));
+    assert!(WINDOWS_FS.contains("bool commitFileAsyncCloseReservation"));
+    // A reserved fd is revoked from JavaScript immediately, in both the
+    // shared lookup and the sync-close path.
+    assert!(WINDOWS_FS.contains("it->second.asyncCloseReserved) {"));
+    let close = source_section(
+        WINDOWS_FS,
+        "auto closeAsyncFn",
+        "rt.global().setProperty(rt, \"__exactFsCloseAsync\"",
+    );
+    assert!(close.contains("startFsAsync("));
+    assert!(close.contains("reserveFileForAsyncClose(fd, *entry)"));
+    assert!(close.contains("commitFileAsyncCloseReservation(fd, *entry)"));
+    assert!(close.contains("cancelFileAsyncCloseReservation(fd, *entry)"));
+    assert_before(
+        close,
+        "commitFileAsyncCloseReservation(fd, *entry)",
+        "entry->file.reset()",
+    );
+}
+
+#[test]
+fn windows_async_open_publishes_the_registry_entry_on_the_runtime_thread() {
+    let open = source_section(
+        WINDOWS_FS,
+        "auto openAsyncFn",
+        "rt.global().setProperty(rt, \"__exactFsOpenAsync\"",
+    );
+    assert!(open.contains("fsOpenPathWork"));
+    assert!(
+        open.contains("exactResolveVfsPath(runtime, pathArg(runtime, args[0]))")
+            && open.contains("requireReadCapability(runtime, path.virtualPath)")
+            && open.contains("requireWriteCapability(runtime, path.virtualPath)"),
+        "async open must keep VFS resolution and capability checks on the JS thread"
+    );
+    // Workers never mutate the shared fd registry: the worker only opens the
+    // HANDLE; the runtime thread publishes the entry and mints the fd under
+    // the same protected-descriptor policy as sync open.
+    assert!(WINDOWS_FS.contains("if (resultPtr->registerOpenedFile)"));
+    let delivery = source_section(
+        WINDOWS_FS,
+        "if (resultPtr->registerOpenedFile) {",
+        "switch (resultPtr->kind)",
+    );
+    assert!(delivery.contains("ex_host_session_descriptor_is_protected(candidate)"));
+    assert!(delivery.contains("g_files[fd] = FileEntry{"));
 }
 
 #[test]
@@ -183,6 +246,17 @@ fn windows_process_stdio_bypasses_only_the_opaque_file_table() {
     assert!(WINDOWS_FS.contains("GetStdHandle(fd == 1 ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE)"));
     assert!(WINDOWS_FS.contains("if (fd == 1 || fd == 2)"));
     assert!(WINDOWS_FS.contains("return writeProcessStdio(runtime, fd, bytes)"));
+    // Process stdio must not be rejected by the filesystem-handle registry.
+    let write = source_section(
+        WINDOWS_FS,
+        "auto fsWriteFn",
+        "rt.global().setProperty(rt, \"__exactFsWrite\"",
+    );
+    assert_before(
+        write,
+        "if (fd == 1 || fd == 2)",
+        "getFileEntry(runtime, fd)",
+    );
 }
 
 #[test]
