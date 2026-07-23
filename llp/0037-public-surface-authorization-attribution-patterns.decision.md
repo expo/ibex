@@ -1,11 +1,39 @@
 # LLP 0037: Public-Surface Authorization Attribution Patterns
 
 **Type:** Decision
-**Status:** Draft
+**Status:** Accepted (provisional — see Review status)
 **Systems:** Security, Runtime, Devtools, Verification
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-23
+**Revised:** 2026-07-23 (author accepted the recommended rulings on D1/D2/D3)
 **Related:** LLP 0021 (capsec registry / WP10 target proof); LLP 0023 (virtual filesystem namespace / staged authorization identity); LLP 0036 (target advertisement completion plan); ENG-24933; ENG-24578
+
+## Review status
+
+The author accepted the recommended rulings on D1, D2, and D3 (2026-07-23) to
+unblock the per-family authoring loop, explicitly deferring to the
+recommendation rather than adjudicating the security details independently. The
+rulings were AI-proposed. Because D1 and D2 relax security-boundary assertions
+that gate the public advertisement of a security product, an **independent
+review by someone versed in the capsec authorization model is still owed before
+any advertisement produced on these rulings is published.** This mirrors LLP
+0036's "Correctness owed": the rulings are a coherent working position now, not a
+security-reviewed one. Specifically to re-examine:
+
+- **D1:** that `ambient-root` traversal crediting cannot mask an unauthorized
+  traversal — i.e. that the root principal's ambient-mount authority genuinely
+  covers every path it is credited for, and that the allowance is keyed
+  narrowly enough that a non-opening operation can never reach it.
+- **D2:** that the `observed ⊇ declared` relaxation, with the traversal-capability
+  allowance, cannot let a genuinely undeclared effect (a real capability the
+  operation exercises but the edge omits) slip through as a "traversal".
+- **D4:** that permitting the open of an operation whose capability is denied is
+  genuinely inert (the descriptor confers nothing without the operation
+  capability) and not a partial-execution escalation.
+
+D4 was discovered while landing the `fs:read` family (the deny scenario is a
+mixed allow-traversal / deny-operation sequence) and is the direct consequence
+of D1; the author's acceptance of the recommended rulings is taken to cover it.
 
 ## Context
 
@@ -139,6 +167,34 @@ be captured from an actual batch run and re-pinned whenever the engine or the
 authorization model changes. The batch already reports the real sequence on
 mismatch, so the authoring loop is: author template → run batch → pin observed
 sequence → regenerate → confirm green.
+
+### D4 — The deny shape of an open-then-act operation
+
+**Observation.** When the `deny` scenario refuses `readFileSync`'s `fs:read`
+capability, the open still succeeds: the `fs:list` traversal decisions are
+**allowed** (ambient-mount authority, per D1) and only the terminal `fs:read`
+commit is **denied** (`principal-denial`). The observed deny sequence is
+therefore a 6-decision open chain ending at the refused commit
+(`requested, requested, discovery, requested, repeat, commit`), not the uniform
+single-deny of a direct operation such as a stat, whose one list request is
+refused immediately. A probe validator that assumes every decision in a deny
+scenario is refused fails on the allowed traversal decisions.
+
+**Question.** Is it correct that denying an open-then-act operation's capability
+still permits the ambient traversal (the file is opened but not read/written),
+so the deny scenario is a mixed allow-traversal / deny-operation sequence?
+
+**Proposed ruling — YES; it is the direct consequence of D1.** If traversal is
+ambient-mount authority (D1), it is available to the root principal regardless of
+whether the *operation* capability is granted; denying `fs:read` removes the
+read, not the mount access. The opened descriptor is inert without the operation
+capability, so permitting the open is not an escalation. The validator must
+therefore evaluate outcome and stratum **per decision** — a traversal decision is
+always `allow`/`ambient-root`, the operation decision reflects the scenario
+(`allow`/`static-floor` or `deny`/`principal-denial`). This is exactly the
+generalization landed in `capsec_public_builtin_batch.rs`. If ruled the other
+way (a denied operation must also refuse the open), the engine's open-before-act
+behavior would itself be the defect, a runtime change well outside this document.
 
 ## Consequences
 

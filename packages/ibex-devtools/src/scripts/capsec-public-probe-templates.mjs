@@ -53,6 +53,13 @@ const EFFECT_SCENARIOS = new Set([
 ]);
 
 const FS_LIST_EXPORTS = new Set(["lstatSync", "readdirSync", "statSync"]);
+// Synchronous, path-taking fs:read exports. Each opens the authenticated fixture
+// file (an fs:list traversal credited to ambient-mount authority under LLP 0037
+// D1) and then reads it (the fs:read commit gated by the static floor). The
+// typed-decision sequence is observed from the bound engine, never guessed
+// (LLP 0037 D3).
+// @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
+const FS_READ_EXPORTS = new Set(["readFileSync"]);
 const FS_FIXTURE_PATH = Object.freeze({
   root: "project",
   components: [{ encoding: "utf8", value: "capsec-stat-fixture.txt" }],
@@ -347,10 +354,81 @@ export function authoredBuiltinPublicProbe({
 
   const fsPrefix = "builtin:export:node_fs:";
   if (!surfaceObservedKey.startsWith(fsPrefix)) return null;
+  const fsExportName = surfaceObservedKey.slice(fsPrefix.length);
+
+  // fs:read family — synchronous, path-taking reads of the authenticated
+  // fixture file. Opens (fs:list traversal, LLP 0037 D1) then reads (fs:read
+  // commit). The 9-decision sequence is the value observed from the bound
+  // engine (LLP 0037 D3), never guessed.
+  // @ref LLP 0037#d3--observed-typed-sequences-are-pinned-from-a-run-never-authored-by-hand
+  if (
+    plan.actionIds.length === 1 &&
+    plan.actionIds[0] === "fs:read" &&
+    FS_READ_EXPORTS.has(fsExportName)
+  ) {
+    const descriptor = sourceDescriptor(
+      liveByObservedKey.get(surfaceObservedKey),
+      "node_fs",
+      fsExportName,
+      "node:fs",
+    );
+    if (!descriptor) return null;
+    const logicalPath = FS_FIXTURE_PATH;
+    return {
+      kind: "public-surface-invocation",
+      surfaceObservedKey,
+      command: [...BUILTIN_BATCH_COMMAND],
+      invocation: {
+        invocationSchema: "ibex/capsec-builtin-export-invocation/1",
+        kind: "builtin-export-call",
+        moduleSpecifier: "node:fs",
+        exportName: fsExportName,
+        sourceDescriptor: descriptor,
+        sourceDescriptorDigest: taggedDigest(descriptor),
+        arguments: [{ kind: "filesystem-fixture-path", logicalPath }],
+        setup: {
+          kind: "filesystem-file",
+          logicalPath,
+          contents: "ibex-capsec-stat-fixture\n",
+        },
+        requiredAuthority: [
+          {
+            cap: "fs:read",
+            resource: { kind: "path-exact", path: logicalPath },
+          },
+        ],
+        expectedResult: publicDenial ? "permission-denied" : "return",
+        // Observed from the bound engine (LLP 0037 D3): readFileSync opens the
+        // fixture (the fs:list discovery/bind traversal, always allowed via
+        // ambient mount authority) then reads it (the fs:read commit and its
+        // retained repeats). On allow that is a 9-decision sequence. On deny the
+        // open still succeeds and only the fs:read commit is refused, so the
+        // sequence is the 6-decision open chain ending at the denied commit
+        // (LLP 0037 D4) — never guessed.
+        expectedTypedDecisionCount: publicDenial ? 6 : 9,
+        expectedTypedStages: publicDenial
+          ? ["requested", "requested", "discovery", "requested", "repeat", "commit"]
+          : [
+              "requested",
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "commit",
+              "repeat",
+              "repeat",
+              "repeat",
+            ],
+        allowedCoverageEdgeIds,
+        expectedActionIds: ["fs:read"],
+      },
+    };
+  }
+
   if (plan.actionIds.length !== 1 || plan.actionIds[0] !== "fs:list") {
     return null;
   }
-  const exportName = surfaceObservedKey.slice(fsPrefix.length);
+  const exportName = fsExportName;
   if (!FS_LIST_EXPORTS.has(exportName)) return null;
   const descriptor = sourceDescriptor(
     liveByObservedKey.get(surfaceObservedKey),

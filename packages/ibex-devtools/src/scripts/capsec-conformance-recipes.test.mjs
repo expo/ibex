@@ -258,12 +258,13 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.summary.requiredFixtures).toBe(24_585);
     // Thirty reviewed roots gain exact fresh-engine receipts while the
     // formerly source-misattributed stream/promises export probe is retracted.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_592);
+    // +5 for the fs:read readFileSync export family (LLP 0037).
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_597);
     // The seven internal callback-security invariant scenarios are attested by
     // internal Rust proofs, not public-surface probes (LLP 0036), so they leave
     // the unresolved count and form their own classification.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_727);
-    expect(recipes.summary.unresolvedFixtures).toBe(18_266);
+    expect(recipes.summary.unresolvedFixtures).toBe(18_261);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -362,6 +363,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(24_470);
+    // Windows keeps 2,236: its node_fs enforcement route is ambiguous, so the
+    // fs:read readFileSync probe (LLP 0037) is authored on Apple only.
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_236);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_715);
     expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_519);
@@ -426,7 +429,9 @@ describe("exact-target CapSec executable recipes", () => {
           "public-surface-filesystem-not-typed-on-target",
         ),
     );
-    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(123);
+    // 128 = 123 + the 5 fs:read readFileSync rows, now Apple-authored (LLP
+    // 0037) and therefore "not typed on target" for the ambiguous Windows route.
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(128);
     expect(
       unsupportedWindowsFilesystemRecipes.every(
         (recipe) =>
