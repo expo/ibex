@@ -189,6 +189,18 @@ func verifyFiles(bundlePath, artifactPath, expectationsPath string) ([]byte, err
 	if err != nil {
 		return nil, fmt.Errorf("read bundle: %w", err)
 	}
+	return verifyRaw(bundleRaw, bundleSize, expectationsRaw, expectationsSize, func() ([sha256.Size]byte, int64, error) {
+		return digestExactRegular(artifactPath)
+	})
+}
+
+// verifyRaw runs the complete verification pipeline over already-read bundle
+// and expectations bytes. The artifact is consumed only through its digest;
+// resolveArtifact is invoked at exactly the point verifyFiles used to read
+// the artifact from disk, preserving error precedence, and lets the vendored
+// Ibex oracle pin the canonical CLI output without vendoring the 12 MB
+// artifact bytes.
+func verifyRaw(bundleRaw []byte, bundleSize int64, expectationsRaw []byte, expectationsSize int64, resolveArtifact func() ([sha256.Size]byte, int64, error)) ([]byte, error) {
 	// The trust profile is selected by the expectations schema alone. A
 	// schema peek that fails leaves the private default in place; the full
 	// expectations parse below still reports that failure after the bundle
@@ -233,7 +245,7 @@ func verifyFiles(bundlePath, artifactPath, expectationsPath string) ([]byte, err
 		return nil, fmt.Errorf("invalid expectations: %w", err)
 	}
 
-	artifactDigest, artifactSize, err := digestExactRegular(artifactPath)
+	artifactDigest, artifactSize, err := resolveArtifact()
 	if err != nil {
 		return nil, fmt.Errorf("read artifact: %w", err)
 	}

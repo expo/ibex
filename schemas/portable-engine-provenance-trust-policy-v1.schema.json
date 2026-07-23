@@ -175,8 +175,8 @@
         "enabled": { "const": true },
         "offlineVerifier": {
           "const": {
-            "binaryDigest": "sha256-364ba026d1122d28cc09f07404dbec22e6752231b7b7c33cf5a7113f9498f6e0",
-            "binarySize": 25164610,
+            "binaryDigest": "sha256-4c8fe2a985ef765c5986493db934bd12dded4cf18008101b7959f9f6ae11a360",
+            "binarySize": 25164674,
             "goVersion": "go1.26.5",
             "targetTriple": "aarch64-apple-darwin"
           }

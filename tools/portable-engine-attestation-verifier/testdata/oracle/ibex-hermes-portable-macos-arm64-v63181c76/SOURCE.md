@@ -40,3 +40,9 @@ bundle's own signed subject digest.
 
 The artifact is the property of the Ibex project; the bundle is a genuine
 Sigstore/GitHub attestation and a trust anchor only for its own subject.
+
+`expectations.json` is the Ibex-authored public expectations document for
+this artifact, vendored byte-exact (sha256
+`eb7cc8fc58db3befc1ee9c97a2a5d40b2084c5c34bc36de209efde9a1eff66c5`) so the
+pinned canonical CLI output — whose `expectationsDigest` binds these exact
+bytes — is reproducible offline.

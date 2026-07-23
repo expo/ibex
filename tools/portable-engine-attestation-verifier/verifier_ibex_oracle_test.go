@@ -159,3 +159,49 @@ func sha256Digest(value []byte) []byte {
 	sum := sha256.Sum256(value)
 	return sum[:]
 }
+
+// The byte-exact canonical verifier output for this oracle, produced by the
+// built CLI against the released 12,771,809-byte artifact and re-derived here
+// from the pinned subject digest through the verifyRaw seam. Any verifier
+// behavior change that moves this output is a reviewed event.
+const ibexOracleCanonicalOutput = `{"bundle":{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json","sha256":"daec71832c567fcca5e8e991acdb23250c6a548d2ca0fc866ace0bece89eada0","size":10939},"expectationsDigest":"eb7cc8fc58db3befc1ee9c97a2a5d40b2084c5c34bc36de209efde9a1eff66c5","provenance":{"buildType":"https://actions.github.io/buildtypes/workflow/v1","builderId":"https://github.com/expo/ibex/.github/workflows/hermes-artifacts.yml@refs/heads/main","invocationId":"https://github.com/expo/ibex/actions/runs/30004214526/attempts/1","predicateType":"https://slsa.dev/provenance/v1","statementType":"https://in-toto.io/Statement/v1"},"schema":"ibex/github-public-artifact-attestation-verification/1","signer":{"issuer":"https://token.actions.githubusercontent.com","repository":"expo/ibex","repositoryId":"1268046138","repositoryOwnerId":"12504344","repositoryVisibility":"public","runAttempt":"1","runId":"30004214526","runnerEnvironment":"github-hosted","san":"https://github.com/expo/ibex/.github/workflows/hermes-artifacts.yml@refs/heads/main","sourceRef":"refs/heads/main","sourceRevision":"63181c76ca129c3becd85e570db454e1787c3633","trigger":"push","workflowName":"Hermes artifact cache","workflowPath":".github/workflows/hermes-artifacts.yml"},"subject":{"name":"hermes-portable-macos-arm64-release-ac8c6e6c80ec-p08e6330d9fab-ba45d927d725f2-bl4f6a4476f400-a4d422defe361-i6e939803e5b0-oapple-63181c76ca129c3becd85e570db454e1787c3633.tar.gz","sha256":"96617169e267c3626701ccc3f726965e79422ad9326b245310498769f89141fb","size":12771809},"timestamp":{"type":"Tlog","uri":"https://rekor.sigstore.dev","value":"2026-07-23T12:08:33Z"},"trustRoot":{"profile":"sigstore-public-good-rekor-v1","sha256":"3c2cc7f357dc064ec527fdcd78da6e9245c21a381e1abaa0f2b62b186bcac1a1","size":5748}}`
+
+const ibexOracleSubjectSize = int64(12771809)
+
+// The runbook's step-2 closure: the canonical verifier output for the first
+// real public artifact is pinned, byte for byte, and re-derived through the
+// complete production pipeline (verifyRaw is verifyFiles minus the disk
+// read, invoked with the pinned subject identity). The vendored
+// expectations.json bytes are bound through expectationsDigest.
+func TestIbexPublicOracleCanonicalOutputIsPinned(t *testing.T) {
+	t.Parallel()
+
+	bundleRaw := mustReadFile(t, filepath.Join(ibexOracleDirectory, "bundle.json"))
+	expectationsRaw := mustReadFile(t, filepath.Join(ibexOracleDirectory, "expectations.json"))
+
+	subjectSlice, err := hex.DecodeString(ibexOracleSubjectSHA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var subjectDigest [sha256.Size]byte
+	copy(subjectDigest[:], subjectSlice)
+
+	canonical, err := verifyRaw(bundleRaw, int64(len(bundleRaw)), expectationsRaw, int64(len(expectationsRaw)), func() ([sha256.Size]byte, int64, error) {
+		return subjectDigest, ibexOracleSubjectSize, nil
+	})
+	if err != nil {
+		t.Fatalf("full public verification of the Ibex oracle failed: %v", err)
+	}
+	if string(canonical) != ibexOracleCanonicalOutput {
+		t.Fatalf("canonical output drifted from the pinned Ibex oracle output:\n%s", canonical)
+	}
+
+	// A tampered subject digest must fail the identical pipeline.
+	tampered := subjectDigest
+	tampered[0] ^= 0xff
+	if _, err := verifyRaw(bundleRaw, int64(len(bundleRaw)), expectationsRaw, int64(len(expectationsRaw)), func() ([sha256.Size]byte, int64, error) {
+		return tampered, ibexOracleSubjectSize, nil
+	}); err == nil {
+		t.Fatal("tampered subject digest unexpectedly verified")
+	}
+}

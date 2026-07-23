@@ -1,0 +1,21 @@
+{
+  "schema": "ibex/github-public-artifact-attestation-expectations/1",
+  "subjectName": "hermes-portable-macos-arm64-release-ac8c6e6c80ec-p08e6330d9fab-ba45d927d725f2-bl4f6a4476f400-a4d422defe361-i6e939803e5b0-oapple-63181c76ca129c3becd85e570db454e1787c3633.tar.gz",
+  "repository": "expo/ibex",
+  "repositoryId": "1268046138",
+  "repositoryOwnerId": "12504344",
+  "workflowPath": ".github/workflows/hermes-artifacts.yml",
+  "workflowName": "Hermes artifact cache",
+  "sourceRef": "refs/heads/main",
+  "sourceRevision": "63181c76ca129c3becd85e570db454e1787c3633",
+  "allowedTriggers": ["push", "workflow_dispatch"],
+  "runnerEnvironment": "github-hosted",
+  "repositoryVisibility": "public",
+  "certificateIssuer": "https://token.actions.githubusercontent.com",
+  "buildType": "https://actions.github.io/buildtypes/workflow/v1",
+  "trustedRoot": {
+    "profile": "sigstore-public-good-rekor-v1",
+    "sha256": "3c2cc7f357dc064ec527fdcd78da6e9245c21a381e1abaa0f2b62b186bcac1a1",
+    "size": 5748
+  }
+}
