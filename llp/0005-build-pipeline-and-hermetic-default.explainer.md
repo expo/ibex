@@ -281,7 +281,7 @@ upstream toolchain breakage mid-bootstrap, the ENG-22565 failure class), so
 identity** `<hermes-commit-12>-<patch-digest-12>` — the pinned upstream commit
 plus a digest of the carried `patches/hermes/` stack, one shared derivation in
 `scripts/hermes-version.sh` (`ibex_hermes_patch_digest`) — and tries the GitHub
-Release `hermes-<identity>` on `ccheever/ibex` before building. Each
+Release `hermes-<identity>` on `expo/ibex` before building. Each
 Darwin/Linux asset and local source cache uses a stronger key derived from that
 identity plus the platform-builder and patch-application-authority digests;
 the Windows asset name binds patch-application and patch-identity authority

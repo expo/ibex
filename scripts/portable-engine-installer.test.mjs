@@ -581,7 +581,7 @@ function mockVerificationResult({ archivePath, bundlePath, expectations, expecta
       builderId: san,
       invocationId: `https://github.com/${expectations.repository}/actions/runs/123456789/attempts/1`,
     },
-    timestamp: { type: "TimestampAuthority", uri: "timestamp.githubapp.com", value: "2026-07-20T00:00:00Z" },
+    timestamp: { type: "Tlog", uri: "https://rekor.sigstore.dev", value: "2026-07-20T00:00:00Z" },
   })}\n`, "utf8");
 }
 

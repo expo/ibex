@@ -1485,7 +1485,7 @@ engine-using final PE audit and those tests pass on the physical target.
 Implementation checkpoint (2026-07-19): the checked-in closed schemas,
 trust policy, and valid/invalid vectors now freeze the outer manifest,
 installation receipt, portable and mapped identities, coordinator assignment
-chain, and diagnostic shard DAG. The policy admits only the `ccheever/ibex`
+chain, and diagnostic shard DAG. The policy admits only the `expo/ibex`
 `hermes-artifacts.yml` publisher on `refs/heads/main` with a GitHub-hosted
 runner, retains same-runner-only conformance authority, explicitly disables
 portable artifact acceptance, and disables cross-runner assignment, diagnostic

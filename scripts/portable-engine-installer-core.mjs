@@ -1172,7 +1172,7 @@ function validateCanonicalVerificationResult(resultBytes, { expectationsBytes, e
   assert(result.provenance.invocationId === invocation, "verified invocation does not join signer run/attempt");
   assert(result.provenance.buildType === expectations.buildType && result.provenance.builderId === san, "verified build type/builder differs from fixed current workflow policy");
   assertExactKeys(result.timestamp, ["type", "uri", "value"], "verification timestamp");
-  assert(result.timestamp.type === "TimestampAuthority" && typeof result.timestamp.uri === "string" && result.timestamp.uri.length > 0, "verification result lacks one timestamp-authority observation");
+  assert(result.timestamp.type === "Tlog" && typeof result.timestamp.uri === "string" && result.timestamp.uri.length > 0, "verification result lacks one transparency-log-integrated timestamp observation");
   assert(typeof result.timestamp.value === "string" && Number.isFinite(Date.parse(result.timestamp.value)), "verification timestamp is not RFC3339-like");
   return result;
 }
