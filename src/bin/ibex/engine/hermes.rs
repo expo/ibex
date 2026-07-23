@@ -1371,6 +1371,7 @@ extern "C" {
         source_label_len: usize,
         out_factory: *mut ExactModuleRunnerTestHandle,
         out_error: *mut *mut std::os::raw::c_char,
+        out_error_token: *mut u64,
     ) -> i32;
     #[cfg(all(test, feature = "module-runner"))]
     fn ex_hermes_commonjs_record_evaluate(
@@ -1379,6 +1380,7 @@ extern "C" {
         record: ExactModuleRunnerTestHandle,
         out_evicted: *mut i32,
         out_error: *mut *mut std::os::raw::c_char,
+        out_error_token: *mut u64,
     ) -> i32;
     fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
     fn ex_hermes_set_host_call(
@@ -11985,6 +11987,7 @@ module.exports = JSON.stringify({
 
                 let mut handle = ExactModuleRunnerTestHandle::default();
                 let mut error = std::ptr::null_mut();
+                let mut error_token = 0u64;
                 let status = ex_hermes_module_compile_factory(
                     raw,
                     ex_hermes_runtime_nonce(raw),
@@ -12003,6 +12006,7 @@ module.exports = JSON.stringify({
                     0,
                     &mut handle,
                     &mut error,
+                    &mut error_token,
                 );
                 assert_eq!(status, -1);
                 assert!(!error.is_null());
@@ -12015,12 +12019,14 @@ module.exports = JSON.stringify({
 
                 let mut evicted = 0;
                 error = std::ptr::null_mut();
+                error_token = 0;
                 let status = ex_hermes_commonjs_record_evaluate(
                     raw,
                     ex_hermes_runtime_nonce(raw),
                     ExactModuleRunnerTestHandle::default(),
                     &mut evicted,
                     &mut error,
+                    &mut error_token,
                 );
                 assert_eq!(status, -1);
                 assert_eq!(evicted, 0);
