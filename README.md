@@ -161,3 +161,9 @@ Android artifact pair is `hermes-android:250829098.0.14` with
   now builds without OpenSSL and provides the reduced portable surface used by
   core runtime flows: MD5/SHA-1/SHA-2 hashing, HMAC, PBKDF2, scrypt, and HKDF.
   Linux AES and asymmetric crypto still require `openssl-crypto`.
+
+## License
+
+MIT — see [LICENSE](./LICENSE). Vendored and linked third-party software is
+inventoried in [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md), including
+the MIT-licensed Hermes engine this runtime embeds and patches.
