@@ -146,6 +146,17 @@ one.
    invariant (or file a stub where one is missing). This removes 3,727 rows from
    the completeness denominator without faking any public evidence, and makes
    the gate satisfiable from the reachable rows alone.
+   **DONE (2026-07-23):** `INTERNALLY_VERIFIED_SCENARIOS` added in
+   `capsec-conformance-recipes.mjs`; recipes in those 7 scenarios now carry
+   `status: "internally-verified"`; `summarize` emits `internallyVerifiedFixtures`
+   and drops them from `unresolvedFixtures`; `assertRecipeCatalogComplete` counts
+   `fullyExecutable + internallyVerified` toward completeness and skips the
+   public-probe checks for them; the ceremony (`capsec-conformance.mjs`) credits
+   them as satisfied from the digest-bound catalog. Measured effect: Apple
+   unresolved 21,993 → 18,266 (3,727 reclassified); Windows → 18,519 (3,715).
+   The gate is now satisfiable in principle and blocked only on the reachable
+   authoring in step 2. Still owed (per "Correctness owed"): the per-scenario
+   internal-proof audit.
 
 2. **Reachable-scenario authoring program (18,266 rows).** Start with the
    `non-capability` class — it has the widest existing precedent (1,480

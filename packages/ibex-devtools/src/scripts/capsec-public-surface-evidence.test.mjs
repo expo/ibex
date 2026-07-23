@@ -256,6 +256,7 @@ function completeCatalog() {
     summary: {
       requiredFixtures: 1,
       fullyExecutableFixtures: 1,
+      internallyVerifiedFixtures: 0,
       adapterExecutableFixtures: 0,
       unresolvedFixtures: 0,
       byScenario: { allow: 1 },
@@ -645,6 +646,7 @@ function completeModuleImportCatalog() {
     summary: {
       requiredFixtures: recipes.length,
       fullyExecutableFixtures: recipes.length,
+      internallyVerifiedFixtures: 0,
       adapterExecutableFixtures: 0,
       unresolvedFixtures: 0,
       byScenario: { "non-capability": recipes.length },
@@ -752,6 +754,7 @@ function completeNoncapBuiltinCallCatalog() {
     summary: {
       requiredFixtures: 1,
       fullyExecutableFixtures: 1,
+      internallyVerifiedFixtures: 0,
       adapterExecutableFixtures: 0,
       unresolvedFixtures: 0,
       byScenario: { "non-capability": 1 },
@@ -936,6 +939,7 @@ function completeAbsenceCatalog() {
     summary: {
       requiredFixtures: 1,
       fullyExecutableFixtures: 1,
+      internallyVerifiedFixtures: 0,
       adapterExecutableFixtures: 0,
       unresolvedFixtures: 0,
       byScenario: { absent: 1 },
@@ -1096,6 +1100,7 @@ function completeClosedCatalog() {
     summary: {
       requiredFixtures: 1,
       fullyExecutableFixtures: 1,
+      internallyVerifiedFixtures: 0,
       adapterExecutableFixtures: 0,
       unresolvedFixtures: 0,
       byScenario: { closed: 1 },
@@ -1897,6 +1902,7 @@ function targetAbsenceCatalog() {
     summary: {
       requiredFixtures: 1,
       fullyExecutableFixtures: 1,
+      internallyVerifiedFixtures: 0,
       adapterExecutableFixtures: 0,
       unresolvedFixtures: 0,
       byScenario: { absent: 1 },
@@ -2348,6 +2354,7 @@ function globalReadCatalog() {
     summary: {
       requiredFixtures: 1,
       fullyExecutableFixtures: 1,
+      internallyVerifiedFixtures: 0,
       adapterExecutableFixtures: 0,
       unresolvedFixtures: 0,
       byScenario: { "non-capability": 1 },
