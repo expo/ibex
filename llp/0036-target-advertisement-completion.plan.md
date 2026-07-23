@@ -158,12 +158,43 @@ one.
    authoring in step 2. Still owed (per "Correctness owed"): the per-scenario
    internal-proof audit.
 
-2. **Reachable-scenario authoring program (18,266 rows).** Start with the
-   `non-capability` class — it has the widest existing precedent (1,480
-   executable) and is the most likely to admit a generator rather than
-   hand-authoring. Prove a template on one dense family (e.g.
-   `surface.native.op.global`, ~3,000 rows), measure the real per-row cost, then
-   fan out. `log`/report any silent coverage caps.
+2. **Reachable-scenario authoring program (18,266 rows) — it is a
+   generator-and-execution problem, not per-row authoring.** Measured structure
+   (2026-07-23): the 18,266 rows collapse to 5,325 surfaces across just 53
+   (surface-kind × scenario) template-classes. The scenario columns
+   (`allow`/`deny`/`malformed`/`missing-attribution`/`wrong-principal`, ~2,330
+   each) are matrix expansions of one probe per surface — they are generated,
+   never authored. By surface-kind: builtin 8,828, native-op 4,400, loader
+   3,008, startup 908, host-abi 561, cli 516, callback 45.
+
+   **The densest family — `builtin:export`, 8,709 rows (48% of the work) —
+   measured end to end:** it reduces to 1,551 surfaces → 31 effect-signatures →
+   ~7 capability families (782 `(none)`/non-capability, ~454 network, ~200 fs,
+   ~54 stdio, plus sys/env/process). The authoring unit is the *capability
+   family*, not the row: `moduleAliasEffectExpectation`
+   (`capsec-public-probe-templates.mjs`) today templates exactly one effect
+   class (`env:read`), which is why only ~1,341 rows resolve. Each family needs
+   one expectation entry (`actionIds`, `requiredAuthority` with a concrete
+   resource, `allowedStages`) plus a `setup` kind; the Rust batch executor
+   (`capsec_public_builtin_batch.rs`) is **generic** — it imports the module,
+   invokes the export, and observes the typed decisions against the recipe, so
+   it already executes any family whose `setup` it supports (`none`,
+   `filesystem-file`, `filesystem-directory` today; network would need a new
+   setup kind). The recipe generator then fans one template out over every
+   matching surface automatically.
+
+   **Cost implication:** per-row token cost is ≈0 (surface data is extracted
+   from the live inventory; the scenario matrix is generated). The real cost is
+   ~6 remaining capability-family templates for `builtin:export` (env is proven)
+   plus their bounded batch-execution support, and the wall-clock floor is the
+   engine-locked physical-proof batch run, not authoring. Cheaper models buy
+   little: the volume is a handful of high-stakes templates, and a wrong
+   `requiredAuthority` mis-credits a security probe, so template design wants the
+   strongest model, while fan-out and execution consume no model tokens. Order
+   of attack: prove one clean capability family end to end (`fs:read`, 31
+   surfaces), measure real fanout + execution wall-clock, then fs:write/list,
+   network (new setup kind), and route the 782 `(none)` surfaces through the
+   existing non-capability template. `log`/report any silent coverage caps.
 
 3. **Reopen gate 1 (6 rows)** in parallel — smaller and independent.
    `capture_v2` (3 selectors) is **confirmed buildable** and fully spec'd: build
