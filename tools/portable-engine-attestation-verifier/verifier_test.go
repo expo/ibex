@@ -122,7 +122,7 @@ func TestPinnedGitHubPrivateRoot(t *testing.T) {
 	if got := hex.EncodeToString(digest[:]); got != trustedRootSHA256 {
 		t.Fatalf("root digest: want %s, got %s", trustedRootSHA256, got)
 	}
-	trusted, err := loadPinnedTrustedRoot()
+	trusted, err := loadPinnedTrustedRoot(privateTrustProfile)
 	if err != nil {
 		t.Fatalf("loadPinnedTrustedRoot: %v", err)
 	}
@@ -425,7 +425,7 @@ func TestCertificateProfileIsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateCertificateClaims(profile.cert, expected, claims); err != nil {
+	if err := validateCertificateClaims(profile.cert, expected, claims, privateTrustProfile); err != nil {
 		t.Fatalf("oracle certificate rejected: %v", err)
 	}
 
@@ -499,7 +499,7 @@ func TestCertificateProfileIsClosed(t *testing.T) {
 			t.Fatal(err)
 		}
 		leaf.Extensions = append(leaf.Extensions, pkix.Extension{Id: asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 23}, Value: value})
-		if err := validateCertificateClaims(&leaf, expected, claims); err == nil {
+		if err := validateCertificateClaims(&leaf, expected, claims, privateTrustProfile); err == nil {
 			t.Fatal("unknown Sigstore extension unexpectedly accepted")
 		}
 	})

@@ -60,7 +60,7 @@ const (
 // beside the bundle. Its exact target digest and size are rechecked before use.
 // Rotation is therefore a reviewed source update, never an online fallback.
 //
-//go:embed trust/github-private/trusted_root.json
+//go:embed trust/github-private/trusted_root.json trust/sigstore-public-good/trusted_root.json
 var trustFiles embed.FS
 
 type expectations struct {
@@ -189,9 +189,17 @@ func verifyFiles(bundlePath, artifactPath, expectationsPath string) ([]byte, err
 	if err != nil {
 		return nil, fmt.Errorf("read bundle: %w", err)
 	}
-	profile, err := parsePrivateBundleProfile(bundleRaw)
+	// The trust profile is selected by the expectations schema alone. A
+	// schema peek that fails leaves the private default in place; the full
+	// expectations parse below still reports that failure after the bundle
+	// parse, preserving the original error precedence.
+	tp := privateTrustProfile
+	if peeked, peekErr := parseExpectationSchema(expectationsRaw); peekErr == nil && peeked == expectationsSchemaPublicV1 {
+		tp = publicTrustProfile
+	}
+	profile, err := tp.parseBundle(bundleRaw)
 	if err != nil {
-		return nil, fmt.Errorf("invalid GitHub-private bundle profile: %w", err)
+		return nil, fmt.Errorf("invalid %s bundle profile: %w", tp.label, err)
 	}
 
 	expectationSchema, err := parseExpectationSchema(expectationsRaw)
@@ -206,11 +214,18 @@ func verifyFiles(bundlePath, artifactPath, expectationsPath string) ([]byte, err
 		expected, claims, err = parseExpectations(expectationsRaw)
 	case expectationsSchemaV2:
 		var stable stableExpectations
-		stable, err = parseStableExpectations(expectationsRaw)
+		stable, err = parseStableExpectations(expectationsRaw, privateTrustProfile)
 		if err == nil {
 			expected, claims, err = deriveSignedExpectations(stable, profile)
 		}
 		resultSchema = verificationSchemaV2
+	case expectationsSchemaPublicV1:
+		var stable stableExpectations
+		stable, err = parseStableExpectations(expectationsRaw, publicTrustProfile)
+		if err == nil {
+			expected, claims, err = deriveSignedExpectations(stable, profile)
+		}
+		resultSchema = verificationSchemaPublicV1
 	default:
 		err = fmt.Errorf("schema: unsupported expectations schema %q", expectationSchema)
 	}
@@ -225,11 +240,11 @@ func verifyFiles(bundlePath, artifactPath, expectationsPath string) ([]byte, err
 	if err := validateStatement(profile.statement, expected, claims, artifactDigest); err != nil {
 		return nil, fmt.Errorf("invalid signed provenance statement: %w", err)
 	}
-	if err := validateCertificateClaims(profile.cert, expected, claims); err != nil {
+	if err := validateCertificateClaims(profile.cert, expected, claims, tp); err != nil {
 		return nil, fmt.Errorf("invalid signing certificate claims: %w", err)
 	}
 
-	trustedMaterial, err := loadPinnedTrustedRoot()
+	trustedMaterial, err := loadPinnedTrustedRoot(tp)
 	if err != nil {
 		return nil, err
 	}
@@ -241,9 +256,9 @@ func verifyFiles(bundlePath, artifactPath, expectationsPath string) ([]byte, err
 	if err != nil {
 		return nil, fmt.Errorf("construct certificate policy: %w", err)
 	}
-	verifier, err := verify.NewVerifier(trustedMaterial, verify.WithSignedTimestamps(1))
+	verifier, err := verify.NewVerifier(trustedMaterial, tp.verifierOptions()...)
 	if err != nil {
-		return nil, fmt.Errorf("construct signed-timestamp-only verifier: %w", err)
+		return nil, fmt.Errorf("construct %s verifier: %w", tp.verifierLabel, err)
 	}
 	verified, err := verifier.Verify(
 		&parsedBundle,
@@ -258,8 +273,8 @@ func verifyFiles(bundlePath, artifactPath, expectationsPath string) ([]byte, err
 	if verified.Statement == nil || verified.Signature == nil || verified.Signature.Certificate == nil {
 		return nil, fmt.Errorf("sigstore-go returned an incomplete certificate-signed verification result")
 	}
-	if len(verified.VerifiedTimestamps) != 1 || verified.VerifiedTimestamps[0].Type != "TimestampAuthority" {
-		return nil, fmt.Errorf("expected exactly one verified RFC3161 timestamp, got %#v", verified.VerifiedTimestamps)
+	if len(verified.VerifiedTimestamps) != 1 || verified.VerifiedTimestamps[0].Type != tp.timestampType {
+		return nil, fmt.Errorf("expected exactly one verified %s timestamp, got %#v", tp.timestampLabel, verified.VerifiedTimestamps)
 	}
 	timestamp := verified.VerifiedTimestamps[0]
 
@@ -271,9 +286,9 @@ func verifyFiles(bundlePath, artifactPath, expectationsPath string) ([]byte, err
 	result := canonicalResult{
 		Schema: resultSchema,
 		TrustRoot: canonicalTrustRoot{
-			Profile: "github-private-signed-timestamp-v1",
-			SHA256:  trustedRootSHA256,
-			Size:    trustedRootSize,
+			Profile: tp.rootProfile,
+			SHA256:  tp.rootSHA256,
+			Size:    int64(tp.rootSize),
 		},
 		ExpectationsDigest: hex.EncodeToString(expectationsDigest[:]),
 		Bundle: canonicalBundle{
@@ -338,7 +353,7 @@ func parseExpectationSchema(raw []byte) (string, error) {
 	return stringAt(object["schema"], "$.schema")
 }
 
-func parseStableExpectations(raw []byte) (stableExpectations, error) {
+func parseStableExpectations(raw []byte, tp trustProfile) (stableExpectations, error) {
 	value, err := parseStrictJSON(raw)
 	if err != nil {
 		return stableExpectations{}, err
@@ -381,8 +396,8 @@ func parseStableExpectations(raw []byte) (stableExpectations, error) {
 			return stableExpectations{}, err
 		}
 	}
-	if s.Schema != expectationsSchemaV2 {
-		return stableExpectations{}, fmt.Errorf("schema: expected %q, got %q", expectationsSchemaV2, s.Schema)
+	if s.Schema != tp.stableExpectationsSchema {
+		return stableExpectations{}, fmt.Errorf("schema: expected %q, got %q", tp.stableExpectationsSchema, s.Schema)
 	}
 	if !regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9_.-]{1,100}$`).MatchString(s.Repository) {
 		return stableExpectations{}, fmt.Errorf("repository must be one exact owner/name pair")
@@ -434,8 +449,8 @@ func parseStableExpectations(raw []byte) (stableExpectations, error) {
 	if s.RunnerEnvironment != githubHostedRunner {
 		return stableExpectations{}, fmt.Errorf("runnerEnvironment must be %q", githubHostedRunner)
 	}
-	if s.RepositoryVisibility != privateVisibility {
-		return stableExpectations{}, fmt.Errorf("repositoryVisibility must be %q for this private profile", privateVisibility)
+	if s.RepositoryVisibility != tp.visibility {
+		return stableExpectations{}, fmt.Errorf("repositoryVisibility must be %q for this %s profile", tp.visibility, tp.kind)
 	}
 	if s.CertificateIssuer != githubOIDCIssuer {
 		return stableExpectations{}, fmt.Errorf("certificateIssuer must be %q", githubOIDCIssuer)
@@ -450,15 +465,15 @@ func parseStableExpectations(raw []byte) (stableExpectations, error) {
 	if err := exactFields(trustedRoot, "$.trustedRoot", "profile", "sha256", "size"); err != nil {
 		return stableExpectations{}, err
 	}
-	if err := exactString(trustedRoot, "profile", "github-private-signed-timestamp-v1", "$.trustedRoot"); err != nil {
+	if err := exactString(trustedRoot, "profile", tp.rootProfile, "$.trustedRoot"); err != nil {
 		return stableExpectations{}, err
 	}
-	if err := exactString(trustedRoot, "sha256", trustedRootSHA256, "$.trustedRoot"); err != nil {
+	if err := exactString(trustedRoot, "sha256", tp.rootSHA256, "$.trustedRoot"); err != nil {
 		return stableExpectations{}, err
 	}
 	rootSize, ok := trustedRoot["size"].(strictJSONNumber)
-	if !ok || string(rootSize) != strconv.Itoa(trustedRootSize) {
-		return stableExpectations{}, fmt.Errorf("$.trustedRoot.size must equal the embedded root size %d", trustedRootSize)
+	if !ok || string(rootSize) != strconv.Itoa(tp.rootSize) {
+		return stableExpectations{}, fmt.Errorf("$.trustedRoot.size must equal the embedded root size %d", tp.rootSize)
 	}
 	return s, nil
 }
@@ -664,23 +679,9 @@ func parsePrivateBundleProfile(raw []byte) (rawBundleProfile, error) {
 	if err := exactFields(material, "$.verificationMaterial", "certificate", "timestampVerificationData"); err != nil {
 		return rawBundleProfile{}, err
 	}
-	certificateObject, err := objectAt(material["certificate"], "$.verificationMaterial.certificate")
+	leaf, err := parseBundleLeafCertificate(material)
 	if err != nil {
 		return rawBundleProfile{}, err
-	}
-	if err := exactFields(certificateObject, "$.verificationMaterial.certificate", "rawBytes"); err != nil {
-		return rawBundleProfile{}, err
-	}
-	certificateDER, err := canonicalBase64(certificateObject["rawBytes"], "$.verificationMaterial.certificate.rawBytes")
-	if err != nil {
-		return rawBundleProfile{}, err
-	}
-	if len(certificateDER) < 1 || len(certificateDER) > maximumCertificateBytes {
-		return rawBundleProfile{}, fmt.Errorf("certificate DER size must be 1..%d bytes", maximumCertificateBytes)
-	}
-	leaf, err := x509.ParseCertificate(certificateDER)
-	if err != nil {
-		return rawBundleProfile{}, fmt.Errorf("parse leaf certificate: %w", err)
 	}
 	if containsCTExtension(leaf) {
 		return rawBundleProfile{}, fmt.Errorf("certificate transparency/SCT extensions are forbidden in the GitHub-private profile")
@@ -715,51 +716,81 @@ func parsePrivateBundleProfile(raw []byte) (rawBundleProfile, error) {
 		return rawBundleProfile{}, fmt.Errorf("RFC3161 timestamp size must be 1..%d bytes", maximumTimestampBytes)
 	}
 
-	envelope, err := objectAt(rootObject["dsseEnvelope"], "$.dsseEnvelope")
+	statement, err := parseBundleStatement(rootObject)
 	if err != nil {
 		return rawBundleProfile{}, err
 	}
+	return rawBundleProfile{statement: statement, cert: leaf}, nil
+}
+
+func parseBundleLeafCertificate(material map[string]any) (*x509.Certificate, error) {
+	certificateObject, err := objectAt(material["certificate"], "$.verificationMaterial.certificate")
+	if err != nil {
+		return nil, err
+	}
+	if err := exactFields(certificateObject, "$.verificationMaterial.certificate", "rawBytes"); err != nil {
+		return nil, err
+	}
+	certificateDER, err := canonicalBase64(certificateObject["rawBytes"], "$.verificationMaterial.certificate.rawBytes")
+	if err != nil {
+		return nil, err
+	}
+	if len(certificateDER) < 1 || len(certificateDER) > maximumCertificateBytes {
+		return nil, fmt.Errorf("certificate DER size must be 1..%d bytes", maximumCertificateBytes)
+	}
+	leaf, err := x509.ParseCertificate(certificateDER)
+	if err != nil {
+		return nil, fmt.Errorf("parse leaf certificate: %w", err)
+	}
+	return leaf, nil
+}
+
+func parseBundleStatement(rootObject map[string]any) (map[string]any, error) {
+	envelope, err := objectAt(rootObject["dsseEnvelope"], "$.dsseEnvelope")
+	if err != nil {
+		return nil, err
+	}
 	if err := exactFields(envelope, "$.dsseEnvelope", "payload", "payloadType", "signatures"); err != nil {
-		return rawBundleProfile{}, err
+		return nil, err
 	}
 	if err := exactString(envelope, "payloadType", payloadType, "$.dsseEnvelope"); err != nil {
-		return rawBundleProfile{}, err
+		return nil, err
 	}
 	payload, err := canonicalBase64(envelope["payload"], "$.dsseEnvelope.payload")
 	if err != nil {
-		return rawBundleProfile{}, err
+		return nil, err
 	}
 	if len(payload) < 1 || len(payload) > maximumStatementBytes {
-		return rawBundleProfile{}, fmt.Errorf("DSSE statement size must be 1..%d bytes", maximumStatementBytes)
+		return nil, fmt.Errorf("DSSE statement size must be 1..%d bytes", maximumStatementBytes)
 	}
 	statementValue, err := parseStrictJSON(payload)
 	if err != nil {
-		return rawBundleProfile{}, fmt.Errorf("DSSE payload is not strict I-JSON: %w", err)
+		return nil, fmt.Errorf("DSSE payload is not strict I-JSON: %w", err)
 	}
 	statement, err := objectAt(statementValue, "$ DSSE payload")
 	if err != nil {
-		return rawBundleProfile{}, err
+		return nil, err
 	}
 	signatures, err := arrayAt(envelope["signatures"], "$.dsseEnvelope.signatures")
 	if err != nil {
-		return rawBundleProfile{}, err
+		return nil, err
 	}
 	if len(signatures) != 1 {
-		return rawBundleProfile{}, fmt.Errorf("expected exactly one DSSE signature, got %d", len(signatures))
+		return nil, fmt.Errorf("expected exactly one DSSE signature, got %d", len(signatures))
 	}
 	signature, err := objectAt(signatures[0], "$.dsseEnvelope.signatures[0]")
 	if err != nil {
-		return rawBundleProfile{}, err
+		return nil, err
 	}
 	if err := exactFields(signature, "$.dsseEnvelope.signatures[0]", "sig"); err != nil {
-		return rawBundleProfile{}, err
+		return nil, err
 	}
 	if signatureBytes, err := canonicalBase64(signature["sig"], "$.dsseEnvelope.signatures[0].sig"); err != nil {
-		return rawBundleProfile{}, err
+		return nil, err
 	} else if len(signatureBytes) < 1 || len(signatureBytes) > maximumSignatureBytes {
-		return rawBundleProfile{}, fmt.Errorf("DSSE signature size must be 1..%d bytes", maximumSignatureBytes)
+		return nil, fmt.Errorf("DSSE signature size must be 1..%d bytes", maximumSignatureBytes)
 	}
-	return rawBundleProfile{statement: statement, cert: leaf}, nil
+	return statement, nil
 }
 
 // @ref LLP 0035#transport-and-distribution-provenance — the signed subject,
@@ -931,7 +962,7 @@ func validateStatement(statement map[string]any, expected expectations, claims d
 	return exactString(metadata, "invocationId", claims.invocationURI, "$.predicate.runDetails.metadata")
 }
 
-func validateCertificateClaims(leaf *x509.Certificate, expected expectations, claims derivedClaims) error {
+func validateCertificateClaims(leaf *x509.Certificate, expected expectations, claims derivedClaims, tp trustProfile) error {
 	rawSAN, err := exactCertificateURISAN(leaf)
 	if err != nil {
 		return err
@@ -945,8 +976,8 @@ func validateCertificateClaims(leaf *x509.Certificate, expected expectations, cl
 	if len(leaf.DNSNames) != 0 || len(leaf.EmailAddresses) != 0 || len(leaf.IPAddresses) != 0 {
 		return fmt.Errorf("unexpected non-URI subject alternative names")
 	}
-	if len(leaf.Issuer.Organization) != 1 || leaf.Issuer.Organization[0] != "GitHub, Inc." {
-		return fmt.Errorf("leaf issuer organization is not the GitHub-private CA")
+	if len(leaf.Issuer.Organization) != 1 || leaf.Issuer.Organization[0] != tp.issuerOrganization {
+		return fmt.Errorf("leaf issuer organization is not the %s CA", tp.label)
 	}
 
 	values, err := exactSigstoreExtensions(leaf)
@@ -1093,27 +1124,27 @@ func certificateIdentity(expected expectations, claims derivedClaims) (verify.Ce
 	return verify.NewCertificateIdentity(san, issuer, extensions)
 }
 
-func loadPinnedTrustedRoot() (*root.TrustedRoot, error) {
-	raw, err := trustFiles.ReadFile("trust/github-private/trusted_root.json")
+func loadPinnedTrustedRoot(tp trustProfile) (*root.TrustedRoot, error) {
+	raw, err := trustFiles.ReadFile(tp.rootPath)
 	if err != nil {
-		return nil, fmt.Errorf("read embedded GitHub-private trusted root: %w", err)
+		return nil, fmt.Errorf("read embedded %s trusted root: %w", tp.label, err)
 	}
-	if len(raw) != trustedRootSize {
-		return nil, fmt.Errorf("embedded GitHub-private trusted root size: expected %d, got %d", trustedRootSize, len(raw))
+	if len(raw) != tp.rootSize {
+		return nil, fmt.Errorf("embedded %s trusted root size: expected %d, got %d", tp.label, tp.rootSize, len(raw))
 	}
 	digest := sha256.Sum256(raw)
-	if hex.EncodeToString(digest[:]) != trustedRootSHA256 {
-		return nil, fmt.Errorf("embedded GitHub-private trusted root digest mismatch")
+	if hex.EncodeToString(digest[:]) != tp.rootSHA256 {
+		return nil, fmt.Errorf("embedded %s trusted root digest mismatch", tp.label)
 	}
 	value, err := parseStrictJSON(raw)
 	if err != nil {
-		return nil, fmt.Errorf("embedded GitHub-private trusted root is not strict I-JSON: %w", err)
+		return nil, fmt.Errorf("embedded %s trusted root is not strict I-JSON: %w", tp.label, err)
 	}
 	object, err := objectAt(value, "$ trusted root")
 	if err != nil {
 		return nil, err
 	}
-	if err := exactFields(object, "$ trusted root", "mediaType", "certificateAuthorities", "timestampAuthorities"); err != nil {
+	if err := exactFields(object, "$ trusted root", tp.rootFields...); err != nil {
 		return nil, err
 	}
 	if err := exactString(object, "mediaType", trustedRootMediaType, "$ trusted root"); err != nil {
@@ -1121,18 +1152,32 @@ func loadPinnedTrustedRoot() (*root.TrustedRoot, error) {
 	}
 	cas, err := arrayAt(object["certificateAuthorities"], "$ trusted root.certificateAuthorities")
 	if err != nil || len(cas) == 0 {
-		return nil, fmt.Errorf("trusted root must contain GitHub certificate authorities")
-	}
-	tsas, err := arrayAt(object["timestampAuthorities"], "$ trusted root.timestampAuthorities")
-	if err != nil || len(tsas) == 0 {
-		return nil, fmt.Errorf("trusted root must contain GitHub timestamp authorities")
+		return nil, fmt.Errorf("trusted root must contain %s certificate authorities", tp.authorityLabel)
 	}
 	trusted, err := root.NewTrustedRootFromJSON(raw)
 	if err != nil {
-		return nil, fmt.Errorf("sigstore-go rejected embedded GitHub-private trusted root: %w", err)
+		return nil, fmt.Errorf("sigstore-go rejected embedded %s trusted root: %w", tp.label, err)
+	}
+	if tp.kind == "public" {
+		tlogs, err := arrayAt(object["tlogs"], "$ trusted root.tlogs")
+		if err != nil || len(tlogs) == 0 {
+			return nil, fmt.Errorf("trusted root must contain %s transparency logs", tp.authorityLabel)
+		}
+		ctlogs, err := arrayAt(object["ctlogs"], "$ trusted root.ctlogs")
+		if err != nil || len(ctlogs) == 0 {
+			return nil, fmt.Errorf("trusted root must contain %s certificate-transparency logs", tp.authorityLabel)
+		}
+		if len(trusted.RekorLogs()) == 0 || len(trusted.CTLogs()) == 0 {
+			return nil, fmt.Errorf("%s trusted root is missing transparency-log authority", tp.label)
+		}
+		return trusted, nil
+	}
+	tsas, err := arrayAt(object["timestampAuthorities"], "$ trusted root.timestampAuthorities")
+	if err != nil || len(tsas) == 0 {
+		return nil, fmt.Errorf("trusted root must contain %s timestamp authorities", tp.authorityLabel)
 	}
 	if len(trusted.RekorLogs()) != 0 || len(trusted.CTLogs()) != 0 {
-		return nil, fmt.Errorf("GitHub-private trusted root unexpectedly contains transparency-log authority")
+		return nil, fmt.Errorf("%s trusted root unexpectedly contains transparency-log authority", tp.label)
 	}
 	return trusted, nil
 }
