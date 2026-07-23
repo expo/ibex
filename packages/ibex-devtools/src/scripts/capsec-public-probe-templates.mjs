@@ -60,6 +60,14 @@ const FS_LIST_EXPORTS = new Set(["lstatSync", "readdirSync", "statSync"]);
 // (LLP 0037 D3).
 // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
 const FS_READ_EXPORTS = new Set(["readFileSync"]);
+// Synchronous, path-taking fs:write exports. Each opens the authenticated
+// fixture file for write (an fs:list traversal credited to ambient-mount
+// authority under LLP 0037 D1) and writes the literal payload (the fs:write
+// commit gated by the static floor). Same open-then-act shape as fs:read; the
+// typed sequence is observed from the bound engine, never guessed (LLP 0037 D3).
+// @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
+const FS_WRITE_EXPORTS = new Set(["writeFileSync"]);
+const FS_WRITE_PAYLOAD = "ibex-capsec-write-fixture\n";
 const FS_FIXTURE_PATH = Object.freeze({
   root: "project",
   components: [{ encoding: "utf8", value: "capsec-stat-fixture.txt" }],
@@ -421,6 +429,75 @@ export function authoredBuiltinPublicProbe({
             ],
         allowedCoverageEdgeIds,
         expectedActionIds: ["fs:read"],
+      },
+    };
+  }
+
+  // fs:write family — synchronous, path-taking writes of the authenticated
+  // fixture file. Same open-then-act shape as fs:read (LLP 0037 D1/D4): the
+  // open's fs:list traversal is ambient-mount, the fs:write commit is
+  // floor-gated. Takes the path plus a literal payload argument.
+  // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
+  if (
+    plan.actionIds.length === 1 &&
+    plan.actionIds[0] === "fs:write" &&
+    FS_WRITE_EXPORTS.has(fsExportName)
+  ) {
+    const descriptor = sourceDescriptor(
+      liveByObservedKey.get(surfaceObservedKey),
+      "node_fs",
+      fsExportName,
+      "node:fs",
+    );
+    if (!descriptor) return null;
+    const logicalPath = FS_FIXTURE_PATH;
+    return {
+      kind: "public-surface-invocation",
+      surfaceObservedKey,
+      command: [...BUILTIN_BATCH_COMMAND],
+      invocation: {
+        invocationSchema: "ibex/capsec-builtin-export-invocation/1",
+        kind: "builtin-export-call",
+        moduleSpecifier: "node:fs",
+        exportName: fsExportName,
+        sourceDescriptor: descriptor,
+        sourceDescriptorDigest: taggedDigest(descriptor),
+        arguments: [
+          { kind: "filesystem-fixture-path", logicalPath },
+          { kind: "literal-utf8", value: FS_WRITE_PAYLOAD },
+        ],
+        setup: {
+          kind: "filesystem-file",
+          logicalPath,
+          contents: "ibex-capsec-stat-fixture\n",
+        },
+        requiredAuthority: [
+          {
+            cap: "fs:write",
+            resource: { kind: "path-exact", path: logicalPath },
+          },
+        ],
+        expectedResult: publicDenial ? "permission-denied" : "return",
+        // Observed from the bound engine (LLP 0037 D3): writeFileSync opens the
+        // fixture (the fs:list traversal, ambient-mount) then writes it (the
+        // fs:write commit and one retained repeat) — a 7-decision sequence on
+        // allow. On deny the open still succeeds and only the fs:write commit is
+        // refused, giving the 6-decision open chain ending at the denied commit
+        // (LLP 0037 D4).
+        expectedTypedDecisionCount: publicDenial ? 6 : 7,
+        expectedTypedStages: publicDenial
+          ? ["requested", "requested", "discovery", "requested", "repeat", "commit"]
+          : [
+              "requested",
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "commit",
+              "repeat",
+            ],
+        allowedCoverageEdgeIds,
+        expectedActionIds: ["fs:write"],
       },
     };
   }

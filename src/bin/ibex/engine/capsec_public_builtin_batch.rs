@@ -415,11 +415,11 @@ fn builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
 fn expected_authored_builtin_recipe_count(target: &str) -> usize {
     match target {
         // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
-        // +5 on Apple for the fs:read readFileSync export (allow/deny/malformed/
-        // missing-attribution/wrong-principal scenario matrix). Windows keeps
-        // 120: its node_fs enforcement route is ambiguous, so the readFileSync
-        // probe is correctly not authored there.
-        "aarch64-apple-darwin" => 140,
+        // +5 each on Apple for the fs:read readFileSync and fs:write
+        // writeFileSync exports (their allow/deny/malformed/missing-attribution/
+        // wrong-principal scenario matrices). Windows keeps 120: its node_fs
+        // enforcement route is ambiguous, so neither is authored there.
+        "aarch64-apple-darwin" => 145,
         "x86_64-pc-windows-msvc" => 120,
         target => panic!("builtin public recipe batch has no reviewed target shape for {target}"),
     }
@@ -429,7 +429,7 @@ fn expected_authored_builtin_recipe_count(target: &str) -> usize {
 fn capsec_public_builtin_recipe_counts_are_target_specific() {
     assert_eq!(
         expected_authored_builtin_recipe_count("aarch64-apple-darwin"),
-        140
+        145
     );
     assert_eq!(
         expected_authored_builtin_recipe_count("x86_64-pc-windows-msvc"),
@@ -510,13 +510,16 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
             assert_eq!(invocation.module_specifier, "node:fs");
             assert_eq!(invocation.source_descriptor["sourceKey"], "node_fs");
             // fs:list stat exports bind list authority over the fixture; the
-            // fs:read readFileSync export binds read authority over the same
-            // authenticated file. Both take one path argument and are driven by
-            // the generic export invocation script.
+            // fs:read readFileSync export binds read authority; the fs:write
+            // writeFileSync export binds write authority over the same
+            // authenticated file. All are driven by the generic export
+            // invocation script — the read/list exports take one path argument,
+            // the write export additionally takes the literal payload.
             // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
             let expected_cap = match export_name {
                 "lstatSync" | "statSync" => "fs:list",
                 "readFileSync" => "fs:read",
+                "writeFileSync" => "fs:write",
                 other => panic!("unsupported filesystem-file fs export {other}"),
             };
             let logical_path = serde_json::json!({
@@ -536,7 +539,6 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
             let contents = invocation.setup["contents"]
                 .as_str()
                 .expect("filesystem fixture contents must be a string");
-            assert_eq!(invocation.arguments.len(), 1);
             assert_eq!(
                 invocation.arguments[0],
                 serde_json::json!({
@@ -544,6 +546,21 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
                     "logicalPath": logical_path,
                 })
             );
+            let mut runtime_arguments = vec![serde_json::Value::String(
+                "/project/capsec-stat-fixture.txt".to_owned(),
+            )];
+            if expected_cap == "fs:write" {
+                // The write export takes a literal payload as its second
+                // argument; the read/list exports take only the path.
+                assert_eq!(invocation.arguments.len(), 2);
+                let payload = invocation.arguments[1]["value"]
+                    .as_str()
+                    .expect("fs:write literal payload must be a string");
+                assert_eq!(invocation.arguments[1]["kind"], "literal-utf8");
+                runtime_arguments.push(serde_json::Value::String(payload.to_owned()));
+            } else {
+                assert_eq!(invocation.arguments.len(), 1);
+            }
             let fixture_root = tempfile::tempdir().expect("create builtin filesystem fixture");
             let project_root = std::fs::canonicalize(fixture_root.path())
                 .expect("canonicalize builtin filesystem fixture root");
@@ -552,9 +569,7 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
             PreparedInvocation {
                 _fixture_root: Some(fixture_root),
                 project_root: Some(project_root),
-                arguments: vec![serde_json::Value::String(
-                    "/project/capsec-stat-fixture.txt".to_owned(),
-                )],
+                arguments: runtime_arguments,
             }
         }
         Some("filesystem-directory") => {
@@ -763,7 +778,8 @@ fn validate_observation(
         // refused — so per-decision expectations key on whether this decision is
         // the ambient traversal or the gated operation.
         // @ref LLP 0037#d4--the-deny-shape-of-an-open-then-act-operation
-        let opens_via_traversal = recipe.action_ids == ["fs:read"];
+        let opens_via_traversal =
+            recipe.action_ids == ["fs:read"] || recipe.action_ids == ["fs:write"];
         let decision_is_traversal = opens_via_traversal
             && effects.iter().all(|effect| effect["cap"] == "fs:list");
         let decision_denied = public_denial && !decision_is_traversal;

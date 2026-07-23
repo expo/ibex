@@ -258,13 +258,14 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.summary.requiredFixtures).toBe(24_585);
     // Thirty reviewed roots gain exact fresh-engine receipts while the
     // formerly source-misattributed stream/promises export probe is retracted.
-    // +5 for the fs:read readFileSync export family (LLP 0037).
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_597);
+    // +10 for the fs:read readFileSync and fs:write writeFileSync export
+    // families (LLP 0037), 5 scenario rows each.
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_602);
     // The seven internal callback-security invariant scenarios are attested by
     // internal Rust proofs, not public-surface probes (LLP 0036), so they leave
     // the unresolved count and form their own classification.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_727);
-    expect(recipes.summary.unresolvedFixtures).toBe(18_261);
+    expect(recipes.summary.unresolvedFixtures).toBe(18_256);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -429,9 +430,10 @@ describe("exact-target CapSec executable recipes", () => {
           "public-surface-filesystem-not-typed-on-target",
         ),
     );
-    // 128 = 123 + the 5 fs:read readFileSync rows, now Apple-authored (LLP
-    // 0037) and therefore "not typed on target" for the ambiguous Windows route.
-    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(128);
+    // 133 = 123 + the 10 fs:read readFileSync and fs:write writeFileSync rows,
+    // now Apple-authored (LLP 0037) and therefore "not typed on target" for the
+    // ambiguous Windows route.
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(133);
     expect(
       unsupportedWindowsFilesystemRecipes.every(
         (recipe) =>
