@@ -3070,6 +3070,207 @@ fn fresh_legacy_host() {
 // two artifact builders return an exact `{"ok":false,...}` refusal document.
 // This proves each single-output surface's bounded refusal shape without an
 // armed GPU authority fixture; their success paths remain residual.
+/// Arm a Host whose Exact GPU provider binding is derived from the compiled
+/// source registry itself, so `provider_binding_matches_source_registry` holds
+/// by construction and cannot drift. The existing `install_armed_gpu_v2_test_host`
+/// helper carries placeholder vocabulary/operation-set/routing digests and an
+/// incomplete operation-id set for the runtime-bridge flow, so it can never
+/// reach the Host authorize/capture success branch.
+/// @ref LLP 0035#host-abi-output-shape-residuals-the-classified-remainder
+#[derive(Clone)]
+struct SourceRegistryGpuProvider {
+    profile_id: String,
+    profile_digest: String,
+    vocabulary_digest: String,
+    operation_set_digest: String,
+    semantic_program_digest: String,
+    routing_digest: String,
+    operation_ids: Vec<u32>,
+}
+
+fn source_registry_gpu_provider() -> Result<SourceRegistryGpuProvider, String> {
+    let registry: Value = serde_json::from_str(
+        ibex_runtime::capsec_registry_generated::CAPSEC_WEBGPU_PRIVATE_OPERATION_REGISTRY_JSON,
+    )
+    .map_err(|error| format!("compiled WebGPU registry is not JSON: {error}"))?;
+    let identity = registry
+        .get("providerIdentity")
+        .ok_or("compiled WebGPU registry has no providerIdentity")?;
+    let hex_to_tagged = |name: &str| -> Result<String, String> {
+        let hex = identity
+            .get(name)
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("registry providerIdentity has no {name}"))?;
+        if hex.len() != 64 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(format!("registry {name} is not a raw sha256 hex digest"));
+        }
+        let mut raw = [0u8; 32];
+        for (index, slot) in raw.iter_mut().enumerate() {
+            *slot = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16)
+                .map_err(|error| format!("registry {name} hex is malformed: {error}"))?;
+        }
+        use base64::Engine as _;
+        Ok(format!(
+            "sha256-{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw)
+        ))
+    };
+    let operation_ids = identity
+        .get("sortedOperationIds")
+        .and_then(Value::as_array)
+        .ok_or("registry providerIdentity has no sortedOperationIds")?
+        .iter()
+        .map(|value| {
+            value
+                .as_u64()
+                .and_then(|raw| u32::try_from(raw).ok())
+                .ok_or_else(|| "registry operation id is not a u32".to_string())
+        })
+        .collect::<Result<Vec<u32>, String>>()?;
+    Ok(SourceRegistryGpuProvider {
+        profile_id: identity
+            .get("profileId")
+            .and_then(Value::as_str)
+            .ok_or("registry providerIdentity has no profileId")?
+            .to_owned(),
+        profile_digest: hex_to_tagged("profileDigest")?,
+        vocabulary_digest: hex_to_tagged("webgpuCVocabularyDigest")?,
+        operation_set_digest: hex_to_tagged("operationSetDigest")?,
+        semantic_program_digest: hex_to_tagged("semanticProgramDigest")?,
+        routing_digest: hex_to_tagged("runtimeRoutingDigest")?,
+        operation_ids,
+    })
+}
+
+/// Install an armed Host carrying the source-registry-exact provider and claim
+/// its context. The guard must outlive the returned context id.
+fn install_source_registry_gpu_host(
+    provider: &SourceRegistryGpuProvider,
+) -> Result<(super::HostResetGuard, u64), String> {
+    let gpu_floor = provider
+        .operation_ids
+        .iter()
+        .map(|_| serde_json::json!({}))
+        .take(0)
+        .collect::<Vec<Value>>();
+    let provider_block = serde_json::json!({
+        "schema": "exact/webgpu-provider/1",
+        "abiVersion": 131_072,
+        "profileId": provider.profile_id,
+        "profileDigest": provider.profile_digest,
+        "webgpuCVocabularyDigest": provider.vocabulary_digest,
+        "operationSetDigest": provider.operation_set_digest,
+        "semanticProgramDigest": provider.semantic_program_digest,
+        "runtimeRoutingDigest": provider.routing_digest,
+        "operationIds": provider.operation_ids,
+        "topology": "isolated-per-logical-v1"
+    });
+    let (host, digest) = super::build_armed_test_host_custom(
+        None,
+        false,
+        false,
+        false,
+        gpu_floor,
+        None,
+        move |value| {
+            value["exactGpuProvider"] = provider_block;
+            value["protectedObjects"]
+                .as_array_mut()
+                .expect("armed fixture has a protected-object array")
+                .push(serde_json::json!({
+                    "role": "exact-webgpu-profile",
+                    "object": {
+                        "platform": "unix",
+                        "volume": "fixture-volume",
+                        "file": "exact-webgpu-profile"
+                    },
+                    "deniedActions": ["fs:write"]
+                }));
+        },
+    );
+    if crate::host::abi::install_host(host) == 0 {
+        return Err("source-registry GPU host was not installed".into());
+    }
+    let guard = super::HostResetGuard;
+    let digest_c = CString::new(digest).map_err(|_| "armed digest contained NUL".to_string())?;
+    let context_id = unsafe { crate::host::abi::ex_host_claim_armed_context(digest_c.as_ptr()) };
+    if context_id == 0 {
+        return Err("source-registry GPU host context was not claimed".into());
+    }
+    Ok((guard, context_id))
+}
+
+/// Drive the Exact GPU provider authorization to its success branch against an
+/// armed Host whose binding is source-registry exact. This is the only path on
+/// which the route emits an authority digest; every other input is refused with
+/// 0 by the fail-closed executor above.
+/// @ref LLP 0035#host-abi-output-shape-residuals-the-classified-remainder
+fn execute_gpu_authority_success(function_name: &str, selector: &str) -> Result<Value, String> {
+    extern "C" {
+        fn ex_host_authorize_exact_gpu_provider_v2(
+            context_id: u64,
+            abi_version: u32,
+            profile_id: *const u8,
+            profile_id_len: usize,
+            profile_digest: *const u8,
+            webgpu_c_vocabulary_digest: *const u8,
+            operation_set_digest: *const u8,
+            semantic_program_digest: *const u8,
+            runtime_routing_digest: *const u8,
+            operation_ids: *const u32,
+            operation_count: usize,
+            topology_id: u32,
+            out_authority_digest: *mut u8,
+        ) -> i32;
+    }
+    if function_name != "ex_host_authorize_exact_gpu_provider_v2" {
+        return Err(format!("{function_name} is not a GPU authority success route"));
+    }
+    let provider = source_registry_gpu_provider()?;
+    let (_guard, context_id) = install_source_registry_gpu_host(&provider)?;
+    let raw_digest = |tagged: &str| -> [u8; 32] { super::raw_gpu_digest(tagged) };
+    let profile_digest = raw_digest(&provider.profile_digest);
+    let vocabulary_digest = raw_digest(&provider.vocabulary_digest);
+    let operation_set_digest = raw_digest(&provider.operation_set_digest);
+    let semantic_program_digest = raw_digest(&provider.semantic_program_digest);
+    let routing_digest = raw_digest(&provider.routing_digest);
+    let mut authority_digest = [0u8; 32];
+    let status = unsafe {
+        ex_host_authorize_exact_gpu_provider_v2(
+            context_id,
+            0x0002_0000,
+            provider.profile_id.as_ptr(),
+            provider.profile_id.len(),
+            profile_digest.as_ptr(),
+            vocabulary_digest.as_ptr(),
+            operation_set_digest.as_ptr(),
+            semantic_program_digest.as_ptr(),
+            routing_digest.as_ptr(),
+            provider.operation_ids.as_ptr(),
+            provider.operation_ids.len(),
+            1,
+            authority_digest.as_mut_ptr(),
+        )
+    };
+    if status != 1 {
+        return Err(format!(
+            "source-registry-exact provider authorization was refused (status {status})"
+        ));
+    }
+    if authority_digest.iter().all(|byte| *byte == 0) {
+        return Err("authorized provider produced an empty authority digest".into());
+    }
+    match selector {
+        "[[return]]" => Ok(returned_number(status)),
+        "out:authority_digest" => Ok(raw(
+            "return",
+            "array",
+            json!(authority_digest.to_vec()),
+        )),
+        other => Err(format!("unsupported GPU authority output selector {other}")),
+    }
+}
+
 fn execute_gpu_authority_refusal(function_name: &str) -> Result<Value, String> {
     extern "C" {
         fn ex_host_authorize_embedder_capability_set(context_id: u64, installed_flags: u32) -> i32;
@@ -7235,6 +7436,9 @@ fn execute_immediate_host_abi_output(
         "rust-host-terminal-inert" => execute_terminal(function_name, &validated.selector),
         "rust-host-bounded-basic" => execute_basic(function_name),
         "rust-host-gpu-authority-refusal" => execute_gpu_authority_refusal(function_name),
+        "rust-host-gpu-authority-success" => {
+            execute_gpu_authority_success(function_name, &validated.selector)
+        }
         "native-hermes-stateless-current-target" => {
             execute_hermes_stateless(function_name, &validated.selector)
         }
@@ -8029,6 +8233,21 @@ fn merged_host_abi_output_routes_execute_bounded_calls() {
             .as_str()
             .is_some_and(|value| value.contains("\"ok\":false")));
     }
+
+    // The provider authorization success branch: a source-registry-exact armed
+    // binding authorizes (status 1) and emits a nonempty authority digest.
+    let authorized =
+        execute_gpu_authority_success("ex_host_authorize_exact_gpu_provider_v2", "[[return]]")
+            .expect("authorize the source-registry-exact GPU provider");
+    assert_eq!(authorized, returned_number(1));
+    let authority_digest =
+        execute_gpu_authority_success("ex_host_authorize_exact_gpu_provider_v2", "out:authority_digest")
+            .expect("emit the provider authority digest");
+    assert_eq!(authority_digest["kind"], "return");
+    assert_eq!(authority_digest["rawValueShape"], "array");
+    assert!(authority_digest["value"]
+        .as_array()
+        .is_some_and(|bytes| bytes.len() == 32 && bytes.iter().any(|b| b.as_u64() != Some(0))));
 
     let sandbox = FsSandbox::new();
     for (function_name, selector, shape) in [

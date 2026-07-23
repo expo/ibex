@@ -1221,14 +1221,14 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       ),
     ).toBe(false);
     expect(executionPartition.hostAbi.targetAbsenceBindings).toHaveLength(59);
-    expect(executionPartition.hostAbi.rows).toHaveLength(506);
-    // The 8 residual rows are the GPU-provider-success routes (armed authority
+    expect(executionPartition.hostAbi.rows).toHaveLength(508);
+    // The 6 residual rows are the remaining GPU-provider-success routes (armed authority
     // digests, session capture, receipt/decoded-image delivery) plus the
     // borrowed-pointer authority-API return, which has no bounded output by
     // contract. The sweep plan must keep failing bidirectionality until a
     // reviewed armed GPU-authority fixture closes them.
     // @ref LLP 0035#host-abi-output-shape-residuals-the-classified-remainder
-    expect(executionPartition.hostAbi.residuals).toHaveLength(8);
+    expect(executionPartition.hostAbi.residuals).toHaveLength(6);
 
     const baseBindings = fixture().bindings;
     const targetAbsenceProbes = buildTargetAbsenceOutputShapeProbes({
@@ -1348,12 +1348,12 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       shifted.hostAbi.targetAbsenceBindings.length,
       shifted.hostAbi.rows.length,
       shifted.hostAbi.residuals.length,
-    ]).not.toEqual([59, 506, 8]);
+    ]).not.toEqual([59, 508, 6]);
     expect([
       executionPartition.hostAbi.targetAbsenceBindings.length,
       executionPartition.hostAbi.rows.length,
       executionPartition.hostAbi.residuals.length,
-    ]).toEqual([59, 506, 8]);
+    ]).toEqual([59, 508, 6]);
   }, 180_000);
 
   test("routes and exactly validates the complete builtin-effects tranche", async () => {

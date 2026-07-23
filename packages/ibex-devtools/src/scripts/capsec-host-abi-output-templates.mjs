@@ -338,6 +338,14 @@ const HOST_GPU_AUTHORITY_REFUSAL_FUNCTIONS = new Set([
   "ex_host_force_retire_exact_gpu_authority_session_v2",
 ]);
 
+// The provider authorization route emits an authority digest only against an
+// armed Host whose GPU provider binding is source-registry exact. The batch
+// builds that fixture from the compiled registry itself, so the binding cannot
+// drift away from the gate it must satisfy.
+const HOST_GPU_AUTHORITY_SUCCESS_FUNCTIONS = new Set([
+  "ex_host_authorize_exact_gpu_provider_v2",
+]);
+
 // Stateful native families whose output shapes can be observed only while a
 // bounded production fixture owns their runtime/session/server lifecycle.
 // Membership is deliberately exact: adding a new ABI does not inherit an
@@ -480,6 +488,7 @@ const BOUNDED_FAMILY_OUTPUT_SELECTORS = new Set([
   "ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1\0out:error",
   // stage/run surface this channel only on the reviewed out-of-order drive
   // refusal, which writes a bounded error and quarantines the owned runtime.
+  "ex_host_authorize_exact_gpu_provider_v2\0out:authority_digest",
   "ex_hermes_run_prepared_app_v1\0out:error",
   "ex_hermes_stage_prepared_native_startup_v1\0out:error",
   ...["ex_hermes_evaluation_result_dispose", "ex_hermes_evaluation_result_init"]
@@ -841,6 +850,9 @@ function operationFor(functionName, outputSelector = "[[return]]", key = null) {
   }
   if (HOST_GPU_AUTHORITY_REFUSAL_FUNCTIONS.has(functionName)) {
     return { kind: "rust-host-gpu-authority-refusal" };
+  }
+  if (HOST_GPU_AUTHORITY_SUCCESS_FUNCTIONS.has(functionName)) {
+    return { kind: "rust-host-gpu-authority-success" };
   }
   if (HOST_AUTHENTICATED_STATEFUL_FUNCTIONS.has(functionName)) {
     return { kind: "rust-host-authenticated-stateful-output" };
