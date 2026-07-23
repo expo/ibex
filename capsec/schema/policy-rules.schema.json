@@ -30,7 +30,7 @@
       "type": "object",
       "required": ["repository", "contractPath", "rustCratePath", "secondConsumerRule"],
       "properties": {
-        "repository": { "const": "ccheever/ibex" },
+        "repository": { "const": "expo/ibex" },
         "contractPath": { "const": "capsec" },
         "rustCratePath": { "const": "crates/capsec-semantics" },
         "secondConsumerRule": {

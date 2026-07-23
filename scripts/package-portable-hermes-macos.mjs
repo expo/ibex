@@ -245,7 +245,7 @@ function deriveSourceTreeIdentity(repoRoot, sourceRef, expectedSourceRevision) {
     treeBytes,
     document: {
       schema: "ibex/portable-engine-source-tree-identity/1",
-      repository: "ccheever/ibex",
+      repository: "expo/ibex",
       sourceRevision,
       sourceRef,
       gitObjectFormat,
@@ -311,15 +311,15 @@ function validateTrustPolicy(policy, sourceRef) {
   assert(
     policy.enginePublisher.enabled === true &&
       canonicalJson(policy.enginePublisher.offlineVerifier) === canonicalJson({
-        binaryDigest: "sha256-f69505f54caad78b6012519ac866eea23c19ade9d274bd61044c791a1e30f594",
-        binarySize: 25130562,
+        binaryDigest: "sha256-d08e02069a48089d22aac767a1f62ec55ccbb3f3d214b0f1f67ed3c1ffafe830",
+        binarySize: 25164610,
         goVersion: "go1.26.5",
         targetTriple: "aarch64-apple-darwin",
       }) &&
-      policy.enginePublisher.repository === "ccheever/ibex" &&
+      policy.enginePublisher.repository === "expo/ibex" &&
       policy.enginePublisher.repositoryId === "1268046138" &&
-      policy.enginePublisher.repositoryOwnerId === "56719" &&
-      policy.enginePublisher.repositoryVisibility === "private" &&
+      policy.enginePublisher.repositoryOwnerId === "12504344" &&
+      policy.enginePublisher.repositoryVisibility === "public" &&
       policy.enginePublisher.workflowPath === ".github/workflows/hermes-artifacts.yml" &&
       policy.enginePublisher.workflowName === "Hermes artifact cache" &&
       policy.enginePublisher.sourceRef === "refs/heads/main" &&
@@ -329,9 +329,9 @@ function validateTrustPolicy(policy, sourceRef) {
       policy.enginePublisher.certificateIssuer === "https://token.actions.githubusercontent.com" &&
       canonicalJson(policy.enginePublisher.allowedTriggers) === canonicalJson(["push", "workflow_dispatch"]) &&
       canonicalJson(policy.enginePublisher.trustedRoot) === canonicalJson({
-        profile: "github-private-signed-timestamp-v1",
-        sha256: "484cdfe1a7c65479c5ba2a22193d1be90f0020db1997de696ab207434c62fbb7",
-        size: 31645,
+        profile: "sigstore-public-good-rekor-v1",
+        sha256: "3c2cc7f357dc064ec527fdcd78da6e9245c21a381e1abaa0f2b62b186bcac1a1",
+        size: 5748,
       }),
     "checked publisher policy is not the diagnostic v1 authority",
   );

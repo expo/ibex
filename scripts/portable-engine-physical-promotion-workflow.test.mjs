@@ -116,7 +116,7 @@ test("every action is commit-pinned and checkout is the exact uncredentialed sou
   assert.match(checkout, /\n          persist-credentials: false\n/u);
   const boundary = namedStep("Assert trusted source-A and same-runner boundary");
   for (const required of [
-    '"$GITHUB_REPOSITORY" == "ccheever/ibex"',
+    '"$GITHUB_REPOSITORY" == "expo/ibex"',
     '"$GITHUB_REF" == "refs/heads/main"',
     '"$RUNNER_ENVIRONMENT" == "github-hosted"',
     '"$WORKFLOW_SHA" == "$GITHUB_SHA"',

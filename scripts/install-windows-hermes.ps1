@@ -110,10 +110,10 @@ $asset = "hermes-windows-$Arch-$assetKey.zip"
 $artifactRepo = if ($env:IBEX_HERMES_ARTIFACT_REPO) {
   $env:IBEX_HERMES_ARTIFACT_REPO
 } else {
-  "ccheever/ibex"
+  "expo/ibex"
 }
-$reviewedAttestationRepo = "ccheever/ibex"
-$reviewedAttestationWorkflow = "ccheever/ibex/.github/workflows/hermes-artifacts.yml"
+$reviewedAttestationRepo = "expo/ibex"
+$reviewedAttestationWorkflow = "expo/ibex/.github/workflows/hermes-artifacts.yml"
 $reviewedAttestationSourceRef = "refs/heads/main"
 $targetRoot = Join-Path $repoRoot "tools\hermes\windows-$Arch"
 $cacheRoot = Join-Path $env:LOCALAPPDATA "Exact\hermes-windows"

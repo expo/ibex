@@ -320,7 +320,7 @@ function buildSourceTree(revision) {
     treeBytes,
     document: {
       schema: "ibex/portable-engine-source-tree-identity/1",
-      repository: "ccheever/ibex",
+      repository: "expo/ibex",
       sourceRevision: revision,
       sourceRef: "refs/heads/main",
       gitObjectFormat: "sha1",
@@ -553,7 +553,7 @@ function mockVerificationResult({ archivePath, bundlePath, expectations, expecta
   const bundle = fs.readFileSync(bundlePath);
   const san = `https://github.com/${expectations.repository}/${expectations.workflowPath}@${expectations.sourceRef}`;
   return Buffer.from(`${canonicalJson({
-    schema: "ibex/github-private-artifact-attestation-verification/2",
+    schema: "ibex/github-public-artifact-attestation-verification/1",
     trustRoot: expectations.trustedRoot,
     expectationsDigest: sha256(expectationsBytes),
     bundle: { mediaType: "application/vnd.dev.sigstore.bundle.v0.3+json", sha256: sha256(bundle), size: bundle.length },
@@ -709,24 +709,24 @@ describe("portable engine installer core", () => {
     const fixture = buildFixture();
     const expectations = buildFixedVerifierExpectations(fixture.policy, fixture.revision, "artifact.tar.gz");
     assert.deepEqual(expectations, {
-      schema: "ibex/github-private-artifact-attestation-expectations/2",
+      schema: "ibex/github-public-artifact-attestation-expectations/1",
       subjectName: "artifact.tar.gz",
-      repository: "ccheever/ibex",
+      repository: "expo/ibex",
       repositoryId: "1268046138",
-      repositoryOwnerId: "56719",
+      repositoryOwnerId: "12504344",
       workflowPath: ".github/workflows/hermes-artifacts.yml",
       workflowName: "Hermes artifact cache",
       sourceRef: "refs/heads/main",
       sourceRevision: fixture.revision,
       allowedTriggers: ["push", "workflow_dispatch"],
       runnerEnvironment: "github-hosted",
-      repositoryVisibility: "private",
+      repositoryVisibility: "public",
       certificateIssuer: "https://token.actions.githubusercontent.com",
       buildType: "https://actions.github.io/buildtypes/workflow/v1",
       trustedRoot: {
-        profile: "github-private-signed-timestamp-v1",
-        sha256: "484cdfe1a7c65479c5ba2a22193d1be90f0020db1997de696ab207434c62fbb7",
-        size: 31645,
+        profile: "sigstore-public-good-rekor-v1",
+        sha256: "3c2cc7f357dc064ec527fdcd78da6e9245c21a381e1abaa0f2b62b186bcac1a1",
+        size: 5748,
       },
     });
     assert.equal("runId" in expectations, false);

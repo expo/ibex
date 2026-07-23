@@ -175,16 +175,16 @@
         "enabled": { "const": true },
         "offlineVerifier": {
           "const": {
-            "binaryDigest": "sha256-f69505f54caad78b6012519ac866eea23c19ade9d274bd61044c791a1e30f594",
-            "binarySize": 25130562,
+            "binaryDigest": "sha256-d08e02069a48089d22aac767a1f62ec55ccbb3f3d214b0f1f67ed3c1ffafe830",
+            "binarySize": 25164610,
             "goVersion": "go1.26.5",
             "targetTriple": "aarch64-apple-darwin"
           }
         },
-        "repository": { "const": "ccheever/ibex" },
+        "repository": { "const": "expo/ibex" },
         "repositoryId": { "const": "1268046138" },
-        "repositoryOwnerId": { "const": "56719" },
-        "repositoryVisibility": { "const": "private" },
+        "repositoryOwnerId": { "const": "12504344" },
+        "repositoryVisibility": { "const": "public" },
         "workflowPath": { "const": ".github/workflows/hermes-artifacts.yml" },
         "workflowName": { "const": "Hermes artifact cache" },
         "sourceRef": { "const": "refs/heads/main" },
@@ -192,9 +192,9 @@
         "provenanceRoot": { "const": "github-oidc-artifact-attestations" },
         "trustedRoot": {
           "const": {
-            "profile": "github-private-signed-timestamp-v1",
-            "sha256": "484cdfe1a7c65479c5ba2a22193d1be90f0020db1997de696ab207434c62fbb7",
-            "size": 31645
+            "profile": "sigstore-public-good-rekor-v1",
+            "sha256": "3c2cc7f357dc064ec527fdcd78da6e9245c21a381e1abaa0f2b62b186bcac1a1",
+            "size": 5748
           }
         }
       }

@@ -1449,7 +1449,7 @@ mod tests {
         assert_eq!(serde_json::to_value(&identity).unwrap(), value);
         assert_eq!(
             identity.observation_digest.as_str(),
-            "sha256-ozMLTYAK44JvGybxPiO_Rfc-QnGYIB550-tsAh8-Sb0"
+            "sha256-VE8va8jcsedacPI0pwl51i8klUWoaI_cyGyLGfEwuO8"
         );
         assert_eq!(
             identity.computed_observation_digest().unwrap(),

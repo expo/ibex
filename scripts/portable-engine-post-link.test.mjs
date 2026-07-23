@@ -173,7 +173,7 @@ function manifestFixture(runtimeBytes) {
       patchStackDigest: rawDigest(Buffer.from("patches", "utf8")),
     },
     build: {
-      repository: "ccheever/ibex",
+      repository: "expo/ibex",
       sourceRevision,
       sourceTreeDigest: semanticDigest("fixture.source-tree.v1", {
         fixture: true,

@@ -50,9 +50,9 @@ esac
 # configurable: otherwise an attacker-controlled repository could attest an
 # arbitrary binary plus a self-consistent public receipt and have build.rs
 # mistake that installer assertion for the reviewed source build.
-ARTIFACT_REPO="${IBEX_HERMES_ARTIFACT_REPO:-ccheever/ibex}"
-readonly REVIEWED_ATTESTATION_REPO="ccheever/ibex"
-readonly REVIEWED_ATTESTATION_WORKFLOW="ccheever/ibex/.github/workflows/hermes-artifacts.yml"
+ARTIFACT_REPO="${IBEX_HERMES_ARTIFACT_REPO:-expo/ibex}"
+readonly REVIEWED_ATTESTATION_REPO="expo/ibex"
+readonly REVIEWED_ATTESTATION_WORKFLOW="expo/ibex/.github/workflows/hermes-artifacts.yml"
 readonly REVIEWED_ATTESTATION_SOURCE_REF="refs/heads/main"
 HERMES_DEBUGGER="${HERMES_ENABLE_DEBUGGER:-true}"
 

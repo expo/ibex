@@ -229,7 +229,7 @@ function installationFixture() {
     verificationPolicyDigest: `sha256-${"F".repeat(43)}`,
     subjectName: ARCHIVE_NAME,
     producer: {
-      repository: "ccheever/ibex",
+      repository: "expo/ibex",
       workflowPath: ".github/workflows/hermes-artifacts.yml",
       sourceRef: "refs/heads/main",
       runId: "7001",
@@ -266,8 +266,8 @@ function runMetadataFixture() {
     run_started_at: TIMESTAMP,
     repository: {
       id: 1268046138,
-      full_name: "ccheever/ibex",
-      owner: { id: 56719 },
+      full_name: "expo/ibex",
+      owner: { id: 12504344 },
     },
   };
 }

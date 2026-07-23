@@ -237,7 +237,7 @@ const baseProjectionContract = [
 ];
 
 const publisherTrust = {
-  repository: "ccheever/ibex",
+  repository: "expo/ibex",
   workflowPath: ".github/workflows/hermes-artifacts.yml",
   sourceRef: "refs/heads/main",
   runnerClass: "github-hosted",

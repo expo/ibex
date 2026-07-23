@@ -54,13 +54,13 @@ jobs:
           WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |
           set -euo pipefail
-          [[ "$GITHUB_REPOSITORY" == "ccheever/ibex" ]]
+          [[ "$GITHUB_REPOSITORY" == "expo/ibex" ]]
           [[ "$EVENT_NAME" == "workflow_dispatch" ]]
           [[ "$GITHUB_REF" == "refs/heads/main" ]]
           [[ "$RUNNER_ENVIRONMENT" == "github-hosted" ]]
           [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$WORKFLOW_SHA" == "$GITHUB_SHA" ]]
-          [[ "$WORKFLOW_REF" == "ccheever/ibex/.github/workflows/portable-engine-physical-promotion.yml@refs/heads/main" ]]
+          [[ "$WORKFLOW_REF" == "expo/ibex/.github/workflows/portable-engine-physical-promotion.yml@refs/heads/main" ]]
           [[ "$(git rev-parse --verify HEAD^{commit})" == "$GITHUB_SHA" ]]
           git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
           test -z "$(git status --porcelain=v1 --untracked-files=all --ignore-submodules=none)"

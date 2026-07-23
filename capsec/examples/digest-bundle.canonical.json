@@ -280945,7 +280945,7 @@
         "profile": "ibex/capsec/1",
         "semanticCore": "capsec/semantics/1",
         "coreOwnership": {
-          "repository": "ccheever/ibex",
+          "repository": "expo/ibex",
           "contractPath": "capsec",
           "rustCratePath": "crates/capsec-semantics",
           "secondConsumerRule": "consume-this-source-or-explicitly-move-ownership-never-copy"
@@ -288693,7 +288693,7 @@
             ],
             "properties": {
               "repository": {
-                "const": "ccheever/ibex"
+                "const": "expo/ibex"
               },
               "contractPath": {
                 "const": "capsec"
