@@ -5,6 +5,14 @@
 **Systems:** Security, Engine, Build, Distribution, CI, Runtime, Host ABI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
+**Revised:** 2026-07-23 (closes 31 of the 41 host-ABI output-shape residual
+rows through five physically proven slices and classifies the remaining ten:
+one borrowed-pointer return with no bounded output by contract, two success-path
+`out:error` channels that only a bounded failure scenario would populate, and
+seven GPU-provider-success rows gated by the source-registry provider-binding
+equality check and the conformance profile's deliberate exclusion of the runtime
+GPU bridge. The sweep plan stays non-bidirectional and advertisements remain
+empty.)
 **Revised:** 2026-07-20 (integrates the concurrently landed main line — GPU
 authority ABI v2, app-bundle staging routes, the WebGPU mapped-arraybuffer
 alias Hermes patch 0012, and reviewed builder profile receipts — into the
@@ -1969,7 +1977,65 @@ generates, commits, or merges P or C.
 This is ceremony scaffolding, not a physical promotion claim. At this
 checkpoint the rich recipe catalog still has unresolved fixtures and the
 output-shape executor still has honest residual rows, so target-cell derivation
-or the following proof gate fails before a bundle can be uploaded. The live
+or the following proof gate fails before a bundle can be uploaded.
+
+### Host-ABI output-shape residuals: the classified remainder
+
+The 2026-07-21/23 tranche closed 31 of the 41 host-ABI output residual rows
+through five physically proven slices (GPU ABI-constant getters, quarantine
+control, the feature-off embedder sequence, the app-bundle transaction, and the
+GPU-authority fail-closed refusals). Every close executes the exact reviewed
+route on the loaded engine; none is a template-only promotion.
+
+The remaining ten rows are **not** unauthored templates. Each has a specific,
+recorded reason it cannot be honestly executed under the conformance profile,
+and they fall into three classes:
+
+1. **No bounded output exists by contract (1 row).**
+   `ex_host_exact_gpu_authority_session_api_v2` `[[return]]` hands back a
+   borrowed pointer to an immutable process-lifetime table. A pointer address
+   is not a bounded, reproducible output value, so the output-shape model
+   correctly declines to credit it. Reading a scalar out of the pointee would
+   misrepresent a pointer-returning route as a value-returning one.
+
+2. **The channel is populated only on a failure the reviewed corpus does not
+   drive (2 rows).** `ex_hermes_stage_prepared_native_startup_v1` and
+   `ex_hermes_run_prepared_app_v1` carry an `out:error` channel that stays null
+   across every reviewed prepared-startup path, all of which succeed. Crediting
+   it requires authoring a bounded failure scenario, not re-reading the success
+   path.
+
+3. **The success path requires GPU provider authority state that the
+   conformance profile deliberately excludes (7 rows).**
+   `ex_host_authorize_exact_gpu_provider_v2` (return + `out:authority_digest`)
+   and `ex_host_capture_exact_gpu_authority_context_v2` (return +
+   `out:authority_session_id` + `out:digest`) authorize against an armed GPU
+   provider binding, and `ex_hermes_deliver_gpu_canvas_attachment_receipt_v1`
+   and `ex_hermes_complete_gpu_decoded_image_v1` drive the runtime GPU bridge.
+   Two independent gates keep these residual. First, `authorize_v2` at ABI
+   `0x0002_0000` requires `provider_binding_matches_source_registry`: the armed
+   binding must equal the compiled
+   `CAPSEC_WEBGPU_PRIVATE_OPERATION_REGISTRY_JSON` provider exactly, and the
+   existing `install_armed_gpu_v2_test_host` helper carries placeholder digests
+   for the runtime-bridge flow rather than source-registry values, so it cannot
+   reach the success branch. Second, the runtime bridge hooks are gated behind
+   `webgpu-binding` + `gpu-bridge-test-hooks`, which the conformance build
+   excludes because the report must attest the production feature set.
+   Empirically the armed context claims and its snapshot's provider binding
+   parses; only the source-registry equality gate refuses.
+
+   Closing this class therefore requires a purpose-built, reviewed fixture that
+   arms a GPU provider whose binding is source-registry exact, plus a complete
+   `ExactGpuAuthoritySessionFactsV2` carrier-facts struct for the capture route.
+   No reviewed test drives either route to success today. That fixture is
+   deliberately deferred to a dedicated change rather than assembled
+   opportunistically: a subtly wrong armed-authority fixture would manufacture a
+   success credit for a security-sensitive control-plane route, which is a worse
+   outcome than an honest residual.
+
+Consequently the output-shape sweep plan remains non-bidirectional and the
+ceremony stays blocked on this axis. That is the intended fail-closed state, not
+an accounting gap. The live
 output-shape and conformance executors now consume only the canonical selection
 of the checked post-link `test/ibex` executable. They rehash that executable
 around execution, publish only the locality-free runner binding, and record its
