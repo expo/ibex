@@ -197,23 +197,51 @@ func TestProfilesRejectEachOthersBundles(t *testing.T) {
 	}
 }
 
-func TestPublicProfileRequiresEmptyTimestampDataAndSCT(t *testing.T) {
+func TestPublicProfileTimestampDataMustCarryNoRFC3161(t *testing.T) {
 	t.Parallel()
 
 	raw := mustReadFile(t, filepath.Join(publicOracleDirectory, "bundle.json"))
-	var document map[string]any
-	if err := json.Unmarshal(raw, &document); err != nil {
+	base := map[string]any{}
+	if err := json.Unmarshal(raw, &base); err != nil {
 		t.Fatal(err)
 	}
-	material := document["verificationMaterial"].(map[string]any)
+	mutate := func(value any) []byte {
+		document := map[string]any{}
+		if err := json.Unmarshal(raw, &document); err != nil {
+			t.Fatal(err)
+		}
+		document["verificationMaterial"].(map[string]any)["timestampVerificationData"] = value
+		out, err := json.Marshal(document)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
 
-	material["timestampVerificationData"] = map[string]any{"rfc3161Timestamps": []any{}}
-	mutated, err := json.Marshal(document)
-	if err != nil {
-		t.Fatal(err)
+	// Both measured empty spellings are accepted: an empty object and an
+	// explicit empty rfc3161Timestamps array (the expo/ibex producer's shape).
+	for _, empty := range []any{
+		map[string]any{},
+		map[string]any{"rfc3161Timestamps": []any{}},
+	} {
+		if _, err := parsePublicBundleProfile(mutate(empty)); err != nil {
+			t.Fatalf("empty timestamp data %v rejected: %v", empty, err)
+		}
 	}
-	if _, err := parsePublicBundleProfile(mutated); err == nil ||
-		!strings.Contains(err.Error(), "timestampVerificationData") {
-		t.Fatalf("non-empty timestampVerificationData unexpectedly admitted: %v", err)
+
+	// A populated RFC3161 list is outside the Rekor-integrated profile.
+	nonEmpty := mutate(map[string]any{"rfc3161Timestamps": []any{
+		map[string]any{"signedTimestamp": "AA=="},
+	}})
+	if _, err := parsePublicBundleProfile(nonEmpty); err == nil ||
+		!strings.Contains(err.Error(), "RFC3161") {
+		t.Fatalf("populated RFC3161 list unexpectedly admitted: %v", err)
+	}
+
+	// An unexpected field is rejected.
+	unexpected := mutate(map[string]any{"somethingElse": true})
+	if _, err := parsePublicBundleProfile(unexpected); err == nil ||
+		!strings.Contains(err.Error(), "unexpected field") {
+		t.Fatalf("unexpected timestamp field admitted: %v", err)
 	}
 }

@@ -1,10 +1,34 @@
 # Public-flip migration runbook: attestation verifier and repo-identity pins
 
-Status: **prep branch** (`prep/public-sigstore-verifier`). The verifier work
-below is implemented and tested on this branch; everything in "After the
-transfer" is deliberately NOT done yet because it asserts facts that only
-become true once `ccheever/ibex` is transferred to the expo org and flipped
-public. Fold this document into LLP 0035 when the branch lands.
+Status: **DONE 2026-07-23.** The repository was transferred to `expo/ibex` and
+made public; the whole runbook below has been executed. The identity pin flip
+landed as `63181c76`, and the public profile was re-measured and validated
+against the first real expo/ibex attestation (this section is retained as the
+record — fold it into LLP 0035). The "measured facts" and "after the transfer"
+sections now describe what was verified, not what is pending.
+
+## Re-measurement result (the real bundle differed from the CLI-export oracle)
+
+The first `hermes-artifacts.yml` run on public `expo/ibex` (run 30004214526,
+commit `63181c76`) produced a genuine Sigstore bundle that verified fully
+offline against the built verifier — chain to public-good Fulcio, embedded
+SCT, Rekor inclusion, DSSE signature, certificate identity, and the signed
+subject digest joined to the real 12 MB artifact bytes → canonical
+`ibex/github-public-artifact-attestation-verification/1`, signer expo/ibex,
+visibility public, Tlog timestamp. It is vendored as the
+`ibex-hermes-portable-macos-arm64-v63181c76` oracle. Three shape differences
+from the earlier GitHub-CLI export oracle were **measured** (not assumed) and
+the public profile widened to accept exactly them:
+
+1. `timestampVerificationData` is `{"rfc3161Timestamps": []}` (present key,
+   empty array), not `{}`. Both mean "no TSA material; Rekor-integrated
+   timestamp." The profile accepts either and still rejects a non-empty list.
+2. The DSSE signature carries an optional `keyid: ""` alongside `sig`. Allowed
+   as a standard DSSE field (the key is identified by the leaf certificate).
+3. The public-good Fulcio leaf carries one extra claim, OID
+   `1.3.6.1.4.1.57264.1.24`, a repo snapshot
+   `repo:<owner>@<ownerId>/<repo>@<repoId>:ref:<ref>`. The public profile binds
+   it to that derived value; every component is already validated.
 
 ## Done on this branch
 

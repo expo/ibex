@@ -677,7 +677,7 @@
       "manifestDigest": "sha256-XJ4nzIlzWoa1K81BQ005oPKHIsl3oNlbO5BKsLuKpLc",
       "archiveDigest": "sha256-7777777777777777777777777777777777777777777777777777777777777777",
       "provenanceBundleDigest": "sha256-29b353204eebcc86637cb251e5e515b9033d4bbdd24ee181b3ed2d8b935c30e4",
-      "verificationPolicyDigest": "sha256-0e9h1fPHk9hzPQ75Qt2-GbMqRF3Am3UCj28BO20ZFLY",
+      "verificationPolicyDigest": "sha256-khZc2vLD7ei1hfc-PwnKyZjuVM-pVZkrifHgOAPTbaM",
       "repository": "expo/ibex",
       "publisherWorkflow": ".github/workflows/hermes-artifacts.yml",
       "sourceRef": "refs/heads/main",
@@ -731,8 +731,8 @@
         "interfaceContractDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
       },
       "manifestDigest": "sha256-XJ4nzIlzWoa1K81BQ005oPKHIsl3oNlbO5BKsLuKpLc",
-      "installationReceiptDigest": "sha256-NT8RsJmhM7mNroxWHSMabmTjiYdvQwTWGhQYGTyBExc",
-      "verificationPolicyDigest": "sha256-0e9h1fPHk9hzPQ75Qt2-GbMqRF3Am3UCj28BO20ZFLY",
+      "installationReceiptDigest": "sha256-SrFJo7-5g6iWNKmGEap41PWYG7TI2U04C_JHOpS9ZQs",
+      "verificationPolicyDigest": "sha256-khZc2vLD7ei1hfc-PwnKyZjuVM-pVZkrifHgOAPTbaM",
       "target": {
         "triple": "aarch64-apple-darwin",
         "structuralFeatures": [
@@ -781,7 +781,7 @@
         }
       ],
       "nonSystemLoadableDependencies": [],
-      "consumptionDigest": "sha256-PhD6rT2_cl5LtmroIILLDIw0m3pZr9tMDl9nTa79oqY"
+      "consumptionDigest": "sha256-4UQ9Cy3m6N4Ko4NCJlGxFNAnrwT7yjjmYA4CVmcs9l8"
     },
     "postLinkVerification": {
       "schema": "ibex/portable-engine-post-link-verification/1",
@@ -807,10 +807,10 @@
         "reviewedProfileIdentityDigest": "sha256-u5dQA6qdaF5TB9N52neD2EJyN2HPt3KGNbSI1HUkb-Q",
         "interfaceContractDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
       },
-      "buildConsumptionDigest": "sha256-PhD6rT2_cl5LtmroIILLDIw0m3pZr9tMDl9nTa79oqY",
+      "buildConsumptionDigest": "sha256-4UQ9Cy3m6N4Ko4NCJlGxFNAnrwT7yjjmYA4CVmcs9l8",
       "manifestDigest": "sha256-XJ4nzIlzWoa1K81BQ005oPKHIsl3oNlbO5BKsLuKpLc",
-      "installationReceiptDigest": "sha256-NT8RsJmhM7mNroxWHSMabmTjiYdvQwTWGhQYGTyBExc",
-      "verificationPolicyDigest": "sha256-0e9h1fPHk9hzPQ75Qt2-GbMqRF3Am3UCj28BO20ZFLY",
+      "installationReceiptDigest": "sha256-SrFJo7-5g6iWNKmGEap41PWYG7TI2U04C_JHOpS9ZQs",
+      "verificationPolicyDigest": "sha256-khZc2vLD7ei1hfc-PwnKyZjuVM-pVZkrifHgOAPTbaM",
       "target": {
         "triple": "aarch64-apple-darwin",
         "structuralFeatures": [
@@ -831,10 +831,10 @@
       },
       "payloadRevalidation": {
         "artifactId": "sha256-sRjaNpjqCSvg6TJ34STaCFMbtTJotSnRz69bG2tK8ss",
-        "buildConsumptionDigest": "sha256-PhD6rT2_cl5LtmroIILLDIw0m3pZr9tMDl9nTa79oqY",
+        "buildConsumptionDigest": "sha256-4UQ9Cy3m6N4Ko4NCJlGxFNAnrwT7yjjmYA4CVmcs9l8",
         "manifestDigest": "sha256-XJ4nzIlzWoa1K81BQ005oPKHIsl3oNlbO5BKsLuKpLc",
-        "installationReceiptDigest": "sha256-NT8RsJmhM7mNroxWHSMabmTjiYdvQwTWGhQYGTyBExc",
-        "verificationPolicyDigest": "sha256-0e9h1fPHk9hzPQ75Qt2-GbMqRF3Am3UCj28BO20ZFLY",
+        "installationReceiptDigest": "sha256-SrFJo7-5g6iWNKmGEap41PWYG7TI2U04C_JHOpS9ZQs",
+        "verificationPolicyDigest": "sha256-khZc2vLD7ei1hfc-PwnKyZjuVM-pVZkrifHgOAPTbaM",
         "manifestEntryCount": 28,
         "regularEntryCount": 14,
         "regularByteCount": 1067666,
@@ -873,7 +873,7 @@
         ]
       },
       "outcome": "verified",
-      "verificationDigest": "sha256-dAiJ3BzZWCgX4GF2kSLPawoYWWWVt6m2ina-JIdOjfM"
+      "verificationDigest": "sha256-30nK7PEmjFS9HV9w7hFhQtWFK7f8OWMMnrk42TwcUEc"
     },
     "mappedInstance": {
       "schema": "ibex/mapped-engine-instance-identity/1",
@@ -1662,7 +1662,7 @@
         "certificateIssuer": "https://token.actions.githubusercontent.com",
         "enabled": true,
         "offlineVerifier": {
-          "binaryDigest": "sha256-d08e02069a48089d22aac767a1f62ec55ccbb3f3d214b0f1f67ed3c1ffafe830",
+          "binaryDigest": "sha256-364ba026d1122d28cc09f07404dbec22e6752231b7b7c33cf5a7113f9498f6e0",
           "binarySize": 25164610,
           "goVersion": "go1.26.5",
           "targetTriple": "aarch64-apple-darwin"
@@ -1835,19 +1835,19 @@
         "reviewedProfileIdentityDigest": "sha256-u5dQA6qdaF5TB9N52neD2EJyN2HPt3KGNbSI1HUkb-Q",
         "interfaceContractDigest": "sha256-_cpMccGWYr2BsuevEVBDDWoc4QgWmrysp2X_ODh93L0"
       },
-      "buildConsumptionDigest": "sha256-PhD6rT2_cl5LtmroIILLDIw0m3pZr9tMDl9nTa79oqY",
+      "buildConsumptionDigest": "sha256-4UQ9Cy3m6N4Ko4NCJlGxFNAnrwT7yjjmYA4CVmcs9l8",
       "enumerationDigest": "sha256-ulywbonM1f7sbfeGg5RcaPyazTAFLW3dQL3JDW_nbl8",
       "results": [
         {
           "logicalName": "bin/ibex",
           "targetKind": "bin",
           "evidenceFile": "0000.json",
-          "evidenceDigest": "sha256-86932a2201fd4e15082055471bf6d70da5f38efaf09aff8c54600dd9233a0867",
-          "verificationDigest": "sha256-dAiJ3BzZWCgX4GF2kSLPawoYWWWVt6m2ina-JIdOjfM"
+          "evidenceDigest": "sha256-ba8fa79651f5ac380916c533f6e47eb81cbafeab619db8c5ee0729b46b0e6347",
+          "verificationDigest": "sha256-30nK7PEmjFS9HV9w7hFhQtWFK7f8OWMMnrk42TwcUEc"
         }
       ],
       "outcome": "verified",
-      "setDigest": "sha256-r2JWpdI9ax1aSe8tRCILTs-_uwz19J90KNRCvquOOlI"
+      "setDigest": "sha256-tJScxYtN_X2AHuTw81fzsEUwrTJYYEhPKEE1DLPINNI"
     }
   },
   "projections": [
@@ -1921,14 +1921,14 @@
       "documentPath": "trustPolicy",
       "domain": "ibex.portable-engine-provenance-trust-policy.v1",
       "omitFields": [],
-      "expectedDigest": "sha256-0e9h1fPHk9hzPQ75Qt2-GbMqRF3Am3UCj28BO20ZFLY"
+      "expectedDigest": "sha256-khZc2vLD7ei1hfc-PwnKyZjuVM-pVZkrifHgOAPTbaM"
     },
     {
       "id": "installation-receipt-digest",
       "documentPath": "installationReceipt",
       "domain": "ibex.portable-engine-installation-receipt.v1",
       "omitFields": [],
-      "expectedDigest": "sha256-NT8RsJmhM7mNroxWHSMabmTjiYdvQwTWGhQYGTyBExc"
+      "expectedDigest": "sha256-SrFJo7-5g6iWNKmGEap41PWYG7TI2U04C_JHOpS9ZQs"
     },
     {
       "id": "interface-contract-digest",
@@ -1951,7 +1951,7 @@
       "omitFields": [
         "consumptionDigest"
       ],
-      "expectedDigest": "sha256-PhD6rT2_cl5LtmroIILLDIw0m3pZr9tMDl9nTa79oqY"
+      "expectedDigest": "sha256-4UQ9Cy3m6N4Ko4NCJlGxFNAnrwT7yjjmYA4CVmcs9l8"
     },
     {
       "id": "post-link-verification-digest",
@@ -1960,7 +1960,7 @@
       "omitFields": [
         "verificationDigest"
       ],
-      "expectedDigest": "sha256-dAiJ3BzZWCgX4GF2kSLPawoYWWWVt6m2ina-JIdOjfM"
+      "expectedDigest": "sha256-30nK7PEmjFS9HV9w7hFhQtWFK7f8OWMMnrk42TwcUEc"
     },
     {
       "id": "post-link-verification-set-digest",
@@ -1969,7 +1969,7 @@
       "omitFields": [
         "setDigest"
       ],
-      "expectedDigest": "sha256-r2JWpdI9ax1aSe8tRCILTs-_uwz19J90KNRCvquOOlI"
+      "expectedDigest": "sha256-tJScxYtN_X2AHuTw81fzsEUwrTJYYEhPKEE1DLPINNI"
     },
     {
       "id": "mapped-observation-digest",
