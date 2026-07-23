@@ -234,6 +234,21 @@ one.
    the true pacing cost, and it is why cheaper models and fan-out do not
    compress the schedule: the bottleneck is per-family security judgment.
 
+   **The recurring questions are patterns, not per-family — resolve them once
+   up front.** The two `fs:read` questions (ambient-mount traversal stratum;
+   declared-vs-incidental action attribution) are not unique to fs:read: every
+   open-then-act family (`fs:write`, `fs:list` streams, `network` connect/
+   listen) hits the same two patterns. They are lifted into **LLP 0037**
+   (public-surface authorization attribution patterns) as decisions D1/D2/D3 for
+   a single ruling. Once ruled, the per-family loop is fully mechanical —
+   author template → run batch → pin the observed sequence (D3) → regenerate →
+   confirm green — with the batch executor gaining exactly two narrow,
+   documented generalizations (D1 traversal stratum, D2 superset-with-traversal
+   allowance). The remaining families and surface-kinds then become a fan-out
+   parallelizable across agents and engine instances, bounded by engine-lock
+   contention rather than review. Resolving LLP 0037 is the prerequisite for
+   this step.
+
 3. **Reopen gate 1 (6 rows)** in parallel — smaller and independent.
    `capture_v2` (3 selectors) is **confirmed buildable** and fully spec'd: build
    the host via `Host::new_exact_experimental_webgpu_pre1a` (not the standard
