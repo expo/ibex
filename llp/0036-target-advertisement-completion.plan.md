@@ -196,6 +196,44 @@ one.
    network (new setup kind), and route the 782 `(none)` surfaces through the
    existing non-capability template. `log`/report any silent coverage caps.
 
+   **`fs:read` prototype — measured end to end (2026-07-23), then reverted.** A
+   `readFileSync` template was authored (mirroring the `fs:list` `statSync`
+   pattern with the `fs:read` capability and `filesystem-file` setup) and driven
+   through the real builtin batch on the bound engine. Findings, in order:
+   - **Authoring fanout confirmed:** one export table entry produced all 5
+     scenario rows (`allow`/`deny`/`malformed`/`missing-attribution`/
+     `wrong-principal`) — exec count 2,592 → 2,597, unresolved 18,266 → 18,261.
+     The scenario matrix is free, as predicted.
+   - **Execution is per-family, not per-row, but not a pure mirror.** The batch
+     executor's JS invocation is generic (`Reflect.apply`), but the
+     `filesystem-file` setup handler carries a per-export allow-list and a
+     hard-coded `fs:list` cap, so each new fs family needs a small executor
+     edit.
+   - **The typed sequence must be observed, never guessed.** `readFileSync`
+     yields a **9-decision** open-then-read chain
+     (`requested,requested,discovery,requested,repeat,commit,repeat,repeat,repeat`),
+     not the 4–5 of a stat. Only a batch run reveals it.
+   - **Two genuine security-model questions surfaced — the real per-family
+     cost.** (1) *Stratum:* the open's path-traversal `fs:list` decisions
+     resolve through the root principal's **ambient-mount** authority while the
+     `fs:read` commit stays on the **static floor** — the batch's
+     stat-era assertion assumed static-floor for all non-discovery decisions.
+     (2) *Action attribution:* the runtime observes **both** `fs:list`
+     (traversal) and `fs:read`, but the coverage edge declares only `fs:read`,
+     so the batch's `observed_actions == expected_action_ids` invariant fails.
+     Neither is a mechanical fix: (1) asks whether ambient traversal crediting
+     is the intended model, (2) asks whether `readFileSync` should declare
+     `fs:list`+`fs:read` in coverage or whether traversal is incidental. Both
+     are coverage-model / security decisions for the model owner, so the
+     prototype was reverted rather than land loosened security assertions.
+
+   **Revised cost model:** authoring a family ≈ free (one entry, matrix
+   generated); execution support ≈ a small executor edit per family; **but each
+   capability family can surface one or two coverage-model/security questions
+   that need review, not code.** That review — not tokens, not parallelism — is
+   the true pacing cost, and it is why cheaper models and fan-out do not
+   compress the schedule: the bottleneck is per-family security judgment.
+
 3. **Reopen gate 1 (6 rows)** in parallel — smaller and independent.
    `capture_v2` (3 selectors) is **confirmed buildable** and fully spec'd: build
    the host via `Host::new_exact_experimental_webgpu_pre1a` (not the standard
