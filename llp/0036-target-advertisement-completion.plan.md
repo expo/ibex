@@ -97,53 +97,94 @@ fully-executable anywhere in the 24,585-row catalog yields a clean partition:
   attribution / principal / snapshot state. None has ever been driven from
   public JS in 24,585 rows.
 
-## The open design question (answer before budgeting the grind)
+## The design question, and its resolved direction
 
 The 7 never-executable scenarios attach to surfaces the current public-surface
 harness has no recorded way to invoke (e.g. `native-op:global:AbortController`,
-whose *every* scenario including plain `non-capability` is unresolved). Whether
-this is fixable harness plumbing or a hard limit of the public-surface model is
-**not determined by this plan**. A suspected mechanism — that
-`publicInvocation` metadata is produced only for a subset of surface kinds in
-`capsec-surface-inventory.mjs` — was investigated but **not confirmed** (the
-distinguishing metadata lives in the live public-surface-executions evidence,
-not the static implementation-manifest, and that live artifact was not audited).
+whose *every* scenario including plain `non-capability` is unresolved). The
+question is whether they can be driven from public JS or whether that is a hard
+limit of the public-surface model.
 
-> **Decision owed, to the conformance-harness owner:** can the 7 internal-invariant
-> scenarios be observed through a sanctioned public path, or does gate 2 require
-> a harness extension to attest internal enforcement? If they cannot be reached
-> and no extension is intended, advertisement is unreachable on the current
-> design, and the 18,266 rows of reachable-scenario authoring are moot. This
-> question must be resolved before the authoring program is funded.
+**Resolved direction (2026-07-23, author: "make it coherent now, verify
+correctness over the coming weeks"):** treat the 7 as **internally-verified
+invariants, not public-surface fixtures.** The rationale is grounded in the
+measured facts, not a guess:
+
+- All 7 (`attribution-missing-deny`, `generation-recheck`, `principal-restore`,
+  `snapshot-mismatch-deny`, `cannot-widen-authority`, `post-lockdown-invariant`,
+  `malformed-branch-facts`) are the runtime checking *its own* attribution /
+  principal / snapshot / lockdown state. By construction these fire on internal
+  transitions, not on a public JS call — there is nothing for a public-surface
+  probe to invoke.
+- They have zero fully-executable instances anywhere in 24,585 catalog rows,
+  which is what a genuinely non-public-invokable class looks like, versus an
+  un-authored-but-reachable one.
+
+So the coherent model is: **public-surface completeness attests what is publicly
+reachable; these internal invariants are attested by internal Rust proofs**
+(most already exist as unit tests of the enforcement paths) and are marked in
+the catalog as `internally-verified` rather than counted as unresolved
+public-surface fixtures. This makes the completeness gate satisfiable from the
+18,266 reachable rows, keeps the security claim honest (nothing is faked — an
+internal invariant is proven by an internal test, not a fabricated public
+probe), and defers only the *bookkeeping reclassification* to review.
+
+**Correctness still owed (the "over the coming weeks" part):** confirm that each
+of the 7 scenario types has (or gets) a real internal Rust proof of the
+invariant it names, and that the reclassification predicate is tight enough that
+it cannot silently absorb a scenario that *is* publicly reachable. Until that
+audit lands, the reclassification is a coherent working position, not a verified
+one.
 
 ## Plan
 
-1. **Resolve the design question above.** Audit the live
-   public-surface-executions evidence for one blocked surface (e.g.
-   `AbortController`) versus one reachable one (e.g. `Atomics`), determine why
-   one carries a usable public invocation and the other does not, and get an
-   owner decision on whether the 7 scenarios get a sanctioned observation path.
-   Everything else is contingent on this.
+1. **Implement the internally-verified reclassification** for the 7 invariant
+   scenarios (the resolved direction above): add an `internally-verified`
+   disposition, mark the 3,727 rows under those 7 scenarios with it, exclude
+   that disposition from the `assertRecipeCatalogComplete` unresolved count, and
+   point each scenario type at the internal Rust proof that already covers its
+   invariant (or file a stub where one is missing). This removes 3,727 rows from
+   the completeness denominator without faking any public evidence, and makes
+   the gate satisfiable from the reachable rows alone.
 
-2. **If the 7 are reachable / a harness extension is approved:** land that
-   extension, then treat gate 2 as a bulk authoring program.
-
-3. **Reachable-scenario authoring program (18,266 rows).** Start with the
+2. **Reachable-scenario authoring program (18,266 rows).** Start with the
    `non-capability` class — it has the widest existing precedent (1,480
    executable) and is the most likely to admit a generator rather than
    hand-authoring. Prove a template on one dense family (e.g.
    `surface.native.op.global`, ~3,000 rows), measure the real per-row cost, then
    fan out. `log`/report any silent coverage caps.
 
-4. **Reopen gate 1 (6 rows)** in parallel — smaller and independent. The 5 GPU
-   authority/bridge rows need typed generations + a typed root principal
-   (`capture_v2`) and features the conformance profile excludes (the 2 bridge
-   routes); the pointer-return row is permanent. Coordinate with the
+3. **Reopen gate 1 (6 rows)** in parallel — smaller and independent.
+   `capture_v2` (3 selectors) is **confirmed buildable** and fully spec'd: build
+   the host via `Host::new_exact_experimental_webgpu_pre1a` (not the standard
+   armed test host — only it arms the private GPU target cells Complete), inject
+   the live loaded-engine identity into the snapshot, pick a real
+   `runtime_registry()` operation whose edge is a private Complete cell, and
+   shape a `GpuAuthorityCarrierFacts` to satisfy `carrier_matches_operation`.
+   The 2 bridge routes (`deliver`/`complete`) need `webgpu-binding` +
+   `gpu-bridge-test-hooks`, which the conformance profile excludes by design;
+   the pointer-return `session_api_v2` row is permanent. Coordinate with the
    GPU-authority / LLP 0033 owner.
 
-5. **Run the ceremony to completion and admit the report**, flipping the Apple
+4. **Run the ceremony to completion and admit the report**, flipping the Apple
    matrix cells to advertised. Only then is ENG-24578's target promotion (and
    ENG-24669, the product) unblocked.
+
+## Correctness owed (the deliberately-deferred verification)
+
+Per the author's direction, this plan optimizes for a coherent, working path
+now, with correctness verified over the following days/weeks. The specific
+verification debts, tracked so none is silently forgotten:
+
+- Each of the 7 reclassified scenario types must be shown to have a real
+  internal Rust proof of its invariant; any without one gets a proof authored
+  before advertisement is trusted.
+- The `internally-verified` predicate must be proven unable to absorb a
+  scenario that is in fact publicly reachable (a fail-open risk).
+- The `capture_v2` fixture, once built, must drive the real route to status 1
+  with registry-derived inputs only — never stubbed state (the route is
+  fail-closed, so a wrong fixture returns 0 rather than a false credit, but the
+  fixture should still be reviewed as a security-sensitive control-plane proof).
 
 ## Non-goals
 
