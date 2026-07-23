@@ -657,6 +657,94 @@ async fn cli_async_failures_consumed_by_handlers_exit_zero() {
 }
 
 #[tokio::test]
+async fn cli_downstream_promise_observer_cannot_rewrite_rejection_reason() {
+    // Ported from deleted branch eng-25006-snapback-compat (c791baa2) per
+    // ENG-25391. The branch exposed a one-shot downstream observer bridge
+    // (`Promise.__ibexRegisterPromiseObserver`) and asserted its token could
+    // not rewrite the closure-private engine rejection reason. Main evolved
+    // past that design: rejection observation is consumed at bootstrap and NO
+    // observer-registration surface is reachable from project code at all —
+    // the attack cannot even be staged. Pin that posture plus the original
+    // end-to-end property: the reason a handler observes is exactly the
+    // engine's reason.
+    let output = run_script(
+        "opaque_rejection_generation.js",
+        r#"
+const NativePromise = Promise.prototype.constructor;
+if (typeof NativePromise.__ibexRegisterPromiseObserver !== "undefined")
+  throw new Error("downstream observer bridge leaked to project code");
+if (typeof globalThis.__exactOnUnhandledRejection !== "undefined")
+  throw new Error("native rejection-observer registration leaked to project code");
+if (typeof globalThis.__exactOnRejectionHandled !== "undefined")
+  throw new Error("native handled-observer registration leaked to project code");
+const message = await NativePromise.reject(new Error("actual-reason"))
+  .catch((error) => error.message);
+console.log(message);
+"#,
+    )
+    .await;
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "observer surfaces must be unreachable and the handled rejection clean: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "actual-reason"
+    );
+}
+
+#[tokio::test]
+async fn cli_hostile_promise_constructor_fails_closed_before_execution() {
+    // Ported from deleted branch eng-25006-snapback-compat (c791baa2) per
+    // ENG-25391. A hostile `constructor` planted on a reaction receiver must
+    // never run: on the branch the wrapper threw "Promise reaction receiver
+    // has a non-canonical constructor path" before executing it. Main's
+    // engine reaches the same security outcome by never consulting the
+    // overridden receiver constructor at all — the hostile constructor gets
+    // zero invocations, and the reaction child is a canonical engine Promise
+    // whose settlement hostile code cannot intercept. Pin non-execution and
+    // canonical chaining rather than the branch's error text.
+    let output = run_script(
+        "hostile_promise_constructor.js",
+        r#"
+const NativePromise = Promise.prototype.constructor;
+const source = NativePromise.resolve("ok");
+let constructorCalls = 0;
+source.constructor = function HostileConstructor(executor) {
+  constructorCalls++;
+  executor(function () {}, function () {});
+  return {};
+};
+const child = source.then(function (value) { return value + "-chained"; });
+child.then(function (result) {
+  console.log(
+    result +
+      "|constructors:" +
+      constructorCalls +
+      "|canonical:" +
+      (child instanceof NativePromise)
+  );
+});
+"#,
+    )
+    .await;
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "hostile constructor probe must not fail the run: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "ok-chained|constructors:0|canonical:true"
+    );
+}
+
+#[tokio::test]
 async fn cli_stream_internal_writer_promises_do_not_trip_unhandled_rejection() {
     // ENG-23501: WritableStream internally marks writer.ready/closed promises
     // handled. The public write/abort promises are handled by user code, so
