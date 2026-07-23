@@ -478,6 +478,10 @@ const BOUNDED_FAMILY_OUTPUT_SELECTORS = new Set([
   // out_error channel through the reviewed success path (null string).
   "ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1\0out:error",
   "ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1\0out:error",
+  // stage/run surface this channel only on the reviewed out-of-order drive
+  // refusal, which writes a bounded error and quarantines the owned runtime.
+  "ex_hermes_run_prepared_app_v1\0out:error",
+  "ex_hermes_stage_prepared_native_startup_v1\0out:error",
   ...["ex_hermes_evaluation_result_dispose", "ex_hermes_evaluation_result_init"]
     .flatMap((functionName) =>
       EVALUATION_RESULT_OUTPUT_SELECTORS

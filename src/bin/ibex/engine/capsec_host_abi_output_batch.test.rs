@@ -5430,6 +5430,64 @@ fn execute_app_bundle_route(function_name: &str, selector: &str) -> Result<Value
     let raw = runtime.raw;
     let source_url = CString::new("ibex:capsec-app-bundle").unwrap();
 
+    // stage/run expose their out:error channel only on the reviewed
+    // out-of-order refusal: with an `unused-valid` prepared startup evaluated,
+    // staging before classification (or running before staging) is refused with
+    // EXACT_RUNTIME_DRIVE_INVALID, writes a bounded error, and quarantines the
+    // owned runtime. The success prefix below leaves this channel null, so the
+    // failure sequence is the only honest source of this output.
+    // @ref LLP 0035#host-abi-output-shape-residuals-the-classified-remainder
+    if selector == "out:error"
+        && (function_name == "ex_hermes_stage_prepared_native_startup_v1"
+            || function_name == "ex_hermes_run_prepared_app_v1")
+    {
+        if unsafe { ex_hermes_begin_app_bundle_evaluation_v1(raw, 2) } != 0 {
+            return Err("app-bundle evaluation window did not open".into());
+        }
+        let mut out = std::ptr::null_mut();
+        let eval_status = unsafe {
+            ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1(
+                raw,
+                APP_BUNDLE_PREFIX_SOURCE.as_ptr(),
+                APP_BUNDLE_PREFIX_SOURCE.len(),
+                source_url.as_ptr(),
+                0,
+                &mut out,
+            )
+        };
+        if eval_status != 0 || !out.is_null() {
+            return Err(format!(
+                "app-bundle refusal prefix eval regressed (status {eval_status})"
+            ));
+        }
+        if function_name == "ex_hermes_run_prepared_app_v1" {
+            let classify = unsafe { ex_hermes_classify_prepared_native_startup_v1(raw, 2) };
+            if classify != 0 {
+                return Err(format!(
+                    "prepared-startup classification regressed to {classify}"
+                ));
+            }
+        }
+        let mut error = std::ptr::null_mut();
+        let status = if function_name == "ex_hermes_run_prepared_app_v1" {
+            unsafe { ex_hermes_run_prepared_app_v1(raw, &mut error) }
+        } else {
+            unsafe { ex_hermes_stage_prepared_native_startup_v1(raw, &mut error) }
+        };
+        let detail = take_hermes_string(error);
+        if status != -1 || detail.is_none() {
+            return Err(format!(
+                "{function_name}: out-of-order drive did not return its reviewed refusal (status {status})"
+            ));
+        }
+        if unsafe { ex_hermes_runtime_is_quarantined_v1(raw) } != 1 {
+            return Err(format!(
+                "{function_name}: reviewed refusal did not quarantine the owned runtime"
+            ));
+        }
+        return Ok(returned_string(detail.expect("checked drive refusal detail")));
+    }
+
     // The two eval routes are the only ones that surface an out:error string;
     // an exact invalid Hermes bytecode artifact is refused with status 2 and a
     // nonempty bounded error, which drives both selectors coherently.
@@ -7916,6 +7974,21 @@ fn merged_host_abi_output_routes_execute_bounded_calls() {
             .unwrap_or_else(|error| panic!("{function_name}: {error}"));
         assert_eq!(observation, returned_number(expected));
     }
+    // stage/run expose out:error only through the reviewed out-of-order drive
+    // refusal (-1 + bounded error + quarantine).
+    for function_name in [
+        "ex_hermes_stage_prepared_native_startup_v1",
+        "ex_hermes_run_prepared_app_v1",
+    ] {
+        let detail = execute_app_bundle_route(function_name, "out:error")
+            .unwrap_or_else(|error| panic!("{function_name}: {error}"));
+        assert_eq!(detail["kind"], "return");
+        assert_eq!(detail["rawValueShape"], "string");
+        assert!(detail["value"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty()));
+    }
+
     for function_name in [
         "ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1",
         "ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1",
