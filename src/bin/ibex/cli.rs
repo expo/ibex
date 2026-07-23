@@ -739,7 +739,32 @@ pub(crate) mod tests {
             return Vec::new();
         }
 
-        let mut argv = vec![command.get_name().to_string(), primary_name.to_string()];
+        let mut argv = vec![command.get_name().to_string()];
+        // Required options must also be satisfied or the probe parse fails
+        // validation before the probed argument is ever inspected. They go
+        // before the probed option so a 0..=1-arity probe cannot try to
+        // consume them as its own value.
+        for required in command
+            .get_arguments()
+            .filter(|candidate| !candidate.is_positional())
+            .filter(|candidate| candidate.is_required_set())
+            .filter(|candidate| candidate.get_id() != arg.get_id())
+        {
+            match required.get_long() {
+                Some(long) => argv.push(format!("--{long}")),
+                None => match required.get_short() {
+                    Some(short) => argv.push(format!("-{short}")),
+                    None => continue,
+                },
+            }
+            let required_arity = required.get_num_args().unwrap_or_default();
+            if required_arity.max_values() > 0 {
+                for _ in 0..required_arity.min_values().max(1) {
+                    argv.push(positional_probe_value(required));
+                }
+            }
+        }
+        argv.push(primary_name.to_string());
         let required_positionals: Vec<&Arg> = command
             .get_positionals()
             .filter(|positional| positional.is_required_set())
