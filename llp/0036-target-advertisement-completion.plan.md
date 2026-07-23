@@ -265,6 +265,48 @@ one.
    matrix cells to advertised. Only then is ENG-24578's target promotion (and
    ENG-24669, the product) unblocked.
 
+## Measured correction: there is no cheap bulk win left (2026-07-23)
+
+An earlier read of this plan treated the `(none)` non-capability surfaces
+(~3,700) as a cheap high-volume sweep on one template. **Measuring it corrected
+that.** The `(none)` bucket has a cheap head — readable exports (constants, data
+properties, module values, no arguments) — and that head is **already
+harvested**: 2,163 `(none)` rows are already fully-executable. What remains
+unresolved is the tail:
+
+- **~1,718 authorable-but-not-cheap.** Of the 526 authorable builtin `(none)`
+  surfaces, **313 are callable functions** needing a per-function invocation
+  template (safe arguments + setup + observed no-decision completion), 118 are
+  `unknown` shape, and only ~92 are simple readable accessor/data — and even
+  those are unresolved for surface-specific reasons, not a missing bulk template.
+  The callable tail (crypto functions, `Cipher` methods, etc.) is the same
+  per-surface authoring shape as the fs export tail, not a fan-out.
+- **~1,654 structurally hard** (`native-public-source-invocation-unavailable`):
+  no public invocation path, same class as the module-runner CJS residuals.
+- **~606 closed-surface denials** needing a denial probe each.
+
+**Conclusion.** Every remaining gate-2 bucket has the same structure — a cheap
+head that is largely already harvested, and a tail that is genuine per-surface /
+per-function authoring. There is no template that unlocks thousands of rows at
+once. The realistic cost of gate 2 is therefore proportional to the number of
+distinct surface-invocation shapes (thousands), throttled by the engine-locked
+batch and, for capability families, by the LLP 0037-class security review. This
+does not change the plan's steps; it removes the hope of a shortcut and makes the
+strategic question below load-bearing.
+
+### Strategic question this forces
+
+Because there is no bulk shortcut, the highest-leverage move may not be authoring
+at all but **reducing the bar**: (a) extend the internally-verified
+classification (LLP 0036 step 1) to any *reachable* scenario-class that is in
+truth attested internally, shrinking the executable denominator; or (b) decide
+with the owner whether advertisement can be scoped to a coherent *subset* of
+target cells rather than the current all-or-nothing completeness gate, so real
+advertised cells land before the full per-surface program completes. Both are
+design decisions for the owner; either could collapse the program's cost by more
+than any authoring throughput. This should be settled before committing to the
+full per-surface grind.
+
 ## Correctness owed (the deliberately-deferred verification)
 
 Per the author's direction, this plan optimizes for a coherent, working path
