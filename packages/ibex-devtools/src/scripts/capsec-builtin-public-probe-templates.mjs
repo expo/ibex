@@ -659,6 +659,14 @@ const NODE_NET_CALL_SPECS = Object.freeze({
 // source, not a generic "call every function" mechanism.
 const ROOT_CALL_SPECS = Object.freeze({
   exact_crypto: EXACT_CRYPTO_CALL_SPECS,
+  // Pure reporters over compiled-in tables: neither reaches a capability,
+  // descriptor, or native resolver, so both execute with zero decisions.
+  node_dns: Object.freeze({
+    getDefaultResultOrder: rootCall([], "string"),
+  }),
+  node_tls: Object.freeze({
+    getCiphers: rootCall([], "object"),
+  }),
   node_module: Object.freeze({
     _nodeModulePaths: rootCall([jsonArgument("/ibex/project/src")], "object"),
     isBuiltin: rootCall([jsonArgument("node:path")], "boolean"),
@@ -1503,6 +1511,7 @@ const CALL_TEMPLATE_IDS = Object.freeze({
   exact_crypto: "exact-crypto-bounded-v1",
   node_assert: "node-assert-bounded-v1",
   node_buffer: "node-buffer-bounded-v1",
+  node_dns: "node-dns-pure-v1",
   node_events: "node-events-bounded-v1",
   node_module: "node-module-pure-v1",
   node_net: "node-net-bounded-v1",
@@ -1512,6 +1521,7 @@ const CALL_TEMPLATE_IDS = Object.freeze({
   node_querystring: "node-querystring-pure-v1",
   node_stream: "node-stream-bounded-v1",
   node_string_decoder: "node-string-decoder-bounded-v1",
+  node_tls: "node-tls-pure-v1",
   node_url: "node-url-pure-v1",
   node_util: "node-util-pure-v1",
   node_zlib: "node-zlib-bounded-v1",

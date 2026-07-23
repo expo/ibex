@@ -258,8 +258,8 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.summary.requiredFixtures).toBe(24_581);
     // Thirty reviewed roots gain exact fresh-engine receipts while the
     // formerly source-misattributed stream/promises export probe is retracted.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_587);
-    expect(recipes.summary.unresolvedFixtures).toBe(21_994);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_589);
+    expect(recipes.summary.unresolvedFixtures).toBe(21_992);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -356,8 +356,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(24_466);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_231);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(22_235);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_233);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(22_233);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -3421,6 +3421,7 @@ describe("exact-target CapSec executable recipes", () => {
         "exact_crypto",
         "node_assert",
         "node_buffer",
+        "node_dns",
         "node_events",
         "node_module",
         "node_net",
@@ -3430,6 +3431,7 @@ describe("exact-target CapSec executable recipes", () => {
         "node_querystring",
         "node_stream",
         "node_string_decoder",
+        "node_tls",
         "node_url",
         "node_util",
         "node_v8",
