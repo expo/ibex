@@ -1442,7 +1442,7 @@ test.
 
 ### Linear execution contract
 
-The Exact-project Linear program is [ENG-25054](https://linear.app/expo/issue/ENG-25054/program-esm-module-runner-and-runtime-module-graph-llp-0026). Every issue
+The Exact-project Linear program is ENG-25054. Every issue
 carries the `Ibex` label and is a child of the program issue. Linear blocker
 relations encode the adoption and implementation gates; the parent remains
 blocked on the final default-switch issue so completion is defined by the child

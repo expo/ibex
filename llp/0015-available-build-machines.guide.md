@@ -6,6 +6,7 @@
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-05
 **Revised:** 2026-07-06 (recorded Unix build-host bootstrap expectations and current macOS coreutils verification)
+**Revised:** 2026-07-22 (moved the concrete machine inventory — SSH targets and tailnet addresses — out of the repo ahead of publishing it; this guide now records the policy and bootstrap contract only)
 **Related:** LLP 0000, LLP 0001, LLP 0005, LLP 0017, LLP 0018
 
 ## Summary
@@ -20,11 +21,13 @@ ever needs them.
 
 ## Machines
 
-| Target | SSH command | Use for |
-|---|---|---|
-| Windows | `ssh CCHEE@100.85.26.90` | Windows builds, host checks, and target-specific investigation |
-| macOS Mac Mini | `ssh ccheever@100.85.133.74` | macOS builds, Apple host checks, and target-specific investigation |
-| Linux | `ssh ccheever@100.65.137.99` | Linux builds, CLI/runtime checks, and target-specific investigation |
+One machine per target OS (Windows, macOS, Linux) is reachable over the
+project tailnet for ad hoc target-specific work. The concrete inventory —
+SSH usernames and tailnet addresses — is operational information and is
+kept outside this repository; ask the project owner for current access.
+Earlier revisions of this document listed the addresses directly; they are
+tailnet (CGNAT) addresses that are not reachable from the public internet,
+and rotating them is part of the repository-publication checklist.
 
 ## Usage
 
@@ -32,8 +35,9 @@ ever needs them.
   validation that cannot be reproduced on the current development host.
 - Prefer documenting the exact commands and results in the issue, PR, or LLP
   that depends on the machine-specific evidence.
-- Treat the IP addresses as operational inventory for agent and developer work,
-  not as a public product surface or permanent API.
+- Treat machine addresses as operational inventory for agent and developer
+  work, not as a public product surface or permanent API, and do not add them
+  back to this repository.
 - Do not store new secrets, credentials, or long-lived tokens on these machines
   as part of a build unless the owning workflow explicitly requires it.
 
@@ -74,7 +78,7 @@ script on each host before relying on it.
 
 ## Open Questions
 
-- Should these machines get stable Tailscale DNS names or repo-local aliases so
-  future docs do not need to pin raw `100.x` addresses?
+- Should these machines get stable Tailscale DNS names or private repo-local
+  aliases so operational docs never need to pin raw addresses?
 - Should any machine become a self-hosted runner, or should they remain manual
   SSH infrastructure for target-specific investigation?
