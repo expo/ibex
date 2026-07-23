@@ -664,6 +664,13 @@ const ROOT_CALL_SPECS = Object.freeze({
   node_dns: Object.freeze({
     getDefaultResultOrder: rootCall([], "string"),
   }),
+  node_http2: Object.freeze({
+    getDefaultSettings: rootCall([], "object"),
+  }),
+  node_stream_web: Object.freeze({
+    isReadableStream: rootCall([jsonArgument({})], "boolean"),
+    isWritableStream: rootCall([jsonArgument({})], "boolean"),
+  }),
   node_tls: Object.freeze({
     getCiphers: rootCall([], "object"),
   }),
@@ -1512,6 +1519,7 @@ const CALL_TEMPLATE_IDS = Object.freeze({
   node_assert: "node-assert-bounded-v1",
   node_buffer: "node-buffer-bounded-v1",
   node_dns: "node-dns-pure-v1",
+  node_http2: "node-http2-pure-v1",
   node_events: "node-events-bounded-v1",
   node_module: "node-module-pure-v1",
   node_net: "node-net-bounded-v1",
@@ -1520,6 +1528,7 @@ const CALL_TEMPLATE_IDS = Object.freeze({
   node_punycode: "node-punycode-pure-v1",
   node_querystring: "node-querystring-pure-v1",
   node_stream: "node-stream-bounded-v1",
+  node_stream_web: "node-stream-web-pure-v1",
   node_string_decoder: "node-string-decoder-bounded-v1",
   node_tls: "node-tls-pure-v1",
   node_url: "node-url-pure-v1",

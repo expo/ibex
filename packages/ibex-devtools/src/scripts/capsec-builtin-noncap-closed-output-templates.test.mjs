@@ -118,7 +118,7 @@ const loaded = residualInvocations();
 describe("builtin non-capability/closed output recipes", () => {
   test("accounts for the exact callable/accessor and descriptor residual universe", async () => {
     const rows = await loaded;
-    expect(rows).toHaveLength(483);
+    expect(rows).toHaveLength(480);
     expect(
       Object.fromEntries(
         ["non-capability", "closed"].map((classification) => [
@@ -128,13 +128,13 @@ describe("builtin non-capability/closed output recipes", () => {
           ).length,
         ]),
       ),
-    ).toEqual({ "non-capability": 305, closed: 178 });
+    ).toEqual({ "non-capability": 302, closed: 178 });
     expect(
       builtinNoncapClosedOutputRouteManifest(rows.map((row) => row.invocation)),
     ).toMatchObject({
-      total: 483,
+      total: 480,
       operations: {
-        call: 289,
+        call: 286,
         construct: 25,
         "import-refusal": 22,
         unexercisable: 147,
