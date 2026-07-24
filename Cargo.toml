@@ -138,6 +138,15 @@ swc_ecma_transforms_react = "49.0.0"
 # cross gates opt out with default-features = false.
 default = ["module-runner", "tls-client-identity-openssl"]
 app-host = []
+# Debug/local convenience: arm and run WITHOUT a checked target advertisement so
+# `ibex eval`/`repl`/`run` work before the advertisement pipeline exists. Every
+# other production authenticator (loaded-engine identity, protected artifacts,
+# root bindings, the full armed capability floor) still runs — only the
+# report-derived target promotion is replaced with a synthetic complete cell
+# map. OFF by default and never in a shipped build; a loud banner marks every
+# run. Compile-time so it adds no runtime environment/CLI surface.
+# @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+unadvertised-dev-arming = []
 # Fixture-only LLP 0026 adoption evidence. This compiles the bounded producer
 # but never selects it as the runtime evaluator or enables artifact caching.
 module-runner-spike = []
