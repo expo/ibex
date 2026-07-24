@@ -133729,6 +133729,21 @@
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:lines:count-1",
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:starts_with:count-4",
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:trim_start:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:call:Ok:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:into:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:kind:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:map_err:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:msg:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:new_source_file:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:parse_expr:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:to_string:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Default::default:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lexer::new:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lrc::new:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Parser::new_from:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:StringInput::from:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Syntax::Es:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:swc_common::FileName::Internal:count-1",
           "src/module_loader/transpile.rs#program_has_top_level_await:external:method:visit_program:count-1",
           "src/module_loader/transpile.rs#selected_engine_cache_tag:external:call:Ok:count-1",
           "src/module_loader/transpile.rs#selected_transform_engine:external:call:Ok:count-1",
@@ -133804,7 +133819,8 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:Vec::new:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1"
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
         ],
         "sourceRefs": [
           "src/module_loader/mod.rs#capture_transpile_tool_directory:external:call:Ok:count-1",
@@ -134078,6 +134094,21 @@
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:lines:count-1",
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:starts_with:count-4",
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:trim_start:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:call:Ok:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:into:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:kind:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:map_err:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:msg:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:new_source_file:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:parse_expr:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:to_string:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Default::default:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lexer::new:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lrc::new:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Parser::new_from:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:StringInput::from:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Syntax::Es:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:swc_common::FileName::Internal:count-1",
           "src/module_loader/transpile.rs#program_has_top_level_await:external:method:visit_program:count-1",
           "src/module_loader/transpile.rs#selected_engine_cache_tag:external:call:Ok:count-1",
           "src/module_loader/transpile.rs#selected_transform_engine:external:call:Ok:count-1",
@@ -134153,7 +134184,8 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:Vec::new:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1"
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
         ],
         "terminalObservedKey": "loader:external-calls:cache"
       },
@@ -134434,6 +134466,21 @@
         "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:lines:count-1",
         "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:starts_with:count-4",
         "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:trim_start:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:call:Ok:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:into:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:kind:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:map_err:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:msg:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:new_source_file:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:parse_expr:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:to_string:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Default::default:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lexer::new:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lrc::new:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Parser::new_from:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:StringInput::from:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Syntax::Es:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:swc_common::FileName::Internal:count-1",
         "src/module_loader/transpile.rs#program_has_top_level_await:external:method:visit_program:count-1",
         "src/module_loader/transpile.rs#selected_engine_cache_tag:external:call:Ok:count-1",
         "src/module_loader/transpile.rs#selected_transform_engine:external:call:Ok:count-1",
@@ -134509,7 +134556,8 @@
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:Vec::new:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
-        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1"
+        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
+        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
@@ -134870,6 +134918,21 @@
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:lines:count-1",
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:starts_with:count-4",
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:trim_start:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:call:Ok:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:into:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:kind:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:map_err:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:msg:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:new_source_file:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:parse_expr:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:to_string:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Default::default:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lexer::new:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lrc::new:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Parser::new_from:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:StringInput::from:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Syntax::Es:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:swc_common::FileName::Internal:count-1",
           "src/module_loader/transpile.rs#program_has_top_level_await:external:method:visit_program:count-1",
           "src/module_loader/transpile.rs#selected_engine_cache_tag:external:call:Ok:count-1",
           "src/module_loader/transpile.rs#selected_transform_engine:external:call:Ok:count-1",
@@ -134945,7 +135008,8 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:Vec::new:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1"
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
         ],
         "sourceRefs": [
           "src/module_loader/mod.rs#capture_transpile_tool_directory:external:call:Ok:count-1",
@@ -135291,6 +135355,21 @@
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:lines:count-1",
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:starts_with:count-4",
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:trim_start:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:call:Ok:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:into:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:kind:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:map_err:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:msg:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:new_source_file:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:parse_expr:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:to_string:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Default::default:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lexer::new:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lrc::new:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Parser::new_from:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:StringInput::from:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Syntax::Es:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:swc_common::FileName::Internal:count-1",
           "src/module_loader/transpile.rs#program_has_top_level_await:external:method:visit_program:count-1",
           "src/module_loader/transpile.rs#selected_engine_cache_tag:external:call:Ok:count-1",
           "src/module_loader/transpile.rs#selected_transform_engine:external:call:Ok:count-1",
@@ -135366,7 +135445,8 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:Vec::new:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1"
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
         ],
         "terminalObservedKey": "loader:external-calls:load"
       },
@@ -135719,6 +135799,21 @@
         "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:lines:count-1",
         "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:starts_with:count-4",
         "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:trim_start:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:call:Ok:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:into:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:kind:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:map_err:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:msg:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:new_source_file:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:parse_expr:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:to_string:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Default::default:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lexer::new:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lrc::new:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Parser::new_from:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:StringInput::from:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Syntax::Es:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:swc_common::FileName::Internal:count-1",
         "src/module_loader/transpile.rs#program_has_top_level_await:external:method:visit_program:count-1",
         "src/module_loader/transpile.rs#selected_engine_cache_tag:external:call:Ok:count-1",
         "src/module_loader/transpile.rs#selected_transform_engine:external:call:Ok:count-1",
@@ -135794,7 +135889,8 @@
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:Vec::new:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
-        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1"
+        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
+        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
@@ -136613,6 +136709,21 @@
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:lines:count-1",
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:starts_with:count-4",
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:trim_start:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:call:Ok:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:into:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:kind:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:map_err:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:msg:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:new_source_file:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:parse_expr:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:to_string:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Default::default:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lexer::new:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lrc::new:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Parser::new_from:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:StringInput::from:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Syntax::Es:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:swc_common::FileName::Internal:count-1",
           "src/module_loader/transpile.rs#program_has_top_level_await:external:method:visit_program:count-1",
           "src/module_loader/transpile.rs#selected_engine_cache_tag:external:call:Ok:count-1",
           "src/module_loader/transpile.rs#selected_transform_engine:external:call:Ok:count-1",
@@ -136688,7 +136799,8 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:Vec::new:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1"
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
         ],
         "sourceRefs": [
           "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:call:Err:count-8",
@@ -137492,6 +137604,21 @@
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:lines:count-1",
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:starts_with:count-4",
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:trim_start:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:call:Ok:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:into:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:kind:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:map_err:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:msg:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:new_source_file:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:parse_expr:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:to_string:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Default::default:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lexer::new:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lrc::new:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Parser::new_from:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:StringInput::from:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Syntax::Es:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:swc_common::FileName::Internal:count-1",
           "src/module_loader/transpile.rs#program_has_top_level_await:external:method:visit_program:count-1",
           "src/module_loader/transpile.rs#selected_engine_cache_tag:external:call:Ok:count-1",
           "src/module_loader/transpile.rs#selected_transform_engine:external:call:Ok:count-1",
@@ -137567,7 +137694,8 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:Vec::new:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1"
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
         ],
         "terminalObservedKey": "loader:external-calls:resolution"
       },
@@ -138378,6 +138506,21 @@
         "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:lines:count-1",
         "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:starts_with:count-4",
         "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:trim_start:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:call:Ok:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:into:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:kind:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:map_err:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:msg:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:new_source_file:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:parse_expr:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:to_string:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Default::default:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lexer::new:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lrc::new:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Parser::new_from:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:StringInput::from:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Syntax::Es:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:swc_common::FileName::Internal:count-1",
         "src/module_loader/transpile.rs#program_has_top_level_await:external:method:visit_program:count-1",
         "src/module_loader/transpile.rs#selected_engine_cache_tag:external:call:Ok:count-1",
         "src/module_loader/transpile.rs#selected_transform_engine:external:call:Ok:count-1",
@@ -138453,7 +138596,8 @@
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:Vec::new:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
-        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1"
+        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
+        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
@@ -138918,6 +139062,21 @@
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:lines:count-1",
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:starts_with:count-4",
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:trim_start:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:call:Ok:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:into:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:kind:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:map_err:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:msg:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:new_source_file:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:parse_expr:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:to_string:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Default::default:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lexer::new:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lrc::new:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Parser::new_from:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:StringInput::from:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Syntax::Es:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:swc_common::FileName::Internal:count-1",
           "src/module_loader/transpile.rs#program_has_top_level_await:external:method:visit_program:count-1",
           "src/module_loader/transpile.rs#selected_engine_cache_tag:external:call:Ok:count-1",
           "src/module_loader/transpile.rs#selected_transform_engine:external:call:Ok:count-1",
@@ -138993,7 +139152,8 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:Vec::new:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1"
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
         ],
         "sourceRefs": [
           "src/module_loader/mod.rs#capture_transpile_tool_directory:external:call:Ok:count-1",
@@ -139271,6 +139431,21 @@
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:lines:count-1",
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:starts_with:count-4",
           "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:trim_start:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:call:Ok:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:into:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:kind:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:map_err:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:msg:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:new_source_file:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:parse_expr:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:method:to_string:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Default::default:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lexer::new:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lrc::new:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Parser::new_from:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:StringInput::from:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Syntax::Es:count-1",
+          "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:swc_common::FileName::Internal:count-1",
           "src/module_loader/transpile.rs#program_has_top_level_await:external:method:visit_program:count-1",
           "src/module_loader/transpile.rs#selected_engine_cache_tag:external:call:Ok:count-1",
           "src/module_loader/transpile.rs#selected_transform_engine:external:call:Ok:count-1",
@@ -139346,7 +139521,8 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:Vec::new:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1"
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
         ],
         "terminalObservedKey": "loader:external-calls:transform"
       },
@@ -139631,6 +139807,21 @@
         "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:lines:count-1",
         "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:starts_with:count-4",
         "src/module_loader/transpile.rs#output_has_esm_module_syntax:external:method:trim_start:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:call:Ok:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:into:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:kind:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:map_err:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:msg:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:new_source_file:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:parse_expr:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:method:to_string:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Default::default:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lexer::new:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Lrc::new:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Parser::new_from:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:StringInput::from:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:Syntax::Es:count-1",
+        "src/module_loader/transpile.rs#parse_replacement_expr:external:qualified:swc_common::FileName::Internal:count-1",
         "src/module_loader/transpile.rs#program_has_top_level_await:external:method:visit_program:count-1",
         "src/module_loader/transpile.rs#selected_engine_cache_tag:external:call:Ok:count-1",
         "src/module_loader/transpile.rs#selected_transform_engine:external:call:Ok:count-1",
@@ -139706,7 +139897,8 @@
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:Vec::new:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
-        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1"
+        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
+        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
@@ -150708,6 +150900,37 @@
       ]
     },
     {
+      "edgeId": "surface.loader.route.cache.rust.parse.replacement.expr.0jj9m7h",
+      "observedKey": "loader:route:cache:rust:parse_replacement_expr",
+      "branchId": "surface.loader.route.cache.rust.parse.replacement.expr.0jj9m7h.main",
+      "enforcementBranchId": "surface.loader.route.cache.rust.parse.replacement.expr.0jj9m7h.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:route:cache:rust:parse_replacement_expr"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/transpile.rs#parse_replacement_expr"
+        ],
+        "sourceRefs": [
+          "src/module_loader/transpile.rs#parse_replacement_expr"
+        ],
+        "terminalObservedKey": "loader:route:cache:rust:parse_replacement_expr"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/transpile.rs#parse_replacement_expr"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.loader.route.cache.rust.parse.replacement.expr.0jj9m7h.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.loader.route.cache.rust.program.has.top.level.await.00mk5zq",
       "observedKey": "loader:route:cache:rust:program_has_top_level_await",
       "branchId": "surface.loader.route.cache.rust.program.has.top.level.await.00mk5zq.main",
@@ -152423,6 +152646,37 @@
       "implementationOwner": "WP1",
       "fixtureObligations": [
         "surface.loader.route.load.rust.oxc.target.0twt9kn.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.route.load.rust.parse.replacement.expr.0t1tshl",
+      "observedKey": "loader:route:load:rust:parse_replacement_expr",
+      "branchId": "surface.loader.route.load.rust.parse.replacement.expr.0t1tshl.main",
+      "enforcementBranchId": "surface.loader.route.load.rust.parse.replacement.expr.0t1tshl.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:route:load:rust:parse_replacement_expr"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/transpile.rs#parse_replacement_expr"
+        ],
+        "sourceRefs": [
+          "src/module_loader/transpile.rs#parse_replacement_expr"
+        ],
+        "terminalObservedKey": "loader:route:load:rust:parse_replacement_expr"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/transpile.rs#parse_replacement_expr"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.loader.route.load.rust.parse.replacement.expr.0t1tshl.main.non-capability"
       ]
     },
     {
@@ -155542,6 +155796,37 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.loader.route.resolution.rust.parse.manifest.0grs24s.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.parse.replacement.expr.0d3t2xz",
+      "observedKey": "loader:route:resolution:rust:parse_replacement_expr",
+      "branchId": "surface.loader.route.resolution.rust.parse.replacement.expr.0d3t2xz.main",
+      "enforcementBranchId": "surface.loader.route.resolution.rust.parse.replacement.expr.0d3t2xz.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:route:resolution:rust:parse_replacement_expr"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/transpile.rs#parse_replacement_expr"
+        ],
+        "sourceRefs": [
+          "src/module_loader/transpile.rs#parse_replacement_expr"
+        ],
+        "terminalObservedKey": "loader:route:resolution:rust:parse_replacement_expr"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/transpile.rs#parse_replacement_expr"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.loader.route.resolution.rust.parse.replacement.expr.0d3t2xz.main.non-capability"
       ]
     },
     {
@@ -159003,6 +159288,37 @@
       "implementationOwner": "WP1",
       "fixtureObligations": [
         "surface.loader.route.transform.rust.oxc.target.0sc9725.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.route.transform.rust.parse.replacement.expr.06s964b",
+      "observedKey": "loader:route:transform:rust:parse_replacement_expr",
+      "branchId": "surface.loader.route.transform.rust.parse.replacement.expr.06s964b.main",
+      "enforcementBranchId": "surface.loader.route.transform.rust.parse.replacement.expr.06s964b.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:route:transform:rust:parse_replacement_expr"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/transpile.rs#parse_replacement_expr"
+        ],
+        "sourceRefs": [
+          "src/module_loader/transpile.rs#parse_replacement_expr"
+        ],
+        "terminalObservedKey": "loader:route:transform:rust:parse_replacement_expr"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/transpile.rs#parse_replacement_expr"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.loader.route.transform.rust.parse.replacement.expr.06s964b.main.non-capability"
       ]
     },
     {
@@ -281421,7 +281737,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-Y44L9AMueulgpLdRVSHclipZ_68RAp6faR3H14otnBc"
+      "rawContentDigest": "sha256-DDOTdubeHmY1TUz3YpoVNofePXvb1-yqWT1RSkoAwww"
     },
     {
       "kind": "output-disposition-dataset",
@@ -281436,44 +281752,44 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-u-RMFTudMfxn-7OCjoqeENpgCwoF6xXW6GQ0_zEhfXQ"
+      "rawContentDigest": "sha256-WZD99pWu3FBBmvoqTHhN8q20Hu2QreIqvXhjn3URoOw"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-msNwhVFdkHs9jfmfAjACs3qQnsaKZjVu3-CWwGM2TGU"
+      "rawContentDigest": "sha256-05WBUGx0y34ewruAXNxBf6uxLdNoZQmY0c2OzBGA_LM"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-3e0rTXI6Gg_7JTq4N8tKp-MX08bNtnEud1VxD0LgEyE"
+      "rawContentDigest": "sha256-gNhL7CnAlxbSkJELJ4kzyZVcmMdcADm9RuVTbDgqCAE"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-ibrcptXdXkGbtn09XSDTzFiqzKcqMcQeIneMUlwzDC0"
+      "rawContentDigest": "sha256-g2MaHfQ2Bj3vQykz84WzXAE0rx6w0rPQp48BL5UPc5I"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-lZYLXTKmVpX8070_CBGP7zOgPrwlKmrQgoDJ0suvzto"
+      "rawContentDigest": "sha256-aDxan9dZZfX2hIu8gGrUQLrsk6x6La3H1uScmg8SzYg"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-zTupUWx_U6RgZc83WeCEi91FeSHyq2qk-ZJGohZRVKc"
+      "rawContentDigest": "sha256-5-CmdkOAPRC5BcxHG0AkSmnp5nRKLgSlW8KWQFzw4sI"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-6UVmtKlZzsAoYLZSPFtel34By4QLukVnitY1vzp60SU"
+      "rawContentDigest": "sha256-UWygvsRA-3CCtDFgD5qXEXyrgQVShbnp2r0GTzyfrr4"
     }
   ],
   "counts": {
-    "observedReferences": 13237,
-    "logicalSurfaces": 7575,
-    "enforcementBranches": 7795,
-    "coverageEdges": 7575,
-    "targetCells": 15150
+    "observedReferences": 13305,
+    "logicalSurfaces": 7579,
+    "enforcementBranches": 7799,
+    "coverageEdges": 7579,
+    "targetCells": 15158
   }
 }
