@@ -52,6 +52,14 @@ Skills: orient = context before coding · create = author one LLP · review = LL
 ## Working on this project
 
 - Read relevant LLP documents before implementing features or fixing bugs in the areas they cover.
+- Agents may use the machine fleet documented in
+  `~/Dropbox/APIKeys/MACHINE_FLEET.md` to speed up development. Read that file
+  for current availability, capabilities, and SSH commands. Prefer an
+  appropriate remote machine when builds or tests are resource-intensive, or
+  when controlled browsers, simulators, or macOS apps would steal focus and
+  make the primary computer difficult to use. Account for repository state and
+  platform requirements before dispatching work, and do not copy credentials
+  or other secrets into the repository or logs.
 - If you make a design decision worth documenting, write or update an LLP.
 - Prefer updating an existing LLP over creating a new one when the topic is covered.
 - Land doc updates in the same commit as the code change that motivated them.
