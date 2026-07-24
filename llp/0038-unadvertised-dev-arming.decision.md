@@ -136,11 +136,29 @@ Measured behaviour under `insecure`:
 | `/etc/hosts`, and **writes outside the project** (`/tmp/...`) | works — no sandbox |
 | `child_process` spawn | works |
 | `fetch` over the real network | works (verified against a live local server) |
-| `process.env` | still empty — see below |
+| `process.env` | inherited host environment — see below |
 
-`process.env` is **not** a security gate: Ibex never populates it from the host
-environment, by design. It stays empty in every mode, so scripts that read
-`process.env` need their values supplied another way.
+`process.env` in an insecure build projects the host environment inherited at
+Ibex startup, plus later JavaScript mutations (Node-compatible reads, writes,
+deletes, enumeration; children inherit the JavaScript-visible environment).
+This is the fourth thing the feature opens, added 2026-07-24
+(issues/20260724-insecure-process-env.md): the launcher snapshots the host
+environment at the top of `main` (`install_insecure_ambient_environment`) and
+the native env bridges serve that ambient store instead of the armed
+per-principal overlays. Because the same binary re-execs as the session
+worker, REPL, `eval`, `run`, and package-script routes all observe the same
+projection.
+
+The projection is doubly gated: it compiles only under `insecure`, and even
+then it activates only through the explicit launcher install — creating a
+runtime never installs it, so embedded runtimes (and every secure build,
+including `unadvertised-dev-arming`) keep the authenticated empty base plus
+explicitly authorized principal overlays. An embedder that wants ambient
+values in an insecure build must call the installer itself.
+`scripts/check-secure-mode.sh` and `tests/secure_process_env.rs` prove a
+host-only sentinel cannot leak in secure mode;
+`tests/ambient_env_requires_install.rs` proves runtime creation alone never
+activates the projection.
 
 ### This is a real "no sandbox" build
 

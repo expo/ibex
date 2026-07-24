@@ -3335,7 +3335,9 @@ impl Runtime {
         // that would let one runtime race or influence a later runtime's
         // requested snapshot in the same supervisor.
         crate::host::abi::install_host(host.clone());
+        let mut phase = StartupPhaseTrace::begin();
         let engine = engine::create_engine(&cli.engine, armed_snapshot_digest.as_deref())?;
+        phase.mark("engine_create");
 
         // If the engine doesn't support ESM, fall back to CJS bundling.
         // Hermes evaluateJavaScript() only supports script mode, not ES modules.
@@ -4503,6 +4505,37 @@ fn policy_package_graph_edges(
     Ok(graph_edges)
 }
 
+/// Per-phase marks for `IBEX_STARTUP_TRACE=1`, in the same `[startup]` line
+/// format as the launcher's marks. Each mark reports the time since the
+/// previous mark, so the ceremony's cost decomposes into attributable phases
+/// instead of one opaque gap between `cli_parse` and the first engine line.
+pub(crate) struct StartupPhaseTrace {
+    enabled: bool,
+    last: std::time::Instant,
+}
+
+impl StartupPhaseTrace {
+    pub(crate) fn begin() -> Self {
+        Self {
+            enabled: crate::trace_startup(),
+            last: std::time::Instant::now(),
+        }
+    }
+
+    pub(crate) fn mark(&mut self, label: &str) {
+        if self.enabled {
+            let elapsed = self.last.elapsed();
+            eprintln!(
+                "[startup] {:<30} {:>6} us ({:>5.1} ms)",
+                label,
+                elapsed.as_micros(),
+                elapsed.as_micros() as f64 / 1000.0
+            );
+        }
+        self.last = std::time::Instant::now();
+    }
+}
+
 fn build_default_armed_host(
     cli: &Cli,
     launch: AuthenticatedLaunchEntry,
@@ -4513,6 +4546,7 @@ fn build_default_armed_host(
     };
     use capsec_semantics::model::Digest;
 
+    let mut phase = StartupPhaseTrace::begin();
     validate_production_inputs(cli)?;
     for line in check_capsec_readiness(
         crate::host::SecurityMode::Enforce,
@@ -4522,6 +4556,7 @@ fn build_default_armed_host(
     )? {
         eprintln!("{line}");
     }
+    phase.mark("arm_readiness_check");
     if cli.capsec == crate::cli::CapSecMode::Audit {
         anyhow::bail!("foreground audit requires its separate diagnostic arming workflow");
     }
@@ -4536,6 +4571,7 @@ fn build_default_armed_host(
     let components = runtime_path_components_json(&project_root)?;
 
     let engine_identity = crate::engine::hermes::HermesEngine::loaded_engine_identity()?;
+    phase.mark("arm_engine_identity");
     let engine_digest = engine_identity.binary_digest.clone();
     let engine_object = serde_json::to_value(&engine_identity.object)?;
     if crate::runtime_env("IBEX_POLICY", "EXACT_POLICY").is_some() {
@@ -4758,6 +4794,7 @@ fn build_default_armed_host(
     root_package_imports.sort();
     let policy_digest = canonical_policy.policy_digest.as_str().to_owned();
     policy = serde_json::to_value(canonical_policy)?;
+    phase.mark("arm_policy_load");
     let policy_principals = policy["principals"]
         .as_array()
         .context("canonical policy principals must be an array")?;
@@ -4780,6 +4817,7 @@ fn build_default_armed_host(
     let mut graph_nodes = Vec::new();
     let mut package_bindings = Vec::new();
     let installed_packages = authenticated_installed_packages(&project_root, policy_principals)?;
+    phase.mark("arm_packages_auth");
     for row in policy_principals {
         let principal = row["principal"].clone();
         let authority_rows = |field: &str| -> Result<Vec<serde_json::Value>> {
@@ -4934,24 +4972,46 @@ fn build_default_armed_host(
     )?)?;
     value["entry"] = serde_json::to_value(entry)?;
     value["projectRootDiscovery"] = serde_json::to_value(&project_root_discovery)?;
+    phase.mark("arm_snapshot_document");
     let policy_bytes = capsec_semantics::canonical::to_jcs_bytes(&policy)?;
     let graph_bytes = capsec_semantics::canonical::to_jcs_bytes(&value["packageGraph"])?;
-    let registry_record = serde_json::json!({
-        "registryDigest": value["registryDigest"],
-        "capabilityDefinitions": serde_json::from_str::<serde_json::Value>(
-            ibex_runtime::capsec_registry_generated::CAPSEC_CAPABILITY_DEFINITIONS_JSON,
-        )?,
-        "coverageEdges": serde_json::from_str::<serde_json::Value>(
-            ibex_runtime::capsec_registry_generated::CAPSEC_COVERAGE_EDGES_JSON,
-        )?,
-        "targetCells": serde_json::from_str::<serde_json::Value>(
-            ibex_runtime::capsec_registry_generated::CAPSEC_TARGET_CELLS_JSON,
-        )?,
-        "policyRules": serde_json::from_str::<serde_json::Value>(
-            ibex_runtime::capsec_registry_generated::CAPSEC_POLICY_RULES_JSON,
-        )?,
-    });
-    let registry_bytes = capsec_semantics::canonical::to_jcs_bytes(&registry_record)?;
+    let registry_digest_name = value["registryDigest"]
+        .as_str()
+        .context("registry digest missing")?
+        .to_owned();
+    // Warm path: authenticate the pinned registry artifact against the
+    // build-time digest. Cold path: construct the record from the embedded
+    // registry JSON and pin it byte-verified, exactly as before.
+    let registry_object =
+        match pin_precomputed_registry_artifact(&cache_root, &registry_digest_name)? {
+            Some(artifact) => artifact,
+            None => {
+                let registry_record = serde_json::json!({
+                    "registryDigest": value["registryDigest"],
+                    "capabilityDefinitions": serde_json::from_str::<serde_json::Value>(
+                        ibex_runtime::capsec_registry_generated::CAPSEC_CAPABILITY_DEFINITIONS_JSON,
+                    )?,
+                    "coverageEdges": serde_json::from_str::<serde_json::Value>(
+                        ibex_runtime::capsec_registry_generated::CAPSEC_COVERAGE_EDGES_JSON,
+                    )?,
+                    "targetCells": serde_json::from_str::<serde_json::Value>(
+                        ibex_runtime::capsec_registry_generated::CAPSEC_TARGET_CELLS_JSON,
+                    )?,
+                    "policyRules": serde_json::from_str::<serde_json::Value>(
+                        ibex_runtime::capsec_registry_generated::CAPSEC_POLICY_RULES_JSON,
+                    )?,
+                });
+                let registry_bytes =
+                    capsec_semantics::canonical::to_jcs_bytes(&registry_record)?;
+                materialize_protected_artifact(
+                    &cache_root,
+                    "registry",
+                    &registry_digest_name,
+                    &registry_bytes,
+                )?
+            }
+        };
+    phase.mark("arm_registry_record");
     let policy_object = materialize_protected_artifact(
         &cache_root,
         "armed-policy",
@@ -4968,14 +5028,7 @@ fn build_default_armed_host(
             .context("package graph digest missing")?,
         &graph_bytes,
     )?;
-    let registry_object = materialize_protected_artifact(
-        &cache_root,
-        "registry",
-        value["registryDigest"]
-            .as_str()
-            .context("registry digest missing")?,
-        &registry_bytes,
-    )?;
+    phase.mark("arm_artifact_materialize");
     value["protectedObjects"] = serde_json::json!([
         {"role": "armed-policy", "object": policy_object.object, "deniedActions": ["fs:write"]},
         {"role": "engine-binary", "object": engine_object, "deniedActions": ["fs:write"]},
@@ -5047,10 +5100,12 @@ fn build_default_armed_host(
         ],
         embedded_protected_artifacts: vec![],
     };
+    phase.mark("arm_snapshot_build");
     let snapshot = Arc::new(ArmedSnapshot::load(
         &serde_json::to_vec(&value)?,
         &expected,
     )?);
+    phase.mark("arm_snapshot_load");
     validate_optional_home_cache_binding(&snapshot, &cache_root)?;
     let digest = snapshot.digest().as_str().to_owned();
     let host_config = HostConfig {
@@ -5065,6 +5120,7 @@ fn build_default_armed_host(
     };
     #[cfg(not(feature = "unadvertised-dev-arming"))]
     let host = Host::new_armed(host_config, snapshot)?;
+    phase.mark("arm_host_new");
     Ok((host, Some(digest), project_root, cache_root))
 }
 
@@ -6317,6 +6373,151 @@ struct MaterializedProtectedArtifact {
     host_path: capsec_semantics::model::LogicalPath,
     object: serde_json::Value,
     content_digest: capsec_semantics::model::Digest,
+}
+
+/// Build-time SHA-256 of the armed registry-record JCS bytes (and their
+/// length), computed by build.rs from the same checked-in registry inputs and
+/// the same capsec-semantics canonicalization the cold path uses.
+const CAPSEC_REGISTRY_RECORD_CONTENT_DIGEST: &str =
+    include_str!(concat!(env!("OUT_DIR"), "/capsec-registry-record.digest"));
+const CAPSEC_REGISTRY_RECORD_CONTENT_LEN: &str =
+    include_str!(concat!(env!("OUT_DIR"), "/capsec-registry-record.len"));
+
+/// Warm-start fast path for the registry protected artifact: authenticate an
+/// already-pinned cache file against the build-time content digest instead of
+/// re-parsing and re-canonicalizing ~17 MB of embedded registry JSON on every
+/// launch (that construction dominated arming time; see
+/// issues/20260724-insecure-startup-performance.md). Trust is unchanged — a
+/// SHA-256 match against the digest of the exact bytes the cold path would
+/// construct is equivalent to the cold path's byte comparison, and the same
+/// permission/regular-file pinning checks apply. Any doubt (missing file,
+/// wrong length or mode, digest mismatch) returns `None` so the cold path
+/// rebuilds and byte-verifies the artifact, keeping mismatch failures loud.
+fn pin_precomputed_registry_artifact(
+    cache_root: &std::path::Path,
+    digest_name: &str,
+) -> Result<Option<MaterializedProtectedArtifact>> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+    use sha2::{Digest as _, Sha256};
+    use std::io::Read as _;
+
+    let expected_digest = CAPSEC_REGISTRY_RECORD_CONTENT_DIGEST.trim();
+    let Ok(expected_len) = CAPSEC_REGISTRY_RECORD_CONTENT_LEN.trim().parse::<u64>() else {
+        return Ok(None);
+    };
+    let Ok(directory) = std::fs::canonicalize(cache_root.join("capsec-artifacts")) else {
+        return Ok(None);
+    };
+    let filename_digest = digest_name
+        .strip_prefix("sha256-")
+        .unwrap_or(digest_name)
+        .replace(|character: char| !character.is_ascii_alphanumeric(), "_");
+    let path = directory.join(format!("{filename_digest}.registry.json"));
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    let Ok(mut file) = options.open(&path) else {
+        return Ok(None);
+    };
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.len() != expected_len {
+        return Ok(None);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o222 != 0 {
+            return Ok(None);
+        }
+    }
+    #[cfg(not(unix))]
+    if !metadata.permissions().readonly() {
+        return Ok(None);
+    }
+    let mut observed = Vec::with_capacity(expected_len as usize);
+    file.read_to_end(&mut observed)?;
+    let observed_digest = format!(
+        "sha256-{}",
+        URL_SAFE_NO_PAD.encode(Sha256::digest(&observed))
+    );
+    if observed_digest != expected_digest {
+        return Ok(None);
+    }
+    let identity = ibex_runtime::host::object_identity_for_open_file(&file)
+        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+    let object =
+        serde_json::to_value(identity).context("serializing protected artifact identity")?;
+    let path = std::fs::canonicalize(&path)?;
+    let host_path = serde_json::from_value(serde_json::json!({
+        "root": "absolute",
+        "components": runtime_path_components_json(&path)?,
+        "hostBound": true,
+    }))?;
+    let content_digest = capsec_semantics::model::Digest::new(expected_digest)
+        .map_err(anyhow::Error::msg)?;
+    Ok(Some(MaterializedProtectedArtifact {
+        host_path,
+        object,
+        content_digest,
+    }))
+}
+
+#[cfg(test)]
+mod precomputed_registry_record_tests {
+    use super::*;
+
+    /// The warm-path digest is only sound if build.rs constructs exactly the
+    /// record the cold path constructs. Rebuild it here through the runtime's
+    /// own code and require the digests to agree, so a field added or
+    /// reordered on one side fails this test instead of silently forcing
+    /// every startup down the cold path (or worse, pinning the wrong bytes).
+    #[test]
+    fn precomputed_registry_record_digest_matches_runtime_construction() {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use base64::Engine as _;
+        use sha2::{Digest as _, Sha256};
+
+        let template: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/examples/armed-snapshot.canonical.json"
+        )))
+        .unwrap();
+        let record = serde_json::json!({
+            "registryDigest": template["registryDigest"],
+            "capabilityDefinitions": serde_json::from_str::<serde_json::Value>(
+                ibex_runtime::capsec_registry_generated::CAPSEC_CAPABILITY_DEFINITIONS_JSON,
+            )
+            .unwrap(),
+            "coverageEdges": serde_json::from_str::<serde_json::Value>(
+                ibex_runtime::capsec_registry_generated::CAPSEC_COVERAGE_EDGES_JSON,
+            )
+            .unwrap(),
+            "targetCells": serde_json::from_str::<serde_json::Value>(
+                ibex_runtime::capsec_registry_generated::CAPSEC_TARGET_CELLS_JSON,
+            )
+            .unwrap(),
+            "policyRules": serde_json::from_str::<serde_json::Value>(
+                ibex_runtime::capsec_registry_generated::CAPSEC_POLICY_RULES_JSON,
+            )
+            .unwrap(),
+        });
+        let bytes = capsec_semantics::canonical::to_jcs_bytes(&record).unwrap();
+        assert_eq!(
+            format!("sha256-{}", URL_SAFE_NO_PAD.encode(Sha256::digest(&bytes))),
+            CAPSEC_REGISTRY_RECORD_CONTENT_DIGEST.trim(),
+            "build.rs registry-record precompute diverged from the runtime construction"
+        );
+        assert_eq!(
+            bytes.len().to_string(),
+            CAPSEC_REGISTRY_RECORD_CONTENT_LEN.trim(),
+            "build.rs registry-record length diverged from the runtime construction"
+        );
+    }
 }
 
 fn materialize_protected_artifact(

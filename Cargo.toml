@@ -129,6 +129,27 @@ swc_ecma_transforms_typescript = "49.0.0"
 swc_ecma_transforms_module = "49.0.0"
 swc_ecma_transforms_react = "49.0.0"
 
+# Startup-critical hashing and JSON processing run over multi-megabyte
+# artifacts on every launch: the engine-binary identity digest (~8.5 MB), the
+# embedded CapSec registry record (~17 MB of coverage edges + target cells,
+# parsed and JCS-canonicalized during arming), and snapshot authentication. At
+# the default dev opt-level 0 those phases dominated time-to-first-result for
+# a trivial `ibex eval` (~3.5 s of arming on a warm run, measured 2026-07-24
+# with IBEX_STARTUP_TRACE); optimized they are tens of milliseconds. Debug
+# codegen for the workspace's own code is unchanged except for
+# capsec-semantics, which hosts the JCS/digest inner loops. Release builds are
+# unaffected. issues/20260724-insecure-startup-performance.md
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.serde_json]
+opt-level = 3
+[profile.dev.package.ryu]
+opt-level = 3
+[profile.dev.package.itoa]
+opt-level = 3
+[profile.dev.package.capsec-semantics]
+opt-level = 2
+
 [features]
 # LLP 0026 native module graphs are the ordinary source evaluator. The
 # bounded 0.1 compatibility window retains the old bundler only for module
@@ -170,9 +191,11 @@ unadvertised-dev-arming = []
 # Implies `unadvertised-dev-arming`, and additionally (1) arms the root ceiling
 # `unbounded`, (2) makes the legacy capability shim permissive, and (3) reports
 # unarmed from `ex_host_is_armed()`, which sends all ~46 native gates down their
-# diagnostic path. Exists so Ibex's own development is not blocked by a security
-# model still being built. A red banner marks every run; never ship it, and
-# never run untrusted code under it.
+# diagnostic path. It also compiles the launcher-installed ambient projection
+# that exposes the inherited host environment through `process.env`
+# (issues/20260724-insecure-process-env.md). Exists so Ibex's own development
+# is not blocked by a security model still being built. A red banner marks
+# every run; never ship it, and never run untrusted code under it.
 # @ref LLP 0038#fully-open-mode-insecure
 insecure = ["unadvertised-dev-arming"]
 # Fixture-only LLP 0026 adoption evidence. This compiles the bounded producer
@@ -231,7 +254,14 @@ libz-sys = { version = "1.1", features = ["static"] }
 windows-sys = { version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO"] }
 
 [build-dependencies]
+base64 = "0.22"
 cc = "1.0"
+# Build-time precompute of the armed registry-record JCS digest so warm
+# startups can authenticate the pinned artifact without re-canonicalizing
+# ~17 MB of JSON. Uses the same canonicalization code as the runtime, so the
+# digest is byte-identical by construction.
+# issues/20260724-insecure-startup-performance.md
+capsec-semantics = { path = "crates/capsec-semantics" }
 ibex-windows-dll-staging = { path = "crates/windows-dll-staging" }
 libc = "0.2"
 serde = "1.0"

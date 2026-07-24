@@ -102,7 +102,7 @@ pub(crate) fn hermes_es6_block_scoping_enabled() -> bool {
     !env_flag_enabled("IBEX_LEGACY_HERMES_BLOCK_SCOPING")
 }
 
-fn trace_startup() -> bool {
+pub(crate) fn trace_startup() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED.get_or_init(|| {
         runtime_env("IBEX_STARTUP_TRACE", "EX_STARTUP_TRACE")
@@ -1014,6 +1014,14 @@ fn emit_pre_session_diagnostic(prefix: &str, detail: &str) {
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let t0 = std::time::Instant::now();
+    // Insecure builds project the inherited host environment through
+    // `process.env`. Install the snapshot first, before the worker bootstrap
+    // branch, so the parent and the re-exec'd session worker capture the same
+    // projection and REPL/eval/run/package-script routes all agree. Secure
+    // builds have no installer and keep the digest-bound empty base.
+    // @ref LLP 0038#fully-open-mode-insecure
+    #[cfg(feature = "insecure")]
+    ibex_runtime::host::process::install_insecure_ambient_environment();
     // Freeze launcher tracing before any worker, Host, or engine construction;
     // later diagnostics consult only the process-lifetime capture.
     // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
@@ -2359,7 +2367,16 @@ async fn eval_code(
     {
         anyhow::bail!("eval route did not select the authenticated inline ingress");
     }
+    let runtime_t0 = std::time::Instant::now();
     let runtime = runtime::Runtime::from_cli_with_session(cli, session_io)?;
+    if trace_startup() {
+        eprintln!(
+            "[startup] {:<30} {:>6} us ({:>5.1} ms)",
+            "eval_runtime_from_cli",
+            runtime_t0.elapsed().as_micros(),
+            runtime_t0.elapsed().as_micros() as f64 / 1000.0
+        );
+    }
     suppress_runtime_banner(&runtime).await?;
     if trace_startup() {
         eprintln!("[startup] eval_load_runtime_start");

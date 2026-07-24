@@ -514,9 +514,69 @@ fn windows_import_library_for_link(
     pinned
 }
 
+/// Precompute the armed registry-record content digest. The record —
+/// registryDigest plus the capability definitions, coverage edges, target
+/// cells, and policy rules — is fully determined by checked-in files, but the
+/// runtime used to re-parse and re-canonicalize ~17 MB of JSON on every launch
+/// just to authenticate the pinned cache artifact. Computing the JCS digest
+/// here (with the same capsec-semantics code the runtime uses, so bytes are
+/// identical by construction) lets a warm startup authenticate the pinned
+/// artifact by digest and skip that work; a cold startup still constructs and
+/// byte-verifies the record in full.
+/// issues/20260724-insecure-startup-performance.md
+fn precompute_capsec_registry_record_digest(manifest_dir: &Path) {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+    use sha2::{Digest as _, Sha256};
+
+    let inputs = [
+        "capsec/examples/armed-snapshot.canonical.json",
+        "capsec/registry/capability-definitions.json",
+        "capsec/registry/coverage-edges.json",
+        "capsec/registry/target-cells.json",
+        "capsec/registry/policy-rules.json",
+    ];
+    for input in inputs {
+        println!(
+            "cargo:rerun-if-changed={}",
+            manifest_dir.join(input).display()
+        );
+    }
+    let read_json = |relative: &str| -> serde_json::Value {
+        let path = manifest_dir.join(relative);
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+        serde_json::from_slice(&bytes)
+            .unwrap_or_else(|error| panic!("failed to parse {}: {error}", path.display()))
+    };
+    let template = read_json("capsec/examples/armed-snapshot.canonical.json");
+    // Field set and construction must mirror build_default_armed_host's
+    // registry record exactly; the runtime's cold path byte-verifies against
+    // the same pinned artifact, so a divergence here fails loudly there.
+    let record = serde_json::json!({
+        "registryDigest": template["registryDigest"],
+        "capabilityDefinitions": read_json("capsec/registry/capability-definitions.json"),
+        "coverageEdges": read_json("capsec/registry/coverage-edges.json"),
+        "targetCells": read_json("capsec/registry/target-cells.json"),
+        "policyRules": read_json("capsec/registry/policy-rules.json"),
+    });
+    let bytes = capsec_semantics::canonical::to_jcs_bytes(&record)
+        .expect("canonicalizing the capsec registry record");
+    let digest = format!("sha256-{}", URL_SAFE_NO_PAD.encode(Sha256::digest(&bytes)));
+    let out_dir = env_path("OUT_DIR");
+    std::fs::write(out_dir.join("capsec-registry-record.digest"), &digest)
+        .expect("writing precomputed registry record digest");
+    std::fs::write(
+        out_dir.join("capsec-registry-record.len"),
+        bytes.len().to_string(),
+    )
+    .expect("writing precomputed registry record length");
+}
+
 fn main() {
     println!("cargo:rerun-if-env-changed=IBEX_LEGACY_HERMES_BLOCK_SCOPING");
     let manifest_dir = env_path("CARGO_MANIFEST_DIR");
+    precompute_capsec_registry_record_digest(&manifest_dir);
     // Resolve the root that holds Hermes build inputs (linux/, tools/hermes/,
     // scripts/). Two supported layouts:
     //   - standalone ibex repo: the crate is the repo root.

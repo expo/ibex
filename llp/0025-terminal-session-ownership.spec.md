@@ -411,9 +411,9 @@ or child-process environment/PATH construction) or proved unreachable from an ar
 remaining occurrences are explicit test-only effect hooks. The inventory records that distinction
 per exact occurrence instead of deriving permission from a stage label.
 
-The current checked projection has **159 rows / 343 exact occurrences**:
-99 armed-bootstrap reads, 25 launcher reads, 103 principal-overlay reads, nine
-trusted-bootstrap writes, 74 child-environment construction occurrences, and
+The current checked projection has **166 rows / 357 exact occurrences**:
+108 armed-bootstrap reads, 26 launcher reads, 103 principal-overlay reads, nine
+trusted-bootstrap writes, 78 child-environment construction occurrences, and
 33 post-arm host-read source sites. Those post-arm sites are dispositioned as
 16 effect-gated reads, eleven armed-unreachable reads, and six test-only hooks.
 Child construction is modeled explicitly: each Rust `Command` starts with a
@@ -444,6 +444,18 @@ mutating such an overlay is not consultation of the host environment and cannot
 change a captured bootstrap mode. In particular, `Bun` is absent unless the
 snapshot opted in before arming; if enabled it is the same object as `Exact`,
 not a facade that can be switched by changing an overlay entry.
+
+The `insecure` build's ambient `process.env` projection
+(LLP 0038 §"Fully open mode") does not weaken this. It is a single
+`launcher-pre-arm-read` snapshot of the host environment
+(`install_insecure_ambient_environment`, inventoried under
+`env:<dynamic>:rust:env::vars_os`), taken at the top of `main` before any
+arming and served afterward from a process-local store — never a post-arm
+host consultation, never a fallback in a secure build (the installer does not
+compile there), and never able to change a captured bootstrap mode. Names in
+that store are raw host names for Node compatibility; the canonical
+`EnvironmentName` invariant continues to govern the compiled broker base and
+typed overlay rows.
 
 **Live terminal facts are not startup configuration.** Window dimensions change under `SIGWINCH` and
 cannot be frozen; the terminal's mode changes as the session enters and leaves raw mode. These are

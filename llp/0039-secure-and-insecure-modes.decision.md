@@ -173,6 +173,8 @@ Until it exists, item 3 and item 5 above rest on discipline alone.
   honest, rather than under pressure to unblock everyone else.
 - The project accepts, explicitly, that `insecure` builds have the ambient
   authority of the invoking user, and that the assumptions justifying this are
-  written down and expire.
+  written down and expire. Since 2026-07-24 that includes the inherited host
+  environment: insecure `process.env` projects it (LLP 0038 §"Fully open
+  mode"), while every secure mode keeps the authenticated empty base.
 - This document should be revisited the first time Ibex executes code it did not
   author — that event, not a date, is the trigger.

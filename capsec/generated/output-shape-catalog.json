@@ -40336,6 +40336,63 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.host.env.ambient.active.0885mqs",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_env_ambient_active"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.env.ambient.get.0x0l4ry",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_env_ambient_get"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:buf"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.env.ambient.key.at.0trw95j",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_env_ambient_key_at"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:buf"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.env.ambient.key.count.1oaff6x",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_env_ambient_key_count"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.env.ambient.set.101dg8i",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_env_ambient_set"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.host.env.compiled.key.at.1821b5o",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -83364,6 +83421,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.startup.env.dynamic.rust.env.vars.os.016blc6",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/host/process.rs#env::vars_os:dynamic:read"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.startup.env.ex.bootstrap.globals.hbc.1b6xnl8",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
@@ -86079,15 +86145,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-H2QWscYdm3MMJoxLQTPqK020Xsxs3KJvcU0O6pnOAjo",
+  "catalogKeyDigest": "sha256-J45HM4qxmSwOrpgi5rhOAQUIof14JOGyZwtJICqCUtk",
   "counts": {
-    "coverageSurfaces": 7579,
-    "outputBearingSurfaces": 5838,
-    "structuralOnlySurfaces": 1662,
+    "coverageSurfaces": 7585,
+    "outputBearingSurfaces": 5843,
+    "structuralOnlySurfaces": 1663,
     "unresolvedSurfaces": 79,
-    "catalogRows": 6515,
+    "catalogRows": 6522,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6108,
+    "sourceInventoryRows": 6115,
     "structuredRows": 407
   },
   "rows": [
@@ -156082,6 +156148,153 @@
         ],
         "sourceRefs": [
           "src/host/abi.rs#ex_host_enter_context"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.env.ambient.active.0885mqs",
+        "output": "[[return]]",
+        "alias": "ex_host_env_ambient_active",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_env_ambient_active"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_env_ambient_active"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.env.ambient.get.0x0l4ry",
+        "output": "[[return]]",
+        "alias": "ex_host_env_ambient_get",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_env_ambient_get"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_env_ambient_get"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.env.ambient.get.0x0l4ry",
+        "output": "out:buf",
+        "alias": "ex_host_env_ambient_get",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_env_ambient_get"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_env_ambient_get"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.env.ambient.key.at.0trw95j",
+        "output": "[[return]]",
+        "alias": "ex_host_env_ambient_key_at",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_env_ambient_key_at"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_env_ambient_key_at"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.env.ambient.key.at.0trw95j",
+        "output": "out:buf",
+        "alias": "ex_host_env_ambient_key_at",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_env_ambient_key_at"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_env_ambient_key_at"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.env.ambient.key.count.1oaff6x",
+        "output": "[[return]]",
+        "alias": "ex_host_env_ambient_key_count",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_env_ambient_key_count"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_env_ambient_key_count"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.env.ambient.set.101dg8i",
+        "output": "[[return]]",
+        "alias": "ex_host_env_ambient_set",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_env_ambient_set"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_env_ambient_set"
         ]
       },
       "requiredValueProof": "live-value-observation"

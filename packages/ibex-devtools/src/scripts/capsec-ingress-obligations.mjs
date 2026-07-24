@@ -704,7 +704,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-product-execution",
       "async fn eval_code(",
       "async fn build_bytecode(",
-      "sha256-xJgqyLLZVegHPE2YDWeOXEp2amOerSkzpXnbvAR78v4",
+      "sha256-vUhmFsR_WqXqa7eKojVEPNoXtMSAxxRawPRuqaVxciE",
     ),
     freezeReviewedRange(
       "file-program-adapter",

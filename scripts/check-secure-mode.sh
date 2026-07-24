@@ -78,11 +78,22 @@ expectWorks('project_read', () => fs.readFileSync('data.txt', 'utf8'));
 expectRefused('outside_read', () => fs.readFileSync('$OUTSIDE_FILE', 'utf8'));
 expectRefused('outside_write', () => fs.writeFileSync('$OUTSIDE_WRITE', 'x'));
 expectRefused('spawn', () => require('child_process').execSync('echo x'));
+// The insecure ambient process.env projection must not exist here: a host
+// sentinel inherited from the launcher environment stays unreadable and
+// unenumerated (issues/20260724-insecure-process-env.md). NOTE: keep this
+// block free of apostrophes — macOS bash 3.2 mis-parses an unpaired quote
+// inside the heredoc command substitution and silently skips the probe.
+if (process.env.IBEX_SECURE_SMOKE_SENTINEL === undefined
+    && !Object.keys(process.env).includes('IBEX_SECURE_SMOKE_SENTINEL')) {
+  out.push('env_sentinel_hidden=ok');
+} else {
+  out.push('env_sentinel_hidden=BAD(leaked)');
+}
 console.log('SECURE_SMOKE ' + out.join(' '));
 PROBE_JS
 )
 
-RESULT="$(cd "$WORKDIR" && "$IBEX_BIN" eval "$PROBE" 2>&1 | grep 'SECURE_SMOKE' || true)"
+RESULT="$(cd "$WORKDIR" && IBEX_SECURE_SMOKE_SENTINEL=must-not-leak "$IBEX_BIN" eval "$PROBE" 2>&1 | grep 'SECURE_SMOKE' || true)"
 
 if [[ -z "$RESULT" ]]; then
   echo "FAIL: secure-mode smoke probe produced no result — the runtime did not run." >&2

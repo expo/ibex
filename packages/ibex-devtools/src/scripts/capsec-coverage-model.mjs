@@ -5346,6 +5346,11 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_console_log",
     "ex_host_console_log_bytes",
     "ex_host_enter_context",
+    "ex_host_env_ambient_active",
+    "ex_host_env_ambient_get",
+    "ex_host_env_ambient_key_at",
+    "ex_host_env_ambient_key_count",
+    "ex_host_env_ambient_set",
     "ex_host_env_compiled_key_at",
     "ex_host_env_compiled_key_count",
     "ex_host_env_get",
@@ -6778,6 +6783,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:<dynamic>:rust:Command::env_clear",
     "env:<dynamic>:rust:env::var",
     "env:<dynamic>:rust:env::var_os",
+    "env:<dynamic>:rust:env::vars_os",
     "env:APPDATA",
     "env:BUN_RUNTIME_TRANSPILER_CACHE_PATH",
     "env:CLICOLOR_FORCE",
@@ -13383,12 +13389,25 @@ function hostAbiClassification(name) {
   }
   if (
     new Set([
+      "exhostenvambientget",
+      "exhostenvambientkeyat",
+      "exhostenvambientkeycount",
       "exhostenvcompiledkeyat",
       "exhostenvcompiledkeycount",
       "exhostenvget",
     ]).has(name)
   ) {
     return effectSpec(["env:read"], "environment", "WP7");
+  }
+  if (name === "exhostenvambientset") {
+    return effectSpec(["env:write"], "environment", "WP7");
+  }
+  if (name === "exhostenvambientactive") {
+    // Mode gate for the insecure ambient process.env projection, parallel to
+    // ex_host_is_armed: it discloses only whether the launcher installed the
+    // projection, never an environment value.
+    // @ref LLP 0038#fully-open-mode-insecure
+    return nonCapabilitySpec("authority-control-plane", "WP8");
   }
   if (/^exhostfree(?:buffer|string)$/u.test(name)) {
     return nonCapabilitySpec("authority-release", "WP8");

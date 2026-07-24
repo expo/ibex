@@ -8185,6 +8185,71 @@ pub extern "C" fn ex_host_env_compiled_key_at(index: usize, out_buf: *mut c_char
     )
 }
 
+/// 1 when the insecure ambient `process.env` projection is installed, else 0.
+/// Always 0 in secure builds: the installer only exists behind the
+/// compile-time `insecure` feature, and even there it must be called
+/// explicitly by the launcher (or an embedder), so armed secure runtimes and
+/// embedded runtimes never observe an ambient host environment by default.
+/// The symbol itself exists in every build so the native env bridges can
+/// consult it unconditionally, mirroring `ex_host_is_armed`.
+/// @ref LLP 0038#fully-open-mode-insecure
+#[no_mangle]
+pub extern "C" fn ex_host_env_ambient_active() -> i32 {
+    i32::from(super::process::insecure_ambient_environment_active())
+}
+
+/// Read one name from the insecure ambient environment using the same
+/// full-length protocol as `ex_host_env_get`. `-1` when the projection is
+/// inactive or the name is unset.
+#[no_mangle]
+pub extern "C" fn ex_host_env_ambient_get(key: *const c_char, out_buf: *mut c_char, len: u32) -> i64 {
+    if key.is_null() {
+        return -1;
+    }
+    let key = unsafe { CStr::from_ptr(key) }.to_string_lossy().to_string();
+    match super::process::insecure_ambient_env_get(&key) {
+        Some(value) => copy_environment_bytes(Some(value.as_bytes()), out_buf, len),
+        None => -1,
+    }
+}
+
+/// Write (`value` non-null) or delete (`value` null) one insecure ambient
+/// environment name. Returns 0 on success, -1 when the projection is inactive
+/// or `key` is null.
+#[no_mangle]
+pub extern "C" fn ex_host_env_ambient_set(key: *const c_char, value: *const c_char) -> i32 {
+    if key.is_null() || !super::process::insecure_ambient_environment_active() {
+        return -1;
+    }
+    let key = unsafe { CStr::from_ptr(key) }.to_string_lossy().to_string();
+    if value.is_null() {
+        super::process::insecure_ambient_env_set(&key, None);
+    } else {
+        let value = unsafe { CStr::from_ptr(value) }.to_string_lossy().to_string();
+        super::process::insecure_ambient_env_set(&key, Some(&value));
+    }
+    0
+}
+
+/// Number of names in the insecure ambient environment, or `-1` while the
+/// projection is inactive.
+#[no_mangle]
+pub extern "C" fn ex_host_env_ambient_key_count() -> i64 {
+    super::process::insecure_ambient_env_key_count()
+        .and_then(|count| i64::try_from(count).ok())
+        .unwrap_or(-1)
+}
+
+/// Copy one insecure ambient environment name (display spelling) using the
+/// same full-length protocol as `ex_host_env_get`.
+#[no_mangle]
+pub extern "C" fn ex_host_env_ambient_key_at(index: usize, out_buf: *mut c_char, len: u32) -> i64 {
+    match super::process::insecure_ambient_env_key_at(index) {
+        Some(name) => copy_environment_bytes(Some(name.as_bytes()), out_buf, len),
+        None => -1,
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn ex_host_time_now_ms() -> u64 {
     let now = std::time::SystemTime::now();

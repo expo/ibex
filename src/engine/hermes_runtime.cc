@@ -489,6 +489,17 @@ extern "C" int64_t ex_host_env_get(const char* key, char* out_buf, uint32_t len)
 extern "C" int64_t ex_host_env_compiled_key_count();
 extern "C" int64_t ex_host_env_compiled_key_at(
     size_t index, char* out_buf, uint32_t len);
+// Insecure ambient process.env projection (inherited host environment plus JS
+// mutations). Active only in `insecure` builds after the launcher's explicit
+// install; every secure/embedded runtime reports inactive and keeps the empty
+// armed base. @ref LLP 0038#fully-open-mode-insecure
+extern "C" int32_t ex_host_env_ambient_active();
+extern "C" int64_t ex_host_env_ambient_get(
+    const char* key, char* out_buf, uint32_t len);
+extern "C" int32_t ex_host_env_ambient_set(const char* key, const char* value);
+extern "C" int64_t ex_host_env_ambient_key_count();
+extern "C" int64_t ex_host_env_ambient_key_at(
+    size_t index, char* out_buf, uint32_t len);
 extern "C" int32_t ex_host_random_fill(uint8_t* buf, uint32_t len);
 
 namespace {
@@ -3525,6 +3536,42 @@ std::optional<std::string> getCompiledEnvKey(size_t index) {
   return result;
 }
 
+std::optional<std::string> getAmbientEnvValue(const std::string& key) {
+  char buffer[4096];
+  int64_t needed = ex_host_env_ambient_get(key.c_str(), buffer, sizeof(buffer));
+  if (needed < 0) {
+    return std::nullopt;  // unset (or projection inactive)
+  }
+  size_t fullLen = static_cast<size_t>(needed);
+  if (fullLen < sizeof(buffer)) {
+    return std::string(buffer, buffer + fullLen);
+  }
+  std::string result(fullLen, '\0');
+  int64_t written = ex_host_env_ambient_get(
+      key.c_str(), result.data(), static_cast<uint32_t>(fullLen + 1));
+  if (written < 0) {
+    return std::nullopt;  // raced to unset between the two calls
+  }
+  result.resize(std::min(static_cast<size_t>(written), fullLen));
+  return result;
+}
+
+std::optional<std::string> getAmbientEnvKey(size_t index) {
+  char buffer[256];
+  int64_t needed = ex_host_env_ambient_key_at(index, buffer, sizeof(buffer));
+  if (needed < 0) return std::nullopt;
+  size_t fullLen = static_cast<size_t>(needed);
+  if (fullLen < sizeof(buffer)) {
+    return std::string(buffer, buffer + fullLen);
+  }
+  std::string result(fullLen, '\0');
+  int64_t written = ex_host_env_ambient_key_at(
+      index, result.data(), static_cast<uint32_t>(fullLen + 1));
+  if (written < 0) return std::nullopt;
+  result.resize(std::min(static_cast<size_t>(written), fullLen));
+  return result;
+}
+
 void runNextTickQueue(ExactHermesRuntime* runtime);
 
 // Native StringBuffer for O(1) amortized string append (avoids O(n^2) JS string concatenation)
@@ -4396,6 +4443,20 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         if (handle->armed && isAndroidStorageHostPathEnvironmentKey(key)) {
           return facebook::jsi::Value::undefined();
         }
+        // Insecure ambient projection: the launcher-installed inherited host
+        // environment (plus JS mutations) is the whole truth, for every
+        // principal — enforcement is compile-time disabled in this mode, so
+        // reads bypass the typed decision the way fs/net/spawn gates do via
+        // ex_host_is_armed(). Secure and embedded runtimes report inactive.
+        // @ref LLP 0038#fully-open-mode-insecure
+        if (handle->armed && ex_host_env_ambient_active() == 1) {
+          auto value = getAmbientEnvValue(key);
+          if (!value.has_value()) {
+            return facebook::jsi::Value::undefined();
+          }
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, *value));
+        }
         authorizeTypedEnvironmentRead(runtime, key);
         if (handle->armed) {
           auto principal = currentPrincipalId();
@@ -4444,6 +4505,18 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                 runtime,
                 "Permission denied: private storage environment key");
           }
+          // Insecure ambient projection: assignment updates and deletion
+          // removes the shared ambient entry, so a deleted inherited value
+          // does not resurface. @ref LLP 0038#fully-open-mode-insecure
+          if (ex_host_env_ambient_active() == 1) {
+            if (args[1].isUndefined()) {
+              ex_host_env_ambient_set(key.c_str(), nullptr);
+            } else {
+              auto value = args[1].asString(runtime).utf8(runtime);
+              ex_host_env_ambient_set(key.c_str(), value.c_str());
+            }
+            return facebook::jsi::Value::undefined();
+          }
           authorizeTypedEnvironmentWrite(runtime, key);
           auto principal = currentPrincipalId();
           if (args[1].isUndefined()) {
@@ -4485,6 +4558,24 @@ void installGlobals(struct ExactHermesRuntime* handle) {
               continue;
             }
             auto value = getEnvValue(*key);
+            if (!value.has_value()) continue;
+            env.setProperty(
+                runtime,
+                facebook::jsi::PropNameID::forUtf8(runtime, *key),
+                facebook::jsi::String::createFromUtf8(runtime, *value));
+          }
+          return env;
+        }
+        // Insecure ambient projection: enumerate the inherited-plus-mutated
+        // ambient environment for every principal; the private construction
+        // handshake names were filtered at install.
+        // @ref LLP 0038#fully-open-mode-insecure
+        if (handle->armed && ex_host_env_ambient_active() == 1) {
+          int64_t ambientCount = ex_host_env_ambient_key_count();
+          for (int64_t index = 0; index < ambientCount; ++index) {
+            auto key = getAmbientEnvKey(static_cast<size_t>(index));
+            if (!key.has_value()) continue;
+            auto value = getAmbientEnvValue(*key);
             if (!value.has_value()) continue;
             env.setProperty(
                 runtime,

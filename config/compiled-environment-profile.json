@@ -34,6 +34,7 @@
     "startup:env:<dynamic>:rust:Command::default_env": "typed-internal-dispatch",
     "startup:env:<dynamic>:rust:Command::env_clear": "typed-internal-dispatch",
     "startup:env:<dynamic>:rust:env::var": "typed-internal-dispatch",
-    "startup:env:<dynamic>:rust:env::var_os": "typed-internal-dispatch"
+    "startup:env:<dynamic>:rust:env::var_os": "typed-internal-dispatch",
+    "startup:env:<dynamic>:rust:env::vars_os": "capture-primitive"
   }
 }

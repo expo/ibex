@@ -18,6 +18,159 @@ fn env_overlay() -> &'static RwLock<EnvOverlay> {
     OVERLAY.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
+/// Insecure-mode ambient environment: a one-shot snapshot of the host
+/// environment inherited at startup, plus every later JavaScript mutation.
+/// This is the *only* base `process.env` projection that ever contains host
+/// values; it exists solely behind the compile-time `insecure` feature and an
+/// explicit launcher install call. Armed secure runtimes (including
+/// `unadvertised-dev-arming`) keep their digest-bound empty base plus
+/// per-principal overlays, and embedders never inherit ambient host values
+/// unless they call `install_insecure_ambient_environment` themselves.
+/// Names are raw host names (not canonical `EnvironmentName`s): the ambient
+/// projection is Node compatibility state, not typed-decision state, and it is
+/// installed before arming so it is not a post-arm host read.
+/// @ref LLP 0038#fully-open-mode-insecure — insecure projects the inherited
+/// host environment through `process.env`; every secure mode keeps it empty.
+#[cfg(feature = "insecure")]
+mod insecure_ambient {
+    use std::collections::BTreeMap;
+    use std::sync::{OnceLock, RwLock};
+
+    /// canonical key -> (display name, value). Sorted map so enumeration is
+    /// deterministic; on Windows the canonical key is uppercased because host
+    /// environment names are case-insensitive there (Node semantics), while
+    /// the display name preserves the first-seen spelling.
+    pub(super) type AmbientMap = BTreeMap<String, (String, String)>;
+
+    pub(super) static STORE: OnceLock<RwLock<AmbientMap>> = OnceLock::new();
+
+    pub(super) fn canonical_key(name: &str) -> String {
+        if cfg!(windows) {
+            name.to_uppercase()
+        } else {
+            name.to_owned()
+        }
+    }
+
+    /// Inherited values that are a native construction handshake rather than
+    /// public process environment; the unarmed compatibility path suppresses
+    /// the same names. An explicit later JavaScript write of one of these
+    /// names is ordinary `process.env` state and is not filtered.
+    /// @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+    pub(super) fn is_private_construction_name(name: &str) -> bool {
+        name == "EXACT_IPC_FD" || name == "EXACT_IPC_SERIALIZATION"
+    }
+}
+
+/// Install the insecure ambient environment from the host environment of the
+/// calling process. Idempotent; the first call wins. The CLI launcher calls
+/// this at the top of `main` (parent and re-exec'd session worker alike), so
+/// REPL, `eval`, `run`, and package-script routes all observe the same
+/// projection. Embedders that want ambient host values in an insecure build
+/// must call this explicitly — creating a runtime never installs it.
+#[cfg(feature = "insecure")]
+pub fn install_insecure_ambient_environment() {
+    use insecure_ambient::{canonical_key, is_private_construction_name, STORE};
+    let _ = STORE.get_or_init(|| {
+        let mut map = insecure_ambient::AmbientMap::new();
+        for (name, value) in std::env::vars_os() {
+            let name = name.to_string_lossy().into_owned();
+            // Skip unusable/pseudo names: empty, Windows drive-cwd entries
+            // ("=C:=..."), and the private worker-construction handshake.
+            if name.is_empty() || name.starts_with('=') || is_private_construction_name(&name) {
+                continue;
+            }
+            let value = value.to_string_lossy().into_owned();
+            map.entry(canonical_key(&name)).or_insert((name, value));
+        }
+        RwLock::new(map)
+    });
+}
+
+/// True when the insecure ambient environment has been installed. Always
+/// false in secure builds, where the installer does not exist.
+pub fn insecure_ambient_environment_active() -> bool {
+    #[cfg(feature = "insecure")]
+    {
+        insecure_ambient::STORE.get().is_some()
+    }
+    #[cfg(not(feature = "insecure"))]
+    {
+        false
+    }
+}
+
+/// Read one name from the insecure ambient environment. `None` when the
+/// projection is inactive or the name is unset (deleted names are unset).
+#[cfg(feature = "insecure")]
+pub fn insecure_ambient_env_get(name: &str) -> Option<String> {
+    let store = insecure_ambient::STORE.get()?;
+    let guard = store.read().ok()?;
+    guard
+        .get(&insecure_ambient::canonical_key(name))
+        .map(|(_, value)| value.clone())
+}
+
+#[cfg(not(feature = "insecure"))]
+pub fn insecure_ambient_env_get(_name: &str) -> Option<String> {
+    None
+}
+
+/// Write (`Some`) or delete (`None`) one name in the insecure ambient
+/// environment. A write updates the value while preserving the first-seen
+/// display spelling on case-insensitive platforms; a delete removes the name
+/// so the inherited host value does not resurface. No-op while inactive.
+#[cfg(feature = "insecure")]
+pub fn insecure_ambient_env_set(name: &str, value: Option<&str>) {
+    let Some(store) = insecure_ambient::STORE.get() else {
+        return;
+    };
+    let Ok(mut guard) = store.write() else {
+        return;
+    };
+    let key = insecure_ambient::canonical_key(name);
+    match value {
+        Some(value) => match guard.get_mut(&key) {
+            Some(entry) => entry.1 = value.to_owned(),
+            None => {
+                guard.insert(key, (name.to_owned(), value.to_owned()));
+            }
+        },
+        None => {
+            guard.remove(&key);
+        }
+    }
+}
+
+#[cfg(not(feature = "insecure"))]
+pub fn insecure_ambient_env_set(_name: &str, _value: Option<&str>) {}
+
+/// Number of names in the insecure ambient environment, or `None` while the
+/// projection is inactive.
+#[cfg(feature = "insecure")]
+pub fn insecure_ambient_env_key_count() -> Option<usize> {
+    let store = insecure_ambient::STORE.get()?;
+    store.read().ok().map(|guard| guard.len())
+}
+
+#[cfg(not(feature = "insecure"))]
+pub fn insecure_ambient_env_key_count() -> Option<usize> {
+    None
+}
+
+/// The display name at `index` in canonical enumeration order.
+#[cfg(feature = "insecure")]
+pub fn insecure_ambient_env_key_at(index: usize) -> Option<String> {
+    let store = insecure_ambient::STORE.get()?;
+    let guard = store.read().ok()?;
+    guard.values().nth(index).map(|(name, _)| name.clone())
+}
+
+#[cfg(not(feature = "insecure"))]
+pub fn insecure_ambient_env_key_at(_index: usize) -> Option<String> {
+    None
+}
+
 /// Immutable compiled-application broker base. Installation is process-wide
 /// and one-shot because a compiled image owns exactly one captured launch
 /// environment; individual reads are still authorized against the active
@@ -206,6 +359,11 @@ pub struct SystemInfo {
     pub hostname: String,
     pub cpus: usize,
 }
+
+// The ambient store's positive semantics are covered in
+// `tests/insecure_process_env.rs` (its own process, outside the environment
+// inventory's scanned roots); the uninstalled negative lives in
+// `tests/ambient_env_requires_install.rs`.
 
 #[cfg(test)]
 mod compiled_environment_tests {

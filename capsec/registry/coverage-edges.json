@@ -150223,6 +150223,184 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
+      "id": "surface.host.abi.ex.host.env.ambient.active.0885mqs",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_env_ambient_active"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.host.abi.ex.host.env.ambient.get.0x0l4ry",
+      "classification": "effects",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_env_ambient_get"
+      },
+      "effects": [
+        {
+          "cap": "env:read",
+          "selectorNormalizer": "environment.name.selector.v1",
+          "occurrenceNormalizer": "environment.name.occurrence.v1",
+          "stages": [
+            "requested",
+            "commit"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "frame-set",
+        "schedule-time"
+      ],
+      "effectOwnerSource": "innermost-nontransparent-frame",
+      "gate": "reclassifies",
+      "effectMode": "conjunctive",
+      "atomicityGroup": "surface.host.abi.ex.host.env.ambient.get.0x0l4ry.decision",
+      "lifetimeContract": "operation",
+      "barriers": {
+        "authorizeBefore": [
+          "environment-access"
+        ],
+        "recheckAt": [],
+        "cancelAt": [
+          "negative-generation-change"
+        ]
+      }
+    },
+    {
+      "id": "surface.host.abi.ex.host.env.ambient.key.at.0trw95j",
+      "classification": "effects",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_env_ambient_key_at"
+      },
+      "effects": [
+        {
+          "cap": "env:read",
+          "selectorNormalizer": "environment.name.selector.v1",
+          "occurrenceNormalizer": "environment.name.occurrence.v1",
+          "stages": [
+            "requested",
+            "commit"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "frame-set",
+        "schedule-time"
+      ],
+      "effectOwnerSource": "innermost-nontransparent-frame",
+      "gate": "reclassifies",
+      "effectMode": "conjunctive",
+      "atomicityGroup": "surface.host.abi.ex.host.env.ambient.key.at.0trw95j.decision",
+      "lifetimeContract": "operation",
+      "barriers": {
+        "authorizeBefore": [
+          "environment-access"
+        ],
+        "recheckAt": [],
+        "cancelAt": [
+          "negative-generation-change"
+        ]
+      }
+    },
+    {
+      "id": "surface.host.abi.ex.host.env.ambient.key.count.1oaff6x",
+      "classification": "effects",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_env_ambient_key_count"
+      },
+      "effects": [
+        {
+          "cap": "env:read",
+          "selectorNormalizer": "environment.name.selector.v1",
+          "occurrenceNormalizer": "environment.name.occurrence.v1",
+          "stages": [
+            "requested",
+            "commit"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "frame-set",
+        "schedule-time"
+      ],
+      "effectOwnerSource": "innermost-nontransparent-frame",
+      "gate": "reclassifies",
+      "effectMode": "conjunctive",
+      "atomicityGroup": "surface.host.abi.ex.host.env.ambient.key.count.1oaff6x.decision",
+      "lifetimeContract": "operation",
+      "barriers": {
+        "authorizeBefore": [
+          "environment-access"
+        ],
+        "recheckAt": [],
+        "cancelAt": [
+          "negative-generation-change"
+        ]
+      }
+    },
+    {
+      "id": "surface.host.abi.ex.host.env.ambient.set.101dg8i",
+      "classification": "effects",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_env_ambient_set"
+      },
+      "effects": [
+        {
+          "cap": "env:write",
+          "selectorNormalizer": "environment.name.selector.v1",
+          "occurrenceNormalizer": "environment.name.occurrence.v1",
+          "stages": [
+            "requested",
+            "commit"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "frame-set",
+        "schedule-time"
+      ],
+      "effectOwnerSource": "innermost-nontransparent-frame",
+      "gate": "reclassifies",
+      "effectMode": "conjunctive",
+      "atomicityGroup": "surface.host.abi.ex.host.env.ambient.set.101dg8i.decision",
+      "lifetimeContract": "operation",
+      "barriers": {
+        "authorizeBefore": [
+          "environment-access"
+        ],
+        "recheckAt": [],
+        "cancelAt": [
+          "negative-generation-change"
+        ]
+      }
+    },
+    {
       "id": "surface.host.abi.ex.host.env.compiled.key.at.1821b5o",
       "classification": "effects",
       "surface": {
@@ -268249,6 +268427,47 @@
       "gate": "reclassifies",
       "effectMode": "conjunctive",
       "atomicityGroup": "surface.startup.env.dynamic.rust.env.var.os.11lyypt.decision",
+      "lifetimeContract": "operation",
+      "barriers": {
+        "authorizeBefore": [
+          "environment-access"
+        ],
+        "recheckAt": [],
+        "cancelAt": [
+          "negative-generation-change"
+        ]
+      }
+    },
+    {
+      "id": "surface.startup.env.dynamic.rust.env.vars.os.016blc6",
+      "classification": "effects",
+      "surface": {
+        "kind": "startup",
+        "name": "env:<dynamic>:rust:env::vars_os"
+      },
+      "effects": [
+        {
+          "cap": "env:read",
+          "selectorNormalizer": "environment.name.selector.v1",
+          "occurrenceNormalizer": "environment.name.occurrence.v1",
+          "stages": [
+            "requested",
+            "commit"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "root"
+      ],
+      "effectOwnerSource": "root",
+      "gate": "reclassifies",
+      "effectMode": "conjunctive",
+      "atomicityGroup": "surface.startup.env.dynamic.rust.env.vars.os.016blc6.decision",
       "lifetimeContract": "operation",
       "barriers": {
         "authorizeBefore": [

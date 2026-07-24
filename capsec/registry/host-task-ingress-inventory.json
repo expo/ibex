@@ -594,7 +594,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7799,
+          "line": 7890,
           "column": 67,
           "source": "auto captured = handle->structured_session_import_materializer->call("
         }
@@ -609,7 +609,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 3184,
+          "line": 3195,
           "column": 13,
           "source": "reject->call(*runtime->runtime,"
         }
@@ -624,7 +624,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 14353,
+          "line": 14444,
           "column": 16,
           "source": "out = parseFn.call(rt, facebook::jsi::String::createFromUtf8(rt, json));"
         }
@@ -639,7 +639,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4078,
+          "line": 4125,
           "column": 17,
           "source": "defineProperty.call("
         }
@@ -654,7 +654,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 9888,
+          "line": 9979,
           "column": 44,
           "source": "handle->structured_object_define_property->call("
         }
@@ -669,7 +669,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 10593,
+          "line": 10684,
           "column": 44,
           "source": "handle->structured_object_define_property->call("
         }
@@ -684,7 +684,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7212,
+          "line": 7303,
           "column": 61,
           "source": "auto deleted = handle->root_global_reflect_delete_property->call("
         }
@@ -699,7 +699,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 10670,
+          "line": 10761,
           "column": 63,
           "source": "auto result = handle->structured_session_import_materializer->call("
         }
@@ -714,42 +714,42 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 13890,
+          "line": 13981,
           "column": 8,
           "source": "if (!exactRuntimeEnterUserExecution(runtime)) {"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 13984,
+          "line": 14075,
           "column": 32,
           "source": "result = runtime->runtime->evaluateJavaScript(source_buffer, source);"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 13990,
+          "line": 14081,
           "column": 32,
           "source": "result = runtime->runtime->evaluateJavaScript(source_buffer, source);"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 14043,
+          "line": 14134,
           "column": 22,
           "source": "auto check = rt.evaluateJavaScript(ubuf, \"<promise-unwrap>\");"
         },
         {
           "kind": "jsi-function-call",
           "operation": "callAsConstructor",
-          "line": 14206,
+          "line": 14297,
           "column": 13,
           "source": ".callAsConstructor(rt, facebook::jsi::String::createFromUtf8(rt, err.getMessage()));"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 14207,
+          "line": 14298,
           "column": 58,
           "source": "auto result = handler.asObject(rt).asFunction(rt).call(rt, std::move(errObj));"
         }
@@ -764,14 +764,14 @@
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluatePreparedJavaScript",
-          "line": 11214,
+          "line": 11305,
           "column": 13,
           "source": ": rt.evaluatePreparedJavaScript(prepared);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 11223,
+          "line": 11314,
           "column": 30,
           "source": "auto invocation = wrapper.call(rt, hooks);"
         }
@@ -786,7 +786,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 10690,
+          "line": 10781,
           "column": 56,
           "source": "return handle->structured_session_import_materializer->call("
         }
@@ -801,7 +801,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 10713,
+          "line": 10804,
           "column": 56,
           "source": "return handle->structured_session_import_materializer->call("
         }
@@ -816,7 +816,7 @@
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 9745,
+          "line": 9836,
           "column": 36,
           "source": "auto value = runtime->runtime->evaluateJavaScript(source_buffer, label);"
         }
@@ -831,7 +831,7 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 7398,
+          "line": 7489,
           "column": 8,
           "source": "if (!exactRuntimeEnterUserExecution(runtime) ||"
         }
@@ -846,7 +846,7 @@
         {
           "kind": "engine-eval-or-prepare",
           "operation": "prepareJavaScript",
-          "line": 8490,
+          "line": 8581,
           "column": 24,
           "source": "handle->runtime->prepareJavaScript("
         }
@@ -861,7 +861,7 @@
         {
           "kind": "engine-eval-or-prepare",
           "operation": "prepareJavaScript",
-          "line": 13122,
+          "line": 13213,
           "column": 39,
           "source": "auto prepared = runtime->runtime->prepareJavaScript(sourceBuffer, label);"
         }
@@ -876,7 +876,7 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 12664,
+          "line": 12755,
           "column": 8,
           "source": "!exactRuntimeEnterUserExecution(runtime)) {"
         }
@@ -891,7 +891,7 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 15497,
+          "line": 15588,
           "column": 8,
           "source": "if (!exactRuntimeEnterUserExecution(runtime)) return 0;"
         }
@@ -906,7 +906,7 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 15509,
+          "line": 15600,
           "column": 8,
           "source": "if (!exactRuntimeEnterUserExecution(runtime)) return 0;"
         }
@@ -921,21 +921,21 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 14995,
+          "line": 15086,
           "column": 20,
           "source": "resolve->call(rt, makeUint8Array(rt, std::move(payloadCopy)));"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 15000,
+          "line": 15091,
           "column": 17,
           "source": "reject->call(rt, facebook::jsi::JSError(rt, message).value());"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 15003,
+          "line": 15094,
           "column": 19,
           "source": "reject->call("
         }
@@ -950,21 +950,21 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 14607,
+          "line": 14698,
           "column": 20,
           "source": "resolve->call(rt, value);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 14609,
+          "line": 14700,
           "column": 19,
           "source": "reject->call(rt, facebook::jsi::JSError(rt, errorMessage).value());"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 14613,
+          "line": 14704,
           "column": 19,
           "source": "reject->call(rt, facebook::jsi::JSError(rt, e.what()).value());"
         }
@@ -979,7 +979,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7723,
+          "line": 7814,
           "column": 17,
           "source": "(void)runApp->call(*runtime->runtime);"
         }
@@ -994,7 +994,7 @@
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 8942,
+          "line": 9033,
           "column": 27,
           "source": "(void)runtime->runtime->evaluateJavaScript("
         }
@@ -1009,7 +1009,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "callAsConstructor",
-          "line": 14912,
+          "line": 15003,
           "column": 36,
           "source": "return promiseConstructor.callAsConstructor(rt, executor);"
         }
@@ -1024,7 +1024,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "callAsConstructor",
-          "line": 14558,
+          "line": 14649,
           "column": 27,
           "source": "return promiseCtor.callAsConstructor(rt, executor);"
         }
@@ -1039,7 +1039,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7636,
+          "line": 7727,
           "column": 20,
           "source": "(void)consume->call(rt);"
         }
@@ -1054,7 +1054,7 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 11488,
+          "line": 11579,
           "column": 10,
           "source": "if (!exactRuntimeEnterUserExecution(runtime)) {"
         }
@@ -1069,7 +1069,7 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 11653,
+          "line": 11744,
           "column": 8,
           "source": "if (!exactRuntimeEnterUserExecution(runtime)) {"
         }
@@ -1084,7 +1084,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "callAsConstructor",
-          "line": 550,
+          "line": 561,
           "column": 20,
           "source": ".callAsConstructor("
         }
@@ -1099,7 +1099,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "callAsConstructor",
-          "line": 565,
+          "line": 576,
           "column": 20,
           "source": ".callAsConstructor("
         }
@@ -1114,7 +1114,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "callAsConstructor",
-          "line": 535,
+          "line": 546,
           "column": 20,
           "source": ".callAsConstructor("
         }
@@ -1129,14 +1129,14 @@
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 13822,
+          "line": 13913,
           "column": 29,
           "source": "(void)runtime->runtime->evaluateJavaScript("
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 13825,
+          "line": 13916,
           "column": 27,
           "source": "(void)runtime->runtime->evaluateJavaScript(sourceBuffer, source);"
         }
@@ -1151,7 +1151,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4054,
+          "line": 4101,
           "column": 39,
           "source": "refresh.getObject(rt).asFunction(rt).call(rt);"
         }
@@ -1166,7 +1166,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7151,
+          "line": 7242,
           "column": 58,
           "source": "auto prototype = handle->root_global_get_prototype_of->call(rt, current);"
         }
@@ -1181,7 +1181,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 2304,
+          "line": 2315,
           "column": 60,
           "source": "runtime->structured_unhandled_rejection_handler->call("
         }
@@ -1196,7 +1196,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6838,
+          "line": 6929,
           "column": 28,
           "source": "auto result = intrinsic.call(rt, object);"
         }
@@ -1211,7 +1211,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 2273,
+          "line": 2284,
           "column": 50,
           "source": "runtime->structured_rejection_handled_handler->call("
         }
@@ -1226,7 +1226,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 14287,
+          "line": 14378,
           "column": 32,
           "source": "auto serialized = stringifyFn.call(rt, args[1]);"
         }
@@ -1241,7 +1241,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 14317,
+          "line": 14408,
           "column": 30,
           "source": "auto coerced = stringCtor.call(rt, args[0]);"
         }
@@ -1256,7 +1256,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7893,
+          "line": 7984,
           "column": 46,
           "source": "handle->structured_object_define_property->call("
         }
@@ -1271,14 +1271,14 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4157,
+          "line": 4204,
           "column": 28,
           "source": "auto frozenModes = freeze.call(rt, modes);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4194,
+          "line": 4241,
           "column": 17,
           "source": "(void)freeze.call(rt, ipcBootstrap);"
         }
@@ -1293,7 +1293,7 @@
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 3960,
+          "line": 4007,
           "column": 20,
           "source": "handle->runtime->evaluateJavaScript(buffer, \"<compartment-registry>\");"
         }
@@ -1308,91 +1308,91 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4899,
+          "line": 4990,
           "column": 36,
           "source": "auto serialized = stringify.call(runtime, args[0]);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4925,
+          "line": 5016,
           "column": 36,
           "source": "auto serialized = stringify.call(runtime, args[0]);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4949,
+          "line": 5040,
           "column": 36,
           "source": "auto serialized = stringify.call(runtime, args[0]);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4983,
+          "line": 5074,
           "column": 36,
           "source": "auto serialized = stringify.call(runtime, args[0]);"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 5121,
+          "line": 5212,
           "column": 9,
           "source": "rt.evaluateJavaScript(buffer, \"<web-crypto>\");"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 5140,
+          "line": 5231,
           "column": 9,
           "source": "rt.evaluateJavaScript(buffer, \"<web-storage>\");"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 5168,
+          "line": 5259,
           "column": 9,
           "source": "rt.evaluateJavaScript(buffer, \"<form-data>\");"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 5797,
+          "line": 5888,
           "column": 22,
           "source": "handle->runtime->evaluateJavaScript(buffer, \"<fs-handle>\");"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 5888,
+          "line": 5979,
           "column": 22,
           "source": "handle->runtime->evaluateJavaScript(buffer, \"<capability-hardening>\");"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 5963,
+          "line": 6054,
           "column": 22,
           "source": "handle->runtime->evaluateJavaScript(buffer, \"<eager-install-seal>\");"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 6130,
+          "line": 6221,
           "column": 22,
           "source": "handle->runtime->evaluateJavaScript(buffer, \"<lockdown>\");"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 6189,
+          "line": 6280,
           "column": 41,
           "source": "auto observation = handle->runtime->evaluateJavaScript("
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 6217,
+          "line": 6308,
           "column": 22,
           "source": "handle->runtime->evaluateJavaScript(buffer, \"<freeze-seal>\");"
         }
@@ -1407,7 +1407,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 9940,
+          "line": 10031,
           "column": 46,
           "source": "handle->structured_object_define_property->call("
         }
@@ -1422,14 +1422,14 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 8836,
+          "line": 8927,
           "column": 46,
           "source": "handle->structured_object_define_property->call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 8842,
+          "line": 8933,
           "column": 62,
           "source": "auto deleted = handle->structured_reflect_delete_property->call("
         }
@@ -1444,7 +1444,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 2404,
+          "line": 2415,
           "column": 44,
           "source": "handler.asObject(rt).asFunction(rt).call(rt, std::move(errVal));"
         }
@@ -1459,14 +1459,14 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 10215,
+          "line": 10306,
           "column": 66,
           "source": "auto deleted = handle->structured_reflect_delete_property->call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 10247,
+          "line": 10338,
           "column": 62,
           "source": "return handle->structured_session_import_materializer->call("
         }
@@ -1481,7 +1481,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 10915,
+          "line": 11006,
           "column": 65,
           "source": "auto result = handle->structured_session_import_materializer->call("
         }
@@ -1496,14 +1496,14 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 1117,
+          "line": 1128,
           "column": 38,
           "source": "? handle->structured_number->call(runtime, value)"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 1118,
+          "line": 1129,
           "column": 70,
           "source": ": runtime.global().getPropertyAsFunction(runtime, \"Number\").call("
         }
@@ -1518,14 +1518,14 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 15355,
+          "line": 15446,
           "column": 30,
           "source": "it->second.callback.call(*runtime->runtime);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 15357,
+          "line": 15448,
           "column": 30,
           "source": "it->second.callback.call("
         }
@@ -1540,7 +1540,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 15068,
+          "line": 15159,
           "column": 43,
           "source": "callback.asObject(rt).asFunction(rt).call("
         }
@@ -1555,7 +1555,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7310,
+          "line": 7401,
           "column": 54,
           "source": "auto frozen = runtime->root_global_object_is_frozen->call(rt, prepared);"
         }
@@ -1570,14 +1570,14 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7247,
+          "line": 7338,
           "column": 64,
           "source": "auto namesValue = runtime->root_global_get_own_property_names->call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7249,
+          "line": 7340,
           "column": 68,
           "source": "auto symbolsValue = runtime->root_global_get_own_property_symbols->call("
         }
@@ -1592,14 +1592,14 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4096,
+          "line": 4143,
           "column": 27,
           "source": ".call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4106,
+          "line": 4153,
           "column": 9,
           "source": ".call("
         }
@@ -1614,7 +1614,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6881,
+          "line": 6972,
           "column": 49,
           "source": "handle->root_global_get_own_property_names->call(rt, descriptor);"
         }
@@ -1629,7 +1629,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6871,
+          "line": 6962,
           "column": 57,
           "source": "return handle->root_global_get_own_property_descriptor->call("
         }
@@ -1644,14 +1644,14 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6331,
+          "line": 6422,
           "column": 23,
           "source": "entry.callback.call(rt);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6333,
+          "line": 6424,
           "column": 23,
           "source": "entry.callback.call("
         }
@@ -1666,7 +1666,7 @@
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluatePreparedJavaScript",
-          "line": 1461,
+          "line": 1472,
           "column": 34,
           "source": "auto value = runtime->runtime->evaluatePreparedJavaScript("
         }
@@ -1681,14 +1681,14 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 3988,
+          "line": 4035,
           "column": 50,
           "source": "auto descriptorValue = getOwnPropertyDescriptor.call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4001,
+          "line": 4048,
           "column": 17,
           "source": "defineProperty.call("
         }
@@ -1703,7 +1703,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 9874,
+          "line": 9965,
           "column": 55,
           "source": "auto value = handle->structured_object_is_extensible->call(rt, rt.global());"
         }
@@ -1718,7 +1718,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 9965,
+          "line": 10056,
           "column": 70,
           "source": "auto descriptorValue = handle->structured_object_get_own_descriptor->call("
         }
@@ -1733,7 +1733,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 9851,
+          "line": 9942,
           "column": 70,
           "source": "auto descriptorValue = handle->structured_object_get_own_descriptor->call("
         }
@@ -1748,7 +1748,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 1033,
+          "line": 1044,
           "column": 30,
           "source": "auto pretty = stringify.call(rt, value, facebook::jsi::Value::null(), facebook::jsi::Value(2.0));"
         }
@@ -1763,7 +1763,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 8200,
+          "line": 8291,
           "column": 47,
           "source": "handle->root_global_get_prototype_of->call(rt, current);"
         }
@@ -1778,7 +1778,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 10062,
+          "line": 10153,
           "column": 48,
           "source": "auto written = handle->structured_reflect_set->call("
         }
