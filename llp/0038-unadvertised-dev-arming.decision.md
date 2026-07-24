@@ -185,6 +185,16 @@ is a development convenience, not evidence of correctness.
 
 ## Removal condition
 
-Delete this feature once the advertisement pipeline of LLP 0036 lands and a
-default build can arm from a real conformance report. This document should be
-tombstoned at that point.
+The two features have **different** lifetimes.
+
+- **`unadvertised-dev-arming` is transitional.** Delete it once the
+  advertisement pipeline of LLP 0036 lands and a default build can arm from a
+  real conformance report.
+- **`insecure` is not.** Per
+  [LLP 0039](./0039-secure-and-insecure-modes.decision.md), the secure/insecure
+  split is a durable posture kept for the foreseeable future; when
+  `unadvertised-dev-arming` goes away the split becomes *default* versus
+  `insecure`.
+
+Tombstone this document when the transitional half is removed and whatever
+remains of the `insecure` mechanics has been folded into LLP 0039.
