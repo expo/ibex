@@ -49,6 +49,7 @@
     "check:drift": "scripts/check-generated-drift.sh",
     "package:portable-hermes-macos": "node scripts/package-portable-hermes-macos.mjs",
     "generate:portable-hermes-cargo-set": "node scripts/generate-portable-engine-cargo-executable-set.mjs --write",
+    "check:secure-mode": "./scripts/check-secure-mode.sh",
     "check:portable-hermes-cargo-set": "node scripts/generate-portable-engine-cargo-executable-set.mjs --check",
     "test:portable-hermes-producer": "node --test scripts/package-portable-hermes-macos.test.mjs",
     "install:portable-hermes": "node scripts/install-portable-hermes.mjs",
