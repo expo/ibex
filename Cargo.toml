@@ -151,14 +151,16 @@ app-host = []
 # @ref LLP 0038#decision — scope and removal condition
 # @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
 unadvertised-dev-arming = []
-# Local development with capability enforcement effectively OFF: arms the root
-# authority ceiling as `unbounded`, so ambient root authorizes every capability
-# (fs, network, env, spawn) instead of only the project fs subtree. Implies
-# `unadvertised-dev-arming`. The VFS mount is a separate mechanism and still
-# confines paths to the project tree. Strictly for "make it work while I'm
-# building"; a distinct banner marks it and it must never ship.
-# @ref LLP 0038#fully-open-mode-dev-capsec-off
-dev-capsec-off = ["unadvertised-dev-arming"]
+# ALL security enforcement off. There is no sandbox in this build: it can read
+# and write the entire filesystem, spawn processes, and reach the network.
+# Implies `unadvertised-dev-arming`, and additionally (1) arms the root ceiling
+# `unbounded`, (2) makes the legacy capability shim permissive, and (3) reports
+# unarmed from `ex_host_is_armed()`, which sends all ~46 native gates down their
+# diagnostic path. Exists so Ibex's own development is not blocked by a security
+# model still being built. A red banner marks every run; never ship it, and
+# never run untrusted code under it.
+# @ref LLP 0038#fully-open-mode-insecure
+insecure = ["unadvertised-dev-arming"]
 # Fixture-only LLP 0026 adoption evidence. This compiles the bounded producer
 # but never selects it as the runtime evaluator or enables artifact caching.
 module-runner-spike = []
