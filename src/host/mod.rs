@@ -4196,8 +4196,8 @@ impl Host {
     pub fn check_capability(&self, module_id: &str, capability: &str) -> bool {
         // The legacy shim hard-denies whenever typed arming is active, which
         // closes capabilities (process:spawn) that have no typed path yet.
-        // @ref LLP 0038#fully-open-mode-dev-capsec-off
-        if cfg!(feature = "dev-capsec-off") {
+        // @ref LLP 0038#fully-open-mode-insecure
+        if cfg!(feature = "insecure") {
             return true;
         }
         if self.unarmed_closed || self.decision_context.is_some() {
@@ -4210,8 +4210,8 @@ impl Host {
     pub fn check_handle_mint(&self, module_id: &str, capability: &str) -> bool {
         // The legacy shim hard-denies whenever typed arming is active, which
         // closes capabilities (process:spawn) that have no typed path yet.
-        // @ref LLP 0038#fully-open-mode-dev-capsec-off
-        if cfg!(feature = "dev-capsec-off") {
+        // @ref LLP 0038#fully-open-mode-insecure
+        if cfg!(feature = "insecure") {
             return true;
         }
         if self.unarmed_closed || self.decision_context.is_some() {
@@ -4227,8 +4227,8 @@ impl Host {
     pub fn check_capability_no_follow_final(&self, module_id: &str, capability: &str) -> bool {
         // The legacy shim hard-denies whenever typed arming is active, which
         // closes capabilities (process:spawn) that have no typed path yet.
-        // @ref LLP 0038#fully-open-mode-dev-capsec-off
-        if cfg!(feature = "dev-capsec-off") {
+        // @ref LLP 0038#fully-open-mode-insecure
+        if cfg!(feature = "insecure") {
             return true;
         }
         if self.unarmed_closed || self.decision_context.is_some() {
@@ -4244,8 +4244,8 @@ impl Host {
     pub fn check_capability_stack(&self, stack: &[&str], capability: &str) -> bool {
         // The legacy shim hard-denies whenever typed arming is active, which
         // closes capabilities (process:spawn) that have no typed path yet.
-        // @ref LLP 0038#fully-open-mode-dev-capsec-off
-        if cfg!(feature = "dev-capsec-off") {
+        // @ref LLP 0038#fully-open-mode-insecure
+        if cfg!(feature = "insecure") {
             return true;
         }
         if self.unarmed_closed || self.decision_context.is_some() {
@@ -4257,8 +4257,8 @@ impl Host {
     pub fn check_capability_stack_no_follow_final(&self, stack: &[&str], capability: &str) -> bool {
         // The legacy shim hard-denies whenever typed arming is active, which
         // closes capabilities (process:spawn) that have no typed path yet.
-        // @ref LLP 0038#fully-open-mode-dev-capsec-off
-        if cfg!(feature = "dev-capsec-off") {
+        // @ref LLP 0038#fully-open-mode-insecure
+        if cfg!(feature = "insecure") {
             return true;
         }
         if self.unarmed_closed || self.decision_context.is_some() {

@@ -105,45 +105,72 @@ authorize them:
 A loud banner is printed on every run so an unadvertised build is never mistaken
 for a conforming one.
 
-## Fully open mode (dev-capsec-off)
+## Fully open mode (insecure)
 
-`dev-capsec-off` implies `unadvertised-dev-arming` and additionally:
+`insecure` implies `unadvertised-dev-arming` and turns **all** enforcement off.
+It exists so that Ibex's own development is not blocked by a security model that
+is still being built.
 
-1. arms `rootAuthorityCeiling` as `{"kind": "unbounded"}`, so `ceiling_allows`
-   is true for every effect and ambient root authorizes any typed capability
-   rather than only the project fs subtree; and
-2. lets the legacy capability shim (`Host::check_capability` and friends)
-   answer normally instead of hard-denying. Those methods return `false`
-   whenever `decision_context.is_some()`, which closes capabilities that have
-   no typed path yet.
+Enforcement is not one mechanism, so the feature reaches three:
 
-**Enforcement is not one switch.** Capability families are gated by different
-mechanisms, and this feature only reaches two of them. Measured behaviour:
+1. **Typed decision engine** — arms `rootAuthorityCeiling` as
+   `{"kind": "unbounded"}`, so `ceiling_allows` is true for every effect and
+   ambient root authorizes any typed capability.
+2. **Legacy capability shim** — `Host::check_capability` and friends return
+   `false` whenever `decision_context.is_some()`, which closes capabilities that
+   have no typed path yet (notably `process:spawn`). The feature makes them
+   answer permissively.
+3. **Native armed gates** — `ex_host_is_armed()` reports `0`. Roughly 46 call
+   sites across `hermes_runtime_{fetch,net,http,fs,process,sqlite}.cc` refuse
+   outright while armed; reporting unarmed sends each down its diagnostic path.
+   This single point is what opens both the network and the host filesystem —
+   the VFS mount restriction is enforced on the armed path.
 
-| effect | `dev-capsec-off` | gated by |
-|---|---|---|
-| project fs (relative + absolute) | works | typed decision engine — root ceiling |
-| `child_process` spawn | works | legacy shim (`checkCapability("process:spawn")`) |
-| paths outside the project | **still refused** | VFS mount, single backing root |
-| `fetch` / network | **still refused** | native armed gate, see below |
-| `process.env` | **still empty** | never populated from the host env |
+Measured behaviour under `insecure`:
 
-Two of these are not permission problems and cannot be granted:
+| effect | result |
+|---|---|
+| project fs, relative and absolute | works |
+| `/etc/hosts`, and **writes outside the project** (`/tmp/...`) | works — no sandbox |
+| `child_process` spawn | works |
+| `fetch` over the real network | works (verified against a live local server) |
+| `process.env` | still empty — see below |
 
-- **Network.** `src/engine/hermes_runtime_fetch.cc` throws
-  `"typed network:fetch transport is unavailable"` whenever
-  `ex_host_is_armed() == 1`. Armed fetch is deliberately closed until the
-  transport reports the requested/candidate/verified-peer facts the typed model
-  needs, and must not fall back to the legacy string oracle (LLP 0021 WP6).
-  Enabling it is feature work, not configuration.
-- **Paths outside the project.** `VirtualFileSystem` has a single
-  `BackingMount` (`/project` → one host root), so a wider mount is an
-  architectural change rather than a grant. The practical workaround is to run
-  Ibex from a project root that contains what the script needs.
+`process.env` is **not** a security gate: Ibex never populates it from the host
+environment, by design. It stays empty in every mode, so scripts that read
+`process.env` need their values supplied another way.
 
-So `dev-capsec-off` means "capability *decisions* stop refusing", not "the
-sandbox is gone". Do not read it as a way to reach the host filesystem or the
-network.
+### This is a real "no sandbox" build
+
+Under `insecure` the process has the ambient authority of the user running it.
+It must never be shipped or published, and untrusted code must never be run
+under it. A red banner says so on every run, and the wording is deliberately
+different from the `unadvertised-dev-arming` banner because the two make very
+different claims.
+
+### Layers or one switch?
+
+The three mechanisms above are an artefact of an **incomplete migration** — the
+typed engine is replacing the legacy shim, and the native gates are waiting on
+typed transports — not a deliberate product design. They should not be exposed
+as separate user-facing knobs: each additional toggle multiplies the matrix of
+security postures that can ship by accident, and nobody debugging their own
+script wants to reason about which of four layers is refusing.
+
+The intended end state is therefore **one switch**, plus a policy file for
+legitimate production grants:
+
+| mode | purpose |
+|---|---|
+| default | secure; requires a real target advertisement |
+| `unadvertised-dev-arming` | enforcement **on**, advertisement not yet required — how to exercise the security model while LLP 0036 is unfinished |
+| `insecure` | everything off |
+
+The middle mode is **transitional**: it disappears when the advertisement
+pipeline lands, leaving exactly one security switch. Distinguishing *why*
+something was refused is a job for error messages — which already differ
+(`ERR_IBEX_OUTSIDE_MOUNT` vs a typed `EACCES` with a decision digest vs
+`transport is unavailable`) — not for build flags.
 
 ## Consequences
 

@@ -4871,16 +4871,16 @@ fn build_default_armed_host(
     // The armed root ceiling is exactly the canonical policy's authored root
     // ceiling — never the template's. An absent authored ceiling arms bounded
     // and empty rather than inheriting the example document's unbounded value.
-    // `dev-capsec-off` arms the root ceiling unbounded, so `ceiling_allows` is
-    // true for every effect and ambient root authorizes all capabilities —
-    // capability enforcement is effectively off for local development. The VFS
-    // mount is a separate mechanism and still confines paths to the project.
-    // @ref LLP 0038#fully-open-mode-dev-capsec-off
-    #[cfg(feature = "dev-capsec-off")]
+    // `insecure` arms the root ceiling unbounded, so `ceiling_allows` is true
+    // for every effect and ambient root authorizes all capabilities. This is
+    // only one of the three mechanisms that feature turns off; the mount
+    // restriction and the native gates are opened via `ex_host_is_armed()`.
+    // @ref LLP 0038#fully-open-mode-insecure
+    #[cfg(feature = "insecure")]
     {
         value["rootAuthorityCeiling"] = serde_json::json!({"kind": "unbounded"});
     }
-    #[cfg(not(feature = "dev-capsec-off"))]
+    #[cfg(not(feature = "insecure"))]
     {
         value["rootAuthorityCeiling"] = serde_json::json!({
             "kind": "bounded",
@@ -5089,12 +5089,12 @@ pub(crate) fn emit_unadvertised_dev_arming_banner_if_active() {
             "\x1b[1;33mibex: DEV ARMING — running WITHOUT a checked target advertisement.\x1b[0m"
         );
         // The two modes make very different security claims, so they must not
-        // print the same banner. @ref LLP 0038#fully-open-mode-dev-capsec-off
-        #[cfg(feature = "dev-capsec-off")]
+        // print the same banner. @ref LLP 0038#fully-open-mode-insecure
+        #[cfg(feature = "insecure")]
         eprintln!(
-            "\x1b[1;31mibex: CAPSEC OFF — capability enforcement is DISABLED (unbounded root ceiling).\x1b[0m\nibex: fs, network, env, and spawn are all permitted. Paths remain confined to the project mount. Do not ship or trust this run."
+            "\x1b[1;31mibex: INSECURE BUILD — ALL security enforcement is DISABLED.\x1b[0m\nibex: this process can read and write your entire filesystem, spawn processes, and reach the network. There is no sandbox. Never ship, publish, or run untrusted code with this build."
         );
-        #[cfg(not(feature = "dev-capsec-off"))]
+        #[cfg(not(feature = "insecure"))]
         eprintln!(
             "ibex: capabilities are still enforced, but this is NOT an advertised target. Do not ship or trust this run."
         );
