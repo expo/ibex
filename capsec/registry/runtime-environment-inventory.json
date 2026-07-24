@@ -237,7 +237,7 @@
             "summary": "The Windows environment-copy helper is reached only by child-spawn routes after process:spawn authorization or by system-information branches after their exact typed sys:read decision."
           },
           "scope": "getenvString",
-          "sourceOffset": 936,
+          "sourceOffset": 908,
           "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
           "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#_dupenv_s:dynamic:read",
           "stage": "post-arm-host-read"
@@ -1347,7 +1347,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_bundler_with_source_provenance_mode",
-          "sourceOffset": 391607,
+          "sourceOffset": 395286,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1362,7 +1362,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_policy_command",
-          "sourceOffset": 401127,
+          "sourceOffset": 404806,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1523,7 +1523,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 388043,
+          "sourceOffset": 391722,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env_clear:dynamic:unset",
           "stage": "child-environment-construction"
@@ -1658,7 +1658,7 @@
             "summary": "The sole runtime caller returns an armed principal-overlay value or undefined before getEnvValue can call this unarmed Host ABI fallback."
           },
           "scope": "ex_host_env_get",
-          "sourceOffset": 287330,
+          "sourceOffset": 287800,
           "sourcePath": "src/host/abi.rs",
           "sourceRef": "src/host/abi.rs#env::var_os:dynamic:read",
           "stage": "post-arm-host-read"
@@ -1701,7 +1701,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 388632,
+          "sourceOffset": 392311,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:APPDATA:write",
           "stage": "child-environment-construction"
@@ -1744,7 +1744,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 388351,
+          "sourceOffset": 392030,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:BUN_RUNTIME_TRANSPILER_CACHE_PATH:write",
           "stage": "child-environment-construction"
@@ -1909,7 +1909,7 @@
             "summary": "The Windows shell fallback reads host ComSpec only from the async child-spawn route after its process:spawn effect gate; an explicit child environment or shell value takes precedence."
           },
           "scope": "windowsSpawnLaunchFile",
-          "sourceOffset": 53322,
+          "sourceOffset": 52779,
           "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
           "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#getenvString:COMSPEC:read",
           "stage": "post-arm-host-read"
@@ -2137,7 +2137,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_bundler_with_source_provenance_mode",
-          "sourceOffset": 389558,
+          "sourceOffset": 393237,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#timeout_from_env:EXACT_BUNDLER_TIMEOUT_MS:read",
           "stage": "armed-bootstrap-host-read"
@@ -2941,7 +2941,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "validate_runtime_inputs",
-          "sourceOffset": 260954,
+          "sourceOffset": 264633,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#runtime_env:EXACT_POLICY:read",
           "stage": "armed-bootstrap-host-read"
@@ -3108,7 +3108,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "repo_root",
-          "sourceOffset": 407195,
+          "sourceOffset": 410874,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#env::var_os:EXACT_REPO_ROOT:read",
           "stage": "armed-bootstrap-host-read"
@@ -3929,7 +3929,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "prepare_entry_with_format_and_bytecode_in_cache",
-          "sourceOffset": 276013,
+          "sourceOffset": 279692,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#runtime_env:EX_NO_BYTECODE:read",
           "stage": "armed-bootstrap-host-read"
@@ -3944,7 +3944,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "prepare_entry_with_format_and_bytecode_in_cache",
-          "sourceOffset": 277313,
+          "sourceOffset": 280992,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#runtime_env:EX_NO_BYTECODE:read",
           "stage": "armed-bootstrap-host-read"
@@ -3959,7 +3959,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "prepare_entry_with_format_and_bytecode_in_cache",
-          "sourceOffset": 280217,
+          "sourceOffset": 283896,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#runtime_env:EX_NO_BYTECODE:read",
           "stage": "armed-bootstrap-host-read"
@@ -4803,7 +4803,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 388077,
+          "sourceOffset": 391756,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:HOME:write",
           "stage": "child-environment-construction"
@@ -4839,7 +4839,7 @@
             "summary": "Windows HOME lookup is inside the StoragePaths branch after the exact typed sys:read decision."
           },
           "scope": "installOsInfoGlobals",
-          "sourceOffset": 64843,
+          "sourceOffset": 64606,
           "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
           "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#getenvString:HOME:read",
           "stage": "post-arm-host-read"
@@ -4897,7 +4897,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "enforce_bundle_cache_quota",
-          "sourceOffset": 385935,
+          "sourceOffset": 389614,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#env::var:IBEX_BUNDLE_CACHE_MAX_BYTES:read",
           "stage": "armed-bootstrap-host-read"
@@ -4925,7 +4925,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "enforce_bytecode_cache_quota",
-          "sourceOffset": 334804,
+          "sourceOffset": 338483,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#env::var:IBEX_BYTECODE_CACHE_MAX_BYTES:read",
           "stage": "armed-bootstrap-host-read"
@@ -4981,7 +4981,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "validate_runtime_inputs",
-          "sourceOffset": 261514,
+          "sourceOffset": 265193,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#env_flag_enabled:IBEX_CAPSEC_ALLOW_ADVISORY:read",
           "stage": "armed-bootstrap-host-read"
@@ -5410,6 +5410,27 @@
           "sourcePath": "src/engine/hermes_runtime_dns.cc",
           "sourceRef": "src/engine/hermes_runtime_dns.cc#getenv:IBEX_DNS_SERVER:read",
           "stage": "post-arm-host-read"
+        },
+        {
+          "accessor": "getenvString",
+          "context": "startup-input",
+          "direction": "read",
+          "hostEnvironment": true,
+          "language": "cpp",
+          "occurrenceIndex": 0,
+          "postArmDisposition": "effect-gated-host-read",
+          "postArmEvidence": {
+            "sourceRefs": [
+              "src/engine/hermes_runtime_platform_windows.cc#checkCapability(\"network:resolve:*\")",
+              "src/engine/hermes_runtime_platform_windows.cc#requireNetworkResolveCapability"
+            ],
+            "summary": "Windows resolver override data is read only by DNS getServers or resolution paths after their network:resolve effect gate."
+          },
+          "scope": "loadWindowsDnsServers",
+          "sourceOffset": 75944,
+          "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
+          "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#getenvString:IBEX_DNS_SERVER:read",
+          "stage": "post-arm-host-read"
         }
       ]
     },
@@ -5636,7 +5657,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "prepare_entry_with_format_and_bytecode_in_cache",
-          "sourceOffset": 276013,
+          "sourceOffset": 279692,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#runtime_env:IBEX_NO_BYTECODE:read",
           "stage": "armed-bootstrap-host-read"
@@ -5651,7 +5672,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "prepare_entry_with_format_and_bytecode_in_cache",
-          "sourceOffset": 277313,
+          "sourceOffset": 280992,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#runtime_env:IBEX_NO_BYTECODE:read",
           "stage": "armed-bootstrap-host-read"
@@ -5666,7 +5687,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "prepare_entry_with_format_and_bytecode_in_cache",
-          "sourceOffset": 280217,
+          "sourceOffset": 283896,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#runtime_env:IBEX_NO_BYTECODE:read",
           "stage": "armed-bootstrap-host-read"
@@ -5758,7 +5779,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "validate_runtime_inputs",
-          "sourceOffset": 260954,
+          "sourceOffset": 264633,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#runtime_env:IBEX_POLICY:read",
           "stage": "armed-bootstrap-host-read"
@@ -5835,7 +5856,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "repo_root",
-          "sourceOffset": 407149,
+          "sourceOffset": 410828,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#env::var_os:IBEX_REPO_ROOT:read",
           "stage": "armed-bootstrap-host-read"
@@ -6041,6 +6062,27 @@
           "sourcePath": "src/engine/hermes_runtime_fs.cc",
           "sourceRef": "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read",
           "stage": "post-arm-host-read"
+        },
+        {
+          "accessor": "getenv",
+          "context": "startup-input",
+          "direction": "read",
+          "hostEnvironment": true,
+          "language": "cpp",
+          "occurrenceIndex": 0,
+          "postArmDisposition": "test-only-effect-hook",
+          "postArmEvidence": {
+            "sourceRefs": [
+              "src/engine/hermes_runtime_fs_windows.cc#FsWorkerPool",
+              "src/engine/hermes_runtime_fs_windows.cc#requireCapability"
+            ],
+            "summary": "Windows queue-capacity injection is consumed only after an exact typed filesystem operation reaches the native worker pool."
+          },
+          "scope": "maxQueue",
+          "sourceOffset": 22688,
+          "sourcePath": "src/engine/hermes_runtime_fs_windows.cc",
+          "sourceRef": "src/engine/hermes_runtime_fs_windows.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read",
+          "stage": "post-arm-host-read"
         }
       ]
     },
@@ -6074,6 +6116,27 @@
           "sourceOffset": 108498,
           "sourcePath": "src/engine/hermes_runtime_fs.cc",
           "sourceRef": "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_THROW_ENQUEUE:read",
+          "stage": "post-arm-host-read"
+        },
+        {
+          "accessor": "getenv",
+          "context": "startup-input",
+          "direction": "read",
+          "hostEnvironment": true,
+          "language": "cpp",
+          "occurrenceIndex": 0,
+          "postArmDisposition": "test-only-effect-hook",
+          "postArmEvidence": {
+            "sourceRefs": [
+              "src/engine/hermes_runtime_fs_windows.cc#FsWorkerPool",
+              "src/engine/hermes_runtime_fs_windows.cc#requireCapability"
+            ],
+            "summary": "Windows enqueue-failure injection is consumed only after an exact typed filesystem operation reaches the native worker pool."
+          },
+          "scope": "maybeThrowInjectedEnqueueFailure",
+          "sourceOffset": 22329,
+          "sourcePath": "src/engine/hermes_runtime_fs_windows.cc",
+          "sourceRef": "src/engine/hermes_runtime_fs_windows.cc#getenv:IBEX_TEST_FS_WORKER_THROW_ENQUEUE:read",
           "stage": "post-arm-host-read"
         }
       ]
@@ -6324,7 +6387,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 388470,
+          "sourceOffset": 392149,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:LANG:write",
           "stage": "child-environment-construction"
@@ -6412,7 +6475,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 388496,
+          "sourceOffset": 392175,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:LC_ALL:write",
           "stage": "child-environment-construction"
@@ -6483,7 +6546,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 388677,
+          "sourceOffset": 392356,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:LOCALAPPDATA:write",
           "stage": "child-environment-construction"
@@ -6597,7 +6660,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 388422,
+          "sourceOffset": 392101,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:NODE_DISABLE_COMPILE_CACHE:write",
           "stage": "child-environment-construction"
@@ -6902,7 +6965,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "discover_js_runner",
-          "sourceOffset": 404704,
+          "sourceOffset": 408383,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#env::var_os:PATH:read",
           "stage": "launcher-pre-arm-read"
@@ -6923,7 +6986,7 @@
             "summary": "Windows parent-PATH fallback is reached only while resolving an already process:spawn-gated child launch."
           },
           "scope": "resolveWindowsExecutableForEnvironment",
-          "sourceOffset": 25479,
+          "sourceOffset": 24936,
           "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
           "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#getenvString:PATH:read",
           "stage": "post-arm-host-read"
@@ -6997,6 +7060,27 @@
           "sourcePath": "src/engine/hermes_runtime_dns.cc",
           "sourceRef": "src/engine/hermes_runtime_dns.cc#getenv:RES_OPTIONS:read",
           "stage": "post-arm-host-read"
+        },
+        {
+          "accessor": "getenvString",
+          "context": "startup-input",
+          "direction": "read",
+          "hostEnvironment": true,
+          "language": "cpp",
+          "occurrenceIndex": 0,
+          "postArmDisposition": "effect-gated-host-read",
+          "postArmEvidence": {
+            "sourceRefs": [
+              "src/engine/hermes_runtime_platform_windows.cc#checkCapability(\"network:resolve:*\")",
+              "src/engine/hermes_runtime_platform_windows.cc#requireNetworkResolveCapability"
+            ],
+            "summary": "Windows resolver timing options are read only by DNS getServers or resolution paths after their network:resolve effect gate."
+          },
+          "scope": "applyWindowsDnsTiming",
+          "sourceOffset": 75326,
+          "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
+          "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#getenvString:RES_OPTIONS:read",
+          "stage": "post-arm-host-read"
         }
       ]
     },
@@ -7038,7 +7122,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 388309,
+          "sourceOffset": 391988,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:TEMP:write",
           "stage": "child-environment-construction"
@@ -7059,7 +7143,7 @@
             "summary": "Windows TEMP lookup is inside the StoragePaths branch after the exact typed sys:read decision."
           },
           "scope": "installOsInfoGlobals",
-          "sourceOffset": 65131,
+          "sourceOffset": 64894,
           "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
           "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#getenvString:TEMP:read",
           "stage": "post-arm-host-read"
@@ -7193,7 +7277,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 388268,
+          "sourceOffset": 391947,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:TMP:write",
           "stage": "child-environment-construction"
@@ -7214,7 +7298,7 @@
             "summary": "Windows TMP lookup is inside the StoragePaths branch after the exact typed sys:read decision."
           },
           "scope": "installOsInfoGlobals",
-          "sourceOffset": 65065,
+          "sourceOffset": 64828,
           "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
           "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#getenvString:TMP:read",
           "stage": "post-arm-host-read"
@@ -7289,7 +7373,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 388224,
+          "sourceOffset": 391903,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:TMPDIR:write",
           "stage": "child-environment-construction"
@@ -7310,7 +7394,7 @@
             "summary": "Windows TMPDIR lookup is inside the StoragePaths branch after the exact typed sys:read decision."
           },
           "scope": "installOsInfoGlobals",
-          "sourceOffset": 64996,
+          "sourceOffset": 64759,
           "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
           "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#getenvString:TMPDIR:read",
           "stage": "post-arm-host-read"
@@ -7429,7 +7513,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 388524,
+          "sourceOffset": 392203,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:TZ:write",
           "stage": "child-environment-construction"
@@ -7478,7 +7562,7 @@
             "summary": "Windows username lookup occurs only after the exact typed sys:read user-information decision."
           },
           "scope": "installOsInfoGlobals",
-          "sourceOffset": 69673,
+          "sourceOffset": 69436,
           "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
           "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#getenvString:USERNAME:read",
           "stage": "post-arm-host-read"
@@ -7507,7 +7591,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 388583,
+          "sourceOffset": 392262,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:USERPROFILE:write",
           "stage": "child-environment-construction"
@@ -7528,7 +7612,7 @@
             "summary": "Windows USERPROFILE storage-path fallback is inside the StoragePaths branch after the exact typed sys:read decision."
           },
           "scope": "installOsInfoGlobals",
-          "sourceOffset": 64900,
+          "sourceOffset": 64663,
           "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
           "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#getenvString:USERPROFILE:read",
           "stage": "post-arm-host-read"
@@ -7549,7 +7633,7 @@
             "summary": "Windows USERPROFILE user-information fallback occurs only after the exact typed sys:read user decision."
           },
           "scope": "installOsInfoGlobals",
-          "sourceOffset": 69722,
+          "sourceOffset": 69485,
           "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
           "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#getenvString:USERPROFILE:read",
           "stage": "post-arm-host-read"
@@ -7620,7 +7704,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 388172,
+          "sourceOffset": 391851,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:XDG_CACHE_HOME:write",
           "stage": "child-environment-construction"
@@ -7663,7 +7747,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 388119,
+          "sourceOffset": 391798,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:XDG_CONFIG_HOME:write",
           "stage": "child-environment-construction"

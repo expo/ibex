@@ -9,6 +9,8 @@
 #include <cerrno>
 #include <condition_variable>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <deque>
 #include <exception>
 #include <filesystem>
@@ -16,6 +18,7 @@
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -60,6 +63,12 @@ struct FileEntry {
   uint64_t owner = 0;
   bool canRead = false;
   bool canWrite = false;
+  // Queue admission for an async close revokes JS use immediately without
+  // releasing the Win32 HANDLE. Cancellation clears this bit; only a worker
+  // that has crossed the operation-lease commit edge removes the entry and
+  // drops the registry's handle reference. Mirrors the POSIX fd registry.
+  // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+  bool asyncCloseReserved = false;
 };
 
 // g_files_mutex only guards the fd -> FileEntry lookup/insert/erase below. Each
@@ -306,7 +315,10 @@ FileEntry getFileEntry(facebook::jsi::Runtime& runtime, int fd) {
   requireSessionDescriptorGeneric(runtime, fd, "fd");
   std::lock_guard<std::mutex> lock(g_files_mutex);
   auto it = g_files.find(fd);
-  if (it == g_files.end() || !fileHandle(it->second)) {
+  // A reservation made at async-close queue admission revokes JS use of the
+  // fd immediately, exactly like the POSIX registry's reserved entries.
+  if (it == g_files.end() || !fileHandle(it->second) ||
+      it->second.asyncCloseReserved) {
     throw facebook::jsi::JSError(runtime, "bad file descriptor");
   }
   // Allow-all bypasses path capabilities, not ownership of a numeric handle.
@@ -315,6 +327,50 @@ FileEntry getFileEntry(facebook::jsi::Runtime& runtime, int fd) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
   return it->second;
+}
+
+bool sameFileEntryIdentity(const FileEntry& left, const FileEntry& right) noexcept {
+  return left.runtimeNonce == right.runtimeNonce && left.owner == right.owner &&
+      left.file.get() == right.file.get();
+}
+
+// Queue admission is a reversible descriptor reservation. It prevents later
+// JavaScript from using or closing the fd while leaving the Win32 HANDLE
+// untouched until a worker commits the operation lease. Mirrors the POSIX
+// reserveFdForAsyncClose/cancel/commit discipline on the synthetic-fd
+// registry.
+bool reserveFileForAsyncClose(int fd, const FileEntry& expected) noexcept {
+  std::lock_guard<std::mutex> lock(g_files_mutex);
+  auto it = g_files.find(fd);
+  if (it == g_files.end() || it->second.asyncCloseReserved ||
+      !sameFileEntryIdentity(it->second, expected)) {
+    return false;
+  }
+  it->second.asyncCloseReserved = true;
+  return true;
+}
+
+void cancelFileAsyncCloseReservation(int fd, const FileEntry& expected) noexcept {
+  std::lock_guard<std::mutex> lock(g_files_mutex);
+  auto it = g_files.find(fd);
+  if (it != g_files.end() && it->second.asyncCloseReserved &&
+      sameFileEntryIdentity(it->second, expected)) {
+    it->second.asyncCloseReserved = false;
+  }
+}
+
+// Called only by a worker whose operation lease is Committed. Erasing the
+// registry entry before dropping the handle reference keeps a reused fd
+// number from being erased after another publisher takes it.
+bool commitFileAsyncCloseReservation(int fd, const FileEntry& expected) noexcept {
+  std::lock_guard<std::mutex> lock(g_files_mutex);
+  auto it = g_files.find(fd);
+  if (it == g_files.end() || !it->second.asyncCloseReserved ||
+      !sameFileEntryIdentity(it->second, expected)) {
+    return false;
+  }
+  g_files.erase(it);
+  return true;
 }
 
 void requireFileEntryRead(facebook::jsi::Runtime& runtime, const FileEntry& entry) {
@@ -385,6 +441,17 @@ struct FsAsyncResult {
   std::string message;
   std::string syscall;
   std::string path;
+  // Async open publishes the HANDLE-backed entry on the runtime thread before
+  // resolving its synthetic fd. Workers never mutate the shared fd registry.
+  // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+  bool registerOpenedFile = false;
+  std::shared_ptr<WindowsFileHandle> openedFile;
+  std::string openedPath;
+  bool openedAppend = false;
+  uint64_t openedRuntimeNonce = 0;
+  uint64_t openedOwner = 0;
+  bool openedCanRead = false;
+  bool openedCanWrite = false;
   bool tooLarge = false;
   double tooLargeSize = 0;
 };
@@ -490,15 +557,30 @@ class FsWorkerPool {
   bool enqueue(
       std::shared_ptr<FsOperationLease> lease,
       std::function<void()> job,
-      std::string& error) {
+      std::string& error,
+      const std::function<void()>& onQueueReserved = {},
+      std::function<void()> onCanceled = {}) {
+    maybeThrowInjectedEnqueueFailure();
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (queue_.size() >= kMaxQueue) {
+      if (queue_.size() >= maxQueue()) {
+        // Fail loudly rather than growing without bound.
+        // @ref LLP 0006#degrade-diagnostics-never-the-caller
         error = "FS worker queue full";
         return false;
       }
-      spawnWorkerIfNeededLocked();
-      queue_.push_back(QueuedJob{std::move(lease), std::move(job)});
+      queue_.push_back(QueuedJob{
+          std::move(lease), std::move(job), std::move(onCanceled)});
+      try {
+        spawnWorkerIfNeededLocked();
+        // This hook is limited to the reversible async-close registry bit.
+        // Holding the pool mutex keeps a worker or teardown from observing
+        // the queue record before that reservation is complete.
+        if (onQueueReserved) onQueueReserved();
+      } catch (...) {
+        queue_.pop_back();
+        throw;
+      }
     }
     cv_.notify_one();
     return true;
@@ -521,6 +603,16 @@ class FsWorkerPool {
         }
       }
       if (!found) return canceledCount;
+      // Rollback hooks may acquire the fd registry mutex and must never run
+      // under the pool mutex. Running them here, on the runtime owner thread,
+      // restores reversible async-close reservations before release.
+      if (canceled.onCanceled) {
+        try {
+          canceled.onCanceled();
+        } catch (...) {
+          // Teardown is noexcept and must continue releasing every lease.
+        }
+      }
       if (canceled.lease && canceled.lease->decidedWork) {
         *canceled.lease->decidedWork = {};
       }
@@ -534,6 +626,7 @@ class FsWorkerPool {
   struct QueuedJob {
     std::shared_ptr<FsOperationLease> lease;
     std::function<void()> work;
+    std::function<void()> onCanceled;
   };
 
   static constexpr size_t kMaxWorkers = 8;
@@ -543,6 +636,23 @@ class FsWorkerPool {
   std::deque<QueuedJob> queue_;
   size_t idle_ = 0;
   size_t total_ = 0;
+
+  static void maybeThrowInjectedEnqueueFailure() {
+    if (const char* fail = std::getenv("IBEX_TEST_FS_WORKER_THROW_ENQUEUE");
+        fail && std::strcmp(fail, "1") == 0) {
+      throw std::runtime_error("injected FS worker enqueue failure");
+    }
+  }
+
+  static size_t maxQueue() {
+    // Deterministic failure injection for native resource-safety tests. The
+    // production default remains bounded at 1024.
+    const char* value = std::getenv("IBEX_TEST_FS_WORKER_MAX_QUEUE");
+    if (!value || !*value) return kMaxQueue;
+    char* end = nullptr;
+    auto parsed = std::strtoull(value, &end, 10);
+    return end && *end == '\0' ? static_cast<size_t>(parsed) : kMaxQueue;
+  }
 
   void spawnWorkerIfNeededLocked() {
     if (idle_ > queue_.size() || total_ >= kMaxWorkers) {
@@ -626,7 +736,9 @@ facebook::jsi::Value makeFsAsyncErrorValue(
 facebook::jsi::Value startFsAsync(
     ExactHermesRuntime* handle,
     facebook::jsi::Runtime& runtime,
-    std::function<FsAsyncResult()> work) {
+    std::function<FsAsyncResult()> work,
+    std::function<void()> onEnqueueFailure = {},
+    std::function<void()> onQueueReserved = {}) {
   uint64_t principal = currentPrincipalId();
   auto principalStack =
       std::make_shared<std::vector<uint64_t>>(exactCollectTypedPrincipalStack());
@@ -636,7 +748,8 @@ facebook::jsi::Value startFsAsync(
       runtime,
       facebook::jsi::PropNameID::forAscii(runtime, "executor"),
       2,
-      [handle, principal, principalStack, workPtr](
+      [handle, principal, principalStack, workPtr, onEnqueueFailure,
+       onQueueReserved](
           facebook::jsi::Runtime& rt,
           const facebook::jsi::Value&,
           const facebook::jsi::Value* args,
@@ -680,6 +793,12 @@ facebook::jsi::Value startFsAsync(
                 resultPtr = std::make_shared<FsAsyncResult>(
                     fsAsyncError("EIO", "filesystem worker failed", "fs"));
               }
+              if (resultPtr->registerOpenedFile) {
+                // The worker has no ambient JS principal. Carry the principal
+                // captured at scheduling time with the result so delivery can
+                // publish the handle under the correct owner explicitly.
+                resultPtr->openedOwner = principal;
+              }
               *workPtr = {};
               auto runtimeResolve = std::move(resolve);
               auto runtimeReject = std::move(reject);
@@ -691,6 +810,42 @@ facebook::jsi::Value startFsAsync(
                     ScopedNativePrincipal nativePrincipal(principal);
                     try {
                       if (resultPtr->ok) {
+                        if (resultPtr->registerOpenedFile) {
+                          int fd = -1;
+                          {
+                            std::lock_guard<std::mutex> lock(g_files_mutex);
+                            // Same protected-descriptor minting rule as the
+                            // sync __exactFsOpen path: never hand JS an fd in
+                            // the protected class; bound the search so an
+                            // indeterminate/poisoned policy fails closed.
+                            for (size_t attempts = 0; attempts < 1024; ++attempts) {
+                              int candidate = g_next_fd++;
+                              if (ex_host_session_descriptor_is_protected(candidate) == 0) {
+                                fd = candidate;
+                                break;
+                              }
+                            }
+                            if (fd >= 0) {
+                              g_files[fd] = FileEntry{
+                                  resultPtr->openedFile,
+                                  resultPtr->openedPath,
+                                  resultPtr->openedAppend,
+                                  resultPtr->openedRuntimeNonce,
+                                  resultPtr->openedOwner,
+                                  resultPtr->openedCanRead,
+                                  resultPtr->openedCanWrite};
+                            }
+                          }
+                          if (fd < 0) {
+                            // Releasing the only reference closes the HANDLE.
+                            resultPtr->openedFile.reset();
+                            throw facebook::jsi::JSError(
+                                rt,
+                                "EACCES: permission denied, open file descriptor");
+                          }
+                          resultPtr->openedFile.reset();
+                          resultPtr->number = static_cast<double>(fd);
+                        }
                         switch (resultPtr->kind) {
                           case FsAsyncResult::Kind::Bytes:
                             resolve->call(rt, makeUint8Array(rt, std::move(resultPtr->bytes)));
@@ -734,13 +889,16 @@ facebook::jsi::Value startFsAsync(
                     }
                   });
               },
-              enqueueError);
+              enqueueError,
+              onQueueReserved,
+              onEnqueueFailure);
         } catch (const std::exception& error) {
           enqueueError = error.what();
         } catch (...) {
           enqueueError = "FS worker enqueue failed";
         }
         if (!queued) {
+          if (onEnqueueFailure) onEnqueueFailure();
           // A rejected Promise can retain its executor. Clear the unqueued
           // callable so any owned native resources are released immediately.
           *workPtr = {};
@@ -751,6 +909,35 @@ facebook::jsi::Value startFsAsync(
         return facebook::jsi::Value::undefined();
       });
   return promiseCtor.callAsConstructor(runtime, executor);
+}
+
+FsAsyncResult fsOpenPathWork(
+    const std::string& backingPath,
+    const std::string& virtualPath,
+    int nodeFlags,
+    uint64_t runtimeNonce) {
+  uint32_t hostFlags = hostFlagsFromNodeFlags(nodeFlags);
+  void* rawFile = ex_host_fs_open(backingPath.c_str(), hostFlags);
+  if (!rawFile) {
+    return fsAsyncSyscallError("open", virtualPath);
+  }
+  // Guard the raw HANDLE until the shared wrapper owns it: a bad_alloc from
+  // make_shared must not leak the freshly opened file.
+  std::unique_ptr<void, decltype(&ex_host_fs_close)> rawGuard(
+      rawFile, &ex_host_fs_close);
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Number);
+  result.registerOpenedFile = true;
+  result.openedFile = std::make_shared<WindowsFileHandle>(rawFile);
+  rawGuard.release();
+  // Delivery publishes the registry entry on the runtime thread and mints the
+  // synthetic fd there. If the runtime is torn down before delivery, this
+  // shared handle is the only owner and RAII closes it.
+  result.openedPath = virtualPath;
+  result.openedAppend = (nodeFlags & NODE_O_APPEND) == NODE_O_APPEND;
+  result.openedRuntimeNonce = runtimeNonce;
+  result.openedCanRead = (hostFlags & EXACT_FS_READ) == EXACT_FS_READ;
+  result.openedCanWrite = (hostFlags & EXACT_FS_WRITE) == EXACT_FS_WRITE;
+  return result;
 }
 
 FsAsyncResult fsReadWholeHandleWork(
@@ -1658,7 +1845,9 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         {
           std::lock_guard<std::mutex> lock(g_files_mutex);
           auto it = g_files.find(fd);
-          if (it == g_files.end()) {
+          // An fd reserved by a queued async close is no longer closable from
+          // JS; the queued worker owns the close decision.
+          if (it == g_files.end() || it->second.asyncCloseReserved) {
             throw facebook::jsi::JSError(runtime, "bad file descriptor");
           }
           if (it->second.runtimeNonce != exactCurrentRuntimeNonce() ||
@@ -2086,6 +2275,82 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             prefix);
       });
   rt.global().setProperty(rt, "__exactMkdtemp", std::move(mkdtempFn));
+
+  auto openAsyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactFsOpenAsync"),
+      4,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value* args,
+               size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isString() || !args[1].isNumber()) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactFsOpenAsync: path and flags required");
+        }
+        // Same VFS resolution and flag-derived capability gate as the sync
+        // __exactFsOpen path; capability checks stay on the JS thread.
+        auto path = exactResolveVfsPath(runtime, pathArg(runtime, args[0]));
+        int flags = static_cast<int>(args[1].asNumber());
+        auto hostFlags = hostFlagsFromNodeFlags(flags);
+        if ((hostFlags & EXACT_FS_READ) == EXACT_FS_READ) {
+          requireReadCapability(runtime, path.virtualPath);
+        }
+        if ((hostFlags & EXACT_FS_WRITE) == EXACT_FS_WRITE) {
+          requireWriteCapability(runtime, path.virtualPath);
+        }
+        // Capture the nonce at scheduling time: a runtime restamp between
+        // scheduling and delivery must leave the published entry unusable.
+        uint64_t runtimeNonce = exactCurrentRuntimeNonce();
+        return startFsAsync(
+            handle, runtime,
+            [backing = path.backing, virtualPath = path.virtualPath, flags,
+             runtimeNonce]() {
+              return fsOpenPathWork(backing, virtualPath, flags, runtimeNonce);
+            });
+      });
+  rt.global().setProperty(rt, "__exactFsOpenAsync", std::move(openAsyncFn));
+
+  auto closeAsyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactFsCloseAsync"),
+      1,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value* args,
+               size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsCloseAsync: fd required");
+        }
+        int fd = fdFromValue(runtime, args[0]);
+        // @ref LLP 0025#1-modes-descriptors-and-topology — async close obeys
+        // the same closed native descriptor route as sync close.
+        if (sessionDescriptorCloseIsNoOp(runtime, fd)) {
+          return startFsAsync(handle, runtime, []() { return fsAsyncOk(); });
+        }
+        auto entry = std::make_shared<FileEntry>(getFileEntry(runtime, fd));
+        return startFsAsync(
+            handle, runtime,
+            [fd, entry]() {
+              if (!commitFileAsyncCloseReservation(fd, *entry)) {
+                return fsAsyncBadFd("close");
+              }
+              // Dropping the registry's reference releases the HANDLE once
+              // the last concurrent borrower finishes. ex_host_fs_close
+              // reports no failure across this ABI, so there is nothing to
+              // restore.
+              entry->file.reset();
+              return fsAsyncOk();
+            },
+            [fd, entry]() { cancelFileAsyncCloseReservation(fd, *entry); },
+            [fd, entry]() {
+              if (!reserveFileForAsyncClose(fd, *entry)) {
+                throw std::runtime_error(
+                    "async close descriptor reservation failed");
+              }
+            });
+      });
+  rt.global().setProperty(rt, "__exactFsCloseAsync", std::move(closeAsyncFn));
 
   auto readFileAsyncFn = facebook::jsi::Function::createFromHostFunction(
       rt,

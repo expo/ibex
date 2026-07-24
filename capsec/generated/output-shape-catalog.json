@@ -50703,7 +50703,9 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_crypto.cc#__exactAesCbcDecrypt",
-        "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactAesCbcDecrypt"
+        "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactAesCbcDecrypt",
+        "src/engine/hermes_runtime_crypto_windows.cc#__exactAesCbcDecrypt",
+        "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactAesCbcDecrypt"
       ],
       "outputKinds": [
         "native-invocation"
@@ -50715,7 +50717,9 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_crypto.cc#__exactAesCbcEncrypt",
-        "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactAesCbcEncrypt"
+        "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactAesCbcEncrypt",
+        "src/engine/hermes_runtime_crypto_windows.cc#__exactAesCbcEncrypt",
+        "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactAesCbcEncrypt"
       ],
       "outputKinds": [
         "native-invocation"
@@ -51432,9 +51436,7 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_dns.cc#__exactDnsReverse",
-        "src/engine/hermes_runtime_dns.cc#jsi-global:__exactDnsReverse",
-        "src/engine/hermes_runtime_platform_windows.cc#__exactDnsReverse",
-        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactDnsReverse"
+        "src/engine/hermes_runtime_dns.cc#jsi-global:__exactDnsReverse"
       ],
       "outputKinds": [
         "native-invocation"
@@ -51753,7 +51755,9 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsCloseAsync",
-        "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsCloseAsync"
+        "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsCloseAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#__exactFsCloseAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsCloseAsync"
       ],
       "outputKinds": [
         "native-invocation"
@@ -51920,7 +51924,9 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsOpenAsync",
-        "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsOpenAsync"
+        "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsOpenAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#__exactFsOpenAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsOpenAsync"
       ],
       "outputKinds": [
         "native-invocation"
@@ -52118,7 +52124,9 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_crypto.cc#__exactGenerateKeyPairSync",
-        "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactGenerateKeyPairSync"
+        "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactGenerateKeyPairSync",
+        "src/engine/hermes_runtime_crypto_windows.cc#__exactGenerateKeyPairSync",
+        "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactGenerateKeyPairSync"
       ],
       "outputKinds": [
         "native-invocation"
@@ -52422,7 +52430,9 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_crypto.cc#__exactHkdf",
-        "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactHkdf"
+        "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactHkdf",
+        "src/engine/hermes_runtime_crypto_windows.cc#__exactHkdf",
+        "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactHkdf"
       ],
       "outputKinds": [
         "native-invocation"
@@ -53444,7 +53454,9 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_crypto.cc#__exactPbkdf2",
-        "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactPbkdf2"
+        "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactPbkdf2",
+        "src/engine/hermes_runtime_crypto_windows.cc#__exactPbkdf2",
+        "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactPbkdf2"
       ],
       "outputKinds": [
         "native-invocation"
@@ -53919,7 +53931,9 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_crypto.cc#__exactScryptSync",
-        "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactScryptSync"
+        "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactScryptSync",
+        "src/engine/hermes_runtime_crypto_windows.cc#__exactScryptSync",
+        "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactScryptSync"
       ],
       "outputKinds": [
         "native-invocation"
@@ -54907,9 +54921,7 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_net.cc#__exactUdpAddress",
-        "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpAddress",
-        "src/engine/hermes_runtime_platform_windows.cc#__exactUdpAddress",
-        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpAddress"
+        "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpAddress"
       ],
       "outputKinds": [
         "native-invocation"
@@ -54921,9 +54933,7 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_net.cc#__exactUdpBind",
-        "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpBind",
-        "src/engine/hermes_runtime_platform_windows.cc#__exactUdpBind",
-        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpBind"
+        "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpBind"
       ],
       "outputKinds": [
         "native-invocation"
@@ -54935,9 +54945,7 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_net.cc#__exactUdpClose",
-        "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpClose",
-        "src/engine/hermes_runtime_platform_windows.cc#__exactUdpClose",
-        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpClose"
+        "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpClose"
       ],
       "outputKinds": [
         "native-invocation"
@@ -54973,9 +54981,7 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_net.cc#__exactUdpRecv",
-        "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpRecv",
-        "src/engine/hermes_runtime_platform_windows.cc#__exactUdpRecv",
-        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpRecv"
+        "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpRecv"
       ],
       "outputKinds": [
         "native-invocation"
@@ -54987,9 +54993,7 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_net.cc#__exactUdpSend",
-        "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpSend",
-        "src/engine/hermes_runtime_platform_windows.cc#__exactUdpSend",
-        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpSend"
+        "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpSend"
       ],
       "outputKinds": [
         "native-invocation"
@@ -55001,9 +55005,7 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_net.cc#__exactUdpSocket",
-        "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpSocket",
-        "src/engine/hermes_runtime_platform_windows.cc#__exactUdpSocket",
-        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpSocket"
+        "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpSocket"
       ],
       "outputKinds": [
         "native-invocation"
@@ -55038,9 +55040,7 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_net.cc#__exactUnixAccept",
-        "src/engine/hermes_runtime_net.cc#jsi-global:__exactUnixAccept",
-        "src/engine/hermes_runtime_platform_windows.cc#__exactUnixAccept",
-        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUnixAccept"
+        "src/engine/hermes_runtime_net.cc#jsi-global:__exactUnixAccept"
       ],
       "outputKinds": [
         "native-invocation"
@@ -55052,9 +55052,7 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_net.cc#__exactUnixConnect",
-        "src/engine/hermes_runtime_net.cc#jsi-global:__exactUnixConnect",
-        "src/engine/hermes_runtime_platform_windows.cc#__exactUnixConnect",
-        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUnixConnect"
+        "src/engine/hermes_runtime_net.cc#jsi-global:__exactUnixConnect"
       ],
       "outputKinds": [
         "native-invocation"
@@ -55066,9 +55064,7 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_net.cc#__exactUnixListen",
-        "src/engine/hermes_runtime_net.cc#jsi-global:__exactUnixListen",
-        "src/engine/hermes_runtime_platform_windows.cc#__exactUnixListen",
-        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUnixListen"
+        "src/engine/hermes_runtime_net.cc#jsi-global:__exactUnixListen"
       ],
       "outputKinds": [
         "native-invocation"
@@ -84254,7 +84250,8 @@
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
       "sourceRefs": [
-        "src/engine/hermes_runtime_dns.cc#getenv:IBEX_DNS_SERVER:read"
+        "src/engine/hermes_runtime_dns.cc#getenv:IBEX_DNS_SERVER:read",
+        "src/engine/hermes_runtime_platform_windows.cc#getenvString:IBEX_DNS_SERVER:read"
       ],
       "outputKinds": []
     },
@@ -84418,7 +84415,8 @@
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
       "sourceRefs": [
-        "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read"
+        "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read",
+        "src/engine/hermes_runtime_fs_windows.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read"
       ],
       "outputKinds": []
     },
@@ -84427,7 +84425,8 @@
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
       "sourceRefs": [
-        "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_THROW_ENQUEUE:read"
+        "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_THROW_ENQUEUE:read",
+        "src/engine/hermes_runtime_fs_windows.cc#getenv:IBEX_TEST_FS_WORKER_THROW_ENQUEUE:read"
       ],
       "outputKinds": []
     },
@@ -84632,7 +84631,8 @@
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
       "sourceRefs": [
-        "src/engine/hermes_runtime_dns.cc#getenv:RES_OPTIONS:read"
+        "src/engine/hermes_runtime_dns.cc#getenv:RES_OPTIONS:read",
+        "src/engine/hermes_runtime_platform_windows.cc#getenvString:RES_OPTIONS:read"
       ],
       "outputKinds": []
     },
@@ -161268,7 +161268,9 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_crypto.cc#__exactAesCbcDecrypt",
-          "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactAesCbcDecrypt"
+          "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactAesCbcDecrypt",
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactAesCbcDecrypt",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactAesCbcDecrypt"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -161290,7 +161292,9 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_crypto.cc#__exactAesCbcEncrypt",
-          "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactAesCbcEncrypt"
+          "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactAesCbcEncrypt",
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactAesCbcEncrypt",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactAesCbcEncrypt"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -162645,9 +162649,7 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_dns.cc#__exactDnsReverse",
-          "src/engine/hermes_runtime_dns.cc#jsi-global:__exactDnsReverse",
-          "src/engine/hermes_runtime_platform_windows.cc#__exactDnsReverse",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactDnsReverse"
+          "src/engine/hermes_runtime_dns.cc#jsi-global:__exactDnsReverse"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -163226,7 +163228,9 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_fs.cc#__exactFsCloseAsync",
-          "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsCloseAsync"
+          "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsCloseAsync",
+          "src/engine/hermes_runtime_fs_windows.cc#__exactFsCloseAsync",
+          "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsCloseAsync"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -163523,7 +163527,9 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_fs.cc#__exactFsOpenAsync",
-          "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsOpenAsync"
+          "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsOpenAsync",
+          "src/engine/hermes_runtime_fs_windows.cc#__exactFsOpenAsync",
+          "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsOpenAsync"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -163850,7 +163856,9 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_crypto.cc#__exactGenerateKeyPairSync",
-          "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactGenerateKeyPairSync"
+          "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactGenerateKeyPairSync",
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactGenerateKeyPairSync",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactGenerateKeyPairSync"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -164384,7 +164392,9 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_crypto.cc#__exactHkdf",
-          "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactHkdf"
+          "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactHkdf",
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactHkdf",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactHkdf"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -170735,7 +170745,9 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_crypto.cc#__exactPbkdf2",
-          "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactPbkdf2"
+          "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactPbkdf2",
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactPbkdf2",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactPbkdf2"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -171729,7 +171741,9 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_crypto.cc#__exactScryptSync",
-          "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactScryptSync"
+          "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactScryptSync",
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactScryptSync",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactScryptSync"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -173496,9 +173510,7 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_net.cc#__exactUdpAddress",
-          "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpAddress",
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUdpAddress",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpAddress"
+          "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpAddress"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -173520,9 +173532,7 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_net.cc#__exactUdpBind",
-          "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpBind",
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUdpBind",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpBind"
+          "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpBind"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -173544,9 +173554,7 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_net.cc#__exactUdpClose",
-          "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpClose",
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUdpClose",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpClose"
+          "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpClose"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -173612,9 +173620,7 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_net.cc#__exactUdpRecv",
-          "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpRecv",
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUdpRecv",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpRecv"
+          "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpRecv"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -173636,9 +173642,7 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_net.cc#__exactUdpSend",
-          "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpSend",
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUdpSend",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpSend"
+          "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpSend"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -173660,9 +173664,7 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_net.cc#__exactUdpSocket",
-          "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpSocket",
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUdpSocket",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpSocket"
+          "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpSocket"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -173727,9 +173729,7 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_net.cc#__exactUnixAccept",
-          "src/engine/hermes_runtime_net.cc#jsi-global:__exactUnixAccept",
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUnixAccept",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUnixAccept"
+          "src/engine/hermes_runtime_net.cc#jsi-global:__exactUnixAccept"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -173751,9 +173751,7 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_net.cc#__exactUnixConnect",
-          "src/engine/hermes_runtime_net.cc#jsi-global:__exactUnixConnect",
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUnixConnect",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUnixConnect"
+          "src/engine/hermes_runtime_net.cc#jsi-global:__exactUnixConnect"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -173775,9 +173773,7 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_net.cc#__exactUnixListen",
-          "src/engine/hermes_runtime_net.cc#jsi-global:__exactUnixListen",
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUnixListen",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUnixListen"
+          "src/engine/hermes_runtime_net.cc#jsi-global:__exactUnixListen"
         ]
       },
       "requiredValueProof": "live-value-observation"
