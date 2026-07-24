@@ -151,6 +151,14 @@ app-host = []
 # @ref LLP 0038#decision — scope and removal condition
 # @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
 unadvertised-dev-arming = []
+# Local development with capability enforcement effectively OFF: arms the root
+# authority ceiling as `unbounded`, so ambient root authorizes every capability
+# (fs, network, env, spawn) instead of only the project fs subtree. Implies
+# `unadvertised-dev-arming`. The VFS mount is a separate mechanism and still
+# confines paths to the project tree. Strictly for "make it work while I'm
+# building"; a distinct banner marks it and it must never ship.
+# @ref LLP 0038#fully-open-mode-dev-capsec-off
+dev-capsec-off = ["unadvertised-dev-arming"]
 # Fixture-only LLP 0026 adoption evidence. This compiles the bounded producer
 # but never selects it as the runtime evaluator or enables artifact caching.
 module-runner-spike = []
