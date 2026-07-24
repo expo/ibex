@@ -143,8 +143,12 @@ app-host = []
 # other production authenticator (loaded-engine identity, protected artifacts,
 # root bindings, the full armed capability floor) still runs — only the
 # report-derived target promotion is replaced with a synthetic complete cell
-# map. OFF by default and never in a shipped build; a loud banner marks every
-# run. Compile-time so it adds no runtime environment/CLI surface.
+# map, and the synthesized default policy's root authority ceiling is raised to
+# the project subtree so ambient root can read/write project files. The mount
+# boundary, non-fs capabilities, and authored policies are unaffected. OFF by
+# default and never in a shipped build; a loud banner marks every run.
+# Compile-time so it adds no runtime environment/CLI surface.
+# @ref LLP 0038#decision — scope and removal condition
 # @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
 unadvertised-dev-arming = []
 # Fixture-only LLP 0026 adoption evidence. This compiles the bounded producer

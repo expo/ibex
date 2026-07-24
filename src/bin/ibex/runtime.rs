@@ -4686,6 +4686,41 @@ fn build_default_armed_host(
             anyhow::bail!("canonical production policy has invalid {field}");
         }
     }
+    // Unadvertised dev arming with no authored policy: the root authority ceiling
+    // gates ambient-root authorization (a decision denies at the root-ceiling
+    // stratum before ever reaching the floor). A default build synthesizes an
+    // empty ceiling, so the root principal cannot read the entry program or
+    // project files (`ibex run <file>`, or fs.* in the REPL). Raise the ceiling
+    // to cover the project subtree so ambient root authorizes reads/writes
+    // within the project. External effects (network, environment, paths outside
+    // the project) stay outside the ceiling and remain closed — the capability
+    // model stays meaningful; only the project mount is opened for local
+    // development. Only when synthesizing the default policy; an authored
+    // `ibex-policy.json` is never widened. Compiled only under the feature.
+    // @ref LLP 0038#2-root-authority-ceiling-raised-to-the-project-subtree —
+    // why the ceiling and not a floor: the floor strata are never reached,
+    // because the root-ceiling gate denies first.
+    #[cfg(feature = "unadvertised-dev-arming")]
+    if !policy_loaded {
+        policy["rootCeiling"] = serde_json::json!(
+            ["fs:list", "fs:read", "fs:write"]
+                .iter()
+                .map(|cap| serde_json::json!({
+                    "authority": {
+                        "cap": cap,
+                        "resource": {
+                            "kind": "path-tree",
+                            "path": {"root": "project", "components": []},
+                        },
+                    },
+                    "provenance": [{
+                        "kind": "direct",
+                        "source": "ibex:unadvertised-dev-arming:project-ceiling",
+                    }],
+                }))
+                .collect::<Vec<_>>()
+        );
+    }
     let policy_digest = compute_checked_contract_digest(DigestKind::Policy, &policy)?;
     if policy_loaded && policy["policyDigest"].as_str() != Some(policy_digest.as_str()) {
         anyhow::bail!("canonical policy digest is stale or tampered");
