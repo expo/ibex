@@ -24,11 +24,14 @@ cd "$REPO_ROOT"
 
 SECURE_FEATURES="standard,unadvertised-dev-arming"
 
-# Known pre-existing failure, unrelated to security: this asserts prepared
-# source-graph record counts and fails on clean main with every security
-# feature inert. Skipped so this guard stays green and keeps signalling *new*
-# breakage; it is deliberately not gated out in the source, so a default
-# `cargo test` still reports it.
+# Known pre-existing failure, tracked as ENG-25424: prepared-graph execution
+# inputs are incomplete and leak host filesystem paths into source labels. It
+# fails on clean main with every security feature inert, so it is not a signal
+# about secure mode — but it is NOT security-irrelevant either (a leaked path in
+# a source label reaches stack traces and source maps), which is why it has a
+# ticket rather than a shrug. Skipped here so this guard stays green and keeps
+# signalling *new* breakage; deliberately not `#[cfg]`-gated in the source, so a
+# default `cargo test` still reports it.
 KNOWN_UNRELATED_FAILURE="authenticated_source_graph_round_trips_through_prepared_cache"
 
 echo "==> [1/3] secure mode compiles"

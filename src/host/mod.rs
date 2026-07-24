@@ -10641,15 +10641,23 @@ mod tests {
         let cache =
             publish_prepared_source_graph_v1(&graph, &artifact_dir, deployment.clone()).unwrap();
         let loaded = load_prepared_source_graph_v1(&cache, &graph, &deployment).unwrap();
-        assert_eq!(loaded.records().count(), 4);
-        assert_eq!(loaded.prepared_entries().unwrap().unwrap().len(), 4);
+        // The prepared cache round-trips every record — `publish_prepared_source_graph_v1`
+        // iterates all of `graph.records` without filtering — so these track the
+        // count asserted above rather than being an independent subset. They were
+        // left at 4 when the fixture grew to 6 records, which masked the
+        // execution-input defects this test then hits (ENG-25424).
+        assert_eq!(loaded.records().count(), 6);
+        assert_eq!(loaded.prepared_entries().unwrap().unwrap().len(), 6);
         let plan = loaded.plan().unwrap();
         let (configs, contexts) = loaded.native_execution_inputs(1).unwrap();
         let private_root = fixture.path().to_string_lossy();
         for (source_id, config) in &configs {
             assert!(
                 !config.source_label.contains(private_root.as_ref()),
-                "native source label leaked the backing fixture path"
+                "native source label leaked the backing fixture path: \
+                 source_id={source_id:?} label={} virtual_path={:?}",
+                config.source_label,
+                config.virtual_path,
             );
             if matches!(
                 source_id,
