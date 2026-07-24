@@ -13,9 +13,11 @@ Ibex arms fail-closed. A production launch requires a checked *target
 advertisement* — a conformance report that promotes coverage edges to armed
 target cells — and the runtime refuses anything less. That is the correct
 posture, but the advertisement pipeline is not finished (LLP 0036 measures what
-remains: ~22k unresolved rows, no cheap bulk win). Until it lands, a default
-build of `ibex` cannot arm at all, so `ibex eval`, `ibex repl`, and
-`ibex run <file>` are unusable — the product does not run locally.
+remains: ~22k unresolved rows, no cheap bulk win; that document is drafted on
+`fix/stale-generated-authority-artifacts` and has not landed in this corpus
+yet). Until it lands, a default build of `ibex` cannot arm at all, so
+`ibex eval`, `ibex repl`, and `ibex run <file>` are unusable — the product does
+not run locally.
 
 Two independent things blocked a local run, and both had to be resolved:
 
