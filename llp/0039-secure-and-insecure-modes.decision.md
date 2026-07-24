@@ -128,17 +128,28 @@ in secure mode is what closes that gap, and it is no longer optional bookkeeping
 This is the failure mode of every two-track system where one track is optional.
 Mitigations, in rough priority:
 
-1. **CI must run the test suite in secure mode** (today,
-   `unadvertised-dev-arming`). This is the single most valuable guard, because
-   it converts silent rot into a failing build attributable to a commit.
-2. **A periodic smoke check that secure mode still runs a program** — the thing
-   most likely to break and least likely to be covered by unit tests. The
-   verification in LLP 0038 (project fs works; outside reads/writes and spawn
-   refused) is a reasonable script.
+1. **CI runs the suite in secure mode.** Implemented as
+   `scripts/check-secure-mode.sh` (`bun run check:secure-mode`), wired into the
+   CapSec macOS job, which already has a patched Hermes available. This is the
+   single most valuable guard, because it converts silent rot into a failing
+   build attributable to a commit.
+2. **The same script asserts enforcement behaviourally**, not just that tests
+   pass: a project read must succeed while reads, writes, and spawns outside
+   the project must be *refused*. This is the check unit tests are least likely
+   to cover and it is the one that matters most — a secure mode that compiles
+   and passes its assertions while authorizing everything would look healthy
+   right up until it shipped. The probe was validated against an `insecure`
+   binary and correctly reports `BAD(permitted)`, so it can actually fail.
 3. **When a capability refusal blocks work, prefer fixing the grant over
    switching to `insecure`.** Reaching for `insecure` is correct when the
    refusal is a bug in an unfinished mechanism; it is a mistake when the
    refusal is legitimate and the real fix is a policy or ceiling change.
+
+The script skips one test,
+`authenticated_source_graph_round_trips_through_prepared_cache`, which fails on
+clean main with every security feature inert and is therefore unrelated to this
+guard. It is deliberately *not* `#[cfg]`-gated in the source, so a default
+`cargo test` still reports it rather than losing it behind a feature.
 
 ## Preventing an accidental ship
 
