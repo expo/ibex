@@ -10282,6 +10282,9 @@ mod tests {
     // allowed_hosts, .. }` must actually get the restriction it asked for, in
     // every mode. These are Host-level (embedding API) assertions; the
     // manager-level fence matrix lives in capability.rs.
+    // Asserts armed-refusal semantics, which an `insecure` build
+    // deliberately does not have. @ref LLP 0039#secure-mode-must-stay-exercised
+    #[cfg(not(feature = "insecure"))]
     #[test]
     fn embedder_host_boundary_fields_are_enforced() {
         for mode in [
@@ -11018,6 +11021,9 @@ mod tests {
         }
     }
 
+    // Asserts armed-refusal semantics, which an `insecure` build
+    // deliberately does not have. @ref LLP 0039#secure-mode-must-stay-exercised
+    #[cfg(not(feature = "insecure"))]
     #[test]
     fn armed_host_evaluates_typed_authority_and_records_structured_evidence() {
         use capsec_semantics::decision::{DecisionOutcome, EffectGate};

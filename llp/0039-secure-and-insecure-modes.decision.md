@@ -32,8 +32,8 @@ durable product posture rather than a temporary hack.
 
 | position | today | after LLP 0036 |
 |---|---|---|
-| **secure** | `--features unadvertised-dev-arming` — enforcement on, advertisement not yet required | default build |
-| **insecure** | `--features insecure` — no sandbox at all | `--features insecure`, unchanged |
+| **secure** | `--no-default-features --features standard,unadvertised-dev-arming` | default build |
+| **insecure** | **the default build** | `--features insecure` |
 
 `insecure` is **not** scheduled for deletion. `unadvertised-dev-arming` is
 scaffolding and disappears when the default build can arm from a real
@@ -46,6 +46,33 @@ were transitional.
 Mechanically the modes are described in
 [LLP 0038](./0038-unadvertised-dev-arming.decision.md); this document records
 *why the split exists* and *when it stops being acceptable*.
+
+## The default is insecure, for now
+
+`insecure` is in Cargo's **default** feature set. A default build therefore has
+no sandbox.
+
+This inverts the usual and correct convention — secure by default — and it is
+done deliberately, because the alternative is worse in the current state of the
+project: secure mode cannot arm without a target advertisement (LLP 0036), so a
+"secure by default" build does not run at all. A default that refuses to execute
+JavaScript is not a safe default; it is an unusable one, and it pushes every
+developer onto an explicit flag they will then never turn off.
+
+A secure build is correspondingly explicit:
+
+    cargo build --bin ibex --no-default-features \
+        --features standard,unadvertised-dev-arming
+
+The `standard` feature exists only so that invocation does not have to re-list
+the ordinary runtime features (`module-runner`, `tls-client-identity-openssl`)
+by hand.
+
+**This is the most reversible part of this decision and the first thing to
+revisit.** The default should flip back to secure as soon as secure mode is
+dependable — before Ibex runs any third-party code, and well before anything
+ships. Until then the inverted default is a bet that the project is still
+entirely internal.
 
 ## Why this is acceptable right now
 
@@ -79,7 +106,7 @@ invalidates it and requires re-evaluating this decision — not merely noting it
 None of these are hypothetical-only; items 1 and 4 are the ones to actually
 watch, because both are one careless command away.
 
-## The real cost: mode divergence
+## Secure mode must stay exercised
 
 The security risk of this split is low today. The **engineering** risk is not,
 and it is the thing this decision must actively defend against.
@@ -89,6 +116,14 @@ secure path. Secure mode then rots silently: breakage accumulates, is discovered
 late, and is attributed to whichever change is being made at the time rather
 than the one that caused it. "We will care about security later" degrades into
 "secure mode has not worked for months and nobody knows which commit did it."
+
+Flipping the default made this concrete immediately. Five lib tests assert
+*armed refusal* semantics that an `insecure` build deliberately does not have,
+so they are gated `#[cfg(not(feature = "insecure"))]` and no longer run in a
+default `cargo test`. That is correct scoping — the assertions are meaningless
+in a build with no sandbox — but it means the default test run is now blind to
+exactly the behaviour this project most needs to keep working. Running the suite
+in secure mode is what closes that gap, and it is no longer optional bookkeeping.
 
 This is the failure mode of every two-track system where one track is optional.
 Mitigations, in rough priority:
