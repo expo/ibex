@@ -47,9 +47,32 @@ every root `fs:*` effect is denied — including the entry-program read that
 `ibex run <file>` performs, and every `fs.*` call in the REPL.
 
 Under the feature, and **only when synthesizing the default policy**, the
-ceiling is raised to `fs:list`, `fs:read`, and `fs:write` over the project
-subtree (`path-tree` rooted at `project`). Ambient root then authorizes reads
-and writes inside the project.
+ceiling is raised to:
+
+| capability | resource | why |
+|---|---|---|
+| `fs:list`, `fs:read`, `fs:watch`, `fs:write` | `path-tree` rooted at `project` | file I/O within the project |
+| `path:cwd-observe` | `session-state` `cwd` | **required for relative paths** |
+
+Ambient root then authorizes reads and writes inside the project.
+
+`path:cwd-observe` is not optional in practice. Resolving a relative path such
+as `README.md` observes the session cwd *before* any `fs` effect is evaluated,
+so with the `fs` capabilities alone every relative access still fails with
+`EACCES: cwd: filesystem policy denied` — only absolute `/project/...` paths
+work. Granting the `fs` family without it produces a REPL that looks fixed
+under absolute-path testing and is still broken in ordinary use.
+
+`path:cwd-mutate` (`process.chdir`) is deliberately omitted: the registry
+restricts it to `path-exact`, so it could only ever name a single exact
+directory rather than the project subtree.
+
+Capability names here are the **decision** vocabulary from
+`vendored-generated/capsec-runtime-projection.canonical.json`, not the legacy
+bit-plane names in `src/host/capability_bits.rs` (`path:cwd-observe`, not
+`process:cwd`). That file is also the authority for which resource kinds each
+capability may select; arming refuses a mismatch, and refuses a ceiling that is
+not canonically sorted and unique.
 
 This is deliberately the *ceiling*, not the floor. The floor strata are never
 reached for these effects, so a floor grant — static or bootstrap — does not
@@ -64,8 +87,12 @@ authorize them:
 
 - **The mount boundary still holds.** Paths outside the project resolve to
   `ERR_IBEX_OUTSIDE_MOUNT` — the ceiling covers the project subtree only.
-- **Non-`fs` effects stay closed.** Network, environment, and every other
-  capability remain outside the ceiling and are still denied.
+- **Other effects stay closed.** Network, environment, process spawn, and every
+  other capability remain outside the ceiling and are still denied
+  (`process.env.HOME` reads as `undefined`). The only non-`fs` grant is
+  observing the cwd.
+- **Traversal does not escape.** `../../../etc/passwd` resolves to
+  `ERR_IBEX_OUTSIDE_MOUNT`, same as an absolute outside path.
 - **Authored policies are never widened.** The ceiling is raised only on the
   synthesized default; an `ibex-policy.json` is untouched.
 - **No new runtime surface.** Being compile-time, the feature adds no
